@@ -1605,6 +1605,7 @@ dependencies = [
 name = "keepdeck"
 version = "0.1.0"
 dependencies = [
+ "keepdeck-pty",
  "serde",
  "serde_json",
  "tauri",
