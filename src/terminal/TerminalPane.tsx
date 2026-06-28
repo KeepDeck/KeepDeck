@@ -7,6 +7,8 @@ import { spawnSession, type Session } from "../session";
 interface TerminalPaneProps {
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
+  /** Working directory for the session; omitted uses the app's cwd. */
+  cwd?: string | null;
   /** Whether this pane is currently on screen (active workspace, not collapsed). */
   visible: boolean;
 }
@@ -21,7 +23,7 @@ interface TerminalPaneProps {
  * context limit causes eviction/blanking), so GPU rendering is off for now —
  * revisit only if profiling a single pane shows the default renderer is a bottleneck.
  */
-export function TerminalPane({ command, visible }: TerminalPaneProps) {
+export function TerminalPane({ command, cwd, visible }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -53,7 +55,7 @@ export function TerminalPane({ command, visible }: TerminalPaneProps) {
       session?.write(data).catch(() => {});
     });
 
-    spawnSession({ command, cols: term.cols, rows: term.rows }, (event) => {
+    spawnSession({ command, cwd, cols: term.cols, rows: term.rows }, (event) => {
       if (event.type === "output") {
         term.write(new Uint8Array(event.bytes));
       } else {
@@ -96,7 +98,7 @@ export function TerminalPane({ command, visible }: TerminalPaneProps) {
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [command]);
+  }, [command, cwd]);
 
   // When the pane comes back on screen (workspace switch, or un-maximized),
   // refit and repaint from the buffer so nothing is left blank.

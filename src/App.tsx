@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { AgentPane } from "./agent/AgentPane";
 import { WorkspacesRail } from "./workspace/WorkspacesRail";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
+import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { fetchAppInfo, type AppInfo } from "./ipc";
+import { commandForAgent } from "./agents";
+import { makePanes } from "./panes";
 import {
   addAgent,
-  addWorkspace,
   closeAgent,
   closeWorkspace,
   renameWorkspace,
@@ -30,16 +32,16 @@ function App() {
       .catch(() => setInfo(null));
   }, []);
 
-  // Start empty — no workspace, no session — until the user creates one.
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState("");
-  // Maximized pane per workspace (workspace id -> pane id), so focus persists
-  // across workspace switches.
   const [focusByWs, setFocusByWs] = useState<Record<string, string>>({});
+  // The new-workspace form is open (also shown whenever there are no workspaces).
+  const [creating, setCreating] = useState(false);
   const nextAgentSeq = useRef(1);
   const nextWorkspaceSeq = useRef(1);
 
   const active = workspaces.find((w) => w.id === activeId) ?? null;
+  const showForm = creating || workspaces.length === 0;
 
   const handleAddAgent = () => {
     if (!active) return;
@@ -66,30 +68,38 @@ function App() {
       return next;
     });
 
-  const handleAddWorkspace = () => {
-    const seq = nextWorkspaceSeq.current;
+  // Add `count` agents to an existing (empty) workspace.
+  const handleStartWorkspace = (workspaceId: string, count: number) => {
+    const startSeq = nextAgentSeq.current;
+    nextAgentSeq.current += count;
+    const panes = makePanes(startSeq, count);
+    setWorkspaces((current) =>
+      current.map((w) => (w.id === workspaceId ? { ...w, panes } : w)),
+    );
+  };
+
+  const handleCreateWorkspace = ({ cwd, agentType, count }: SpawnConfig) => {
+    const wsSeq = nextWorkspaceSeq.current;
     nextWorkspaceSeq.current += 1;
-    const id = `ws-${seq}`;
-    setWorkspaces((current) => addWorkspace(current, seq));
+    const startSeq = nextAgentSeq.current;
+    nextAgentSeq.current += count;
+    const id = `ws-${wsSeq}`;
+    const workspace: Workspace = {
+      id,
+      name: `workspace-${wsSeq}`,
+      cwd,
+      agentType,
+      panes: makePanes(startSeq, count),
+    };
+    setWorkspaces((current) => [...current, workspace]);
     setActiveId(id);
+    setCreating(false);
   };
 
   const handleRenameWorkspace = (id: string, name: string) =>
     setWorkspaces((current) => renameWorkspace(current, id, name));
 
-  // Start an empty workspace with `count` terminals at once (seqs minted here,
-  // not in the updater, so React StrictMode's double-invoke can't skew them).
-  const handleStartWorkspace = (workspaceId: string, count: number) => {
-    const seqs: number[] = [];
-    for (let i = 0; i < count; i++) seqs.push(nextAgentSeq.current++);
-    setWorkspaces((current) =>
-      seqs.reduce((acc, seq) => addAgent(acc, workspaceId, seq), current),
-    );
-  };
-
   const handleCloseWorkspace = (id: string) => {
-    // Removing the workspace unmounts its panes, which tears down their PTY
-    // sessions (no leaks).
     const next = closeWorkspace(workspaces, id);
     setWorkspaces(next);
     setActiveId(resolveActiveId(next, activeId));
@@ -118,14 +128,8 @@ function App() {
             type="button"
             className="bar__action"
             onClick={handleAddAgent}
-            disabled={!active || atCap}
-            title={
-              !active
-                ? "Create a workspace first"
-                : atCap
-                  ? `Max ${MAX_PANES} agents`
-                  : "Add agent"
-            }
+            disabled={!active || atCap || showForm}
+            title={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
           >
             + Agent
           </button>
@@ -140,17 +144,15 @@ function App() {
           workspaces={railWorkspaces}
           activeId={activeId}
           onSelect={setActiveId}
-          onAdd={handleAddWorkspace}
+          onAdd={() => setCreating(true)}
           onClose={handleCloseWorkspace}
           onRename={handleRenameWorkspace}
         />
-        {/* Every workspace's grid stays mounted (sessions keep running); only
-            the active one is visible. */}
         <div className="cockpit__stage">
           {workspaces.map((ws) => {
             const isActive = ws.id === activeId;
+            const command = commandForAgent(ws.agentType);
 
-            // Empty workspace → show the terminal-count setup instead of a grid.
             if (ws.panes.length === 0) {
               return (
                 <div
@@ -198,6 +200,8 @@ function App() {
                     <AgentPane
                       key={pane.id}
                       title={pane.title}
+                      command={command}
+                      cwd={ws.cwd}
                       visible={isActive && !isCollapsed}
                       focused={isFocused}
                       collapsed={isCollapsed}
@@ -210,6 +214,17 @@ function App() {
               </main>
             );
           })}
+
+          {showForm && (
+            <div className="cockpit__overlay">
+              <WorkspaceForm
+                onCreate={handleCreateWorkspace}
+                onCancel={
+                  workspaces.length > 0 ? () => setCreating(false) : undefined
+                }
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>
