@@ -2,20 +2,19 @@ import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { spawnSession, type Session } from "../session";
 
 interface TerminalPaneProps {
-  /** Client-side text shown on mount. PTY streaming replaces this later. */
-  banner?: string;
+  /** Program to run in the pane; omitted/null spawns the user's shell. */
+  command?: string | null;
 }
 
 /**
- * A single terminal pane.
- *
- * The skeleton only renders a client-side banner — there is no PTY behind it
- * yet. Spawning a real agent and streaming its output (the PTY base lifted from
- * AnyClaude) lands in a later step; the observability-tap reads that stream.
+ * A single terminal pane backed by a live PTY session. On mount it spawns a
+ * session, pipes the PTY output into xterm and keystrokes back to the PTY, and
+ * keeps the PTY size in sync with the pane. On unmount it closes the session.
  */
-export function TerminalPane({ banner }: TerminalPaneProps) {
+export function TerminalPane({ command }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -35,19 +34,49 @@ export function TerminalPane({ banner }: TerminalPaneProps) {
     void loadWebglAddon(term);
     fit.fit();
 
-    if (banner) term.writeln(banner);
+    let session: Session | null = null;
+    let disposed = false;
 
-    const refit = () => fit.fit();
+    const input = term.onData((data) => {
+      session?.write(data).catch(() => {});
+    });
+
+    spawnSession({ command, cols: term.cols, rows: term.rows }, (event) => {
+      if (event.type === "output") {
+        term.write(new Uint8Array(event.bytes));
+      } else {
+        const suffix = event.code !== null ? ` (${event.code})` : "";
+        term.writeln(`\r\n\x1b[90m[process exited${suffix}]\x1b[0m`);
+      }
+    })
+      .then((s) => {
+        if (disposed) {
+          void s.close();
+        } else {
+          session = s;
+        }
+      })
+      .catch((err: unknown) => {
+        term.writeln(`\r\n\x1b[31m[failed to start session: ${err}]\x1b[0m`);
+      });
+
+    const refit = () => {
+      fit.fit();
+      session?.resize(term.cols, term.rows).catch(() => {});
+    };
     const observer = new ResizeObserver(refit);
     observer.observe(host);
     window.addEventListener("resize", refit);
 
     return () => {
+      disposed = true;
       window.removeEventListener("resize", refit);
       observer.disconnect();
+      input.dispose();
+      session?.close().catch(() => {});
       term.dispose();
     };
-  }, [banner]);
+  }, [command]);
 
   return <div className="terminal-pane" ref={hostRef} />;
 }
