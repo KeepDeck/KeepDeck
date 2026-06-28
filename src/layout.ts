@@ -30,19 +30,38 @@ export function gridTracks(count: number): string {
 }
 
 /**
- * How many columns the pane at `index` (row-major, 0-based) should span so an
- * incomplete row fills the full width with no gaps. Every row but the last is
- * full (span 1 each); the last row's panes share its columns as evenly as
- * possible, the leftmost taking any remainder.
+ * CSS column-track count for `count` panes: the least common multiple of the
+ * conceptual columns and the last row's pane count, so EVERY row can divide its
+ * width into equal panes (e.g. a 2-pane last row under 3 columns needs 6 tracks
+ * so each last-row pane spans 3 = exactly half).
+ */
+export function paneGridTrackColumns(count: number): number {
+  const { columns, rows } = paneGrid(count);
+  const lastRowCount = count - columns * (rows - 1);
+  return lcm(columns, lastRowCount);
+}
+
+/**
+ * How many CSS column tracks the pane at `index` (row-major, 0-based) spans.
+ * Panes in the same row get the SAME span (equal width); a row's spans always
+ * sum to [`paneGridTrackColumns`], so an incomplete last row fills the full
+ * width with equal-width panes and no gaps.
  */
 export function paneColumnSpan(index: number, count: number): number {
   const { columns, rows } = paneGrid(count);
   const lastRowStart = columns * (rows - 1);
-  if (index < lastRowStart) return 1;
-
   const lastRowCount = count - lastRowStart;
-  const base = Math.floor(columns / lastRowCount);
-  const remainder = columns % lastRowCount;
-  const positionInRow = index - lastRowStart;
-  return base + (positionInRow < remainder ? 1 : 0);
+  const total = lcm(columns, lastRowCount);
+  return index < lastRowStart ? total / columns : total / lastRowCount;
+}
+
+function gcd(a: number, b: number): number {
+  while (b !== 0) {
+    [a, b] = [b, a % b];
+  }
+  return a;
+}
+
+function lcm(a: number, b: number): number {
+  return (a / gcd(a, b)) * b;
 }

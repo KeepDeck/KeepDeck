@@ -12,7 +12,13 @@ import {
   resolveActiveId,
   type Workspace,
 } from "./workspaces";
-import { MAX_PANES, gridTracks, paneColumnSpan, paneGrid } from "./layout";
+import {
+  MAX_PANES,
+  gridTracks,
+  paneColumnSpan,
+  paneGrid,
+  paneGridTrackColumns,
+} from "./layout";
 import "./App.css";
 
 function App() {
@@ -168,17 +174,18 @@ function App() {
               focusedPaneId && ws.panes.some((p) => p.id === focusedPaneId)
                 ? focusedPaneId
                 : null;
-            const grid = focusedHere
-              ? { columns: 1, rows: 1 }
-              : paneGrid(ws.panes.length);
+            const trackColumns = focusedHere
+              ? 1
+              : paneGridTrackColumns(ws.panes.length);
+            const rowCount = focusedHere ? 1 : paneGrid(ws.panes.length).rows;
             return (
               <main
                 key={ws.id}
                 className={`cockpit__grid${isActive ? "" : " cockpit__grid--hidden"}`}
                 aria-hidden={!isActive}
                 style={{
-                  gridTemplateColumns: gridTracks(grid.columns),
-                  gridTemplateRows: gridTracks(grid.rows),
+                  gridTemplateColumns: gridTracks(trackColumns),
+                  gridTemplateRows: gridTracks(rowCount),
                 }}
               >
                 {ws.panes.map((pane, index) => {

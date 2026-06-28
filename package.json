@@ -1,7 +1,7 @@
 {
   "name": "keepdeck",
   "private": true,
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "Local-first desktop cockpit for a fleet of coding agents.",
   "type": "module",
   "scripts": {

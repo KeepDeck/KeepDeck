@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { MAX_PANES, gridTracks, paneColumnSpan, paneGrid } from "./layout";
+import {
+  MAX_PANES,
+  gridTracks,
+  paneColumnSpan,
+  paneGrid,
+  paneGridTrackColumns,
+} from "./layout";
 
 describe("paneGrid", () => {
   it("uses square-driven columns and only as many rows as needed", () => {
@@ -36,35 +42,50 @@ describe("gridTracks", () => {
 });
 
 describe("paneColumnSpan", () => {
-  it("keeps full rows at span 1", () => {
-    // 4 panes -> 2x2, both rows full.
-    expect([0, 1, 2, 3].map((i) => paneColumnSpan(i, 4))).toEqual([1, 1, 1, 1]);
-  });
-
-  it("stretches a lone last-row pane across the row", () => {
+  it("stretches a lone last-row pane across the whole row", () => {
     // 7 panes -> 3 cols, last row has only index 6.
-    expect(paneColumnSpan(6, 7)).toBe(3);
-    expect([0, 1, 2, 3, 4, 5].map((i) => paneColumnSpan(i, 7))).toEqual([
-      1, 1, 1, 1, 1, 1,
-    ]);
+    expect(paneColumnSpan(6, 7)).toBe(paneGridTrackColumns(7));
   });
 
-  it("shares the last row, remainder to the leftmost", () => {
-    // 5 panes -> 3 cols, last row indices 3,4 share 3 columns: 2 + 1.
-    expect(paneColumnSpan(3, 5)).toBe(2);
-    expect(paneColumnSpan(4, 5)).toBe(1);
-    // 8 panes -> 3 cols x 3 rows, last row indices 6,7: 2 + 1.
-    expect(paneColumnSpan(6, 8)).toBe(2);
-    expect(paneColumnSpan(7, 8)).toBe(1);
+  it("splits a partial last row into EQUAL widths", () => {
+    // 8 panes -> 3 cols x 3 rows; last row (6, 7) each takes half the width.
+    const total = paneGridTrackColumns(8);
+    expect(paneColumnSpan(6, 8)).toBe(total / 2);
+    expect(paneColumnSpan(7, 8)).toBe(total / 2);
+    // 5 panes -> 3 cols x 2 rows; last row (3, 4) also equal halves.
+    const total5 = paneGridTrackColumns(5);
+    expect(paneColumnSpan(3, 5)).toBe(total5 / 2);
+    expect(paneColumnSpan(4, 5)).toBe(total5 / 2);
   });
 
-  it("makes each last row's spans sum to the column count", () => {
+  it("gives every pane in a row the same span (equal width)", () => {
     for (let n = 1; n <= MAX_PANES; n++) {
       const { columns, rows } = paneGrid(n);
       const lastRowStart = columns * (rows - 1);
-      let sum = 0;
-      for (let i = lastRowStart; i < n; i++) sum += paneColumnSpan(i, n);
-      expect(sum).toBe(columns);
+      const fullRow = Array.from({ length: lastRowStart }, (_, i) =>
+        paneColumnSpan(i, n),
+      );
+      const lastRow = Array.from({ length: n - lastRowStart }, (_, k) =>
+        paneColumnSpan(lastRowStart + k, n),
+      );
+      expect(new Set(fullRow).size).toBeLessThanOrEqual(1);
+      expect(new Set(lastRow).size).toBe(1);
+    }
+  });
+
+  it("makes every row's spans sum to the track-column count", () => {
+    for (let n = 1; n <= MAX_PANES; n++) {
+      const total = paneGridTrackColumns(n);
+      const { columns, rows } = paneGrid(n);
+      const lastRowStart = columns * (rows - 1);
+      if (lastRowStart > 0) {
+        let fullSum = 0;
+        for (let i = 0; i < columns; i++) fullSum += paneColumnSpan(i, n);
+        expect(fullSum).toBe(total);
+      }
+      let lastSum = 0;
+      for (let i = lastRowStart; i < n; i++) lastSum += paneColumnSpan(i, n);
+      expect(lastSum).toBe(total);
     }
   });
 });
