@@ -40,7 +40,7 @@ export function AgentPane({
             title={focused ? "Restore" : "Maximize"}
             aria-label={focused ? `Restore ${title}` : `Maximize ${title}`}
           >
-            {focused ? <MinimizeIcon /> : <MaximizeIcon />}
+            {focused ? <RestoreIcon /> : <MaximizeIcon />}
           </button>
           <button
             type="button"
@@ -84,14 +84,15 @@ function MaximizeIcon() {
   );
 }
 
-/** Shrink-back (exit fullscreen). */
-function MinimizeIcon() {
+/** Restore to the grid of all panes (a 2x2 grid — clearly distinct from the
+ * expand arrows). */
+function RestoreIcon() {
   return (
     <svg {...iconProps}>
-      <polyline points="4 14 10 14 10 20" />
-      <polyline points="20 10 14 10 14 4" />
-      <line x1="14" y1="10" x2="21" y2="3" />
-      <line x1="3" y1="21" x2="10" y2="14" />
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
     </svg>
   );
 }
