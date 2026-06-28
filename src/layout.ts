@@ -1,14 +1,14 @@
-/** Max agents the cockpit grid holds at once — a hard product cap. */
+/** Max agents the deck grid holds at once — a hard product cap. */
 export const MAX_PANES = 16;
 
-/** Geometry of the cockpit grid: a square-ish column count, filled row by row. */
+/** Geometry of the deck grid: a square-ish column count, filled row by row. */
 export interface GridGeometry {
   columns: number;
   rows: number;
 }
 
 /**
- * Cockpit grid geometry for `count` panes (`1..=MAX_PANES`). The column count is
+ * Deck grid geometry for `count` panes (`1..=MAX_PANES`). The column count is
  * square-driven (`⌈√count⌉`) so the grid stays roughly square, and the row count
  * is only as many as needed to hold the panes (`⌈count / columns⌉`) — so there
  * are no empty trailing rows and the grid shrinks as panes are closed.

@@ -140,9 +140,9 @@ function App() {
   const atCap = activeCount >= MAX_PANES;
 
   return (
-    <div className="cockpit">
-      <header className="cockpit__bar">
-        <div className="cockpit__bar-left">
+    <div className="deck">
+      <header className="deck__bar">
+        <div className="deck__bar-left">
           <button
             type="button"
             className="bar__icon"
@@ -152,9 +152,9 @@ function App() {
           >
             <SidebarIcon />
           </button>
-          <span className="cockpit__brand">KeepDeck</span>
+          <span className="deck__brand">KeepDeck</span>
         </div>
-        <div className="cockpit__bar-right">
+        <div className="deck__bar-right">
           <button
             type="button"
             className="bar__action"
@@ -164,13 +164,13 @@ function App() {
           >
             + Agent
           </button>
-          <span className="cockpit__status">
+          <span className="deck__status">
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
           </span>
         </div>
       </header>
-      <div className="cockpit__body">
+      <div className="deck__body">
         {!railCollapsed && (
           <WorkspacesRail
             workspaces={railWorkspaces}
@@ -181,7 +181,7 @@ function App() {
             onRename={handleRenameWorkspace}
           />
         )}
-        <div className="cockpit__stage">
+        <div className="deck__stage">
           {workspaces.map((ws) => {
             const isActive = ws.id === activeId;
             const command = commandForAgent(ws.agentType);
@@ -191,7 +191,7 @@ function App() {
               return (
                 <div
                   key={ws.id}
-                  className="cockpit__setup"
+                  className="deck__setup"
                   aria-hidden={!isActive}
                   style={{
                     visibility: isActive ? "visible" : "hidden",
@@ -217,7 +217,7 @@ function App() {
             return (
               <main
                 key={ws.id}
-                className={`cockpit__grid${isActive ? "" : " cockpit__grid--hidden"}`}
+                className={`deck__grid${isActive ? "" : " deck__grid--hidden"}`}
                 aria-hidden={!isActive}
                 style={{
                   gridTemplateColumns: gridTracks(trackColumns),
@@ -252,7 +252,7 @@ function App() {
           })}
 
           {showForm && (
-            <div className="cockpit__overlay">
+            <div className="deck__overlay">
               <WorkspaceForm
                 onCreate={handleCreateWorkspace}
                 onCancel={

@@ -14,7 +14,7 @@ body,
   margin: 0;
 }
 
-.cockpit {
+.deck {
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -27,7 +27,7 @@ body,
 }
 
 /* Top bar */
-.cockpit__bar {
+.deck__bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -39,7 +39,7 @@ body,
   user-select: none;
 }
 
-.cockpit__bar-left {
+.deck__bar-left {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -62,12 +62,12 @@ body,
   color: #c5c8c6;
 }
 
-.cockpit__brand {
+.deck__brand {
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
-.cockpit__bar-right {
+.deck__bar-right {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -94,14 +94,14 @@ body,
   cursor: default;
 }
 
-.cockpit__status {
+.deck__status {
   font-size: 12px;
   color: #6b7280;
   font-variant-numeric: tabular-nums;
 }
 
 /* Body: workspaces rail + agent grid */
-.cockpit__body {
+.deck__body {
   flex: 1;
   display: flex;
   min-height: 0;
@@ -268,14 +268,14 @@ body,
 /* Agent grid (always square). Workspaces stack in place; only the active grid
    is visible — inactive ones keep their size (so xterm needs no refit) and stay
    mounted (so their sessions keep running). */
-.cockpit__stage {
+.deck__stage {
   position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
 }
 
-.cockpit__grid {
+.deck__grid {
   position: absolute;
   inset: 0;
   display: grid;
@@ -283,7 +283,7 @@ body,
   background-color: #1c2230;
 }
 
-.cockpit__grid--hidden {
+.deck__grid--hidden {
   visibility: hidden;
   pointer-events: none;
 }
@@ -374,7 +374,7 @@ body,
 }
 
 /* Empty-workspace setup (terminal-count picker) */
-.cockpit__setup {
+.deck__setup {
   position: absolute;
   inset: 0;
   display: flex;
@@ -469,7 +469,7 @@ body,
 }
 
 /* New-workspace form (overlay + centered card) */
-.cockpit__overlay {
+.deck__overlay {
   position: absolute;
   inset: 0;
   z-index: 10;

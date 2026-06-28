@@ -1,11 +1,11 @@
 # KeepDeck
 
-Local-first desktop **cockpit for a fleet of coding agents** — launch, watch and
-control Claude Code / OpenCode / Codex sessions side by side in one native window.
+A desktop **deck for a fleet of coding agents** — launch, watch and control
+Claude Code / OpenCode / Codex sessions side by side in one native window.
 
 The throughline is **holding stability under speed**: the aim is observability +
 reliability over the fleet, not the renderer. (The observability layer is on the
-roadmap; today KeepDeck is the cockpit that runs and organizes the fleet.)
+roadmap; today KeepDeck is the deck that runs and organizes the fleet.)
 
 > Status: early (0.3.x), but functional — it runs real coding agents in a
 > multi-pane grid, organized into workspaces.
@@ -21,6 +21,8 @@ roadmap; today KeepDeck is the cockpit that runs and organizes the fleet.)
   PTY session running the chosen agent in the workspace's directory. Add/close
   agents, maximize one to focus, rename/close workspaces, collapse the rail.
 
+Agents run on your machine, in your directories — nothing is uploaded or hosted.
+
 ## Stack
 
 - **Frontend:** Tauri 2 + React + Vite + TypeScript, [xterm.js](https://xtermjs.org)
@@ -28,7 +30,7 @@ roadmap; today KeepDeck is the cockpit that runs and organizes the fleet.)
 - **Backend:** Rust. `crates/keepdeck-pty` is the PTY process layer (spawns agents
   via `portable-pty`, streams their I/O); `src-tauri` is the Tauri app that bridges
   it to the UI over per-session channels.
-- **Local-first, cloud-optional.** macOS first, Linux next, Windows later.
+- macOS first, Linux next, Windows later.
 
 ## Develop
 
@@ -48,7 +50,7 @@ cargo test          # backend tests (Cargo workspace)
 ## Layout
 
 ```
-src/                  React UI (cockpit shell, workspaces, agent panes, terminal)
+src/                  React UI (deck shell, workspaces, agent panes, terminal)
 src-tauri/            Tauri app — session commands + plugins
 crates/keepdeck-pty/  Pure-Rust PTY process layer (no Tauri dependency)
 ```
