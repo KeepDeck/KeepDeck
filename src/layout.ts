@@ -1,25 +1,25 @@
-/**
- * Cockpit pane-grid geometry.
- *
- * The cockpit fills a near-square grid row-major. This is the seed of v1's
- * layout templates (1 / 2 / 4 / 6 / 8 panes); named presets grow on top of it.
- */
+/** Max agents the cockpit grid holds at once — a hard product cap. */
+export const MAX_PANES = 16;
+
+/** Geometry of the (always square) cockpit grid. `columns === rows`. */
 export interface GridGeometry {
   columns: number;
   rows: number;
 }
 
 /**
- * Smallest near-square grid (columns >= rows) that holds `count` panes with the
- * fewest empty cells. Landscape bias keeps terminals readably wide.
+ * The cockpit agent grid is ALWAYS SQUARE. Returns the smallest square that
+ * holds `count` panes — `columns === rows === ⌈√count⌉` — for `count` in
+ * `1..=MAX_PANES`. Panes fill row-major; any cells beyond `count` stay empty.
  */
 export function paneGrid(count: number): GridGeometry {
-  if (!Number.isInteger(count) || count < 1) {
-    throw new RangeError(`pane count must be a positive integer, got ${count}`);
+  if (!Number.isInteger(count) || count < 1 || count > MAX_PANES) {
+    throw new RangeError(
+      `pane count must be an integer in 1..=${MAX_PANES}, got ${count}`,
+    );
   }
-  const columns = Math.ceil(Math.sqrt(count));
-  const rows = Math.ceil(count / columns);
-  return { columns, rows };
+  const side = Math.ceil(Math.sqrt(count));
+  return { columns: side, rows: side };
 }
 
 /** CSS `grid-template-*` value spreading `count` equal tracks. */
