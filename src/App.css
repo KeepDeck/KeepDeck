@@ -182,14 +182,27 @@ body,
   font-variant-numeric: tabular-nums;
 }
 
-/* Agent grid (always square) */
-.cockpit__grid {
+/* Agent grid (always square). Workspaces stack in place; only the active grid
+   is visible — inactive ones keep their size (so xterm needs no refit) and stay
+   mounted (so their sessions keep running). */
+.cockpit__stage {
+  position: relative;
   flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.cockpit__grid {
+  position: absolute;
+  inset: 0;
   display: grid;
   gap: 1px;
   background-color: #1c2230;
-  min-height: 0;
-  min-width: 0;
+}
+
+.cockpit__grid--hidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* Agent pane: header + terminal body */
