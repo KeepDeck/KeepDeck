@@ -300,12 +300,14 @@ body,
 
 .pane__action,
 .pane__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   background: transparent;
   color: #6b7280;
-  font-size: 14px;
   line-height: 1;
-  padding: 2px 5px;
+  padding: 3px;
   border-radius: 4px;
   cursor: pointer;
 }
