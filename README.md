@@ -1,18 +1,34 @@
 # KeepDeck
 
-Local-first desktop **cockpit for a fleet of coding agents** (Claude Code / opencode):
-launch, observe and control them in one window. The differentiator is
-observability + reliability — *hold stability under speed* — not the renderer.
+Local-first desktop **cockpit for a fleet of coding agents** — launch, watch and
+control Claude Code / OpenCode / Codex sessions side by side in one native window.
 
-> Status: **greenfield skeleton.** This repo currently boots a Tauri shell that
-> renders one xterm.js terminal pane and proves the React ↔ Rust IPC bridge.
-> PTY-backed sessions and the observability-tap land next.
+The throughline is **holding stability under speed**: the aim is observability +
+reliability over the fleet, not the renderer. (The observability layer is on the
+roadmap; today KeepDeck is the cockpit that runs and organizes the fleet.)
+
+> Status: early (v0.3.x), but functional — it runs real coding agents in a
+> multi-pane grid, organized into workspaces.
+
+## What it does
+
+- **Workspaces** — each owns a working directory, an agent type, and its own set
+  of agent panes. Switching workspaces keeps the others' sessions running in the
+  background.
+- **Spawn form** — create a workspace by naming it, picking a working directory,
+  an agent (Claude Code / OpenCode / Codex), and how many agents to start.
+- **Agent grid** — a square-ish grid of live terminals (up to 16), each a real
+  PTY session running the chosen agent in the workspace's directory. Add/close
+  agents, maximize one to focus, rename/close workspaces, collapse the rail.
 
 ## Stack
 
-- **Frontend:** Tauri 2 + React + Vite + TypeScript, [xterm.js](https://xtermjs.org) (WebGL addon).
-- **Backend:** Rust (`src-tauri`). PTY session base + observability-tap arrive in later steps.
-- **Local-first, cloud-optional.** Mac first, Linux second, Windows later.
+- **Frontend:** Tauri 2 + React + Vite + TypeScript, [xterm.js](https://xtermjs.org)
+  (canvas renderer).
+- **Backend:** Rust. `crates/keepdeck-pty` is the PTY process layer (spawns agents
+  via `portable-pty`, streams their I/O); `src-tauri` is the Tauri app that bridges
+  it to the UI over per-session channels.
+- **Local-first, cloud-optional.** macOS first, Linux next, Windows later.
 
 ## Develop
 
@@ -21,17 +37,22 @@ pnpm install        # install frontend deps
 pnpm tauri dev      # run the desktop app (compiles the Rust backend)
 ```
 
-Useful checks:
+Checks:
 
 ```sh
 pnpm test           # frontend unit tests (Vitest)
 pnpm typecheck      # tsc --noEmit
-cargo test --manifest-path src-tauri/Cargo.toml   # backend unit tests
+cargo test          # backend tests (Cargo workspace)
 ```
 
 ## Layout
 
 ```
-src/                React UI (cockpit shell, terminal pane, IPC, layout helpers)
-src-tauri/          Rust backend (Tauri app, commands)
+src/                  React UI (cockpit shell, workspaces, agent panes, terminal)
+src-tauri/            Tauri app — session commands + plugins
+crates/keepdeck-pty/  Pure-Rust PTY process layer (no Tauri dependency)
 ```
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE).
