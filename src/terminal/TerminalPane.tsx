@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../session";
 
@@ -16,6 +15,11 @@ interface TerminalPaneProps {
  * A single terminal pane backed by a live PTY session. On mount it spawns a
  * session, pipes the PTY output into xterm and keystrokes back to the PTY, and
  * keeps the PTY size in sync with the pane. On unmount it closes the session.
+ *
+ * Renderer: xterm's default (canvas/DOM), NOT WebGL. A WebGL context per pane
+ * was measured to behave worse across a grid of panes (the browser's ~16
+ * context limit causes eviction/blanking), so GPU rendering is off for now —
+ * revisit only if profiling a single pane shows the default renderer is a bottleneck.
  */
 export function TerminalPane({ command, active }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -36,7 +40,6 @@ export function TerminalPane({ command, active }: TerminalPaneProps) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
-    loadWebglRenderer(term);
     fit.fit();
     termRef.current = term;
     fitRef.current = fit;
@@ -105,20 +108,4 @@ export function TerminalPane({ command, active }: TerminalPaneProps) {
   }, [active]);
 
   return <div className="terminal-pane" ref={hostRef} />;
-}
-
-/**
- * Render on the GPU via WebGL. The cockpit can show up to 16 panes, which sits
- * at the browser's WebGL context limit, so a context can get evicted — on loss
- * we dispose the addon and xterm falls back to its default renderer for that
- * pane (no blank canvas). WebGL being unavailable at all is handled the same way.
- */
-function loadWebglRenderer(term: Terminal): void {
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-  } catch {
-    // No WebGL — the default renderer is used.
-  }
 }
