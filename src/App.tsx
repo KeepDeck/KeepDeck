@@ -97,7 +97,7 @@ function App() {
     );
   };
 
-  const handleCreateWorkspace = ({ cwd, agentType, count }: SpawnConfig) => {
+  const handleCreateWorkspace = ({ name, cwd, agentType, count }: SpawnConfig) => {
     const wsSeq = nextWorkspaceSeq.current;
     nextWorkspaceSeq.current += 1;
     const startSeq = nextAgentSeq.current;
@@ -105,7 +105,7 @@ function App() {
     const id = `ws-${wsSeq}`;
     const workspace: Workspace = {
       id,
-      name: `workspace-${wsSeq}`,
+      name: name.trim() || `workspace-${wsSeq}`,
       cwd,
       agentType,
       panes: makePanes(startSeq, count),
