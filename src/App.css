@@ -279,6 +279,11 @@ body,
   display: none;
 }
 
+/* The active pane — an inset accent border (no layout shift). */
+.pane--active {
+  box-shadow: inset 0 0 0 1.5px #4f9e6a;
+}
+
 .pane__bar {
   display: flex;
   align-items: center;

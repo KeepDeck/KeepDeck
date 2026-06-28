@@ -35,6 +35,8 @@ function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState("");
   const [focusByWs, setFocusByWs] = useState<Record<string, string>>({});
+  // The pane with the highlight border (last interacted-with in the active ws).
+  const [selectedPaneId, setSelectedPaneId] = useState<string | null>(null);
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
   const nextAgentSeq = useRef(1);
@@ -42,6 +44,15 @@ function App() {
 
   const active = workspaces.find((w) => w.id === activeId) ?? null;
   const showForm = creating || workspaces.length === 0;
+
+  const handleSelectWorkspace = (id: string) => {
+    setActiveId(id);
+    // Selecting a workspace returns from the create form (you can always go back
+    // to an existing one).
+    setCreating(false);
+    const ws = workspaces.find((w) => w.id === id);
+    setSelectedPaneId(ws?.panes[0]?.id ?? null);
+  };
 
   const handleAddAgent = () => {
     if (!active) return;
@@ -57,6 +68,12 @@ function App() {
       const next = { ...cur };
       delete next[workspaceId];
       return next;
+    });
+    setSelectedPaneId((cur) => {
+      if (cur !== paneId) return cur;
+      const ws = workspaces.find((w) => w.id === workspaceId);
+      const remaining = ws?.panes.filter((p) => p.id !== paneId) ?? [];
+      return remaining[0]?.id ?? null;
     });
   };
 
@@ -93,6 +110,7 @@ function App() {
     };
     setWorkspaces((current) => [...current, workspace]);
     setActiveId(id);
+    setSelectedPaneId(workspace.panes[0]?.id ?? null);
     setCreating(false);
   };
 
@@ -135,7 +153,7 @@ function App() {
           </button>
           <span className="cockpit__status">
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
-            {info ? ` · core ${info.version}` : ""}
+            {info ? ` · v${info.version}` : ""}
           </span>
         </div>
       </header>
@@ -143,7 +161,7 @@ function App() {
         <WorkspacesRail
           workspaces={railWorkspaces}
           activeId={activeId}
-          onSelect={setActiveId}
+          onSelect={handleSelectWorkspace}
           onAdd={() => setCreating(true)}
           onClose={handleCloseWorkspace}
           onRename={handleRenameWorkspace}
@@ -205,7 +223,9 @@ function App() {
                       visible={isActive && !isCollapsed}
                       focused={isFocused}
                       collapsed={isCollapsed}
+                      selected={pane.id === selectedPaneId}
                       colSpan={colSpan}
+                      onSelect={() => setSelectedPaneId(pane.id)}
                       onToggleFocus={() => toggleFocus(ws.id, pane.id)}
                       onClose={() => handleCloseAgent(ws.id, pane.id)}
                     />
