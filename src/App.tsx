@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentPane } from "./agent/AgentPane";
 import { WorkspacesRail } from "./workspace/WorkspacesRail";
+import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { fetchAppInfo, type AppInfo } from "./ipc";
 import {
   addAgent,
@@ -70,6 +71,16 @@ function App() {
   const handleRenameWorkspace = (id: string, name: string) =>
     setWorkspaces((current) => renameWorkspace(current, id, name));
 
+  // Start an empty workspace with `count` terminals at once (seqs minted here,
+  // not in the updater, so React StrictMode's double-invoke can't skew them).
+  const handleStartWorkspace = (workspaceId: string, count: number) => {
+    const seqs: number[] = [];
+    for (let i = 0; i < count; i++) seqs.push(nextAgentSeq.current++);
+    setWorkspaces((current) =>
+      seqs.reduce((acc, seq) => addAgent(acc, workspaceId, seq), current),
+    );
+  };
+
   const handleCloseWorkspace = (id: string) => {
     // Removing the workspace unmounts its panes, which tears down their PTY
     // sessions (no leaks).
@@ -132,6 +143,26 @@ function App() {
         <div className="cockpit__stage">
           {workspaces.map((ws) => {
             const isActive = ws.id === activeId;
+
+            // Empty workspace → show the terminal-count setup instead of a grid.
+            if (ws.panes.length === 0) {
+              return (
+                <div
+                  key={ws.id}
+                  className="cockpit__setup"
+                  aria-hidden={!isActive}
+                  style={{
+                    visibility: isActive ? "visible" : "hidden",
+                    pointerEvents: isActive ? "auto" : "none",
+                  }}
+                >
+                  <WorkspaceSetup
+                    onPick={(count) => handleStartWorkspace(ws.id, count)}
+                  />
+                </div>
+              );
+            }
+
             const focusedPaneId = focusByWs[ws.id];
             const focusedHere =
               focusedPaneId && ws.panes.some((p) => p.id === focusedPaneId)
@@ -139,7 +170,7 @@ function App() {
                 : null;
             const grid = focusedHere
               ? { columns: 1, rows: 1 }
-              : paneGrid(Math.max(ws.panes.length, 1));
+              : paneGrid(ws.panes.length);
             return (
               <main
                 key={ws.id}
