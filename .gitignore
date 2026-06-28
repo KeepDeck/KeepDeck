@@ -25,3 +25,6 @@ dist-ssr
 
 # Claude Code local settings (personal, per-machine; shared .claude/settings.json stays tracked)
 .claude/settings.local.json
+
+# Rust / Cargo (workspace target dir lives at the repo root)
+/target

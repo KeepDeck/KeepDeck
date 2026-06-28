@@ -1,0 +1,102 @@
+//! Integration tests for [`PtySession`] — they spawn real processes in a PTY and
+//! assert the streamed events. Unix-only commands (`echo`, `sh`, `cat`).
+
+use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
+
+use keepdeck_pty::{ExitInfo, PtyEvent, PtySession, PtySpec, TermSize};
+
+fn spec(command: &str, args: &[&str]) -> PtySpec {
+    PtySpec {
+        command: command.to_string(),
+        args: args.iter().map(|s| s.to_string()).collect(),
+        env: Vec::new(),
+        cwd: None,
+        size: TermSize::default(),
+    }
+}
+
+/// Drain events until `Exited` (or timeout), returning accumulated output and the
+/// exit info if the session ended in time.
+fn run_to_exit(rx: &Receiver<PtyEvent>, timeout: Duration) -> (Vec<u8>, Option<ExitInfo>) {
+    let mut out = Vec::new();
+    let deadline = Instant::now() + timeout;
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(remaining) {
+            Ok(PtyEvent::Output(bytes)) => out.extend_from_slice(&bytes),
+            Ok(PtyEvent::Exited(info)) => return (out, Some(info)),
+            Err(_) => break,
+        }
+    }
+    (out, None)
+}
+
+#[test]
+fn streams_command_output_then_exits() {
+    let (_session, rx) = PtySession::spawn(spec("echo", &["keepdeck"])).expect("spawn echo");
+    let (out, exit) = run_to_exit(&rx, Duration::from_secs(5));
+
+    let text = String::from_utf8_lossy(&out);
+    assert!(text.contains("keepdeck"), "output was: {text:?}");
+
+    let exit = exit.expect("should report an exit");
+    assert!(exit.success, "echo should succeed");
+    assert_eq!(exit.code, Some(0));
+}
+
+#[test]
+fn reports_nonzero_exit_code() {
+    let (_session, rx) = PtySession::spawn(spec("sh", &["-c", "exit 3"])).expect("spawn sh");
+    let (_out, exit) = run_to_exit(&rx, Duration::from_secs(5));
+
+    let exit = exit.expect("should report an exit");
+    assert!(!exit.success);
+    assert_eq!(exit.code, Some(3));
+}
+
+#[test]
+fn echoes_written_input() {
+    // `cat` re-emits whatever is written to its stdin.
+    let (mut session, rx) = PtySession::spawn(spec("cat", &[])).expect("spawn cat");
+    session.write(b"ping\n").expect("write to pty");
+
+    let mut seen = String::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(PtyEvent::Output(bytes)) => {
+                seen.push_str(&String::from_utf8_lossy(&bytes));
+                if seen.contains("ping") {
+                    break;
+                }
+            }
+            Ok(PtyEvent::Exited(_)) => break,
+            Err(_) => {}
+        }
+    }
+    assert!(seen.contains("ping"), "expected echoed input, saw: {seen:?}");
+
+    session.kill().expect("kill cat");
+    let (_out, exit) = run_to_exit(&rx, Duration::from_secs(5));
+    assert!(exit.is_some(), "session should terminate after kill");
+}
+
+#[test]
+fn resize_succeeds_on_live_session() {
+    let (session, _rx) = PtySession::spawn(spec("cat", &[])).expect("spawn cat");
+    session.resize(120, 40).expect("resize a live pty should succeed");
+}
+
+#[test]
+fn missing_command_is_handled() {
+    // Either the spawn errors outright, or the child terminates non-successfully;
+    // both are acceptable — what matters is we don't hang or panic.
+    match PtySession::spawn(spec("keepdeck-no-such-binary-xyz", &[])) {
+        Err(_) => {}
+        Ok((_session, rx)) => {
+            let (_out, exit) = run_to_exit(&rx, Duration::from_secs(5));
+            let exit = exit.expect("a missing command should still terminate");
+            assert!(!exit.success, "a missing command must not report success");
+        }
+    }
+}
