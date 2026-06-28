@@ -1,16 +1,17 @@
 /** Max agents the cockpit grid holds at once — a hard product cap. */
 export const MAX_PANES = 16;
 
-/** Geometry of the (always square) cockpit grid. `columns === rows`. */
+/** Geometry of the cockpit grid: a square-ish column count, filled row by row. */
 export interface GridGeometry {
   columns: number;
   rows: number;
 }
 
 /**
- * The cockpit agent grid is ALWAYS SQUARE. Returns the smallest square that
- * holds `count` panes — `columns === rows === ⌈√count⌉` — for `count` in
- * `1..=MAX_PANES`. Panes fill row-major; any cells beyond `count` stay empty.
+ * Cockpit grid geometry for `count` panes (`1..=MAX_PANES`). The column count is
+ * square-driven (`⌈√count⌉`) so the grid stays roughly square, and the row count
+ * is only as many as needed to hold the panes (`⌈count / columns⌉`) — so there
+ * are no empty trailing rows and the grid shrinks as panes are closed.
  */
 export function paneGrid(count: number): GridGeometry {
   if (!Number.isInteger(count) || count < 1 || count > MAX_PANES) {
@@ -18,8 +19,9 @@ export function paneGrid(count: number): GridGeometry {
       `pane count must be an integer in 1..=${MAX_PANES}, got ${count}`,
     );
   }
-  const side = Math.ceil(Math.sqrt(count));
-  return { columns: side, rows: side };
+  const columns = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / columns);
+  return { columns, rows };
 }
 
 /** CSS `grid-template-*` value spreading `count` equal tracks. */
