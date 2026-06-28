@@ -7,7 +7,7 @@ The throughline is **holding stability under speed**: the aim is observability +
 reliability over the fleet, not the renderer. (The observability layer is on the
 roadmap; today KeepDeck is the cockpit that runs and organizes the fleet.)
 
-> Status: early (v0.3.x), but functional — it runs real coding agents in a
+> Status: early (0.3.x), but functional — it runs real coding agents in a
 > multi-pane grid, organized into workspaces.
 
 ## What it does
