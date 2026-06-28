@@ -136,17 +136,8 @@ body,
 .rail__item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 0;
   border-radius: 6px;
-  background: transparent;
-  color: #c5c8c6;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
+  padding-right: 4px;
 }
 
 .rail__item:hover {
@@ -155,6 +146,22 @@ body,
 
 .rail__item--active {
   background-color: #1b2230;
+}
+
+.rail__select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 0;
+  background: transparent;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
 }
 
 .rail__dot {
@@ -180,6 +187,38 @@ body,
   font-size: 11px;
   color: #6b7280;
   font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+}
+
+.rail__close {
+  display: none;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rail__close:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+/* Show the × (and hide the count) when the workspace is focused or hovered. */
+.rail__item:hover .rail__count,
+.rail__item--active .rail__count {
+  display: none;
+}
+
+.rail__item:hover .rail__close,
+.rail__item--active .rail__close {
+  display: inline-flex;
 }
 
 /* Agent grid (always square). Workspaces stack in place; only the active grid

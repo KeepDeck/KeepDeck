@@ -1,25 +1,26 @@
-/** A workspace groups a fleet of agents. (Pane isolation per workspace is a
- * later feature; for now the rail is the binding left-column layout.) */
-export interface Workspace {
+/** View model for the rail (the domain `Workspace` lives in `../workspaces`). */
+export interface WorkspaceItem {
   id: string;
   name: string;
   agentCount: number;
 }
 
 interface WorkspacesRailProps {
-  workspaces: Workspace[];
+  workspaces: WorkspaceItem[];
   activeId: string;
   onSelect(id: string): void;
   onAdd(): void;
+  onClose(id: string): void;
 }
 
 /** Left rail listing workspaces with their agent counts; the active one is
- * highlighted. Mirrors the reference layout's left column. */
+ * highlighted and shows a × (also on hover) to close it. */
 export function WorkspacesRail({
   workspaces,
   activeId,
   onSelect,
   onAdd,
+  onClose,
 }: WorkspacesRailProps) {
   return (
     <nav className="rail" aria-label="Workspaces">
@@ -39,16 +40,28 @@ export function WorkspacesRail({
         {workspaces.map((ws) => {
           const active = ws.id === activeId;
           return (
-            <li key={ws.id}>
+            <li
+              key={ws.id}
+              className={`rail__item${active ? " rail__item--active" : ""}`}
+            >
               <button
                 type="button"
-                className={`rail__item${active ? " rail__item--active" : ""}`}
+                className="rail__select"
                 onClick={() => onSelect(ws.id)}
                 aria-current={active}
               >
                 <span className="rail__dot" />
                 <span className="rail__name">{ws.name}</span>
-                <span className="rail__count">{ws.agentCount}</span>
+              </button>
+              <span className="rail__count">{ws.agentCount}</span>
+              <button
+                type="button"
+                className="rail__close"
+                onClick={() => onClose(ws.id)}
+                title="Close workspace"
+                aria-label={`Close ${ws.name}`}
+              >
+                ×
               </button>
             </li>
           );
