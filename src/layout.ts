@@ -28,3 +28,21 @@ export function paneGrid(count: number): GridGeometry {
 export function gridTracks(count: number): string {
   return `repeat(${count}, 1fr)`;
 }
+
+/**
+ * How many columns the pane at `index` (row-major, 0-based) should span so an
+ * incomplete row fills the full width with no gaps. Every row but the last is
+ * full (span 1 each); the last row's panes share its columns as evenly as
+ * possible, the leftmost taking any remainder.
+ */
+export function paneColumnSpan(index: number, count: number): number {
+  const { columns, rows } = paneGrid(count);
+  const lastRowStart = columns * (rows - 1);
+  if (index < lastRowStart) return 1;
+
+  const lastRowCount = count - lastRowStart;
+  const base = Math.floor(columns / lastRowCount);
+  const remainder = columns % lastRowCount;
+  const positionInRow = index - lastRowStart;
+  return base + (positionInRow < remainder ? 1 : 0);
+}

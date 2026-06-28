@@ -12,7 +12,7 @@ import {
   resolveActiveId,
   type Workspace,
 } from "./workspaces";
-import { MAX_PANES, gridTracks, paneGrid } from "./layout";
+import { MAX_PANES, gridTracks, paneColumnSpan, paneGrid } from "./layout";
 import "./App.css";
 
 function App() {
@@ -181,9 +181,12 @@ function App() {
                   gridTemplateRows: gridTracks(grid.rows),
                 }}
               >
-                {ws.panes.map((pane) => {
+                {ws.panes.map((pane, index) => {
                   const isFocused = pane.id === focusedHere;
                   const isCollapsed = focusedHere !== null && !isFocused;
+                  const colSpan = focusedHere
+                    ? 1
+                    : paneColumnSpan(index, ws.panes.length);
                   return (
                     <AgentPane
                       key={pane.id}
@@ -191,6 +194,7 @@ function App() {
                       visible={isActive && !isCollapsed}
                       focused={isFocused}
                       collapsed={isCollapsed}
+                      colSpan={colSpan}
                       onToggleFocus={() => toggleFocus(ws.id, pane.id)}
                       onClose={() => handleCloseAgent(ws.id, pane.id)}
                     />

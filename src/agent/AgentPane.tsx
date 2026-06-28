@@ -10,6 +10,8 @@ interface AgentPaneProps {
   focused: boolean;
   /** Whether this pane is hidden because another pane is maximized. */
   collapsed: boolean;
+  /** Grid columns this pane spans (>1 lets a partial last row fill the width). */
+  colSpan: number;
   onToggleFocus(): void;
   onClose(): void;
 }
@@ -25,11 +27,15 @@ export function AgentPane({
   visible,
   focused,
   collapsed,
+  colSpan,
   onToggleFocus,
   onClose,
 }: AgentPaneProps) {
   return (
-    <section className={`pane${collapsed ? " pane--collapsed" : ""}`}>
+    <section
+      className={`pane${collapsed ? " pane--collapsed" : ""}`}
+      style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
+    >
       <header className="pane__bar">
         <span className="pane__title">{title}</span>
         <div className="pane__actions">
