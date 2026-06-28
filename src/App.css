@@ -290,6 +290,7 @@ body,
 
 /* Agent pane: header + terminal body */
 .pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -302,11 +303,16 @@ body,
   display: none;
 }
 
-/* The focused pane — an accent outline drawn over the content (an inset
-   box-shadow would be hidden by the opaque header/terminal); no layout shift. */
-.pane--active {
-  outline: 2px solid #58b368;
-  outline-offset: -2px;
+/* The focused pane — a full accent contour drawn over the content via an
+   overlay (an inset box-shadow/outline was hidden or clipped by the opaque
+   children); no layout shift. */
+.pane--active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid #58b368;
+  pointer-events: none;
+  z-index: 2;
 }
 
 .pane__bar {
