@@ -19,6 +19,11 @@ body,
   flex-direction: column;
   height: 100vh;
   background-color: #0b0e14;
+  /* Desktop-app chrome isn't text-selectable; selecting a pane title was
+     bleeding a selection into xterm's helper elements. The terminal keeps its
+     own (xterm-managed) selection, and inputs re-enable it below. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Top bar */
@@ -233,6 +238,8 @@ body,
   font: inherit;
   font-size: 13px;
   outline: none;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Agent grid (always square). Workspaces stack in place; only the active grid
