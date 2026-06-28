@@ -41,7 +41,7 @@ export function AgentPane({
 }: AgentPaneProps) {
   return (
     <section
-      className={`pane${collapsed ? " pane--collapsed" : ""}${selected ? " pane--active" : ""}`}
+      className={`pane${collapsed ? " pane--collapsed" : ""}${selected && !focused ? " pane--active" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       onMouseDown={onSelect}
       onFocus={onSelect}
