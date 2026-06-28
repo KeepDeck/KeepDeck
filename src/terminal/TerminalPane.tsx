@@ -1,12 +1,15 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../session";
 
 interface TerminalPaneProps {
-  /** Program to run in the pane; omitted/null spawns the user's shell. */
+  /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
+  /** Whether this pane's workspace is currently visible. */
+  active: boolean;
 }
 
 /**
@@ -14,8 +17,10 @@ interface TerminalPaneProps {
  * session, pipes the PTY output into xterm and keystrokes back to the PTY, and
  * keeps the PTY size in sync with the pane. On unmount it closes the session.
  */
-export function TerminalPane({ command }: TerminalPaneProps) {
+export function TerminalPane({ command, active }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -31,11 +36,15 @@ export function TerminalPane({ command }: TerminalPaneProps) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
-    void loadWebglAddon(term);
+    loadWebglRenderer(term);
     fit.fit();
+    termRef.current = term;
+    fitRef.current = fit;
 
     let session: Session | null = null;
     let disposed = false;
+    let lastCols = term.cols;
+    let lastRows = term.rows;
 
     const input = term.onData((data) => {
       session?.write(data).catch(() => {});
@@ -60,9 +69,15 @@ export function TerminalPane({ command }: TerminalPaneProps) {
         term.writeln(`\r\n\x1b[31m[failed to start session: ${err}]\x1b[0m`);
       });
 
+    // Refit, and only resize the PTY when the cell grid actually changed — a
+    // redundant SIGWINCH makes the shell reprint its prompt.
     const refit = () => {
       fit.fit();
-      session?.resize(term.cols, term.rows).catch(() => {});
+      if (term.cols !== lastCols || term.rows !== lastRows) {
+        lastCols = term.cols;
+        lastRows = term.rows;
+        session?.resize(term.cols, term.rows).catch(() => {});
+      }
     };
     const observer = new ResizeObserver(refit);
     observer.observe(host);
@@ -75,18 +90,35 @@ export function TerminalPane({ command }: TerminalPaneProps) {
       input.dispose();
       session?.close().catch(() => {});
       term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
     };
   }, [command]);
+
+  // When the pane's workspace becomes visible again, repaint from the buffer so
+  // nothing is left blank after a switch (e.g. if its GPU context was dropped).
+  useEffect(() => {
+    if (!active) return;
+    const term = termRef.current;
+    fitRef.current?.fit();
+    term?.refresh(0, term.rows - 1);
+  }, [active]);
 
   return <div className="terminal-pane" ref={hostRef} />;
 }
 
-/** WebGL renderer is an optimization; fall back silently to the default. */
-async function loadWebglAddon(term: Terminal): Promise<void> {
+/**
+ * Render on the GPU via WebGL. The cockpit can show up to 16 panes, which sits
+ * at the browser's WebGL context limit, so a context can get evicted — on loss
+ * we dispose the addon and xterm falls back to its default renderer for that
+ * pane (no blank canvas). WebGL being unavailable at all is handled the same way.
+ */
+function loadWebglRenderer(term: Terminal): void {
   try {
-    const { WebglAddon } = await import("@xterm/addon-webgl");
-    term.loadAddon(new WebglAddon());
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => webgl.dispose());
+    term.loadAddon(webgl);
   } catch {
-    // Canvas/DOM renderer is fine when WebGL is unavailable.
+    // No WebGL — the default renderer is used.
   }
 }
