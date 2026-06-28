@@ -39,6 +39,8 @@ function App() {
   const [selectedPaneId, setSelectedPaneId] = useState<string | null>(null);
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
+  // Whether the left Workspaces rail is collapsed.
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const nextAgentSeq = useRef(1);
   const nextWorkspaceSeq = useRef(1);
 
@@ -140,7 +142,18 @@ function App() {
   return (
     <div className="cockpit">
       <header className="cockpit__bar">
-        <span className="cockpit__brand">KeepDeck</span>
+        <div className="cockpit__bar-left">
+          <button
+            type="button"
+            className="bar__icon"
+            onClick={() => setRailCollapsed((c) => !c)}
+            title={railCollapsed ? "Show workspaces" : "Hide workspaces"}
+            aria-label="Toggle workspaces panel"
+          >
+            <SidebarIcon />
+          </button>
+          <span className="cockpit__brand">KeepDeck</span>
+        </div>
         <div className="cockpit__bar-right">
           <button
             type="button"
@@ -158,14 +171,16 @@ function App() {
         </div>
       </header>
       <div className="cockpit__body">
-        <WorkspacesRail
-          workspaces={railWorkspaces}
-          activeId={activeId}
-          onSelect={handleSelectWorkspace}
-          onAdd={() => setCreating(true)}
-          onClose={handleCloseWorkspace}
-          onRename={handleRenameWorkspace}
-        />
+        {!railCollapsed && (
+          <WorkspacesRail
+            workspaces={railWorkspaces}
+            activeId={activeId}
+            onSelect={handleSelectWorkspace}
+            onAdd={() => setCreating(true)}
+            onClose={handleCloseWorkspace}
+            onRename={handleRenameWorkspace}
+          />
+        )}
         <div className="cockpit__stage">
           {workspaces.map((ws) => {
             const isActive = ws.id === activeId;
@@ -249,6 +264,25 @@ function App() {
         </div>
       </div>
     </div>
+  );
+}
+
+function SidebarIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <line x1="9" y1="4" x2="9" y2="20" />
+    </svg>
   );
 }
 
