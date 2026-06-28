@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../session";
 
@@ -42,6 +43,7 @@ export function TerminalPane({ command, cwd, visible }: TerminalPaneProps) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    loadCanvasRenderer(term);
     fit.fit();
     termRef.current = term;
     fitRef.current = fit;
@@ -110,4 +112,18 @@ export function TerminalPane({ command, cwd, visible }: TerminalPaneProps) {
   }, [visible]);
 
   return <div className="terminal-pane" ref={hostRef} />;
+}
+
+/**
+ * Render via the 2D canvas addon. The DOM renderer draws box-drawing characters
+ * (agent UIs like Claude Code's frames) with gaps between cells; the canvas
+ * renderer draws them as connected lines and is crisper. Unlike WebGL it doesn't
+ * hit the browser's ~16 GPU-context limit across a grid of panes.
+ */
+function loadCanvasRenderer(term: Terminal): void {
+  try {
+    term.loadAddon(new CanvasAddon());
+  } catch {
+    // Canvas unavailable — xterm's DOM renderer is used.
+  }
 }

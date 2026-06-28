@@ -153,7 +153,7 @@ function App() {
           </button>
           <span className="cockpit__status">
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
-            {info ? ` · v${info.version}` : ""}
+            {info ? ` · ${info.version}` : ""}
           </span>
         </div>
       </header>
