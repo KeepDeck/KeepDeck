@@ -221,6 +221,20 @@ body,
   display: inline-flex;
 }
 
+.rail__rename {
+  flex: 1;
+  min-width: 0;
+  margin: 2px 4px;
+  padding: 5px 6px;
+  border: 1px solid #3a4658;
+  border-radius: 5px;
+  background-color: #0b0e14;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
 /* Agent grid (always square). Workspaces stack in place; only the active grid
    is visible — inactive ones keep their size (so xterm needs no refit) and stay
    mounted (so their sessions keep running). */

@@ -53,6 +53,15 @@ export function closeWorkspace(workspaces: Workspace[], id: string): Workspace[]
   return workspaces.filter((ws) => ws.id !== id);
 }
 
+/** Rename one workspace, leaving the rest untouched. */
+export function renameWorkspace(
+  workspaces: Workspace[],
+  id: string,
+  name: string,
+): Workspace[] {
+  return workspaces.map((ws) => (ws.id === id ? { ...ws, name } : ws));
+}
+
 /** Which workspace to focus: keep `activeId` if it still exists, otherwise the
  * first remaining workspace (or `""` when none remain). */
 export function resolveActiveId(workspaces: Workspace[], activeId: string): string {
