@@ -44,6 +44,7 @@ export function AgentPane({
       className={`pane${collapsed ? " pane--collapsed" : ""}${selected ? " pane--active" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       onMouseDown={onSelect}
+      onFocus={onSelect}
     >
       <header className="pane__bar">
         <span className="pane__title">{title}</span>
