@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
 import {
   addAgent,
-  addWorkspace,
   closeAgent,
   closeWorkspace,
   renameWorkspace,
@@ -13,6 +12,8 @@ import {
 const ws = (id: string, paneNums: number[]): Workspace => ({
   id,
   name: id,
+  cwd: "/tmp",
+  agentType: "claude",
   panes: paneNums.map((n) => ({ id: `${id}-p${n}`, title: `agent-${n}` })),
 });
 
@@ -41,14 +42,6 @@ describe("closeAgent", () => {
     const after = closeAgent([ws("a", [1, 2]), ws("b", [1])], "a", "a-p1");
     expect(after[0].panes.map((p) => p.id)).toEqual(["a-p2"]);
     expect(after[1].panes).toHaveLength(1); // b untouched
-  });
-});
-
-describe("addWorkspace", () => {
-  it("appends an empty workspace", () => {
-    const after = addWorkspace([ws("default", [1])], 1);
-    expect(after).toHaveLength(2);
-    expect(after[1]).toEqual({ id: "ws-1", name: "workspace-1", panes: [] });
   });
 });
 
