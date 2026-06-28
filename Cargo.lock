@@ -1603,7 +1603,7 @@ dependencies = [
 
 [[package]]
 name = "keepdeck"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "keepdeck-pty",
  "serde",

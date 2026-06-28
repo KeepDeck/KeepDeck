@@ -5,6 +5,7 @@ import {
   addWorkspace,
   closeAgent,
   closeWorkspace,
+  renameWorkspace,
   resolveActiveId,
   type Workspace,
 } from "./workspaces";
@@ -59,6 +60,15 @@ describe("closeWorkspace", () => {
 
   it("can remove the last workspace, leaving none", () => {
     expect(closeWorkspace([ws("a", [1])], "a")).toEqual([]);
+  });
+});
+
+describe("renameWorkspace", () => {
+  it("renames the target workspace only", () => {
+    const after = renameWorkspace([ws("a", [1]), ws("b", [2])], "a", "my-api");
+    expect(after[0].name).toBe("my-api");
+    expect(after[0].panes).toHaveLength(1); // panes untouched
+    expect(after[1].name).toBe("b");
   });
 });
 

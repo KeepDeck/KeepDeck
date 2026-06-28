@@ -7,6 +7,7 @@ import {
   addWorkspace,
   closeAgent,
   closeWorkspace,
+  renameWorkspace,
   resolveActiveId,
   type Workspace,
 } from "./workspaces";
@@ -61,6 +62,9 @@ function App() {
     setFocusedId(null);
   };
 
+  const handleRenameWorkspace = (id: string, name: string) =>
+    setWorkspaces((current) => renameWorkspace(current, id, name));
+
   const handleCloseWorkspace = (id: string) => {
     // Removing the workspace unmounts its panes, which tears down their PTY
     // sessions (no leaks).
@@ -111,6 +115,7 @@ function App() {
           onSelect={handleSelectWorkspace}
           onAdd={handleAddWorkspace}
           onClose={handleCloseWorkspace}
+          onRename={handleRenameWorkspace}
         />
         {/* Every workspace's grid stays mounted (sessions keep running); only
             the active one is visible. */}
