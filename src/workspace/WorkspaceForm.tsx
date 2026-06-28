@@ -4,6 +4,8 @@ import { AGENT_TYPES, type AgentType } from "../agents";
 import { TERMINAL_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
 export interface SpawnConfig {
+  /** Workspace name; blank falls back to a default in the caller. */
+  name: string;
   cwd: string;
   agentType: AgentType;
   count: number;
@@ -21,6 +23,7 @@ interface WorkspaceFormProps {
  * no workspaces exist.
  */
 export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
+  const [name, setName] = useState("");
   const [cwd, setCwd] = useState<string | null>(null);
   const [agentType, setAgentType] = useState<AgentType>("claude");
   const [count, setCount] = useState(1);
@@ -35,12 +38,21 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
   };
 
   const submit = () => {
-    if (cwd) onCreate({ cwd, agentType, count });
+    if (cwd) onCreate({ name, cwd, agentType, count });
   };
 
   return (
     <div className="form">
       <h2 className="form__title">New workspace</h2>
+
+      <span className="form__label">Name</span>
+      <input
+        className="form__input"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Optional — defaults to workspace-N"
+        aria-label="Workspace name"
+      />
 
       <span className="form__label">Working directory</span>
       <div className="form__dir">

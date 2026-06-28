@@ -498,6 +498,24 @@ body,
   color: #6b7280;
 }
 
+.form__input {
+  margin-bottom: 20px;
+  padding: 8px 10px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.form__input:focus {
+  border-color: #3a4658;
+}
+
 .form__dir {
   display: flex;
   align-items: center;
