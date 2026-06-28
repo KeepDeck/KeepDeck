@@ -84,15 +84,12 @@ function MaximizeIcon() {
   );
 }
 
-/** Restore to the grid of all panes (a 2x2 grid — clearly distinct from the
- * expand arrows). */
+/** Restore / un-maximize — the conventional minimize glyph (a bottom bar),
+ * clearly distinct from the expand arrows and easy to read. */
 function RestoreIcon() {
   return (
     <svg {...iconProps}>
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <line x1="6" y1="18" x2="18" y2="18" />
     </svg>
   );
 }
