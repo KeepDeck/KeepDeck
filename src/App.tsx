@@ -4,7 +4,7 @@ import { WorkspacesRail } from "./workspace/WorkspacesRail";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { fetchAppInfo, type AppInfo } from "./ipc";
-import { commandForAgent } from "./agents";
+import { commandForAgent, labelForAgent } from "./agents";
 import { makePanes } from "./panes";
 import {
   addAgent,
@@ -170,6 +170,7 @@ function App() {
           {workspaces.map((ws) => {
             const isActive = ws.id === activeId;
             const command = commandForAgent(ws.agentType);
+            const label = labelForAgent(ws.agentType);
 
             if (ws.panes.length === 0) {
               return (
@@ -217,7 +218,7 @@ function App() {
                   return (
                     <AgentPane
                       key={pane.id}
-                      title={pane.title}
+                      title={`${label} ${index + 1}`}
                       command={command}
                       cwd={ws.cwd}
                       visible={isActive && !isCollapsed}
