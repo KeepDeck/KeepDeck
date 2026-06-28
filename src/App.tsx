@@ -25,10 +25,17 @@ function App() {
   // Start empty — no workspace, no session — until the user creates one.
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState("");
+  // The pane maximized to fill the active workspace's grid, if any.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const nextAgentSeq = useRef(1);
   const nextWorkspaceSeq = useRef(1);
 
   const active = workspaces.find((w) => w.id === activeId) ?? null;
+
+  const handleSelectWorkspace = (id: string) => {
+    setActiveId(id);
+    setFocusedId(null);
+  };
 
   const handleAddAgent = () => {
     if (!active) return;
@@ -37,8 +44,13 @@ function App() {
     setWorkspaces((current) => addAgent(current, activeId, seq));
   };
 
-  const handleCloseAgent = (workspaceId: string, paneId: string) =>
+  const handleCloseAgent = (workspaceId: string, paneId: string) => {
     setWorkspaces((current) => closeAgent(current, workspaceId, paneId));
+    setFocusedId((cur) => (cur === paneId ? null : cur));
+  };
+
+  const toggleFocus = (paneId: string) =>
+    setFocusedId((cur) => (cur === paneId ? null : paneId));
 
   const handleAddWorkspace = () => {
     const seq = nextWorkspaceSeq.current;
@@ -46,6 +58,7 @@ function App() {
     const id = `ws-${seq}`;
     setWorkspaces((current) => addWorkspace(current, seq));
     setActiveId(id);
+    setFocusedId(null);
   };
 
   const handleCloseWorkspace = (id: string) => {
@@ -54,6 +67,7 @@ function App() {
     const next = closeWorkspace(workspaces, id);
     setWorkspaces(next);
     setActiveId(resolveActiveId(next, activeId));
+    setFocusedId(null);
   };
 
   const railWorkspaces = workspaces.map((w) => ({
@@ -94,7 +108,7 @@ function App() {
         <WorkspacesRail
           workspaces={railWorkspaces}
           activeId={activeId}
-          onSelect={setActiveId}
+          onSelect={handleSelectWorkspace}
           onAdd={handleAddWorkspace}
           onClose={handleCloseWorkspace}
         />
@@ -102,8 +116,14 @@ function App() {
             the active one is visible. */}
         <div className="cockpit__stage">
           {workspaces.map((ws) => {
-            const grid = paneGrid(Math.max(ws.panes.length, 1));
             const isActive = ws.id === activeId;
+            const focusedHere =
+              isActive && focusedId && ws.panes.some((p) => p.id === focusedId)
+                ? focusedId
+                : null;
+            const grid = focusedHere
+              ? { columns: 1, rows: 1 }
+              : paneGrid(Math.max(ws.panes.length, 1));
             return (
               <main
                 key={ws.id}
@@ -114,14 +134,21 @@ function App() {
                   gridTemplateRows: gridTracks(grid.rows),
                 }}
               >
-                {ws.panes.map((pane) => (
-                  <AgentPane
-                    key={pane.id}
-                    title={pane.title}
-                    active={isActive}
-                    onClose={() => handleCloseAgent(ws.id, pane.id)}
-                  />
-                ))}
+                {ws.panes.map((pane) => {
+                  const isFocused = pane.id === focusedHere;
+                  const isCollapsed = focusedHere !== null && !isFocused;
+                  return (
+                    <AgentPane
+                      key={pane.id}
+                      title={pane.title}
+                      visible={isActive && !isCollapsed}
+                      focused={isFocused}
+                      collapsed={isCollapsed}
+                      onToggleFocus={() => toggleFocus(pane.id)}
+                      onClose={() => handleCloseAgent(ws.id, pane.id)}
+                    />
+                  );
+                })}
               </main>
             );
           })}
