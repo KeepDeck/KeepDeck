@@ -290,11 +290,14 @@ body,
 
 /* Agent pane: header + terminal body */
 .pane {
-  position: relative;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* Always reserve the focus-border space (transparent) so the active border
+     never covers content and toggling focus causes no layout shift. */
+  border: 2px solid transparent;
   background-color: #0b0e14;
 }
 
@@ -303,16 +306,9 @@ body,
   display: none;
 }
 
-/* The focused pane — a full accent contour drawn over the content via an
-   overlay (an inset box-shadow/outline was hidden or clipped by the opaque
-   children); no layout shift. */
-.pane--active::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border: 2px solid #58b368;
-  pointer-events: none;
-  z-index: 2;
+/* The focused pane — colour the reserved border. Content stays fully inside it. */
+.pane--active {
+  border-color: #58b368;
 }
 
 .pane__bar {
