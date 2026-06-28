@@ -13,11 +13,8 @@ function App() {
       .catch(() => setInfo(null));
   }, []);
 
-  // Skeleton fleet: a single pane. The grid grows as v1 adds layout presets.
+  // Skeleton fleet: a single live pane. The grid grows as v1 adds layouts.
   const grid = paneGrid(1);
-  const banner = info
-    ? `${info.name} v${info.version} — cockpit skeleton. PTY + observability-tap land next.`
-    : "KeepDeck cockpit skeleton.";
 
   return (
     <div className="cockpit">
@@ -34,7 +31,7 @@ function App() {
           gridTemplateRows: gridTracks(grid.rows),
         }}
       >
-        <TerminalPane banner={banner} />
+        <TerminalPane />
       </main>
     </div>
   );

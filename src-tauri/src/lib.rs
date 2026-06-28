@@ -1,3 +1,5 @@
+mod session;
+
 use serde::Serialize;
 
 /// Build/runtime info surfaced to the cockpit UI.
@@ -28,7 +30,14 @@ fn app_info() -> AppInfo {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![app_info])
+        .manage(session::SessionRegistry::default())
+        .invoke_handler(tauri::generate_handler![
+            app_info,
+            session::session_spawn,
+            session::session_write,
+            session::session_resize,
+            session::session_close,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
