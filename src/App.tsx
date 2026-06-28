@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { TerminalPane } from "./terminal/TerminalPane";
+import { useEffect, useRef, useState } from "react";
+import { AgentPane } from "./agent/AgentPane";
 import { WorkspacesRail, type Workspace } from "./workspace/WorkspacesRail";
 import { fetchAppInfo, type AppInfo } from "./ipc";
-import { gridTracks, paneGrid } from "./layout";
+import { addPane, removePane, type Pane } from "./panes";
+import { MAX_PANES, gridTracks, paneGrid } from "./layout";
 import "./App.css";
 
 function App() {
@@ -14,33 +15,57 @@ function App() {
       .catch(() => setInfo(null));
   }, []);
 
-  // One live pane for now; feat/dual-pane makes the pane set dynamic.
-  const paneIds = ["pane-1"];
+  const [panes, setPanes] = useState<Pane[]>([{ id: "pane-1", title: "agent-1" }]);
+  const nextSeq = useRef(2);
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([
-    { id: "default", name: "default", agentCount: paneIds.length },
+    { id: "default", name: "default", agentCount: 1 },
   ]);
   const [activeWorkspace, setActiveWorkspace] = useState("default");
 
+  const addAgent = () => {
+    const seq = nextSeq.current;
+    nextSeq.current += 1;
+    setPanes((current) => addPane(current, seq));
+  };
+  const closeAgent = (id: string) =>
+    setPanes((current) => removePane(current, id));
   const addWorkspace = () =>
     setWorkspaces((list) => {
       const n = list.length + 1;
       return [...list, { id: `ws-${n}`, name: `workspace-${n}`, agentCount: 0 }];
     });
 
-  const grid = paneGrid(paneIds.length);
+  // Geometry stays valid even with zero panes (an empty 1x1 grid).
+  const grid = paneGrid(Math.max(panes.length, 1));
+  const atCap = panes.length >= MAX_PANES;
+  const railWorkspaces = workspaces.map((w) =>
+    w.id === activeWorkspace ? { ...w, agentCount: panes.length } : w,
+  );
 
   return (
     <div className="cockpit">
       <header className="cockpit__bar">
         <span className="cockpit__brand">KeepDeck</span>
-        <span className="cockpit__status">
-          {info ? `core ${info.version}` : "core …"}
-        </span>
+        <div className="cockpit__bar-right">
+          <button
+            type="button"
+            className="bar__action"
+            onClick={addAgent}
+            disabled={atCap}
+            title={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
+          >
+            + Agent
+          </button>
+          <span className="cockpit__status">
+            {panes.length} {panes.length === 1 ? "pane" : "panes"}
+            {info ? ` · core ${info.version}` : ""}
+          </span>
+        </div>
       </header>
       <div className="cockpit__body">
         <WorkspacesRail
-          workspaces={workspaces}
+          workspaces={railWorkspaces}
           activeId={activeWorkspace}
           onSelect={setActiveWorkspace}
           onAdd={addWorkspace}
@@ -52,8 +77,12 @@ function App() {
             gridTemplateRows: gridTracks(grid.rows),
           }}
         >
-          {paneIds.map((id) => (
-            <TerminalPane key={id} />
+          {panes.map((pane) => (
+            <AgentPane
+              key={pane.id}
+              title={pane.title}
+              onClose={() => closeAgent(pane.id)}
+            />
           ))}
         </main>
       </div>
