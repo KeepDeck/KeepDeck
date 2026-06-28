@@ -42,7 +42,13 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
   };
 
   return (
-    <div className="form">
+    <form
+      className="form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
       <h2 className="form__title">New workspace</h2>
 
       <span className="form__label">Name</span>
@@ -99,15 +105,14 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
           </button>
         )}
         <button
-          type="button"
+          type="submit"
           className="form__create"
-          onClick={submit}
           disabled={!cwd}
           title={cwd ? "Create workspace" : "Choose a working directory first"}
         >
           Create workspace
         </button>
       </div>
-    </div>
+    </form>
   );
 }
