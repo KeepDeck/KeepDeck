@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
-import { addAgent, addWorkspace, closeAgent, type Workspace } from "./workspaces";
+import {
+  addAgent,
+  addWorkspace,
+  closeAgent,
+  closeWorkspace,
+  resolveActiveId,
+  type Workspace,
+} from "./workspaces";
 
 const ws = (id: string, paneNums: number[]): Workspace => ({
   id,
@@ -41,5 +48,30 @@ describe("addWorkspace", () => {
     const after = addWorkspace([ws("default", [1])], 1);
     expect(after).toHaveLength(2);
     expect(after[1]).toEqual({ id: "ws-1", name: "workspace-1", panes: [] });
+  });
+});
+
+describe("closeWorkspace", () => {
+  it("removes the workspace by id", () => {
+    const after = closeWorkspace([ws("a", [1]), ws("b", [2])], "a");
+    expect(after.map((w) => w.id)).toEqual(["b"]);
+  });
+
+  it("can remove the last workspace, leaving none", () => {
+    expect(closeWorkspace([ws("a", [1])], "a")).toEqual([]);
+  });
+});
+
+describe("resolveActiveId", () => {
+  it("keeps the active id when it still exists", () => {
+    expect(resolveActiveId([ws("a", []), ws("b", [])], "b")).toBe("b");
+  });
+
+  it("falls back to the first workspace when the active one is gone", () => {
+    expect(resolveActiveId([ws("a", []), ws("b", [])], "gone")).toBe("a");
+  });
+
+  it("returns an empty id when no workspaces remain", () => {
+    expect(resolveActiveId([], "a")).toBe("");
   });
 });

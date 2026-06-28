@@ -6,6 +6,8 @@ import {
   addAgent,
   addWorkspace,
   closeAgent,
+  closeWorkspace,
+  resolveActiveId,
   type Workspace,
 } from "./workspaces";
 import { MAX_PANES, gridTracks, paneGrid } from "./layout";
@@ -20,16 +22,16 @@ function App() {
       .catch(() => setInfo(null));
   }, []);
 
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([
-    { id: "default", name: "default", panes: [{ id: "pane-1", title: "agent-1" }] },
-  ]);
-  const [activeId, setActiveId] = useState("default");
-  const nextAgentSeq = useRef(2);
+  // Start empty — no workspace, no session — until the user creates one.
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeId, setActiveId] = useState("");
+  const nextAgentSeq = useRef(1);
   const nextWorkspaceSeq = useRef(1);
 
-  const active = workspaces.find((w) => w.id === activeId) ?? workspaces[0];
+  const active = workspaces.find((w) => w.id === activeId) ?? null;
 
   const handleAddAgent = () => {
+    if (!active) return;
     const seq = nextAgentSeq.current;
     nextAgentSeq.current += 1;
     setWorkspaces((current) => addAgent(current, activeId, seq));
@@ -46,13 +48,21 @@ function App() {
     setActiveId(id);
   };
 
+  const handleCloseWorkspace = (id: string) => {
+    // Removing the workspace unmounts its panes, which tears down their PTY
+    // sessions (no leaks).
+    const next = closeWorkspace(workspaces, id);
+    setWorkspaces(next);
+    setActiveId(resolveActiveId(next, activeId));
+  };
+
   const railWorkspaces = workspaces.map((w) => ({
     id: w.id,
     name: w.name,
     agentCount: w.panes.length,
   }));
-  const atCap = (active?.panes.length ?? 0) >= MAX_PANES;
   const activeCount = active?.panes.length ?? 0;
+  const atCap = activeCount >= MAX_PANES;
 
   return (
     <div className="cockpit">
@@ -63,8 +73,14 @@ function App() {
             type="button"
             className="bar__action"
             onClick={handleAddAgent}
-            disabled={atCap}
-            title={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
+            disabled={!active || atCap}
+            title={
+              !active
+                ? "Create a workspace first"
+                : atCap
+                  ? `Max ${MAX_PANES} agents`
+                  : "Add agent"
+            }
           >
             + Agent
           </button>
@@ -80,6 +96,7 @@ function App() {
           activeId={activeId}
           onSelect={setActiveId}
           onAdd={handleAddWorkspace}
+          onClose={handleCloseWorkspace}
         />
         {/* Every workspace's grid stays mounted (sessions keep running); only
             the active one is visible. */}

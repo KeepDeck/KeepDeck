@@ -47,3 +47,15 @@ export function addWorkspace(workspaces: Workspace[], seq: number): Workspace[] 
     { id: `ws-${seq}`, name: `workspace-${seq}`, panes: [] },
   ];
 }
+
+/** Remove a workspace. Its panes unmount, which tears down their PTY sessions. */
+export function closeWorkspace(workspaces: Workspace[], id: string): Workspace[] {
+  return workspaces.filter((ws) => ws.id !== id);
+}
+
+/** Which workspace to focus: keep `activeId` if it still exists, otherwise the
+ * first remaining workspace (or `""` when none remain). */
+export function resolveActiveId(workspaces: Workspace[], activeId: string): string {
+  if (workspaces.some((ws) => ws.id === activeId)) return activeId;
+  return workspaces[0]?.id ?? "";
+}
