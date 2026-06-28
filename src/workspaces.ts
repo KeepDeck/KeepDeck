@@ -1,11 +1,17 @@
+import type { AgentType } from "./agents";
 import { addPane, removePane, type Pane } from "./panes";
 
-/** A workspace owns its own set of agent panes. Switching the active workspace
- * swaps which set the grid shows; inactive workspaces keep their panes (and
- * their live sessions) mounted. */
+/** A workspace owns its own set of agent panes, all running the same agent type
+ * in the same working directory. Switching the active workspace swaps which set
+ * the grid shows; inactive workspaces keep their panes (and live sessions)
+ * mounted. */
 export interface Workspace {
   id: string;
   name: string;
+  /** Working directory all this workspace's agents run in. */
+  cwd: string;
+  /** Coding-agent kind spawned in this workspace's panes. */
+  agentType: AgentType;
   panes: Pane[];
 }
 
@@ -38,14 +44,6 @@ export function closeAgent(
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     removePane(panes, paneId),
   );
-}
-
-/** Append a new, empty workspace numbered `seq`. */
-export function addWorkspace(workspaces: Workspace[], seq: number): Workspace[] {
-  return [
-    ...workspaces,
-    { id: `ws-${seq}`, name: `workspace-${seq}`, panes: [] },
-  ];
 }
 
 /** Remove a workspace. Its panes unmount, which tears down their PTY sessions. */

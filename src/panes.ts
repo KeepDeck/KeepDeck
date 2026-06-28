@@ -19,3 +19,12 @@ export function addPane(panes: Pane[], seq: number): Pane[] {
 export function removePane(panes: Pane[], id: string): Pane[] {
   return panes.filter((pane) => pane.id !== id);
 }
+
+/** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES). */
+export function makePanes(startSeq: number, count: number): Pane[] {
+  const n = Math.max(0, Math.min(count, MAX_PANES));
+  return Array.from({ length: n }, (_, i) => ({
+    id: `pane-${startSeq + i}`,
+    title: `agent-${startSeq + i}`,
+  }));
+}

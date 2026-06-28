@@ -4,6 +4,8 @@ interface AgentPaneProps {
   title: string;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
+  /** Working directory for the session. */
+  cwd?: string | null;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -24,6 +26,7 @@ interface AgentPaneProps {
 export function AgentPane({
   title,
   command,
+  cwd,
   visible,
   focused,
   collapsed,
@@ -60,7 +63,7 @@ export function AgentPane({
         </div>
       </header>
       <div className="pane__body">
-        <TerminalPane command={command} visible={visible} />
+        <TerminalPane command={command} cwd={cwd} visible={visible} />
       </div>
     </section>
   );

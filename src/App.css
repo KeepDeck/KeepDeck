@@ -424,3 +424,152 @@ body,
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
+
+.setup__tile--active {
+  border-color: #5a6b86;
+  background-color: #161d29;
+  color: #c5c8c6;
+}
+
+.setup__tile--active .setup__cell--on {
+  background-color: #5a6b86;
+}
+
+/* New-workspace form (overlay + centered card) */
+.cockpit__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background-color: #0b0e14;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 560px;
+  padding: 28px;
+}
+
+.form__title {
+  margin: 0 0 20px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #c5c8c6;
+}
+
+.form__label {
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.form__dir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.form__dir-path {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  color: #c5c8c6;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form__dir-path--empty {
+  color: #6b7280;
+}
+
+.form__dir-btn,
+.form__cancel {
+  flex: none;
+  padding: 8px 14px;
+  border: 1px solid #2a3343;
+  border-radius: 8px;
+  background-color: #161b26;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.form__dir-btn:hover,
+.form__cancel:hover {
+  background-color: #1b2230;
+  border-color: #3a4658;
+}
+
+.form__types {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.form__type {
+  padding: 8px 14px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.form__type:hover {
+  border-color: #3a4658;
+  color: #c5c8c6;
+}
+
+.form__type--active {
+  border-color: #5a6b86;
+  background-color: #161d29;
+  color: #c5c8c6;
+}
+
+.form .setup__tiles {
+  justify-content: flex-start;
+  margin-bottom: 24px;
+}
+
+.form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.form__create {
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 8px;
+  background-color: #2f6f4f;
+  color: #eafff3;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.form__create:hover:not(:disabled) {
+  background-color: #38855f;
+}
+
+.form__create:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
