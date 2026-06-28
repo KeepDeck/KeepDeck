@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentPane } from "./agent/AgentPane";
-import { WorkspacesRail, type Workspace } from "./workspace/WorkspacesRail";
+import { WorkspacesRail } from "./workspace/WorkspacesRail";
 import { fetchAppInfo, type AppInfo } from "./ipc";
-import { addPane, removePane, type Pane } from "./panes";
+import {
+  addAgent,
+  addWorkspace,
+  closeAgent,
+  type Workspace,
+} from "./workspaces";
 import { MAX_PANES, gridTracks, paneGrid } from "./layout";
 import "./App.css";
 
@@ -15,33 +20,39 @@ function App() {
       .catch(() => setInfo(null));
   }, []);
 
-  const [panes, setPanes] = useState<Pane[]>([{ id: "pane-1", title: "agent-1" }]);
-  const nextSeq = useRef(2);
-
   const [workspaces, setWorkspaces] = useState<Workspace[]>([
-    { id: "default", name: "default", agentCount: 1 },
+    { id: "default", name: "default", panes: [{ id: "pane-1", title: "agent-1" }] },
   ]);
-  const [activeWorkspace, setActiveWorkspace] = useState("default");
+  const [activeId, setActiveId] = useState("default");
+  const nextAgentSeq = useRef(2);
+  const nextWorkspaceSeq = useRef(1);
 
-  const addAgent = () => {
-    const seq = nextSeq.current;
-    nextSeq.current += 1;
-    setPanes((current) => addPane(current, seq));
+  const active = workspaces.find((w) => w.id === activeId) ?? workspaces[0];
+
+  const handleAddAgent = () => {
+    const seq = nextAgentSeq.current;
+    nextAgentSeq.current += 1;
+    setWorkspaces((current) => addAgent(current, activeId, seq));
   };
-  const closeAgent = (id: string) =>
-    setPanes((current) => removePane(current, id));
-  const addWorkspace = () =>
-    setWorkspaces((list) => {
-      const n = list.length + 1;
-      return [...list, { id: `ws-${n}`, name: `workspace-${n}`, agentCount: 0 }];
-    });
 
-  // Geometry stays valid even with zero panes (an empty 1x1 grid).
-  const grid = paneGrid(Math.max(panes.length, 1));
-  const atCap = panes.length >= MAX_PANES;
-  const railWorkspaces = workspaces.map((w) =>
-    w.id === activeWorkspace ? { ...w, agentCount: panes.length } : w,
-  );
+  const handleCloseAgent = (workspaceId: string, paneId: string) =>
+    setWorkspaces((current) => closeAgent(current, workspaceId, paneId));
+
+  const handleAddWorkspace = () => {
+    const seq = nextWorkspaceSeq.current;
+    nextWorkspaceSeq.current += 1;
+    const id = `ws-${seq}`;
+    setWorkspaces((current) => addWorkspace(current, seq));
+    setActiveId(id);
+  };
+
+  const railWorkspaces = workspaces.map((w) => ({
+    id: w.id,
+    name: w.name,
+    agentCount: w.panes.length,
+  }));
+  const atCap = (active?.panes.length ?? 0) >= MAX_PANES;
+  const activeCount = active?.panes.length ?? 0;
 
   return (
     <div className="cockpit">
@@ -51,14 +62,14 @@ function App() {
           <button
             type="button"
             className="bar__action"
-            onClick={addAgent}
+            onClick={handleAddAgent}
             disabled={atCap}
             title={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
           >
             + Agent
           </button>
           <span className="cockpit__status">
-            {panes.length} {panes.length === 1 ? "pane" : "panes"}
+            {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · core ${info.version}` : ""}
           </span>
         </div>
@@ -66,25 +77,37 @@ function App() {
       <div className="cockpit__body">
         <WorkspacesRail
           workspaces={railWorkspaces}
-          activeId={activeWorkspace}
-          onSelect={setActiveWorkspace}
-          onAdd={addWorkspace}
+          activeId={activeId}
+          onSelect={setActiveId}
+          onAdd={handleAddWorkspace}
         />
-        <main
-          className="cockpit__grid"
-          style={{
-            gridTemplateColumns: gridTracks(grid.columns),
-            gridTemplateRows: gridTracks(grid.rows),
-          }}
-        >
-          {panes.map((pane) => (
-            <AgentPane
-              key={pane.id}
-              title={pane.title}
-              onClose={() => closeAgent(pane.id)}
-            />
-          ))}
-        </main>
+        {/* Every workspace's grid stays mounted (sessions keep running); only
+            the active one is visible. */}
+        <div className="cockpit__stage">
+          {workspaces.map((ws) => {
+            const grid = paneGrid(Math.max(ws.panes.length, 1));
+            const isActive = ws.id === activeId;
+            return (
+              <main
+                key={ws.id}
+                className={`cockpit__grid${isActive ? "" : " cockpit__grid--hidden"}`}
+                aria-hidden={!isActive}
+                style={{
+                  gridTemplateColumns: gridTracks(grid.columns),
+                  gridTemplateRows: gridTracks(grid.rows),
+                }}
+              >
+                {ws.panes.map((pane) => (
+                  <AgentPane
+                    key={pane.id}
+                    title={pane.title}
+                    onClose={() => handleCloseAgent(ws.id, pane.id)}
+                  />
+                ))}
+              </main>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
