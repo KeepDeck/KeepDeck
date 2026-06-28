@@ -298,6 +298,7 @@ body,
   /* Always reserve the focus-border space (transparent) so the active border
      never covers content and toggling focus causes no layout shift. */
   border: 2px solid transparent;
+  transition: border-color 0.18s ease;
   background-color: #0b0e14;
 }
 
