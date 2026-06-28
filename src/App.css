@@ -253,6 +253,11 @@ body,
   background-color: #0b0e14;
 }
 
+/* Hidden while another pane is maximized; stays mounted so its session lives. */
+.pane--collapsed {
+  display: none;
+}
+
 .pane__bar {
   display: flex;
   align-items: center;
@@ -273,17 +278,25 @@ body,
   white-space: nowrap;
 }
 
+.pane__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pane__action,
 .pane__close {
   border: 0;
   background: transparent;
   color: #6b7280;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   padding: 2px 5px;
   border-radius: 4px;
   cursor: pointer;
 }
 
+.pane__action:hover,
 .pane__close:hover {
   background-color: #1b2230;
   color: #c5c8c6;

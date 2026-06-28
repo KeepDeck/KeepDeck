@@ -7,8 +7,8 @@ import { spawnSession, type Session } from "../session";
 interface TerminalPaneProps {
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
-  /** Whether this pane's workspace is currently visible. */
-  active: boolean;
+  /** Whether this pane is currently on screen (active workspace, not collapsed). */
+  visible: boolean;
 }
 
 /**
@@ -21,7 +21,7 @@ interface TerminalPaneProps {
  * context limit causes eviction/blanking), so GPU rendering is off for now —
  * revisit only if profiling a single pane shows the default renderer is a bottleneck.
  */
-export function TerminalPane({ command, active }: TerminalPaneProps) {
+export function TerminalPane({ command, visible }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -98,14 +98,14 @@ export function TerminalPane({ command, active }: TerminalPaneProps) {
     };
   }, [command]);
 
-  // When the pane's workspace becomes visible again, repaint from the buffer so
-  // nothing is left blank after a switch (e.g. if its GPU context was dropped).
+  // When the pane comes back on screen (workspace switch, or un-maximized),
+  // refit and repaint from the buffer so nothing is left blank.
   useEffect(() => {
-    if (!active) return;
+    if (!visible) return;
     const term = termRef.current;
     fitRef.current?.fit();
     term?.refresh(0, term.rows - 1);
-  }, [active]);
+  }, [visible]);
 
   return <div className="terminal-pane" ref={hostRef} />;
 }
