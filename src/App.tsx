@@ -26,17 +26,13 @@ function App() {
   // Start empty — no workspace, no session — until the user creates one.
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState("");
-  // The pane maximized to fill the active workspace's grid, if any.
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  // Maximized pane per workspace (workspace id -> pane id), so focus persists
+  // across workspace switches.
+  const [focusByWs, setFocusByWs] = useState<Record<string, string>>({});
   const nextAgentSeq = useRef(1);
   const nextWorkspaceSeq = useRef(1);
 
   const active = workspaces.find((w) => w.id === activeId) ?? null;
-
-  const handleSelectWorkspace = (id: string) => {
-    setActiveId(id);
-    setFocusedId(null);
-  };
 
   const handleAddAgent = () => {
     if (!active) return;
@@ -47,11 +43,21 @@ function App() {
 
   const handleCloseAgent = (workspaceId: string, paneId: string) => {
     setWorkspaces((current) => closeAgent(current, workspaceId, paneId));
-    setFocusedId((cur) => (cur === paneId ? null : cur));
+    setFocusByWs((cur) => {
+      if (cur[workspaceId] !== paneId) return cur;
+      const next = { ...cur };
+      delete next[workspaceId];
+      return next;
+    });
   };
 
-  const toggleFocus = (paneId: string) =>
-    setFocusedId((cur) => (cur === paneId ? null : paneId));
+  const toggleFocus = (workspaceId: string, paneId: string) =>
+    setFocusByWs((cur) => {
+      const next = { ...cur };
+      if (next[workspaceId] === paneId) delete next[workspaceId];
+      else next[workspaceId] = paneId;
+      return next;
+    });
 
   const handleAddWorkspace = () => {
     const seq = nextWorkspaceSeq.current;
@@ -59,7 +65,6 @@ function App() {
     const id = `ws-${seq}`;
     setWorkspaces((current) => addWorkspace(current, seq));
     setActiveId(id);
-    setFocusedId(null);
   };
 
   const handleRenameWorkspace = (id: string, name: string) =>
@@ -71,7 +76,12 @@ function App() {
     const next = closeWorkspace(workspaces, id);
     setWorkspaces(next);
     setActiveId(resolveActiveId(next, activeId));
-    setFocusedId(null);
+    setFocusByWs((cur) => {
+      if (!(id in cur)) return cur;
+      const updated = { ...cur };
+      delete updated[id];
+      return updated;
+    });
   };
 
   const railWorkspaces = workspaces.map((w) => ({
@@ -112,7 +122,7 @@ function App() {
         <WorkspacesRail
           workspaces={railWorkspaces}
           activeId={activeId}
-          onSelect={handleSelectWorkspace}
+          onSelect={setActiveId}
           onAdd={handleAddWorkspace}
           onClose={handleCloseWorkspace}
           onRename={handleRenameWorkspace}
@@ -122,9 +132,10 @@ function App() {
         <div className="cockpit__stage">
           {workspaces.map((ws) => {
             const isActive = ws.id === activeId;
+            const focusedPaneId = focusByWs[ws.id];
             const focusedHere =
-              isActive && focusedId && ws.panes.some((p) => p.id === focusedId)
-                ? focusedId
+              focusedPaneId && ws.panes.some((p) => p.id === focusedPaneId)
+                ? focusedPaneId
                 : null;
             const grid = focusedHere
               ? { columns: 1, rows: 1 }
@@ -149,7 +160,7 @@ function App() {
                       visible={isActive && !isCollapsed}
                       focused={isFocused}
                       collapsed={isCollapsed}
-                      onToggleFocus={() => toggleFocus(pane.id)}
+                      onToggleFocus={() => toggleFocus(ws.id, pane.id)}
                       onClose={() => handleCloseAgent(ws.id, pane.id)}
                     />
                   );
