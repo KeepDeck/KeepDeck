@@ -101,6 +101,7 @@ function App() {
                   <AgentPane
                     key={pane.id}
                     title={pane.title}
+                    active={isActive}
                     onClose={() => handleCloseAgent(ws.id, pane.id)}
                   />
                 ))}

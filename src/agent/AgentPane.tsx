@@ -4,6 +4,8 @@ interface AgentPaneProps {
   title: string;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
+  /** Whether this pane's workspace is currently visible. */
+  active: boolean;
   onClose(): void;
 }
 
@@ -12,7 +14,7 @@ interface AgentPaneProps {
  * terminal pane. Status/telemetry on the header come with the observability
  * milestone.
  */
-export function AgentPane({ title, command, onClose }: AgentPaneProps) {
+export function AgentPane({ title, command, active, onClose }: AgentPaneProps) {
   return (
     <section className="pane">
       <header className="pane__bar">
@@ -28,7 +30,7 @@ export function AgentPane({ title, command, onClose }: AgentPaneProps) {
         </button>
       </header>
       <div className="pane__body">
-        <TerminalPane command={command} />
+        <TerminalPane command={command} active={active} />
       </div>
     </section>
   );
