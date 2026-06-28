@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { AGENT_TYPES, commandForAgent } from "./agents";
+import { AGENT_TYPES, commandForAgent, labelForAgent } from "./agents";
 
 describe("commandForAgent", () => {
   it("maps each agent type to its CLI command", () => {
     expect(commandForAgent("claude")).toBe("claude");
     expect(commandForAgent("opencode")).toBe("opencode");
     expect(commandForAgent("codex")).toBe("codex");
+  });
+
+  it("maps each agent type to its display label", () => {
+    expect(labelForAgent("claude")).toBe("Claude Code");
+    expect(labelForAgent("opencode")).toBe("OpenCode");
+    expect(labelForAgent("codex")).toBe("Codex");
   });
 
   it("lists every type with a label and command", () => {

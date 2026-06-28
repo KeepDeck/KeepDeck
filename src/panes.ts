@@ -1,9 +1,9 @@
 import { MAX_PANES } from "./layout";
 
-/** One agent pane in the grid. */
+/** One agent pane in the grid. Its display title is derived from the
+ * workspace's agent type and the pane's position, not stored here. */
 export interface Pane {
   id: string;
-  title: string;
 }
 
 /**
@@ -12,7 +12,7 @@ export interface Pane {
  */
 export function addPane(panes: Pane[], seq: number): Pane[] {
   if (panes.length >= MAX_PANES) return panes;
-  return [...panes, { id: `pane-${seq}`, title: `agent-${seq}` }];
+  return [...panes, { id: `pane-${seq}` }];
 }
 
 /** Remove the pane with `id`; a no-op if it isn't present. */
@@ -25,6 +25,5 @@ export function makePanes(startSeq: number, count: number): Pane[] {
   const n = Math.max(0, Math.min(count, MAX_PANES));
   return Array.from({ length: n }, (_, i) => ({
     id: `pane-${startSeq + i}`,
-    title: `agent-${startSeq + i}`,
   }));
 }

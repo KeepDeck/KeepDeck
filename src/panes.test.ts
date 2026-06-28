@@ -3,15 +3,12 @@ import { MAX_PANES } from "./layout";
 import { addPane, makePanes, removePane, type Pane } from "./panes";
 
 const seed = (n: number): Pane[] =>
-  Array.from({ length: n }, (_, i) => ({ id: `pane-${i + 1}`, title: `agent-${i + 1}` }));
+  Array.from({ length: n }, (_, i) => ({ id: `pane-${i + 1}` }));
 
 describe("addPane", () => {
   it("appends a pane numbered by seq", () => {
-    expect(addPane([], 1)).toEqual([{ id: "pane-1", title: "agent-1" }]);
-    expect(addPane(seed(1), 2)).toEqual([
-      { id: "pane-1", title: "agent-1" },
-      { id: "pane-2", title: "agent-2" },
-    ]);
+    expect(addPane([], 1)).toEqual([{ id: "pane-1" }]);
+    expect(addPane(seed(1), 2)).toEqual([{ id: "pane-1" }, { id: "pane-2" }]);
   });
 
   it("is a no-op at MAX_PANES (returns the same array)", () => {
@@ -24,10 +21,7 @@ describe("addPane", () => {
 
 describe("makePanes", () => {
   it("builds count panes numbered from startSeq", () => {
-    expect(makePanes(3, 2)).toEqual([
-      { id: "pane-3", title: "agent-3" },
-      { id: "pane-4", title: "agent-4" },
-    ]);
+    expect(makePanes(3, 2)).toEqual([{ id: "pane-3" }, { id: "pane-4" }]);
   });
 
   it("clamps to MAX_PANES and never goes negative", () => {
@@ -40,8 +34,8 @@ describe("makePanes", () => {
 describe("removePane", () => {
   it("removes by id and keeps the rest", () => {
     expect(removePane(seed(3), "pane-2")).toEqual([
-      { id: "pane-1", title: "agent-1" },
-      { id: "pane-3", title: "agent-3" },
+      { id: "pane-1" },
+      { id: "pane-3" },
     ]);
   });
 

@@ -14,16 +14,13 @@ const ws = (id: string, paneNums: number[]): Workspace => ({
   name: id,
   cwd: "/tmp",
   agentType: "claude",
-  panes: paneNums.map((n) => ({ id: `${id}-p${n}`, title: `agent-${n}` })),
+  panes: paneNums.map((n) => ({ id: `${id}-p${n}` })),
 });
 
 describe("addAgent", () => {
   it("adds a pane only to the target workspace", () => {
     const after = addAgent([ws("a", [1]), ws("b", [])], "a", 2);
-    expect(after[0].panes).toEqual([
-      { id: "a-p1", title: "agent-1" },
-      { id: "pane-2", title: "agent-2" },
-    ]);
+    expect(after[0].panes).toEqual([{ id: "a-p1" }, { id: "pane-2" }]);
     expect(after[1].panes).toHaveLength(0); // b untouched
   });
 

@@ -10,11 +10,16 @@ interface AgentTypeInfo {
 
 export const AGENT_TYPES: AgentTypeInfo[] = [
   { id: "claude", label: "Claude Code", command: "claude" },
-  { id: "opencode", label: "opencode", command: "opencode" },
+  { id: "opencode", label: "OpenCode", command: "opencode" },
   { id: "codex", label: "Codex", command: "codex" },
 ];
 
 /** The CLI command for an agent type. */
 export function commandForAgent(type: AgentType): string {
   return AGENT_TYPES.find((a) => a.id === type)?.command ?? "claude";
+}
+
+/** The display label for an agent type (e.g. "Claude Code"). */
+export function labelForAgent(type: AgentType): string {
+  return AGENT_TYPES.find((a) => a.id === type)?.label ?? "Agent";
 }
