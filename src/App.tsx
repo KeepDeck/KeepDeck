@@ -415,16 +415,21 @@ function App() {
 
           {closing && (
             <ConfirmDialog
-              title={closing.kind === "agent" ? "Close agent" : "Close workspace"}
+              title={
+                closing.kind === "agent"
+                  ? `Close agent "${closing.label}"?`
+                  : `Close workspace "${closing.name}"?`
+              }
               message={
                 closing.kind === "agent"
-                  ? `Close "${closing.label}"?\nIts terminal session will be ended.`
+                  ? "Its terminal session will be ended."
                   : closing.count === 0
-                    ? `Close workspace "${closing.name}"?`
-                    : `Close "${closing.name}"?\nThis ends ${closing.count} agent${closing.count === 1 ? "" : "s"} and their sessions.`
+                    ? "This workspace has no agents."
+                    : `This ends ${closing.count} agent${closing.count === 1 ? "" : "s"} and their sessions.`
               }
               confirmLabel="Close"
               cancelLabel="Cancel"
+              destructive
               onConfirm={confirmClose}
               onCancel={() => setClosing(null)}
             />
