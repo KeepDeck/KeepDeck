@@ -68,9 +68,18 @@ export function TerminalPane({ command, cwd, visible }: TerminalPaneProps) {
       .then((s) => {
         if (disposed) {
           void s.close();
-        } else {
-          session = s;
+          return;
         }
+        session = s;
+        // Sync the PTY to the current grid. A ResizeObserver can fire while the
+        // spawn promise is pending (sibling panes mounting) — it advances the
+        // lastCols/lastRows watermark but its `session?.resize` is a no-op
+        // (session still null), leaving the PTY stuck at the spawn size while
+        // xterm grew. That desync is what leaves blank rows + a phantom scroll
+        // (and garbles TUI repaints). Resize unconditionally now to converge.
+        lastCols = term.cols;
+        lastRows = term.rows;
+        s.resize(term.cols, term.rows).catch(() => {});
       })
       .catch((err: unknown) => {
         term.writeln(`\r\n\x1b[31m[failed to start session: ${err}]\x1b[0m`);
