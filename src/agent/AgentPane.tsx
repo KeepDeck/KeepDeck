@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { TerminalPane } from "../terminal/TerminalPane";
 
 interface AgentPaneProps {
@@ -46,6 +47,8 @@ export function AgentPane({
   onToggleFocus,
   onClose,
 }: AgentPaneProps) {
+  // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
+  const [exit, setExit] = useState<{ code: number | null } | null>(null);
   return (
     <section
       className={`pane${collapsed ? " pane--collapsed" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
@@ -89,7 +92,16 @@ export function AgentPane({
           cwd={cwd}
           visible={visible}
           selected={selected}
+          onExit={(code) => setExit({ code })}
         />
+        {exit && (
+          <div className="pane__exit" role="status">
+            <span className="pane__exit-title">Agent exited</span>
+            <span className="pane__exit-sub">
+              {exit.code !== null ? `exit code ${exit.code}` : "terminated"}
+            </span>
+          </div>
+        )}
       </div>
     </section>
   );
