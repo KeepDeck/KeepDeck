@@ -83,8 +83,10 @@ function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState("");
   const [focusByWs, setFocusByWs] = useState<Record<string, string>>({});
-  // The pane with the highlight border (last interacted-with in the active ws).
-  const [selectedPaneId, setSelectedPaneId] = useState<string | null>(null);
+  // The highlighted pane PER workspace, so switching keeps the one you were on
+  // instead of resetting to the first ([B2]) and closing a workspace can't leave
+  // the border on a deleted pane ([L6]).
+  const [selectByWs, setSelectByWs] = useState<Record<string, string>>({});
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
@@ -108,14 +110,20 @@ function App() {
 
   const active = workspaces.find((w) => w.id === activeId) ?? null;
   const showForm = creating || workspaces.length === 0;
+  const selectedPaneId = selectByWs[activeId] ?? null;
+  const selectPane = (wsId: string, paneId: string) =>
+    setSelectByWs((cur) => ({ ...cur, [wsId]: paneId }));
 
   const handleSelectWorkspace = (id: string) => {
     setActiveId(id);
     // Selecting a workspace returns from the create form (you can always go back
     // to an existing one).
     setCreating(false);
+    // Default to the first pane only if this workspace has no selection yet.
     const ws = workspaces.find((w) => w.id === id);
-    setSelectedPaneId(ws?.panes[0]?.id ?? null);
+    setSelectByWs((cur) =>
+      cur[id] || !ws?.panes[0] ? cur : { ...cur, [id]: ws.panes[0].id },
+    );
   };
 
   const handleAddAgent = () => {
@@ -167,7 +175,7 @@ function App() {
         name: name.trim() || undefined,
       };
       setWorkspaces((current) => addAgentPane(current, dlg.wsId, pane));
-      setSelectedPaneId(dlg.agentId);
+      selectPane(dlg.wsId, dlg.agentId);
     } catch (e) {
       console.error("worktree create failed", e);
       setError(`Failed to create agent worktree:\n${e}`);
@@ -184,11 +192,14 @@ function App() {
       delete next[workspaceId];
       return next;
     });
-    setSelectedPaneId((cur) => {
-      if (cur !== paneId) return cur;
+    setSelectByWs((cur) => {
+      if (cur[workspaceId] !== paneId) return cur;
       const ws = workspaces.find((w) => w.id === workspaceId);
       const remaining = ws?.panes.filter((p) => p.id !== paneId) ?? [];
-      return remaining[0]?.id ?? null;
+      const next = { ...cur };
+      if (remaining[0]) next[workspaceId] = remaining[0].id;
+      else delete next[workspaceId];
+      return next;
     });
   };
 
@@ -214,7 +225,7 @@ function App() {
       setWorkspaces((current) =>
         current.map((w) => (w.id === workspaceId ? { ...w, panes } : w)),
       );
-      setSelectedPaneId(panes[0]?.id ?? null);
+      if (panes[0]) selectPane(workspaceId, panes[0].id);
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -254,7 +265,7 @@ function App() {
       };
       setWorkspaces((current) => [...current, workspace]);
       setActiveId(id);
-      setSelectedPaneId(panes[0]?.id ?? null);
+      if (panes[0]) selectPane(id, panes[0].id);
       setCreating(false);
     } finally {
       submitting.current = false;
@@ -267,12 +278,24 @@ function App() {
 
   const handleCloseWorkspace = (id: string) => {
     const next = closeWorkspace(workspaces, id);
+    const newActive = resolveActiveId(next, activeId);
     setWorkspaces(next);
-    setActiveId(resolveActiveId(next, activeId));
+    setActiveId(newActive);
     setFocusByWs((cur) => {
       if (!(id in cur)) return cur;
       const updated = { ...cur };
       delete updated[id];
+      return updated;
+    });
+    // Drop the closed workspace's selection; default the new active one's so the
+    // border lands on a live pane, not the deleted workspace's ([L6]).
+    setSelectByWs((cur) => {
+      const updated = { ...cur };
+      delete updated[id];
+      const aws = next.find((w) => w.id === newActive);
+      if (newActive && !updated[newActive] && aws?.panes[0]) {
+        updated[newActive] = aws.panes[0].id;
+      }
       return updated;
     });
   };
@@ -388,7 +411,7 @@ function App() {
                       collapsed={isCollapsed}
                       selected={pane.id === selectedPaneId}
                       colSpan={colSpan}
-                      onSelect={() => setSelectedPaneId(pane.id)}
+                      onSelect={() => selectPane(ws.id, pane.id)}
                       onToggleFocus={() => toggleFocus(ws.id, pane.id)}
                       onClose={() => handleCloseAgent(ws.id, pane.id)}
                     />

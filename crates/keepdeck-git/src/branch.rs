@@ -38,7 +38,9 @@ pub fn sanitize_branch_component(input: &str) -> String {
     }
 
     let mut result = out.trim_matches(|c| c == '-' || c == '.').to_string();
-    if let Some(stripped) = result.strip_suffix(".lock") {
+    // Strip a trailing `.lock` repeatedly: git rejects any ref ending in
+    // `.lock`, and a single pass leaves `a.lock.lock` -> `a.lock`.
+    while let Some(stripped) = result.strip_suffix(".lock") {
         result = stripped
             .trim_end_matches(|c| c == '-' || c == '.')
             .to_string();
@@ -96,6 +98,7 @@ mod tests {
         assert_eq!(sanitize_branch_component("..hidden.."), "hidden");
         assert_eq!(sanitize_branch_component("-trim-"), "trim");
         assert_eq!(sanitize_branch_component("index.lock"), "index");
+        assert_eq!(sanitize_branch_component("a.lock.lock"), "a");
     }
 
     #[test]

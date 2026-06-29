@@ -6,3 +6,7 @@ description = "PTY-backed session process layer for KeepDeck."
 
 [dependencies]
 portable-pty = "0.9"
+
+# SIGTERM→SIGKILL escalation on kill (Unix only).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

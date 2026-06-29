@@ -11,14 +11,24 @@
 //! `Exited` are emitted from the same reader thread, so all output is guaranteed
 //! to arrive before the exit event.
 
+mod path;
+
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use portable_pty::{
     native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize,
 };
+
+/// Cap on buffered PTY events per session. Bounds memory under a flooding child
+/// (each event is one read of up to 4 KiB) while leaving generous headroom; a
+/// full channel backpressures the pump thread instead of growing without limit.
+const EVENT_CHANNEL_CAP: usize = 1024;
 
 /// Terminal size in character cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +101,11 @@ pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     killer: Box<dyn ChildKiller + Send + Sync>,
+    /// Child pid, for the SIGTERM→SIGKILL escalation in [`kill`](Self::kill) (Unix).
+    pid: Option<u32>,
+    /// Set by the reaper once the child is waited on, so `kill`'s escalation
+    /// timer never signals an already-reaped (possibly recycled) pid.
+    exited: Arc<AtomicBool>,
 }
 
 impl PtySession {
@@ -103,33 +118,59 @@ impl PtySession {
             .openpty(pty_size(spec.size.cols, spec.size.rows))
             .map_err(to_io)?;
 
-        let mut cmd = CommandBuilder::new(&spec.command);
+        // Rebuild PATH so a GUI-launched (stripped-PATH) instance finds the
+        // user's CLIs, and resolve the program against it (CommandBuilder won't
+        // search our augmented PATH for a bare name on its own).
+        let path_env = path::augmented_path();
+        let mut cmd = CommandBuilder::new(path::resolve_program(&spec.command, path_env));
         cmd.args(&spec.args);
         cmd.cwd(match spec.cwd {
             Some(dir) => dir,
             None => std::env::current_dir()?,
         });
+        cmd.env("PATH", path_env);
         cmd.env("TERM", "xterm-256color");
         for (key, value) in &spec.env {
             cmd.env(key, value);
         }
 
-        let child = pair.slave.spawn_command(cmd).map_err(to_io)?;
+        let mut child = pair.slave.spawn_command(cmd).map_err(to_io)?;
         // Drop the slave so the master reports EOF once the child closes its end.
         drop(pair.slave);
 
         let killer = child.clone_killer();
-        let reader = pair.master.try_clone_reader().map_err(to_io)?;
-        let writer = pair.master.take_writer().map_err(to_io)?;
+        let pid = child.process_id();
+        // A failure after the child has spawned must not leak it — dropping the
+        // handle leaves it running per this crate's contract, so kill + reap on
+        // each error path.
+        let reader = match pair.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(to_io(e));
+            }
+        };
+        let writer = match pair.master.take_writer() {
+            Ok(writer) => writer,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(to_io(e));
+            }
+        };
 
-        let (tx, rx) = mpsc::channel::<PtyEvent>();
-        spawn_pump(reader, child, tx);
+        let exited = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::sync_channel::<PtyEvent>(EVENT_CHANNEL_CAP);
+        spawn_pump(reader, child, tx, exited.clone());
 
         Ok((
             Self {
                 master: pair.master,
                 writer,
                 killer,
+                pid,
+                exited,
             },
             rx,
         ))
@@ -146,8 +187,30 @@ impl PtySession {
         self.master.resize(pty_size(cols, rows)).map_err(to_io)
     }
 
-    /// Terminate the child process.
+    /// Terminate the child: SIGTERM now, then SIGKILL after a grace period if
+    /// it's still alive — so a well-behaved agent can clean up, but a trap that
+    /// swallows the signal can't survive a close. (A bare `ChildKiller::kill`
+    /// only sends a catchable SIGHUP.)
     pub fn kill(&mut self) -> io::Result<()> {
+        #[cfg(unix)]
+        if let Some(pid) = self.pid {
+            // Already reaped → nothing to signal (and avoids a recycled pid).
+            if self.exited.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+            let pid = pid as i32;
+            // SAFETY: kill(2) on a child we own; harmless ESRCH if already gone.
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            let exited = self.exited.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(3));
+                if !exited.load(Ordering::Relaxed) {
+                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                }
+            });
+            return Ok(());
+        }
+        // No pid, or non-Unix: fall back to the killer's signal.
         self.killer.kill()
     }
 }
@@ -158,7 +221,8 @@ impl PtySession {
 fn spawn_pump(
     mut reader: Box<dyn Read + Send>,
     mut child: Box<dyn Child + Send + Sync>,
-    tx: Sender<PtyEvent>,
+    tx: SyncSender<PtyEvent>,
+    exited: Arc<AtomicBool>,
 ) {
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
@@ -172,6 +236,7 @@ fn spawn_pump(
                         // undrained PTY the child keeps filling — then reap it.
                         let _ = child.kill();
                         let _ = child.wait();
+                        exited.store(true, Ordering::Relaxed);
                         return;
                     }
                 }
@@ -189,6 +254,7 @@ fn spawn_pump(
                 code: None,
             },
         };
+        exited.store(true, Ordering::Relaxed);
         let _ = tx.send(PtyEvent::Exited(info));
     });
 }
