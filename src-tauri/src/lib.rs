@@ -2,7 +2,7 @@ mod session;
 
 use serde::Serialize;
 
-/// Build/runtime info surfaced to the cockpit UI.
+/// Build/runtime info surfaced to the deck UI.
 ///
 /// Doubles as the IPC smoke test for the skeleton: if the UI can render this,
 /// the React <-> Rust bridge is wired. Real fleet/observability commands land
