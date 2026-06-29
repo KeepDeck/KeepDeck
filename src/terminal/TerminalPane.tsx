@@ -38,6 +38,9 @@ export function TerminalPane({ command, cwd, visible }: TerminalPaneProps) {
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: 13,
       cursorBlink: true,
+      // xterm defaults to 1000 lines — too small for verbose agents. Bumped;
+      // make it configurable later (settings, [F6]).
+      scrollback: 10000,
       theme: { background: "#0b0e14", foreground: "#c5c8c6" },
     });
     const fit = new FitAddon();
@@ -68,9 +71,18 @@ export function TerminalPane({ command, cwd, visible }: TerminalPaneProps) {
       .then((s) => {
         if (disposed) {
           void s.close();
-        } else {
-          session = s;
+          return;
         }
+        session = s;
+        // Sync the PTY to the current grid. A ResizeObserver can fire while the
+        // spawn promise is pending (sibling panes mounting) — it advances the
+        // lastCols/lastRows watermark but its `session?.resize` is a no-op
+        // (session still null), leaving the PTY stuck at the spawn size while
+        // xterm grew. That desync is what leaves blank rows + a phantom scroll
+        // (and garbles TUI repaints). Resize unconditionally now to converge.
+        lastCols = term.cols;
+        lastRows = term.rows;
+        s.resize(term.cols, term.rows).catch(() => {});
       })
       .catch((err: unknown) => {
         term.writeln(`\r\n\x1b[31m[failed to start session: ${err}]\x1b[0m`);

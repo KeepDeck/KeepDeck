@@ -167,7 +167,10 @@ fn spawn_pump(
                 Ok(0) => break,
                 Ok(n) => {
                     if tx.send(PtyEvent::Output(buf[..n].to_vec())).is_err() {
-                        // Receiver dropped; still reap the child to avoid a zombie.
+                        // Receiver dropped (webview gone): kill the child first so
+                        // it stops writing — otherwise wait() blocks forever on an
+                        // undrained PTY the child keeps filling — then reap it.
+                        let _ = child.kill();
                         let _ = child.wait();
                         return;
                     }
