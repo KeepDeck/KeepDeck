@@ -7,9 +7,9 @@
     <style>
       /* Paint the document dark on the very first frame — before the JS bundle
          (which carries App.css) parses — so the webview never flashes white on
-         boot. #boot is a lightweight pre-React loading screen, dismissed by
-         main.tsx once the app has painted. Both share the same dark background,
-         so the hand-off shows no white frame at any point. */
+         boot. #boot is a plain dark pre-React splash (no branding yet — logo
+         TBD), dismissed by main.tsx once the app has painted. It shares the
+         app's dark background, so the hand-off shows no white frame. */
       html,
       body {
         margin: 0;
@@ -23,15 +23,7 @@
         position: fixed;
         inset: 0;
         z-index: 10;
-        display: flex;
-        align-items: center;
-        justify-content: center;
         background: #0b0e14;
-        color: #6b7280;
-        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-        font-weight: 600;
-        font-size: 15px;
-        letter-spacing: 0.06em;
         transition: opacity 0.25s ease;
       }
       #boot.boot--hidden {
@@ -43,7 +35,7 @@
 
   <body>
     <div id="root"></div>
-    <div id="boot">KeepDeck</div>
+    <div id="boot"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
