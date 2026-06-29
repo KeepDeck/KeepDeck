@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use crate::cmd::run_git;
@@ -95,10 +96,22 @@ fn short_branch(reference: &str) -> String {
 /// caller is responsible for serializing concurrent adds on one repo (git takes
 /// `.git` locks that race) and for choosing a unique `branch`/`path`.
 pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<(), GitError> {
-    let path = path.to_string_lossy().into_owned();
-    // `--` ends option parsing: the dir is user-editable, so a leaf starting
-    // with `-` must not be read by git as a flag.
-    run_git(repo, &["worktree", "add", "-b", branch, "--", &path, base_commit]).map(drop)
+    // `--` ends option parsing (the dir is user-editable, so a leaf starting
+    // with `-` must not be read by git as a flag); the path passes as an OsStr
+    // so a non-UTF-8 path isn't corrupted.
+    run_git(
+        repo,
+        [
+            OsStr::new("worktree"),
+            OsStr::new("add"),
+            OsStr::new("-b"),
+            OsStr::new(branch),
+            OsStr::new("--"),
+            path.as_os_str(),
+            OsStr::new(base_commit),
+        ],
+    )
+    .map(drop)
 }
 
 /// List the repository's worktrees.
@@ -113,14 +126,13 @@ pub fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, GitError> {
 /// callers must gate this: KeepDeck never force-removes a dirty worktree
 /// without explicit intent (work would be lost).
 pub fn remove(repo: &Path, path: &Path, force: bool) -> Result<(), GitError> {
-    let path = path.to_string_lossy().into_owned();
-    let mut args: Vec<&str> = vec!["worktree", "remove"];
+    let mut args: Vec<&OsStr> = vec![OsStr::new("worktree"), OsStr::new("remove")];
     if force {
-        args.push("--force");
+        args.push(OsStr::new("--force"));
     }
-    args.push("--"); // end of options — the path is positional (see `add`)
-    args.push(&path);
-    run_git(repo, &args).map(drop)
+    args.push(OsStr::new("--")); // end of options — the path is positional (see `add`)
+    args.push(path.as_os_str());
+    run_git(repo, args).map(drop)
 }
 
 /// Prune administrative records of worktrees whose directories are gone.
