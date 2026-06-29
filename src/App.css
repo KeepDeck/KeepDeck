@@ -78,7 +78,7 @@ body,
 }
 
 .deck__active-ws::before {
-  content: "/";
+  content: "·";
   margin-right: 10px;
   color: #3b4658;
 }
