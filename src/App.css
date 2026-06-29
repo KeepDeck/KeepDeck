@@ -522,6 +522,9 @@ body,
   width: 100%;
   max-width: 560px;
   padding: 28px;
+  border: 1px solid #1c2230;
+  border-radius: 12px;
+  background-color: #0e121a;
 }
 
 .form__title {
