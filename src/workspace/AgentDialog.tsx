@@ -11,8 +11,6 @@ export interface AgentDialogResult {
 interface AgentDialogProps {
   /** Pre-filled branch name (the auto default), editable. */
   defaultBranch: string;
-  /** Base folder for worktrees; the path preview is derived from it + branch. */
-  baseDir: string;
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
 }
@@ -29,19 +27,18 @@ function worktreeLeaf(branch: string): string {
 
 /**
  * Modal shown when adding a single agent to a worktree-mode workspace: lets you
- * name the agent and the branch it creates, and previews the resolved worktree
- * path. Batch creation (the spawn form / count picker) skips this and uses auto
- * branch names.
+ * name the agent and the branch it creates, and previews the worktree folder
+ * (relative to the workspace's base dir). Batch creation (the spawn form / count
+ * picker) skips this and uses auto branch names.
  */
 export function AgentDialog({
   defaultBranch,
-  baseDir,
   onConfirm,
   onCancel,
 }: AgentDialogProps) {
   const [name, setName] = useState("");
   const [branch, setBranch] = useState(defaultBranch);
-  const path = `${baseDir}/${worktreeLeaf(branch)}`;
+  const folder = worktreeLeaf(branch);
   useEscape(onCancel);
 
   return (
@@ -72,9 +69,9 @@ export function AgentDialog({
           aria-label="Branch name"
         />
 
-        <span className="form__label">Worktree path</span>
-        <span className="form__dir-path" title={path}>
-          {path}
+        <span className="form__label">Worktree folder</span>
+        <span className="form__dir-path" title={folder}>
+          {folder}
         </span>
 
         <div className="form__actions">

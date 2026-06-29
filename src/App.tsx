@@ -97,7 +97,6 @@ function App() {
     agentId: string;
     index: number;
     defaultBranch: string;
-    baseDir: string;
   } | null>(null);
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
@@ -128,7 +127,6 @@ function App() {
         agentId,
         index,
         defaultBranch: `kd/${slug}/${index}`,
-        baseDir: active.worktreeBaseDir,
       });
       return;
     }
@@ -392,7 +390,6 @@ function App() {
           {agentDialog && (
             <AgentDialog
               defaultBranch={agentDialog.defaultBranch}
-              baseDir={agentDialog.baseDir}
               onConfirm={handleConfirmAgent}
               onCancel={() => setAgentDialog(null)}
             />
