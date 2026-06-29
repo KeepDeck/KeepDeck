@@ -64,6 +64,22 @@ pub fn default_branch(prefix: &str, workspace: &str, n: usize) -> String {
     )
 }
 
+/// Sanitize a full, possibly slash-separated branch name (e.g. a user-typed
+/// `feat/login`) component by component, dropping empty segments. Never empty.
+pub fn sanitize_branch(input: &str) -> String {
+    let joined = input
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(sanitize_branch_component)
+        .collect::<Vec<_>>()
+        .join("/");
+    if joined.is_empty() {
+        "agent".to_string()
+    } else {
+        joined
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +119,18 @@ mod tests {
     fn default_branch_shapes_the_name() {
         assert_eq!(default_branch("kd", "My Work", 3), "kd/My-Work/3");
         assert_eq!(default_branch("/kd/", "ws", 0), "kd/ws/0");
+    }
+
+    #[test]
+    fn sanitize_branch_keeps_slashes_but_cleans_components() {
+        assert_eq!(sanitize_branch("feat/my login"), "feat/my-login");
+        assert_eq!(sanitize_branch("/feat//x/"), "feat/x");
+        assert_eq!(sanitize_branch("we:ird/na me"), "we-ird/na-me");
+    }
+
+    #[test]
+    fn sanitize_branch_never_empty() {
+        assert_eq!(sanitize_branch(""), "agent");
+        assert_eq!(sanitize_branch("///"), "agent");
     }
 }

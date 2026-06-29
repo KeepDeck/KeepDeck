@@ -33,3 +33,14 @@ pub fn resolve_commit(repo: &Path, rev: &str) -> Result<String, GitError> {
     let out = run_git(repo, &["rev-parse", "--verify", "--quiet", &spec])?;
     Ok(out.trim().to_string())
 }
+
+/// The current branch name, or `None` when `HEAD` is detached.
+pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
+    let out = run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let name = out.trim();
+    Ok(if name == "HEAD" {
+        None
+    } else {
+        Some(name.to_string())
+    })
+}
