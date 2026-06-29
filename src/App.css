@@ -566,6 +566,12 @@ body,
   color: #6b7280;
 }
 
+.form__git {
+  margin-top: -4px;
+  font-size: 12px;
+  color: #58b368;
+}
+
 .form__dir-btn,
 .form__cancel {
   flex: none;

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { useEffect, useState } from "react";
+import { ask, open } from "@tauri-apps/plugin-dialog";
 import { AGENT_TYPES, type AgentType } from "../agents";
 import { inspectRepo } from "../worktree";
 import { TERMINAL_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
@@ -31,6 +31,29 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
   const [agentType, setAgentType] = useState<AgentType>("claude");
   const [count, setCount] = useState(1);
   const [worktreeDir, setWorktreeDir] = useState<string | null>(null);
+  const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
+    null,
+  );
+
+  // Probe the chosen working directory: show a "git detected" hint and decide
+  // whether to nudge toward worktree isolation on submit.
+  useEffect(() => {
+    if (!cwd) {
+      setGit(null);
+      return;
+    }
+    let cancelled = false;
+    inspectRepo(cwd)
+      .then((info) => {
+        if (!cancelled) setGit({ isRepo: info.isRepo, branch: info.branch });
+      })
+      .catch(() => {
+        if (!cancelled) setGit(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd]);
 
   const chooseDirectory = async () => {
     const selected = await open({
@@ -52,19 +75,17 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
 
   const submit = async () => {
     if (!cwd) return;
-    // No worktree dir chosen, but the working dir is a git repo → nudge, since
-    // running every agent in one repo working tree is what worktrees avoid.
-    if (!worktreeDir) {
-      const info = await inspectRepo(cwd);
-      if (info.isRepo) {
-        const proceed = window.confirm(
-          "This folder is a git repository.\n\n" +
-            "Run all agents directly in it, without an isolated git worktree " +
-            "per agent? Choose a worktree directory to isolate them, or confirm " +
-            "to continue without.",
-        );
-        if (!proceed) return;
-      }
+    // No worktree dir chosen, but the working dir is a git repo → nudge. Uses
+    // the native Tauri dialog; the browser confirm() doesn't render in the
+    // webview.
+    if (!worktreeDir && git?.isRepo) {
+      const proceed = await ask(
+        "This folder is a git repository. Run all agents directly in it, " +
+          "without an isolated git worktree per agent?\n\nPick a worktree " +
+          "directory to isolate them, or continue without.",
+        { title: "No worktree isolation", kind: "warning" },
+      );
+      if (!proceed) return;
     }
     onCreate({ name, cwd, agentType, count, worktreeBaseDir: worktreeDir });
   };
@@ -104,6 +125,11 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
           Choose…
         </button>
       </div>
+      {git?.isRepo && (
+        <span className="form__git">
+          ✓ Git repository detected{git.branch ? ` · ${git.branch}` : ""}
+        </span>
+      )}
 
       <span className="form__label">Worktree directory (optional)</span>
       <div className="form__dir">

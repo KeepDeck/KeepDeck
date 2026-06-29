@@ -16,7 +16,8 @@ import {
   resolveActiveId,
   type Workspace,
 } from "./workspaces";
-import { createWorktree, inspectRepo, removeWorktree } from "./worktree";
+import { createWorktree, inspectRepo } from "./worktree";
+import { message } from "@tauri-apps/plugin-dialog";
 import {
   MAX_PANES,
   gridTracks,
@@ -62,7 +63,10 @@ async function provisionPanes(
       panes.push({ id: agentId, cwd: rec.path, branch: rec.branch });
     } catch (e) {
       console.error("worktree create failed", e);
-      window.alert(`Failed to create worktree for ${agentId}:\n${e}`);
+      await message(`Failed to create worktree for ${agentId}:\n${e}`, {
+        title: "Worktree error",
+        kind: "error",
+      });
       panes.push({ id: agentId }); // fall back to the workspace cwd
     }
   }
@@ -95,7 +99,7 @@ function App() {
     agentId: string;
     index: number;
     defaultBranch: string;
-    worktreePath: string;
+    baseDir: string;
   } | null>(null);
 
   const active = workspaces.find((w) => w.id === activeId) ?? null;
@@ -124,7 +128,7 @@ function App() {
         agentId,
         index,
         defaultBranch: `kd/${slug}/${index}`,
-        worktreePath: `${active.worktreeBaseDir}/${agentId}`,
+        baseDir: active.worktreeBaseDir,
       });
       return;
     }
@@ -158,20 +162,16 @@ function App() {
       setSelectedPaneId(dlg.agentId);
     } catch (e) {
       console.error("worktree create failed", e);
-      window.alert(`Failed to create agent worktree:\n${e}`);
+      await message(`Failed to create agent worktree:\n${e}`, {
+        title: "Worktree error",
+        kind: "error",
+      });
     }
   };
 
   const handleCloseAgent = (workspaceId: string, paneId: string) => {
-    const ws = workspaces.find((w) => w.id === workspaceId);
-    const pane = ws?.panes.find((p) => p.id === paneId);
-    if (ws?.worktreeBaseDir && pane?.cwd) {
-      // Best-effort: remove a clean worktree; the backend refuses a dirty one,
-      // which we keep (park) on disk so work is never destroyed.
-      removeWorktree(ws.cwd, pane.cwd).catch((e) =>
-        console.warn("worktree kept:", e),
-      );
-    }
+    // Closing an agent removes its pane (tearing down the PTY). Its git worktree
+    // and branch are left on disk — cleanup is deferred (see worktrees design).
     setWorkspaces((current) => closeAgent(current, workspaceId, paneId));
     setFocusByWs((cur) => {
       if (cur[workspaceId] !== paneId) return cur;
@@ -390,7 +390,7 @@ function App() {
           {agentDialog && (
             <AgentDialog
               defaultBranch={agentDialog.defaultBranch}
-              worktreePath={agentDialog.worktreePath}
+              baseDir={agentDialog.baseDir}
               onConfirm={handleConfirmAgent}
               onCancel={() => setAgentDialog(null)}
             />
