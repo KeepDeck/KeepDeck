@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
-import { addPane, appendPane, makePanes, removePane, type Pane } from "./panes";
+import {
+  addPane,
+  appendPane,
+  makePanes,
+  removePane,
+  resolveFocus,
+  type Pane,
+} from "./panes";
 
 const seed = (n: number): Pane[] =>
   Array.from({ length: n }, (_, i) => ({ id: `pane-${i + 1}` }));
@@ -54,5 +61,28 @@ describe("removePane", () => {
   it("is a no-op for an unknown id", () => {
     const panes = seed(2);
     expect(removePane(panes, "pane-9")).toEqual(panes);
+  });
+});
+
+describe("resolveFocus", () => {
+  it("returns the focused pane id when it's one of several panes", () => {
+    expect(resolveFocus(seed(3), "pane-2")).toBe("pane-2");
+  });
+
+  it("returns null for a solo pane — maximize is a no-op ([U1])", () => {
+    expect(resolveFocus(seed(1), "pane-1")).toBeNull();
+  });
+
+  it("returns null when the focused id no longer matches any pane", () => {
+    // The maximized pane was closed, leaving others behind.
+    expect(resolveFocus(seed(3), "pane-9")).toBeNull();
+  });
+
+  it("returns null when nothing is focused", () => {
+    expect(resolveFocus(seed(3), undefined)).toBeNull();
+  });
+
+  it("returns null for an empty workspace", () => {
+    expect(resolveFocus([], "pane-1")).toBeNull();
   });
 });

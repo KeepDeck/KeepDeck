@@ -39,6 +39,20 @@ export function removePane(panes: Pane[], id: string): Pane[] {
   return panes.filter((pane) => pane.id !== id);
 }
 
+/**
+ * The pane that should render maximized, or `null` when none does. A workspace
+ * with a single pane is never maximized ([U1]: maximize is a no-op on a solo
+ * pane — the lone tile already fills the grid), and a `focusedId` that no longer
+ * matches any pane (e.g. the maximized pane was just closed) resolves to none.
+ */
+export function resolveFocus(
+  panes: Pane[],
+  focusedId: string | undefined,
+): string | null {
+  if (!focusedId || panes.length <= 1) return null;
+  return panes.some((pane) => pane.id === focusedId) ? focusedId : null;
+}
+
 /** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES). */
 export function makePanes(startSeq: number, count: number): Pane[] {
   const n = clampPaneCount(count);
