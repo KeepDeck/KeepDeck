@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { AGENT_TYPES, type AgentType } from "../agents";
 import { inspectRepo } from "../worktree";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { useEscape } from "../ui/useEscape";
 import { TERMINAL_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
 export interface SpawnConfig {
@@ -56,6 +57,12 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
       cancelled = true;
     };
   }, [cwd]);
+
+  // Esc closes the form when there's a workspace to return to — but not while
+  // the nudge is open (its own Esc handles that, so the form stays put).
+  useEscape(() => {
+    if (onCancel && !nudge) onCancel();
+  });
 
   const chooseDirectory = async () => {
     const selected = await open({

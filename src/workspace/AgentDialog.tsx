@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEscape } from "../ui/useEscape";
 
 export interface AgentDialogResult {
   /** Optional custom display name; blank falls back to the derived title. */
@@ -41,6 +42,7 @@ export function AgentDialog({
   const [name, setName] = useState("");
   const [branch, setBranch] = useState(defaultBranch);
   const path = `${baseDir}/${worktreeLeaf(branch)}`;
+  useEscape(onCancel);
 
   return (
     <div className="modal-overlay">

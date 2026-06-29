@@ -1,3 +1,5 @@
+import { useEscape } from "./useEscape";
+
 interface ConfirmDialogProps {
   title: string;
   /** Body text; `\n` renders as line breaks (white-space: pre-line). */
@@ -24,6 +26,9 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  // Esc cancels a yes/no prompt, or dismisses a one-button notice.
+  useEscape(onCancel ?? onConfirm);
+
   return (
     <div className="modal-overlay">
       <div className="confirm" role="dialog" aria-modal="true">
