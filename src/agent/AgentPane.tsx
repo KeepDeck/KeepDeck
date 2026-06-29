@@ -6,6 +6,8 @@ interface AgentPaneProps {
   command?: string | null;
   /** Working directory for the session. */
   cwd?: string | null;
+  /** Git branch of the agent's worktree, shown in the header when isolated. */
+  branch?: string | null;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -30,6 +32,7 @@ export function AgentPane({
   title,
   command,
   cwd,
+  branch,
   visible,
   focused,
   collapsed,
@@ -48,6 +51,11 @@ export function AgentPane({
     >
       <header className="pane__bar">
         <span className="pane__title">{title}</span>
+        {branch && (
+          <span className="pane__branch" title={branch}>
+            {branch}
+          </span>
+        )}
         <div className="pane__actions">
           <button
             type="button"

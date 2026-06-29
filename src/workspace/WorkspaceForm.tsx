@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AGENT_TYPES, type AgentType } from "../agents";
+import { inspectRepo } from "../worktree";
 import { TERMINAL_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
 export interface SpawnConfig {
@@ -9,6 +10,8 @@ export interface SpawnConfig {
   cwd: string;
   agentType: AgentType;
   count: number;
+  /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
+  worktreeBaseDir: string | null;
 }
 
 interface WorkspaceFormProps {
@@ -27,6 +30,7 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
   const [cwd, setCwd] = useState<string | null>(null);
   const [agentType, setAgentType] = useState<AgentType>("claude");
   const [count, setCount] = useState(1);
+  const [worktreeDir, setWorktreeDir] = useState<string | null>(null);
 
   const chooseDirectory = async () => {
     const selected = await open({
@@ -37,8 +41,32 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
     if (typeof selected === "string") setCwd(selected);
   };
 
-  const submit = () => {
-    if (cwd) onCreate({ name, cwd, agentType, count });
+  const chooseWorktreeDir = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Choose a base folder for agent worktrees",
+    });
+    if (typeof selected === "string") setWorktreeDir(selected);
+  };
+
+  const submit = async () => {
+    if (!cwd) return;
+    // No worktree dir chosen, but the working dir is a git repo → nudge, since
+    // running every agent in one repo working tree is what worktrees avoid.
+    if (!worktreeDir) {
+      const info = await inspectRepo(cwd);
+      if (info.isRepo) {
+        const proceed = window.confirm(
+          "This folder is a git repository.\n\n" +
+            "Run all agents directly in it, without an isolated git worktree " +
+            "per agent? Choose a worktree directory to isolate them, or confirm " +
+            "to continue without.",
+        );
+        if (!proceed) return;
+      }
+    }
+    onCreate({ name, cwd, agentType, count, worktreeBaseDir: worktreeDir });
   };
 
   return (
@@ -72,6 +100,32 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
           type="button"
           className="form__dir-btn"
           onClick={chooseDirectory}
+        >
+          Choose…
+        </button>
+      </div>
+
+      <span className="form__label">Worktree directory (optional)</span>
+      <div className="form__dir">
+        <span
+          className={`form__dir-path${worktreeDir ? "" : " form__dir-path--empty"}`}
+          title={worktreeDir ?? undefined}
+        >
+          {worktreeDir ?? "Agents run in the working directory"}
+        </span>
+        {worktreeDir && (
+          <button
+            type="button"
+            className="form__dir-btn"
+            onClick={() => setWorktreeDir(null)}
+          >
+            Clear
+          </button>
+        )}
+        <button
+          type="button"
+          className="form__dir-btn"
+          onClick={chooseWorktreeDir}
         >
           Choose…
         </button>

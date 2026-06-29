@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
 import {
   addAgent,
+  addAgentPane,
   closeAgent,
   closeWorkspace,
   renameWorkspace,
@@ -14,6 +15,7 @@ const ws = (id: string, paneNums: number[]): Workspace => ({
   name: id,
   cwd: "/tmp",
   agentType: "claude",
+  worktreeBaseDir: null,
   panes: paneNums.map((n) => ({ id: `${id}-p${n}` })),
 });
 
@@ -30,6 +32,24 @@ describe("addAgent", () => {
       Array.from({ length: MAX_PANES }, (_, i) => i + 1),
     );
     const after = addAgent([full], "a", 99);
+    expect(after[0].panes).toHaveLength(MAX_PANES);
+  });
+});
+
+describe("addAgentPane", () => {
+  it("appends a provisioned pane (with worktree info) to the target only", () => {
+    const pane = { id: "a-p2", cwd: "/wt/a-p2", branch: "kd/a/2" };
+    const after = addAgentPane([ws("a", [1]), ws("b", [])], "a", pane);
+    expect(after[0].panes).toEqual([{ id: "a-p1" }, pane]);
+    expect(after[1].panes).toHaveLength(0); // b untouched
+  });
+
+  it("respects the pane cap", () => {
+    const full = ws(
+      "a",
+      Array.from({ length: MAX_PANES }, (_, i) => i + 1),
+    );
+    const after = addAgentPane([full], "a", { id: "overflow" });
     expect(after[0].panes).toHaveLength(MAX_PANES);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
-import { addPane, makePanes, removePane, type Pane } from "./panes";
+import { addPane, appendPane, makePanes, removePane, type Pane } from "./panes";
 
 const seed = (n: number): Pane[] =>
   Array.from({ length: n }, (_, i) => ({ id: `pane-${i + 1}` }));
@@ -16,6 +16,18 @@ describe("addPane", () => {
     const result = addPane(full, MAX_PANES + 1);
     expect(result).toBe(full);
     expect(result).toHaveLength(MAX_PANES);
+  });
+});
+
+describe("appendPane", () => {
+  it("appends an already-formed pane (worktree fields preserved)", () => {
+    const pane = { id: "pane-2", cwd: "/wt/2", branch: "kd/ws/2" };
+    expect(appendPane(seed(1), pane)).toEqual([{ id: "pane-1" }, pane]);
+  });
+
+  it("is a no-op at MAX_PANES (returns the same array)", () => {
+    const full = seed(MAX_PANES);
+    expect(appendPane(full, { id: "overflow" })).toBe(full);
   });
 });
 
