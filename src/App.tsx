@@ -6,7 +6,7 @@ import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
 import { fetchAppInfo, type AppInfo } from "./ipc";
 import { commandForAgent, labelForAgent } from "./agents";
-import { makePanes, type Pane } from "./panes";
+import { makePanes, paneId, type Pane } from "./panes";
 import {
   addAgent,
   addAgentPane,
@@ -16,10 +16,11 @@ import {
   resolveActiveId,
   type Workspace,
 } from "./workspaces";
-import { createWorktree, inspectRepo } from "./worktree";
+import { createWorktree, inspectRepo, suggestWorktree } from "./worktree";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import {
   MAX_PANES,
+  clampPaneCount,
   gridTracks,
   paneColumnSpan,
   paneGrid,
@@ -48,10 +49,10 @@ async function provisionPanes(
     base = undefined; // create resolves HEAD itself when base is omitted
   }
 
-  const n = Math.max(0, Math.min(count, MAX_PANES));
+  const n = clampPaneCount(count);
   const panes: Pane[] = [];
   for (let i = 0; i < n; i++) {
-    const agentId = `pane-${startSeq + i}`;
+    const agentId = paneId(startSeq + i);
     try {
       const rec = await createWorktree({
         repo: ws.cwd,
@@ -104,6 +105,7 @@ function App() {
     agentId: string;
     index: number;
     defaultBranch: string;
+    defaultFolder: string;
   } | null>(null);
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
@@ -126,20 +128,21 @@ function App() {
     );
   };
 
-  const handleAddAgent = () => {
+  const handleAddAgent = async () => {
     if (!active) return;
     const seq = nextAgentSeq.current;
     nextAgentSeq.current += 1;
-    // Worktree mode: open the dialog to pick a branch/name + see the path first.
+    // Worktree mode: open the dialog to pick a branch/folder/name first. The
+    // defaults come from the backend (single source of branch/folder naming).
     if (active.worktreeBaseDir) {
-      const agentId = `pane-${seq}`;
       const index = active.panes.length + 1;
-      const slug = active.name.trim().replace(/\s+/g, "-") || "ws";
+      const suggestion = await suggestWorktree(active.name, index);
       setAgentDialog({
         wsId: active.id,
-        agentId,
+        agentId: paneId(seq),
         index,
-        defaultBranch: `kd/${slug}/${index}`,
+        defaultBranch: suggestion.branch,
+        defaultFolder: suggestion.folder,
       });
       return;
     }
@@ -440,6 +443,7 @@ function App() {
           {agentDialog && (
             <AgentDialog
               defaultBranch={agentDialog.defaultBranch}
+              defaultFolder={agentDialog.defaultFolder}
               onConfirm={handleConfirmAgent}
               onCancel={() => setAgentDialog(null)}
             />
