@@ -1605,6 +1605,7 @@ dependencies = [
 name = "keepdeck"
 version = "0.3.15"
 dependencies = [
+ "keepdeck-git",
  "keepdeck-pty",
  "serde",
  "serde_json",

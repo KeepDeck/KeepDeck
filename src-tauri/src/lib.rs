@@ -1,4 +1,5 @@
 mod session;
+mod worktree;
 
 use serde::Serialize;
 
@@ -32,12 +33,17 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(session::SessionRegistry::default())
+        .manage(worktree::RepoLocks::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
             session::session_spawn,
             session::session_write,
             session::session_resize,
             session::session_close,
+            worktree::worktree_inspect,
+            worktree::worktree_create,
+            worktree::worktree_status,
+            worktree::worktree_remove,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
