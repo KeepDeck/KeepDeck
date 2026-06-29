@@ -101,14 +101,6 @@ pub struct RemoveSpec {
     pub force: bool,
 }
 
-/// Live status of a worktree, for the pane header and the close decision.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeStatus {
-    pub dirty: bool,
-    pub branch: Option<String>,
-}
-
 /// Pick the branch to create: an explicit non-blank name (sanitized per
 /// component), else the auto `kd/<workspace>/<index>` default. Pure, unit-tested.
 fn choose_branch(explicit: Option<&str>, workspace: &str, index: u64) -> String {
@@ -116,6 +108,23 @@ fn choose_branch(explicit: Option<&str>, workspace: &str, index: u64) -> String 
         Some(name) => branch::sanitize_branch(name),
         None => branch::default_branch(branch::DEFAULT_BRANCH_PREFIX, workspace, index as usize),
     }
+}
+
+/// Suggested defaults for a new agent in worktree mode — the single source of
+/// the branch/folder naming, mirrored into the "+ Agent" dialog.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeSuggestion {
+    pub branch: String,
+    pub folder: String,
+}
+
+/// Default branch + folder for the `index`-th agent of `workspace`.
+#[tauri::command]
+pub fn worktree_suggest(workspace: String, index: u64) -> WorktreeSuggestion {
+    let branch = branch::default_branch(branch::DEFAULT_BRANCH_PREFIX, &workspace, index as usize);
+    let folder = branch.replace('/', "-");
+    WorktreeSuggestion { branch, folder }
 }
 
 /// Inspect a working directory: is it a git repo, and if so its `HEAD`/branch.
@@ -192,15 +201,6 @@ pub fn worktree_create(
         path: path.to_string_lossy().into_owned(),
         branch,
     })
-}
-
-/// Report whether the worktree at `path` is dirty, plus its branch.
-#[tauri::command]
-pub fn worktree_status(path: String) -> Result<WorktreeStatus, String> {
-    let path = Path::new(&path);
-    let dirty = worktree::is_dirty(path).map_err(|e| e.to_string())?;
-    let branch = repo::current_branch(path).map_err(|e| e.to_string())?;
-    Ok(WorktreeStatus { dirty, branch })
 }
 
 /// Remove an agent's worktree. Without `force`, refuses a dirty worktree so work

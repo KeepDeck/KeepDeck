@@ -14,10 +14,10 @@ export interface WorktreeRecord {
   branch: string;
 }
 
-/** Mirrors the Rust `WorktreeStatus`. */
-export interface WorktreeStatus {
-  dirty: boolean;
-  branch: string | null;
+/** Mirrors the Rust `WorktreeSuggestion`. */
+export interface WorktreeSuggestion {
+  branch: string;
+  folder: string;
 }
 
 /** Args for `worktree_create` (mirrors the Rust `CreateSpec`). */
@@ -41,14 +41,18 @@ export function inspectRepo(path: string): Promise<RepoInfo> {
   return invoke<RepoInfo>("worktree_inspect", { path });
 }
 
+/** Default branch + folder for the index-th agent of a worktree-mode workspace
+ *  (the single source of branch/folder naming, shared with the dialog). */
+export function suggestWorktree(
+  workspace: string,
+  index: number,
+): Promise<WorktreeSuggestion> {
+  return invoke<WorktreeSuggestion>("worktree_suggest", { workspace, index });
+}
+
 /** Provision one agent's git worktree; returns its path + branch. */
 export function createWorktree(spec: CreateWorktreeArgs): Promise<WorktreeRecord> {
   return invoke<WorktreeRecord>("worktree_create", { spec });
-}
-
-/** Dirty state + branch of the worktree at `path`. */
-export function worktreeStatus(path: string): Promise<WorktreeStatus> {
-  return invoke<WorktreeStatus>("worktree_status", { path });
 }
 
 /** Remove an agent's worktree. Refuses a dirty worktree unless `force`, so work

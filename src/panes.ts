@@ -1,4 +1,4 @@
-import { MAX_PANES } from "./layout";
+import { MAX_PANES, clampPaneCount } from "./layout";
 
 /** One agent pane in the grid. Its display title is derived from the
  * workspace's agent type and the pane's position, unless `name` overrides it. */
@@ -13,6 +13,12 @@ export interface Pane {
   name?: string;
 }
 
+/** The id for the pane numbered `seq` — the single mint point, since it's the
+ * agent↔`WorktreeRecord` join key and every site must agree. */
+export function paneId(seq: number): string {
+  return `pane-${seq}`;
+}
+
 /**
  * Append an already-formed `pane` (e.g. one whose worktree is provisioned),
  * unless the fleet is already at [`MAX_PANES`]. Pure: returns the same array
@@ -25,7 +31,7 @@ export function appendPane(panes: Pane[], pane: Pane): Pane[] {
 
 /** Append a new bare pane numbered `seq`, unless already at [`MAX_PANES`]. */
 export function addPane(panes: Pane[], seq: number): Pane[] {
-  return appendPane(panes, { id: `pane-${seq}` });
+  return appendPane(panes, { id: paneId(seq) });
 }
 
 /** Remove the pane with `id`; a no-op if it isn't present. */
@@ -35,8 +41,8 @@ export function removePane(panes: Pane[], id: string): Pane[] {
 
 /** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES). */
 export function makePanes(startSeq: number, count: number): Pane[] {
-  const n = Math.max(0, Math.min(count, MAX_PANES));
+  const n = clampPaneCount(count);
   return Array.from({ length: n }, (_, i) => ({
-    id: `pane-${startSeq + i}`,
+    id: paneId(startSeq + i),
   }));
 }

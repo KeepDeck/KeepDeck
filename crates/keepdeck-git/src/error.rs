@@ -1,5 +1,4 @@
 use std::fmt;
-use std::path::PathBuf;
 
 /// An error from a git operation.
 #[derive(Debug)]
@@ -15,8 +14,6 @@ pub enum GitError {
         /// Trimmed stderr from the failed command.
         stderr: String,
     },
-    /// The path is not inside a git work tree.
-    NotARepo(PathBuf),
 }
 
 impl fmt::Display for GitError {
@@ -33,7 +30,6 @@ impl fmt::Display for GitError {
                     .unwrap_or_else(|| "signal".to_string());
                 write!(f, "`git {}` failed (exit {code}): {stderr}", args.join(" "))
             }
-            GitError::NotARepo(path) => write!(f, "not a git repository: {}", path.display()),
         }
     }
 }

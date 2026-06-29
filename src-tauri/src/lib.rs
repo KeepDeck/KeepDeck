@@ -41,8 +41,8 @@ pub fn run() {
             session::session_resize,
             session::session_close,
             worktree::worktree_inspect,
+            worktree::worktree_suggest,
             worktree::worktree_create,
-            worktree::worktree_status,
             worktree::worktree_remove,
         ])
         .run(tauri::generate_context!())

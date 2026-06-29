@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::cmd::run_git;
 use crate::error::GitError;
@@ -12,16 +12,6 @@ pub fn is_git_repo(path: &Path) -> bool {
     run_git(path, &["rev-parse", "--is-inside-work-tree"])
         .map(|out| out.trim() == "true")
         .unwrap_or(false)
-}
-
-/// The absolute path of the repository's top-level working directory.
-pub fn repo_root(path: &Path) -> Result<PathBuf, GitError> {
-    match run_git(path, &["rev-parse", "--show-toplevel"]) {
-        Ok(out) => Ok(PathBuf::from(out.trim())),
-        // `show-toplevel` failing means `path` isn't in a work tree.
-        Err(GitError::Command { .. }) => Err(GitError::NotARepo(path.to_path_buf())),
-        Err(other) => Err(other),
-    }
 }
 
 /// Resolve a revision (`"HEAD"`, a branch, a tag, …) to a concrete commit SHA.

@@ -1,6 +1,11 @@
 /** Max agents the deck grid holds at once — a hard product cap. */
 export const MAX_PANES = 16;
 
+/** Clamp a requested agent count to `[0, MAX_PANES]`. */
+export function clampPaneCount(count: number): number {
+  return Math.max(0, Math.min(count, MAX_PANES));
+}
+
 /** Geometry of the deck grid: a square-ish column count, filled row by row. */
 export interface GridGeometry {
   columns: number;
