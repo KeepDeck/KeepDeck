@@ -745,6 +745,28 @@ body,
   cursor: pointer;
 }
 
+/* Destructive action (close/delete/discard) — see ui/DestructiveButton.tsx. */
+.btn-destructive {
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 8px;
+  background-color: #7a2f2f;
+  color: #ffe9e9;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-destructive:hover:not(:disabled) {
+  background-color: #933a3a;
+}
+
+.btn-destructive:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .form__create:hover:not(:disabled) {
   background-color: #38855f;
 }
