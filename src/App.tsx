@@ -91,6 +91,11 @@ function App() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   const nextAgentSeq = useRef(1);
   const nextWorkspaceSeq = useRef(1);
+  // Hard reentrancy guard for the async provision handlers — a ref is
+  // synchronous, so a second click during the await can't double-provision (a
+  // state flag would race). `busy` is the render-time mirror to disable the UI.
+  const submitting = useRef(false);
+  const [busy, setBusy] = useState(false);
   // Open "+ Agent" dialog (worktree mode only): predicted path + default branch.
   const [agentDialog, setAgentDialog] = useState<{
     wsId: string;
@@ -197,15 +202,23 @@ function App() {
 
   // Add `count` agents to an existing (empty) workspace.
   const handleStartWorkspace = async (workspaceId: string, count: number) => {
+    if (submitting.current) return;
     const ws = workspaces.find((w) => w.id === workspaceId);
     if (!ws) return;
-    const startSeq = nextAgentSeq.current;
-    nextAgentSeq.current += count;
-    const panes = await provisionPanes(ws, startSeq, count, setError);
-    setWorkspaces((current) =>
-      current.map((w) => (w.id === workspaceId ? { ...w, panes } : w)),
-    );
-    setSelectedPaneId(panes[0]?.id ?? null);
+    submitting.current = true;
+    setBusy(true);
+    try {
+      const startSeq = nextAgentSeq.current;
+      nextAgentSeq.current += count;
+      const panes = await provisionPanes(ws, startSeq, count, setError);
+      setWorkspaces((current) =>
+        current.map((w) => (w.id === workspaceId ? { ...w, panes } : w)),
+      );
+      setSelectedPaneId(panes[0]?.id ?? null);
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
   };
 
   const handleCreateWorkspace = async ({
@@ -215,30 +228,38 @@ function App() {
     count,
     worktreeBaseDir,
   }: SpawnConfig) => {
-    const wsSeq = nextWorkspaceSeq.current;
-    nextWorkspaceSeq.current += 1;
-    const startSeq = nextAgentSeq.current;
-    nextAgentSeq.current += count;
-    const id = `ws-${wsSeq}`;
-    const wsName = name.trim() || `workspace-${wsSeq}`;
-    const panes = await provisionPanes(
-      { cwd, worktreeBaseDir, name: wsName },
-      startSeq,
-      count,
-      setError,
-    );
-    const workspace: Workspace = {
-      id,
-      name: wsName,
-      cwd,
-      agentType,
-      worktreeBaseDir,
-      panes,
-    };
-    setWorkspaces((current) => [...current, workspace]);
-    setActiveId(id);
-    setSelectedPaneId(panes[0]?.id ?? null);
-    setCreating(false);
+    if (submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    try {
+      const wsSeq = nextWorkspaceSeq.current;
+      nextWorkspaceSeq.current += 1;
+      const startSeq = nextAgentSeq.current;
+      nextAgentSeq.current += count;
+      const id = `ws-${wsSeq}`;
+      const wsName = name.trim() || `workspace-${wsSeq}`;
+      const panes = await provisionPanes(
+        { cwd, worktreeBaseDir, name: wsName },
+        startSeq,
+        count,
+        setError,
+      );
+      const workspace: Workspace = {
+        id,
+        name: wsName,
+        cwd,
+        agentType,
+        worktreeBaseDir,
+        panes,
+      };
+      setWorkspaces((current) => [...current, workspace]);
+      setActiveId(id);
+      setSelectedPaneId(panes[0]?.id ?? null);
+      setCreating(false);
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
   };
 
   const handleRenameWorkspace = (id: string, name: string) =>
@@ -385,6 +406,7 @@ function App() {
             >
               <WorkspaceForm
                 onCreate={handleCreateWorkspace}
+                busy={busy}
                 onCancel={
                   workspaces.length > 0 ? () => setCreating(false) : undefined
                 }
