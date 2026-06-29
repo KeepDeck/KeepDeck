@@ -7,15 +7,8 @@ import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
 import { fetchAppInfo, type AppInfo } from "./ipc";
 import { commandForAgent, labelForAgent } from "./agents";
 import { makePanes, paneId, type Pane } from "./panes";
-import {
-  addAgent,
-  addAgentPane,
-  closeAgent,
-  closeWorkspace,
-  renameWorkspace,
-  resolveActiveId,
-  type Workspace,
-} from "./workspaces";
+import { type Workspace } from "./workspaces";
+import { useDeck } from "./deck";
 import { createWorktree, inspectRepo, suggestWorktree } from "./worktree";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import {
@@ -81,13 +74,10 @@ function App() {
       .catch(() => setInfo(null));
   }, []);
 
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeId, setActiveId] = useState("");
-  const [focusByWs, setFocusByWs] = useState<Record<string, string>>({});
-  // The highlighted pane PER workspace, so switching keeps the one you were on
-  // instead of resetting to the first ([B2]) and closing a workspace can't leave
-  // the border on a deleted pane ([L6]).
-  const [selectByWs, setSelectByWs] = useState<Record<string, string>>({});
+  // The deck's workspaces + active id + per-workspace maximize/selection, in one
+  // reducer so close transitions clean focus + selection atomically ([S1], [B2],
+  // [L6]).
+  const deck = useDeck();
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
@@ -99,7 +89,7 @@ function App() {
   // state flag would race). `busy` is the render-time mirror to disable the UI.
   const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
-  // Open "+ Agent" dialog (worktree mode only): predicted path + default branch.
+  // Open "+ Agent" dialog (worktree mode only): default branch + folder.
   const [agentDialog, setAgentDialog] = useState<{
     wsId: string;
     agentId: string;
@@ -110,22 +100,14 @@ function App() {
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
 
-  const active = workspaces.find((w) => w.id === activeId) ?? null;
-  const showForm = creating || workspaces.length === 0;
-  const selectedPaneId = selectByWs[activeId] ?? null;
-  const selectPane = (wsId: string, paneId: string) =>
-    setSelectByWs((cur) => ({ ...cur, [wsId]: paneId }));
+  const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
+  const showForm = creating || deck.workspaces.length === 0;
+  const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
 
   const handleSelectWorkspace = (id: string) => {
-    setActiveId(id);
-    // Selecting a workspace returns from the create form (you can always go back
-    // to an existing one).
+    deck.selectWorkspace(id);
+    // Returning from the create form (you can always go back to an existing one).
     setCreating(false);
-    // Default to the first pane only if this workspace has no selection yet.
-    const ws = workspaces.find((w) => w.id === id);
-    setSelectByWs((cur) =>
-      cur[id] || !ws?.panes[0] ? cur : { ...cur, [id]: ws.panes[0].id },
-    );
   };
 
   const handleAddAgent = async () => {
@@ -146,7 +128,7 @@ function App() {
       });
       return;
     }
-    setWorkspaces((current) => addAgent(current, activeId, seq));
+    deck.addAgent(deck.activeId, seq);
   };
 
   const handleConfirmAgent = async ({
@@ -157,7 +139,7 @@ function App() {
     const dlg = agentDialog;
     if (!dlg) return;
     setAgentDialog(null);
-    const ws = workspaces.find((w) => w.id === dlg.wsId);
+    const ws = deck.workspaces.find((w) => w.id === dlg.wsId);
     if (!ws || !ws.worktreeBaseDir) return;
     try {
       const base = (await inspectRepo(ws.cwd).catch(() => null))?.head ?? undefined;
@@ -177,47 +159,17 @@ function App() {
         branch: rec.branch,
         name: name.trim() || undefined,
       };
-      setWorkspaces((current) => addAgentPane(current, dlg.wsId, pane));
-      selectPane(dlg.wsId, dlg.agentId);
+      deck.addAgentPane(dlg.wsId, pane);
     } catch (e) {
       console.error("worktree create failed", e);
       setError(`Failed to create agent worktree:\n${e}`);
     }
   };
 
-  const handleCloseAgent = (workspaceId: string, paneId: string) => {
-    // Closing an agent removes its pane (tearing down the PTY). Its git worktree
-    // and branch are left on disk — cleanup is deferred (see worktrees design).
-    setWorkspaces((current) => closeAgent(current, workspaceId, paneId));
-    setFocusByWs((cur) => {
-      if (cur[workspaceId] !== paneId) return cur;
-      const next = { ...cur };
-      delete next[workspaceId];
-      return next;
-    });
-    setSelectByWs((cur) => {
-      if (cur[workspaceId] !== paneId) return cur;
-      const ws = workspaces.find((w) => w.id === workspaceId);
-      const remaining = ws?.panes.filter((p) => p.id !== paneId) ?? [];
-      const next = { ...cur };
-      if (remaining[0]) next[workspaceId] = remaining[0].id;
-      else delete next[workspaceId];
-      return next;
-    });
-  };
-
-  const toggleFocus = (workspaceId: string, paneId: string) =>
-    setFocusByWs((cur) => {
-      const next = { ...cur };
-      if (next[workspaceId] === paneId) delete next[workspaceId];
-      else next[workspaceId] = paneId;
-      return next;
-    });
-
   // Add `count` agents to an existing (empty) workspace.
   const handleStartWorkspace = async (workspaceId: string, count: number) => {
     if (submitting.current) return;
-    const ws = workspaces.find((w) => w.id === workspaceId);
+    const ws = deck.workspaces.find((w) => w.id === workspaceId);
     if (!ws) return;
     submitting.current = true;
     setBusy(true);
@@ -225,10 +177,7 @@ function App() {
       const startSeq = nextAgentSeq.current;
       nextAgentSeq.current += count;
       const panes = await provisionPanes(ws, startSeq, count, setError);
-      setWorkspaces((current) =>
-        current.map((w) => (w.id === workspaceId ? { ...w, panes } : w)),
-      );
-      if (panes[0]) selectPane(workspaceId, panes[0].id);
+      deck.setPanes(workspaceId, panes);
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -266,9 +215,7 @@ function App() {
         worktreeBaseDir,
         panes,
       };
-      setWorkspaces((current) => [...current, workspace]);
-      setActiveId(id);
-      if (panes[0]) selectPane(id, panes[0].id);
+      deck.createWorkspace(workspace);
       setCreating(false);
     } finally {
       submitting.current = false;
@@ -276,34 +223,7 @@ function App() {
     }
   };
 
-  const handleRenameWorkspace = (id: string, name: string) =>
-    setWorkspaces((current) => renameWorkspace(current, id, name));
-
-  const handleCloseWorkspace = (id: string) => {
-    const next = closeWorkspace(workspaces, id);
-    const newActive = resolveActiveId(next, activeId);
-    setWorkspaces(next);
-    setActiveId(newActive);
-    setFocusByWs((cur) => {
-      if (!(id in cur)) return cur;
-      const updated = { ...cur };
-      delete updated[id];
-      return updated;
-    });
-    // Drop the closed workspace's selection; default the new active one's so the
-    // border lands on a live pane, not the deleted workspace's ([L6]).
-    setSelectByWs((cur) => {
-      const updated = { ...cur };
-      delete updated[id];
-      const aws = next.find((w) => w.id === newActive);
-      if (newActive && !updated[newActive] && aws?.panes[0]) {
-        updated[newActive] = aws.panes[0].id;
-      }
-      return updated;
-    });
-  };
-
-  const railWorkspaces = workspaces.map((w) => ({
+  const railWorkspaces = deck.workspaces.map((w) => ({
     id: w.id,
     name: w.name,
     agentCount: w.panes.length,
@@ -346,16 +266,16 @@ function App() {
         {!railCollapsed && (
           <WorkspacesRail
             workspaces={railWorkspaces}
-            activeId={activeId}
+            activeId={deck.activeId}
             onSelect={handleSelectWorkspace}
             onAdd={() => setCreating(true)}
-            onClose={handleCloseWorkspace}
-            onRename={handleRenameWorkspace}
+            onClose={deck.closeWorkspace}
+            onRename={deck.renameWorkspace}
           />
         )}
         <div className="deck__stage">
-          {workspaces.map((ws) => {
-            const isActive = ws.id === activeId;
+          {deck.workspaces.map((ws) => {
+            const isActive = ws.id === deck.activeId;
             const command = commandForAgent(ws.agentType);
             const label = labelForAgent(ws.agentType);
 
@@ -377,7 +297,7 @@ function App() {
               );
             }
 
-            const focusedPaneId = focusByWs[ws.id];
+            const focusedPaneId = deck.focusByWs[ws.id];
             const focusedHere =
               focusedPaneId && ws.panes.some((p) => p.id === focusedPaneId)
                 ? focusedPaneId
@@ -414,9 +334,9 @@ function App() {
                       collapsed={isCollapsed}
                       selected={pane.id === selectedPaneId}
                       colSpan={colSpan}
-                      onSelect={() => selectPane(ws.id, pane.id)}
-                      onToggleFocus={() => toggleFocus(ws.id, pane.id)}
-                      onClose={() => handleCloseAgent(ws.id, pane.id)}
+                      onSelect={() => deck.selectPane(ws.id, pane.id)}
+                      onToggleFocus={() => deck.toggleFocus(ws.id, pane.id)}
+                      onClose={() => deck.closeAgent(ws.id, pane.id)}
                     />
                   );
                 })}
@@ -427,14 +347,16 @@ function App() {
           {showForm && (
             <div
               className={
-                workspaces.length > 0 ? "modal-overlay" : "deck__overlay"
+                deck.workspaces.length > 0 ? "modal-overlay" : "deck__overlay"
               }
             >
               <WorkspaceForm
                 onCreate={handleCreateWorkspace}
                 busy={busy}
                 onCancel={
-                  workspaces.length > 0 ? () => setCreating(false) : undefined
+                  deck.workspaces.length > 0
+                    ? () => setCreating(false)
+                    : undefined
                 }
               />
             </div>
