@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use keepdeck_pty::{PtyEvent, PtySession, PtySpec, TermSize};
 use serde::{Deserialize, Serialize};
@@ -60,7 +60,7 @@ pub struct SessionRegistry {
 
 #[derive(Default)]
 struct Registry {
-    sessions: HashMap<String, PtySession>,
+    sessions: HashMap<String, Arc<Mutex<PtySession>>>,
     next: u64,
 }
 
@@ -70,7 +70,8 @@ impl SessionRegistry {
         let mut reg = self.inner.lock().expect("session registry poisoned");
         reg.next += 1;
         let id = format!("s{}", reg.next);
-        reg.sessions.insert(id.clone(), session);
+        reg.sessions
+            .insert(id.clone(), Arc::new(Mutex::new(session)));
         id
     }
 
@@ -82,28 +83,35 @@ impl SessionRegistry {
             .remove(id);
     }
 
+    /// Look up a session handle. The registry lock is held only for the lookup,
+    /// never across PTY I/O — a blocking `write_all` into a busy agent must not
+    /// freeze every other session (and the reaper threads' cleanup `remove`).
+    fn get(&self, id: &str) -> Option<Arc<Mutex<PtySession>>> {
+        self.inner
+            .lock()
+            .expect("session registry poisoned")
+            .sessions
+            .get(id)
+            .cloned()
+    }
+
     fn write(&self, id: &str, data: &[u8]) -> io::Result<()> {
-        let mut reg = self.inner.lock().expect("session registry poisoned");
-        match reg.sessions.get_mut(id) {
-            Some(session) => session.write(data),
-            None => Err(unknown_session(id)),
-        }
+        let session = self.get(id).ok_or_else(|| unknown_session(id))?;
+        let mut session = session.lock().expect("session poisoned");
+        session.write(data)
     }
 
     fn resize(&self, id: &str, cols: u16, rows: u16) -> io::Result<()> {
-        let reg = self.inner.lock().expect("session registry poisoned");
-        match reg.sessions.get(id) {
-            Some(session) => session.resize(cols, rows),
-            None => Err(unknown_session(id)),
-        }
+        let session = self.get(id).ok_or_else(|| unknown_session(id))?;
+        let session = session.lock().expect("session poisoned");
+        session.resize(cols, rows)
     }
 
     /// Terminate a session. Removal happens when its exit event arrives, so a
     /// close of an already-gone session is a no-op success.
     fn kill(&self, id: &str) -> io::Result<()> {
-        let mut reg = self.inner.lock().expect("session registry poisoned");
-        match reg.sessions.get_mut(id) {
-            Some(session) => session.kill(),
+        match self.get(id) {
+            Some(session) => session.lock().expect("session poisoned").kill(),
             None => Ok(()),
         }
     }
