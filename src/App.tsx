@@ -245,6 +245,11 @@ function App() {
             <SidebarIcon />
           </button>
           <span className="deck__brand">KeepDeck</span>
+          {railCollapsed && active && (
+            <span className="deck__active-ws" title={active.name}>
+              {active.name}
+            </span>
+          )}
         </div>
         <div className="deck__bar-right">
           <button

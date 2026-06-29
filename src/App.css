@@ -67,6 +67,22 @@ body,
   letter-spacing: 0.02em;
 }
 
+/* Active workspace, surfaced in the bar only while the rail is collapsed ([U7]). */
+.deck__active-ws {
+  font-size: 13px;
+  color: #8b93a3;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck__active-ws::before {
+  content: "/";
+  margin-right: 10px;
+  color: #3b4658;
+}
+
 .deck__bar-right {
   display: flex;
   align-items: center;
