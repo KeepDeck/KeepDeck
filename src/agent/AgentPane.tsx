@@ -16,6 +16,9 @@ interface AgentPaneProps {
   collapsed: boolean;
   /** Whether this is the active pane (gets the highlight border). */
   selected: boolean;
+  /** The only pane in its workspace: no maximize control ([U1]) and no highlight
+   * border ([U2]) — there's nothing to maximize over or tell it apart from. */
+  solo: boolean;
   /** Grid columns this pane spans (>1 lets a partial last row fill the width). */
   colSpan: number;
   onSelect(): void;
@@ -37,6 +40,7 @@ export function AgentPane({
   focused,
   collapsed,
   selected,
+  solo,
   colSpan,
   onSelect,
   onToggleFocus,
@@ -44,7 +48,7 @@ export function AgentPane({
 }: AgentPaneProps) {
   return (
     <section
-      className={`pane${collapsed ? " pane--collapsed" : ""}${selected && !focused ? " pane--active" : ""}`}
+      className={`pane${collapsed ? " pane--collapsed" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       onMouseDown={onSelect}
       onFocus={onSelect}
@@ -57,15 +61,17 @@ export function AgentPane({
           </span>
         )}
         <div className="pane__actions">
-          <button
-            type="button"
-            className="pane__action"
-            onClick={onToggleFocus}
-            title={focused ? "Restore" : "Maximize"}
-            aria-label={focused ? `Restore ${title}` : `Maximize ${title}`}
-          >
-            {focused ? <RestoreIcon /> : <MaximizeIcon />}
-          </button>
+          {!solo && (
+            <button
+              type="button"
+              className="pane__action"
+              onClick={onToggleFocus}
+              title={focused ? "Restore" : "Maximize"}
+              aria-label={focused ? `Restore ${title}` : `Maximize ${title}`}
+            >
+              {focused ? <RestoreIcon /> : <MaximizeIcon />}
+            </button>
+          )}
           <button
             type="button"
             className="pane__close"

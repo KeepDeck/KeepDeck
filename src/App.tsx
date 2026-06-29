@@ -6,7 +6,7 @@ import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
 import { fetchAppInfo, type AppInfo } from "./ipc";
 import { commandForAgent, labelForAgent } from "./agents";
-import { makePanes, paneId, type Pane } from "./panes";
+import { makePanes, paneId, resolveFocus, type Pane } from "./panes";
 import { type Workspace } from "./workspaces";
 import { useDeck } from "./deck";
 import { createWorktree, inspectRepo, suggestWorktree } from "./worktree";
@@ -297,11 +297,8 @@ function App() {
               );
             }
 
-            const focusedPaneId = deck.focusByWs[ws.id];
-            const focusedHere =
-              focusedPaneId && ws.panes.some((p) => p.id === focusedPaneId)
-                ? focusedPaneId
-                : null;
+            const focusedHere = resolveFocus(ws.panes, deck.focusByWs[ws.id]);
+            const solo = ws.panes.length === 1;
             const trackColumns = focusedHere
               ? 1
               : paneGridTrackColumns(ws.panes.length);
@@ -333,6 +330,7 @@ function App() {
                       focused={isFocused}
                       collapsed={isCollapsed}
                       selected={pane.id === selectedPaneId}
+                      solo={solo}
                       colSpan={colSpan}
                       onSelect={() => deck.selectPane(ws.id, pane.id)}
                       onToggleFocus={() => deck.toggleFocus(ws.id, pane.id)}
