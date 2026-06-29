@@ -152,16 +152,21 @@ pub fn session_spawn(
     let app = app.clone();
     let session_id = id.clone();
     std::thread::spawn(move || {
+        let registry = app.state::<SessionRegistry>();
         for event in events {
             let is_exit = matches!(event, PtyEvent::Exited(_));
             if on_event.send(SessionEvent::from(event)).is_err() {
-                break; // webview dropped the channel
+                // Webview dropped the channel (reload/close). Kill the child so
+                // its reader/reaper thread sees EOF and exits — otherwise we leak
+                // an orphan process + a permanently blocked reaper thread.
+                let _ = registry.kill(&session_id);
+                break;
             }
             if is_exit {
                 break;
             }
         }
-        app.state::<SessionRegistry>().remove(&session_id);
+        registry.remove(&session_id);
     });
 
     Ok(id)
