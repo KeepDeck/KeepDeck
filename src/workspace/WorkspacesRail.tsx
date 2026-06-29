@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { noAutoCorrect } from "../ui/inputProps";
 
 /** View model for the rail (the domain `Workspace` lives in `../workspaces`). */
 export interface WorkspaceItem {
@@ -62,6 +63,7 @@ export function WorkspacesRail({
             return (
               <li key={ws.id} className="rail__item">
                 <input
+                  {...noAutoCorrect}
                   className="rail__rename"
                   value={draft}
                   autoFocus

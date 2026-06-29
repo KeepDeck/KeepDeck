@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useEscape } from "../ui/useEscape";
+import { noAutoCorrect } from "../ui/inputProps";
 
 export interface AgentDialogResult {
   /** Optional custom display name; blank falls back to the derived title. */
@@ -69,6 +70,7 @@ export function AgentDialog({
 
         <span className="form__label">Name</span>
         <input
+          {...noAutoCorrect}
           className="form__input"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -78,6 +80,7 @@ export function AgentDialog({
 
         <span className="form__label">Branch</span>
         <input
+          {...noAutoCorrect}
           className="form__input"
           value={branch}
           onChange={(e) => onBranchChange(e.target.value)}
@@ -87,6 +90,7 @@ export function AgentDialog({
 
         <span className="form__label">Worktree folder</span>
         <input
+          {...noAutoCorrect}
           className="form__input"
           value={folder}
           onChange={(e) => onFolderChange(e.target.value)}

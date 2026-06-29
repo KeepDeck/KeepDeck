@@ -4,6 +4,7 @@ import { AGENT_TYPES, type AgentType } from "../agents";
 import { inspectRepo } from "../worktree";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useEscape } from "../ui/useEscape";
+import { noAutoCorrect } from "../ui/inputProps";
 import { TERMINAL_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
 export interface SpawnConfig {
@@ -110,6 +111,7 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
 
       <span className="form__label">Name</span>
       <input
+        {...noAutoCorrect}
         className="form__input"
         value={name}
         onChange={(e) => setName(e.target.value)}
