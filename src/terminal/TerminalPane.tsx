@@ -76,6 +76,12 @@ export function TerminalPane({
     });
 
     spawnSession({ command, cwd, cols: term.cols, rows: term.rows }, (event) => {
+      // Ignore events from a session whose pane was already torn down — notably
+      // the throwaway first session of a StrictMode double-mount, whose close()
+      // emits an exit (code 1) that would otherwise flash the [U4] "agent
+      // exited" placeholder over the live agent. Also avoids writing to a
+      // disposed terminal.
+      if (disposed) return;
       if (event.type === "output") {
         term.write(new Uint8Array(event.bytes));
       } else {
