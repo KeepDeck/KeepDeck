@@ -85,6 +85,9 @@ fn adds_lists_then_removes_a_worktree() {
     assert_eq!(found.branch.as_deref(), Some("kd/test/1"));
     assert_eq!(found.head.as_deref(), Some(base.as_str()));
 
+    assert!(repo::branch_exists(&repo_dir, "kd/test/1").unwrap());
+    assert!(!repo::branch_exists(&repo_dir, "kd/test/absent").unwrap());
+
     // Clean right after creation; dirty after an edit.
     assert!(!worktree::is_dirty(&wt).unwrap());
     fs::write(wt.join("scratch.txt"), "wip").unwrap();

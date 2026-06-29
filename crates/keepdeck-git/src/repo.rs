@@ -44,3 +44,14 @@ pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
         Some(name.to_string())
     })
 }
+
+/// Whether a local branch named `name` already exists in `repo`.
+pub fn branch_exists(repo: &Path, name: &str) -> Result<bool, GitError> {
+    let reference = format!("refs/heads/{name}");
+    match run_git(repo, &["show-ref", "--verify", "--quiet", &reference]) {
+        Ok(_) => Ok(true),
+        // `--quiet` exits non-zero (no output) when the ref is absent.
+        Err(GitError::Command { .. }) => Ok(false),
+        Err(other) => Err(other),
+    }
+}

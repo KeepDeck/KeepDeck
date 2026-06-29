@@ -63,7 +63,7 @@ pub struct CreateSpec {
     pub repo: String,
     /// Base folder under which this workspace's agent worktrees live.
     pub base_dir: String,
-    /// Stable agent id; used as the worktree's directory leaf.
+    /// Stable agent id — the record key tying the worktree back to its agent.
     pub agent_id: String,
     /// Explicit branch name to create; auto-generated when absent/blank.
     pub branch: Option<String>,
@@ -148,17 +148,33 @@ pub fn worktree_create(
 
     let base_dir = PathBuf::from(&spec.base_dir);
     std::fs::create_dir_all(&base_dir).map_err(|e| format!("create worktree base dir: {e}"))?;
-    let path = base_dir.join(&spec.agent_id);
 
     let base = match spec.base.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(rev) => rev.to_string(),
         None => repo::resolve_commit(&repo_path, "HEAD").map_err(|e| e.to_string())?,
     };
 
-    let branch = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
+    let chosen = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
 
     let lock = locks.for_repo(&repo_path);
     let _guard = lock.lock().expect("repo lock poisoned");
+
+    // Pick a free branch + dir under the lock. Clean worktrees aren't removed on
+    // close, so an earlier agent's branch/folder may still exist; append -2, -3,
+    // … until both are free. The dir is named after the branch (slashes ->
+    // dashes) so it matches the pane header, not an opaque internal id.
+    let mut branch = chosen.clone();
+    let mut path = base_dir.join(branch.replace('/', "-"));
+    let mut suffix = 1u32;
+    while path.exists() || repo::branch_exists(&repo_path, &branch).map_err(|e| e.to_string())? {
+        suffix += 1;
+        if suffix > 999 {
+            return Err("could not find a free worktree branch/dir".to_string());
+        }
+        branch = format!("{chosen}-{suffix}");
+        path = base_dir.join(branch.replace('/', "-"));
+    }
+
     worktree::add(&repo_path, &path, &branch, &base).map_err(|e| e.to_string())?;
 
     Ok(WorktreeRecord {
