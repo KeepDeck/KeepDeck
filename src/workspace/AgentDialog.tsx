@@ -43,7 +43,7 @@ export function AgentDialog({
   const path = `${baseDir}/${worktreeLeaf(branch)}`;
 
   return (
-    <div className="deck__overlay">
+    <div className="modal-overlay">
       <form
         className="form"
         onSubmit={(e) => {

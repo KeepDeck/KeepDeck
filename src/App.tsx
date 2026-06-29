@@ -17,7 +17,7 @@ import {
   type Workspace,
 } from "./workspaces";
 import { createWorktree, inspectRepo } from "./worktree";
-import { message } from "@tauri-apps/plugin-dialog";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
 import {
   MAX_PANES,
   gridTracks,
@@ -37,6 +37,7 @@ async function provisionPanes(
   ws: { cwd: string; worktreeBaseDir: string | null; name: string },
   startSeq: number,
   count: number,
+  onError: (message: string) => void,
 ): Promise<Pane[]> {
   if (!ws.worktreeBaseDir) return makePanes(startSeq, count);
 
@@ -63,10 +64,7 @@ async function provisionPanes(
       panes.push({ id: agentId, cwd: rec.path, branch: rec.branch });
     } catch (e) {
       console.error("worktree create failed", e);
-      await message(`Failed to create worktree for ${agentId}:\n${e}`, {
-        title: "Worktree error",
-        kind: "error",
-      });
+      onError(`Failed to create worktree for ${agentId}:\n${e}`);
       panes.push({ id: agentId }); // fall back to the workspace cwd
     }
   }
@@ -101,6 +99,8 @@ function App() {
     defaultBranch: string;
     baseDir: string;
   } | null>(null);
+  // In-app error notice (no system dialogs).
+  const [error, setError] = useState<string | null>(null);
 
   const active = workspaces.find((w) => w.id === activeId) ?? null;
   const showForm = creating || workspaces.length === 0;
@@ -162,10 +162,7 @@ function App() {
       setSelectedPaneId(dlg.agentId);
     } catch (e) {
       console.error("worktree create failed", e);
-      await message(`Failed to create agent worktree:\n${e}`, {
-        title: "Worktree error",
-        kind: "error",
-      });
+      setError(`Failed to create agent worktree:\n${e}`);
     }
   };
 
@@ -201,7 +198,7 @@ function App() {
     if (!ws) return;
     const startSeq = nextAgentSeq.current;
     nextAgentSeq.current += count;
-    const panes = await provisionPanes(ws, startSeq, count);
+    const panes = await provisionPanes(ws, startSeq, count, setError);
     setWorkspaces((current) =>
       current.map((w) => (w.id === workspaceId ? { ...w, panes } : w)),
     );
@@ -225,6 +222,7 @@ function App() {
       { cwd, worktreeBaseDir, name: wsName },
       startSeq,
       count,
+      setError,
     );
     const workspace: Workspace = {
       id,
@@ -377,7 +375,11 @@ function App() {
           })}
 
           {showForm && (
-            <div className="deck__overlay">
+            <div
+              className={
+                workspaces.length > 0 ? "modal-overlay" : "deck__overlay"
+              }
+            >
               <WorkspaceForm
                 onCreate={handleCreateWorkspace}
                 onCancel={
@@ -393,6 +395,15 @@ function App() {
               baseDir={agentDialog.baseDir}
               onConfirm={handleConfirmAgent}
               onCancel={() => setAgentDialog(null)}
+            />
+          )}
+
+          {error && (
+            <ConfirmDialog
+              title="Worktree error"
+              message={error}
+              confirmLabel="OK"
+              onConfirm={() => setError(null)}
             />
           )}
         </div>

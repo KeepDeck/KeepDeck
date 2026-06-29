@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { ask, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { AGENT_TYPES, type AgentType } from "../agents";
 import { inspectRepo } from "../worktree";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { TERMINAL_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
 export interface SpawnConfig {
@@ -31,6 +32,7 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
   const [agentType, setAgentType] = useState<AgentType>("claude");
   const [count, setCount] = useState(1);
   const [worktreeDir, setWorktreeDir] = useState<string | null>(null);
+  const [nudge, setNudge] = useState(false);
   const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
     null,
   );
@@ -73,24 +75,23 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
     if (typeof selected === "string") setWorktreeDir(selected);
   };
 
-  const submit = async () => {
+  const create = () => {
+    if (cwd) onCreate({ name, cwd, agentType, count, worktreeBaseDir: worktreeDir });
+  };
+
+  const submit = () => {
     if (!cwd) return;
-    // No worktree dir chosen, but the working dir is a git repo → nudge. Uses
-    // the native Tauri dialog; the browser confirm() doesn't render in the
-    // webview.
+    // No worktree dir chosen but the working dir is a git repo → in-app nudge
+    // (no system dialogs) before running every agent in one repo working tree.
     if (!worktreeDir && git?.isRepo) {
-      const proceed = await ask(
-        "This folder is a git repository. Run all agents directly in it, " +
-          "without an isolated git worktree per agent?\n\nPick a worktree " +
-          "directory to isolate them, or continue without.",
-        { title: "No worktree isolation", kind: "warning" },
-      );
-      if (!proceed) return;
+      setNudge(true);
+      return;
     }
-    onCreate({ name, cwd, agentType, count, worktreeBaseDir: worktreeDir });
+    create();
   };
 
   return (
+    <>
     <form
       className="form"
       onSubmit={(e) => {
@@ -194,5 +195,23 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
         </button>
       </div>
     </form>
+      {nudge && (
+        <ConfirmDialog
+          title="No worktree isolation"
+          message={
+            "This folder is a git repository. Run all agents directly in it, " +
+            "without an isolated git worktree per agent?\n\n" +
+            "Pick a worktree directory to isolate them, or continue without."
+          }
+          confirmLabel="Continue without"
+          cancelLabel="Cancel"
+          onConfirm={() => {
+            setNudge(false);
+            create();
+          }}
+          onCancel={() => setNudge(false)}
+        />
+      )}
+    </>
   );
 }
