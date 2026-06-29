@@ -1,7 +1,7 @@
 {
   "name": "keepdeck",
   "private": true,
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "Desktop deck for a fleet of coding agents.",
   "type": "module",
   "scripts": {
@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:macos": "./build-macos.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

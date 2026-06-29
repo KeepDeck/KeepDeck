@@ -47,6 +47,30 @@ pnpm typecheck      # tsc --noEmit
 cargo test          # backend tests (Cargo workspace)
 ```
 
+## Package (macOS)
+
+Build an installable `.dmg`:
+
+```sh
+pnpm build:macos    # → target/release/bundle/dmg/KeepDeck_<version>_<arch>.dmg
+```
+
+It builds the release `.app` with Tauri, then assembles a plain
+drag-to-Applications disk image with `hdiutil`. This is **headless-safe**: it
+deliberately skips Tauri's styled-dmg step, whose AppleScript needs macOS
+*Automation → Finder* permission and otherwise fails in CI / non-interactive
+shells with `Not authorised to send Apple events to Finder. (-1743)`.
+
+- `./build-macos.sh --styled` — use Tauri's prettier dmg instead (run from a
+  Terminal that's been granted Automation → Finder).
+- `./build-macos.sh --target universal-apple-darwin` — extra args pass through
+  to `tauri build` (needs the rustup targets installed).
+
+The build is **unsigned** unless you export `APPLE_SIGNING_IDENTITY` (plus
+`APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` to notarize). An unsigned app
+runs locally after clearing quarantine:
+`xattr -dr com.apple.quarantine /Applications/KeepDeck.app`.
+
 ## Layout
 
 ```
