@@ -38,6 +38,9 @@ export function TerminalPane({ command, cwd, visible }: TerminalPaneProps) {
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: 13,
       cursorBlink: true,
+      // xterm defaults to 1000 lines — too small for verbose agents. Bumped;
+      // make it configurable later (settings, [F6]).
+      scrollback: 10000,
       theme: { background: "#0b0e14", foreground: "#c5c8c6" },
     });
     const fit = new FitAddon();
