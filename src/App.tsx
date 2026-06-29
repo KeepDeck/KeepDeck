@@ -3,17 +3,21 @@ import { AgentPane } from "./agent/AgentPane";
 import { WorkspacesRail } from "./workspace/WorkspacesRail";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
+import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
 import { fetchAppInfo, type AppInfo } from "./ipc";
 import { commandForAgent, labelForAgent } from "./agents";
-import { makePanes } from "./panes";
+import { makePanes, type Pane } from "./panes";
 import {
   addAgent,
+  addAgentPane,
   closeAgent,
   closeWorkspace,
   renameWorkspace,
   resolveActiveId,
   type Workspace,
 } from "./workspaces";
+import { createWorktree, inspectRepo } from "./worktree";
+import { ConfirmDialog } from "./ui/ConfirmDialog";
 import {
   MAX_PANES,
   gridTracks,
@@ -22,6 +26,50 @@ import {
   paneGridTrackColumns,
 } from "./layout";
 import "./App.css";
+
+/**
+ * Build `count` panes for a workspace. In worktree mode each agent gets its own
+ * git worktree, all pinned to one base commit (resolved once) so a concurrent
+ * batch starts from the same state; otherwise plain panes that run in the cwd.
+ * A per-agent create failure falls back to a cwd pane so the batch still lands.
+ */
+async function provisionPanes(
+  ws: { cwd: string; worktreeBaseDir: string | null; name: string },
+  startSeq: number,
+  count: number,
+  onError: (message: string) => void,
+): Promise<Pane[]> {
+  if (!ws.worktreeBaseDir) return makePanes(startSeq, count);
+
+  let base: string | undefined;
+  try {
+    base = (await inspectRepo(ws.cwd)).head ?? undefined;
+  } catch {
+    base = undefined; // create resolves HEAD itself when base is omitted
+  }
+
+  const n = Math.max(0, Math.min(count, MAX_PANES));
+  const panes: Pane[] = [];
+  for (let i = 0; i < n; i++) {
+    const agentId = `pane-${startSeq + i}`;
+    try {
+      const rec = await createWorktree({
+        repo: ws.cwd,
+        baseDir: ws.worktreeBaseDir,
+        agentId,
+        base,
+        workspace: ws.name,
+        index: i + 1,
+      });
+      panes.push({ id: agentId, cwd: rec.path, branch: rec.branch });
+    } catch (e) {
+      console.error("worktree create failed", e);
+      onError(`Failed to create worktree for ${agentId}:\n${e}`);
+      panes.push({ id: agentId }); // fall back to the workspace cwd
+    }
+  }
+  return panes;
+}
 
 function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
@@ -43,6 +91,15 @@ function App() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   const nextAgentSeq = useRef(1);
   const nextWorkspaceSeq = useRef(1);
+  // Open "+ Agent" dialog (worktree mode only): predicted path + default branch.
+  const [agentDialog, setAgentDialog] = useState<{
+    wsId: string;
+    agentId: string;
+    index: number;
+    defaultBranch: string;
+  } | null>(null);
+  // In-app error notice (no system dialogs).
+  const [error, setError] = useState<string | null>(null);
 
   const active = workspaces.find((w) => w.id === activeId) ?? null;
   const showForm = creating || workspaces.length === 0;
@@ -60,10 +117,61 @@ function App() {
     if (!active) return;
     const seq = nextAgentSeq.current;
     nextAgentSeq.current += 1;
+    // Worktree mode: open the dialog to pick a branch/name + see the path first.
+    if (active.worktreeBaseDir) {
+      const agentId = `pane-${seq}`;
+      const index = active.panes.length + 1;
+      const slug = active.name.trim().replace(/\s+/g, "-") || "ws";
+      setAgentDialog({
+        wsId: active.id,
+        agentId,
+        index,
+        defaultBranch: `kd/${slug}/${index}`,
+      });
+      return;
+    }
     setWorkspaces((current) => addAgent(current, activeId, seq));
   };
 
+  const handleConfirmAgent = async ({
+    name,
+    branch,
+    folder,
+  }: AgentDialogResult) => {
+    const dlg = agentDialog;
+    if (!dlg) return;
+    setAgentDialog(null);
+    const ws = workspaces.find((w) => w.id === dlg.wsId);
+    if (!ws || !ws.worktreeBaseDir) return;
+    try {
+      const base = (await inspectRepo(ws.cwd).catch(() => null))?.head ?? undefined;
+      const rec = await createWorktree({
+        repo: ws.cwd,
+        baseDir: ws.worktreeBaseDir,
+        agentId: dlg.agentId,
+        branch,
+        base,
+        workspace: ws.name,
+        index: dlg.index,
+        dir: folder,
+      });
+      const pane: Pane = {
+        id: dlg.agentId,
+        cwd: rec.path,
+        branch: rec.branch,
+        name: name.trim() || undefined,
+      };
+      setWorkspaces((current) => addAgentPane(current, dlg.wsId, pane));
+      setSelectedPaneId(dlg.agentId);
+    } catch (e) {
+      console.error("worktree create failed", e);
+      setError(`Failed to create agent worktree:\n${e}`);
+    }
+  };
+
   const handleCloseAgent = (workspaceId: string, paneId: string) => {
+    // Closing an agent removes its pane (tearing down the PTY). Its git worktree
+    // and branch are left on disk — cleanup is deferred (see worktrees design).
     setWorkspaces((current) => closeAgent(current, workspaceId, paneId));
     setFocusByWs((cur) => {
       if (cur[workspaceId] !== paneId) return cur;
@@ -88,31 +196,48 @@ function App() {
     });
 
   // Add `count` agents to an existing (empty) workspace.
-  const handleStartWorkspace = (workspaceId: string, count: number) => {
+  const handleStartWorkspace = async (workspaceId: string, count: number) => {
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return;
     const startSeq = nextAgentSeq.current;
     nextAgentSeq.current += count;
-    const panes = makePanes(startSeq, count);
+    const panes = await provisionPanes(ws, startSeq, count, setError);
     setWorkspaces((current) =>
       current.map((w) => (w.id === workspaceId ? { ...w, panes } : w)),
     );
+    setSelectedPaneId(panes[0]?.id ?? null);
   };
 
-  const handleCreateWorkspace = ({ name, cwd, agentType, count }: SpawnConfig) => {
+  const handleCreateWorkspace = async ({
+    name,
+    cwd,
+    agentType,
+    count,
+    worktreeBaseDir,
+  }: SpawnConfig) => {
     const wsSeq = nextWorkspaceSeq.current;
     nextWorkspaceSeq.current += 1;
     const startSeq = nextAgentSeq.current;
     nextAgentSeq.current += count;
     const id = `ws-${wsSeq}`;
+    const wsName = name.trim() || `workspace-${wsSeq}`;
+    const panes = await provisionPanes(
+      { cwd, worktreeBaseDir, name: wsName },
+      startSeq,
+      count,
+      setError,
+    );
     const workspace: Workspace = {
       id,
-      name: name.trim() || `workspace-${wsSeq}`,
+      name: wsName,
       cwd,
       agentType,
-      panes: makePanes(startSeq, count),
+      worktreeBaseDir,
+      panes,
     };
     setWorkspaces((current) => [...current, workspace]);
     setActiveId(id);
-    setSelectedPaneId(workspace.panes[0]?.id ?? null);
+    setSelectedPaneId(panes[0]?.id ?? null);
     setCreating(false);
   };
 
@@ -233,9 +358,10 @@ function App() {
                   return (
                     <AgentPane
                       key={pane.id}
-                      title={`${label} ${index + 1}`}
+                      title={pane.name ?? `${label} ${index + 1}`}
                       command={command}
-                      cwd={ws.cwd}
+                      cwd={pane.cwd ?? ws.cwd}
+                      branch={pane.branch}
                       visible={isActive && !isCollapsed}
                       focused={isFocused}
                       collapsed={isCollapsed}
@@ -252,7 +378,11 @@ function App() {
           })}
 
           {showForm && (
-            <div className="deck__overlay">
+            <div
+              className={
+                workspaces.length > 0 ? "modal-overlay" : "deck__overlay"
+              }
+            >
               <WorkspaceForm
                 onCreate={handleCreateWorkspace}
                 onCancel={
@@ -260,6 +390,23 @@ function App() {
                 }
               />
             </div>
+          )}
+
+          {agentDialog && (
+            <AgentDialog
+              defaultBranch={agentDialog.defaultBranch}
+              onConfirm={handleConfirmAgent}
+              onCancel={() => setAgentDialog(null)}
+            />
+          )}
+
+          {error && (
+            <ConfirmDialog
+              title="Worktree error"
+              message={error}
+              confirmLabel="OK"
+              onConfirm={() => setError(null)}
+            />
           )}
         </div>
       </div>

@@ -1,18 +1,31 @@
 import { MAX_PANES } from "./layout";
 
 /** One agent pane in the grid. Its display title is derived from the
- * workspace's agent type and the pane's position, not stored here. */
+ * workspace's agent type and the pane's position, unless `name` overrides it. */
 export interface Pane {
   id: string;
+  /** Per-agent working directory (its own git worktree) when the workspace runs
+   * in worktree mode; falls back to the workspace cwd when undefined. */
+  cwd?: string;
+  /** The agent's git branch, when it runs in a worktree. */
+  branch?: string;
+  /** Optional custom display name, overriding the derived "Agent N" title. */
+  name?: string;
 }
 
 /**
- * Append a new pane numbered `seq`, unless the fleet is already at
- * [`MAX_PANES`]. Pure: returns the same array (unchanged) when at the cap.
+ * Append an already-formed `pane` (e.g. one whose worktree is provisioned),
+ * unless the fleet is already at [`MAX_PANES`]. Pure: returns the same array
+ * (unchanged) when at the cap.
  */
-export function addPane(panes: Pane[], seq: number): Pane[] {
+export function appendPane(panes: Pane[], pane: Pane): Pane[] {
   if (panes.length >= MAX_PANES) return panes;
-  return [...panes, { id: `pane-${seq}` }];
+  return [...panes, pane];
+}
+
+/** Append a new bare pane numbered `seq`, unless already at [`MAX_PANES`]. */
+export function addPane(panes: Pane[], seq: number): Pane[] {
+  return appendPane(panes, { id: `pane-${seq}` });
 }
 
 /** Remove the pane with `id`; a no-op if it isn't present. */

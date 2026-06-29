@@ -330,12 +330,32 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.pane__branch {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #7fb88a;
+  background-color: #12211a;
+  border: 1px solid #1d3a2a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .pane__actions {
   display: flex;
   align-items: center;
   gap: 2px;
+  margin-left: auto;
 }
 
 .pane__action,
@@ -480,12 +500,31 @@ body,
   background-color: #0b0e14;
 }
 
+/* Translucent overlay for true dialogs (confirm/error, "+ Agent", and the
+   "+"-triggered create form): sits ON TOP of the deck, which stays visible
+   behind it — unlike .deck__overlay, which is opaque (the empty-state screen). */
+.modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background-color: rgba(7, 9, 13, 0.66);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
 .form {
   display: flex;
   flex-direction: column;
   width: 100%;
   max-width: 560px;
   padding: 28px;
+  border: 1px solid #1c2230;
+  border-radius: 12px;
+  background-color: #0e121a;
 }
 
 .form__title {
@@ -546,6 +585,49 @@ body,
   color: #6b7280;
 }
 
+.form__git {
+  margin-top: -12px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: #58b368;
+}
+
+.form__error {
+  margin-top: -12px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: #e5736f;
+}
+
+.confirm {
+  width: 100%;
+  max-width: 420px;
+  padding: 24px;
+  border: 1px solid #1c2230;
+  border-radius: 12px;
+  background-color: #0e121a;
+}
+
+.confirm__title {
+  margin: 0 0 10px;
+  font-size: 16px;
+  color: #e6e8eb;
+}
+
+.confirm__message {
+  margin: 0 0 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #9aa3af;
+  white-space: pre-line;
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .form__dir-btn,
 .form__cancel {
   flex: none;
@@ -602,6 +684,7 @@ body,
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  margin-top: 24px;
 }
 
 .form__create {

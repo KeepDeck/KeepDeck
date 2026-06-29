@@ -1603,8 +1603,9 @@ dependencies = [
 
 [[package]]
 name = "keepdeck"
-version = "0.3.15"
+version = "0.4.0"
 dependencies = [
+ "keepdeck-git",
  "keepdeck-pty",
  "serde",
  "serde_json",
@@ -1612,6 +1613,10 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
 ]
+
+[[package]]
+name = "keepdeck-git"
+version = "0.1.0"
 
 [[package]]
 name = "keepdeck-pty"

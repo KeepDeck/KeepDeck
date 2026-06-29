@@ -1,6 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AGENT_TYPES, type AgentType } from "../agents";
+import { inspectRepo } from "../worktree";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { useEscape } from "../ui/useEscape";
+import { noAutoCorrect } from "../ui/inputProps";
 import { TERMINAL_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
 export interface SpawnConfig {
@@ -9,6 +13,8 @@ export interface SpawnConfig {
   cwd: string;
   agentType: AgentType;
   count: number;
+  /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
+  worktreeBaseDir: string | null;
 }
 
 interface WorkspaceFormProps {
@@ -27,6 +33,37 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
   const [cwd, setCwd] = useState<string | null>(null);
   const [agentType, setAgentType] = useState<AgentType>("claude");
   const [count, setCount] = useState(1);
+  const [worktreeDir, setWorktreeDir] = useState<string | null>(null);
+  const [nudge, setNudge] = useState(false);
+  const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
+    null,
+  );
+
+  // Probe the chosen working directory: show a "git detected" hint and decide
+  // whether to nudge toward worktree isolation on submit.
+  useEffect(() => {
+    if (!cwd) {
+      setGit(null);
+      return;
+    }
+    let cancelled = false;
+    inspectRepo(cwd)
+      .then((info) => {
+        if (!cancelled) setGit({ isRepo: info.isRepo, branch: info.branch });
+      })
+      .catch(() => {
+        if (!cancelled) setGit(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cwd]);
+
+  // Esc closes the form when there's a workspace to return to — but not while
+  // the nudge is open (its own Esc handles that, so the form stays put).
+  useEscape(() => {
+    if (onCancel && !nudge) onCancel();
+  });
 
   const chooseDirectory = async () => {
     const selected = await open({
@@ -37,11 +74,32 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
     if (typeof selected === "string") setCwd(selected);
   };
 
+  const chooseWorktreeDir = async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Choose a base folder for agent worktrees",
+    });
+    if (typeof selected === "string") setWorktreeDir(selected);
+  };
+
+  const create = () => {
+    if (cwd) onCreate({ name, cwd, agentType, count, worktreeBaseDir: worktreeDir });
+  };
+
   const submit = () => {
-    if (cwd) onCreate({ name, cwd, agentType, count });
+    if (!cwd) return;
+    // No worktree dir chosen but the working dir is a git repo → in-app nudge
+    // (no system dialogs) before running every agent in one repo working tree.
+    if (!worktreeDir && git?.isRepo) {
+      setNudge(true);
+      return;
+    }
+    create();
   };
 
   return (
+    <>
     <form
       className="form"
       onSubmit={(e) => {
@@ -53,6 +111,7 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
 
       <span className="form__label">Name</span>
       <input
+        {...noAutoCorrect}
         className="form__input"
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -72,6 +131,37 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
           type="button"
           className="form__dir-btn"
           onClick={chooseDirectory}
+        >
+          Choose…
+        </button>
+      </div>
+      {git?.isRepo && (
+        <span className="form__git">
+          ✓ Git repository detected{git.branch ? ` · ${git.branch}` : ""}
+        </span>
+      )}
+
+      <span className="form__label">Worktree directory (optional)</span>
+      <div className="form__dir">
+        <span
+          className={`form__dir-path${worktreeDir ? "" : " form__dir-path--empty"}`}
+          title={worktreeDir ?? undefined}
+        >
+          {worktreeDir ?? "Agents run in the working directory"}
+        </span>
+        {worktreeDir && (
+          <button
+            type="button"
+            className="form__dir-btn"
+            onClick={() => setWorktreeDir(null)}
+          >
+            Clear
+          </button>
+        )}
+        <button
+          type="button"
+          className="form__dir-btn"
+          onClick={chooseWorktreeDir}
         >
           Choose…
         </button>
@@ -114,5 +204,23 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
         </button>
       </div>
     </form>
+      {nudge && (
+        <ConfirmDialog
+          title="No worktree isolation"
+          message={
+            "This folder is a git repository. Run all agents directly in it, " +
+            "without an isolated git worktree per agent?\n\n" +
+            "Pick a worktree directory to isolate them, or continue without."
+          }
+          confirmLabel="Continue without"
+          cancelLabel="Cancel"
+          onConfirm={() => {
+            setNudge(false);
+            create();
+          }}
+          onCancel={() => setNudge(false)}
+        />
+      )}
+    </>
   );
 }
