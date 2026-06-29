@@ -1614,6 +1614,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "keepdeck-git"
+version = "0.1.0"
+
+[[package]]
 name = "keepdeck-pty"
 version = "0.1.0"
 dependencies = [
