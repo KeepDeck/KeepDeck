@@ -7,3 +7,20 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <App />
   </React.StrictMode>,
 );
+
+// Dismiss the pre-React boot screen once the app has actually painted. Boot and
+// app share the same dark background, so the hand-off shows no white frame. Two
+// rAFs wait for React's initial (synchronous) commit to be painted before the
+// fade begins; transitionend removes the node, with a timeout fallback in case
+// the transition is skipped (e.g. prefers-reduced-motion).
+const boot = document.getElementById("boot");
+if (boot) {
+  const remove = () => boot.remove();
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      boot.classList.add("boot--hidden");
+      boot.addEventListener("transitionend", remove, { once: true });
+      setTimeout(remove, 600);
+    }),
+  );
+}
