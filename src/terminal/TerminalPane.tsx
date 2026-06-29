@@ -12,6 +12,8 @@ interface TerminalPaneProps {
   cwd?: string | null;
   /** Whether this pane is currently on screen (active workspace, not collapsed). */
   visible: boolean;
+  /** The highlighted pane — focus its terminal when it's on screen. */
+  selected?: boolean;
 }
 
 /**
@@ -24,7 +26,12 @@ interface TerminalPaneProps {
  * context limit causes eviction/blanking), so GPU rendering is off for now —
  * revisit only if profiling a single pane shows the default renderer is a bottleneck.
  */
-export function TerminalPane({ command, cwd, visible }: TerminalPaneProps) {
+export function TerminalPane({
+  command,
+  cwd,
+  visible,
+  selected,
+}: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -121,7 +128,10 @@ export function TerminalPane({ command, cwd, visible }: TerminalPaneProps) {
     const term = termRef.current;
     fitRef.current?.fit();
     term?.refresh(0, term.rows - 1);
-  }, [visible]);
+    // Move keyboard focus to the highlighted pane when it comes on screen (e.g.
+    // after a workspace switch), so you can type without clicking first ([B2]).
+    if (selected) term?.focus();
+  }, [visible, selected]);
 
   return <div className="terminal-pane" ref={hostRef} />;
 }

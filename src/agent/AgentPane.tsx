@@ -78,7 +78,12 @@ export function AgentPane({
         </div>
       </header>
       <div className="pane__body">
-        <TerminalPane command={command} cwd={cwd} visible={visible} />
+        <TerminalPane
+          command={command}
+          cwd={cwd}
+          visible={visible}
+          selected={selected}
+        />
       </div>
     </section>
   );
