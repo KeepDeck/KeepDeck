@@ -114,13 +114,30 @@ impl PtySession {
             cmd.env(key, value);
         }
 
-        let child = pair.slave.spawn_command(cmd).map_err(to_io)?;
+        let mut child = pair.slave.spawn_command(cmd).map_err(to_io)?;
         // Drop the slave so the master reports EOF once the child closes its end.
         drop(pair.slave);
 
         let killer = child.clone_killer();
-        let reader = pair.master.try_clone_reader().map_err(to_io)?;
-        let writer = pair.master.take_writer().map_err(to_io)?;
+        // A failure after the child has spawned must not leak it — dropping the
+        // handle leaves it running per this crate's contract, so kill + reap on
+        // each error path.
+        let reader = match pair.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(to_io(e));
+            }
+        };
+        let writer = match pair.master.take_writer() {
+            Ok(writer) => writer,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(to_io(e));
+            }
+        };
 
         let (tx, rx) = mpsc::channel::<PtyEvent>();
         spawn_pump(reader, child, tx);
