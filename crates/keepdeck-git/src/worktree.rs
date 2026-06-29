@@ -96,7 +96,9 @@ fn short_branch(reference: &str) -> String {
 /// `.git` locks that race) and for choosing a unique `branch`/`path`.
 pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<(), GitError> {
     let path = path.to_string_lossy().into_owned();
-    run_git(repo, &["worktree", "add", "-b", branch, &path, base_commit]).map(drop)
+    // `--` ends option parsing: the dir is user-editable, so a leaf starting
+    // with `-` must not be read by git as a flag.
+    run_git(repo, &["worktree", "add", "-b", branch, "--", &path, base_commit]).map(drop)
 }
 
 /// List the repository's worktrees.
@@ -116,6 +118,7 @@ pub fn remove(repo: &Path, path: &Path, force: bool) -> Result<(), GitError> {
     if force {
         args.push("--force");
     }
+    args.push("--"); // end of options — the path is positional (see `add`)
     args.push(&path);
     run_git(repo, &args).map(drop)
 }
