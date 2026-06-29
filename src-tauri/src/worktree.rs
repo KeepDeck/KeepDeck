@@ -206,7 +206,7 @@ pub fn worktree_status(path: String) -> Result<WorktreeStatus, String> {
 /// Remove an agent's worktree. Without `force`, refuses a dirty worktree so work
 /// is never destroyed; the branch itself is left intact either way.
 #[tauri::command]
-pub fn worktree_remove(spec: RemoveSpec) -> Result<(), String> {
+pub fn worktree_remove(locks: State<RepoLocks>, spec: RemoveSpec) -> Result<(), String> {
     let repo_path = PathBuf::from(&spec.repo);
     let path = PathBuf::from(&spec.path);
 
@@ -214,6 +214,11 @@ pub fn worktree_remove(spec: RemoveSpec) -> Result<(), String> {
         return Err("worktree has uncommitted changes; not removing".to_string());
     }
 
+    // Serialize with worktree_create on this repo: remove + prune both take the
+    // shared .git locks, so a concurrent add would otherwise fail to lock or
+    // have its admin-state pruned mid-write.
+    let lock = locks.for_repo(&repo_path);
+    let _guard = lock.lock().expect("repo lock poisoned");
     worktree::remove(&repo_path, &path, spec.force).map_err(|e| e.to_string())?;
     // Best-effort: drop the administrative record if the dir is already gone.
     let _ = worktree::prune(&repo_path);
