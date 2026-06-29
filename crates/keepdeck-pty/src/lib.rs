@@ -15,8 +15,11 @@ mod path;
 
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use portable_pty::{
     native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize,
@@ -98,6 +101,11 @@ pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     killer: Box<dyn ChildKiller + Send + Sync>,
+    /// Child pid, for the SIGTERM→SIGKILL escalation in [`kill`](Self::kill) (Unix).
+    pid: Option<u32>,
+    /// Set by the reaper once the child is waited on, so `kill`'s escalation
+    /// timer never signals an already-reaped (possibly recycled) pid.
+    exited: Arc<AtomicBool>,
 }
 
 impl PtySession {
@@ -131,6 +139,7 @@ impl PtySession {
         drop(pair.slave);
 
         let killer = child.clone_killer();
+        let pid = child.process_id();
         // A failure after the child has spawned must not leak it — dropping the
         // handle leaves it running per this crate's contract, so kill + reap on
         // each error path.
@@ -151,14 +160,17 @@ impl PtySession {
             }
         };
 
+        let exited = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::sync_channel::<PtyEvent>(EVENT_CHANNEL_CAP);
-        spawn_pump(reader, child, tx);
+        spawn_pump(reader, child, tx, exited.clone());
 
         Ok((
             Self {
                 master: pair.master,
                 writer,
                 killer,
+                pid,
+                exited,
             },
             rx,
         ))
@@ -175,8 +187,30 @@ impl PtySession {
         self.master.resize(pty_size(cols, rows)).map_err(to_io)
     }
 
-    /// Terminate the child process.
+    /// Terminate the child: SIGTERM now, then SIGKILL after a grace period if
+    /// it's still alive — so a well-behaved agent can clean up, but a trap that
+    /// swallows the signal can't survive a close. (A bare `ChildKiller::kill`
+    /// only sends a catchable SIGHUP.)
     pub fn kill(&mut self) -> io::Result<()> {
+        #[cfg(unix)]
+        if let Some(pid) = self.pid {
+            // Already reaped → nothing to signal (and avoids a recycled pid).
+            if self.exited.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+            let pid = pid as i32;
+            // SAFETY: kill(2) on a child we own; harmless ESRCH if already gone.
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            let exited = self.exited.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(3));
+                if !exited.load(Ordering::Relaxed) {
+                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                }
+            });
+            return Ok(());
+        }
+        // No pid, or non-Unix: fall back to the killer's signal.
         self.killer.kill()
     }
 }
@@ -188,6 +222,7 @@ fn spawn_pump(
     mut reader: Box<dyn Read + Send>,
     mut child: Box<dyn Child + Send + Sync>,
     tx: SyncSender<PtyEvent>,
+    exited: Arc<AtomicBool>,
 ) {
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
@@ -201,6 +236,7 @@ fn spawn_pump(
                         // undrained PTY the child keeps filling — then reap it.
                         let _ = child.kill();
                         let _ = child.wait();
+                        exited.store(true, Ordering::Relaxed);
                         return;
                     }
                 }
@@ -218,6 +254,7 @@ fn spawn_pump(
                 code: None,
             },
         };
+        exited.store(true, Ordering::Relaxed);
         let _ = tx.send(PtyEvent::Exited(info));
     });
 }
