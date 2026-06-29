@@ -31,6 +31,8 @@ export interface CreateWorktreeArgs {
   base?: string | null;
   workspace?: string;
   index?: number;
+  /** Explicit worktree folder (relative to baseDir); derived from branch when omitted. */
+  dir?: string | null;
 }
 
 /** Is `path` inside a git repo? plus its HEAD/branch. Never throws for a

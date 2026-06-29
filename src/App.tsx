@@ -133,7 +133,11 @@ function App() {
     setWorkspaces((current) => addAgent(current, activeId, seq));
   };
 
-  const handleConfirmAgent = async ({ name, branch }: AgentDialogResult) => {
+  const handleConfirmAgent = async ({
+    name,
+    branch,
+    folder,
+  }: AgentDialogResult) => {
     const dlg = agentDialog;
     if (!dlg) return;
     setAgentDialog(null);
@@ -149,6 +153,7 @@ function App() {
         base,
         workspace: ws.name,
         index: dlg.index,
+        dir: folder,
       });
       const pane: Pane = {
         id: dlg.agentId,

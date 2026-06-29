@@ -592,6 +592,13 @@ body,
   color: #58b368;
 }
 
+.form__error {
+  margin-top: -12px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: #e5736f;
+}
+
 .confirm {
   width: 100%;
   max-width: 420px;

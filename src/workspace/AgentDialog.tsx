@@ -6,6 +6,8 @@ export interface AgentDialogResult {
   name: string;
   /** Branch to create for the agent's worktree. */
   branch: string;
+  /** Worktree folder name (relative to the workspace's base dir). */
+  folder: string;
 }
 
 interface AgentDialogProps {
@@ -17,19 +19,17 @@ interface AgentDialogProps {
 
 /** Folder leaf for a branch — mirrors the backend (slashes/illegal → dashes). */
 function worktreeLeaf(branch: string): string {
-  return (
-    branch
-      .trim()
-      .replace(/[\s/~^:?*[\]\\@]+/g, "-")
-      .replace(/^[-.]+|[-.]+$/g, "") || "agent"
-  );
+  return branch
+    .trim()
+    .replace(/[\s/~^:?*[\]\\@]+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "");
 }
 
 /**
  * Modal shown when adding a single agent to a worktree-mode workspace: lets you
- * name the agent and the branch it creates, and previews the worktree folder
- * (relative to the workspace's base dir). Batch creation (the spawn form / count
- * picker) skips this and uses auto branch names.
+ * name the agent, the branch it creates, and the worktree folder (relative to
+ * the workspace's base dir). The folder tracks the branch until edited directly.
+ * Batch creation (the spawn form / count picker) skips this and uses auto names.
  */
 export function AgentDialog({
   defaultBranch,
@@ -38,8 +38,23 @@ export function AgentDialog({
 }: AgentDialogProps) {
   const [name, setName] = useState("");
   const [branch, setBranch] = useState(defaultBranch);
-  const folder = worktreeLeaf(branch);
+  const [folder, setFolder] = useState(worktreeLeaf(defaultBranch));
+  const [folderEdited, setFolderEdited] = useState(false);
   useEscape(onCancel);
+
+  const onBranchChange = (value: string) => {
+    setBranch(value);
+    // The folder mirrors the branch until the user edits it directly.
+    if (!folderEdited) setFolder(worktreeLeaf(value));
+  };
+  const onFolderChange = (value: string) => {
+    setFolder(value);
+    setFolderEdited(true);
+  };
+
+  const branchError = branch.trim() ? null : "Branch is required";
+  const folderError = folder.trim() ? null : "Folder is required";
+  const valid = !branchError && !folderError;
 
   return (
     <div className="modal-overlay">
@@ -47,7 +62,7 @@ export function AgentDialog({
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
-          onConfirm({ name, branch });
+          if (valid) onConfirm({ name, branch, folder });
         }}
       >
         <h2 className="form__title">New agent</h2>
@@ -65,24 +80,25 @@ export function AgentDialog({
         <input
           className="form__input"
           value={branch}
-          onChange={(e) => setBranch(e.target.value)}
+          onChange={(e) => onBranchChange(e.target.value)}
           aria-label="Branch name"
         />
+        {branchError && <span className="form__error">{branchError}</span>}
 
         <span className="form__label">Worktree folder</span>
-        <span className="form__dir-path" title={folder}>
-          {folder}
-        </span>
+        <input
+          className="form__input"
+          value={folder}
+          onChange={(e) => onFolderChange(e.target.value)}
+          aria-label="Worktree folder"
+        />
+        {folderError && <span className="form__error">{folderError}</span>}
 
         <div className="form__actions">
           <button type="button" className="form__cancel" onClick={onCancel}>
             Cancel
           </button>
-          <button
-            type="submit"
-            className="form__create"
-            disabled={!branch.trim()}
-          >
+          <button type="submit" className="form__create" disabled={!valid}>
             Create agent
           </button>
         </div>

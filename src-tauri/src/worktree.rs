@@ -75,6 +75,9 @@ pub struct CreateSpec {
     /// Agent index within the workspace, used only for the auto branch name.
     #[serde(default)]
     pub index: u64,
+    /// Explicit worktree directory name (relative to `base_dir`); derived from
+    /// the branch (slashes → dashes) when absent/blank.
+    pub dir: Option<String>,
 }
 
 /// The created worktree, returned to the UI to store on the agent.
@@ -154,25 +157,32 @@ pub fn worktree_create(
         None => repo::resolve_commit(&repo_path, "HEAD").map_err(|e| e.to_string())?,
     };
 
-    let chosen = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
+    let chosen_branch = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
+    // Explicit dir wins (sanitized to one fs-safe segment); else derive it from
+    // the branch (slashes -> dashes) so it matches the pane header.
+    let chosen_dir = match spec.dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(d) => branch::sanitize_branch_component(d),
+        None => chosen_branch.replace('/', "-"),
+    };
 
     let lock = locks.for_repo(&repo_path);
     let _guard = lock.lock().expect("repo lock poisoned");
 
     // Pick a free branch + dir under the lock. Clean worktrees aren't removed on
     // close, so an earlier agent's branch/folder may still exist; append -2, -3,
-    // … until both are free. The dir is named after the branch (slashes ->
-    // dashes) so it matches the pane header, not an opaque internal id.
-    let mut branch = chosen.clone();
-    let mut path = base_dir.join(branch.replace('/', "-"));
+    // … (to both, kept in step) until the dir is free and the branch is unused.
+    let mut branch = chosen_branch.clone();
+    let mut dir = chosen_dir.clone();
+    let mut path = base_dir.join(&dir);
     let mut suffix = 1u32;
     while path.exists() || repo::branch_exists(&repo_path, &branch).map_err(|e| e.to_string())? {
         suffix += 1;
         if suffix > 999 {
             return Err("could not find a free worktree branch/dir".to_string());
         }
-        branch = format!("{chosen}-{suffix}");
-        path = base_dir.join(branch.replace('/', "-"));
+        branch = format!("{chosen_branch}-{suffix}");
+        dir = format!("{chosen_dir}-{suffix}");
+        path = base_dir.join(&dir);
     }
 
     worktree::add(&repo_path, &path, &branch, &base).map_err(|e| e.to_string())?;
