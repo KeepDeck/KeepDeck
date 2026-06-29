@@ -21,6 +21,8 @@ interface WorkspaceFormProps {
   onCreate(config: SpawnConfig): void;
   /** Provided only when there's a workspace to return to (omitted on first run). */
   onCancel?(): void;
+  /** Provisioning in flight — disables Create to block a reentrant submit. */
+  busy?: boolean;
 }
 
 /**
@@ -28,7 +30,7 @@ interface WorkspaceFormProps {
  * (required), agent type, and how many agents. Reused as the empty state when
  * no workspaces exist.
  */
-export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
+export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) {
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState<string | null>(null);
   const [agentType, setAgentType] = useState<AgentType>("claude");
@@ -197,10 +199,10 @@ export function WorkspaceForm({ onCreate, onCancel }: WorkspaceFormProps) {
         <button
           type="submit"
           className="form__create"
-          disabled={!cwd}
+          disabled={!cwd || busy}
           title={cwd ? "Create workspace" : "Choose a working directory first"}
         >
-          Create workspace
+          {busy ? "Creating…" : "Create workspace"}
         </button>
       </div>
     </form>
