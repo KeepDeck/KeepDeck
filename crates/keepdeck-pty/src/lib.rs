@@ -1,4 +1,4 @@
-//! `keepdeck-pty` — the process layer for the KeepDeck cockpit.
+//! `keepdeck-pty` — the process layer for KeepDeck.
 //!
 //! A [`PtySession`] spawns a command in a pseudo-terminal and streams its output
 //! as [`PtyEvent`]s over a channel, while accepting input, resize, and kill. It

@@ -2,7 +2,7 @@
 name = "keepdeck-pty"
 version = "0.1.0"
 edition = "2021"
-description = "PTY-backed session process layer for the KeepDeck cockpit."
+description = "PTY-backed session process layer for KeepDeck."
 
 [dependencies]
 portable-pty = "0.9"
