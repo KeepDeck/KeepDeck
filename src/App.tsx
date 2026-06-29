@@ -418,10 +418,10 @@ function App() {
               title={closing.kind === "agent" ? "Close agent" : "Close workspace"}
               message={
                 closing.kind === "agent"
-                  ? `Close "${closing.label}"? Its terminal session will be ended.`
+                  ? `Close "${closing.label}"?\nIts terminal session will be ended.`
                   : closing.count === 0
                     ? `Close workspace "${closing.name}"?`
-                    : `Close "${closing.name}"? This ends ${closing.count} agent${closing.count === 1 ? "" : "s"} and their sessions.`
+                    : `Close "${closing.name}"?\nThis ends ${closing.count} agent${closing.count === 1 ? "" : "s"} and their sessions.`
               }
               confirmLabel="Close"
               cancelLabel="Cancel"
