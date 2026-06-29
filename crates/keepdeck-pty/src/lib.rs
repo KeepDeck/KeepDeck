@@ -11,14 +11,21 @@
 //! `Exited` are emitted from the same reader thread, so all output is guaranteed
 //! to arrive before the exit event.
 
+mod path;
+
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
 
 use portable_pty::{
     native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize,
 };
+
+/// Cap on buffered PTY events per session. Bounds memory under a flooding child
+/// (each event is one read of up to 4 KiB) while leaving generous headroom; a
+/// full channel backpressures the pump thread instead of growing without limit.
+const EVENT_CHANNEL_CAP: usize = 1024;
 
 /// Terminal size in character cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,12 +110,17 @@ impl PtySession {
             .openpty(pty_size(spec.size.cols, spec.size.rows))
             .map_err(to_io)?;
 
-        let mut cmd = CommandBuilder::new(&spec.command);
+        // Rebuild PATH so a GUI-launched (stripped-PATH) instance finds the
+        // user's CLIs, and resolve the program against it (CommandBuilder won't
+        // search our augmented PATH for a bare name on its own).
+        let path_env = path::augmented_path();
+        let mut cmd = CommandBuilder::new(path::resolve_program(&spec.command, path_env));
         cmd.args(&spec.args);
         cmd.cwd(match spec.cwd {
             Some(dir) => dir,
             None => std::env::current_dir()?,
         });
+        cmd.env("PATH", path_env);
         cmd.env("TERM", "xterm-256color");
         for (key, value) in &spec.env {
             cmd.env(key, value);
@@ -139,7 +151,7 @@ impl PtySession {
             }
         };
 
-        let (tx, rx) = mpsc::channel::<PtyEvent>();
+        let (tx, rx) = mpsc::sync_channel::<PtyEvent>(EVENT_CHANNEL_CAP);
         spawn_pump(reader, child, tx);
 
         Ok((
@@ -175,7 +187,7 @@ impl PtySession {
 fn spawn_pump(
     mut reader: Box<dyn Read + Send>,
     mut child: Box<dyn Child + Send + Sync>,
-    tx: Sender<PtyEvent>,
+    tx: SyncSender<PtyEvent>,
 ) {
     thread::spawn(move || {
         let mut buf = [0u8; 4096];
