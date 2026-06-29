@@ -399,6 +399,36 @@ body,
   display: flex;
   min-height: 0;
   min-width: 0;
+  /* Positioning context for the [U4] agent-exited placeholder overlay. */
+  position: relative;
+}
+
+/* Shown over the dead terminal when the agent process exits ([U4]). */
+.pane__exit {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background-color: rgba(11, 14, 20, 0.82);
+  /* Purely informational — never trap clicks; closing is in the pane header. */
+  pointer-events: none;
+  user-select: none;
+}
+
+.pane__exit-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #8b93a3;
+}
+
+.pane__exit-sub {
+  font-size: 12px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
 }
 
 .terminal-pane {
@@ -713,6 +743,28 @@ body,
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+}
+
+/* Destructive action (close/delete/discard) — see ui/DestructiveButton.tsx. */
+.btn-destructive {
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 8px;
+  background-color: #7a2f2f;
+  color: #ffe9e9;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-destructive:hover:not(:disabled) {
+  background-color: #933a3a;
+}
+
+.btn-destructive:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .form__create:hover:not(:disabled) {

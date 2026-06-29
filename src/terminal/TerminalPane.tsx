@@ -14,6 +14,9 @@ interface TerminalPaneProps {
   visible: boolean;
   /** The highlighted pane — focus its terminal when it's on screen. */
   selected?: boolean;
+  /** Called when the PTY process exits, with its exit code (null if unknown).
+   * Lets the pane show an "agent exited" placeholder ([U4]). */
+  onExit?: (code: number | null) => void;
 }
 
 /**
@@ -31,10 +34,15 @@ export function TerminalPane({
   cwd,
   visible,
   selected,
+  onExit,
 }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  // Held in a ref so the exit handler inside the (command/cwd)-scoped effect
+  // always calls the latest callback without re-running the effect.
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -68,11 +76,18 @@ export function TerminalPane({
     });
 
     spawnSession({ command, cwd, cols: term.cols, rows: term.rows }, (event) => {
+      // Ignore events from a session whose pane was already torn down — notably
+      // the throwaway first session of a StrictMode double-mount, whose close()
+      // emits an exit (code 1) that would otherwise flash the [U4] "agent
+      // exited" placeholder over the live agent. Also avoids writing to a
+      // disposed terminal.
+      if (disposed) return;
       if (event.type === "output") {
         term.write(new Uint8Array(event.bytes));
       } else {
         const suffix = event.code !== null ? ` (${event.code})` : "";
         term.writeln(`\r\n\x1b[90m[process exited${suffix}]\x1b[0m`);
+        onExitRef.current?.(event.code);
       }
     })
       .then((s) => {

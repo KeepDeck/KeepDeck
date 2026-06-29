@@ -21,6 +21,13 @@ import {
 } from "./layout";
 import "./App.css";
 
+/** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
+ * workspace. Closing tears down live PTY session(s) immediately, so both are
+ * confirmed before they run. */
+type ClosingTarget =
+  | { kind: "agent"; wsId: string; paneId: string; label: string }
+  | { kind: "workspace"; id: string; name: string; count: number };
+
 /**
  * Build `count` panes for a workspace. In worktree mode each agent gets its own
  * git worktree, all pinned to one base commit (resolved once) so a concurrent
@@ -99,6 +106,8 @@ function App() {
   } | null>(null);
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
+  // A close (agent or workspace) awaiting confirmation ([U6]).
+  const [closing, setClosing] = useState<ClosingTarget | null>(null);
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
   const showForm = creating || deck.workspaces.length === 0;
@@ -223,6 +232,21 @@ function App() {
     }
   };
 
+  // Ask before closing — both close paths run through a confirm dialog ([U6]).
+  const requestCloseAgent = (wsId: string, paneId: string, label: string) =>
+    setClosing({ kind: "agent", wsId, paneId, label });
+  const requestCloseWorkspace = (id: string) => {
+    const ws = deck.workspaces.find((w) => w.id === id);
+    if (ws)
+      setClosing({ kind: "workspace", id, name: ws.name, count: ws.panes.length });
+  };
+  const confirmClose = () => {
+    if (!closing) return;
+    if (closing.kind === "agent") deck.closeAgent(closing.wsId, closing.paneId);
+    else deck.closeWorkspace(closing.id);
+    setClosing(null);
+  };
+
   const railWorkspaces = deck.workspaces.map((w) => ({
     id: w.id,
     name: w.name,
@@ -274,7 +298,7 @@ function App() {
             activeId={deck.activeId}
             onSelect={handleSelectWorkspace}
             onAdd={() => setCreating(true)}
-            onClose={deck.closeWorkspace}
+            onClose={requestCloseWorkspace}
             onRename={deck.renameWorkspace}
           />
         )}
@@ -339,7 +363,13 @@ function App() {
                       colSpan={colSpan}
                       onSelect={() => deck.selectPane(ws.id, pane.id)}
                       onToggleFocus={() => deck.toggleFocus(ws.id, pane.id)}
-                      onClose={() => deck.closeAgent(ws.id, pane.id)}
+                      onClose={() =>
+                        requestCloseAgent(
+                          ws.id,
+                          pane.id,
+                          pane.name ?? `${label} ${index + 1}`,
+                        )
+                      }
                     />
                   );
                 })}
@@ -380,6 +410,28 @@ function App() {
               message={error}
               confirmLabel="OK"
               onConfirm={() => setError(null)}
+            />
+          )}
+
+          {closing && (
+            <ConfirmDialog
+              title={
+                closing.kind === "agent"
+                  ? `Close agent "${closing.label}"?`
+                  : `Close workspace "${closing.name}"?`
+              }
+              message={
+                closing.kind === "agent"
+                  ? "Its terminal session will be ended."
+                  : closing.count === 0
+                    ? "This workspace has no agents."
+                    : `This ends ${closing.count} agent${closing.count === 1 ? "" : "s"} and their sessions.`
+              }
+              confirmLabel="Close"
+              cancelLabel="Cancel"
+              destructive
+              onConfirm={confirmClose}
+              onCancel={() => setClosing(null)}
             />
           )}
         </div>
