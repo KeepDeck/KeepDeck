@@ -23,6 +23,9 @@ interface TerminalPaneProps {
   /** Called when the PTY process exits, with its exit code (null if unknown).
    * Lets the pane show an "agent exited" placeholder ([U4]). */
   onExit?: (code: number | null) => void;
+  /** Called when the terminal title changes (OSC 0/1/2) — drives auto-naming
+   * ([F11]). */
+  onTitle?: (title: string) => void;
 }
 
 /**
@@ -42,6 +45,7 @@ export function TerminalPane({
   visible,
   selected,
   onExit,
+  onTitle,
 }: TerminalPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -50,6 +54,8 @@ export function TerminalPane({
   // always calls the latest callback without re-running the effect.
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
+  const onTitleRef = useRef(onTitle);
+  onTitleRef.current = onTitle;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -115,6 +121,9 @@ export function TerminalPane({
     const unregister = registerPaneInput(paneId, (text) => {
       session?.write(text).catch(() => {});
     });
+
+    // Auto-naming ([F11]): mirror the terminal title (OSC 0/1/2) up to the pane.
+    const titleSub = term.onTitleChange((t) => onTitleRef.current?.(t));
 
     // Cmd+click a URL or file path in the output to open it ([F14]/[F10]);
     // plain click is left for text selection. Relative paths resolve against the
@@ -203,6 +212,7 @@ export function TerminalPane({
       input.dispose();
       unregister();
       links.dispose();
+      titleSub.dispose();
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
       session?.close().catch(() => {});
       term.dispose();

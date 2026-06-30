@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { TerminalPane } from "../terminal/TerminalPane";
+import { noAutoCorrect } from "../ui/inputProps";
 
 interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
@@ -27,6 +28,10 @@ interface AgentPaneProps {
   onSelect(): void;
   onToggleFocus(): void;
   onClose(): void;
+  /** Set a manual name ([F11]); an empty name reverts to auto/derived. */
+  onRename(name: string): void;
+  /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
+  onTitle(title: string): void;
 }
 
 /**
@@ -49,9 +54,18 @@ export function AgentPane({
   onSelect,
   onToggleFocus,
   onClose,
+  onRename,
+  onTitle,
 }: AgentPaneProps) {
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
+  // Inline rename of the header title ([F11]).
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const commitRename = () => {
+    onRename(draft.trim());
+    setEditing(false);
+  };
   return (
     <section
       data-pane-id={paneId}
@@ -61,7 +75,33 @@ export function AgentPane({
       onFocus={onSelect}
     >
       <header className="pane__bar">
-        <span className="pane__title">{title}</span>
+        {editing ? (
+          <input
+            {...noAutoCorrect}
+            className="pane__rename"
+            value={draft}
+            autoFocus
+            aria-label="Rename agent"
+            onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              else if (e.key === "Escape") setEditing(false);
+            }}
+          />
+        ) : (
+          <span
+            className="pane__title"
+            title="Double-click to rename"
+            onDoubleClick={() => {
+              setDraft(title);
+              setEditing(true);
+            }}
+          >
+            {title}
+          </span>
+        )}
         {branch && (
           <span className="pane__branch" title={branch}>
             {branch}
@@ -98,6 +138,7 @@ export function AgentPane({
           visible={visible}
           selected={selected}
           onExit={(code) => setExit({ code })}
+          onTitle={onTitle}
         />
         {exit && (
           <div className="pane__exit" role="status">
