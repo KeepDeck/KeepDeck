@@ -4,6 +4,7 @@ import {
   addAgentPane,
   closeAgent,
   closeWorkspace,
+  moveWorkspace,
   renamePane,
   renameWorkspace,
   resolveActiveId,
@@ -62,6 +63,29 @@ describe("renameWorkspace", () => {
     expect(after[0].name).toBe("my-api");
     expect(after[0].panes).toHaveLength(1); // panes untouched
     expect(after[1].name).toBe("b");
+  });
+});
+
+describe("moveWorkspace", () => {
+  const ids = (list: Workspace[]) => list.map((w) => w.id);
+  const three = [ws("a", []), ws("b", []), ws("c", [])];
+
+  it("moves an item down to a later index", () => {
+    expect(ids(moveWorkspace(three, "a", 2))).toEqual(["b", "c", "a"]);
+  });
+
+  it("moves an item up to an earlier index", () => {
+    expect(ids(moveWorkspace(three, "c", 0))).toEqual(["c", "a", "b"]);
+  });
+
+  it("clamps an out-of-range target to the ends", () => {
+    expect(ids(moveWorkspace(three, "a", 99))).toEqual(["b", "c", "a"]);
+    expect(ids(moveWorkspace(three, "c", -5))).toEqual(["c", "a", "b"]);
+  });
+
+  it("returns the SAME array reference on a no-op move (no re-render)", () => {
+    expect(moveWorkspace(three, "b", 1)).toBe(three); // already at index 1
+    expect(moveWorkspace(three, "missing", 0)).toBe(three); // unknown id
   });
 });
 

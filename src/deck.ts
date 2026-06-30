@@ -4,6 +4,7 @@ import {
   addAgentPane,
   closeAgent,
   closeWorkspace,
+  moveWorkspace,
   renamePane,
   renameWorkspace,
   resolveActiveId,
@@ -35,6 +36,8 @@ export type DeckAction =
   /** Append an already-formed agent pane (from the add-agent dialog). */
   | { type: "addAgentPane"; id: string; pane: Pane }
   | { type: "renameWorkspace"; id: string; name: string }
+  /** Reorder the rail: move workspace `id` to `toIndex` (drag & drop). */
+  | { type: "moveWorkspace"; id: string; toIndex: number }
   | { type: "closeAgent"; wsId: string; paneId: string }
   | { type: "closeWorkspace"; id: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
@@ -126,6 +129,12 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ...state,
         workspaces: renameWorkspace(state.workspaces, action.id, action.name),
       };
+    case "moveWorkspace": {
+      // moveWorkspace returns the same ref on a no-op move → skip the re-render.
+      const workspaces = moveWorkspace(state.workspaces, action.id, action.toIndex);
+      if (workspaces === state.workspaces) return state;
+      return { ...state, workspaces };
+    }
     case "closeAgent": {
       const { wsId, paneId } = action;
       const remaining =
@@ -219,6 +228,8 @@ export function useDeck() {
       dispatch({ type: "addAgentPane", id, pane }),
     renameWorkspace: (id: string, name: string) =>
       dispatch({ type: "renameWorkspace", id, name }),
+    moveWorkspace: (id: string, toIndex: number) =>
+      dispatch({ type: "moveWorkspace", id, toIndex }),
     closeAgent: (wsId: string, paneId: string) =>
       dispatch({ type: "closeAgent", wsId, paneId }),
     closeWorkspace: (id: string) => dispatch({ type: "closeWorkspace", id }),
