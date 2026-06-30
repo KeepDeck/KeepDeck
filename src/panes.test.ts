@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
 import {
-  addPane,
   appendPane,
   makePanes,
   removePane,
@@ -11,20 +10,6 @@ import {
 
 const seed = (n: number): Pane[] =>
   Array.from({ length: n }, (_, i) => ({ id: `pane-${i + 1}` }));
-
-describe("addPane", () => {
-  it("appends a pane numbered by seq", () => {
-    expect(addPane([], 1)).toEqual([{ id: "pane-1" }]);
-    expect(addPane(seed(1), 2)).toEqual([{ id: "pane-1" }, { id: "pane-2" }]);
-  });
-
-  it("is a no-op at MAX_PANES (returns the same array)", () => {
-    const full = seed(MAX_PANES);
-    const result = addPane(full, MAX_PANES + 1);
-    expect(result).toBe(full);
-    expect(result).toHaveLength(MAX_PANES);
-  });
-});
 
 describe("appendPane", () => {
   it("appends an already-formed pane (worktree fields preserved)", () => {
@@ -39,14 +24,17 @@ describe("appendPane", () => {
 });
 
 describe("makePanes", () => {
-  it("builds count panes numbered from startSeq", () => {
-    expect(makePanes(3, 2)).toEqual([{ id: "pane-3" }, { id: "pane-4" }]);
+  it("builds count panes from startSeq, all of the given type", () => {
+    expect(makePanes(3, 2, "claude")).toEqual([
+      { id: "pane-3", agentType: "claude" },
+      { id: "pane-4", agentType: "claude" },
+    ]);
   });
 
   it("clamps to MAX_PANES and never goes negative", () => {
-    expect(makePanes(1, MAX_PANES + 5)).toHaveLength(MAX_PANES);
-    expect(makePanes(1, 0)).toEqual([]);
-    expect(makePanes(1, -2)).toEqual([]);
+    expect(makePanes(1, MAX_PANES + 5, "claude")).toHaveLength(MAX_PANES);
+    expect(makePanes(1, 0, "claude")).toEqual([]);
+    expect(makePanes(1, -2, "claude")).toEqual([]);
   });
 });
 

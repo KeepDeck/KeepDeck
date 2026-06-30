@@ -5,7 +5,12 @@ import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
 import { fetchAppInfo, pathsAreImages, type AppInfo } from "./ipc";
-import { commandForAgent, labelForAgent } from "./agents";
+import {
+  AGENT_TYPES,
+  commandForAgent,
+  labelForAgent,
+  type AgentType,
+} from "./agents";
 import { makePanes, paneId, resolveFocus, type Pane } from "./panes";
 import { type Workspace } from "./workspaces";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -40,9 +45,10 @@ async function provisionPanes(
   ws: { cwd: string; worktreeBaseDir: string | null; name: string },
   startSeq: number,
   count: number,
+  agentType: AgentType,
   onError: (message: string) => void,
 ): Promise<Pane[]> {
-  if (!ws.worktreeBaseDir) return makePanes(startSeq, count);
+  if (!ws.worktreeBaseDir) return makePanes(startSeq, count, agentType);
 
   let base: string | undefined;
   try {
@@ -64,11 +70,11 @@ async function provisionPanes(
         workspace: ws.name,
         index: i + 1,
       });
-      panes.push({ id: agentId, cwd: rec.path, branch: rec.branch });
+      panes.push({ id: agentId, cwd: rec.path, branch: rec.branch, agentType });
     } catch (e) {
       console.error("worktree create failed", e);
       onError(`Failed to create worktree for ${agentId}:\n${e}`);
-      panes.push({ id: agentId }); // fall back to the workspace cwd
+      panes.push({ id: agentId, agentType }); // fall back to the workspace cwd
     }
   }
   return panes;
@@ -164,13 +170,14 @@ function App() {
   // state flag would race). `busy` is the render-time mirror to disable the UI.
   const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
-  // Open "+ Agent" dialog (worktree mode only): default branch + folder.
+  // "+ Agent" dialog — always shown, to pick the agent type (+ name, and
+  // branch/folder in worktree mode).
   const [agentDialog, setAgentDialog] = useState<{
     wsId: string;
     agentId: string;
     index: number;
-    defaultBranch: string;
-    defaultFolder: string;
+    defaultAgentType: AgentType;
+    worktree?: { defaultBranch: string; defaultFolder: string };
   } | null>(null);
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
@@ -191,24 +198,28 @@ function App() {
     if (!active) return;
     const seq = nextAgentSeq.current;
     nextAgentSeq.current += 1;
-    // Worktree mode: open the dialog to pick a branch/folder/name first. The
-    // defaults come from the backend (single source of branch/folder naming).
-    if (active.worktreeBaseDir) {
-      const index = active.panes.length + 1;
-      const suggestion = await suggestWorktree(active.name, index);
-      setAgentDialog({
-        wsId: active.id,
-        agentId: paneId(seq),
-        index,
-        defaultBranch: suggestion.branch,
-        defaultFolder: suggestion.folder,
-      });
-      return;
-    }
-    deck.addAgent(deck.activeId, seq);
+    const index = active.panes.length + 1;
+    // Default the type to the last pane's, else the first option.
+    const defaultAgentType =
+      active.panes[active.panes.length - 1]?.agentType ?? AGENT_TYPES[0].id;
+    // Worktree mode also prefills branch/folder from the backend.
+    const worktree = active.worktreeBaseDir
+      ? await suggestWorktree(active.name, index).then((s) => ({
+          defaultBranch: s.branch,
+          defaultFolder: s.folder,
+        }))
+      : undefined;
+    setAgentDialog({
+      wsId: active.id,
+      agentId: paneId(seq),
+      index,
+      defaultAgentType,
+      worktree,
+    });
   };
 
   const handleConfirmAgent = async ({
+    agentType,
     name,
     branch,
     folder,
@@ -217,9 +228,16 @@ function App() {
     if (!dlg) return;
     setAgentDialog(null);
     const ws = deck.workspaces.find((w) => w.id === dlg.wsId);
-    if (!ws || !ws.worktreeBaseDir) return;
+    if (!ws) return;
+    const paneName = name.trim() || undefined;
+    // Non-worktree: a bare pane that runs in the workspace cwd.
+    if (!ws.worktreeBaseDir || !branch || !folder) {
+      deck.addAgentPane(dlg.wsId, { id: dlg.agentId, name: paneName, agentType });
+      return;
+    }
     try {
-      const base = (await inspectRepo(ws.cwd).catch(() => null))?.head ?? undefined;
+      const base =
+        (await inspectRepo(ws.cwd).catch(() => null))?.head ?? undefined;
       const rec = await createWorktree({
         repo: ws.cwd,
         baseDir: ws.worktreeBaseDir,
@@ -230,13 +248,13 @@ function App() {
         index: dlg.index,
         dir: folder,
       });
-      const pane: Pane = {
+      deck.addAgentPane(dlg.wsId, {
         id: dlg.agentId,
         cwd: rec.path,
         branch: rec.branch,
-        name: name.trim() || undefined,
-      };
-      deck.addAgentPane(dlg.wsId, pane);
+        name: paneName,
+        agentType,
+      });
     } catch (e) {
       console.error("worktree create failed", e);
       setError(`Failed to create agent worktree:\n${e}`);
@@ -253,7 +271,13 @@ function App() {
     try {
       const startSeq = nextAgentSeq.current;
       nextAgentSeq.current += count;
-      const panes = await provisionPanes(ws, startSeq, count, setError);
+      const panes = await provisionPanes(
+        ws,
+        startSeq,
+        count,
+        AGENT_TYPES[0].id,
+        setError,
+      );
       deck.setPanes(workspaceId, panes);
     } finally {
       submitting.current = false;
@@ -282,13 +306,13 @@ function App() {
         { cwd, worktreeBaseDir, name: wsName },
         startSeq,
         count,
+        agentType,
         setError,
       );
       const workspace: Workspace = {
         id,
         name: wsName,
         cwd,
-        agentType,
         worktreeBaseDir,
         panes,
       };
@@ -373,8 +397,6 @@ function App() {
         <div className="deck__stage">
           {deck.workspaces.map((ws) => {
             const isActive = ws.id === deck.activeId;
-            const command = commandForAgent(ws.agentType);
-            const label = labelForAgent(ws.agentType);
 
             if (ws.panes.length === 0) {
               return (
@@ -416,10 +438,15 @@ function App() {
                   const colSpan = focusedHere
                     ? 1
                     : paneColumnSpan(index, ws.panes.length);
-                  // Manual name wins, then the terminal's auto title, then the
-                  // derived "Agent N" ([F11]).
+                  // Agent command/label are per pane now (not the workspace).
+                  const agentType = pane.agentType ?? "claude";
+                  const command = commandForAgent(agentType);
+                  // Manual name wins, then the auto title, then the derived
+                  // "<Agent> N" ([F11]).
                   const displayTitle =
-                    pane.name ?? pane.autoTitle ?? `${label} ${index + 1}`;
+                    pane.name ??
+                    pane.autoTitle ??
+                    `${labelForAgent(agentType)} ${index + 1}`;
                   return (
                     <AgentPane
                       key={pane.id}
@@ -468,8 +495,8 @@ function App() {
 
           {agentDialog && (
             <AgentDialog
-              defaultBranch={agentDialog.defaultBranch}
-              defaultFolder={agentDialog.defaultFolder}
+              defaultAgentType={agentDialog.defaultAgentType}
+              worktree={agentDialog.worktree}
               onConfirm={handleConfirmAgent}
               onCancel={() => setAgentDialog(null)}
             />

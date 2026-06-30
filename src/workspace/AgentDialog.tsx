@@ -1,45 +1,48 @@
 import { useState } from "react";
+import { AGENT_TYPES, type AgentType } from "../agents";
 import { useEscape } from "../ui/useEscape";
 import { noAutoCorrect } from "../ui/inputProps";
 
 export interface AgentDialogResult {
+  /** The agent type to spawn. */
+  agentType: AgentType;
   /** Optional custom display name; blank falls back to the derived title. */
   name: string;
-  /** Branch to create for the agent's worktree. */
-  branch: string;
-  /** Worktree folder name (relative to the workspace's base dir). */
-  folder: string;
+  /** Branch to create for the agent's worktree (worktree mode only). */
+  branch?: string;
+  /** Worktree folder name relative to the base dir (worktree mode only). */
+  folder?: string;
 }
 
 interface AgentDialogProps {
-  /** Pre-filled branch name (backend default), editable. */
-  defaultBranch: string;
-  /** Pre-filled worktree folder (backend default), editable. */
-  defaultFolder: string;
+  /** Pre-selected agent type. */
+  defaultAgentType: AgentType;
+  /** Present only in worktree mode — show + require branch/folder, prefilled. */
+  worktree?: { defaultBranch: string; defaultFolder: string };
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
 }
 
 /**
- * Modal shown when adding a single agent to a worktree-mode workspace: edit the
- * agent name, the branch it creates, and the worktree folder (relative to the
- * workspace's base dir). Branch and folder are prefilled from the backend (the
- * single source of naming) and edited independently. Batch creation (the spawn
- * form / count picker) skips this and uses the same backend defaults.
+ * Modal shown whenever a single agent is added (the "+ Agent" button). Always
+ * lets you pick the agent type and an optional name; in worktree-mode workspaces
+ * it also shows the branch + worktree folder (prefilled from the backend), which
+ * are required. Agent type is per-pane, not tied to the workspace.
  */
 export function AgentDialog({
-  defaultBranch,
-  defaultFolder,
+  defaultAgentType,
+  worktree,
   onConfirm,
   onCancel,
 }: AgentDialogProps) {
+  const [agentType, setAgentType] = useState<AgentType>(defaultAgentType);
   const [name, setName] = useState("");
-  const [branch, setBranch] = useState(defaultBranch);
-  const [folder, setFolder] = useState(defaultFolder);
+  const [branch, setBranch] = useState(worktree?.defaultBranch ?? "");
+  const [folder, setFolder] = useState(worktree?.defaultFolder ?? "");
   useEscape(onCancel);
 
-  const branchError = branch.trim() ? null : "Branch is required";
-  const folderError = folder.trim() ? null : "Folder is required";
+  const branchError = worktree && !branch.trim() ? "Branch is required" : null;
+  const folderError = worktree && !folder.trim() ? "Folder is required" : null;
   const valid = !branchError && !folderError;
 
   return (
@@ -48,7 +51,13 @@ export function AgentDialog({
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid) onConfirm({ name, branch, folder });
+          if (valid)
+            onConfirm({
+              agentType,
+              name,
+              branch: worktree ? branch : undefined,
+              folder: worktree ? folder : undefined,
+            });
         }}
       >
         <h2 className="form__title">New agent</h2>
@@ -63,35 +72,49 @@ export function AgentDialog({
           aria-label="Agent name"
         />
 
-        <span className="form__label">Branch</span>
-        <input
-          {...noAutoCorrect}
-          className="form__input"
-          value={branch}
-          onChange={(e) => setBranch(e.target.value)}
-          aria-label="Branch name"
-        />
-        {branchError && <span className="form__error">{branchError}</span>}
+        {worktree && (
+          <>
+            <span className="form__label">Branch</span>
+            <input
+              {...noAutoCorrect}
+              className="form__input"
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              aria-label="Branch name"
+            />
+            {branchError && <span className="form__error">{branchError}</span>}
 
-        <span className="form__label">Worktree folder</span>
-        <input
-          {...noAutoCorrect}
-          className="form__input"
-          value={folder}
-          onChange={(e) => setFolder(e.target.value)}
-          aria-label="Worktree folder"
-        />
-        {folderError && <span className="form__error">{folderError}</span>}
+            <span className="form__label">Worktree folder</span>
+            <input
+              {...noAutoCorrect}
+              className="form__input"
+              value={folder}
+              onChange={(e) => setFolder(e.target.value)}
+              aria-label="Worktree folder"
+            />
+            {folderError && <span className="form__error">{folderError}</span>}
+          </>
+        )}
+
+        <span className="form__label">Agent</span>
+        <div className="form__types">
+          {AGENT_TYPES.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              className={`form__type${a.id === agentType ? " form__type--active" : ""}`}
+              onClick={() => setAgentType(a.id)}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
 
         <div className="form__actions">
           <button type="button" className="form__cancel" onClick={onCancel}>
             Cancel
           </button>
-          <button
-            type="submit"
-            className="form__create"
-            disabled={!valid}
-          >
+          <button type="submit" className="form__create" disabled={!valid}>
             Create agent
           </button>
         </div>

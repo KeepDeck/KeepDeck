@@ -6,7 +6,6 @@ const ws = (id: string, paneIds: string[]): Workspace => ({
   id,
   name: id,
   cwd: "/tmp",
-  agentType: "claude",
   worktreeBaseDir: null,
   panes: paneIds.map((pid) => ({ id: pid })),
 });
@@ -155,7 +154,6 @@ describe("deckReducer pane naming", () => {
           id: "a",
           name: "a",
           cwd: "/tmp",
-          agentType: "claude",
           worktreeBaseDir: null,
           panes: [{ id: "a-1", autoTitle: "same" }],
         },
