@@ -1866,6 +1866,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "keepdeck-agents"
+version = "0.1.0"
+dependencies = [
+ "keepdeck-env",
+]
+
+[[package]]
 name = "keepdeck-env"
 version = "0.1.0"
 
