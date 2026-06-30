@@ -1,5 +1,6 @@
 import { useEscape } from "./useEscape";
 import { DestructiveButton } from "./DestructiveButton";
+import { ModalOverlay } from "./ModalOverlay";
 
 interface ConfirmDialogProps {
   title: string;
@@ -38,7 +39,7 @@ export function ConfirmDialog({
   const hasCancel = Boolean(cancelLabel && onCancel);
 
   return (
-    <div className="modal-overlay">
+    <ModalOverlay>
       <div className="confirm" role="dialog" aria-modal="true">
         <h2 className="confirm__title">{title}</h2>
         <p className="confirm__message">{message}</p>
@@ -69,6 +70,6 @@ export function ConfirmDialog({
           )}
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }
