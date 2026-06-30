@@ -5,7 +5,7 @@ import { inspectRepo } from "../worktree";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useEscape } from "../ui/useEscape";
 import { noAutoCorrect } from "../ui/inputProps";
-import { TERMINAL_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
+import { WORKSPACE_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
 export interface SpawnConfig {
   /** Workspace name; blank falls back to a default in the caller. */
@@ -93,7 +93,8 @@ export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) 
     if (!cwd) return;
     // No worktree dir chosen but the working dir is a git repo → in-app nudge
     // (no system dialogs) before running every agent in one repo working tree.
-    if (!worktreeDir && git?.isRepo) {
+    // Skipped for an empty workspace ([F15]): no agents run, nothing to isolate.
+    if (count > 0 && !worktreeDir && git?.isRepo) {
       setNudge(true);
       return;
     }
@@ -170,13 +171,20 @@ export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) 
       </div>
 
       <span className="form__label">Agent</span>
-      <div className="form__types">
+      {/* Agent type is per-pane and only used when agents spawn, so it's
+          irrelevant for an empty workspace ([F15]) — dim + disable it at 0. */}
+      <div
+        className="form__types"
+        style={count === 0 ? { opacity: 0.4, pointerEvents: "none" } : undefined}
+        aria-disabled={count === 0}
+      >
         {AGENT_TYPES.map((a) => (
           <button
             key={a.id}
             type="button"
             className={`form__type${a.id === agentType ? " form__type--active" : ""}`}
             onClick={() => setAgentType(a.id)}
+            tabIndex={count === 0 ? -1 : undefined}
           >
             {a.label}
           </button>
@@ -185,7 +193,7 @@ export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) 
 
       <span className="form__label">Agents</span>
       <TerminalCountTiles
-        counts={TERMINAL_COUNTS}
+        counts={WORKSPACE_COUNTS}
         value={count}
         onPick={setCount}
       />
