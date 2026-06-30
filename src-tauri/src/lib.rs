@@ -1,3 +1,4 @@
+mod dnd;
 mod session;
 mod worktree;
 
@@ -36,6 +37,7 @@ pub fn run() {
         .manage(worktree::RepoLocks::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
+            dnd::paths_are_images,
             session::session_spawn,
             session::session_write,
             session::session_resize,

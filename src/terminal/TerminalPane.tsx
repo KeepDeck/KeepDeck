@@ -4,8 +4,12 @@ import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../session";
+import { registerPaneInput } from "./paneInput";
+import { keyAction } from "./keymap";
 
 interface TerminalPaneProps {
+  /** Pane id — routes window-level input (drag-and-drop) to this session. */
+  paneId: string;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
   /** Working directory for the session; omitted uses the app's cwd. */
@@ -30,6 +34,7 @@ interface TerminalPaneProps {
  * revisit only if profiling a single pane shows the default renderer is a bottleneck.
  */
 export function TerminalPane({
+  paneId,
   command,
   cwd,
   visible,
@@ -73,6 +78,40 @@ export function TerminalPane({
 
     const input = term.onData((data) => {
       session?.write(data).catch(() => {});
+    });
+
+    // Override select keys before xterm encodes them — Shift+Enter → newline
+    // ([F3], see keyOverrideBytes); everything else falls through to xterm.
+    term.attachCustomKeyEventHandler((e) => {
+      const { send, block } = keyAction(e);
+      if (send) session?.write(send).catch(() => {});
+      if (block) {
+        e.preventDefault();
+        return false; // handled — don't let xterm emit its default (CR)
+      }
+      return true;
+    });
+
+    // Layer 2 for [F3]: stop the textarea inserting a literal newline on
+    // Shift+Enter before xterm's handler runs (capture phase). Without this the
+    // browser's own default can put a \n into the helper textarea.
+    const ta = term.textarea;
+    const blockShiftEnterDefault = (e: KeyboardEvent) => {
+      if (
+        e.key === "Enter" &&
+        e.shiftKey &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey
+      ) {
+        e.preventDefault();
+      }
+    };
+    ta?.addEventListener("keydown", blockShiftEnterDefault, true);
+
+    // Route window-level input (a dropped file path, [F4]) into this session.
+    const unregister = registerPaneInput(paneId, (text) => {
+      session?.write(text).catch(() => {});
     });
 
     spawnSession({ command, cwd, cols: term.cols, rows: term.rows }, (event) => {
@@ -129,12 +168,14 @@ export function TerminalPane({
       window.removeEventListener("resize", refit);
       observer.disconnect();
       input.dispose();
+      unregister();
+      ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
       session?.close().catch(() => {});
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [command, cwd]);
+  }, [command, cwd, paneId]);
 
   // When the pane comes back on screen (workspace switch, or un-maximized),
   // refit and repaint from the buffer so nothing is left blank.
