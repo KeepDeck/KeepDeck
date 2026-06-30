@@ -1,5 +1,4 @@
-import type { AgentType } from "./agents";
-import { addPane, appendPane, removePane, type Pane } from "./panes";
+import { appendPane, removePane, type Pane } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
  * in the same working directory. Switching the active workspace swaps which set
@@ -10,8 +9,6 @@ export interface Workspace {
   name: string;
   /** Working directory all this workspace's agents run in. */
   cwd: string;
-  /** Coding-agent kind spawned in this workspace's panes. */
-  agentType: AgentType;
   /** Base folder holding this workspace's per-agent git worktrees; `null` when
    * agents run directly in `cwd` (no isolation). */
   worktreeBaseDir: string | null;
@@ -27,15 +24,6 @@ function mapWorkspace(
   return workspaces.map((ws) =>
     ws.id === id ? { ...ws, panes: transform(ws.panes) } : ws,
   );
-}
-
-/** Add an agent pane (numbered `seq`) to one workspace, respecting its cap. */
-export function addAgent(
-  workspaces: Workspace[],
-  workspaceId: string,
-  seq: number,
-): Workspace[] {
-  return mapWorkspace(workspaces, workspaceId, (panes) => addPane(panes, seq));
 }
 
 /** Append an already-formed agent pane (e.g. with a provisioned worktree) to one

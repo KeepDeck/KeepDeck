@@ -1,7 +1,6 @@
 import { useReducer } from "react";
 import { type Pane } from "./panes";
 import {
-  addAgent,
   addAgentPane,
   closeAgent,
   closeWorkspace,
@@ -33,9 +32,7 @@ export type DeckAction =
   | { type: "createWorkspace"; workspace: Workspace }
   /** Replace an (empty) workspace's panes — the count-picker start flow. */
   | { type: "setPanes"; id: string; panes: Pane[] }
-  /** Append a bare agent pane numbered `seq` (non-worktree mode). */
-  | { type: "addAgent"; id: string; seq: number }
-  /** Append an already-provisioned agent pane (worktree mode). */
+  /** Append an already-formed agent pane (from the add-agent dialog). */
   | { type: "addAgentPane"; id: string; pane: Pane }
   | { type: "renameWorkspace"; id: string; name: string }
   | { type: "closeAgent"; wsId: string; paneId: string }
@@ -108,18 +105,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ...state,
         workspaces,
         selectByWs: withDefaultSelection(state.selectByWs, action.id, ws),
-      };
-    }
-    case "addAgent": {
-      const workspaces = addAgent(state.workspaces, action.id, action.seq);
-      const ws = workspaces.find((w) => w.id === action.id);
-      const added = ws?.panes[ws.panes.length - 1]?.id;
-      return {
-        ...state,
-        workspaces,
-        selectByWs: added
-          ? { ...state.selectByWs, [action.id]: added }
-          : state.selectByWs,
       };
     }
     case "addAgentPane": {
@@ -230,8 +215,6 @@ export function useDeck() {
       dispatch({ type: "createWorkspace", workspace }),
     setPanes: (id: string, panes: Pane[]) =>
       dispatch({ type: "setPanes", id, panes }),
-    addAgent: (id: string, seq: number) =>
-      dispatch({ type: "addAgent", id, seq }),
     addAgentPane: (id: string, pane: Pane) =>
       dispatch({ type: "addAgentPane", id, pane }),
     renameWorkspace: (id: string, name: string) =>

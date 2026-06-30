@@ -1,9 +1,12 @@
+import type { AgentType } from "./agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
 
-/** One agent pane in the grid. Its display title is derived from the
- * workspace's agent type and the pane's position, unless `name` overrides it. */
+/** One agent pane in the grid. Each pane runs its own agent type; the display
+ * title comes from `name` / the auto title / the derived "Agent N". */
 export interface Pane {
   id: string;
+  /** The coding agent this pane runs — per pane, NOT tied to the workspace. */
+  agentType?: AgentType;
   /** Per-agent working directory (its own git worktree) when the workspace runs
    * in worktree mode; falls back to the workspace cwd when undefined. */
   cwd?: string;
@@ -32,11 +35,6 @@ export function appendPane(panes: Pane[], pane: Pane): Pane[] {
   return [...panes, pane];
 }
 
-/** Append a new bare pane numbered `seq`, unless already at [`MAX_PANES`]. */
-export function addPane(panes: Pane[], seq: number): Pane[] {
-  return appendPane(panes, { id: paneId(seq) });
-}
-
 /** Remove the pane with `id`; a no-op if it isn't present. */
 export function removePane(panes: Pane[], id: string): Pane[] {
   return panes.filter((pane) => pane.id !== id);
@@ -56,10 +54,16 @@ export function resolveFocus(
   return panes.some((pane) => pane.id === focusedId) ? focusedId : null;
 }
 
-/** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES). */
-export function makePanes(startSeq: number, count: number): Pane[] {
+/** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES), all
+ * running `agentType`. */
+export function makePanes(
+  startSeq: number,
+  count: number,
+  agentType: AgentType,
+): Pane[] {
   const n = clampPaneCount(count);
   return Array.from({ length: n }, (_, i) => ({
     id: paneId(startSeq + i),
+    agentType,
   }));
 }
