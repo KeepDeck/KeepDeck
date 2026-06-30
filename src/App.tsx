@@ -4,12 +4,14 @@ import { WorkspacesRail } from "./workspace/WorkspacesRail";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
-import { fetchAppInfo, type AppInfo } from "./ipc";
+import { fetchAppInfo, pathsAreImages, type AppInfo } from "./ipc";
 import { commandForAgent, labelForAgent } from "./agents";
 import { makePanes, paneId, resolveFocus, type Pane } from "./panes";
 import { type Workspace } from "./workspaces";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useDeck } from "./deck";
 import { createWorktree, inspectRepo, suggestWorktree } from "./worktree";
+import { collectPaneRects, deliverDrop, paneAtPoint } from "./terminal/dnd";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import {
   MAX_PANES,
@@ -85,6 +87,72 @@ function App() {
   // reducer so close transitions clean focus + selection atomically ([S1], [B2],
   // [L6]).
   const deck = useDeck();
+
+  // Latest deck handles for the mount-once drag-drop effect to read without
+  // re-subscribing the Tauri listener on every render.
+  const selectPaneRef = useRef(deck.selectPane);
+  selectPaneRef.current = deck.selectPane;
+  const activeIdRef = useRef(deck.activeId);
+  activeIdRef.current = deck.activeId;
+
+  // Drop a file onto a pane → paste its path into that pane's PTY and focus it
+  // ([F4]). OS file drops in a Tauri webview do NOT fire DOM drag events — only
+  // Tauri's onDragDropEvent, whose position is already in viewport CSS pixels,
+  // so we match it against each active-grid pane's getBoundingClientRect to find
+  // the pane under the cursor. The drop can fire twice (tauri#14134) so we
+  // debounce; the cancelled flag keeps a StrictMode double-mount from leaving
+  // two listeners.
+  useEffect(() => {
+    // Kill the WKWebView's native "insert dropped text into the focused field"
+    // behaviour. For OS file drops it doesn't surface as a DOM drop event, but
+    // it DOES fire a beforeinput with inputType 'insertFromDrop' on the focused
+    // xterm textarea — that second copy landed in the focused pane. Cancel it
+    // (capture) so only our routed insertion remains.
+    const blockDropInsert = (e: Event) => {
+      if ((e as InputEvent).inputType === "insertFromDrop") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    };
+    document.addEventListener("beforeinput", blockDropInsert, true);
+
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    let lastDropAt = 0;
+
+    getCurrentWebview()
+      .onDragDropEvent(async (event) => {
+        if (event.payload.type !== "drop" || event.payload.paths.length === 0)
+          return;
+        const now = Date.now();
+        if (now - lastDropAt < 400) return; // collapse Tauri's duplicate drop
+        lastDropAt = now;
+        const { x, y } = event.payload.position;
+        const id = paneAtPoint(x, y, collectPaneRects());
+        if (!id) return;
+        const { paths } = event.payload;
+        // The backend says which paths are images (by content) so images get
+        // bracketed-pasted for the agent to attach, others inserted raw.
+        const isImage = await pathsAreImages(paths).catch(() =>
+          paths.map(() => false),
+        );
+        if (deliverDrop(id, paths, isImage)) {
+          // Make the dropped pane active so you can act on it immediately.
+          selectPaneRef.current(activeIdRef.current, id);
+        }
+      })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("beforeinput", blockDropInsert, true);
+      unlisten?.();
+    };
+  }, []);
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
@@ -351,6 +419,7 @@ function App() {
                   return (
                     <AgentPane
                       key={pane.id}
+                      paneId={pane.id}
                       title={pane.name ?? `${label} ${index + 1}`}
                       command={command}
                       cwd={pane.cwd ?? ws.cwd}

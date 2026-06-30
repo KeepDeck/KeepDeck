@@ -2,6 +2,8 @@ import { useState } from "react";
 import { TerminalPane } from "../terminal/TerminalPane";
 
 interface AgentPaneProps {
+  /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
+  paneId: string;
   title: string;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
@@ -33,6 +35,7 @@ interface AgentPaneProps {
  * observability milestone.
  */
 export function AgentPane({
+  paneId,
   title,
   command,
   cwd,
@@ -51,6 +54,7 @@ export function AgentPane({
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
   return (
     <section
+      data-pane-id={paneId}
       className={`pane${collapsed ? " pane--collapsed" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       onMouseDown={onSelect}
@@ -88,6 +92,7 @@ export function AgentPane({
       </header>
       <div className="pane__body">
         <TerminalPane
+          paneId={paneId}
           command={command}
           cwd={cwd}
           visible={visible}

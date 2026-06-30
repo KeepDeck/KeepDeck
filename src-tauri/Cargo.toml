@@ -1,6 +1,6 @@
 [package]
 name = "keepdeck"
-version = "0.4.7"
+version = "0.4.8"
 description = "Desktop deck for a fleet of coding agents."
 edition = "2021"
 
@@ -23,4 +23,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 keepdeck-pty = { path = "../crates/keepdeck-pty" }
 keepdeck-git = { path = "../crates/keepdeck-git" }
+infer = "0.19.0"
 
