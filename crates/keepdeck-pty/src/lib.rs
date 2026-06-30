@@ -11,8 +11,6 @@
 //! `Exited` are emitted from the same reader thread, so all output is guaranteed
 //! to arrive before the exit event.
 
-mod path;
-
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -121,8 +119,8 @@ impl PtySession {
         // Rebuild PATH so a GUI-launched (stripped-PATH) instance finds the
         // user's CLIs, and resolve the program against it (CommandBuilder won't
         // search our augmented PATH for a bare name on its own).
-        let path_env = path::augmented_path();
-        let mut cmd = CommandBuilder::new(path::resolve_program(&spec.command, path_env));
+        let path_env = keepdeck_env::augmented_path();
+        let mut cmd = CommandBuilder::new(keepdeck_env::resolve_program(&spec.command, path_env));
         cmd.args(&spec.args);
         cmd.cwd(match spec.cwd {
             Some(dir) => dir,

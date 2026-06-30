@@ -1,0 +1,8 @@
+[package]
+name = "keepdeck-env"
+version = "0.1.0"
+edition = "2021"
+description = "PATH augmentation and program resolution for KeepDeck (shared by the PTY and agent layers)."
+
+[dependencies]
+# none — pure std.
