@@ -4,8 +4,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../session";
+import { openPath, openUrl } from "../ipc";
 import { registerPaneInput } from "./paneInput";
 import { keyAction } from "./keymap";
+import { detectLinks, resolvePathTarget } from "./links";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */
@@ -114,6 +116,37 @@ export function TerminalPane({
       session?.write(text).catch(() => {});
     });
 
+    // Cmd+click a URL or file path in the output to open it ([F14]/[F10]);
+    // plain click is left for text selection. Relative paths resolve against the
+    // pane's cwd; the OS default app opens files / the default browser opens URLs.
+    const links = term.registerLinkProvider({
+      provideLinks(lineNumber, callback) {
+        const text = term.buffer.active
+          .getLine(lineNumber - 1)
+          ?.translateToString(true);
+        const found = text ? detectLinks(text) : [];
+        callback(
+          found.length === 0
+            ? undefined
+            : found.map((d) => ({
+                text: d.text,
+                range: {
+                  start: { x: d.start + 1, y: lineNumber },
+                  end: { x: d.end, y: lineNumber },
+                },
+                activate(event: MouseEvent) {
+                  if (!event.metaKey) return;
+                  const open =
+                    d.kind === "url"
+                      ? openUrl(d.text)
+                      : openPath(resolvePathTarget(d.text, cwd ?? ""));
+                  open.catch(() => {});
+                },
+              })),
+        );
+      },
+    });
+
     spawnSession({ command, cwd, cols: term.cols, rows: term.rows }, (event) => {
       // Ignore events from a session whose pane was already torn down — notably
       // the throwaway first session of a StrictMode double-mount, whose close()
@@ -169,6 +202,7 @@ export function TerminalPane({
       observer.disconnect();
       input.dispose();
       unregister();
+      links.dispose();
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
       session?.close().catch(() => {});
       term.dispose();

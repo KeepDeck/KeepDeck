@@ -1,4 +1,5 @@
 mod dnd;
+mod links;
 mod session;
 mod worktree;
 
@@ -33,11 +34,14 @@ fn app_info() -> AppInfo {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
             dnd::paths_are_images,
+            links::open_url,
+            links::open_path,
             session::session_spawn,
             session::session_write,
             session::session_resize,
