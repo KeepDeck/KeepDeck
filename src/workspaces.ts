@@ -73,6 +73,34 @@ export function renameWorkspace(
   return workspaces.map((ws) => (ws.id === id ? { ...ws, name } : ws));
 }
 
+/** Set a pane's manual display name; an empty name clears it, reverting to the
+ * auto title / derived label ([F11]). */
+export function renamePane(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  name: string,
+): Workspace[] {
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) =>
+      p.id === paneId ? { ...p, name: name.trim() || undefined } : p,
+    ),
+  );
+}
+
+/** Set a pane's auto title from the terminal (OSC title); empty clears it ([F11]). */
+export function setPaneAutoTitle(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  title: string,
+): Workspace[] {
+  const next = title.trim() || undefined;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) => (p.id === paneId ? { ...p, autoTitle: next } : p)),
+  );
+}
+
 /** Which workspace to focus: keep `activeId` if it still exists, otherwise the
  * first remaining workspace (or `""` when none remain). */
 export function resolveActiveId(workspaces: Workspace[], activeId: string): string {

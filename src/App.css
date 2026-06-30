@@ -350,6 +350,22 @@ body,
   min-width: 0;
 }
 
+/* Inline rename of the pane title ([F11]). */
+.pane__rename {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid #3a4658;
+  border-radius: 4px;
+  background-color: #0b0e14;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .pane__branch {
   margin-left: 8px;
   padding: 1px 6px;

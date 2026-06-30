@@ -5,8 +5,10 @@ import {
   addAgentPane,
   closeAgent,
   closeWorkspace,
+  renamePane,
   renameWorkspace,
   resolveActiveId,
+  setPaneAutoTitle,
   type Workspace,
 } from "./workspaces";
 
@@ -93,5 +95,44 @@ describe("resolveActiveId", () => {
 
   it("returns an empty id when no workspaces remain", () => {
     expect(resolveActiveId([], "a")).toBe("");
+  });
+});
+
+describe("renamePane", () => {
+  it("sets a pane's name in the target workspace only", () => {
+    const after = renamePane(
+      [ws("a", [1, 2]), ws("b", [1])],
+      "a",
+      "a-p2",
+      "Build",
+    );
+    expect(after[0].panes).toEqual([
+      { id: "a-p1" },
+      { id: "a-p2", name: "Build" },
+    ]);
+    expect(after[1].panes).toEqual([{ id: "b-p1" }]); // b untouched
+  });
+
+  it("clears the name (reverts to auto) on an empty/whitespace name", () => {
+    const named = renamePane([ws("a", [1])], "a", "a-p1", "X");
+    expect(named[0].panes[0]).toEqual({ id: "a-p1", name: "X" });
+    expect(renamePane(named, "a", "a-p1", "   ")[0].panes[0]).toEqual({
+      id: "a-p1",
+    });
+  });
+});
+
+describe("setPaneAutoTitle", () => {
+  it("sets the (trimmed) auto title in the target pane only", () => {
+    const after = setPaneAutoTitle([ws("a", [1, 2])], "a", "a-p1", "  ~/proj  ");
+    expect(after[0].panes[0]).toEqual({ id: "a-p1", autoTitle: "~/proj" });
+    expect(after[0].panes[1]).toEqual({ id: "a-p2" });
+  });
+
+  it("clears the auto title when empty", () => {
+    const set = setPaneAutoTitle([ws("a", [1])], "a", "a-p1", "t");
+    expect(setPaneAutoTitle(set, "a", "a-p1", "")[0].panes[0]).toEqual({
+      id: "a-p1",
+    });
   });
 });

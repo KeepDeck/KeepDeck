@@ -416,11 +416,15 @@ function App() {
                   const colSpan = focusedHere
                     ? 1
                     : paneColumnSpan(index, ws.panes.length);
+                  // Manual name wins, then the terminal's auto title, then the
+                  // derived "Agent N" ([F11]).
+                  const displayTitle =
+                    pane.name ?? pane.autoTitle ?? `${label} ${index + 1}`;
                   return (
                     <AgentPane
                       key={pane.id}
                       paneId={pane.id}
-                      title={pane.name ?? `${label} ${index + 1}`}
+                      title={displayTitle}
                       command={command}
                       cwd={pane.cwd ?? ws.cwd}
                       branch={pane.branch}
@@ -433,12 +437,10 @@ function App() {
                       onSelect={() => deck.selectPane(ws.id, pane.id)}
                       onToggleFocus={() => deck.toggleFocus(ws.id, pane.id)}
                       onClose={() =>
-                        requestCloseAgent(
-                          ws.id,
-                          pane.id,
-                          pane.name ?? `${label} ${index + 1}`,
-                        )
+                        requestCloseAgent(ws.id, pane.id, displayTitle)
                       }
+                      onRename={(name) => deck.renamePane(ws.id, pane.id, name)}
+                      onTitle={(t) => deck.setPaneAutoTitle(ws.id, pane.id, t)}
                     />
                   );
                 })}

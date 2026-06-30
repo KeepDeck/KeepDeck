@@ -9,8 +9,11 @@ export interface Pane {
   cwd?: string;
   /** The agent's git branch, when it runs in a worktree. */
   branch?: string;
-  /** Optional custom display name, overriding the derived "Agent N" title. */
+  /** User-set display name; overrides everything ([F11] manual rename). */
   name?: string;
+  /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
+   * `name`; falls back to the derived "Agent N" ([F11] auto-naming). */
+  autoTitle?: string;
 }
 
 /** The id for the pane numbered `seq` — the single mint point, since it's the

@@ -130,3 +130,44 @@ describe("deckReducer selection", () => {
     expect(next.selectByWs).toEqual({});
   });
 });
+
+describe("deckReducer pane naming", () => {
+  it("renamePane sets the pane's manual name", () => {
+    const next = deckReducer(
+      state({ workspaces: [ws("a", ["a-1"])], activeId: "a" }),
+      { type: "renamePane", wsId: "a", paneId: "a-1", name: "Build" },
+    );
+    expect(next.workspaces[0].panes[0]).toEqual({ id: "a-1", name: "Build" });
+  });
+
+  it("setPaneAutoTitle sets the auto title", () => {
+    const next = deckReducer(
+      state({ workspaces: [ws("a", ["a-1"])], activeId: "a" }),
+      { type: "setPaneAutoTitle", wsId: "a", paneId: "a-1", title: "~/x" },
+    );
+    expect(next.workspaces[0].panes[0]).toEqual({ id: "a-1", autoTitle: "~/x" });
+  });
+
+  it("setPaneAutoTitle returns the SAME state when the title is unchanged", () => {
+    const start = state({
+      workspaces: [
+        {
+          id: "a",
+          name: "a",
+          cwd: "/tmp",
+          agentType: "claude",
+          worktreeBaseDir: null,
+          panes: [{ id: "a-1", autoTitle: "same" }],
+        },
+      ],
+      activeId: "a",
+    });
+    const next = deckReducer(start, {
+      type: "setPaneAutoTitle",
+      wsId: "a",
+      paneId: "a-1",
+      title: "same",
+    });
+    expect(next).toBe(start); // no change → same ref → no re-render
+  });
+});

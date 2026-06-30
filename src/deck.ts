@@ -5,8 +5,10 @@ import {
   addAgentPane,
   closeAgent,
   closeWorkspace,
+  renamePane,
   renameWorkspace,
   resolveActiveId,
+  setPaneAutoTitle,
   type Workspace,
 } from "./workspaces";
 
@@ -39,7 +41,11 @@ export type DeckAction =
   | { type: "closeAgent"; wsId: string; paneId: string }
   | { type: "closeWorkspace"; id: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
-  | { type: "selectPane"; wsId: string; paneId: string };
+  | { type: "selectPane"; wsId: string; paneId: string }
+  /** Manual pane rename ([F11]); empty name reverts to auto/derived. */
+  | { type: "renamePane"; wsId: string; paneId: string; name: string }
+  /** Auto title from the terminal (OSC) for a pane ([F11]). */
+  | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string };
 
 export const initialDeckState: DeckState = {
   workspaces: [],
@@ -179,6 +185,34 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ...state,
         selectByWs: { ...state.selectByWs, [action.wsId]: action.paneId },
       };
+    case "renamePane":
+      return {
+        ...state,
+        workspaces: renamePane(
+          state.workspaces,
+          action.wsId,
+          action.paneId,
+          action.name,
+        ),
+      };
+    case "setPaneAutoTitle": {
+      // No-op (same state ref → no re-render) when the title is unchanged; the
+      // terminal can emit the same OSC title repeatedly.
+      const next = action.title.trim() || undefined;
+      const pane = state.workspaces
+        .find((w) => w.id === action.wsId)
+        ?.panes.find((p) => p.id === action.paneId);
+      if (!pane || pane.autoTitle === next) return state;
+      return {
+        ...state,
+        workspaces: setPaneAutoTitle(
+          state.workspaces,
+          action.wsId,
+          action.paneId,
+          action.title,
+        ),
+      };
+    }
   }
 }
 
@@ -209,5 +243,9 @@ export function useDeck() {
       dispatch({ type: "toggleFocus", wsId, paneId }),
     selectPane: (wsId: string, paneId: string) =>
       dispatch({ type: "selectPane", wsId, paneId }),
+    renamePane: (wsId: string, paneId: string, name: string) =>
+      dispatch({ type: "renamePane", wsId, paneId, name }),
+    setPaneAutoTitle: (wsId: string, paneId: string, title: string) =>
+      dispatch({ type: "setPaneAutoTitle", wsId, paneId, title }),
   };
 }
