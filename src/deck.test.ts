@@ -91,6 +91,32 @@ describe("deckReducer closeWorkspace", () => {
   });
 });
 
+describe("deckReducer moveWorkspace", () => {
+  it("reorders the workspaces, leaving active/selection untouched", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"]), ws("c", ["c-1"])],
+        activeId: "a",
+        selectByWs: { a: "a-1" },
+      }),
+      { type: "moveWorkspace", id: "a", toIndex: 2 },
+    );
+    expect(next.workspaces.map((w) => w.id)).toEqual(["b", "c", "a"]);
+    expect(next.activeId).toBe("a");
+    expect(next.selectByWs).toEqual({ a: "a-1" });
+  });
+
+  it("returns the SAME state ref on a no-op move", () => {
+    const start = state({
+      workspaces: [ws("a", []), ws("b", [])],
+      activeId: "a",
+    });
+    expect(
+      deckReducer(start, { type: "moveWorkspace", id: "a", toIndex: 0 }),
+    ).toBe(start);
+  });
+});
+
 describe("deckReducer selection", () => {
   it("selectWorkspace defaults selection to the first pane only when unset", () => {
     const fresh = deckReducer(state({ workspaces: [ws("a", ["a-1", "a-2"])] }), {

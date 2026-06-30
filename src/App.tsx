@@ -393,6 +393,7 @@ function App() {
             onAdd={() => setCreating(true)}
             onClose={requestCloseWorkspace}
             onRename={deck.renameWorkspace}
+            onReorder={deck.moveWorkspace}
           />
         )}
         <div className="deck__stage">

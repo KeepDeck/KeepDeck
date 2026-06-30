@@ -89,6 +89,24 @@ export function setPaneAutoTitle(
   );
 }
 
+/** Move the workspace with `id` to `toIndex` (clamped to the list), preserving
+ * the order of the rest. Returns the SAME array reference when nothing moves, so
+ * a live drag that lands on the current slot doesn't trigger a re-render. */
+export function moveWorkspace(
+  workspaces: Workspace[],
+  id: string,
+  toIndex: number,
+): Workspace[] {
+  const from = workspaces.findIndex((ws) => ws.id === id);
+  if (from < 0) return workspaces;
+  const to = Math.max(0, Math.min(toIndex, workspaces.length - 1));
+  if (from === to) return workspaces;
+  const next = workspaces.slice();
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
 /** Which workspace to focus: keep `activeId` if it still exists, otherwise the
  * first remaining workspace (or `""` when none remain). */
 export function resolveActiveId(workspaces: Workspace[], activeId: string): string {

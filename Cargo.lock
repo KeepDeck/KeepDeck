@@ -1852,7 +1852,7 @@ dependencies = [
 
 [[package]]
 name = "keepdeck"
-version = "0.4.14"
+version = "0.4.15"
 dependencies = [
  "infer",
  "keepdeck-git",
