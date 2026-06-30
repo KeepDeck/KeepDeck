@@ -31,9 +31,11 @@ export default defineConfig(async () => ({
     },
   },
 
-  // Unit tests run as pure modules (no DOM); component/PTY tests come later.
+  // Default to pure-module tests (no DOM); files opt into a DOM via the
+  // `// @vitest-environment happy-dom` pragma. `.tsx` is included for component
+  // tests (e.g. portaled dialogs).
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 }));

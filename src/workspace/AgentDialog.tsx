@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AGENT_TYPES, type AgentType } from "../agents";
 import { useEscape } from "../ui/useEscape";
 import { noAutoCorrect } from "../ui/inputProps";
+import { ModalOverlay } from "../ui/ModalOverlay";
 
 export interface AgentDialogResult {
   /** The agent type to spawn. */
@@ -46,7 +47,7 @@ export function AgentDialog({
   const valid = !branchError && !folderError;
 
   return (
-    <div className="modal-overlay">
+    <ModalOverlay>
       <form
         className="form"
         onSubmit={(e) => {
@@ -119,6 +120,6 @@ export function AgentDialog({
           </button>
         </div>
       </form>
-    </div>
+    </ModalOverlay>
   );
 }

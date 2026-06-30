@@ -18,6 +18,7 @@ import { useDeck } from "./deck";
 import { createWorktree, inspectRepo, suggestWorktree } from "./worktree";
 import { collectPaneRects, deliverDrop, paneAtPoint } from "./terminal/dnd";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
+import { ModalOverlay } from "./ui/ModalOverlay";
 import {
   MAX_PANES,
   clampPaneCount,
@@ -475,23 +476,23 @@ function App() {
             );
           })}
 
-          {showForm && (
-            <div
-              className={
-                deck.workspaces.length > 0 ? "modal-overlay" : "deck__overlay"
-              }
-            >
-              <WorkspaceForm
-                onCreate={handleCreateWorkspace}
-                busy={busy}
-                onCancel={
-                  deck.workspaces.length > 0
-                    ? () => setCreating(false)
-                    : undefined
-                }
-              />
-            </div>
-          )}
+          {showForm &&
+            (deck.workspaces.length > 0 ? (
+              // Creating another workspace: a true blocking modal over the deck.
+              <ModalOverlay>
+                <WorkspaceForm
+                  onCreate={handleCreateWorkspace}
+                  busy={busy}
+                  onCancel={() => setCreating(false)}
+                />
+              </ModalOverlay>
+            ) : (
+              // First-run: the opaque empty-state setup screen (no cancel — it
+              // IS the content, not a dialog over it), kept inside the stage.
+              <div className="deck__overlay">
+                <WorkspaceForm onCreate={handleCreateWorkspace} busy={busy} />
+              </div>
+            ))}
 
           {agentDialog && (
             <AgentDialog
