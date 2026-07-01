@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 /** Mirrors the Rust `AppInfo` struct returned by the `app_info` command. */
 export interface AppInfo {
@@ -30,4 +31,15 @@ export function openPath(path: string): Promise<void> {
 /** Open a directory — an agent's working dir — in Visual Studio Code. */
 export function openInEditor(path: string): Promise<void> {
   return invoke("open_in_editor", { path });
+}
+
+/**
+ * Write text to the OS clipboard through the native plugin (Rust → NSPasteboard).
+ * xterm's canvas selection isn't DOM-selectable, so WKWebView's native Cmd+C
+ * copies garbage; we copy `term.getSelection()` ourselves via this. Routed
+ * through the plugin rather than `navigator.clipboard`, which is sandboxed in
+ * WKWebView.
+ */
+export function copyText(text: string): Promise<void> {
+  return writeText(text);
 }

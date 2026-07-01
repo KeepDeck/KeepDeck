@@ -4,9 +4,10 @@ import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../session";
-import { openPath, openUrl } from "../ipc";
+import { openPath, openUrl, copyText } from "../ipc";
 import { registerPaneInput } from "./paneInput";
 import { keyAction } from "./keymap";
+import { isCopyChord, normalizeSelection } from "./clipboard";
 import { detectLinks, resolvePathTarget } from "./links";
 
 interface TerminalPaneProps {
@@ -88,9 +89,27 @@ export function TerminalPane({
       session?.write(data).catch(() => {});
     });
 
-    // Override select keys before xterm encodes them — Shift+Enter → newline
-    // ([F3], see keyOverrideBytes); everything else falls through to xterm.
+    // Own terminal copy. Canvas-rendered text isn't DOM-selectable and WKWebView
+    // returns "" from getSelection() during a keydown, so the native Cmd+C copies
+    // the stale hidden textarea (garbage). Cache the selection on change and read
+    // the cache in the handler, then write it to the native pasteboard.
+    let selection = "";
+    const selectionSub = term.onSelectionChange(() => {
+      selection = term.getSelection();
+    });
+    const copySelection = () => {
+      const text = normalizeSelection(selection || term.getSelection());
+      if (text) copyText(text).catch(() => {});
+    };
+
+    // Override select keys before xterm encodes them — Cmd+C → copy the selection
+    // ourselves; Shift+Enter → newline ([F3]); everything else falls through.
     term.attachCustomKeyEventHandler((e) => {
+      if (isCopyChord(e) && term.hasSelection()) {
+        copySelection();
+        e.preventDefault();
+        return false; // owned — don't let WKWebView copy the (garbage) textarea
+      }
       const { send, block } = keyAction(e);
       if (send) session?.write(send).catch(() => {});
       if (block) {
@@ -99,6 +118,18 @@ export function TerminalPane({
       }
       return true;
     });
+
+    // The macOS Edit-menu Copy and right-click Copy fire a native `copy` event
+    // (no keydown), so fill it with the real selection too — otherwise those
+    // paths hit the same garbage.
+    const onCopy = (ev: ClipboardEvent) => {
+      if (!term.hasSelection()) return;
+      const text = normalizeSelection(term.getSelection());
+      if (!text) return;
+      ev.clipboardData?.setData("text/plain", text);
+      ev.preventDefault();
+    };
+    host.addEventListener("copy", onCopy);
 
     // Layer 2 for [F3]: stop the textarea inserting a literal newline on
     // Shift+Enter before xterm's handler runs (capture phase). Without this the
@@ -213,6 +244,8 @@ export function TerminalPane({
       unregister();
       links.dispose();
       titleSub.dispose();
+      selectionSub.dispose();
+      host.removeEventListener("copy", onCopy);
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
       session?.close().catch(() => {});
       term.dispose();
