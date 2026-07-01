@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { AgentPane } from "./components/agent/AgentPane";
+import { DeckStage } from "./components/DeckStage";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
-import { WorkspaceSetup } from "./components/workspace/WorkspaceSetup";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { fetchAppInfo, openInEditor, type AppInfo } from "./ipc/app";
@@ -14,18 +13,11 @@ import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
-import { paneDisplayTitle, resolveFocus } from "./domain/panes";
 import { closeHotkeyTarget } from "./domain/hotkeys";
 import type { SpawnConfig } from "./domain/workspaces";
+import { MAX_PANES } from "./domain/layout";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
-import {
-  MAX_PANES,
-  gridTracks,
-  paneColumnSpan,
-  paneGrid,
-  paneGridTrackColumns,
-} from "./domain/layout";
 import "./App.css";
 
 /**
@@ -168,88 +160,22 @@ function App() {
           />
         )}
         <div className="deck__stage">
-          {deck.workspaces.map((ws) => {
-            const isActive = ws.id === deck.activeId;
-
-            if (ws.panes.length === 0) {
-              return (
-                <div
-                  key={ws.id}
-                  className="deck__setup"
-                  aria-hidden={!isActive}
-                  style={{
-                    visibility: isActive ? "visible" : "hidden",
-                    pointerEvents: isActive ? "auto" : "none",
-                  }}
-                >
-                  <WorkspaceSetup
-                    onPick={(count) =>
-                      void provisioning.startWorkspace(ws.id, count)
-                    }
-                  />
-                </div>
-              );
+          <DeckStage
+            workspaces={deck.workspaces}
+            activeId={deck.activeId}
+            focusByWs={deck.focusByWs}
+            selectedPaneId={selectedPaneId}
+            agents={agents}
+            onStartWorkspace={(wsId, count) =>
+              void provisioning.startWorkspace(wsId, count)
             }
-
-            const focusedHere = resolveFocus(ws.panes, deck.focusByWs[ws.id]);
-            const solo = ws.panes.length === 1;
-            const trackColumns = focusedHere
-              ? 1
-              : paneGridTrackColumns(ws.panes.length);
-            const rowCount = focusedHere ? 1 : paneGrid(ws.panes.length).rows;
-            return (
-              <main
-                key={ws.id}
-                className={`deck__grid${isActive ? "" : " deck__grid--hidden"}`}
-                aria-hidden={!isActive}
-                style={{
-                  gridTemplateColumns: gridTracks(trackColumns),
-                  gridTemplateRows: gridTracks(rowCount),
-                }}
-              >
-                {ws.panes.map((pane, index) => {
-                  const isFocused = pane.id === focusedHere;
-                  const isCollapsed = focusedHere !== null && !isFocused;
-                  const colSpan = focusedHere
-                    ? 1
-                    : paneColumnSpan(index, ws.panes.length);
-                  // Agent command/label are per pane now (not the workspace),
-                  // resolved from the fetched catalog ([F1]); fall back to the
-                  // id string while the catalog is still loading.
-                  const agentType = pane.agentType ?? "claude";
-                  const agentInfo = agents.find((a) => a.id === agentType);
-                  const command = agentInfo?.command ?? agentType;
-                  const displayTitle = paneDisplayTitle(pane, index, agents);
-                  return (
-                    <AgentPane
-                      key={pane.id}
-                      paneId={pane.id}
-                      title={displayTitle}
-                      command={command}
-                      cwd={pane.cwd ?? ws.cwd}
-                      branch={pane.branch}
-                      visible={isActive && !isCollapsed}
-                      focused={isFocused}
-                      collapsed={isCollapsed}
-                      selected={pane.id === selectedPaneId}
-                      solo={solo}
-                      colSpan={colSpan}
-                      onSelect={() => deck.selectPane(ws.id, pane.id)}
-                      onToggleFocus={() => deck.toggleFocus(ws.id, pane.id)}
-                      onOpenInEditor={() => {
-                        void openInEditor(pane.cwd ?? ws.cwd).catch(() => {});
-                      }}
-                      onClose={() =>
-                        closeFlow.requestCloseAgent(ws.id, pane.id, displayTitle)
-                      }
-                      onRename={(name) => deck.renamePane(ws.id, pane.id, name)}
-                      onTitle={(t) => deck.setPaneAutoTitle(ws.id, pane.id, t)}
-                    />
-                  );
-                })}
-              </main>
-            );
-          })}
+            onSelectPane={deck.selectPane}
+            onToggleFocus={deck.toggleFocus}
+            onOpenInEditor={(path) => void openInEditor(path).catch(() => {})}
+            onCloseAgent={closeFlow.requestCloseAgent}
+            onRenamePane={deck.renamePane}
+            onPaneTitle={deck.setPaneAutoTitle}
+          />
 
           {showForm &&
             (deck.workspaces.length > 0 ? (
