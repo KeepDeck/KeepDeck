@@ -5,12 +5,7 @@ import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
 import { fetchAppInfo, openInEditor, pathsAreImages, type AppInfo } from "./ipc";
-import {
-  AGENT_TYPES,
-  commandForAgent,
-  labelForAgent,
-  type AgentType,
-} from "./agents";
+import { defaultAgentType, useAgents, type AgentType } from "./agents";
 import { makePanes, paneId, resolveFocus, type Pane } from "./panes";
 import {
   worktreeTargets,
@@ -195,6 +190,8 @@ function App() {
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
   const [railCollapsed, setRailCollapsed] = useState(false);
+  // Detected agent catalog (labels/commands/install status), fetched from Rust.
+  const { agents } = useAgents();
   const nextAgentSeq = useRef(1);
   const nextWorkspaceSeq = useRef(1);
   // Hard reentrancy guard for the async provision handlers — a ref is
@@ -234,9 +231,12 @@ function App() {
     const seq = nextAgentSeq.current;
     nextAgentSeq.current += 1;
     const index = active.panes.length + 1;
-    // Default the type to the last pane's, else the first option.
-    const defaultAgentType =
-      active.panes[active.panes.length - 1]?.agentType ?? AGENT_TYPES[0].id;
+    // Default the type to the last pane's if it's still selectable, else the
+    // first installed agent ([F1]).
+    const defaultType = defaultAgentType(
+      agents,
+      active.panes[active.panes.length - 1]?.agentType,
+    );
     // Worktree mode also prefills branch/folder from the backend.
     const worktree = active.worktreeBaseDir
       ? await suggestWorktree(active.name, index).then((s) => ({
@@ -248,7 +248,7 @@ function App() {
       wsId: active.id,
       agentId: paneId(seq),
       index,
-      defaultAgentType,
+      defaultAgentType: defaultType,
       worktree,
     });
   };
@@ -310,7 +310,7 @@ function App() {
         ws,
         startSeq,
         count,
-        AGENT_TYPES[0].id,
+        defaultAgentType(agents),
         setError,
       );
       deck.setPanes(workspaceId, panes);
@@ -503,15 +503,18 @@ function App() {
                   const colSpan = focusedHere
                     ? 1
                     : paneColumnSpan(index, ws.panes.length);
-                  // Agent command/label are per pane now (not the workspace).
+                  // Agent command/label are per pane now (not the workspace),
+                  // resolved from the fetched catalog ([F1]); fall back to the
+                  // id string while the catalog is still loading.
                   const agentType = pane.agentType ?? "claude";
-                  const command = commandForAgent(agentType);
+                  const info = agents.find((a) => a.id === agentType);
+                  const command = info?.command ?? agentType;
                   // Manual name wins, then the auto title, then the derived
                   // "<Agent> N" ([F11]).
                   const displayTitle =
                     pane.name ??
                     pane.autoTitle ??
-                    `${labelForAgent(agentType)} ${index + 1}`;
+                    `${info?.label ?? agentType} ${index + 1}`;
                   return (
                     <AgentPane
                       key={pane.id}

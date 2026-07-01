@@ -1,5 +1,10 @@
-import { useState } from "react";
-import { AGENT_TYPES, type AgentType } from "../agents";
+import { useEffect, useState } from "react";
+import {
+  useAgents,
+  selectableAgents,
+  defaultAgentType as pickDefaultAgentType,
+  type AgentType,
+} from "../agents";
 import { useEscape } from "../ui/useEscape";
 import { noAutoCorrect } from "../ui/inputProps";
 import { ModalOverlay } from "../ui/ModalOverlay";
@@ -40,7 +45,18 @@ export function AgentDialog({
   const [name, setName] = useState("");
   const [branch, setBranch] = useState(worktree?.defaultBranch ?? "");
   const [folder, setFolder] = useState(worktree?.defaultFolder ?? "");
+  const { agents } = useAgents();
+  const agentOptions = selectableAgents(agents);
   useEscape(onCancel);
+
+  // Snap the pre-selected type onto the installed set once detection resolves
+  // (the default may have been a not-installed fallback) ([F1]).
+  useEffect(() => {
+    if (agentOptions.length && !agentOptions.some((a) => a.id === agentType)) {
+      setAgentType(pickDefaultAgentType(agents));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents]);
 
   const branchError = worktree && !branch.trim() ? "Branch is required" : null;
   const folderError = worktree && !folder.trim() ? "Folder is required" : null;
@@ -99,7 +115,7 @@ export function AgentDialog({
 
         <span className="form__label">Agent</span>
         <div className="form__types">
-          {AGENT_TYPES.map((a) => (
+          {agentOptions.map((a) => (
             <button
               key={a.id}
               type="button"
