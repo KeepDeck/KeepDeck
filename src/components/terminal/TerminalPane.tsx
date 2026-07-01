@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -14,7 +14,13 @@ import {
   normalizeSelection,
   osc52Text,
 } from "../../domain/clipboard";
-import { detectLinks, resolvePathTarget } from "../../domain/links";
+import {
+  detectLinks,
+  openErrorHint,
+  resolvePathTarget,
+} from "../../domain/links";
+import { useTransient } from "../../ui/useTransient";
+import { positionHint } from "../../ui/hintPosition";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */
@@ -57,6 +63,26 @@ export function TerminalPane({
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  // Transient in-pane notice ([F16]) — "File not found" after a Cmd+click on a
+  // stale path (or a failed open). Self-clears; anchored to the click point.
+  const [hint, showHint] = useTransient<PaneHint>(HINT_MS);
+  const hintRef = useRef<HTMLDivElement>(null);
+
+  // Position the hint once its size is measurable — before paint, so it never
+  // flashes at the wrong spot. Re-runs per show (each hint is a fresh object).
+  useLayoutEffect(() => {
+    const el = hintRef.current;
+    const pane = el?.parentElement;
+    if (!el || !pane || !hint) return;
+    const pos = positionHint(
+      hint,
+      { width: el.offsetWidth, height: el.offsetHeight },
+      { width: pane.clientWidth, height: pane.clientHeight },
+    );
+    el.style.left = `${pos.left}px`;
+    el.style.top = `${pos.top}px`;
+  }, [hint]);
+
   // Held in a ref so the exit handler inside the (command/cwd)-scoped effect
   // always calls the latest callback without re-running the effect.
   const onExitRef = useRef(onExit);
@@ -198,11 +224,22 @@ export function TerminalPane({
                 },
                 activate(event: MouseEvent) {
                   if (!event.metaKey) return;
-                  const open =
+                  const target =
                     d.kind === "url"
-                      ? openUrl(d.text)
-                      : openPath(resolvePathTarget(d.text, cwd ?? ""));
-                  open.catch(() => {});
+                      ? d.text
+                      : resolvePathTarget(d.text, cwd ?? "");
+                  const open =
+                    d.kind === "url" ? openUrl(target) : openPath(target);
+                  // Surface the failure — a deleted file, a bad URL — next to
+                  // the link that was clicked instead of swallowing it
+                  // ([F16]). Pane-local coords captured now, at click-time
+                  // geometry, not when the rejection lands.
+                  const rect = host.getBoundingClientRect();
+                  const x = event.clientX - rect.left;
+                  const y = event.clientY - rect.top;
+                  open.catch((err: unknown) =>
+                    showHint({ text: openErrorHint(err, target), x, y }),
+                  );
                 },
               })),
         );
@@ -276,7 +313,7 @@ export function TerminalPane({
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [command, cwd, paneId]);
+  }, [command, cwd, paneId, showHint]);
 
   // When the pane comes back on screen (workspace switch, or un-maximized),
   // refit and repaint from the buffer so nothing is left blank.
@@ -290,7 +327,28 @@ export function TerminalPane({
     if (selected) term?.focus();
   }, [visible, selected]);
 
-  return <div className="terminal-pane" ref={hostRef} />;
+  // xterm owns every DOM node inside the host div, so the hint is a SIBLING of
+  // the host (React must not reconcile children xterm appended).
+  return (
+    <div className="terminal-pane">
+      <div className="terminal-pane__host" ref={hostRef} />
+      {hint && (
+        <div className="terminal-pane__hint" role="status" ref={hintRef}>
+          {hint.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** How long an in-pane hint stays up before it fades ([F16]). */
+const HINT_MS = 2000;
+
+/** A hint message anchored at the pane-local point that was clicked. */
+interface PaneHint {
+  text: string;
+  x: number;
+  y: number;
 }
 
 /**

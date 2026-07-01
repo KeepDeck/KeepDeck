@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectLinks, resolvePathTarget } from "./links";
+import { detectLinks, openErrorHint, resolvePathTarget } from "./links";
 
 const kinds = (line: string) =>
   detectLinks(line).map((l) => `${l.kind}:${l.text}`);
@@ -83,5 +83,36 @@ describe("resolvePathTarget", () => {
 
   it("tolerates a trailing slash on cwd", () => {
     expect(resolvePathTarget("a/b.ts", "/c/")).toBe("/c/a/b.ts");
+  });
+});
+
+describe("openErrorHint", () => {
+  it("names the missing file on a notFound rejection", () => {
+    expect(
+      openErrorHint({ kind: "notFound", path: "/Users/me/gone.rs" }, "gone.rs"),
+    ).toBe("File not found: /Users/me/gone.rs");
+  });
+
+  it("falls back to the clicked target on a generic failed rejection", () => {
+    expect(openErrorHint({ kind: "failed", message: "os error" }, "/a/b")).toBe(
+      "Couldn't open /a/b",
+    );
+  });
+
+  it("handles open_url's plain-string rejection", () => {
+    expect(openErrorHint("launch error", "https://x.dev")).toBe(
+      "Couldn't open https://x.dev",
+    );
+  });
+
+  it("does not trust a malformed notFound (no path) with the specific wording", () => {
+    expect(openErrorHint({ kind: "notFound" }, "x.ts")).toBe(
+      "Couldn't open x.ts",
+    );
+  });
+
+  it("tolerates undefined/null rejections", () => {
+    expect(openErrorHint(undefined, "x.ts")).toBe("Couldn't open x.ts");
+    expect(openErrorHint(null, "x.ts")).toBe("Couldn't open x.ts");
   });
 });

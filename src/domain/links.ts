@@ -71,3 +71,21 @@ export function resolvePathTarget(text: string, cwd: string): string {
   if (path.startsWith("/") || path.startsWith("~")) return path;
   return `${cwd.replace(/\/+$/, "")}/${path}`;
 }
+
+/**
+ * Human message for a failed link open ([F16]). `open_path` rejects with the
+ * structured `{ kind: "notFound", path }` when the file no longer exists
+ * (checked backend-side, `~` already expanded) — name the path in that case.
+ * Anything else (its `{ kind: "failed" }` variant, `open_url`'s plain-string
+ * rejection) gets a generic line naming the clicked target. Narrows the
+ * rejection structurally, so the wire type needs no ipc import here.
+ */
+export function openErrorHint(err: unknown, target: string): string {
+  if (typeof err === "object" && err !== null && "kind" in err) {
+    const e = err as { kind: unknown; path?: unknown };
+    if (e.kind === "notFound" && typeof e.path === "string") {
+      return `File not found: ${e.path}`;
+    }
+  }
+  return `Couldn't open ${target}`;
+}
