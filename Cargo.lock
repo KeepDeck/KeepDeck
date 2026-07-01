@@ -1962,7 +1962,7 @@ dependencies = [
 
 [[package]]
 name = "keepdeck"
-version = "0.4.24"
+version = "0.5.0"
 dependencies = [
  "infer",
  "keepdeck-agents",
