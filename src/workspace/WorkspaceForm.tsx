@@ -6,7 +6,7 @@ import {
   defaultAgentType,
   type AgentType,
 } from "../agents";
-import { inspectRepo } from "../worktree";
+import { inspectRepo } from "../ipc/worktree";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useEscape } from "../ui/useEscape";
 import { noAutoCorrect } from "../ui/inputProps";

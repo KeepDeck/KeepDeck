@@ -6,7 +6,7 @@ import {
   defaultAgentType as pickDefaultAgentType,
   type AgentType,
 } from "../agents";
-import { probeWorktree } from "../worktree";
+import { probeWorktree } from "../ipc/worktree";
 import { useEscape } from "../ui/useEscape";
 import { noAutoCorrect } from "../ui/inputProps";
 import { ModalOverlay } from "../ui/ModalOverlay";

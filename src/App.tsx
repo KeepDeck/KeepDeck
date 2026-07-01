@@ -4,7 +4,7 @@ import { WorkspacesRail } from "./workspace/WorkspacesRail";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
-import { fetchAppInfo, openInEditor, pathsAreImages, type AppInfo } from "./ipc";
+import { fetchAppInfo, openInEditor, pathsAreImages, type AppInfo } from "./ipc/app";
 import { defaultAgentType, useAgents, type AgentType } from "./agents";
 import {
   makePanes,
@@ -31,7 +31,7 @@ import {
   inspectRepo,
   removeWorktree,
   suggestWorktree,
-} from "./worktree";
+} from "./ipc/worktree";
 import { collectPaneRects, deliverDrop, paneAtPoint } from "./terminal/dnd";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
