@@ -3,6 +3,7 @@ import { MAX_PANES } from "./layout";
 import {
   appendPane,
   makePanes,
+  paneDisplayTitle,
   removePane,
   resolveFocus,
   type Pane,
@@ -72,5 +73,38 @@ describe("resolveFocus", () => {
 
   it("returns null for an empty workspace", () => {
     expect(resolveFocus([], "pane-1")).toBeNull();
+  });
+});
+
+describe("paneDisplayTitle", () => {
+  const agents = [
+    {
+      id: "claude" as const,
+      label: "Claude Code",
+      command: "claude",
+      installed: true,
+      path: null,
+    },
+  ];
+
+  it("prefers the manual name, then the auto title, then the derived label", () => {
+    const pane: Pane = { id: "pane-1", agentType: "claude" };
+    expect(
+      paneDisplayTitle({ ...pane, name: "api", autoTitle: "vim" }, 0, agents),
+    ).toBe("api");
+    expect(paneDisplayTitle({ ...pane, autoTitle: "vim" }, 0, agents)).toBe(
+      "vim",
+    );
+    expect(paneDisplayTitle(pane, 2, agents)).toBe("Claude Code 3");
+  });
+
+  it("falls back to the raw agent id while the catalog has no entry", () => {
+    expect(
+      paneDisplayTitle({ id: "pane-1", agentType: "codex" }, 0, agents),
+    ).toBe("codex 1");
+  });
+
+  it("defaults a type-less pane to claude", () => {
+    expect(paneDisplayTitle({ id: "pane-1" }, 1, agents)).toBe("Claude Code 2");
   });
 });

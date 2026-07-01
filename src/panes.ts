@@ -1,4 +1,4 @@
-import type { AgentType } from "./agents";
+import type { AgentInfo, AgentType } from "./agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
 
 /** One agent pane in the grid. Each pane runs its own agent type; the display
@@ -52,6 +52,19 @@ export function resolveFocus(
 ): string | null {
   if (!focusedId || panes.length <= 1) return null;
   return panes.some((pane) => pane.id === focusedId) ? focusedId : null;
+}
+
+/** Display title for the pane at `index`: the manual name wins, then the
+ * terminal's auto title, then "<Agent label> N" from the catalog — falling back
+ * to the raw agent id while the catalog is still loading ([F11]). */
+export function paneDisplayTitle(
+  pane: Pane,
+  index: number,
+  agents: AgentInfo[],
+): string {
+  const agentType = pane.agentType ?? "claude";
+  const label = agents.find((a) => a.id === agentType)?.label ?? agentType;
+  return pane.name ?? pane.autoTitle ?? `${label} ${index + 1}`;
 }
 
 /** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES), all
