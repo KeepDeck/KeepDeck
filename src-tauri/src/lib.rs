@@ -42,6 +42,7 @@ pub fn run() {
             dnd::paths_are_images,
             links::open_url,
             links::open_path,
+            links::open_in_editor,
             session::session_spawn,
             session::session_write,
             session::session_resize,
