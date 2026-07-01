@@ -105,3 +105,53 @@ fn adds_lists_then_removes_a_worktree() {
     fs::remove_dir_all(&repo_dir).ok();
     fs::remove_dir_all(&wt_root).ok();
 }
+
+#[test]
+fn discards_a_worktree_then_deletes_its_branch() {
+    // The real "delete on close" path: remove the worktree, then delete the now
+    // free branch. The branch sits at HEAD (nothing new committed), so even the
+    // safe `-d` accepts it.
+    let repo_dir = init_repo();
+    let base = repo::resolve_commit(&repo_dir, "HEAD").unwrap();
+
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("kd-test-1");
+    worktree::add(&repo_dir, &wt, "kd/test/1", &base).expect("add worktree");
+    assert!(repo::branch_exists(&repo_dir, "kd/test/1").unwrap());
+
+    // A branch checked out in a worktree can't be deleted — remove first.
+    worktree::remove(&repo_dir, &wt, false).expect("remove clean worktree");
+    repo::delete_branch(&repo_dir, "kd/test/1", false).expect("delete merged branch");
+    assert!(
+        !repo::branch_exists(&repo_dir, "kd/test/1").unwrap(),
+        "branch should be gone after delete"
+    );
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
+#[test]
+fn safe_delete_refuses_unmerged_branch_but_force_removes_it() {
+    let repo_dir = init_repo();
+    let start = repo::current_branch(&repo_dir).unwrap().expect("on a branch");
+
+    // A branch with a commit that lives nowhere else — unmerged work.
+    git(&repo_dir, &["checkout", "-q", "-b", "kd/unmerged"]);
+    fs::write(repo_dir.join("wip.txt"), "work").unwrap();
+    git(&repo_dir, &["add", "."]);
+    git(&repo_dir, &["commit", "-q", "-m", "wip"]);
+    git(&repo_dir, &["checkout", "-q", &start]);
+
+    // `-d` protects unmerged work; `-D` (force) discards it.
+    assert!(
+        repo::delete_branch(&repo_dir, "kd/unmerged", false).is_err(),
+        "safe delete must refuse an unmerged branch"
+    );
+    assert!(repo::branch_exists(&repo_dir, "kd/unmerged").unwrap());
+
+    repo::delete_branch(&repo_dir, "kd/unmerged", true).expect("force delete");
+    assert!(!repo::branch_exists(&repo_dir, "kd/unmerged").unwrap());
+
+    fs::remove_dir_all(&repo_dir).ok();
+}

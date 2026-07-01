@@ -9,8 +9,10 @@ import {
   renameWorkspace,
   resolveActiveId,
   setPaneAutoTitle,
+  worktreeTargets,
   type Workspace,
 } from "./workspaces";
+import { type Pane } from "./panes";
 
 const ws = (id: string, paneNums: number[]): Workspace => ({
   id,
@@ -124,6 +126,51 @@ describe("renamePane", () => {
     expect(renamePane(named, "a", "a-p1", "   ")[0].panes[0]).toEqual({
       id: "a-p1",
     });
+  });
+});
+
+describe("worktreeTargets", () => {
+  // A worktree-mode workspace: repo cwd + two worktree panes and one that fell
+  // back to the cwd (no worktree of its own).
+  const wtWs: Workspace = {
+    id: "a",
+    name: "a",
+    cwd: "/repo",
+    worktreeBaseDir: "/wt",
+    panes: [
+      { id: "a-p1", cwd: "/wt/kd-a-1", branch: "kd/a/1" },
+      { id: "a-p2", cwd: "/wt/kd-a-2", branch: "kd/a/2" },
+      { id: "a-p3" } as Pane, // create failed → runs in the cwd, nothing to delete
+    ],
+  };
+
+  it("collects every worktree pane for a workspace close", () => {
+    expect(worktreeTargets(wtWs)).toEqual([
+      { repo: "/repo", path: "/wt/kd-a-1", branch: "kd/a/1" },
+      { repo: "/repo", path: "/wt/kd-a-2", branch: "kd/a/2" },
+    ]);
+  });
+
+  it("collects only the named pane for an agent close", () => {
+    expect(worktreeTargets(wtWs, "a-p2")).toEqual([
+      { repo: "/repo", path: "/wt/kd-a-2", branch: "kd/a/2" },
+    ]);
+  });
+
+  it("returns nothing for a cwd-fallback pane (no worktree to delete)", () => {
+    expect(worktreeTargets(wtWs, "a-p3")).toEqual([]);
+  });
+
+  it("returns nothing for a non-worktree workspace", () => {
+    const plain: Workspace = {
+      id: "b",
+      name: "b",
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [{ id: "b-p1" }, { id: "b-p2" }],
+    };
+    expect(worktreeTargets(plain)).toEqual([]);
+    expect(worktreeTargets(plain, "b-p1")).toEqual([]);
   });
 });
 

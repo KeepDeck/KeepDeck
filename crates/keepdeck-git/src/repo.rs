@@ -45,3 +45,17 @@ pub fn branch_exists(repo: &Path, name: &str) -> Result<bool, GitError> {
         Err(other) => Err(other),
     }
 }
+
+/// Delete a local branch by name.
+///
+/// `force` maps to `git branch -D` (deletes even a branch with commits not
+/// merged anywhere), while without it `git branch -d` refuses an unmerged
+/// branch so work isn't dropped by accident. The branch must NOT be checked out
+/// in any worktree — remove that worktree first, or git refuses the delete.
+///
+/// The name is expected pre-sanitized (KeepDeck branches never start with `-`);
+/// a bare `git branch -D <name>` is therefore safe from flag-injection.
+pub fn delete_branch(repo: &Path, name: &str, force: bool) -> Result<(), GitError> {
+    let flag = if force { "-D" } else { "-d" };
+    run_git(repo, ["branch", flag, name]).map(drop)
+}

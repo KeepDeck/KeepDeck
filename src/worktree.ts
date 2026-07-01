@@ -55,12 +55,23 @@ export function createWorktree(spec: CreateWorktreeArgs): Promise<WorktreeRecord
   return invoke<WorktreeRecord>("worktree_create", { spec });
 }
 
-/** Remove an agent's worktree. Refuses a dirty worktree unless `force`, so work
- *  is never destroyed by default. */
+/** Options for {@link removeWorktree}. */
+export interface RemoveWorktreeOptions {
+  /** Remove even a dirty worktree and force-delete the branch (`git branch -D`).
+   *  Refuses a dirty worktree when false, so work is never destroyed by default. */
+  force?: boolean;
+  /** Also delete this branch once the worktree is gone; left intact when unset. */
+  branch?: string | null;
+}
+
+/** Remove an agent's worktree, and — when `branch` is given — delete that branch
+ *  too (it can only be deleted after its worktree is removed). */
 export function removeWorktree(
   repo: string,
   path: string,
-  force = false,
+  opts: RemoveWorktreeOptions = {},
 ): Promise<void> {
-  return invoke("worktree_remove", { spec: { repo, path, force } });
+  return invoke("worktree_remove", {
+    spec: { repo, path, force: opts.force ?? false, branch: opts.branch ?? null },
+  });
 }

@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { useEscape } from "./useEscape";
 import { DestructiveButton } from "./DestructiveButton";
 import { ModalOverlay } from "./ModalOverlay";
@@ -13,6 +14,9 @@ interface ConfirmDialogProps {
   /** Style the confirm button as destructive (red) for irreversible actions,
    * and default focus to Cancel so Enter/Esc don't trigger it. */
   destructive?: boolean;
+  /** Extra content between the message and the actions (e.g. an opt-in
+   * checkbox); optional so plain confirm/notice dialogs stay unchanged. */
+  children?: ReactNode;
   onConfirm(): void;
   onCancel?(): void;
 }
@@ -31,6 +35,7 @@ export function ConfirmDialog({
   confirmLabel = "OK",
   cancelLabel,
   destructive,
+  children,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -43,6 +48,7 @@ export function ConfirmDialog({
       <div className="confirm" role="dialog" aria-modal="true">
         <h2 className="confirm__title">{title}</h2>
         <p className="confirm__message">{message}</p>
+        {children}
         <div className="confirm__actions">
           {hasCancel && (
             <button
