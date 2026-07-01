@@ -88,6 +88,27 @@ fn resize_succeeds_on_live_session() {
 }
 
 #[test]
+fn child_environment_selects_a_utf8_locale() {
+    // Children must always end up under a UTF-8 locale: inherited from the
+    // host env when it has one, injected by the spawn otherwise (GUI-launched
+    // apps get launchd's LANG-less env, where pbcopy in a pane would garble
+    // non-ASCII text as MacRoman).
+    let (_session, rx) = PtySession::spawn(spec(
+        "sh",
+        &["-c", r#"printf '<%s|%s|%s>' "$LC_ALL" "$LC_CTYPE" "$LANG""#],
+    ))
+    .expect("spawn sh");
+    let (out, exit) = run_to_exit(&rx, Duration::from_secs(5));
+
+    assert!(exit.expect("should exit").success);
+    let text = String::from_utf8_lossy(&out).to_lowercase().replace('-', "");
+    assert!(
+        text.contains("utf8"),
+        "child locale vars carry no UTF-8: {text:?}"
+    );
+}
+
+#[test]
 fn missing_command_is_handled() {
     // Either the spawn errors outright, or the child terminates non-successfully;
     // both are acceptable — what matters is we don't hang or panic.
