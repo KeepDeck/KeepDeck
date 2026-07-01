@@ -36,6 +36,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
         .invoke_handler(tauri::generate_handler![
