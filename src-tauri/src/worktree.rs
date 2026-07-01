@@ -99,6 +99,13 @@ pub struct RemoveSpec {
     /// intent; by default a dirty worktree is kept (work is never destroyed).
     #[serde(default)]
     pub force: bool,
+    /// When set (and non-blank), also delete this branch after the worktree is
+    /// removed; otherwise the branch is left intact. `force` selects `-D` (drops
+    /// unmerged commits) over the safe `-d`. Used by "delete worktree + branch
+    /// on close" — the branch can't be deleted while its worktree exists, so it
+    /// happens here, after the removal, under the same per-repo lock.
+    #[serde(default)]
+    pub branch: Option<String>,
 }
 
 /// Pick the branch to create: an explicit non-blank name (sanitized per
@@ -203,8 +210,10 @@ pub fn worktree_create(
     })
 }
 
-/// Remove an agent's worktree. Without `force`, refuses a dirty worktree so work
-/// is never destroyed; the branch itself is left intact either way.
+/// Remove an agent's worktree, and — when `spec.branch` is set — delete that
+/// branch too. Without `force`, refuses a dirty worktree so work is never
+/// destroyed; with `branch` but no `force`, the branch delete uses the safe
+/// `-d`, which git refuses for unmerged commits.
 #[tauri::command]
 pub fn worktree_remove(locks: State<RepoLocks>, spec: RemoveSpec) -> Result<(), String> {
     let repo_path = PathBuf::from(&spec.repo);
@@ -214,14 +223,19 @@ pub fn worktree_remove(locks: State<RepoLocks>, spec: RemoveSpec) -> Result<(), 
         return Err("worktree has uncommitted changes; not removing".to_string());
     }
 
-    // Serialize with worktree_create on this repo: remove + prune both take the
-    // shared .git locks, so a concurrent add would otherwise fail to lock or
-    // have its admin-state pruned mid-write.
+    // Serialize with worktree_create on this repo: remove + prune + branch
+    // delete all take the shared .git locks, so a concurrent add would otherwise
+    // fail to lock or have its admin-state pruned mid-write.
     let lock = locks.for_repo(&repo_path);
     let _guard = lock.lock().expect("repo lock poisoned");
     worktree::remove(&repo_path, &path, spec.force).map_err(|e| e.to_string())?;
     // Best-effort: drop the administrative record if the dir is already gone.
     let _ = worktree::prune(&repo_path);
+    // Branch removal is separate: a branch can't be deleted while its worktree
+    // is checked out, so it only runs now that the worktree is gone.
+    if let Some(branch) = spec.branch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        repo::delete_branch(&repo_path, branch, spec.force).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
