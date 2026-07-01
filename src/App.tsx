@@ -5,7 +5,8 @@ import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
 import { fetchAppInfo, openInEditor, pathsAreImages, type AppInfo } from "./ipc/app";
-import { defaultAgentType, useAgents, type AgentType } from "./agents";
+import { defaultAgentType, type AgentType } from "./domain/agents";
+import { useAgents } from "./app/useAgents";
 import {
   makePanes,
   paneDisplayTitle,
@@ -13,11 +14,8 @@ import {
   resolveFocus,
   type Pane,
 } from "./domain/panes";
-import {
-  CLOSE_AGENT_EVENT,
-  NEW_AGENT_EVENT,
-  closeHotkeyTarget,
-} from "./domain/hotkeys";
+import { closeHotkeyTarget } from "./domain/hotkeys";
+import { CLOSE_AGENT_EVENT, NEW_AGENT_EVENT } from "./ipc/menu";
 import { listen } from "@tauri-apps/api/event";
 import {
   worktreeTargets,
@@ -25,14 +23,15 @@ import {
   type WorktreeTarget,
 } from "./domain/workspaces";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { useDeck } from "./deck";
+import { useDeck } from "./app/useDeck";
 import {
   createWorktree,
   inspectRepo,
   removeWorktree,
   suggestWorktree,
 } from "./ipc/worktree";
-import { collectPaneRects, deliverDrop, paneAtPoint } from "./terminal/dnd";
+import { paneAtPoint } from "./domain/dnd";
+import { collectPaneRects, deliverDrop } from "./app/dragDrop";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import {

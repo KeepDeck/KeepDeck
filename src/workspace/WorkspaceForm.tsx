@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-  useAgents,
   selectableAgents,
   defaultAgentType,
   type AgentType,
-} from "../agents";
+} from "../domain/agents";
+import { useAgents } from "../app/useAgents";
 import { inspectRepo } from "../ipc/worktree";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useEscape } from "../ui/useEscape";

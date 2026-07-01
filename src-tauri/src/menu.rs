@@ -12,11 +12,11 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 /// Menu item id for "File → New Agent…" (⌘T).
 const NEW_AGENT_ID: &str = "new-agent";
-/// Webview event for [`NEW_AGENT_ID`]; mirrored in `src/hotkeys.ts`.
+/// Webview event for [`NEW_AGENT_ID`]; mirrored in `src/ipc/menu.ts`.
 pub const NEW_AGENT_EVENT: &str = "deck://menu/new-agent";
 /// Menu item id for "File → Close Agent" (⌘W).
 const CLOSE_AGENT_ID: &str = "close-agent";
-/// Webview event for [`CLOSE_AGENT_ID`]; mirrored in `src/hotkeys.ts`.
+/// Webview event for [`CLOSE_AGENT_ID`]; mirrored in `src/ipc/menu.ts`.
 pub const CLOSE_AGENT_EVENT: &str = "deck://menu/close-agent";
 
 /// Build the app menu: our File items plus the standard roles. Edit keeps the
