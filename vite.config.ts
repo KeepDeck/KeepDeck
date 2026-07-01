@@ -36,6 +36,6 @@ export default defineConfig(async () => ({
   // tests (e.g. portaled dialogs).
   test: {
     environment: "node",
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
   },
 }));
