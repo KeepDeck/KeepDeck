@@ -1855,6 +1855,7 @@ name = "keepdeck"
 version = "0.4.17"
 dependencies = [
  "infer",
+ "keepdeck-agents",
  "keepdeck-git",
  "keepdeck-pty",
  "serde",
