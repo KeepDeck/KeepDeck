@@ -3,6 +3,7 @@ import {
   createPasteHandler,
   isCopyChord,
   normalizeSelection,
+  osc52Text,
   type ClipboardEventLike,
   type CopyKeyEvent,
 } from "./clipboard";
@@ -57,6 +58,30 @@ describe("normalizeSelection", () => {
 
   it("is a no-op on the empty string", () => {
     expect(normalizeSelection("")).toBe("");
+  });
+});
+
+describe("osc52Text", () => {
+  // "0L/RgNC40LLQtdGC" = base64 of the UTF-8 bytes of "привет".
+  it("decodes a write request's base64 payload as UTF-8", () => {
+    expect(osc52Text("c;0L/RgNC40LLQtdGC")).toBe("привет");
+  });
+
+  it("ignores which selection the program targets", () => {
+    expect(osc52Text(";aGk=")).toBe("hi");
+    expect(osc52Text("ps0;aGk=")).toBe("hi");
+  });
+
+  it("refuses to answer a query request", () => {
+    expect(osc52Text("c;?")).toBeNull();
+  });
+
+  it("yields nothing for empty or undecodable payloads", () => {
+    expect(osc52Text("c;")).toBeNull();
+    expect(osc52Text("c;!!not-base64!!")).toBeNull();
+    // "//4=" = bytes FF FE — not valid UTF-8.
+    expect(osc52Text("c;//4=")).toBeNull();
+    expect(osc52Text("no-separator")).toBeNull();
   });
 });
 

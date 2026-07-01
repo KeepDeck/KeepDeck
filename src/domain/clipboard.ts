@@ -42,6 +42,29 @@ export function normalizeSelection(text: string): string {
   return text.replace(/[ \t]+$/gm, "");
 }
 
+/**
+ * Extract the text of an OSC 52 clipboard WRITE request, or null when there is
+ * nothing to write. `data` is what xterm hands an OSC handler — everything
+ * after `52;`, i.e. `<selection>;<base64 payload>`. The selection chars
+ * (c/p/s/0-7) are ignored: whichever selection the program targets, KeepDeck
+ * has one system clipboard. Returns null for query requests (`?`) — answering
+ * one would let any program running in a pane read the user's clipboard — and
+ * for empty or undecodable payloads.
+ */
+export function osc52Text(data: string): string | null {
+  const sep = data.indexOf(";");
+  if (sep === -1) return null;
+  const payload = data.slice(sep + 1);
+  if (payload === "?") return null;
+  try {
+    const bytes = Uint8Array.from(atob(payload), (ch) => ch.charCodeAt(0));
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The slice of a DOM paste/copy event the handlers need. */
 export interface ClipboardEventLike {
   preventDefault(): void;

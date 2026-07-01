@@ -12,6 +12,7 @@ import {
   createPasteHandler,
   isCopyChord,
   normalizeSelection,
+  osc52Text,
 } from "../../domain/clipboard";
 import { detectLinks, resolvePathTarget } from "../../domain/links";
 
@@ -142,6 +143,16 @@ export function TerminalPane({
     const onPaste = createPasteHandler(readText, (text) => term.paste(text));
     host.addEventListener("paste", onPaste, true);
 
+    // OSC 52 ([F21]): a program inside the pane (tmux, vim, an agent TUI)
+    // copying to the clipboard emits OSC 52, which xterm's core drops — route
+    // its payload through the clipboard manager. Write-only: queries are
+    // consumed but never answered (a pane must not read the clipboard).
+    const osc52 = term.parser.registerOscHandler(52, (data) => {
+      const text = osc52Text(data);
+      if (text) writeText(text).catch(() => {});
+      return true;
+    });
+
     // Layer 2 for [F3]: stop the textarea inserting a literal newline on
     // Shift+Enter before xterm's handler runs (capture phase). Without this the
     // browser's own default can put a \n into the helper textarea.
@@ -256,6 +267,7 @@ export function TerminalPane({
       links.dispose();
       titleSub.dispose();
       selectionSub.dispose();
+      osc52.dispose();
       host.removeEventListener("copy", onCopy);
       host.removeEventListener("paste", onPaste, true);
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
