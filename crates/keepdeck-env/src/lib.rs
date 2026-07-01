@@ -1,11 +1,15 @@
-//! Augmenting `PATH` for spawned agents.
+//! `keepdeck-env` — PATH augmentation and program resolution.
 //!
 //! A GUI-launched macOS app inherits launchd's stripped `PATH`
 //! (`/usr/bin:/bin:/usr/sbin:/sbin`), so user-installed CLIs (`claude`, `codex`,
 //! `opencode`) and their toolchains aren't found. We rebuild a fuller `PATH` —
 //! the login shell's `PATH` plus well-known install dirs, merged over the
-//! inherited one — and resolve the agent binary against it. Computed once per
-//! process; the login-shell probe is the only cost and it's cached.
+//! inherited one — and resolve programs against it. Computed once per process;
+//! the login-shell probe is the only cost and it's cached.
+//!
+//! This is the single source of "where to find a binary", shared by the PTY
+//! layer (resolving the program to spawn) and the agent layer (detecting which
+//! agent CLIs are installed) so the two never disagree.
 
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
@@ -15,26 +19,39 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-/// The augmented `PATH` for spawned children, computed once.
-pub(crate) fn augmented_path() -> &'static OsStr {
+/// The augmented `PATH` for spawned children and agent detection, computed once.
+pub fn augmented_path() -> &'static OsStr {
     static PATH: OnceLock<OsString> = OnceLock::new();
     PATH.get_or_init(build_path).as_os_str()
 }
 
-/// Resolve a bare command name to an absolute path using `path`. Returns the
-/// command unchanged if it already contains a `/` or isn't found on `path` (let
-/// the spawn surface the "not found" error as before).
-pub(crate) fn resolve_program(command: &str, path: &OsStr) -> OsString {
+/// Resolve a bare command name to an absolute path using `path`, for spawning.
+/// Returns the command unchanged if it already contains a `/` or isn't found on
+/// `path` (let the spawn surface the "not found" error as before).
+pub fn resolve_program(command: &str, path: &OsStr) -> OsString {
     if command.is_empty() || command.contains('/') {
         return command.into();
     }
-    for dir in std::env::split_paths(path) {
-        let candidate = dir.join(command);
-        if is_executable(&candidate) {
-            return candidate.into_os_string();
-        }
+    find_program(command, path)
+        .map(PathBuf::into_os_string)
+        .unwrap_or_else(|| command.into())
+}
+
+/// Find `command` on `path`, returning the absolute path of the first executable
+/// match, or `None` if it isn't installed. Unlike [`resolve_program`] this
+/// reports absence (for detection): `None` means "not found", not "spawn it and
+/// let it fail". A `command` that is itself a path is checked directly.
+pub fn find_program(command: &str, path: &OsStr) -> Option<PathBuf> {
+    if command.is_empty() {
+        return None;
     }
-    command.into()
+    if command.contains('/') {
+        let direct = Path::new(command);
+        return is_executable(direct).then(|| direct.to_path_buf());
+    }
+    std::env::split_paths(path)
+        .map(|dir| dir.join(command))
+        .find(|candidate| is_executable(candidate))
 }
 
 fn build_path() -> OsString {
@@ -168,6 +185,62 @@ mod tests {
         assert_eq!(
             resolve_program("keepdeck-no-such-binary-xyz", OsStr::new("/usr/bin:/bin")),
             OsString::from("keepdeck-no-such-binary-xyz"),
+        );
+    }
+
+    #[test]
+    fn find_program_reports_absence_as_none() {
+        assert_eq!(
+            find_program("keepdeck-no-such-binary-xyz", OsStr::new("/usr/bin:/bin")),
+            None,
+        );
+    }
+
+    #[test]
+    fn find_program_returns_the_resolved_absolute_path() {
+        let found = find_program("sh", OsStr::new("/usr/bin:/bin"))
+            .expect("sh should resolve on a standard PATH");
+        assert!(found.is_absolute());
+        assert!(found.ends_with("sh"));
+        assert!(is_executable(&found));
+    }
+
+    #[test]
+    fn find_program_checks_a_slash_command_directly() {
+        assert_eq!(
+            find_program("/bin/sh", OsStr::new("/nope")),
+            Some(PathBuf::from("/bin/sh")),
+        );
+        assert_eq!(find_program("/no/such/path", OsStr::new("/nope")), None);
+    }
+
+    #[test]
+    fn find_program_treats_empty_as_absent() {
+        assert_eq!(find_program("", OsStr::new("/usr/bin:/bin")), None);
+    }
+
+    #[test]
+    fn add_dirs_dedupes_and_keeps_first_occurrence() {
+        let mut dirs = Vec::new();
+        let mut seen = HashSet::new();
+        add_dirs(
+            [
+                PathBuf::from("/a"),
+                PathBuf::from("/b"),
+                PathBuf::from("/a"), // duplicate
+                PathBuf::from(""),   // empty skipped
+                PathBuf::from("/c"),
+            ],
+            &mut dirs,
+            &mut seen,
+        );
+        assert_eq!(
+            dirs,
+            vec![
+                PathBuf::from("/a"),
+                PathBuf::from("/b"),
+                PathBuf::from("/c"),
+            ],
         );
     }
 }

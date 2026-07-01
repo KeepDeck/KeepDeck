@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { AGENT_TYPES, type AgentType } from "../agents";
+import {
+  useAgents,
+  selectableAgents,
+  defaultAgentType,
+  type AgentType,
+} from "../agents";
 import { inspectRepo } from "../worktree";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useEscape } from "../ui/useEscape";
@@ -34,6 +39,8 @@ export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) 
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState<string | null>(null);
   const [agentType, setAgentType] = useState<AgentType>("claude");
+  const { agents } = useAgents();
+  const agentOptions = selectableAgents(agents);
   const [count, setCount] = useState(1);
   const [worktreeDir, setWorktreeDir] = useState<string | null>(null);
   const [nudge, setNudge] = useState(false);
@@ -60,6 +67,16 @@ export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) 
       cancelled = true;
     };
   }, [cwd]);
+
+  // Once detection resolves, snap off an uninstalled default (e.g. "claude" when
+  // only OpenCode is installed) to the first selectable agent ([F1]).
+  useEffect(() => {
+    if (agentOptions.length && !agentOptions.some((a) => a.id === agentType)) {
+      setAgentType(defaultAgentType(agents));
+    }
+    // Re-check only when the catalog changes, not on every manual pick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents]);
 
   // Esc closes the form when there's a workspace to return to — but not while
   // the nudge is open (its own Esc handles that, so the form stays put).
@@ -178,7 +195,7 @@ export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) 
         style={count === 0 ? { opacity: 0.4, pointerEvents: "none" } : undefined}
         aria-disabled={count === 0}
       >
-        {AGENT_TYPES.map((a) => (
+        {agentOptions.map((a) => (
           <button
             key={a.id}
             type="button"

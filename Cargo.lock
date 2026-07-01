@@ -1852,9 +1852,10 @@ dependencies = [
 
 [[package]]
 name = "keepdeck"
-version = "0.4.17"
+version = "0.4.18"
 dependencies = [
  "infer",
+ "keepdeck-agents",
  "keepdeck-git",
  "keepdeck-pty",
  "serde",
@@ -1866,6 +1867,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "keepdeck-agents"
+version = "0.1.0"
+dependencies = [
+ "keepdeck-env",
+]
+
+[[package]]
+name = "keepdeck-env"
+version = "0.1.0"
+
+[[package]]
 name = "keepdeck-git"
 version = "0.1.0"
 
@@ -1873,6 +1885,7 @@ version = "0.1.0"
 name = "keepdeck-pty"
 version = "0.1.0"
 dependencies = [
+ "keepdeck-env",
  "libc",
  "portable-pty",
 ]

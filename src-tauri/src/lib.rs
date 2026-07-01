@@ -1,3 +1,4 @@
+mod agents;
 mod dnd;
 mod links;
 mod session;
@@ -39,6 +40,7 @@ pub fn run() {
         .manage(worktree::RepoLocks::default())
         .invoke_handler(tauri::generate_handler![
             app_info,
+            agents::agents_list,
             dnd::paths_are_images,
             links::open_url,
             links::open_path,
