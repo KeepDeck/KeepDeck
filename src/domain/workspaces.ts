@@ -1,9 +1,22 @@
+import type { AgentType } from "./agents";
 import { appendPane, removePane, type Pane } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
  * in the same working directory. Switching the active workspace swaps which set
  * the grid shows; inactive workspaces keep their panes (and live sessions)
  * mounted. */
+/** What the create-workspace form submits: the spec a new workspace (and its
+ * initial batch of agents) is provisioned from. */
+export interface SpawnConfig {
+  /** Workspace name; blank falls back to a default in the caller. */
+  name: string;
+  cwd: string;
+  agentType: AgentType;
+  count: number;
+  /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
+  worktreeBaseDir: string | null;
+}
+
 export interface Workspace {
   id: string;
   name: string;

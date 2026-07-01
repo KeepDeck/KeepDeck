@@ -1,26 +1,17 @@
 import { useEffect, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import {
-  useAgents,
   selectableAgents,
   defaultAgentType,
   type AgentType,
-} from "../agents";
-import { inspectRepo } from "../worktree";
-import { ConfirmDialog } from "../ui/ConfirmDialog";
-import { useEscape } from "../ui/useEscape";
-import { noAutoCorrect } from "../ui/inputProps";
+} from "../../domain/agents";
+import { useAgents } from "../../app/useAgents";
+import type { SpawnConfig } from "../../domain/workspaces";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { useEscape } from "../../ui/useEscape";
+import { noAutoCorrect } from "../../ui/inputProps";
 import { WORKSPACE_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
-export interface SpawnConfig {
-  /** Workspace name; blank falls back to a default in the caller. */
-  name: string;
-  cwd: string;
-  agentType: AgentType;
-  count: number;
-  /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
-  worktreeBaseDir: string | null;
-}
+export type { SpawnConfig } from "../../domain/workspaces";
 
 interface WorkspaceFormProps {
   onCreate(config: SpawnConfig): void;
@@ -28,6 +19,11 @@ interface WorkspaceFormProps {
   onCancel?(): void;
   /** Provisioning in flight — disables Create to block a reentrant submit. */
   busy?: boolean;
+  /** Native folder picker; null when cancelled. Injected so the form stays
+   * free of IPC. */
+  pickFolder(title: string): Promise<string | null>;
+  /** Probe a chosen working directory for the git hint (injected likewise). */
+  inspectDir(path: string): Promise<{ isRepo: boolean; branch: string | null }>;
 }
 
 /**
@@ -35,7 +31,13 @@ interface WorkspaceFormProps {
  * (required), agent type, and how many agents. Reused as the empty state when
  * no workspaces exist.
  */
-export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) {
+export function WorkspaceForm({
+  onCreate,
+  onCancel,
+  busy,
+  pickFolder,
+  inspectDir,
+}: WorkspaceFormProps) {
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState<string | null>(null);
   const [agentType, setAgentType] = useState<AgentType>("claude");
@@ -56,7 +58,7 @@ export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) 
       return;
     }
     let cancelled = false;
-    inspectRepo(cwd)
+    inspectDir(cwd)
       .then((info) => {
         if (!cancelled) setGit({ isRepo: info.isRepo, branch: info.branch });
       })
@@ -66,6 +68,7 @@ export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) 
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd]);
 
   // Once detection resolves, snap off an uninstalled default (e.g. "claude" when
@@ -85,21 +88,15 @@ export function WorkspaceForm({ onCreate, onCancel, busy }: WorkspaceFormProps) 
   });
 
   const chooseDirectory = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: "Choose working directory",
-    });
-    if (typeof selected === "string") setCwd(selected);
+    const selected = await pickFolder("Choose working directory");
+    if (selected !== null) setCwd(selected);
   };
 
   const chooseWorktreeDir = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: "Choose a base folder for agent worktrees",
-    });
-    if (typeof selected === "string") setWorktreeDir(selected);
+    const selected = await pickFolder(
+      "Choose a base folder for agent worktrees",
+    );
+    if (selected !== null) setWorktreeDir(selected);
   };
 
   const create = () => {

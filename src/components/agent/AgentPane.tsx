@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { TerminalPane } from "../terminal/TerminalPane";
-import { noAutoCorrect } from "../ui/inputProps";
+import { noAutoCorrect } from "../../ui/inputProps";
 
 interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */

@@ -1,0 +1,42 @@
+import { useEffect, useRef } from "react";
+import {
+  CLOSE_AGENT_EVENT,
+  NEW_AGENT_EVENT,
+  onMenuEvent,
+} from "../ipc/menu";
+
+export interface MenuActions {
+  /** File → New Agent… (⌘T). */
+  newAgent(): void;
+  /** File → Close Agent (⌘W). */
+  closeAgent(): void;
+}
+
+/**
+ * Bind the native menu's hotkey events to the given actions. The menu owns the
+ * accelerators (macOS resolves them before the webview sees the key), so these
+ * arrive as deck events. The subscription mounts once; a ref keeps it calling
+ * the latest actions, whose guards close over fresh render state.
+ */
+export function useMenuHotkeys(actions: MenuActions) {
+  const ref = useRef(actions);
+  ref.current = actions;
+  useEffect(() => {
+    let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+    const subscribe = (event: string, action: keyof MenuActions) => {
+      onMenuEvent(event, () => ref.current[action]())
+        .then((un) => {
+          if (cancelled) un();
+          else unlisteners.push(un);
+        })
+        .catch(() => {});
+    };
+    subscribe(NEW_AGENT_EVENT, "newAgent");
+    subscribe(CLOSE_AGENT_EVENT, "closeAgent");
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((un) => un());
+    };
+  }, []);
+}

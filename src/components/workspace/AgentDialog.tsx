@@ -1,24 +1,22 @@
 import { useEffect, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import {
-  useAgents,
   selectableAgents,
   defaultAgentType as pickDefaultAgentType,
   type AgentType,
-} from "../agents";
-import { probeWorktree } from "../worktree";
-import { useEscape } from "../ui/useEscape";
-import { noAutoCorrect } from "../ui/inputProps";
-import { ModalOverlay } from "../ui/ModalOverlay";
+} from "../../domain/agents";
+import { useAgents } from "../../app/useAgents";
+import { useEscape } from "../../ui/useEscape";
+import { noAutoCorrect } from "../../ui/inputProps";
+import { ModalOverlay } from "../../ui/ModalOverlay";
 import {
   canCreateAgent,
   classifyLocation,
   type AgentDialogResult,
   type AgentLocation,
   type PathProbe,
-} from "./agentLocation";
+} from "../../domain/agentLocation";
 
-export type { AgentDialogResult } from "./agentLocation";
+export type { AgentDialogResult } from "../../domain/agentLocation";
 
 interface AgentDialogProps {
   /** Pre-selected agent type. */
@@ -33,6 +31,11 @@ interface AgentDialogProps {
   suggestedPath: string;
   /** Prefilled branch for a new worktree. */
   suggestedBranch: string;
+  /** Probe a candidate worktree path for the live hint (injected — the dialog
+   * itself stays free of IPC). */
+  probePath(path: string): Promise<PathProbe>;
+  /** Native folder picker; null when cancelled. Injected for the same reason. */
+  pickFolder(title: string): Promise<string | null>;
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
 }
@@ -51,6 +54,8 @@ export function AgentDialog({
   repo,
   suggestedPath,
   suggestedBranch,
+  probePath,
+  pickFolder,
   onConfirm,
   onCancel,
 }: AgentDialogProps) {
@@ -82,7 +87,7 @@ export function AgentDialog({
     setProbe(null);
     let cancelled = false;
     const timer = setTimeout(() => {
-      probeWorktree(path)
+      probePath(path)
         .then((p) => {
           if (!cancelled) setProbe(p);
         })
@@ -95,6 +100,7 @@ export function AgentDialog({
       cancelled = true;
       clearTimeout(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, repo]);
 
   const kind = repo ? classifyLocation(path, probe) : "main";
@@ -111,12 +117,8 @@ export function AgentDialog({
   // directly in it, not in a subfolder ([F2]). git accepts a non-existent or
   // existing-empty dir; the field stays editable for typing a fresh path.
   const choosePath = async () => {
-    const dir = await open({
-      directory: true,
-      multiple: false,
-      title: "Choose the worktree folder",
-    });
-    if (typeof dir === "string") setPath(dir);
+    const dir = await pickFolder("Choose the worktree folder");
+    if (dir !== null) setPath(dir);
   };
 
   return (

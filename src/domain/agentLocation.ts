@@ -1,4 +1,4 @@
-import type { AgentType } from "../agents";
+import type { AgentType } from "./agents";
 
 /** Backend probe of a candidate worktree path (mirrors the Rust `PathProbe`). */
 export interface PathProbe {

@@ -2,12 +2,6 @@ import type { AgentInfo } from "./agents";
 import { paneDisplayTitle } from "./panes";
 import type { Workspace } from "./workspaces";
 
-/** Webview events emitted by the native menu (`src-tauri/src/menu.rs`). The
- * accelerators live on menu items because macOS resolves them at the menu
- * layer — a ⌘W keydown never reaches the webview. */
-export const NEW_AGENT_EVENT = "deck://menu/new-agent";
-export const CLOSE_AGENT_EVENT = "deck://menu/close-agent";
-
 /** What the close hotkey should close, plus the confirm-dialog label. */
 export interface CloseTarget {
   wsId: string;
