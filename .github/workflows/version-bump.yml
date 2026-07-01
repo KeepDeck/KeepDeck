@@ -1,0 +1,55 @@
+# Bumps the app version on main after every merge, so feature branches never
+# touch version files and parallel agents cannot collide on a bump.
+#
+# Every merge landed since the last version change bumps patch; a merge whose
+# subject contains "(minor)" bumps minor (scripts/version-bump.mjs). A newer
+# push to main cancels an in-flight run: the fresh run recounts from the last
+# version change and covers every merge since, so cancellation loses nothing —
+# and the same recount heals a run whose final push lost a race.
+#
+# The bump commit is pushed with GITHUB_TOKEN, and GITHUB_TOKEN pushes never
+# trigger workflows, so this cannot recurse. workflow_dispatch is the manual
+# escape hatch: it applies exactly one bump of the chosen kind.
+name: Version bump
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Bump type"
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: true
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    # Belt and braces for pushes made with credentials other than GITHUB_TOKEN.
+    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'Bump version to ')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Compute and apply the bump
+        id: bump
+        run: node scripts/version-bump.mjs ${{ github.event_name == 'workflow_dispatch' && format('--bump {0}', inputs.bump) || '' }}
+
+      - name: Commit and push
+        if: steps.bump.outputs.version != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump version to ${{ steps.bump.outputs.version }}"
+          git push origin main
