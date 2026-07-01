@@ -27,6 +27,8 @@ interface AgentPaneProps {
   colSpan: number;
   onSelect(): void;
   onToggleFocus(): void;
+  /** Open the agent's working dir in VS Code; shown only when a `cwd` is known. */
+  onOpenInEditor(): void;
   onClose(): void;
   /** Set a manual name ([F11]); an empty name reverts to auto/derived. */
   onRename(name: string): void;
@@ -53,6 +55,7 @@ export function AgentPane({
   colSpan,
   onSelect,
   onToggleFocus,
+  onOpenInEditor,
   onClose,
   onRename,
   onTitle,
@@ -101,6 +104,16 @@ export function AgentPane({
           >
             {title}
           </span>
+        )}
+        {cwd && (
+          <button
+            type="button"
+            className="pane__open"
+            onClick={onOpenInEditor}
+            title="Open this agent's working directory in VS Code"
+          >
+            Open in VSCode
+          </button>
         )}
         {branch && (
           <span className="pane__branch" title={branch}>

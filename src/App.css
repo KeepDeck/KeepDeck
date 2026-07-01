@@ -387,6 +387,29 @@ body,
   user-select: none;
 }
 
+/* Text button on the left of the header: open the agent's cwd in VS Code. */
+.pane__open {
+  flex: none;
+  margin-left: 8px;
+  padding: 0 8px;
+  height: 18px;
+  border: 1px solid #2a3446;
+  border-radius: 4px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pane__open:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
+  border-color: #3a4658;
+}
+
 .pane__title {
   font-size: 12px;
   color: #9aa3af;

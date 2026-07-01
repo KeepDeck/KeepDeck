@@ -26,3 +26,8 @@ export function openUrl(url: string): Promise<void> {
 export function openPath(path: string): Promise<void> {
   return invoke("open_path", { path });
 }
+
+/** Open a directory — an agent's working dir — in Visual Studio Code. */
+export function openInEditor(path: string): Promise<void> {
+  return invoke("open_in_editor", { path });
+}

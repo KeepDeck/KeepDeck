@@ -4,7 +4,7 @@ import { WorkspacesRail } from "./workspace/WorkspacesRail";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
-import { fetchAppInfo, pathsAreImages, type AppInfo } from "./ipc";
+import { fetchAppInfo, openInEditor, pathsAreImages, type AppInfo } from "./ipc";
 import {
   AGENT_TYPES,
   commandForAgent,
@@ -465,6 +465,9 @@ function App() {
                       colSpan={colSpan}
                       onSelect={() => deck.selectPane(ws.id, pane.id)}
                       onToggleFocus={() => deck.toggleFocus(ws.id, pane.id)}
+                      onOpenInEditor={() => {
+                        void openInEditor(pane.cwd ?? ws.cwd).catch(() => {});
+                      }}
                       onClose={() =>
                         requestCloseAgent(ws.id, pane.id, displayTitle)
                       }
