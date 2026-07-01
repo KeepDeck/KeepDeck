@@ -4,10 +4,15 @@ import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../../ipc/session";
-import { openPath, openUrl, copyText } from "../../ipc/app";
+import { openPath, openUrl } from "../../ipc/app";
+import { readText, writeText } from "../../ipc/clipboard";
 import { registerPaneInput } from "../../app/paneInput";
 import { keyAction } from "../../domain/keymap";
-import { isCopyChord, normalizeSelection } from "../../domain/clipboard";
+import {
+  createPasteHandler,
+  isCopyChord,
+  normalizeSelection,
+} from "../../domain/clipboard";
 import { detectLinks, resolvePathTarget } from "../../domain/links";
 
 interface TerminalPaneProps {
@@ -99,7 +104,7 @@ export function TerminalPane({
     });
     const copySelection = () => {
       const text = normalizeSelection(selection || term.getSelection());
-      if (text) copyText(text).catch(() => {});
+      if (text) writeText(text).catch(() => {});
     };
 
     // Override select keys before xterm encodes them — Cmd+C → copy the selection
@@ -119,17 +124,23 @@ export function TerminalPane({
       return true;
     });
 
-    // The macOS Edit-menu Copy and right-click Copy fire a native `copy` event
-    // (no keydown), so fill it with the real selection too — otherwise those
-    // paths hit the same garbage.
+    // The macOS Edit-menu Copy fires a native `copy` event (no keydown), so
+    // route it through the clipboard manager too — cancel WebKit's own write
+    // and put the real selection on the pasteboard over the same native path.
     const onCopy = (ev: ClipboardEvent) => {
       if (!term.hasSelection()) return;
-      const text = normalizeSelection(term.getSelection());
-      if (!text) return;
-      ev.clipboardData?.setData("text/plain", text);
       ev.preventDefault();
+      copySelection();
     };
     host.addEventListener("copy", onCopy);
+
+    // Own terminal paste the same way: intercept the DOM `paste` event (⌘V and
+    // the Edit menu both end here) before xterm's built-in listener, read the
+    // pasteboard through the clipboard manager, and hand the text to xterm
+    // (which applies bracketed paste itself). Capture phase so it wins over
+    // xterm's textarea listener.
+    const onPaste = createPasteHandler(readText, (text) => term.paste(text));
+    host.addEventListener("paste", onPaste, true);
 
     // Layer 2 for [F3]: stop the textarea inserting a literal newline on
     // Shift+Enter before xterm's handler runs (capture phase). Without this the
@@ -246,6 +257,7 @@ export function TerminalPane({
       titleSub.dispose();
       selectionSub.dispose();
       host.removeEventListener("copy", onCopy);
+      host.removeEventListener("paste", onPaste, true);
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
       session?.close().catch(() => {});
       term.dispose();

@@ -41,3 +41,32 @@ export function isCopyChord(e: CopyKeyEvent): boolean {
 export function normalizeSelection(text: string): string {
   return text.replace(/[ \t]+$/gm, "");
 }
+
+/** The slice of a DOM paste/copy event the handlers need. */
+export interface ClipboardEventLike {
+  preventDefault(): void;
+  stopImmediatePropagation(): void;
+}
+
+/**
+ * Build the pane's paste handler: own the DOM `paste` event (⌘V and the Edit
+ * menu both end up here) and re-route it through the clipboard manager, so
+ * paste reads the pasteboard over the same native path copy writes it.
+ * Cancels WebKit's own insertion and stops xterm's built-in paste listener
+ * (which would read WebKit's bridge) from running. A clipboard without text
+ * (readText rejects) pastes nothing, matching the native behavior.
+ */
+export function createPasteHandler(
+  readText: () => Promise<string>,
+  paste: (text: string) => void,
+): (ev: ClipboardEventLike) => void {
+  return (ev) => {
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    void readText()
+      .catch(() => "")
+      .then((text) => {
+        if (text) paste(text);
+      });
+  };
+}
