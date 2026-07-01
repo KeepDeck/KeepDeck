@@ -3,6 +3,7 @@
 //! Visual Studio Code. Goes through the opener plugin's Rust API so paths open
 //! with the OS default app (or a named app) without needing a JS-side path scope.
 
+use serde::Serialize;
 use tauri_plugin_opener::OpenerExt;
 
 /// Application name for Visual Studio Code, passed to the opener as the app to
@@ -10,6 +11,17 @@ use tauri_plugin_opener::OpenerExt;
 /// launches VS Code even from a GUI-started `.app` whose PATH lacks the `code`
 /// CLI, and regardless of the folder's own default handler.
 const VS_CODE_APP: &str = "Visual Studio Code";
+
+/// Why an open failed, sent to the webview as the command's structured
+/// rejection so the click path can tell "the file is gone" ([F16]) apart from
+/// a generic opener failure. Wire shape (narrowed in `src/domain/links.ts`):
+/// `{ kind: "notFound", path }` | `{ kind: "failed", message }`.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum OpenError {
+    NotFound { path: String },
+    Failed { message: String },
+}
 
 #[tauri::command]
 pub fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
@@ -19,10 +31,24 @@ pub fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn open_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
+pub fn open_path(app: tauri::AppHandle, path: String) -> Result<(), OpenError> {
+    let path = ensure_exists(expand_tilde(path))?;
     app.opener()
-        .open_path(expand_tilde(path), None::<&str>)
-        .map_err(|e| e.to_string())
+        .open_path(path, None::<&str>)
+        .map_err(|e| OpenError::Failed {
+            message: e.to_string(),
+        })
+}
+
+/// Report a missing file explicitly ([F16]) — the opener isn't trusted to fail
+/// on one (macOS `open` may pop its own dialog or silently no-op), and terminal
+/// output routinely names paths that have since been deleted.
+fn ensure_exists(path: String) -> Result<String, OpenError> {
+    if std::path::Path::new(&path).exists() {
+        Ok(path)
+    } else {
+        Err(OpenError::NotFound { path })
+    }
 }
 
 /// Open a directory — an agent's working dir — in Visual Studio Code.
@@ -47,7 +73,37 @@ fn expand_tilde(path: String) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::expand_tilde;
+    use super::{ensure_exists, expand_tilde, OpenError};
+
+    #[test]
+    fn ensure_exists_passes_an_existing_path_through() {
+        let here = env!("CARGO_MANIFEST_DIR").to_string();
+        assert_eq!(ensure_exists(here.clone()), Ok(here));
+    }
+
+    #[test]
+    fn ensure_exists_reports_a_missing_path_as_not_found() {
+        let gone = format!("{}/no-such-file-f16.txt", env!("CARGO_MANIFEST_DIR"));
+        assert_eq!(
+            ensure_exists(gone.clone()),
+            Err(OpenError::NotFound { path: gone })
+        );
+    }
+
+    // The webview narrows on this exact JSON shape (src/domain/links.ts) — pin it.
+    #[test]
+    fn open_error_serializes_with_camel_case_kind_tag() {
+        let not_found = OpenError::NotFound { path: "/x".into() };
+        assert_eq!(
+            serde_json::to_value(&not_found).unwrap(),
+            serde_json::json!({ "kind": "notFound", "path": "/x" })
+        );
+        let failed = OpenError::Failed { message: "boom".into() };
+        assert_eq!(
+            serde_json::to_value(&failed).unwrap(),
+            serde_json::json!({ "kind": "failed", "message": "boom" })
+        );
+    }
 
     #[test]
     fn expands_leading_tilde_slash_to_home() {
