@@ -1,6 +1,7 @@
 mod agents;
 mod dnd;
 mod links;
+mod menu;
 mod session;
 mod worktree;
 
@@ -37,6 +38,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .menu(menu::build)
+        .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
         .invoke_handler(tauri::generate_handler![
