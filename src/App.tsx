@@ -5,6 +5,8 @@ import { WorkspaceSetup } from "./components/workspace/WorkspaceSetup";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { fetchAppInfo, openInEditor, type AppInfo } from "./ipc/app";
+import { pickFolder } from "./ipc/dialogs";
+import { inspectRepo, probeWorktree } from "./ipc/worktree";
 import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
 import { useProvisioning } from "./app/useProvisioning";
@@ -257,6 +259,8 @@ function App() {
                   onCreate={handleCreateWorkspace}
                   busy={provisioning.busy}
                   onCancel={() => setCreating(false)}
+                  pickFolder={pickFolder}
+                  inspectDir={inspectRepo}
                 />
               </ModalOverlay>
             ) : (
@@ -266,6 +270,8 @@ function App() {
                 <WorkspaceForm
                   onCreate={handleCreateWorkspace}
                   busy={provisioning.busy}
+                  pickFolder={pickFolder}
+                  inspectDir={inspectRepo}
                 />
               </div>
             ))}
@@ -276,6 +282,8 @@ function App() {
               repo={agentFlow.dialog.repo}
               suggestedPath={agentFlow.dialog.suggestedPath}
               suggestedBranch={agentFlow.dialog.suggestedBranch}
+              probePath={probeWorktree}
+              pickFolder={pickFolder}
               onConfirm={(result) => void agentFlow.confirm(result)}
               onCancel={agentFlow.cancel}
             />
