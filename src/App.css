@@ -735,6 +735,7 @@ body,
 }
 
 .form__path-input {
+  box-sizing: border-box; /* keep width:100% + padding inside the field, not overflowing */
   width: 100%;
   margin-bottom: 0;
   padding-right: 28px; /* room for the ✕ clear button */
