@@ -14,6 +14,23 @@ body,
   margin: 0;
 }
 
+/* Kill macOS WKWebView's rubber-band overscroll. The app is a fixed
+   viewport-sized shell, so the root never scrolls (overflow: hidden), and the
+   inner scrollers — workspaces rail, overlays, xterm viewports — must not
+   bounce at their edges or chain the scroll up and drag the whole window. */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.rail__list,
+.deck__overlay,
+.modal-overlay,
+.xterm-viewport {
+  overscroll-behavior: none;
+}
+
 .deck {
   display: flex;
   flex-direction: column;
