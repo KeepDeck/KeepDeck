@@ -1,7 +1,7 @@
 {
   "name": "keepdeck",
   "private": true,
-  "version": "0.4.22",
+  "version": "0.4.23",
   "description": "Desktop deck for a fleet of coding agents.",
   "type": "module",
   "scripts": {
