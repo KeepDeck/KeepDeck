@@ -128,6 +128,12 @@ impl PtySession {
         });
         cmd.env("PATH", path_env);
         cmd.env("TERM", "xterm-256color");
+        // A UTF-8 locale when the inherited environment selects none (GUI
+        // launch), or locale-sensitive tools in the pane — pbcopy above all —
+        // treat text as MacRoman and garble every non-ASCII copy.
+        if let Some(lang) = keepdeck_env::utf8_lang() {
+            cmd.env("LANG", lang);
+        }
         for (key, value) in &spec.env {
             cmd.env(key, value);
         }

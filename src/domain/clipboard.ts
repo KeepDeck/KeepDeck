@@ -41,3 +41,55 @@ export function isCopyChord(e: CopyKeyEvent): boolean {
 export function normalizeSelection(text: string): string {
   return text.replace(/[ \t]+$/gm, "");
 }
+
+/**
+ * Extract the text of an OSC 52 clipboard WRITE request, or null when there is
+ * nothing to write. `data` is what xterm hands an OSC handler — everything
+ * after `52;`, i.e. `<selection>;<base64 payload>`. The selection chars
+ * (c/p/s/0-7) are ignored: whichever selection the program targets, KeepDeck
+ * has one system clipboard. Returns null for query requests (`?`) — answering
+ * one would let any program running in a pane read the user's clipboard — and
+ * for empty or undecodable payloads.
+ */
+export function osc52Text(data: string): string | null {
+  const sep = data.indexOf(";");
+  if (sep === -1) return null;
+  const payload = data.slice(sep + 1);
+  if (payload === "?") return null;
+  try {
+    const bytes = Uint8Array.from(atob(payload), (ch) => ch.charCodeAt(0));
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The slice of a DOM paste/copy event the handlers need. */
+export interface ClipboardEventLike {
+  preventDefault(): void;
+  stopImmediatePropagation(): void;
+}
+
+/**
+ * Build the pane's paste handler: own the DOM `paste` event (⌘V and the Edit
+ * menu both end up here) and re-route it through the clipboard manager, so
+ * paste reads the pasteboard over the same native path copy writes it.
+ * Cancels WebKit's own insertion and stops xterm's built-in paste listener
+ * (which would read WebKit's bridge) from running. A clipboard without text
+ * (readText rejects) pastes nothing, matching the native behavior.
+ */
+export function createPasteHandler(
+  readText: () => Promise<string>,
+  paste: (text: string) => void,
+): (ev: ClipboardEventLike) => void {
+  return (ev) => {
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    void readText()
+      .catch(() => "")
+      .then((text) => {
+        if (text) paste(text);
+      });
+  };
+}

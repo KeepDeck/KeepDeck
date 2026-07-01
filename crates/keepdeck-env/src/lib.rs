@@ -1,4 +1,5 @@
-//! `keepdeck-env` — PATH augmentation and program resolution.
+//! `keepdeck-env` — the environment for spawned children: PATH augmentation,
+//! program resolution, and a UTF-8 locale.
 //!
 //! A GUI-launched macOS app inherits launchd's stripped `PATH`
 //! (`/usr/bin:/bin:/usr/sbin:/sbin`), so user-installed CLIs (`claude`, `codex`,
@@ -10,6 +11,10 @@
 //! This is the single source of "where to find a binary", shared by the PTY
 //! layer (resolving the program to spawn) and the agent layer (detecting which
 //! agent CLIs are installed) so the two never disagree.
+//!
+//! The same launchd environment also carries no `LANG`/`LC_*`, so [`utf8_lang`]
+//! supplies the UTF-8 locale that terminal children need (see its docs for the
+//! pbcopy/MacRoman failure this prevents).
 
 use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
@@ -23,6 +28,37 @@ use std::time::Duration;
 pub fn augmented_path() -> &'static OsStr {
     static PATH: OnceLock<OsString> = OnceLock::new();
     PATH.get_or_init(build_path).as_os_str()
+}
+
+/// The locale handed to children that would otherwise have none. Only the
+/// charmap matters (UTF-8); the language part is the conventional tool default.
+pub const FALLBACK_UTF8_LANG: &str = "en_US.UTF-8";
+
+/// A UTF-8 `LANG` for spawned children when the inherited environment selects
+/// no UTF-8 locale, computed once; `None` when the environment already does.
+///
+/// A GUI-launched app gets launchd's environment, which has no `LANG`/`LC_*`,
+/// so everything inside a pane runs in the C locale and locale-sensitive tools
+/// treat text as MacRoman — `pbcopy` then garbles every non-ASCII copy (its
+/// UTF-8 stdin is read as MacRoman and re-encoded onto the pasteboard).
+/// Terminal emulators set `LANG` for their children for exactly this reason.
+///
+/// An inherited non-UTF-8 `LC_ALL` would still beat the `LANG` we add —
+/// deliberately not overridden: whoever set it asked for that locale.
+pub fn utf8_lang() -> Option<&'static str> {
+    static NEEDED: OnceLock<bool> = OnceLock::new();
+    NEEDED
+        .get_or_init(|| needs_utf8_lang(std::env::vars()))
+        .then_some(FALLBACK_UTF8_LANG)
+}
+
+/// True when none of `LC_ALL`/`LC_CTYPE`/`LANG` in `vars` selects a UTF-8
+/// charmap (a value containing "UTF-8"/"utf8", any case).
+fn needs_utf8_lang(vars: impl IntoIterator<Item = (String, String)>) -> bool {
+    !vars.into_iter().any(|(key, value)| {
+        matches!(key.as_str(), "LC_ALL" | "LC_CTYPE" | "LANG")
+            && value.to_ascii_lowercase().replace('-', "").contains("utf8")
+    })
 }
 
 /// Resolve a bare command name to an absolute path using `path`, for spawning.
@@ -162,6 +198,35 @@ fn is_executable(path: &Path) -> bool {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    fn vars(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn empty_environment_needs_a_utf8_lang() {
+        assert!(needs_utf8_lang(vars(&[])));
+    }
+
+    #[test]
+    fn any_utf8_locale_var_satisfies_it() {
+        assert!(!needs_utf8_lang(vars(&[("LANG", "en_US.UTF-8")])));
+        assert!(!needs_utf8_lang(vars(&[("LC_CTYPE", "UTF-8")])));
+        assert!(!needs_utf8_lang(vars(&[("LC_ALL", "ru_RU.utf8")])));
+    }
+
+    #[test]
+    fn non_utf8_locales_still_need_one() {
+        assert!(needs_utf8_lang(vars(&[("LANG", "C"), ("LC_ALL", "POSIX")])));
+    }
+
+    #[test]
+    fn utf8_in_unrelated_vars_does_not_count() {
+        assert!(needs_utf8_lang(vars(&[("EDITOR", "vim-utf8"), ("LANG", "C")])));
+    }
 
     #[test]
     fn keeps_a_command_with_a_slash() {
