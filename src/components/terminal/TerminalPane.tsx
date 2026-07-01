@@ -3,12 +3,12 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
-import { spawnSession, type Session } from "../ipc/session";
-import { openPath, openUrl, copyText } from "../ipc/app";
-import { registerPaneInput } from "../app/paneInput";
-import { keyAction } from "../domain/keymap";
-import { isCopyChord, normalizeSelection } from "../domain/clipboard";
-import { detectLinks, resolvePathTarget } from "../domain/links";
+import { spawnSession, type Session } from "../../ipc/session";
+import { openPath, openUrl, copyText } from "../../ipc/app";
+import { registerPaneInput } from "../../app/paneInput";
+import { keyAction } from "../../domain/keymap";
+import { isCopyChord, normalizeSelection } from "../../domain/clipboard";
+import { detectLinks, resolvePathTarget } from "../../domain/links";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { AgentPane } from "./agent/AgentPane";
-import { WorkspacesRail } from "./workspace/WorkspacesRail";
-import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
-import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
-import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
+import { AgentPane } from "./components/agent/AgentPane";
+import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
+import { WorkspaceSetup } from "./components/workspace/WorkspaceSetup";
+import { WorkspaceForm, type SpawnConfig } from "./components/workspace/WorkspaceForm";
+import { AgentDialog, type AgentDialogResult } from "./components/workspace/AgentDialog";
 import { fetchAppInfo, openInEditor, pathsAreImages, type AppInfo } from "./ipc/app";
 import { defaultAgentType, type AgentType } from "./domain/agents";
 import { useAgents } from "./app/useAgents";

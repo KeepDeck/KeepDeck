@@ -4,21 +4,21 @@ import {
   selectableAgents,
   defaultAgentType as pickDefaultAgentType,
   type AgentType,
-} from "../domain/agents";
-import { useAgents } from "../app/useAgents";
-import { probeWorktree } from "../ipc/worktree";
-import { useEscape } from "../ui/useEscape";
-import { noAutoCorrect } from "../ui/inputProps";
-import { ModalOverlay } from "../ui/ModalOverlay";
+} from "../../domain/agents";
+import { useAgents } from "../../app/useAgents";
+import { probeWorktree } from "../../ipc/worktree";
+import { useEscape } from "../../ui/useEscape";
+import { noAutoCorrect } from "../../ui/inputProps";
+import { ModalOverlay } from "../../ui/ModalOverlay";
 import {
   canCreateAgent,
   classifyLocation,
   type AgentDialogResult,
   type AgentLocation,
   type PathProbe,
-} from "../domain/agentLocation";
+} from "../../domain/agentLocation";
 
-export type { AgentDialogResult } from "../domain/agentLocation";
+export type { AgentDialogResult } from "../../domain/agentLocation";
 
 interface AgentDialogProps {
   /** Pre-selected agent type. */

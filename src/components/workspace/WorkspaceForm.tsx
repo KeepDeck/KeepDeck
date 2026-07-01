@@ -4,12 +4,12 @@ import {
   selectableAgents,
   defaultAgentType,
   type AgentType,
-} from "../domain/agents";
-import { useAgents } from "../app/useAgents";
-import { inspectRepo } from "../ipc/worktree";
-import { ConfirmDialog } from "../ui/ConfirmDialog";
-import { useEscape } from "../ui/useEscape";
-import { noAutoCorrect } from "../ui/inputProps";
+} from "../../domain/agents";
+import { useAgents } from "../../app/useAgents";
+import { inspectRepo } from "../../ipc/worktree";
+import { ConfirmDialog } from "../../ui/ConfirmDialog";
+import { useEscape } from "../../ui/useEscape";
+import { noAutoCorrect } from "../../ui/inputProps";
 import { WORKSPACE_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
 export interface SpawnConfig {

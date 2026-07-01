@@ -1,4 +1,4 @@
-import { gridTracks, paneGrid } from "../domain/layout";
+import { gridTracks, paneGrid } from "../../domain/layout";
 
 /** Terminal-count presets (all within MAX_PANES). */
 export const TERMINAL_COUNTS = [1, 2, 4, 6, 8, 12, 16];
