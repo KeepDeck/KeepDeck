@@ -134,6 +134,41 @@ pub fn worktree_suggest(workspace: String, index: u64) -> WorktreeSuggestion {
     WorktreeSuggestion { branch, folder }
 }
 
+/// What the UI learns about a candidate worktree PATH typed in the "+ Agent"
+/// dialog, to drive its live location hint ([F2], the per-agent worktree/main
+/// choice). Mirrors [`RepoInfo`]'s role for the workspace working directory.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathProbe {
+    /// Whether the path exists on disk (distinguishes "new worktree" from a
+    /// folder that's already there).
+    pub exists: bool,
+    /// Whether it's a git work tree we could attach an agent to instead of
+    /// creating one.
+    pub is_worktree: bool,
+    /// The branch checked out there, when it is a worktree on a branch.
+    pub branch: Option<String>,
+}
+
+/// Probe a candidate worktree path for the agent dialog's live hint. Never
+/// errors: an unusable path simply reports `exists: false`.
+#[tauri::command]
+pub fn worktree_probe(path: String) -> PathProbe {
+    let path = Path::new(&path);
+    let exists = path.exists();
+    let is_worktree = exists && repo::is_git_repo(path);
+    let branch = if is_worktree {
+        repo::current_branch(path).ok().flatten()
+    } else {
+        None
+    };
+    PathProbe {
+        exists,
+        is_worktree,
+        branch,
+    }
+}
+
 /// Inspect a working directory: is it a git repo, and if so its `HEAD`/branch.
 /// Never errors — a non-repo simply reports `is_repo: false`.
 #[tauri::command]
@@ -252,5 +287,25 @@ mod tests {
     fn blank_explicit_falls_back_to_auto() {
         assert_eq!(choose_branch(Some("   "), "My WS", 4), "kd/My-WS/4");
         assert_eq!(choose_branch(None, "ws", 0), "kd/ws/0");
+    }
+
+    #[test]
+    fn probe_flags_a_missing_path_as_new() {
+        // A path that doesn't exist → "new worktree" territory, no branch.
+        let missing = std::env::temp_dir().join("keepdeck-probe-absent-a9f3c1");
+        let p = worktree_probe(missing.to_string_lossy().into_owned());
+        assert!(!p.exists);
+        assert!(!p.is_worktree);
+        assert_eq!(p.branch, None);
+    }
+
+    #[test]
+    fn probe_flags_an_existing_non_worktree_dir() {
+        // The temp dir exists but isn't a git work tree → Create must be blocked.
+        let existing = std::env::temp_dir();
+        let p = worktree_probe(existing.to_string_lossy().into_owned());
+        assert!(p.exists);
+        assert!(!p.is_worktree);
+        assert_eq!(p.branch, None);
     }
 }

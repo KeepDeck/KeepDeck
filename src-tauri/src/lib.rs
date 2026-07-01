@@ -52,6 +52,7 @@ pub fn run() {
             session::session_close,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
+            worktree::worktree_probe,
             worktree::worktree_create,
             worktree::worktree_remove,
         ])
