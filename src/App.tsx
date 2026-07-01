@@ -12,10 +12,19 @@ import {
   type AgentType,
 } from "./agents";
 import { makePanes, paneId, resolveFocus, type Pane } from "./panes";
-import { type Workspace } from "./workspaces";
+import {
+  worktreeTargets,
+  type Workspace,
+  type WorktreeTarget,
+} from "./workspaces";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useDeck } from "./deck";
-import { createWorktree, inspectRepo, suggestWorktree } from "./worktree";
+import {
+  createWorktree,
+  inspectRepo,
+  removeWorktree,
+  suggestWorktree,
+} from "./worktree";
 import { collectPaneRects, deliverDrop, paneAtPoint } from "./terminal/dnd";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
@@ -31,10 +40,13 @@ import "./App.css";
 
 /** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
  * workspace. Closing tears down live PTY session(s) immediately, so both are
- * confirmed before they run. */
-type ClosingTarget =
+ * confirmed before they run. `targets` is the worktrees the close could also
+ * delete (empty in non-worktree mode), snapshotted at open time — the modal
+ * blocks all mutation, so it can't go stale. */
+type ClosingTarget = { targets: WorktreeTarget[] } & (
   | { kind: "agent"; wsId: string; paneId: string; label: string }
-  | { kind: "workspace"; id: string; name: string; count: number };
+  | { kind: "workspace"; id: string; name: string; count: number }
+);
 
 /**
  * Build `count` panes for a workspace. In worktree mode each agent gets its own
@@ -79,6 +91,25 @@ async function provisionPanes(
     }
   }
   return panes;
+}
+
+/**
+ * Tear down each target's git worktree and branch when the close dialog's delete
+ * checkbox was ticked. Always forced — the checkbox is explicit intent, so a
+ * dirty worktree / unmerged branch is discarded per the user's decision. Never
+ * throws: a failing target is collected so one bad worktree doesn't strand the
+ * rest, and the messages surface in the error dialog.
+ */
+async function discardWorktrees(targets: WorktreeTarget[]): Promise<string[]> {
+  const failures: string[] = [];
+  for (const t of targets) {
+    try {
+      await removeWorktree(t.repo, t.path, { force: true, branch: t.branch });
+    } catch (e) {
+      failures.push(`${t.branch}: ${e}`);
+    }
+  }
+  return failures;
 }
 
 function App() {
@@ -184,6 +215,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
+  // Opt-in: also delete the closing target's worktree(s) + branch(es). Reset
+  // each time the dialog opens so the destructive choice is never sticky.
+  const [deleteWorktree, setDeleteWorktree] = useState(false);
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
   const showForm = creating || deck.workspaces.length === 0;
@@ -326,18 +360,47 @@ function App() {
   };
 
   // Ask before closing — both close paths run through a confirm dialog ([U6]).
-  const requestCloseAgent = (wsId: string, paneId: string, label: string) =>
-    setClosing({ kind: "agent", wsId, paneId, label });
+  // Worktrees to potentially delete are snapshotted now (workspace still here).
+  const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
+    const ws = deck.workspaces.find((w) => w.id === wsId);
+    setDeleteWorktree(false);
+    setClosing({
+      kind: "agent",
+      wsId,
+      paneId,
+      label,
+      targets: ws ? worktreeTargets(ws, paneId) : [],
+    });
+  };
   const requestCloseWorkspace = (id: string) => {
     const ws = deck.workspaces.find((w) => w.id === id);
-    if (ws)
-      setClosing({ kind: "workspace", id, name: ws.name, count: ws.panes.length });
+    if (!ws) return;
+    setDeleteWorktree(false);
+    setClosing({
+      kind: "workspace",
+      id,
+      name: ws.name,
+      count: ws.panes.length,
+      targets: worktreeTargets(ws),
+    });
   };
   const confirmClose = () => {
     if (!closing) return;
+    const targets = deleteWorktree ? closing.targets : [];
+    // Close in the UI first: unmounting the pane(s) ends their PTY sessions, so
+    // the worktree dirs are no longer a live process cwd when we remove them.
     if (closing.kind === "agent") deck.closeAgent(closing.wsId, closing.paneId);
     else deck.closeWorkspace(closing.id);
     setClosing(null);
+    setDeleteWorktree(false);
+    if (targets.length > 0) {
+      void discardWorktrees(targets).then((failures) => {
+        if (failures.length > 0)
+          setError(
+            `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
+          );
+      });
+    }
   };
 
   const railWorkspaces = deck.workspaces.map((w) => ({
@@ -535,7 +598,25 @@ function App() {
               destructive
               onConfirm={confirmClose}
               onCancel={() => setClosing(null)}
-            />
+            >
+              {closing.targets.length > 0 && (
+                <label className="confirm__option">
+                  <input
+                    type="checkbox"
+                    checked={deleteWorktree}
+                    onChange={(e) => setDeleteWorktree(e.target.checked)}
+                  />
+                  <span className="confirm__option-text">
+                    {closing.targets.length === 1
+                      ? "Also delete the worktree and branch"
+                      : `Also delete all ${closing.targets.length} worktrees and branches`}
+                    <span className="confirm__option-note">
+                      Discards any uncommitted work.
+                    </span>
+                  </span>
+                </label>
+              )}
+            </ConfirmDialog>
           )}
         </div>
       </div>

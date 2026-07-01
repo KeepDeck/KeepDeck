@@ -756,6 +756,37 @@ body,
   white-space: pre-line;
 }
 
+/* Opt-in checkbox inside a confirm dialog (e.g. "also delete the worktree").
+   Sits between the message and the actions. */
+.confirm__option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 20px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.confirm__option input {
+  margin-top: 1px;
+  accent-color: #933a3a; /* destructive tint — this discards work */
+  cursor: pointer;
+}
+
+.confirm__option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  color: #c5c8c6;
+}
+
+.confirm__option-note {
+  font-size: 12px;
+  color: #9aa3af;
+}
+
 .confirm__actions {
   display: flex;
   justify-content: flex-end;
