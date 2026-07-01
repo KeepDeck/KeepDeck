@@ -3,6 +3,9 @@ import { deckReducer, initialDeckState } from "../domain/deck";
 import type { Pane } from "../domain/panes";
 import type { Workspace } from "../domain/workspaces";
 
+/** The deck surface the application hooks drive (state + bound actions). */
+export type Deck = ReturnType<typeof useDeck>;
+
 /**
  * Owns the deck's reducer and exposes the state plus bound action helpers, so
  * `App` drives the deck through one well-typed surface instead of juggling four

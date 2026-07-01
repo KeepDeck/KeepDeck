@@ -6,21 +6,14 @@ import {
   type AgentType,
 } from "../../domain/agents";
 import { useAgents } from "../../app/useAgents";
+import type { SpawnConfig } from "../../domain/workspaces";
 import { inspectRepo } from "../../ipc/worktree";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { WORKSPACE_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
-export interface SpawnConfig {
-  /** Workspace name; blank falls back to a default in the caller. */
-  name: string;
-  cwd: string;
-  agentType: AgentType;
-  count: number;
-  /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
-  worktreeBaseDir: string | null;
-}
+export type { SpawnConfig } from "../../domain/workspaces";
 
 interface WorkspaceFormProps {
   onCreate(config: SpawnConfig): void;

@@ -1,42 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { AgentPane } from "./components/agent/AgentPane";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceSetup } from "./components/workspace/WorkspaceSetup";
-import { WorkspaceForm, type SpawnConfig } from "./components/workspace/WorkspaceForm";
-import { AgentDialog, type AgentDialogResult } from "./components/workspace/AgentDialog";
-import { fetchAppInfo, openInEditor, pathsAreImages, type AppInfo } from "./ipc/app";
-import { defaultAgentType, type AgentType } from "./domain/agents";
+import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
+import { AgentDialog } from "./components/workspace/AgentDialog";
+import { fetchAppInfo, openInEditor, type AppInfo } from "./ipc/app";
 import { useAgents } from "./app/useAgents";
-import {
-  makePanes,
-  paneDisplayTitle,
-  paneId,
-  resolveFocus,
-  type Pane,
-} from "./domain/panes";
-import { closeHotkeyTarget } from "./domain/hotkeys";
-import { CLOSE_AGENT_EVENT, NEW_AGENT_EVENT } from "./ipc/menu";
-import { listen } from "@tauri-apps/api/event";
-import {
-  worktreeTargets,
-  type Workspace,
-  type WorktreeTarget,
-} from "./domain/workspaces";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useDeck } from "./app/useDeck";
-import {
-  createWorktree,
-  inspectRepo,
-  removeWorktree,
-  suggestWorktree,
-} from "./ipc/worktree";
-import { paneAtPoint } from "./domain/dnd";
-import { collectPaneRects, deliverDrop } from "./app/dragDrop";
+import { useProvisioning } from "./app/useProvisioning";
+import { useAgentDialog } from "./app/useAgentDialog";
+import { useCloseFlow } from "./app/useCloseFlow";
+import { useMenuHotkeys } from "./app/useMenuHotkeys";
+import { useDragDrop } from "./app/useDragDrop";
+import { paneDisplayTitle, resolveFocus } from "./domain/panes";
+import { closeHotkeyTarget } from "./domain/hotkeys";
+import type { SpawnConfig } from "./domain/workspaces";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import {
   MAX_PANES,
-  clampPaneCount,
   gridTracks,
   paneColumnSpan,
   paneGrid,
@@ -44,80 +26,12 @@ import {
 } from "./domain/layout";
 import "./App.css";
 
-/** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
- * workspace. Closing tears down live PTY session(s) immediately, so both are
- * confirmed before they run. `targets` is the worktrees the close could also
- * delete (empty in non-worktree mode), snapshotted at open time — the modal
- * blocks all mutation, so it can't go stale. */
-type ClosingTarget = { targets: WorktreeTarget[] } & (
-  | { kind: "agent"; wsId: string; paneId: string; label: string }
-  | { kind: "workspace"; id: string; name: string; count: number }
-);
-
 /**
- * Build `count` panes for a workspace. In worktree mode each agent gets its own
- * git worktree, all pinned to one base commit (resolved once) so a concurrent
- * batch starts from the same state; otherwise plain panes that run in the cwd.
- * A per-agent create failure falls back to a cwd pane so the batch still lands.
+ * The composition root: owns only shell-level UI state (rail collapse, the
+ * create form, the error notice) and wires the application hooks — deck state,
+ * provisioning, the "+ Agent" dialog, the confirmed-close flow, menu hotkeys
+ * and file drops — to the components that render them.
  */
-async function provisionPanes(
-  ws: { cwd: string; worktreeBaseDir: string | null; name: string },
-  startSeq: number,
-  count: number,
-  agentType: AgentType,
-  onError: (message: string) => void,
-): Promise<Pane[]> {
-  if (!ws.worktreeBaseDir) return makePanes(startSeq, count, agentType);
-
-  let base: string | undefined;
-  try {
-    base = (await inspectRepo(ws.cwd)).head ?? undefined;
-  } catch {
-    base = undefined; // create resolves HEAD itself when base is omitted
-  }
-
-  const n = clampPaneCount(count);
-  const panes: Pane[] = [];
-  for (let i = 0; i < n; i++) {
-    const agentId = paneId(startSeq + i);
-    try {
-      const rec = await createWorktree({
-        repo: ws.cwd,
-        baseDir: ws.worktreeBaseDir,
-        agentId,
-        base,
-        workspace: ws.name,
-        index: i + 1,
-      });
-      panes.push({ id: agentId, cwd: rec.path, branch: rec.branch, agentType });
-    } catch (e) {
-      console.error("worktree create failed", e);
-      onError(`Failed to create worktree for ${agentId}:\n${e}`);
-      panes.push({ id: agentId, agentType }); // fall back to the workspace cwd
-    }
-  }
-  return panes;
-}
-
-/**
- * Tear down each target's git worktree and branch when the close dialog's delete
- * checkbox was ticked. Always forced — the checkbox is explicit intent, so a
- * dirty worktree / unmerged branch is discarded per the user's decision. Never
- * throws: a failing target is collected so one bad worktree doesn't strand the
- * rest, and the messages surface in the error dialog.
- */
-async function discardWorktrees(targets: WorktreeTarget[]): Promise<string[]> {
-  const failures: string[] = [];
-  for (const t of targets) {
-    try {
-      await removeWorktree(t.repo, t.path, { force: true, branch: t.branch });
-    } catch (e) {
-      failures.push(`${t.branch}: ${e}`);
-    }
-  }
-  return failures;
-}
-
 function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
 
@@ -131,337 +45,44 @@ function App() {
   // reducer so close transitions clean focus + selection atomically ([S1], [B2],
   // [L6]).
   const deck = useDeck();
-
-  // Latest deck handles for the mount-once drag-drop effect to read without
-  // re-subscribing the Tauri listener on every render.
-  const selectPaneRef = useRef(deck.selectPane);
-  selectPaneRef.current = deck.selectPane;
-  const activeIdRef = useRef(deck.activeId);
-  activeIdRef.current = deck.activeId;
-
-  // Drop a file onto a pane → paste its path into that pane's PTY and focus it
-  // ([F4]). OS file drops in a Tauri webview do NOT fire DOM drag events — only
-  // Tauri's onDragDropEvent, whose position is already in viewport CSS pixels,
-  // so we match it against each active-grid pane's getBoundingClientRect to find
-  // the pane under the cursor. The drop can fire twice (tauri#14134) so we
-  // debounce; the cancelled flag keeps a StrictMode double-mount from leaving
-  // two listeners.
-  useEffect(() => {
-    // Kill the WKWebView's native "insert dropped text into the focused field"
-    // behaviour. For OS file drops it doesn't surface as a DOM drop event, but
-    // it DOES fire a beforeinput with inputType 'insertFromDrop' on the focused
-    // xterm textarea — that second copy landed in the focused pane. Cancel it
-    // (capture) so only our routed insertion remains.
-    const blockDropInsert = (e: Event) => {
-      if ((e as InputEvent).inputType === "insertFromDrop") {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-      }
-    };
-    document.addEventListener("beforeinput", blockDropInsert, true);
-
-    let unlisten: (() => void) | undefined;
-    let cancelled = false;
-    let lastDropAt = 0;
-
-    getCurrentWebview()
-      .onDragDropEvent(async (event) => {
-        if (event.payload.type !== "drop" || event.payload.paths.length === 0)
-          return;
-        const now = Date.now();
-        if (now - lastDropAt < 400) return; // collapse Tauri's duplicate drop
-        lastDropAt = now;
-        const { x, y } = event.payload.position;
-        const id = paneAtPoint(x, y, collectPaneRects());
-        if (!id) return;
-        const { paths } = event.payload;
-        // The backend says which paths are images (by content) so images get
-        // bracketed-pasted for the agent to attach, others inserted raw.
-        const isImage = await pathsAreImages(paths).catch(() =>
-          paths.map(() => false),
-        );
-        if (deliverDrop(id, paths, isImage)) {
-          // Make the dropped pane active so you can act on it immediately.
-          selectPaneRef.current(activeIdRef.current, id);
-        }
-      })
-      .then((fn) => {
-        if (cancelled) fn();
-        else unlisten = fn;
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-      document.removeEventListener("beforeinput", blockDropInsert, true);
-      unlisten?.();
-    };
-  }, []);
+  // Detected agent catalog (labels/commands/install status), fetched from Rust.
+  const { agents } = useAgents();
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
   const [railCollapsed, setRailCollapsed] = useState(false);
-  // Detected agent catalog (labels/commands/install status), fetched from Rust.
-  const { agents } = useAgents();
-  const nextAgentSeq = useRef(1);
-  const nextWorkspaceSeq = useRef(1);
-  // Hard reentrancy guard for the async provision handlers — a ref is
-  // synchronous, so a second click during the await can't double-provision (a
-  // state flag would race). `busy` is the render-time mirror to disable the UI.
-  const submitting = useRef(false);
-  const [busy, setBusy] = useState(false);
-  // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
-  // per-agent worktree location, [F2]).
-  const [agentDialog, setAgentDialog] = useState<{
-    wsId: string;
-    agentId: string;
-    index: number;
-    defaultAgentType: AgentType;
-    /** The workspace repo when its cwd is a git repo — enables the worktree
-     * location field; null → the agent just runs in the workspace cwd. */
-    repo: { cwd: string; branch: string | null } | null;
-    /** Prefilled worktree path — non-empty only when the workspace has a base
-     * folder ([F2]: suggest a default only then). */
-    suggestedPath: string;
-    /** Prefilled branch for a new worktree. */
-    suggestedBranch: string;
-  } | null>(null);
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
+
+  const provisioning = useProvisioning(deck, agents, setError);
+  // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
+  // per-agent worktree location, [F2]).
+  const agentFlow = useAgentDialog(deck, agents, setError);
   // A close (agent or workspace) awaiting confirmation ([U6]).
-  const [closing, setClosing] = useState<ClosingTarget | null>(null);
-  // Opt-in: also delete the closing target's worktree(s) + branch(es). Reset
-  // each time the dialog opens so the destructive choice is never sticky.
-  const [deleteWorktree, setDeleteWorktree] = useState(false);
+  const closeFlow = useCloseFlow(deck, setError);
+
+  // Drop a file onto a pane → paste its path into that pane's PTY and focus it
+  // ([F4]).
+  useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
-
-  const handleSelectWorkspace = (id: string) => {
-    deck.selectWorkspace(id);
-    // Returning from the create form (you can always go back to an existing one).
-    setCreating(false);
-  };
-
-  const handleAddAgent = async () => {
-    if (!active) return;
-    const seq = nextAgentSeq.current;
-    nextAgentSeq.current += 1;
-    const index = active.panes.length + 1;
-    // Default the type to the last pane's if it's still selectable, else the
-    // first installed agent ([F1]).
-    const defaultType = defaultAgentType(
-      agents,
-      active.panes[active.panes.length - 1]?.agentType,
-    );
-    // Offer the worktree location only when the workspace cwd is a git repo.
-    const info = await inspectRepo(active.cwd).catch(() => null);
-    const repo = info?.isRepo ? { cwd: active.cwd, branch: info.branch } : null;
-    let suggestedPath = "";
-    let suggestedBranch = "";
-    if (repo) {
-      const s = await suggestWorktree(active.name, index).catch(() => null);
-      if (s) {
-        suggestedBranch = s.branch;
-        // [F2]: prefill a path ONLY when the workspace has a base folder,
-        // otherwise start empty (= main repo) and let the user choose one.
-        if (active.worktreeBaseDir)
-          suggestedPath = `${active.worktreeBaseDir}/${s.folder}`;
-      }
-    }
-    setAgentDialog({
-      wsId: active.id,
-      agentId: paneId(seq),
-      index,
-      defaultAgentType: defaultType,
-      repo,
-      suggestedPath,
-      suggestedBranch,
-    });
-  };
-
-  const handleConfirmAgent = async ({
-    agentType,
-    name,
-    location,
-  }: AgentDialogResult) => {
-    const dlg = agentDialog;
-    if (!dlg) return;
-    setAgentDialog(null);
-    const ws = deck.workspaces.find((w) => w.id === dlg.wsId);
-    if (!ws) return;
-    const paneName = name.trim() || undefined;
-    // Main repo: a bare pane that runs in the workspace cwd.
-    if (location.kind === "main") {
-      deck.addAgentPane(dlg.wsId, { id: dlg.agentId, name: paneName, agentType });
-      return;
-    }
-    // Existing worktree: attach in place, no git mutation ([F12]-lite).
-    if (location.kind === "existing") {
-      deck.addAgentPane(dlg.wsId, {
-        id: dlg.agentId,
-        cwd: location.path,
-        branch: location.branch || undefined,
-        name: paneName,
-        agentType,
-      });
-      return;
-    }
-    // New worktree AT the chosen path (created verbatim, no suffix).
-    try {
-      const base =
-        (await inspectRepo(ws.cwd).catch(() => null))?.head ?? undefined;
-      const rec = await createWorktree({
-        repo: ws.cwd,
-        baseDir: "",
-        agentId: dlg.agentId,
-        branch: location.branch,
-        base,
-        workspace: ws.name,
-        index: dlg.index,
-        path: location.path,
-      });
-      deck.addAgentPane(dlg.wsId, {
-        id: dlg.agentId,
-        cwd: rec.path,
-        branch: rec.branch,
-        name: paneName,
-        agentType,
-      });
-    } catch (e) {
-      console.error("worktree create failed", e);
-      setError(`Failed to create agent worktree:\n${e}`);
-    }
-  };
-
-  // Add `count` agents to an existing (empty) workspace.
-  const handleStartWorkspace = async (workspaceId: string, count: number) => {
-    if (submitting.current) return;
-    const ws = deck.workspaces.find((w) => w.id === workspaceId);
-    if (!ws) return;
-    submitting.current = true;
-    setBusy(true);
-    try {
-      const startSeq = nextAgentSeq.current;
-      nextAgentSeq.current += count;
-      const panes = await provisionPanes(
-        ws,
-        startSeq,
-        count,
-        defaultAgentType(agents),
-        setError,
-      );
-      deck.setPanes(workspaceId, panes);
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
-  };
-
-  const handleCreateWorkspace = async ({
-    name,
-    cwd,
-    agentType,
-    count,
-    worktreeBaseDir,
-  }: SpawnConfig) => {
-    if (submitting.current) return;
-    submitting.current = true;
-    setBusy(true);
-    try {
-      const wsSeq = nextWorkspaceSeq.current;
-      nextWorkspaceSeq.current += 1;
-      const startSeq = nextAgentSeq.current;
-      nextAgentSeq.current += count;
-      const id = `ws-${wsSeq}`;
-      const wsName = name.trim() || `workspace-${wsSeq}`;
-      const panes = await provisionPanes(
-        { cwd, worktreeBaseDir, name: wsName },
-        startSeq,
-        count,
-        agentType,
-        setError,
-      );
-      const workspace: Workspace = {
-        id,
-        name: wsName,
-        cwd,
-        worktreeBaseDir,
-        panes,
-      };
-      deck.createWorkspace(workspace);
-      setCreating(false);
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
-  };
-
-  // Ask before closing — both close paths run through a confirm dialog ([U6]).
-  // Worktrees to potentially delete are snapshotted now (workspace still here).
-  const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
-    const ws = deck.workspaces.find((w) => w.id === wsId);
-    setDeleteWorktree(false);
-    setClosing({
-      kind: "agent",
-      wsId,
-      paneId,
-      label,
-      targets: ws ? worktreeTargets(ws, paneId) : [],
-    });
-  };
-  const requestCloseWorkspace = (id: string) => {
-    const ws = deck.workspaces.find((w) => w.id === id);
-    if (!ws) return;
-    setDeleteWorktree(false);
-    setClosing({
-      kind: "workspace",
-      id,
-      name: ws.name,
-      count: ws.panes.length,
-      targets: worktreeTargets(ws),
-    });
-  };
-  const confirmClose = () => {
-    if (!closing) return;
-    const targets = deleteWorktree ? closing.targets : [];
-    // Close in the UI first: unmounting the pane(s) ends their PTY sessions, so
-    // the worktree dirs are no longer a live process cwd when we remove them.
-    if (closing.kind === "agent") deck.closeAgent(closing.wsId, closing.paneId);
-    else deck.closeWorkspace(closing.id);
-    setClosing(null);
-    setDeleteWorktree(false);
-    if (targets.length > 0) {
-      void discardWorktrees(targets).then((failures) => {
-        if (failures.length > 0)
-          setError(
-            `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
-          );
-      });
-    }
-  };
-
-  const railWorkspaces = deck.workspaces.map((w) => ({
-    id: w.id,
-    name: w.name,
-    agentCount: w.panes.length,
-  }));
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
+  const modalOpen =
+    showForm ||
+    agentFlow.dialog !== null ||
+    closeFlow.closing !== null ||
+    error !== null;
 
   // Native-menu hotkeys: ⌘T opens the spawn dialog, ⌘W asks to close the
-  // selected pane. The Rust menu owns the accelerators (macOS resolves them
-  // before the webview sees the key) and emits deck events. A hotkey bypasses
-  // both button disabling and the modal overlay, so those guards are mirrored
-  // here; the ref keeps the mount-once listeners reading fresh state.
-  const modalOpen =
-    showForm || agentDialog !== null || closing !== null || error !== null;
-  const menuActionsRef = useRef({ newAgent: () => {}, closeAgent: () => {} });
-  menuActionsRef.current = {
+  // selected pane. A hotkey bypasses both button disabling and the modal
+  // overlay, so those guards are mirrored here.
+  useMenuHotkeys({
     newAgent: () => {
       if (!active || atCap || modalOpen) return;
-      void handleAddAgent();
+      void agentFlow.openFor(active);
     },
     closeAgent: () => {
       if (modalOpen) return;
@@ -471,27 +92,28 @@ function App() {
         deck.selectByWs,
         agents,
       );
-      if (target) requestCloseAgent(target.wsId, target.paneId, target.label);
+      if (target)
+        closeFlow.requestCloseAgent(target.wsId, target.paneId, target.label);
     },
+  });
+
+  const handleSelectWorkspace = (id: string) => {
+    deck.selectWorkspace(id);
+    // Returning from the create form (you can always go back to an existing one).
+    setCreating(false);
   };
-  useEffect(() => {
-    let cancelled = false;
-    const unlisteners: Array<() => void> = [];
-    const subscribe = (event: string, action: "newAgent" | "closeAgent") => {
-      listen(event, () => menuActionsRef.current[action]())
-        .then((un) => {
-          if (cancelled) un();
-          else unlisteners.push(un);
-        })
-        .catch(() => {});
-    };
-    subscribe(NEW_AGENT_EVENT, "newAgent");
-    subscribe(CLOSE_AGENT_EVENT, "closeAgent");
-    return () => {
-      cancelled = true;
-      unlisteners.forEach((un) => un());
-    };
-  }, []);
+
+  const handleCreateWorkspace = (config: SpawnConfig) => {
+    void provisioning.createWorkspace(config).then((created) => {
+      if (created) setCreating(false);
+    });
+  };
+
+  const railWorkspaces = deck.workspaces.map((w) => ({
+    id: w.id,
+    name: w.name,
+    agentCount: w.panes.length,
+  }));
 
   return (
     <div className="deck">
@@ -517,7 +139,9 @@ function App() {
           <button
             type="button"
             className="bar__action"
-            onClick={handleAddAgent}
+            onClick={() => {
+              if (active) void agentFlow.openFor(active);
+            }}
             disabled={!active || atCap || showForm}
             title={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
           >
@@ -536,7 +160,7 @@ function App() {
             activeId={deck.activeId}
             onSelect={handleSelectWorkspace}
             onAdd={() => setCreating(true)}
-            onClose={requestCloseWorkspace}
+            onClose={closeFlow.requestCloseWorkspace}
             onRename={deck.renameWorkspace}
             onReorder={deck.moveWorkspace}
           />
@@ -557,7 +181,9 @@ function App() {
                   }}
                 >
                   <WorkspaceSetup
-                    onPick={(count) => handleStartWorkspace(ws.id, count)}
+                    onPick={(count) =>
+                      void provisioning.startWorkspace(ws.id, count)
+                    }
                   />
                 </div>
               );
@@ -589,8 +215,8 @@ function App() {
                   // resolved from the fetched catalog ([F1]); fall back to the
                   // id string while the catalog is still loading.
                   const agentType = pane.agentType ?? "claude";
-                  const info = agents.find((a) => a.id === agentType);
-                  const command = info?.command ?? agentType;
+                  const agentInfo = agents.find((a) => a.id === agentType);
+                  const command = agentInfo?.command ?? agentType;
                   const displayTitle = paneDisplayTitle(pane, index, agents);
                   return (
                     <AgentPane
@@ -612,7 +238,7 @@ function App() {
                         void openInEditor(pane.cwd ?? ws.cwd).catch(() => {});
                       }}
                       onClose={() =>
-                        requestCloseAgent(ws.id, pane.id, displayTitle)
+                        closeFlow.requestCloseAgent(ws.id, pane.id, displayTitle)
                       }
                       onRename={(name) => deck.renamePane(ws.id, pane.id, name)}
                       onTitle={(t) => deck.setPaneAutoTitle(ws.id, pane.id, t)}
@@ -629,7 +255,7 @@ function App() {
               <ModalOverlay>
                 <WorkspaceForm
                   onCreate={handleCreateWorkspace}
-                  busy={busy}
+                  busy={provisioning.busy}
                   onCancel={() => setCreating(false)}
                 />
               </ModalOverlay>
@@ -637,18 +263,21 @@ function App() {
               // First-run: the opaque empty-state setup screen (no cancel — it
               // IS the content, not a dialog over it), kept inside the stage.
               <div className="deck__overlay">
-                <WorkspaceForm onCreate={handleCreateWorkspace} busy={busy} />
+                <WorkspaceForm
+                  onCreate={handleCreateWorkspace}
+                  busy={provisioning.busy}
+                />
               </div>
             ))}
 
-          {agentDialog && (
+          {agentFlow.dialog && (
             <AgentDialog
-              defaultAgentType={agentDialog.defaultAgentType}
-              repo={agentDialog.repo}
-              suggestedPath={agentDialog.suggestedPath}
-              suggestedBranch={agentDialog.suggestedBranch}
-              onConfirm={handleConfirmAgent}
-              onCancel={() => setAgentDialog(null)}
+              defaultAgentType={agentFlow.dialog.defaultAgentType}
+              repo={agentFlow.dialog.repo}
+              suggestedPath={agentFlow.dialog.suggestedPath}
+              suggestedBranch={agentFlow.dialog.suggestedBranch}
+              onConfirm={(result) => void agentFlow.confirm(result)}
+              onCancel={agentFlow.cancel}
             />
           )}
 
@@ -661,37 +290,39 @@ function App() {
             />
           )}
 
-          {closing && (
+          {closeFlow.closing && (
             <ConfirmDialog
               title={
-                closing.kind === "agent"
-                  ? `Close agent "${closing.label}"?`
-                  : `Close workspace "${closing.name}"?`
+                closeFlow.closing.kind === "agent"
+                  ? `Close agent "${closeFlow.closing.label}"?`
+                  : `Close workspace "${closeFlow.closing.name}"?`
               }
               message={
-                closing.kind === "agent"
+                closeFlow.closing.kind === "agent"
                   ? "Its terminal session will be ended."
-                  : closing.count === 0
+                  : closeFlow.closing.count === 0
                     ? "This workspace has no agents."
-                    : `This ends ${closing.count} agent${closing.count === 1 ? "" : "s"} and their sessions.`
+                    : `This ends ${closeFlow.closing.count} agent${closeFlow.closing.count === 1 ? "" : "s"} and their sessions.`
               }
               confirmLabel="Close"
               cancelLabel="Cancel"
               destructive
-              onConfirm={confirmClose}
-              onCancel={() => setClosing(null)}
+              onConfirm={closeFlow.confirmClose}
+              onCancel={closeFlow.cancelClose}
             >
-              {closing.targets.length > 0 && (
+              {closeFlow.closing.targets.length > 0 && (
                 <label className="confirm__option">
                   <input
                     type="checkbox"
-                    checked={deleteWorktree}
-                    onChange={(e) => setDeleteWorktree(e.target.checked)}
+                    checked={closeFlow.deleteWorktree}
+                    onChange={(e) =>
+                      closeFlow.setDeleteWorktree(e.target.checked)
+                    }
                   />
                   <span className="confirm__option-text">
-                    {closing.targets.length === 1
+                    {closeFlow.closing.targets.length === 1
                       ? "Also delete the worktree and branch"
-                      : `Also delete all ${closing.targets.length} worktrees and branches`}
+                      : `Also delete all ${closeFlow.closing.targets.length} worktrees and branches`}
                     <span className="confirm__option-note">
                       Discards any uncommitted work.
                     </span>
