@@ -246,7 +246,9 @@ function LocationHint({
       );
     case "blocked":
       return (
-        <span className="form__error">Folder exists and isn't a git worktree</span>
+        <span className="form__error">
+          Folder has files and isn't a worktree — pick a new or empty folder
+        </span>
       );
   }
 }
