@@ -199,14 +199,21 @@ function App() {
   // state flag would race). `busy` is the render-time mirror to disable the UI.
   const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
-  // "+ Agent" dialog — always shown, to pick the agent type (+ name, and
-  // branch/folder in worktree mode).
+  // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
+  // per-agent worktree location, [F2]).
   const [agentDialog, setAgentDialog] = useState<{
     wsId: string;
     agentId: string;
     index: number;
     defaultAgentType: AgentType;
-    worktree?: { defaultBranch: string; defaultFolder: string };
+    /** The workspace repo when its cwd is a git repo — enables the worktree
+     * location field; null → the agent just runs in the workspace cwd. */
+    repo: { cwd: string; branch: string | null } | null;
+    /** Prefilled worktree path — non-empty only when the workspace has a base
+     * folder ([F2]: suggest a default only then). */
+    suggestedPath: string;
+    /** Prefilled branch for a new worktree. */
+    suggestedBranch: string;
   } | null>(null);
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
@@ -237,27 +244,36 @@ function App() {
       agents,
       active.panes[active.panes.length - 1]?.agentType,
     );
-    // Worktree mode also prefills branch/folder from the backend.
-    const worktree = active.worktreeBaseDir
-      ? await suggestWorktree(active.name, index).then((s) => ({
-          defaultBranch: s.branch,
-          defaultFolder: s.folder,
-        }))
-      : undefined;
+    // Offer the worktree location only when the workspace cwd is a git repo.
+    const info = await inspectRepo(active.cwd).catch(() => null);
+    const repo = info?.isRepo ? { cwd: active.cwd, branch: info.branch } : null;
+    let suggestedPath = "";
+    let suggestedBranch = "";
+    if (repo) {
+      const s = await suggestWorktree(active.name, index).catch(() => null);
+      if (s) {
+        suggestedBranch = s.branch;
+        // [F2]: prefill a path ONLY when the workspace has a base folder,
+        // otherwise start empty (= main repo) and let the user choose one.
+        if (active.worktreeBaseDir)
+          suggestedPath = `${active.worktreeBaseDir}/${s.folder}`;
+      }
+    }
     setAgentDialog({
       wsId: active.id,
       agentId: paneId(seq),
       index,
       defaultAgentType: defaultType,
-      worktree,
+      repo,
+      suggestedPath,
+      suggestedBranch,
     });
   };
 
   const handleConfirmAgent = async ({
     agentType,
     name,
-    branch,
-    folder,
+    location,
   }: AgentDialogResult) => {
     const dlg = agentDialog;
     if (!dlg) return;
@@ -265,23 +281,35 @@ function App() {
     const ws = deck.workspaces.find((w) => w.id === dlg.wsId);
     if (!ws) return;
     const paneName = name.trim() || undefined;
-    // Non-worktree: a bare pane that runs in the workspace cwd.
-    if (!ws.worktreeBaseDir || !branch || !folder) {
+    // Main repo: a bare pane that runs in the workspace cwd.
+    if (location.kind === "main") {
       deck.addAgentPane(dlg.wsId, { id: dlg.agentId, name: paneName, agentType });
       return;
     }
+    // Existing worktree: attach in place, no git mutation ([F12]-lite).
+    if (location.kind === "existing") {
+      deck.addAgentPane(dlg.wsId, {
+        id: dlg.agentId,
+        cwd: location.path,
+        branch: location.branch || undefined,
+        name: paneName,
+        agentType,
+      });
+      return;
+    }
+    // New worktree AT the chosen path (created verbatim, no suffix).
     try {
       const base =
         (await inspectRepo(ws.cwd).catch(() => null))?.head ?? undefined;
       const rec = await createWorktree({
         repo: ws.cwd,
-        baseDir: ws.worktreeBaseDir,
+        baseDir: "",
         agentId: dlg.agentId,
-        branch,
+        branch: location.branch,
         base,
         workspace: ws.name,
         index: dlg.index,
-        dir: folder,
+        path: location.path,
       });
       deck.addAgentPane(dlg.wsId, {
         id: dlg.agentId,
@@ -567,7 +595,9 @@ function App() {
           {agentDialog && (
             <AgentDialog
               defaultAgentType={agentDialog.defaultAgentType}
-              worktree={agentDialog.worktree}
+              repo={agentDialog.repo}
+              suggestedPath={agentDialog.suggestedPath}
+              suggestedBranch={agentDialog.suggestedBranch}
               onConfirm={handleConfirmAgent}
               onCancel={() => setAgentDialog(null)}
             />

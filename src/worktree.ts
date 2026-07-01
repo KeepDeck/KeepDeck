@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { PathProbe } from "./workspace/agentLocation";
 
 /** Mirrors the Rust `RepoInfo` (camelCase). */
 export interface RepoInfo {
@@ -33,6 +34,9 @@ export interface CreateWorktreeArgs {
   index?: number;
   /** Explicit worktree folder (relative to baseDir); derived from branch when omitted. */
   dir?: string | null;
+  /** Exact worktree path ([F2]). When set, the worktree is created AT this path
+   *  verbatim (no collision suffix); baseDir/dir are ignored. */
+  path?: string | null;
 }
 
 /** Is `path` inside a git repo? plus its HEAD/branch. Never throws for a
@@ -48,6 +52,13 @@ export function suggestWorktree(
   index: number,
 ): Promise<WorktreeSuggestion> {
   return invoke<WorktreeSuggestion>("worktree_suggest", { workspace, index });
+}
+
+/** Probe a candidate worktree path (exists? a worktree? which branch?) to drive
+ *  the agent dialog's live hint ([F2]). Never throws — an unusable path reports
+ *  `exists: false`. Shape mirrors the Rust `PathProbe` ([`PathProbe`]). */
+export function probeWorktree(path: string): Promise<PathProbe> {
+  return invoke<PathProbe>("worktree_probe", { path });
 }
 
 /** Provision one agent's git worktree; returns its path + branch. */
