@@ -61,9 +61,9 @@ fi
 app_name="$(basename "$app_path" .app)"
 bundle_dir="$(dirname "$(dirname "$app_path")")"   # …/release/bundle
 
-# Version (from tauri.conf.json) + arch for the dmg filename, matching Tauri's
-# own naming convention (e.g. KeepDeck_0.3.14_aarch64.dmg).
-version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+# Version (from package.json, kept in sync with Cargo.toml by CI) + arch for
+# the dmg filename, matching Tauri's own naming (e.g. KeepDeck_0.3.14_aarch64.dmg).
+version="$(node -p "require('./package.json').version")"
 case "$(uname -m)" in
   arm64) arch="aarch64" ;;
   x86_64) arch="x64" ;;
