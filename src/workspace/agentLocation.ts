@@ -6,6 +6,9 @@ export interface PathProbe {
   exists: boolean;
   /** Whether it's a git work tree an agent could attach to. */
   isWorktree: boolean;
+  /** Whether an existing non-worktree dir is empty — a worktree can be created
+   * into an empty dir, but not into a non-empty one. */
+  empty: boolean;
   /** The branch checked out there, when it's a worktree on a branch. */
   branch: string | null;
 }
@@ -23,7 +26,9 @@ export type LocationKind =
   | "existing" // path is a git worktree → attach the agent to it ([F12])
   | "blocked"; // path exists but isn't a worktree → can't use it
 
-/** Classify a candidate worktree path from its probe. Pure. */
+/** Classify a candidate worktree path from its probe. Pure. An existing EMPTY
+ * dir counts as "new" — git can create a worktree into it; only a non-empty
+ * non-worktree dir is blocked. */
 export function classifyLocation(
   path: string,
   probe: PathProbe | null,
@@ -31,7 +36,8 @@ export function classifyLocation(
   if (!path.trim()) return "main";
   if (!probe) return "checking";
   if (!probe.exists) return "new";
-  return probe.isWorktree ? "existing" : "blocked";
+  if (probe.isWorktree) return "existing";
+  return probe.empty ? "new" : "blocked";
 }
 
 /** Whether Create is allowed for a classified location + current branch input.
@@ -48,16 +54,6 @@ export function canCreateAgent(kind: LocationKind, branch: string): boolean {
     case "blocked":
       return false;
   }
-}
-
-/** Split a full worktree path into the parent dir + leaf folder the
- * `worktree_create` command takes (`baseDir` + `dir`). Trailing slashes are
- * ignored; a bare name resolves against the current dir. Pure. */
-export function splitWorktreePath(path: string): { baseDir: string; dir: string } {
-  const trimmed = path.trim().replace(/\/+$/, "");
-  const slash = trimmed.lastIndexOf("/");
-  if (slash < 0) return { baseDir: ".", dir: trimmed };
-  return { baseDir: trimmed.slice(0, slash) || "/", dir: trimmed.slice(slash + 1) };
 }
 
 /** The resolved location for a new agent, chosen in the "+ Agent" dialog. */

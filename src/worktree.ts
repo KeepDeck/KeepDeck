@@ -34,6 +34,9 @@ export interface CreateWorktreeArgs {
   index?: number;
   /** Explicit worktree folder (relative to baseDir); derived from branch when omitted. */
   dir?: string | null;
+  /** Exact worktree path ([F2]). When set, the worktree is created AT this path
+   *  verbatim (no collision suffix); baseDir/dir are ignored. */
+  path?: string | null;
 }
 
 /** Is `path` inside a git repo? plus its HEAD/branch. Never throws for a

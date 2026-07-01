@@ -13,7 +13,6 @@ import { ModalOverlay } from "../ui/ModalOverlay";
 import {
   canCreateAgent,
   classifyLocation,
-  splitWorktreePath,
   type AgentDialogResult,
   type AgentLocation,
   type PathProbe,
@@ -88,7 +87,8 @@ export function AgentDialog({
           if (!cancelled) setProbe(p);
         })
         .catch(() => {
-          if (!cancelled) setProbe({ exists: false, isWorktree: false, branch: null });
+          if (!cancelled)
+            setProbe({ exists: false, isWorktree: false, empty: false, branch: null });
         });
     }, 250);
     return () => {
@@ -107,19 +107,16 @@ export function AgentDialog({
     return { kind: "main" };
   };
 
-  // "Choose…" picks a base directory; we keep the leaf so the result is still a
-  // (new) worktree path under it, not the base itself. A new worktree's folder
-  // can't be picked directly (it mustn't exist yet), so the field stays editable.
-  const chooseBase = async () => {
+  // "Choose…" picks the worktree folder itself — the agent's project lives
+  // directly in it, not in a subfolder ([F2]). git accepts a non-existent or
+  // existing-empty dir; the field stays editable for typing a fresh path.
+  const choosePath = async () => {
     const dir = await open({
       directory: true,
       multiple: false,
-      title: "Choose where the worktree goes",
+      title: "Choose the worktree folder",
     });
-    if (typeof dir !== "string") return;
-    const leaf =
-      splitWorktreePath(path).dir || branch.replace(/\//g, "-") || "agent";
-    setPath(`${dir}/${leaf}`);
+    if (typeof dir === "string") setPath(dir);
   };
 
   return (
@@ -168,7 +165,7 @@ export function AgentDialog({
                   </button>
                 )}
               </div>
-              <button type="button" className="form__dir-btn" onClick={chooseBase}>
+              <button type="button" className="form__dir-btn" onClick={choosePath}>
                 Choose…
               </button>
             </div>

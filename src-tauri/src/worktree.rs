@@ -78,6 +78,12 @@ pub struct CreateSpec {
     /// Explicit worktree directory name (relative to `base_dir`); derived from
     /// the branch (slashes → dashes) when absent/blank.
     pub dir: Option<String>,
+    /// Exact, user-chosen worktree path ([F2]). When set, the worktree is
+    /// created AT this path verbatim — its parent is created, git accepts a
+    /// non-existent or existing-empty dir, and there is NO collision suffix
+    /// (`base_dir`/`dir` are ignored). Absent → the batch flow uses
+    /// `base_dir` + `dir` with auto-suffixing.
+    pub path: Option<String>,
 }
 
 /// The created worktree, returned to the UI to store on the agent.
@@ -146,6 +152,10 @@ pub struct PathProbe {
     /// Whether it's a git work tree we could attach an agent to instead of
     /// creating one.
     pub is_worktree: bool,
+    /// Whether an existing, non-worktree directory is empty. A worktree can be
+    /// created INTO an empty dir (git allows it), but not into a non-empty one —
+    /// so an empty existing folder is usable while a non-empty one is blocked.
+    pub empty: bool,
     /// The branch checked out there, when it is a worktree on a branch.
     pub branch: Option<String>,
 }
@@ -157,6 +167,12 @@ pub fn worktree_probe(path: String) -> PathProbe {
     let path = Path::new(&path);
     let exists = path.exists();
     let is_worktree = exists && repo::is_git_repo(path);
+    // Only relevant for an existing non-worktree dir: is it empty (usable) or not.
+    let empty = exists
+        && !is_worktree
+        && std::fs::read_dir(path)
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false);
     let branch = if is_worktree {
         repo::current_branch(path).ok().flatten()
     } else {
@@ -165,6 +181,7 @@ pub fn worktree_probe(path: String) -> PathProbe {
     PathProbe {
         exists,
         is_worktree,
+        empty,
         branch,
     }
 }
@@ -200,24 +217,43 @@ pub fn worktree_create(
         return Err(format!("not a git repository: {}", spec.repo));
     }
 
-    let base_dir = PathBuf::from(&spec.base_dir);
-    std::fs::create_dir_all(&base_dir).map_err(|e| format!("create worktree base dir: {e}"))?;
-
     let base = match spec.base.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(rev) => rev.to_string(),
         None => repo::resolve_commit(&repo_path, "HEAD").map_err(|e| e.to_string())?,
     };
 
     let chosen_branch = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
-    // Explicit dir wins (sanitized to one fs-safe segment); else derive it from
-    // the branch (slashes -> dashes) so it matches the pane header.
+
+    let lock = locks.for_repo(&repo_path);
+    let _guard = lock.lock().expect("repo lock poisoned");
+
+    // [F2] Exact user-chosen path: create the worktree AT it verbatim, on the
+    // chosen branch, with NO collision suffix — the user picked this exact folder
+    // (git accepts a non-existent or existing-empty dir; a non-empty dir or an
+    // already-used branch surfaces as an error the dialog shows).
+    if let Some(p) = spec.path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let target = PathBuf::from(p);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("create worktree parent dir: {e}"))?;
+        }
+        worktree::add(&repo_path, &target, &chosen_branch, &base).map_err(|e| e.to_string())?;
+        return Ok(WorktreeRecord {
+            agent_id: spec.agent_id,
+            path: target.to_string_lossy().into_owned(),
+            branch: chosen_branch,
+        });
+    }
+
+    // Batch flow: place the worktree under `base_dir`. Explicit dir wins
+    // (sanitized to one fs-safe segment); else derive it from the branch
+    // (slashes -> dashes) so it matches the pane header.
+    let base_dir = PathBuf::from(&spec.base_dir);
+    std::fs::create_dir_all(&base_dir).map_err(|e| format!("create worktree base dir: {e}"))?;
     let chosen_dir = match spec.dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(d) => branch::sanitize_branch_component(d),
         None => chosen_branch.replace('/', "-"),
     };
-
-    let lock = locks.for_repo(&repo_path);
-    let _guard = lock.lock().expect("repo lock poisoned");
 
     // Pick a free branch + dir under the lock. Clean worktrees aren't removed on
     // close, so an earlier agent's branch/folder may still exist; append -2, -3,
@@ -293,19 +329,38 @@ mod tests {
     fn probe_flags_a_missing_path_as_new() {
         // A path that doesn't exist → "new worktree" territory, no branch.
         let missing = std::env::temp_dir().join("keepdeck-probe-absent-a9f3c1");
+        let _ = std::fs::remove_dir_all(&missing);
         let p = worktree_probe(missing.to_string_lossy().into_owned());
         assert!(!p.exists);
         assert!(!p.is_worktree);
+        assert!(!p.empty);
         assert_eq!(p.branch, None);
     }
 
     #[test]
-    fn probe_flags_an_existing_non_worktree_dir() {
-        // The temp dir exists but isn't a git work tree → Create must be blocked.
-        let existing = std::env::temp_dir();
-        let p = worktree_probe(existing.to_string_lossy().into_owned());
+    fn probe_flags_an_existing_empty_dir_as_usable() {
+        // An existing EMPTY dir is fine — git can create a worktree into it.
+        let dir = std::env::temp_dir().join("keepdeck-probe-empty-7c2b40");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = worktree_probe(dir.to_string_lossy().into_owned());
         assert!(p.exists);
         assert!(!p.is_worktree);
-        assert_eq!(p.branch, None);
+        assert!(p.empty);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn probe_flags_an_existing_nonempty_dir_as_blocked() {
+        // A non-empty non-worktree dir can't host a worktree → not empty.
+        let dir = std::env::temp_dir().join("keepdeck-probe-nonempty-3d19aa");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("file.txt"), "x").unwrap();
+        let p = worktree_probe(dir.to_string_lossy().into_owned());
+        assert!(p.exists);
+        assert!(!p.is_worktree);
+        assert!(!p.empty);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

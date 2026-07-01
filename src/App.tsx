@@ -4,7 +4,6 @@ import { WorkspacesRail } from "./workspace/WorkspacesRail";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
-import { splitWorktreePath } from "./workspace/agentLocation";
 import { fetchAppInfo, openInEditor, pathsAreImages, type AppInfo } from "./ipc";
 import { defaultAgentType, useAgents, type AgentType } from "./agents";
 import { makePanes, paneId, resolveFocus, type Pane } from "./panes";
@@ -298,20 +297,19 @@ function App() {
       });
       return;
     }
-    // New worktree at the chosen path.
+    // New worktree AT the chosen path (created verbatim, no suffix).
     try {
       const base =
         (await inspectRepo(ws.cwd).catch(() => null))?.head ?? undefined;
-      const { baseDir, dir } = splitWorktreePath(location.path);
       const rec = await createWorktree({
         repo: ws.cwd,
-        baseDir,
+        baseDir: "",
         agentId: dlg.agentId,
         branch: location.branch,
         base,
         workspace: ws.name,
         index: dlg.index,
-        dir,
+        path: location.path,
       });
       deck.addAgentPane(dlg.wsId, {
         id: dlg.agentId,

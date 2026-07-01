@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   canCreateAgent,
   classifyLocation,
-  splitWorktreePath,
   type PathProbe,
 } from "./agentLocation";
 
 const probe = (p: Partial<PathProbe>): PathProbe => ({
   exists: false,
   isWorktree: false,
+  empty: false,
   branch: null,
   ...p,
 });
@@ -33,9 +33,21 @@ describe("classifyLocation", () => {
     ).toBe("existing");
   });
 
-  it("existing non-worktree dir → blocked", () => {
+  it("existing EMPTY non-worktree dir → new (create into it)", () => {
     expect(
-      classifyLocation("/wt/a", probe({ exists: true, isWorktree: false })),
+      classifyLocation(
+        "/wt/a",
+        probe({ exists: true, isWorktree: false, empty: true }),
+      ),
+    ).toBe("new");
+  });
+
+  it("existing NON-EMPTY non-worktree dir → blocked", () => {
+    expect(
+      classifyLocation(
+        "/wt/a",
+        probe({ exists: true, isWorktree: false, empty: false }),
+      ),
     ).toBe("blocked");
   });
 });
@@ -55,23 +67,5 @@ describe("canCreateAgent", () => {
   it("checking and blocked can't be created", () => {
     expect(canCreateAgent("checking", "kd/ws/1")).toBe(false);
     expect(canCreateAgent("blocked", "kd/ws/1")).toBe(false);
-  });
-});
-
-describe("splitWorktreePath", () => {
-  it("splits a nested path into parent + leaf", () => {
-    expect(splitWorktreePath("/a/b/c")).toEqual({ baseDir: "/a/b", dir: "c" });
-  });
-
-  it("keeps the root as the base for a top-level path", () => {
-    expect(splitWorktreePath("/foo")).toEqual({ baseDir: "/", dir: "foo" });
-  });
-
-  it("ignores trailing slashes", () => {
-    expect(splitWorktreePath("/a/b/")).toEqual({ baseDir: "/a", dir: "b" });
-  });
-
-  it("resolves a bare name against the current dir", () => {
-    expect(splitWorktreePath("wt")).toEqual({ baseDir: ".", dir: "wt" });
   });
 });
