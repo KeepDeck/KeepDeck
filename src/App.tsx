@@ -6,7 +6,19 @@ import { WorkspaceForm, type SpawnConfig } from "./workspace/WorkspaceForm";
 import { AgentDialog, type AgentDialogResult } from "./workspace/AgentDialog";
 import { fetchAppInfo, openInEditor, pathsAreImages, type AppInfo } from "./ipc";
 import { defaultAgentType, useAgents, type AgentType } from "./agents";
-import { makePanes, paneId, resolveFocus, type Pane } from "./panes";
+import {
+  makePanes,
+  paneDisplayTitle,
+  paneId,
+  resolveFocus,
+  type Pane,
+} from "./panes";
+import {
+  CLOSE_AGENT_EVENT,
+  NEW_AGENT_EVENT,
+  closeHotkeyTarget,
+} from "./hotkeys";
+import { listen } from "@tauri-apps/api/event";
 import {
   worktreeTargets,
   type Workspace,
@@ -439,6 +451,49 @@ function App() {
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
 
+  // Native-menu hotkeys: ⌘T opens the spawn dialog, ⌘W asks to close the
+  // selected pane. The Rust menu owns the accelerators (macOS resolves them
+  // before the webview sees the key) and emits deck events. A hotkey bypasses
+  // both button disabling and the modal overlay, so those guards are mirrored
+  // here; the ref keeps the mount-once listeners reading fresh state.
+  const modalOpen =
+    showForm || agentDialog !== null || closing !== null || error !== null;
+  const menuActionsRef = useRef({ newAgent: () => {}, closeAgent: () => {} });
+  menuActionsRef.current = {
+    newAgent: () => {
+      if (!active || atCap || modalOpen) return;
+      void handleAddAgent();
+    },
+    closeAgent: () => {
+      if (modalOpen) return;
+      const target = closeHotkeyTarget(
+        deck.workspaces,
+        deck.activeId,
+        deck.selectByWs,
+        agents,
+      );
+      if (target) requestCloseAgent(target.wsId, target.paneId, target.label);
+    },
+  };
+  useEffect(() => {
+    let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+    const subscribe = (event: string, action: "newAgent" | "closeAgent") => {
+      listen(event, () => menuActionsRef.current[action]())
+        .then((un) => {
+          if (cancelled) un();
+          else unlisteners.push(un);
+        })
+        .catch(() => {});
+    };
+    subscribe(NEW_AGENT_EVENT, "newAgent");
+    subscribe(CLOSE_AGENT_EVENT, "closeAgent");
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((un) => un());
+    };
+  }, []);
+
   return (
     <div className="deck">
       <header className="deck__bar">
@@ -537,12 +592,7 @@ function App() {
                   const agentType = pane.agentType ?? "claude";
                   const info = agents.find((a) => a.id === agentType);
                   const command = info?.command ?? agentType;
-                  // Manual name wins, then the auto title, then the derived
-                  // "<Agent> N" ([F11]).
-                  const displayTitle =
-                    pane.name ??
-                    pane.autoTitle ??
-                    `${info?.label ?? agentType} ${index + 1}`;
+                  const displayTitle = paneDisplayTitle(pane, index, agents);
                   return (
                     <AgentPane
                       key={pane.id}
