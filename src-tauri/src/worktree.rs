@@ -123,6 +123,24 @@ fn choose_branch(explicit: Option<&str>, workspace: &str, index: u64) -> String 
     }
 }
 
+/// First of `wanted`, `wanted-2`, `wanted-3`, … that names no existing branch
+/// in the repo. Worktrees — and their branches — deliberately survive pane
+/// closes, so an exact-path create steps over leftovers instead of failing on
+/// `git worktree add -b` (the batch flow suffixes the same way, jointly with
+/// its dir).
+fn free_branch(repo_path: &Path, wanted: &str) -> Result<String, String> {
+    if !repo::branch_exists(repo_path, wanted).map_err(|e| e.to_string())? {
+        return Ok(wanted.to_string());
+    }
+    for suffix in 2..=999u32 {
+        let candidate = format!("{wanted}-{suffix}");
+        if !repo::branch_exists(repo_path, &candidate).map_err(|e| e.to_string())? {
+            return Ok(candidate);
+        }
+    }
+    Err(format!("could not find a free branch derived from {wanted}"))
+}
+
 /// Suggested defaults for a new agent in worktree mode — the single source of
 /// the branch/folder naming, mirrored into the "+ Agent" dialog.
 #[derive(Debug, Serialize)]
@@ -227,21 +245,24 @@ pub fn worktree_create(
     let lock = locks.for_repo(&repo_path);
     let _guard = lock.lock().expect("repo lock poisoned");
 
-    // [F2] Exact user-chosen path: create the worktree AT it verbatim, on the
-    // chosen branch, with NO collision suffix — the user picked this exact folder
-    // (git accepts a non-existent or existing-empty dir; a non-empty dir or an
-    // already-used branch surfaces as an error the dialog shows).
+    // [F2] Exact user-chosen path: create the worktree AT it verbatim, with NO
+    // path collision suffix — the user picked this exact folder (git accepts a
+    // non-existent or existing-empty dir; a non-empty one surfaces as an error
+    // the dialog shows). The BRANCH does step over leftovers: closed panes keep
+    // their branches by design, so a colliding suggestion must not fail the
+    // create — the record carries the branch actually used.
     if let Some(p) = spec.path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         let target = PathBuf::from(p);
+        let branch = free_branch(&repo_path, &chosen_branch)?;
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("create worktree parent dir: {e}"))?;
         }
-        worktree::add(&repo_path, &target, &chosen_branch, &base).map_err(|e| e.to_string())?;
+        worktree::add(&repo_path, &target, &branch, &base).map_err(|e| e.to_string())?;
         return Ok(WorktreeRecord {
             agent_id: spec.agent_id,
             path: target.to_string_lossy().into_owned(),
-            branch: chosen_branch,
+            branch,
         });
     }
 
@@ -362,5 +383,50 @@ mod tests {
         assert!(!p.is_worktree);
         assert!(!p.empty);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Run a git command in `dir`, asserting it succeeds (test setup helper).
+    fn git(dir: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .status()
+            .expect("run git");
+        assert!(status.success(), "git {args:?} failed in {}", dir.display());
+    }
+
+    /// A throwaway repo with one commit, for the branch-collision tests.
+    fn init_repo(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "keepdeck-free-branch-{label}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        git(&dir, &["init", "-q"]);
+        git(&dir, &["config", "user.email", "test@keepdeck.ai"]);
+        git(&dir, &["config", "user.name", "KeepDeck Test"]);
+        std::fs::write(dir.join("README.md"), "hi").unwrap();
+        git(&dir, &["add", "."]);
+        git(&dir, &["commit", "-q", "-m", "init"]);
+        dir
+    }
+
+    #[test]
+    fn free_branch_keeps_an_unused_name() {
+        let repo = init_repo("unused");
+        assert_eq!(free_branch(&repo, "kd/ws/1").unwrap(), "kd/ws/1");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn free_branch_steps_over_leftover_branches() {
+        // Leftovers from closed panes: the wanted name and its -2 both exist.
+        let repo = init_repo("taken");
+        git(&repo, &["branch", "kd/ws/1"]);
+        git(&repo, &["branch", "kd/ws/1-2"]);
+        assert_eq!(free_branch(&repo, "kd/ws/1").unwrap(), "kd/ws/1-3");
+        let _ = std::fs::remove_dir_all(&repo);
     }
 }
