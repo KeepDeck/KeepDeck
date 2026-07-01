@@ -146,34 +146,32 @@ export function AgentDialog({
         {repo && (
           <>
             <span className="form__label">Worktree</span>
-            <div className="form__dir">
-              <span
-                className={`form__dir-path${path ? "" : " form__dir-path--empty"}`}
-                title={path || undefined}
-              >
-                {path || "Runs in the main repo"}
-              </span>
-              {path && (
-                <button
-                  type="button"
-                  className="form__dir-btn"
-                  onClick={() => setPath("")}
-                >
-                  Clear
-                </button>
-              )}
+            <div className="form__path">
+              <div className="form__path-field">
+                <input
+                  {...noAutoCorrect}
+                  className="form__input form__path-input"
+                  value={path}
+                  onChange={(e) => setPath(e.target.value)}
+                  placeholder="Empty = main repo · a path = worktree"
+                  aria-label="Worktree path"
+                />
+                {path && (
+                  <button
+                    type="button"
+                    className="form__path-clear"
+                    onClick={() => setPath("")}
+                    title="Clear — run in the main repo"
+                    aria-label="Clear worktree path"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
               <button type="button" className="form__dir-btn" onClick={chooseBase}>
                 Choose…
               </button>
             </div>
-            <input
-              {...noAutoCorrect}
-              className="form__input"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="Empty = main repo · a path = worktree"
-              aria-label="Worktree path"
-            />
             <LocationHint kind={kind} repoBranch={repo.branch} probe={probe} />
 
             {kind === "new" && (
