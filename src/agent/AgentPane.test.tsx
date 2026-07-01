@@ -50,16 +50,15 @@ describe("AgentPane — open in VS Code", () => {
     act(() => root.unmount());
   });
 
-  it("renders the button and fires onOpenInEditor on click when a cwd is known", () => {
+  it("renders the text button and fires onOpenInEditor on click when a cwd is known", () => {
     const onOpenInEditor = vi.fn();
     act(() =>
       root.render(createElement(AgentPane, { ...baseProps, onOpenInEditor })),
     );
 
-    const btn = document.querySelector<HTMLButtonElement>(
-      '[aria-label="Open Claude 1 in VS Code"]',
-    );
+    const btn = document.querySelector<HTMLButtonElement>(".pane__open");
     expect(btn).not.toBeNull();
+    expect(btn!.textContent).toBe("Open in VSCode");
 
     act(() => btn!.click());
     expect(onOpenInEditor).toHaveBeenCalledTimes(1);
@@ -68,8 +67,6 @@ describe("AgentPane — open in VS Code", () => {
   it("hides the button when there is no cwd — nothing to open", () => {
     act(() => root.render(createElement(AgentPane, { ...baseProps, cwd: null })));
 
-    expect(
-      document.querySelector('[aria-label="Open Claude 1 in VS Code"]'),
-    ).toBeNull();
+    expect(document.querySelector(".pane__open")).toBeNull();
   });
 });

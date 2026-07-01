@@ -105,23 +105,22 @@ export function AgentPane({
             {title}
           </span>
         )}
+        {cwd && (
+          <button
+            type="button"
+            className="pane__open"
+            onClick={onOpenInEditor}
+            title="Open this agent's working directory in VS Code"
+          >
+            Open in VSCode
+          </button>
+        )}
         {branch && (
           <span className="pane__branch" title={branch}>
             {branch}
           </span>
         )}
         <div className="pane__actions">
-          {cwd && (
-            <button
-              type="button"
-              className="pane__action"
-              onClick={onOpenInEditor}
-              title="Open in VS Code"
-              aria-label={`Open ${title} in VS Code`}
-            >
-              <EditorIcon />
-            </button>
-          )}
           {!solo && (
             <button
               type="button"
@@ -178,16 +177,6 @@ const iconProps = {
   strokeLinejoin: "round" as const,
   "aria-hidden": true,
 };
-
-/** Code chevrons `< >` — "open this directory in a code editor". */
-function EditorIcon() {
-  return (
-    <svg {...iconProps}>
-      <polyline points="16 18 22 12 16 6" />
-      <polyline points="8 6 2 12 8 18" />
-    </svg>
-  );
-}
 
 /** Expand-to-fill (enter fullscreen). */
 function MaximizeIcon() {
