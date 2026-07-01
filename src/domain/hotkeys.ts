@@ -1,4 +1,4 @@
-import type { AgentInfo } from "./agents";
+import type { AgentInfo } from "../agents";
 import { paneDisplayTitle } from "./panes";
 import type { Workspace } from "./workspaces";
 

@@ -12,18 +12,18 @@ import {
   paneId,
   resolveFocus,
   type Pane,
-} from "./panes";
+} from "./domain/panes";
 import {
   CLOSE_AGENT_EVENT,
   NEW_AGENT_EVENT,
   closeHotkeyTarget,
-} from "./hotkeys";
+} from "./domain/hotkeys";
 import { listen } from "@tauri-apps/api/event";
 import {
   worktreeTargets,
   type Workspace,
   type WorktreeTarget,
-} from "./workspaces";
+} from "./domain/workspaces";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useDeck } from "./deck";
 import {
@@ -42,7 +42,7 @@ import {
   paneColumnSpan,
   paneGrid,
   paneGridTrackColumns,
-} from "./layout";
+} from "./domain/layout";
 import "./App.css";
 
 /** A pending close awaiting confirmation ([U6]) — an agent pane or a whole

@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentType } from "./agents";
+import type { AgentInfo, AgentType } from "../agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
 
 /** One agent pane in the grid. Each pane runs its own agent type; the display

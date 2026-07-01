@@ -16,9 +16,9 @@ import {
   type AgentDialogResult,
   type AgentLocation,
   type PathProbe,
-} from "./agentLocation";
+} from "../domain/agentLocation";
 
-export type { AgentDialogResult } from "./agentLocation";
+export type { AgentDialogResult } from "../domain/agentLocation";
 
 interface AgentDialogProps {
   /** Pre-selected agent type. */

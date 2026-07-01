@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deckReducer, initialDeckState, type DeckState } from "./deck";
-import { type Workspace } from "./workspaces";
+import { type Workspace } from "./domain/workspaces";
 
 const ws = (id: string, paneIds: string[]): Workspace => ({
   id,

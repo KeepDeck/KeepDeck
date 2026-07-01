@@ -1,5 +1,5 @@
 import { useReducer } from "react";
-import { type Pane } from "./panes";
+import { type Pane } from "./domain/panes";
 import {
   addAgentPane,
   closeAgent,
@@ -10,7 +10,7 @@ import {
   resolveActiveId,
   setPaneAutoTitle,
   type Workspace,
-} from "./workspaces";
+} from "./domain/workspaces";
 
 /**
  * The deck's interdependent state: the workspaces, which one is active, and the

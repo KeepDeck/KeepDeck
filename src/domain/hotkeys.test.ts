@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentInfo } from "./agents";
+import type { AgentInfo } from "../agents";
 import { closeHotkeyTarget } from "./hotkeys";
 import type { Workspace } from "./workspaces";
 

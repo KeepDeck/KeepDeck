@@ -6,9 +6,9 @@ import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../session";
 import { openPath, openUrl, copyText } from "../ipc";
 import { registerPaneInput } from "./paneInput";
-import { keyAction } from "./keymap";
-import { isCopyChord, normalizeSelection } from "./clipboard";
-import { detectLinks, resolvePathTarget } from "./links";
+import { keyAction } from "../domain/keymap";
+import { isCopyChord, normalizeSelection } from "../domain/clipboard";
+import { detectLinks, resolvePathTarget } from "../domain/links";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */
