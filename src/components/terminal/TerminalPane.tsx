@@ -5,7 +5,6 @@ import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../../ipc/session";
 import { openPath, openUrl } from "../../ipc/app";
-import { forgetPaneSpawn, recordPaneSpawn } from "../../app/paneSpawns";
 import { readText, writeText } from "../../ipc/clipboard";
 import { registerPaneInput } from "../../app/paneInput";
 import { keyAction } from "../../domain/keymap";
@@ -263,9 +262,6 @@ export function TerminalPane({
       },
     });
 
-    // The spawn instant anchors session binding ([F7]/[F8] spawn-diff): the
-    // pane's session is the store entry its agent creates after this moment.
-    recordPaneSpawn(paneId);
     spawnSession(
       { command, args: argsRef.current, cwd, cols: term.cols, rows: term.rows },
       (event) => {
@@ -330,7 +326,6 @@ export function TerminalPane({
       host.removeEventListener("copy", onCopy);
       host.removeEventListener("paste", onPaste, true);
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
-      forgetPaneSpawn(paneId);
       session?.close().catch(() => {});
       term.dispose();
       termRef.current = null;
