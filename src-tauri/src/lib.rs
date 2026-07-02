@@ -59,6 +59,7 @@ pub fn run() {
             state::deck_state_save,
             state::deck_state_quarantine,
             history::history_latest,
+            history::history_exists,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
             worktree::worktree_probe,
