@@ -100,6 +100,10 @@ describe("useRevive — session policy", () => {
     expect(pane().dormant).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
     expect(ipc.latestSession).not.toHaveBeenCalled(); // no directory theft
+    // The dead binding is DROPPED — otherwise the fresh spawn's identity can
+    // never be recorded (the binding hook refuses to overwrite an existing
+    // session) and the pane keeps resurrecting fresh forever.
+    expect(pane().session).toBeUndefined();
   });
 
   it("a never-bound pane falls back to the directory's newest session", async () => {

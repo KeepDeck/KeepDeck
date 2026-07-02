@@ -66,6 +66,13 @@ export function useRevive(
           () => true,
         );
         sessionId = alive ? recorded : null;
+        // Drop the dead binding — a pane must not keep pointing at a ghost:
+        // the binding hook refuses to overwrite an existing session, so a
+        // stale one would block the fresh spawn's identity from ever being
+        // recorded (the lost-"test"-conversation bug).
+        if (!alive) {
+          deckRef.current.setPaneSession(active.id, pane.id, null);
+        }
       } else {
         // Never bound (pre-v2 deck, reporter never fired): best-effort —
         // the newest session recorded for this directory.

@@ -148,19 +148,28 @@ export function revivePane(
 }
 
 /** Record the agent session a live pane is bound to — the resume key persisted
- * with the deck ([F7]/[F8]). Same-id rebinds return the SAME array (no-op). */
+ * with the deck ([F7]/[F8]) — or DROP it (`null`) when the recorded session
+ * turned out dead (a fresh revive must not keep pointing at a ghost, or the
+ * pane's real session is never re-bound). Same-id rebinds and clearing an
+ * already-clear pane return the SAME array (no-op). */
 export function setPaneSession(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
-  session: PaneSession,
+  session: PaneSession | null,
 ): Workspace[] {
   const pane = workspaces
     .find((w) => w.id === workspaceId)
     ?.panes.find((p) => p.id === paneId);
-  if (!pane || pane.session?.id === session.id) return workspaces;
+  if (!pane || (pane.session?.id ?? null) === (session?.id ?? null))
+    return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
-    panes.map((p) => (p.id === paneId ? { ...p, session } : p)),
+    panes.map((p) => {
+      if (p.id !== paneId) return p;
+      if (session) return { ...p, session };
+      const { session: _dead, ...rest } = p;
+      return rest;
+    }),
   );
 }
 

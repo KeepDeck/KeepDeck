@@ -42,7 +42,7 @@ export function useDeck() {
       dispatch({ type: "revivePane", wsId, paneId }),
     resetPaneLocation: (wsId: string, paneId: string) =>
       dispatch({ type: "resetPaneLocation", wsId, paneId }),
-    setPaneSession: (wsId: string, paneId: string, session: PaneSession) =>
+    setPaneSession: (wsId: string, paneId: string, session: PaneSession | null) =>
       dispatch({ type: "setPaneSession", wsId, paneId, session }),
   };
 }

@@ -284,4 +284,30 @@ describe("deckReducer restore actions ([F7])", () => {
       }),
     ).toBe(bound);
   });
+
+  it("setPaneSession(null) drops a dead binding; clearing a clear pane no-ops", () => {
+    const session = { id: "ghost", boundAt: "2026-07-02T00:00:00Z" };
+    const start = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const bound = deckReducer(start, {
+      type: "setPaneSession",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      session,
+    });
+    const cleared = deckReducer(bound, {
+      type: "setPaneSession",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      session: null,
+    });
+    expect(cleared.workspaces[0].panes[1].session).toBeUndefined();
+    expect(
+      deckReducer(cleared, {
+        type: "setPaneSession",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        session: null,
+      }),
+    ).toBe(cleared);
+  });
 });

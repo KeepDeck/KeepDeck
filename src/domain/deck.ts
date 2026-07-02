@@ -55,8 +55,14 @@ export type DeckAction =
   /** Detach a pane from a gone worktree (drops cwd/branch/session) so it can
    * start fresh in the workspace cwd ([F7] restore reconcile). */
   | { type: "resetPaneLocation"; wsId: string; paneId: string }
-  /** Bind a live pane to its agent session — the resume key ([F7]/[F8]). */
-  | { type: "setPaneSession"; wsId: string; paneId: string; session: PaneSession };
+  /** Bind a live pane to its agent session — the resume key ([F7]/[F8]) —
+   * or drop a dead binding (`null`). */
+  | {
+      type: "setPaneSession";
+      wsId: string;
+      paneId: string;
+      session: PaneSession | null;
+    };
 
 export const initialDeckState: DeckState = {
   workspaces: [],
