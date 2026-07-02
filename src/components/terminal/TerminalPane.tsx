@@ -205,8 +205,9 @@ export function TerminalPane({
     const titleSub = term.onTitleChange((t) => onTitleRef.current?.(t));
 
     // Cmd+click a URL or file path in the output to open it ([F14]/[F10]);
-    // plain click is left for text selection. Relative paths resolve against the
-    // pane's cwd; the OS default app opens files / the default browser opens URLs.
+    // plain click is left for text selection (a plain click ON a link shows the
+    // ⌘ hint, [U8]). Relative paths resolve against the pane's cwd; the OS
+    // default app opens files / the default browser opens URLs.
     const links = term.registerLinkProvider({
       provideLinks(lineNumber, callback) {
         const text = term.buffer.active
@@ -223,7 +224,19 @@ export function TerminalPane({
                   end: { x: d.end, y: lineNumber },
                 },
                 activate(event: MouseEvent) {
-                  if (!event.metaKey) return;
+                  // Pane-local coords captured now, at click-time geometry,
+                  // not when a rejection lands later.
+                  const rect = host.getBoundingClientRect();
+                  const at = {
+                    x: event.clientX - rect.left,
+                    y: event.clientY - rect.top,
+                  };
+                  // The ⌘ affordance is undiscoverable — answer a plain (or
+                  // wrong-modifier) click on a link with how to open it ([U8]).
+                  if (!event.metaKey) {
+                    showHint({ text: "⌘-click to open", ...at });
+                    return;
+                  }
                   const target =
                     d.kind === "url"
                       ? d.text
@@ -231,14 +244,9 @@ export function TerminalPane({
                   const open =
                     d.kind === "url" ? openUrl(target) : openPath(target);
                   // Surface the failure — a deleted file, a bad URL — next to
-                  // the link that was clicked instead of swallowing it
-                  // ([F16]). Pane-local coords captured now, at click-time
-                  // geometry, not when the rejection lands.
-                  const rect = host.getBoundingClientRect();
-                  const x = event.clientX - rect.left;
-                  const y = event.clientY - rect.top;
+                  // the link that was clicked instead of swallowing it ([F16]).
                   open.catch((err: unknown) =>
-                    showHint({ text: openErrorHint(err, target), x, y }),
+                    showHint({ text: openErrorHint(err, target), ...at }),
                   );
                 },
               })),
