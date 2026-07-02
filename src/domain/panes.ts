@@ -1,6 +1,16 @@
 import type { AgentInfo, AgentType } from "./agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
 
+/** The agent session a pane is bound to — the resume key ([F7]/[F8]). Bound at
+ * save time while the pane is alive (spawn-diff over the agent's own store),
+ * consumed at revive time to build the native resume args. */
+export interface PaneSession {
+  /** The agent's own session id (claude uuid / codex uuid / opencode id). */
+  id: string;
+  /** ISO instant the binding was made (diagnostics; newer binding wins). */
+  boundAt: string;
+}
+
 /** One agent pane in the grid. Each pane runs its own agent type; the display
  * title comes from `name` / the auto title / the derived "Agent N". */
 export interface Pane {
@@ -17,6 +27,11 @@ export interface Pane {
   /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
    * `name`; falls back to the derived "Agent N" ([F11] auto-naming). */
   autoTitle?: string;
+  /** Restored from disk but not yet revived — no PTY behind it. Runtime-only:
+   * set by hydration, cleared by the revive action, never persisted ([F7]). */
+  dormant?: boolean;
+  /** The recorded agent session this pane resumes on revive ([F7]/[F8]). */
+  session?: PaneSession;
 }
 
 /** The id for the pane numbered `seq` — the single mint point, since it's the

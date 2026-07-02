@@ -23,3 +23,14 @@ export function mintAgentSeq(): number {
 export function mintWorkspaceSeq(): number {
   return nextWorkspaceSeq++;
 }
+
+/** Raise the agent mint to at least `min` (deck restore, [F7]). Never lowers —
+ * ids issued before a (late) hydrate must stay unique. */
+export function seedAgentSeq(min: number): void {
+  nextAgentSeq = Math.max(nextAgentSeq, min);
+}
+
+/** Raise the workspace mint to at least `min` (deck restore, [F7]). */
+export function seedWorkspaceSeq(min: number): void {
+  nextWorkspaceSeq = Math.max(nextWorkspaceSeq, min);
+}

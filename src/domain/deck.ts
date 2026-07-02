@@ -1,4 +1,4 @@
-import { type Pane } from "./panes";
+import { type Pane, type PaneSession } from "./panes";
 import {
   addAgentPane,
   closeAgent,
@@ -6,8 +6,11 @@ import {
   moveWorkspace,
   renamePane,
   renameWorkspace,
+  resetPaneLocation,
   resolveActiveId,
+  revivePane,
   setPaneAutoTitle,
+  setPaneSession,
   type Workspace,
 } from "./workspaces";
 
@@ -44,7 +47,16 @@ export type DeckAction =
   /** Manual pane rename ([F11]); empty name reverts to auto/derived. */
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
   /** Auto title from the terminal (OSC) for a pane ([F11]). */
-  | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string };
+  | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string }
+  /** Replace the whole deck with a restored one (app boot, [F7]). */
+  | { type: "hydrate"; state: DeckState }
+  /** Wake a dormant restored pane — its terminal mounts and spawns ([F7]). */
+  | { type: "revivePane"; wsId: string; paneId: string }
+  /** Detach a pane from a gone worktree (drops cwd/branch/session) so it can
+   * start fresh in the workspace cwd ([F7] restore reconcile). */
+  | { type: "resetPaneLocation"; wsId: string; paneId: string }
+  /** Bind a live pane to its agent session — the resume key ([F7]/[F8]). */
+  | { type: "setPaneSession"; wsId: string; paneId: string; session: PaneSession };
 
 export const initialDeckState: DeckState = {
   workspaces: [],
@@ -205,6 +217,35 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           action.title,
         ),
       };
+    }
+    case "hydrate":
+      return action.state;
+    case "revivePane": {
+      // revivePane returns the same ref for an absent/already-live pane, so a
+      // re-fired revive effect causes no re-render.
+      const workspaces = revivePane(state.workspaces, action.wsId, action.paneId);
+      if (workspaces === state.workspaces) return state;
+      return { ...state, workspaces };
+    }
+    case "resetPaneLocation": {
+      const workspaces = resetPaneLocation(
+        state.workspaces,
+        action.wsId,
+        action.paneId,
+      );
+      if (workspaces === state.workspaces) return state;
+      return { ...state, workspaces };
+    }
+    case "setPaneSession": {
+      // Same-id rebinds return the same ref — binding refreshes are no-ops.
+      const workspaces = setPaneSession(
+        state.workspaces,
+        action.wsId,
+        action.paneId,
+        action.session,
+      );
+      if (workspaces === state.workspaces) return state;
+      return { ...state, workspaces };
     }
   }
 }

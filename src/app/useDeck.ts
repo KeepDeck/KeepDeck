@@ -1,6 +1,6 @@
 import { useReducer } from "react";
-import { deckReducer, initialDeckState } from "../domain/deck";
-import type { Pane } from "../domain/panes";
+import { deckReducer, initialDeckState, type DeckState } from "../domain/deck";
+import type { Pane, PaneSession } from "../domain/panes";
 import type { Workspace } from "../domain/workspaces";
 
 /** The deck surface the application hooks drive (state + bound actions). */
@@ -37,5 +37,12 @@ export function useDeck() {
       dispatch({ type: "renamePane", wsId, paneId, name }),
     setPaneAutoTitle: (wsId: string, paneId: string, title: string) =>
       dispatch({ type: "setPaneAutoTitle", wsId, paneId, title }),
+    hydrate: (state: DeckState) => dispatch({ type: "hydrate", state }),
+    revivePane: (wsId: string, paneId: string) =>
+      dispatch({ type: "revivePane", wsId, paneId }),
+    resetPaneLocation: (wsId: string, paneId: string) =>
+      dispatch({ type: "resetPaneLocation", wsId, paneId }),
+    setPaneSession: (wsId: string, paneId: string, session: PaneSession) =>
+      dispatch({ type: "setPaneSession", wsId, paneId, session }),
   };
 }

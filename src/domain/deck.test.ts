@@ -195,3 +195,93 @@ describe("deckReducer pane naming", () => {
     expect(next).toBe(start); // no change → same ref → no re-render
   });
 });
+
+describe("deckReducer restore actions ([F7])", () => {
+  const dormantWs: Workspace = {
+    id: "ws-1",
+    name: "ws-1",
+    cwd: "/tmp",
+    worktreeBaseDir: null,
+    panes: [{ id: "pane-1", dormant: true }, { id: "pane-2" }],
+  };
+
+  it("hydrate replaces the whole deck state", () => {
+    const restored = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    expect(
+      deckReducer(initialDeckState, { type: "hydrate", state: restored }),
+    ).toBe(restored);
+  });
+
+  it("revivePane clears the dormant flag", () => {
+    const next = deckReducer(state({ workspaces: [dormantWs], activeId: "ws-1" }), {
+      type: "revivePane",
+      wsId: "ws-1",
+      paneId: "pane-1",
+    });
+    expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1" });
+  });
+
+  it("revivePane is a no-op (same ref) for a live or unknown pane", () => {
+    const start = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    expect(
+      deckReducer(start, { type: "revivePane", wsId: "ws-1", paneId: "pane-2" }),
+    ).toBe(start);
+    expect(
+      deckReducer(start, { type: "revivePane", wsId: "ws-1", paneId: "nope" }),
+    ).toBe(start);
+  });
+
+  it("resetPaneLocation drops cwd/branch/session; no-op when nothing to drop", () => {
+    const wtWs: Workspace = {
+      id: "ws-1",
+      name: "ws-1",
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [
+        {
+          id: "pane-1",
+          dormant: true,
+          cwd: "/repo/wt",
+          branch: "kd/ws/1",
+          session: { id: "s", boundAt: "2026-07-02T00:00:00Z" },
+        },
+        { id: "pane-2" },
+      ],
+    };
+    const start = state({ workspaces: [wtWs], activeId: "ws-1" });
+    const next = deckReducer(start, {
+      type: "resetPaneLocation",
+      wsId: "ws-1",
+      paneId: "pane-1",
+    });
+    // Location and resume key are gone; the pane itself (and dormancy) remain.
+    expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1", dormant: true });
+    expect(
+      deckReducer(start, {
+        type: "resetPaneLocation",
+        wsId: "ws-1",
+        paneId: "pane-2",
+      }),
+    ).toBe(start);
+  });
+
+  it("setPaneSession binds the resume key and no-ops on a same-id rebind", () => {
+    const session = { id: "s-1", boundAt: "2026-07-02T00:00:00Z" };
+    const start = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const bound = deckReducer(start, {
+      type: "setPaneSession",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      session,
+    });
+    expect(bound.workspaces[0].panes[1].session).toEqual(session);
+    expect(
+      deckReducer(bound, {
+        type: "setPaneSession",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        session: { id: "s-1", boundAt: "2026-07-02T09:00:00Z" },
+      }),
+    ).toBe(bound);
+  });
+});
