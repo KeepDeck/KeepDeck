@@ -5,7 +5,7 @@ import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../../ipc/session";
 import { openPath, openUrl } from "../../ipc/app";
-import { readText, writeText } from "../../ipc/clipboard";
+import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerPaneInput } from "../../app/paneInput";
 import { keyAction } from "../../domain/keymap";
 import {
@@ -163,10 +163,13 @@ export function TerminalPane({
 
     // Own terminal paste the same way: intercept the DOM `paste` event (⌘V and
     // the Edit menu both end here) before xterm's built-in listener, read the
-    // pasteboard through the clipboard manager, and hand the text to xterm
-    // (which applies bracketed paste itself). Capture phase so it wins over
-    // xterm's textarea listener.
-    const onPaste = createPasteHandler(readText, (text) => term.paste(text));
+    // pasteboard through the clipboard manager, and hand the text — or, for an
+    // image-only clipboard, a temp-PNG path — to xterm (which applies
+    // bracketed paste itself). Capture phase so it wins over xterm's textarea
+    // listener.
+    const onPaste = createPasteHandler(readText, readImageTempPath, (text) =>
+      term.paste(text),
+    );
     host.addEventListener("paste", onPaste, true);
 
     // OSC 52 ([F21]): a program inside the pane (tmux, vim, an agent TUI)

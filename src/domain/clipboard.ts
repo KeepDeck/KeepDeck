@@ -76,11 +76,15 @@ export interface ClipboardEventLike {
  * menu both end up here) and re-route it through the clipboard manager, so
  * paste reads the pasteboard over the same native path copy writes it.
  * Cancels WebKit's own insertion and stops xterm's built-in paste listener
- * (which would read WebKit's bridge) from running. A clipboard without text
- * (readText rejects) pastes nothing, matching the native behavior.
+ * (which would read WebKit's bridge) from running. Text wins; a text-less
+ * clipboard falls back to `readImagePath` — the manager saves a pasteboard
+ * image to a temp PNG and its PATH is pasted, the same bridge an [F4] image
+ * drop uses (a PTY is a byte stream; a file path is how clipboard images
+ * reach CLIs). No text and no image pastes nothing.
  */
 export function createPasteHandler(
   readText: () => Promise<string>,
+  readImagePath: () => Promise<string | null>,
   paste: (text: string) => void,
 ): (ev: ClipboardEventLike) => void {
   return (ev) => {
@@ -89,7 +93,15 @@ export function createPasteHandler(
     void readText()
       .catch(() => "")
       .then((text) => {
-        if (text) paste(text);
+        if (text) {
+          paste(text);
+          return;
+        }
+        return readImagePath()
+          .catch(() => null)
+          .then((path) => {
+            if (path) paste(path);
+          });
       });
   };
 }

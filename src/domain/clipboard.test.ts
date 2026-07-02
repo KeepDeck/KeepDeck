@@ -94,9 +94,16 @@ describe("createPasteHandler", () => {
     stopImmediatePropagation: vi.fn(),
   });
 
+  const noText = () => Promise.reject<string>(new Error("no text"));
+  const noImage = () => Promise.resolve<string | null>(null);
+
   it("owns the event and pastes the clipboard text", async () => {
     const paste = vi.fn();
-    const handler = createPasteHandler(() => Promise.resolve("привет"), paste);
+    const handler = createPasteHandler(
+      () => Promise.resolve("привет"),
+      noImage,
+      paste,
+    );
     const ev = pasteEvent();
 
     handler(ev);
@@ -108,24 +115,61 @@ describe("createPasteHandler", () => {
     await vi.waitFor(() => expect(paste).toHaveBeenCalledWith("привет"));
   });
 
-  it("pastes nothing when the clipboard text is empty", async () => {
+  it("prefers the text when the clipboard holds both text and an image", async () => {
     const paste = vi.fn();
-    const handler = createPasteHandler(() => Promise.resolve(""), paste);
+    const readImage = vi.fn(() => Promise.resolve("/tmp/kd.png"));
+    const handler = createPasteHandler(
+      () => Promise.resolve("caption"),
+      readImage,
+      paste,
+    );
 
     handler(pasteEvent());
-    await Promise.resolve();
-    expect(paste).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(paste).toHaveBeenCalledWith("caption"));
+    // The image must not even be read — no temp file for a text paste.
+    expect(readImage).not.toHaveBeenCalled();
   });
 
-  it("pastes nothing when the clipboard holds no text (read rejects)", async () => {
+  it("pastes the temp-image path when the clipboard holds an image but no text", async () => {
     const paste = vi.fn();
     const handler = createPasteHandler(
-      () => Promise.reject(new Error("no text")),
+      noText,
+      () => Promise.resolve("/tmp/keepdeck_clipboard_1.png"),
       paste,
     );
     const ev = pasteEvent();
 
     handler(ev);
+    // Still owned synchronously — the image read is async too.
+    expect(ev.preventDefault).toHaveBeenCalledOnce();
+    expect(ev.stopImmediatePropagation).toHaveBeenCalledOnce();
+
+    await vi.waitFor(() =>
+      expect(paste).toHaveBeenCalledWith("/tmp/keepdeck_clipboard_1.png"),
+    );
+  });
+
+  it("pastes nothing when the clipboard text is empty and there is no image", async () => {
+    const paste = vi.fn();
+    const handler = createPasteHandler(() => Promise.resolve(""), noImage, paste);
+
+    handler(pasteEvent());
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(paste).not.toHaveBeenCalled();
+  });
+
+  it("pastes nothing when both reads fail (no text, image read rejects)", async () => {
+    const paste = vi.fn();
+    const handler = createPasteHandler(
+      noText,
+      () => Promise.reject(new Error("no image")),
+      paste,
+    );
+    const ev = pasteEvent();
+
+    handler(ev);
+    await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
     expect(paste).not.toHaveBeenCalled();
