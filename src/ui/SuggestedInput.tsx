@@ -52,7 +52,17 @@ export function SuggestedInput({
         className={`form__input form__field-input${hint ? " form__input--hint" : ""}`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onFocus={() => setFocused(true)}
+        onFocus={(e) => {
+          setFocused(true);
+          // WebKit parks the caret at the text START when focus arrives
+          // without a click (Tab, programmatic) — an untouched input's
+          // default selection is (0,0). A prefilled value is edited at its
+          // end, so move the caret there. Synchronous on purpose: a real
+          // click places its own caret right after focus and still wins.
+          const el = e.currentTarget;
+          if (el.selectionStart === 0 && el.selectionEnd === 0 && el.value)
+            el.setSelectionRange(el.value.length, el.value.length);
+        }}
         onBlur={() => setFocused(false)}
         placeholder={placeholder}
         aria-label={ariaLabel}

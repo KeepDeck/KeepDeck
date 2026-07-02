@@ -138,6 +138,24 @@ describe("SuggestedInput", () => {
     expect(resetBtn()).toBeNull();
   });
 
+  it("moves the default (0,0) caret to the end on focus — Tab/programmatic focus edits at the end", () => {
+    mount({ init: "kd/agent-1", suggestion: "kd/agent-1" });
+    input().setSelectionRange(0, 0); // the untouched-input default
+    act(() => input().focus());
+
+    expect(input().selectionStart).toBe("kd/agent-1".length);
+    expect(input().selectionEnd).toBe("kd/agent-1".length);
+  });
+
+  it("leaves a deliberately placed caret alone on focus", () => {
+    mount({ init: "kd/agent-1", suggestion: "kd/agent-1" });
+    input().setSelectionRange(3, 3); // e.g. restored from a prior edit
+    act(() => input().focus());
+
+    expect(input().selectionStart).toBe(3);
+    expect(input().selectionEnd).toBe(3);
+  });
+
   it("without a suggestion there is never a reset and never a hint", () => {
     mount({ init: "", suggestion: "", clearTitle: "Clear" });
     expect(hinted()).toBe(false);
