@@ -22,6 +22,9 @@ pub struct AgentDto {
     pub installed: bool,
     /// Absolute path of the resolved binary, when installed.
     pub path: Option<String>,
+    /// CLI args placed before a session id to resume it ([F8]) —
+    /// `["--resume"]` for claude, `["resume"]` for codex, `["-s"]` for opencode.
+    pub resume_prefix: Vec<String>,
 }
 
 impl From<AgentStatus> for AgentDto {
@@ -33,6 +36,11 @@ impl From<AgentStatus> for AgentDto {
             installed: status.installed,
             // Lossy is fine for display; agent binaries live at UTF-8 paths.
             path: status.path.map(|p| p.to_string_lossy().into_owned()),
+            resume_prefix: status
+                .resume_prefix
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
         }
     }
 }
@@ -58,12 +66,15 @@ mod tests {
             command: "claude".into(),
             installed: true,
             path: Some(PathBuf::from("/opt/homebrew/bin/claude")),
+            resume_prefix: &["--resume"],
         });
         assert_eq!(dto.path.as_deref(), Some("/opt/homebrew/bin/claude"));
 
         let json = serde_json::to_value(&dto).unwrap();
         assert_eq!(json["installed"], true);
         assert_eq!(json["command"], "claude");
+        // The resume recipe reaches the wire camelCased ([F8]).
+        assert_eq!(json["resumePrefix"], serde_json::json!(["--resume"]));
         // camelCase / null path round-trip for an uninstalled agent.
         let missing = AgentDto::from(AgentStatus {
             id: "codex".into(),
@@ -71,6 +82,7 @@ mod tests {
             command: "codex".into(),
             installed: false,
             path: None,
+            resume_prefix: &["resume"],
         });
         let json = serde_json::to_value(&missing).unwrap();
         assert_eq!(json["path"], serde_json::Value::Null);

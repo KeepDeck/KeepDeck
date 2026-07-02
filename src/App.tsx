@@ -8,6 +8,12 @@ import { pickFolder } from "./ipc/dialogs";
 import { inspectRepo, probeWorktree } from "./ipc/worktree";
 import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
+import { usePersistence } from "./app/usePersistence";
+import { useRevive } from "./app/useRevive";
+import { useSessionBinding } from "./app/useSessionBinding";
+import { useSpawnContext } from "./app/useSpawnContext";
+import { paneSpawnSpec } from "./app/spawnSpecs";
+import type { SpawnPlan } from "./domain/spawnPlans";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -41,6 +47,16 @@ function App() {
   const deck = useDeck();
   // Detected agent catalog (labels/commands/install status), fetched from Rust.
   const { agents } = useAgents();
+  // Restore the saved deck on boot; save (debounced) on every change ([F7]).
+  const { restoring } = usePersistence(deck);
+  // Per-install spawn-plan constants (spool dir, reporter activation) — the
+  // deck's first paint waits for it ([F7]/[F8] session identity v2).
+  const spawnCtx = useSpawnContext();
+  // Wake restored panes lazily per workspace — resuming recorded sessions —
+  // and report gone directories ([F7]/[F8]).
+  const revive = useRevive(deck, agents, spawnCtx);
+  // Record session bindings: assigned ids at spawn, reporter postbacks after.
+  useSessionBinding(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
@@ -109,6 +125,21 @@ function App() {
     agentCount: w.panes.length,
   }));
 
+  // While the saved deck (or the spawn context) is loading, paint only the
+  // shell background — the boot splash covers this moment; rendering panes
+  // before the spawn context arrives would spawn them without their session
+  // identity ([F7]/[F8]).
+  if (restoring || !spawnCtx) return <div className="deck" />;
+
+  // Every live pane's spawn plan (cached per pane id — a claude plan mints
+  // its session id once). Dormant panes get theirs at revive time.
+  const specByPane: Record<string, SpawnPlan> = {};
+  for (const ws of deck.workspaces) {
+    for (const pane of ws.panes) {
+      if (!pane.dormant) specByPane[pane.id] = paneSpawnSpec(pane, spawnCtx, agents);
+    }
+  }
+
   return (
     <div className="deck">
       <header className="deck__bar">
@@ -175,6 +206,9 @@ function App() {
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onPaneTitle={deck.setPaneAutoTitle}
+            dormantBlocked={revive.blocked}
+            specByPane={specByPane}
+            onStartFresh={revive.startFresh}
           />
 
           {showForm &&

@@ -19,9 +19,9 @@ use std::path::PathBuf;
 
 /// A first-class agent KeepDeck knows how to launch. A static catalog entry.
 ///
-/// Richer metadata (resume strategy for [F8], icon / default args / key quirks
-/// for [F9]) will extend this struct when those features land — adding a field
-/// is a localized change that leaves detection and the existing UI untouched.
+/// Richer metadata (icon / default args / key quirks for [F9]) will extend
+/// this struct when those features land — adding a field is a localized change
+/// that leaves detection and the existing UI untouched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AgentSpec {
     /// Stable identifier, mirrored by the frontend `AgentType` union (`"claude"`).
@@ -31,6 +31,10 @@ pub struct AgentSpec {
     /// Candidate executable names, tried in order; the first found wins. A slice
     /// (not a single name) so a CLI renamed across versions can still be found.
     pub bin: &'static [&'static str],
+    /// The resume recipe ([F8]): CLI args placed BEFORE a session id to
+    /// relaunch into that recorded session — `claude --resume <id>`,
+    /// `codex resume <id>`, `opencode -s <id>` (verified, RESUME doc §2).
+    pub resume_prefix: &'static [&'static str],
 }
 
 /// The canonical set of supported agents. Order is the UI's display order and
@@ -40,16 +44,19 @@ pub static AGENTS: &[AgentSpec] = &[
         id: "claude",
         label: "Claude Code",
         bin: &["claude"],
+        resume_prefix: &["--resume"],
     },
     AgentSpec {
         id: "opencode",
         label: "OpenCode",
         bin: &["opencode"],
+        resume_prefix: &["-s"],
     },
     AgentSpec {
         id: "codex",
         label: "Codex",
         bin: &["codex"],
+        resume_prefix: &["resume"],
     },
 ];
 
@@ -68,6 +75,9 @@ pub struct AgentStatus {
     pub installed: bool,
     /// Absolute path of the resolved binary, when installed.
     pub path: Option<PathBuf>,
+    /// The spec's [`AgentSpec::resume_prefix`] — carried to the UI so it can
+    /// build resume args (`[...prefix, sessionId]`) without a second lookup.
+    pub resume_prefix: &'static [&'static str],
 }
 
 impl AgentSpec {
@@ -85,6 +95,7 @@ impl AgentSpec {
                 command: bin.to_string(),
                 installed: true,
                 path: Some(abs),
+                resume_prefix: self.resume_prefix,
             },
             None => AgentStatus {
                 id: self.id.to_string(),
@@ -93,6 +104,7 @@ impl AgentSpec {
                 command: self.bin.first().copied().unwrap_or(self.id).to_string(),
                 installed: false,
                 path: None,
+                resume_prefix: self.resume_prefix,
             },
         }
     }
@@ -141,8 +153,30 @@ mod tests {
             assert!(!spec.id.is_empty(), "id must be non-empty");
             assert!(!spec.label.is_empty(), "label must be non-empty");
             assert!(!spec.bin.is_empty(), "{} must have a candidate bin", spec.id);
+            assert!(
+                !spec.resume_prefix.is_empty(),
+                "{} must carry a resume recipe ([F8])",
+                spec.id
+            );
             assert!(seen.insert(spec.id), "duplicate id {}", spec.id);
         }
+    }
+
+    #[test]
+    fn detection_carries_the_resume_prefix_through() {
+        let statuses = detect(OsStr::new(""));
+        let by_id = |id: &str| {
+            statuses
+                .iter()
+                .find(|s| s.id == id)
+                .unwrap()
+                .resume_prefix
+        };
+        // The verified per-agent recipes (RESUME doc §2) — pinned so a catalog
+        // edit can't silently break resume.
+        assert_eq!(by_id("claude"), &["--resume"]);
+        assert_eq!(by_id("codex"), &["resume"]);
+        assert_eq!(by_id("opencode"), &["-s"]);
     }
 
     #[cfg(unix)]

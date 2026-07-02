@@ -1,0 +1,132 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DeckState } from "../domain/deck";
+import { EMPTY_SPAWN_CONTEXT } from "../domain/spawnPlans";
+import { peekPaneSpawnSpec, resetPaneSpawnSpecs } from "./spawnSpecs";
+import type { Deck } from "./useDeck";
+import { useDeck } from "./useDeck";
+import { useRevive, type ReviveApi } from "./useRevive";
+
+// React 19 requires this flag for act() outside a test-framework integration.
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
+  true;
+
+const ipc = vi.hoisted(() => ({
+  probeWorktree: vi.fn(),
+  sessionExists: vi.fn(),
+  latestSession: vi.fn(),
+}));
+vi.mock("../ipc/worktree", () => ({ probeWorktree: ipc.probeWorktree }));
+vi.mock("../ipc/history", () => ({
+  sessionExists: ipc.sessionExists,
+  latestSession: ipc.latestSession,
+}));
+
+let deck: Deck;
+let revive: ReviveApi;
+const ctx = { ...EMPTY_SPAWN_CONTEXT, spoolDir: "/spool" };
+
+function Probe() {
+  deck = useDeck();
+  revive = useRevive(deck, [], ctx);
+  return null;
+}
+
+/** A deck with one dormant claude pane; `pane` overrides fields. */
+const restored = (pane: object): DeckState => ({
+  workspaces: [
+    {
+      id: "ws-1",
+      name: "ws",
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [{ id: "pane-1", agentType: "claude", dormant: true, ...pane }],
+    },
+  ],
+  activeId: "ws-1",
+  focusByWs: {},
+  selectByWs: {},
+});
+
+/** Let the probe→validate→revive promise chain settle. */
+const settle = async () => {
+  for (let i = 0; i < 4; i++) await act(async () => {});
+};
+
+describe("useRevive — session policy", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    ipc.sessionExists.mockReset();
+    ipc.latestSession.mockReset().mockResolvedValue(null);
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const pane = () => deck.workspaces[0].panes[0];
+
+  it("a recorded session that still exists is resumed", async () => {
+    ipc.sessionExists.mockResolvedValue(true);
+    act(() => deck.hydrate(restored({ session: { id: "old", boundAt: "t" } })));
+    await settle();
+
+    expect(pane().dormant).toBeUndefined();
+    expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "old"]);
+    expect(ipc.latestSession).not.toHaveBeenCalled();
+  });
+
+  it("a recorded session that's GONE starts fresh — NEVER someone else's", async () => {
+    // The empty-claude-pane bug: an assigned id nobody spoke to never
+    // materialized; falling back to newest-in-directory resurrected an
+    // unrelated old conversation.
+    ipc.sessionExists.mockResolvedValue(false);
+    act(() => deck.hydrate(restored({ session: { id: "ghost", boundAt: "t" } })));
+    await settle();
+
+    expect(pane().dormant).toBeUndefined();
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
+    expect(ipc.latestSession).not.toHaveBeenCalled(); // no directory theft
+    // The dead binding is DROPPED — otherwise the fresh spawn's identity can
+    // never be recorded (the binding hook refuses to overwrite an existing
+    // session) and the pane keeps resurrecting fresh forever.
+    expect(pane().session).toBeUndefined();
+  });
+
+  it("a never-bound pane falls back to the directory's newest session", async () => {
+    ipc.latestSession.mockResolvedValue({ id: "found", modifiedMs: 1 });
+    act(() => deck.hydrate(restored({})));
+    await settle();
+
+    expect(pane().dormant).toBeUndefined();
+    expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "found"]);
+    expect(ipc.sessionExists).not.toHaveBeenCalled();
+  });
+
+  it("a gone directory blocks revival instead of spawning into nowhere", async () => {
+    ipc.probeWorktree.mockResolvedValue({
+      exists: false,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() => deck.hydrate(restored({ cwd: "/repo/wt-gone" })));
+    await settle();
+
+    expect(pane().dormant).toBe(true);
+    expect(revive.blocked["pane-1"]).toBe("/repo/wt-gone");
+  });
+});

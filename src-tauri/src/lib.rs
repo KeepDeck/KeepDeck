@@ -1,12 +1,16 @@
 mod agents;
 mod clipboard;
 mod dnd;
+mod history;
 mod links;
 mod menu;
 mod session;
+mod sessions;
+mod state;
 mod worktree;
 
 use serde::Serialize;
+use tauri::Manager as _;
 
 /// Build/runtime info surfaced to the deck UI.
 ///
@@ -43,6 +47,13 @@ pub fn run() {
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
+        .setup(|app| {
+            // The session spool: agents report their session ids here; the
+            // watcher lives as managed state for the app's lifetime.
+            let watcher = sessions::watch_spool(app.handle())?;
+            app.manage(watcher);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             app_info,
             agents::agents_list,
@@ -55,6 +66,13 @@ pub fn run() {
             session::session_write,
             session::session_resize,
             session::session_close,
+            state::deck_state_load,
+            state::deck_state_save,
+            state::deck_state_quarantine,
+            history::history_latest,
+            history::history_exists,
+            sessions::session_spawn_context,
+            sessions::deck_log,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
             worktree::worktree_probe,

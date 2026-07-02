@@ -29,6 +29,12 @@ interface TerminalPaneProps {
   paneId: string;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
+  /** Extra CLI args for the program — session identity / resume ([F7]/[F8]).
+   * Read once at spawn time; later changes never restart a live session. */
+  args?: string[];
+  /** Extra environment for the program — reporter activation ([F7]/[F8]).
+   * Read once at spawn time, like `args`. */
+  env?: [string, string][];
   /** Working directory for the session; omitted uses the app's cwd. */
   cwd?: string | null;
   /** Whether this pane is currently on screen (active workspace, not collapsed). */
@@ -56,6 +62,8 @@ interface TerminalPaneProps {
 export function TerminalPane({
   paneId,
   command,
+  args,
+  env,
   cwd,
   visible,
   selected,
@@ -91,6 +99,12 @@ export function TerminalPane({
   onExitRef.current = onExit;
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
+  // Args/env matter only at spawn time — refs keep them out of the effect
+  // deps so a later change can't tear down and restart a live session.
+  const argsRef = useRef(args);
+  argsRef.current = args;
+  const envRef = useRef(env);
+  envRef.current = env;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -257,7 +271,16 @@ export function TerminalPane({
       },
     });
 
-    spawnSession({ command, cwd, cols: term.cols, rows: term.rows }, (event) => {
+    spawnSession(
+      {
+        command,
+        args: argsRef.current,
+        env: envRef.current,
+        cwd,
+        cols: term.cols,
+        rows: term.rows,
+      },
+      (event) => {
       // Ignore events from a session whose pane was already torn down — notably
       // the throwaway first session of a StrictMode double-mount, whose close()
       // emits an exit (code 1) that would otherwise flash the [U4] "agent

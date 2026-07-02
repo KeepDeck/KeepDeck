@@ -9,6 +9,9 @@ export interface SpawnOptions {
   /** Program to run; omit/null to use the user's shell. */
   command?: string | null;
   args?: string[];
+  /** Extra environment on top of the inherited one (the [F7]/[F8] session
+   * identity plan: pane id, spool path, reporter activation). */
+  env?: [string, string][];
   cwd?: string | null;
   cols: number;
   rows: number;
@@ -39,6 +42,7 @@ export async function spawnSession(
     spec: {
       command: opts.command ?? null,
       args: opts.args ?? [],
+      env: opts.env ?? [],
       cwd: opts.cwd ?? null,
       cols: opts.cols,
       rows: opts.rows,

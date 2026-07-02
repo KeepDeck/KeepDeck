@@ -8,6 +8,10 @@ interface AgentPaneProps {
   title: string;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
+  /** Extra CLI args for the program (session identity / resume, [F7]/[F8]). */
+  args?: string[];
+  /** Extra environment for the program (reporter activation, [F7]/[F8]). */
+  env?: [string, string][];
   /** Working directory for the session. */
   cwd?: string | null;
   /** Git branch of the agent's worktree, shown in the header when isolated. */
@@ -23,6 +27,14 @@ interface AgentPaneProps {
   /** The only pane in its workspace: no maximize control ([U1]) and no highlight
    * border ([U2]) — there's nothing to maximize over or tell it apart from. */
   solo: boolean;
+  /** Restored from disk, not yet revived ([F7]) — render a quiet tile instead
+   * of mounting a terminal (mounting is what spawns the PTY). */
+  dormant?: boolean;
+  /** The missing directory blocking revival, when the pane can't wake where it
+   * was ([F7] restore reconcile). */
+  blockedDir?: string | null;
+  /** Detach from the missing worktree and start fresh in the workspace cwd. */
+  onStartFresh?(): void;
   /** Grid columns this pane spans (>1 lets a partial last row fill the width). */
   colSpan: number;
   onSelect(): void;
@@ -45,6 +57,8 @@ export function AgentPane({
   paneId,
   title,
   command,
+  args,
+  env,
   cwd,
   branch,
   visible,
@@ -52,6 +66,8 @@ export function AgentPane({
   collapsed,
   selected,
   solo,
+  dormant,
+  blockedDir,
   colSpan,
   onSelect,
   onToggleFocus,
@@ -59,6 +75,7 @@ export function AgentPane({
   onClose,
   onRename,
   onTitle,
+  onStartFresh,
 }: AgentPaneProps) {
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
@@ -144,16 +161,45 @@ export function AgentPane({
         </div>
       </header>
       <div className="pane__body">
-        <TerminalPane
-          paneId={paneId}
-          command={command}
-          cwd={cwd}
-          visible={visible}
-          selected={selected}
-          onExit={(code) => setExit({ code })}
-          onTitle={onTitle}
-        />
-        {exit && (
+        {dormant ? (
+          // Restored, no PTY behind it ([F7]). Normally transient (the revive
+          // effect wakes active-workspace panes); it persists only when the
+          // pane's directory is gone.
+          <div className="pane__dormant" role="status">
+            {blockedDir ? (
+              <>
+                <span className="pane__exit-title">Folder is gone</span>
+                <span className="pane__exit-sub pane__dormant-path" title={blockedDir}>
+                  {blockedDir}
+                </span>
+                {onStartFresh && (
+                  <button
+                    type="button"
+                    className="pane__dormant-action"
+                    onClick={onStartFresh}
+                  >
+                    Start fresh in the workspace folder
+                  </button>
+                )}
+              </>
+            ) : (
+              <span className="pane__exit-title">Waking up…</span>
+            )}
+          </div>
+        ) : (
+          <TerminalPane
+            paneId={paneId}
+            command={command}
+            args={args}
+            env={env}
+            cwd={cwd}
+            visible={visible}
+            selected={selected}
+            onExit={(code) => setExit({ code })}
+            onTitle={onTitle}
+          />
+        )}
+        {exit && !dormant && (
           <div className="pane__exit" role="status">
             <span className="pane__exit-title">Agent exited</span>
             <span className="pane__exit-sub">

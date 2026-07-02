@@ -1,5 +1,5 @@
 import type { AgentType } from "./agents";
-import { appendPane, removePane, type Pane } from "./panes";
+import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
  * in the same working directory. Switching the active workspace swaps which set
@@ -123,6 +123,75 @@ export function setPaneAutoTitle(
   const next = title.trim() || undefined;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => (p.id === paneId ? { ...p, autoTitle: next } : p)),
+  );
+}
+
+/** Wake a dormant (restored, no PTY) pane so its terminal mounts and spawns
+ * ([F7]). Returns the SAME array when the pane is absent or already live, so
+ * a repeated revive effect doesn't re-render anything. */
+export function revivePane(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+): Workspace[] {
+  const pane = workspaces
+    .find((w) => w.id === workspaceId)
+    ?.panes.find((p) => p.id === paneId);
+  if (!pane?.dormant) return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) => {
+      if (p.id !== paneId) return p;
+      const { dormant: _dormant, ...live } = p;
+      return live;
+    }),
+  );
+}
+
+/** Record the agent session a live pane is bound to — the resume key persisted
+ * with the deck ([F7]/[F8]) — or DROP it (`null`) when the recorded session
+ * turned out dead (a fresh revive must not keep pointing at a ghost, or the
+ * pane's real session is never re-bound). Same-id rebinds and clearing an
+ * already-clear pane return the SAME array (no-op). */
+export function setPaneSession(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  session: PaneSession | null,
+): Workspace[] {
+  const pane = workspaces
+    .find((w) => w.id === workspaceId)
+    ?.panes.find((p) => p.id === paneId);
+  if (!pane || (pane.session?.id ?? null) === (session?.id ?? null))
+    return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) => {
+      if (p.id !== paneId) return p;
+      if (session) return { ...p, session };
+      const { session: _dead, ...rest } = p;
+      return rest;
+    }),
+  );
+}
+
+/** Detach a pane from its (gone) worktree so it can start fresh in the
+ * workspace cwd ([F7] restore reconcile): drops `cwd`/`branch` AND the recorded
+ * session — a directory-bound session can't resume somewhere else. Returns the
+ * SAME array when there's nothing to drop. */
+export function resetPaneLocation(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+): Workspace[] {
+  const pane = workspaces
+    .find((w) => w.id === workspaceId)
+    ?.panes.find((p) => p.id === paneId);
+  if (!pane || (!pane.cwd && !pane.branch && !pane.session)) return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) => {
+      if (p.id !== paneId) return p;
+      const { cwd: _cwd, branch: _branch, session: _session, ...rest } = p;
+      return rest;
+    }),
   );
 }
 
