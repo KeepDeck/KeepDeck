@@ -13,7 +13,7 @@ import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
-import { closeHotkeyTarget } from "./domain/hotkeys";
+import { closeHotkeyTarget, maximizeHotkeyTarget } from "./domain/hotkeys";
 import type { SpawnConfig } from "./domain/workspaces";
 import { MAX_PANES } from "./domain/layout";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
@@ -70,10 +70,16 @@ function App() {
     closeFlow.closing !== null ||
     error !== null;
 
-  // Native-menu hotkeys: ⌘T opens the spawn dialog, ⌘W asks to close the
-  // selected pane. A hotkey bypasses both button disabling and the modal
-  // overlay, so those guards are mirrored here.
+  // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
+  // ⌘W asks to close the selected pane (an empty workspace: the workspace
+  // itself), ⇧⌘M toggles its maximize. A hotkey
+  // bypasses both button disabling and the modal overlay, so those guards are
+  // mirrored here.
   useMenuHotkeys({
+    newWorkspace: () => {
+      if (modalOpen) return;
+      setCreating(true);
+    },
     newAgent: () => {
       if (!active || atCap || modalOpen) return;
       void agentFlow.openFor(active);
@@ -86,8 +92,21 @@ function App() {
         deck.selectByWs,
         agents,
       );
-      if (target)
+      if (!target) return;
+      if (target.kind === "workspace")
+        closeFlow.requestCloseWorkspace(target.wsId);
+      else
         closeFlow.requestCloseAgent(target.wsId, target.paneId, target.label);
+    },
+    toggleMaximize: () => {
+      if (modalOpen) return;
+      const target = maximizeHotkeyTarget(
+        deck.workspaces,
+        deck.activeId,
+        deck.focusByWs,
+        deck.selectByWs,
+      );
+      if (target) deck.toggleFocus(target.wsId, target.paneId);
     },
   });
 

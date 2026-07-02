@@ -2,14 +2,20 @@ import { useEffect, useRef } from "react";
 import {
   CLOSE_AGENT_EVENT,
   NEW_AGENT_EVENT,
+  NEW_WORKSPACE_EVENT,
+  TOGGLE_MAXIMIZE_EVENT,
   onMenuEvent,
 } from "../ipc/menu";
 
 export interface MenuActions {
+  /** File → New Workspace… (⌘N). */
+  newWorkspace(): void;
   /** File → New Agent… (⌘T). */
   newAgent(): void;
-  /** File → Close Agent (⌘W). */
+  /** File → Close Agent (⌘W); in an empty workspace closes the workspace. */
   closeAgent(): void;
+  /** View → Toggle Maximize Agent (⇧⌘M). */
+  toggleMaximize(): void;
 }
 
 /**
@@ -32,8 +38,10 @@ export function useMenuHotkeys(actions: MenuActions) {
         })
         .catch(() => {});
     };
+    subscribe(NEW_WORKSPACE_EVENT, "newWorkspace");
     subscribe(NEW_AGENT_EVENT, "newAgent");
     subscribe(CLOSE_AGENT_EVENT, "closeAgent");
+    subscribe(TOGGLE_MAXIMIZE_EVENT, "toggleMaximize");
     return () => {
       cancelled = true;
       unlisteners.forEach((un) => un());
