@@ -771,8 +771,8 @@ body {
   color: #6b7280;
 }
 
-/* Worktree path picker ([F2]): one editable field with an inline ✕ clear and a
-   Choose… button. Empty field = run in the main repo. */
+/* Worktree path picker ([F2]): a SuggestedInput plus a Choose… button.
+   Empty field = run in the main repo. */
 .form__path {
   display: flex;
   align-items: stretch;
@@ -781,19 +781,30 @@ body {
 }
 
 .form__path-field {
-  position: relative;
   flex: 1;
   min-width: 0;
 }
 
-.form__path-input {
+/* Suggested-value fields (SuggestedInput): a relative wrapper hosting ONE
+   contextual inline button — ✕ clear when there's text, else ↺ reset when the
+   value drifted from the suggestion — and a hint look while the value still
+   equals the suggestion. */
+.form__field {
+  position: relative;
+}
+
+.form__field--gap {
+  margin-bottom: 20px;
+}
+
+.form__field-input {
   box-sizing: border-box; /* keep width:100% + padding inside the field, not overflowing */
   width: 100%;
   margin-bottom: 0;
-  padding-right: 28px; /* room for the ✕ clear button */
+  padding-right: 28px; /* reserved button slot — text doesn't jump when it appears */
 }
 
-.form__path-clear {
+.form__field-btn {
   position: absolute;
   top: 50%;
   right: 6px;
@@ -813,9 +824,19 @@ body {
   cursor: pointer;
 }
 
-.form__path-clear:hover {
+.form__field-btn:hover {
   color: #e6e8eb;
   background-color: #1b2230;
+}
+
+.form__field-btn--reset {
+  font-size: 13px; /* ↺ renders larger than × at equal font size */
+}
+
+/* The suggestion shown as a value: dimmed to placeholder color until the
+   field is focused or edited. */
+.form__input--hint {
+  color: #6b7280;
 }
 
 .form__git {

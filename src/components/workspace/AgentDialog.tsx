@@ -8,6 +8,7 @@ import { useAgents } from "../../app/useAgents";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
+import { SuggestedInput } from "../../ui/SuggestedInput";
 import {
   canCreateAgent,
   classifyLocation,
@@ -146,27 +147,16 @@ export function AgentDialog({
           <>
             <span className="form__label">Worktree</span>
             <div className="form__path">
-              <div className="form__path-field">
-                <input
-                  {...noAutoCorrect}
-                  className="form__input form__path-input"
-                  value={path}
-                  onChange={(e) => setPath(e.target.value)}
-                  placeholder="Empty = main repo · a path = worktree"
-                  aria-label="Worktree path"
-                />
-                {path && (
-                  <button
-                    type="button"
-                    className="form__path-clear"
-                    onClick={() => setPath("")}
-                    title="Clear — run in the main repo"
-                    aria-label="Clear worktree path"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
+              <SuggestedInput
+                value={path}
+                suggestion={suggestedPath}
+                onChange={setPath}
+                className="form__path-field"
+                placeholder="Empty = main repo · a path = worktree"
+                ariaLabel="Worktree path"
+                clearTitle="Clear — run in the main repo"
+                resetTitle="Reset to the suggested path"
+              />
               <button type="button" className="form__dir-btn" onClick={choosePath}>
                 Choose…
               </button>
@@ -176,12 +166,13 @@ export function AgentDialog({
             {kind === "new" && (
               <>
                 <span className="form__label">Branch</span>
-                <input
-                  {...noAutoCorrect}
-                  className="form__input"
+                <SuggestedInput
                   value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
-                  aria-label="Branch name"
+                  suggestion={suggestedBranch}
+                  onChange={setBranch}
+                  className="form__field--gap"
+                  ariaLabel="Branch name"
+                  resetTitle="Reset to the suggested branch"
                 />
                 {!branch.trim() && (
                   <span className="form__error">Branch is required</span>
