@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentInfo } from "../domain/agents";
 import type { Pane } from "../domain/panes";
 import { buildSpawnPlan, type SpawnPlanContext } from "../domain/spawnPlans";
-import { latestSession } from "../ipc/history";
+import { latestSession, sessionExists } from "../ipc/history";
 import { probeWorktree } from "../ipc/worktree";
 import { setPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
@@ -56,6 +56,15 @@ export function useRevive(
       // The persisted binding wins; without one, ask the agent's store for
       // the newest session recorded in this directory.
       let sessionId = pane.session?.id ?? null;
+      if (sessionId) {
+        // Validate before resuming — agents GC/rotate their stores, and a
+        // stale id must degrade to discovery, not resume into an error. A
+        // failed CHECK trusts the binding (worst case: the resume exits).
+        const alive = await sessionExists(agentType, sessionId, dir).catch(
+          () => true,
+        );
+        if (!alive) sessionId = null;
+      }
       if (!sessionId) {
         sessionId =
           (await latestSession(agentType, dir).catch(() => null))?.id ?? null;

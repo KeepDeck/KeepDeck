@@ -26,3 +26,14 @@ export function latestSession(
     sinceMs: sinceMs ?? null,
   });
 }
+
+/** Whether `agent`'s session `id` still exists for `dir` — pre-resume
+ * validation ([F7]/[F8]): a stale binding degrades to discovery instead of
+ * resuming into an error. */
+export function sessionExists(
+  agent: AgentType,
+  id: string,
+  dir: string,
+): Promise<boolean> {
+  return invoke<boolean>("history_exists", { agent, id, dir });
+}
