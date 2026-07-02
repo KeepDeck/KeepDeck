@@ -29,6 +29,7 @@ export function onSessionBound(
  * once at boot. */
 export function spawnContext(): Promise<{
   spoolDir: string;
+  claudeHookArgs: string[] | null;
   codexHookArgs: string[] | null;
   opencodePluginPath: string | null;
 }> {

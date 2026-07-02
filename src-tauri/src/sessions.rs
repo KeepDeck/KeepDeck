@@ -48,10 +48,13 @@ pub fn spool_dir(app: &AppHandle) -> Result<PathBuf, String> {
 pub struct SpawnContextDto {
     /// Where reporters drop postbacks (`KEEPDECK_SPOOL`).
     pub spool_dir: String,
+    /// Ready-made claude `--settings` args arming the SessionStart hook —
+    /// how a mid-life `/clear` (a session swap) reaches KeepDeck.
+    pub claude_hook_args: Option<Vec<String>>,
     /// Ready-made codex `-c` args enabling the SessionStart hook (config +
-    /// trusted hash); None until the hook resource ships (phase 3b).
+    /// trusted hash).
     pub codex_hook_args: Option<Vec<String>>,
-    /// Absolute path of the opencode session-reporter plugin (phase 3c).
+    /// Absolute path of the opencode session-reporter plugin.
     pub opencode_plugin_path: Option<String>,
 }
 
@@ -60,19 +63,43 @@ pub struct SpawnContextDto {
 pub fn session_spawn_context(app: AppHandle) -> Result<SpawnContextDto, String> {
     Ok(SpawnContextDto {
         spool_dir: spool_dir(&app)?.to_string_lossy().into_owned(),
+        claude_hook_args: claude_hook_args(&app),
         codex_hook_args: codex_hook_args(&app),
         opencode_plugin_path: reporter_path(&app, "session-reporter.js"),
     })
 }
 
-/// The `-c` overrides arming the codex SessionStart reporter. Run through
-/// `/bin/sh <script>` explicitly — bundling may drop the exec bit. On a codex
+/// The shared hook script's shell command line, `/bin/sh`-explicit — bundling
+/// may drop the exec bit — with the path single-quote escaped.
+fn hook_command(app: &AppHandle) -> Option<String> {
+    let script = reporter_path(app, "kd-session-hook.sh")?;
+    Some(format!(
+        "/bin/sh {}",
+        keepdeck_history::codex_hook::shell_quote(&script)
+    ))
+}
+
+/// The `--settings` args arming the claude SessionStart reporter. The inline
+/// JSON MERGES with the user's settings (hooks merge per event; verified on
+/// 2.1.198), and SessionStart fires on startup/resume/clear/compact — so a
+/// mid-life `/clear` reports the pane's NEW session id. Built with serde,
+/// never string-glued: print mode silently ignores malformed settings.
+fn claude_hook_args(app: &AppHandle) -> Option<Vec<String>> {
+    let command = hook_command(app)?;
+    let settings = serde_json::json!({
+        "hooks": {
+            "SessionStart": [ { "hooks": [ { "type": "command", "command": command } ] } ]
+        }
+    });
+    Some(vec!["--settings".into(), settings.to_string()])
+}
+
+/// The `-c` overrides arming the codex SessionStart reporter. On a codex
 /// without hooks these overrides are inert (unknown `-c` keys are ignored),
 /// so no version gate is needed; such a pane just stays unbound and revives
 /// via latest-for-directory.
 fn codex_hook_args(app: &AppHandle) -> Option<Vec<String>> {
-    let script = reporter_path(app, "kd-codex-hook.sh")?;
-    let command = format!("/bin/sh {}", keepdeck_history::codex_hook::shell_quote(&script));
+    let command = hook_command(app)?;
     Some(keepdeck_history::codex_hook::cli_args(&command))
 }
 

@@ -20,6 +20,9 @@ import {
 export interface SpawnPlanContext {
   /** Where reporters drop postbacks (`KEEPDECK_SPOOL`); "" = unavailable. */
   spoolDir: string;
+  /** Ready-made claude `--settings` args arming the SessionStart hook —
+   * how a mid-life `/clear` (a session swap) reaches KeepDeck. */
+  claudeHookArgs: string[] | null;
   /** Ready-made codex `-c` args enabling the SessionStart hook (config +
    * trusted hash); null when unavailable (old codex, missing resource). */
   codexHookArgs: string[] | null;
@@ -30,6 +33,7 @@ export interface SpawnPlanContext {
 /** A context with every identity mechanism off — safe boot fallback. */
 export const EMPTY_SPAWN_CONTEXT: SpawnPlanContext = {
   spoolDir: "",
+  claudeHookArgs: null,
   codexHookArgs: null,
   opencodePluginPath: null,
 };
@@ -70,12 +74,15 @@ export function buildSpawnPlan(
 
   switch (agentType) {
     case "claude": {
-      // Resume REUSES the assigned id (forking is opt-in), so a resumed pane
-      // needs no new identity; a fresh one gets its id before the process
-      // even starts — no discovery, ever.
-      if (resume) return { args: resume, env: [] };
+      // The id is ASSIGNED for a fresh spawn (no discovery, ever) and REUSED
+      // on resume (forking is opt-in). The SessionStart hook rides along as
+      // the reporter for mid-life session swaps — /clear and compaction
+      // change the session id underneath an otherwise-silent pane.
+      const hook = ctx.claudeHookArgs ?? [];
+      const env = hook.length > 0 ? reporterEnv : [];
+      if (resume) return { args: [...hook, ...resume], env };
       const id = (opts.mintId ?? mintUuid)();
-      return { args: ["--session-id", id], env: [], sessionId: id };
+      return { args: [...hook, "--session-id", id], env, sessionId: id };
     }
     case "codex": {
       // The `-c` hook overrides are global flags — they must precede the

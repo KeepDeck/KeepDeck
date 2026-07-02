@@ -3,27 +3,41 @@ import { buildSpawnPlan, EMPTY_SPAWN_CONTEXT, type SpawnPlanContext } from "./sp
 
 const ctx: SpawnPlanContext = {
   spoolDir: "/spool",
+  claudeHookArgs: ["--settings", '{"hooks":{"SessionStart":[…]}}'],
   codexHookArgs: ["-c", "hooks.SessionStart=[…]", "-c", "hooks.state.k.trusted_hash=abc"],
   opencodePluginPath: "/App.app/Resources/session-reporter.js",
 };
 
 const mint = () => "11111111-2222-3333-4444-555555555555";
 
-describe("buildSpawnPlan — claude (assigned identity)", () => {
-  it("mints and assigns the session id at spawn", () => {
+const reporterEnv = (paneId: string): [string, string][] => [
+  ["KEEPDECK_PANE_ID", paneId],
+  ["KEEPDECK_SPOOL", "/spool"],
+];
+
+describe("buildSpawnPlan — claude (assigned identity + hook reporter)", () => {
+  it("mints and assigns the session id, arming the /clear reporter", () => {
     const plan = buildSpawnPlan("claude", "pane-1", ctx, { mintId: mint });
-    expect(plan.args).toEqual(["--session-id", mint()]);
+    expect(plan.args).toEqual([...ctx.claudeHookArgs!, "--session-id", mint()]);
     expect(plan.sessionId).toBe(mint());
-    expect(plan.env).toEqual([]); // no reporter needed — the id is ours
+    expect(plan.env).toEqual(reporterEnv("pane-1"));
   });
 
-  it("resume reuses the recorded id and mints nothing", () => {
+  it("resume reuses the recorded id and keeps the reporter armed", () => {
     const plan = buildSpawnPlan("claude", "pane-1", ctx, {
       resumeId: "old-id",
       mintId: mint,
     });
-    expect(plan.args).toEqual(["--resume", "old-id"]);
+    expect(plan.args).toEqual([...ctx.claudeHookArgs!, "--resume", "old-id"]);
     expect(plan.sessionId).toBeUndefined();
+  });
+
+  it("degrades to assignment-only without the hook resource", () => {
+    const plan = buildSpawnPlan("claude", "pane-1", EMPTY_SPAWN_CONTEXT, {
+      mintId: mint,
+    });
+    expect(plan.args).toEqual(["--session-id", mint()]);
+    expect(plan.env).toEqual([]);
   });
 });
 
