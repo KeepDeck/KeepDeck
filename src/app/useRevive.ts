@@ -53,19 +53,22 @@ export function useRevive(
     /** Resolve the resume session and wake one pane. */
     const wake = async (pane: Pane, dir: string) => {
       const agentType = pane.agentType ?? "claude";
-      // The persisted binding wins; without one, ask the agent's store for
-      // the newest session recorded in this directory.
-      let sessionId = pane.session?.id ?? null;
-      if (sessionId) {
-        // Validate before resuming — agents GC/rotate their stores, and a
-        // stale id must degrade to discovery, not resume into an error. A
-        // failed CHECK trusts the binding (worst case: the resume exits).
-        const alive = await sessionExists(agentType, sessionId, dir).catch(
+      const recorded = pane.session?.id ?? null;
+      let sessionId: string | null = null;
+      if (recorded) {
+        // Validate before resuming — an assigned id whose session was never
+        // written (a pane the user never spoke to), or one the agent GC'd.
+        // Either way the pane starts FRESH: falling back to
+        // newest-in-directory here would resurrect someone else's
+        // conversation (the empty-claude-pane bug). A failed CHECK trusts
+        // the binding (worst case: the resume exits visibly).
+        const alive = await sessionExists(agentType, recorded, dir).catch(
           () => true,
         );
-        if (!alive) sessionId = null;
-      }
-      if (!sessionId) {
+        sessionId = alive ? recorded : null;
+      } else {
+        // Never bound (pre-v2 deck, reporter never fired): best-effort —
+        // the newest session recorded for this directory.
         sessionId =
           (await latestSession(agentType, dir).catch(() => null))?.id ?? null;
       }
