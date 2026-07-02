@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import {
   readText as pluginReadText,
   writeText as pluginWriteText,
@@ -6,7 +7,7 @@ import {
 /**
  * The clipboard manager — the single module that touches the OS clipboard.
  * Every copy/paste surface (⌘C chord, Edit-menu copy, paste into a pane) goes
- * through these two functions and so through the native plugin (Rust →
+ * through these functions and so through the native plugin (Rust →
  * NSPasteboard), never WebKit's clipboard bridge: `navigator.clipboard` is
  * sandboxed in WKWebView, and one owned path keeps both directions
  * byte-identical and diagnosable in one place.
@@ -23,4 +24,14 @@ export function writeText(text: string): Promise<void> {
  */
 export function readText(): Promise<string> {
   return pluginReadText();
+}
+
+/**
+ * Save the OS clipboard's image to a temp PNG and resolve its absolute path —
+ * how a pasteboard bitmap reaches a pane: a PTY only takes bytes, so the pane
+ * pastes the file's path and image-aware CLIs read the file (same bridge as
+ * an [F4] image drop). Resolves null when the clipboard holds no image.
+ */
+export function readImageTempPath(): Promise<string | null> {
+  return invoke<string | null>("clipboard_image_to_temp");
 }
