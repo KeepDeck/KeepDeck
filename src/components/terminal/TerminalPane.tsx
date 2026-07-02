@@ -19,6 +19,7 @@ import {
   openErrorHint,
   resolvePathTarget,
 } from "../../domain/links";
+import { createRefitPump } from "../../domain/refitPump";
 import { logicalLineAt, mapRange } from "../../domain/wrappedLines";
 import { useTransient } from "../../ui/useTransient";
 import { positionHint } from "../../ui/hintPosition";
@@ -291,23 +292,41 @@ export function TerminalPane({
         term.writeln(`\r\n\x1b[31m[failed to start session: ${err}]\x1b[0m`);
       });
 
-    // Refit, and only resize the PTY when the cell grid actually changed — a
-    // redundant SIGWINCH makes the shell reprint its prompt.
-    const refit = () => {
-      fit.fit();
-      if (term.cols !== lastCols || term.rows !== lastRows) {
-        lastCols = term.cols;
-        lastRows = term.rows;
-        session?.resize(term.cols, term.rows).catch(() => {});
-      }
-    };
-    const observer = new ResizeObserver(refit);
+    // Refit through the pump: xterm tracks the drag (one fit per frame), but
+    // the PTY hears about it only once the size settles — otherwise every
+    // observer tick SIGWINCHes the TUI, whose stale-width erase sequences
+    // land on re-wrapped rows and shred the scrollback (see refitPump.ts).
+    const pump = createRefitPump({
+      fit: () => {
+        // A grid re-tile can pass through a 0-sized layout; fitting then
+        // would clamp the pane to 2x1 and rewrap the whole scrollback.
+        if (host.clientWidth === 0 || host.clientHeight === 0) return;
+        const buf = term.buffer.active;
+        const atBottom = buf.viewportY === buf.baseY;
+        fit.fit();
+        // Reflow can leave the viewport mid-history; keep a bottom-pinned
+        // pane pinned. A pane scrolled up is left where the user put it.
+        if (atBottom) term.scrollToBottom();
+      },
+      // Only when the cell grid actually changed — a redundant SIGWINCH
+      // makes the shell reprint its prompt.
+      syncPty: () => {
+        if (term.cols !== lastCols || term.rows !== lastRows) {
+          lastCols = term.cols;
+          lastRows = term.rows;
+          session?.resize(term.cols, term.rows).catch(() => {});
+        }
+      },
+    });
+    const requestRefit = () => pump.request();
+    const observer = new ResizeObserver(requestRefit);
     observer.observe(host);
-    window.addEventListener("resize", refit);
+    window.addEventListener("resize", requestRefit);
 
     return () => {
       disposed = true;
-      window.removeEventListener("resize", refit);
+      window.removeEventListener("resize", requestRefit);
+      pump.dispose();
       observer.disconnect();
       input.dispose();
       unregister();
