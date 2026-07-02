@@ -52,13 +52,24 @@ export function SuggestedInput({
         className={`form__input form__field-input${hint ? " form__input--hint" : ""}`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onMouseDown={(e) => {
+          // While the suggestion is untouched its text reads as ghost text,
+          // so the click that FOCUSES the field starts editing at the end no
+          // matter where it lands (an edge click would otherwise park the
+          // caret at 0). preventDefault stops the browser's own focus+caret
+          // placement; once focused, clicks position the caret normally.
+          if (focused || !(suggestion !== "" && value === suggestion)) return;
+          e.preventDefault();
+          const el = e.currentTarget;
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+        }}
         onFocus={(e) => {
           setFocused(true);
-          // WebKit parks the caret at the text START when focus arrives
-          // without a click (Tab, programmatic) — an untouched input's
-          // default selection is (0,0). A prefilled value is edited at its
-          // end, so move the caret there. Synchronous on purpose: a real
-          // click places its own caret right after focus and still wins.
+          // Focus without a click (Tab, programmatic) keeps an untouched
+          // input's default (0,0) selection — the caret sits at the text
+          // START. A prefilled value is edited at its end, so move it there;
+          // a deliberately restored (non-zero) position is left alone.
           const el = e.currentTarget;
           if (el.selectionStart === 0 && el.selectionEnd === 0 && el.value)
             el.setSelectionRange(el.value.length, el.value.length);

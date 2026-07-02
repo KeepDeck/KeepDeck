@@ -147,6 +147,33 @@ describe("SuggestedInput", () => {
     expect(input().selectionEnd).toBe("kd/agent-1".length);
   });
 
+  it("a focusing click on the pristine hint edits at the end wherever it lands", () => {
+    mount({ init: "kd/agent-1", suggestion: "kd/agent-1" });
+    input().setSelectionRange(0, 0);
+    // An edge click would drop the caret at 0 AFTER focus; the component
+    // intercepts mousedown, so the browser's placement never happens.
+    const ev = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => void input().dispatchEvent(ev));
+
+    expect(ev.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(input());
+    expect(input().selectionStart).toBe("kd/agent-1".length);
+  });
+
+  it("clicks in an already-focused or edited field are not intercepted", () => {
+    mount({ init: "kd/agent-1", suggestion: "kd/agent-1" });
+    act(() => input().focus());
+    const whileFocused = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => void input().dispatchEvent(whileFocused));
+    expect(whileFocused.defaultPrevented).toBe(false); // caret placement stays native
+
+    type("kd/custom");
+    act(() => input().blur());
+    const onEdited = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => void input().dispatchEvent(onEdited));
+    expect(onEdited.defaultPrevented).toBe(false); // modified text = a normal field
+  });
+
   it("leaves a deliberately placed caret alone on focus", () => {
     mount({ init: "kd/agent-1", suggestion: "kd/agent-1" });
     input().setSelectionRange(3, 3); // e.g. restored from a prior edit
