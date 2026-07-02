@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { FALLBACK_AGENTS, resumeArgs, type AgentInfo } from "../domain/agents";
+import type { AgentInfo } from "../domain/agents";
 import type { Pane } from "../domain/panes";
+import { buildSpawnPlan, type SpawnPlanContext } from "../domain/spawnPlans";
 import { latestSession } from "../ipc/history";
 import { probeWorktree } from "../ipc/worktree";
+import { setPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 
 /**
@@ -10,7 +12,9 @@ import type { Deck } from "./useDeck";
  * is (or becomes) active, wake each one so its terminal mounts and spawns —
  * RESUMING its recorded agent session where one is known (the persisted
  * binding, else the newest session for the pane's directory), falling back to
- * a fresh spawn ([F8] strategy: native resume by default).
+ * a fresh spawn ([F8] strategy: native resume by default). A resume plan is
+ * pre-registered in the spawn-spec cache; a fresh wake takes the default plan
+ * the render pass builds (which assigns/arms session identity, v2).
  *
  * Before waking, the pane's directory is probed — a pane whose worktree is
  * gone stays dormant and is reported in `blocked`, so its tile can explain
@@ -19,46 +23,52 @@ import type { Deck } from "./useDeck";
 export interface ReviveApi {
   /** paneId → the missing directory (the dormant tile's note). */
   blocked: Record<string, string>;
-  /** Spawn args per revived pane — the resume recipe ([F8]); absent = fresh. */
-  argsByPane: Record<string, string[]>;
   /** Detach the pane from the missing worktree and start it fresh in the
    * workspace cwd. */
   startFresh(wsId: string, paneId: string): void;
 }
 
-export function useRevive(deck: Deck, agents: AgentInfo[]): ReviveApi {
+export function useRevive(
+  deck: Deck,
+  agents: AgentInfo[],
+  ctx: SpawnPlanContext | null,
+): ReviveApi {
   const [blocked, setBlocked] = useState<Record<string, string>>({});
-  const [argsByPane, setArgsByPane] = useState<Record<string, string[]>>({});
   // Revivals in flight — re-renders while one is pending must not double-run.
   const waking = useRef(new Set<string>());
   const deckRef = useRef(deck);
   deckRef.current = deck;
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId);
 
   useEffect(() => {
-    if (!active) return;
+    // Wait for the spawn context: a resume plan built without it would miss
+    // the agent's identity mechanism (e.g. codex hook args).
+    if (!active || !ctx) return;
 
-    /** Resolve the resume recipe and wake one pane. */
+    /** Resolve the resume session and wake one pane. */
     const wake = async (pane: Pane, dir: string) => {
       const agentType = pane.agentType ?? "claude";
-      // The persisted binding wins; without one, ask the agent's store for the
-      // newest session recorded in this directory ([F7] §3).
+      // The persisted binding wins; without one, ask the agent's store for
+      // the newest session recorded in this directory.
       let sessionId = pane.session?.id ?? null;
       if (!sessionId) {
         sessionId =
           (await latestSession(agentType, dir).catch(() => null))?.id ?? null;
       }
-      // The catalog fetch races the boot restore — fall back to the static
-      // recipes so an early revive still resumes (prefixes are per-agent
-      // constants, not machine-dependent like install detection).
-      const info =
-        agentsRef.current.find((a) => a.id === agentType) ??
-        FALLBACK_AGENTS.find((a) => a.id === agentType);
-      const args = sessionId ? resumeArgs(info, sessionId) : null;
-      if (args) setArgsByPane((prev) => ({ ...prev, [pane.id]: args }));
+      if (sessionId && ctxRef.current) {
+        setPaneSpawnSpec(
+          pane.id,
+          buildSpawnPlan(agentType, pane.id, ctxRef.current, {
+            resumeId: sessionId,
+            agents: agentsRef.current,
+          }),
+        );
+      }
       deckRef.current.revivePane(active.id, pane.id);
     };
 
@@ -77,7 +87,7 @@ export function useRevive(deck: Deck, agents: AgentInfo[]): ReviveApi {
         .catch(() => deckRef.current.revivePane(active.id, pane.id))
         .finally(() => waking.current.delete(pane.id));
     }
-  }, [active, blocked]);
+  }, [active, blocked, ctx]);
 
   const startFresh = (wsId: string, paneId: string) => {
     setBlocked(({ [paneId]: _gone, ...rest }) => rest);
@@ -85,5 +95,5 @@ export function useRevive(deck: Deck, agents: AgentInfo[]): ReviveApi {
     deckRef.current.revivePane(wsId, paneId);
   };
 
-  return { blocked, argsByPane, startFresh };
+  return { blocked, startFresh };
 }

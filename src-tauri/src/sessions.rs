@@ -42,10 +42,27 @@ pub fn spool_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// The spool path handed to spawn plans (`KEEPDECK_SPOOL`).
+/// Per-install spawn-plan constants (mirrors the TS `SpawnPlanContext`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnContextDto {
+    /// Where reporters drop postbacks (`KEEPDECK_SPOOL`).
+    pub spool_dir: String,
+    /// Ready-made codex `-c` args enabling the SessionStart hook (config +
+    /// trusted hash); None until the hook resource ships (phase 3b).
+    pub codex_hook_args: Option<Vec<String>>,
+    /// Absolute path of the opencode session-reporter plugin (phase 3c).
+    pub opencode_plugin_path: Option<String>,
+}
+
+/// The spawn-plan context, resolved once at webview boot.
 #[tauri::command]
-pub fn session_spool_dir(app: AppHandle) -> Result<String, String> {
-    Ok(spool_dir(&app)?.to_string_lossy().into_owned())
+pub fn session_spawn_context(app: AppHandle) -> Result<SpawnContextDto, String> {
+    Ok(SpawnContextDto {
+        spool_dir: spool_dir(&app)?.to_string_lossy().into_owned(),
+        codex_hook_args: None,
+        opencode_plugin_path: None,
+    })
 }
 
 /// Start watching the spool. Called once at app setup; the returned watcher

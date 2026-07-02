@@ -1,4 +1,5 @@
 import type { AgentInfo } from "../domain/agents";
+import type { SpawnPlan } from "../domain/spawnPlans";
 import {
   gridTracks,
   paneColumnSpan,
@@ -33,8 +34,9 @@ interface DeckStageProps {
   /** Dormant panes blocked from reviving: paneId → the missing directory
    * ([F7] restore reconcile). */
   dormantBlocked: Record<string, string>;
-  /** Spawn args per revived pane — the [F8] resume recipe ([F7] restore). */
-  argsByPane: Record<string, string[]>;
+  /** Spawn plan per live pane — args + env carrying its session identity
+   * ([F7]/[F8] v2: assigned id or armed reporter, resume recipe). */
+  specByPane: Record<string, SpawnPlan>;
   /** Detach a blocked pane from its gone worktree and start it fresh. */
   onStartFresh(wsId: string, paneId: string): void;
 }
@@ -59,7 +61,7 @@ export function DeckStage({
   onRenamePane,
   onPaneTitle,
   dormantBlocked,
-  argsByPane,
+  specByPane,
   onStartFresh,
 }: DeckStageProps) {
   return (
@@ -120,7 +122,8 @@ export function DeckStage({
                   paneId={pane.id}
                   title={displayTitle}
                   command={command}
-                  args={argsByPane[pane.id]}
+                  args={specByPane[pane.id]?.args}
+                  env={specByPane[pane.id]?.env}
                   cwd={pane.cwd ?? ws.cwd}
                   branch={pane.branch}
                   visible={isActive && !isCollapsed}

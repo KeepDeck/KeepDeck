@@ -8,8 +8,10 @@ interface AgentPaneProps {
   title: string;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
-  /** Extra CLI args for the program — the [F8] resume recipe. */
+  /** Extra CLI args for the program (session identity / resume, [F7]/[F8]). */
   args?: string[];
+  /** Extra environment for the program (reporter activation, [F7]/[F8]). */
+  env?: [string, string][];
   /** Working directory for the session. */
   cwd?: string | null;
   /** Git branch of the agent's worktree, shown in the header when isolated. */
@@ -56,6 +58,7 @@ export function AgentPane({
   title,
   command,
   args,
+  env,
   cwd,
   branch,
   visible,
@@ -188,6 +191,7 @@ export function AgentPane({
             paneId={paneId}
             command={command}
             args={args}
+            env={env}
             cwd={cwd}
             visible={visible}
             selected={selected}

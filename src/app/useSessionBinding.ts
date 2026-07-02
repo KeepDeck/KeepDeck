@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { onSessionBound } from "../ipc/sessions";
+import { peekPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 
 /**
@@ -15,6 +16,25 @@ import type { Deck } from "./useDeck";
 export function useSessionBinding(deck: Deck): void {
   const deckRef = useRef(deck);
   deckRef.current = deck;
+
+  // Assigned identities (claude): the spawn plan minted the id, so bind the
+  // moment the pane is live — nothing to wait for. Never overrides an
+  // existing binding (a reporter's word wins over the assignment).
+  useEffect(() => {
+    const d = deckRef.current;
+    for (const ws of deck.workspaces) {
+      for (const pane of ws.panes) {
+        if (pane.dormant || pane.session) continue;
+        const spec = peekPaneSpawnSpec(pane.id);
+        if (spec?.sessionId) {
+          d.setPaneSession(ws.id, pane.id, {
+            id: spec.sessionId,
+            boundAt: new Date().toISOString(),
+          });
+        }
+      }
+    }
+  }, [deck.workspaces]);
 
   useEffect(() => {
     let disposed = false;

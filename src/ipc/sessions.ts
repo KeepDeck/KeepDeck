@@ -24,8 +24,13 @@ export function onSessionBound(
   );
 }
 
-/** The spool directory reporters write into — injected as `KEEPDECK_SPOOL`
- * into agent spawns. */
-export function sessionSpoolDir(): Promise<string> {
-  return invoke<string>("session_spool_dir");
+/** The per-install spawn-plan context (mirrors the Rust `SpawnContextDto`):
+ * the spool dir plus each agent's ready-made identity mechanism, resolved
+ * once at boot. */
+export function spawnContext(): Promise<{
+  spoolDir: string;
+  codexHookArgs: string[] | null;
+  opencodePluginPath: string | null;
+}> {
+  return invoke("session_spawn_context");
 }

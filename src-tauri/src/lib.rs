@@ -69,7 +69,7 @@ pub fn run() {
             state::deck_state_quarantine,
             history::history_latest,
             history::history_exists,
-            sessions::session_spool_dir,
+            sessions::session_spawn_context,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
             worktree::worktree_probe,
