@@ -61,8 +61,18 @@ pub fn session_spawn_context(app: AppHandle) -> Result<SpawnContextDto, String> 
     Ok(SpawnContextDto {
         spool_dir: spool_dir(&app)?.to_string_lossy().into_owned(),
         codex_hook_args: None,
-        opencode_plugin_path: None,
+        opencode_plugin_path: reporter_path(&app, "session-reporter.js"),
     })
+}
+
+/// Absolute path of a reporter shipped in KeepDeck's resources, when present
+/// (dev and bundle both resolve through the Resource base dir).
+fn reporter_path(app: &AppHandle, name: &str) -> Option<String> {
+    let path = app
+        .path()
+        .resolve(format!("resources/{name}"), tauri::path::BaseDirectory::Resource)
+        .ok()?;
+    path.is_file().then(|| path.to_string_lossy().into_owned())
 }
 
 /// Start watching the spool. Called once at app setup; the returned watcher
