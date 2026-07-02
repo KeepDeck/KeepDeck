@@ -24,12 +24,6 @@ export function onSessionBound(
   );
 }
 
-/** Webview-side diagnostics → `<app_data>/keepdeck.log` (console output is
- * invisible in a bundled app). Fire-and-forget. */
-export function deckLog(message: string): void {
-  void invoke("deck_log", { message }).catch(() => {});
-}
-
 /** The per-install spawn-plan context (mirrors the Rust `SpawnContextDto`):
  * the spool dir plus each agent's ready-made identity mechanism, resolved
  * once at boot. */
