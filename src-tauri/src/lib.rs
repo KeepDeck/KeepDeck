@@ -1,5 +1,6 @@
 mod agents;
 mod dnd;
+mod history;
 mod links;
 mod menu;
 mod session;
@@ -57,6 +58,7 @@ pub fn run() {
             state::deck_state_load,
             state::deck_state_save,
             state::deck_state_quarantine,
+            history::history_latest,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
             worktree::worktree_probe,
