@@ -4,8 +4,7 @@ A desktop **deck for a fleet of coding agents** — launch, watch and control
 Claude Code, OpenCode and Codex sessions side by side in one native window.
 
 The throughline is **holding stability under speed**: the aim is observability +
-reliability over the fleet, not the renderer. (The observability layer is on the
-roadmap; today KeepDeck is the deck that runs, organizes and preserves the fleet.)
+reliability over the fleet, not the renderer.
 
 ## What it does
 
@@ -39,7 +38,7 @@ roadmap; today KeepDeck is the deck that runs, organizes and preserves the fleet
 ## Stack
 
 - **Frontend:** Tauri 2 + React + TypeScript + Vite,
-  [xterm.js](https://xtermjs.org) (canvas renderer).
+  [xterm.js](https://xtermjs.org).
 - **Backend:** a Rust workspace. `src-tauri` is the Tauri app bridging the core
   to the UI (per-session channels, native menu, durable state); the core lives
   in pure-Rust crates with no Tauri dependency:
@@ -90,23 +89,6 @@ The build is **unsigned** unless you export `APPLE_SIGNING_IDENTITY` (plus
 `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` to notarize). An unsigned app
 runs locally after clearing quarantine:
 `xattr -dr com.apple.quarantine /Applications/KeepDeck.app`.
-
-## Layout
-
-```
-src/                  React UI
-  domain/             pure logic — deck reducer, panes/layout, persistence
-                      schema, spawn plans, link & clipboard handling
-  ipc/                the only layer that talks to Tauri — sessions, state,
-                      worktrees, menu, dialogs
-  app/                React hooks wiring domain to ipc — provisioning,
-                      persistence, revival, dialogs
-  components/         deck stage, workspaces rail & forms, agent panes, terminal
-src-tauri/            Tauri app — commands, native menu, durable deck state,
-                      session identity plumbing
-crates/               pure-Rust core (no Tauri dependency) — pty, git, agents,
-                      history, env
-```
 
 ## License
 
