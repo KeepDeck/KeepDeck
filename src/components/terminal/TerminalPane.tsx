@@ -19,6 +19,7 @@ import {
   openErrorHint,
   resolvePathTarget,
 } from "../../domain/links";
+import { logicalLineAt, mapRange } from "../../domain/wrappedLines";
 import { useTransient } from "../../ui/useTransient";
 import { positionHint } from "../../ui/hintPosition";
 
@@ -210,22 +211,20 @@ export function TerminalPane({
     // Cmd+click a URL or file path in the output to open it ([F14]/[F10]);
     // plain click is left for text selection (a plain click ON a link shows the
     // ⌘ hint, [U8]). Relative paths resolve against the pane's cwd; the OS
-    // default app opens files / the default browser opens URLs.
+    // default app opens files / the default browser opens URLs. Detection runs
+    // on the whole LOGICAL line — the requested row joined with its wrapped
+    // neighbours — so a link the terminal wrapped is still one link, not
+    // per-row fragments.
     const links = term.registerLinkProvider({
       provideLinks(lineNumber, callback) {
-        const text = term.buffer.active
-          .getLine(lineNumber - 1)
-          ?.translateToString(true);
-        const found = text ? detectLinks(text) : [];
+        const logical = logicalLineAt(term.buffer.active, lineNumber - 1);
+        const found = logical ? detectLinks(logical.rows.join("")) : [];
         callback(
-          found.length === 0
+          found.length === 0 || !logical
             ? undefined
             : found.map((d) => ({
                 text: d.text,
-                range: {
-                  start: { x: d.start + 1, y: lineNumber },
-                  end: { x: d.end, y: lineNumber },
-                },
+                range: mapRange(logical, d.start, d.end),
                 activate(event: MouseEvent) {
                   // Pane-local coords captured now, at click-time geometry,
                   // not when a rejection lands later.
