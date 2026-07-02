@@ -20,6 +20,37 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Event delivering one binding to the webview (see `src/ipc/sessions.ts`).
 pub const SESSION_BOUND_EVENT: &str = "deck://session/bound";
 
+/// Append a diagnostic line to `<app_data>/keepdeck.log` (epoch-seconds
+/// timestamps). The session-identity pipeline is invisible in a bundled app —
+/// this is the cheapest visibility into spawns, spool traffic and revive
+/// decisions. Best-effort: logging must never break the app.
+pub fn log_line(app: &AppHandle, message: &str) {
+    let Ok(dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let _ = fs::create_dir_all(&dir);
+    let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("keepdeck.log"))
+    else {
+        return;
+    };
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    use std::io::Write as _;
+    let _ = writeln!(file, "[{secs}] {message}");
+}
+
+/// Webview-side diagnostics land in the same file (revive decisions live in
+/// the frontend, where console output is invisible in a bundle).
+#[tauri::command]
+pub fn deck_log(app: AppHandle, message: String) {
+    log_line(&app, &format!("web: {message}"));
+}
+
 /// What a reporter writes into the spool (extra fields are ignored, so hooks
 /// may include diagnostics like the transcript path).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -61,12 +92,23 @@ pub struct SpawnContextDto {
 /// The spawn-plan context, resolved once at webview boot.
 #[tauri::command]
 pub fn session_spawn_context(app: AppHandle) -> Result<SpawnContextDto, String> {
-    Ok(SpawnContextDto {
+    let dto = SpawnContextDto {
         spool_dir: spool_dir(&app)?.to_string_lossy().into_owned(),
         claude_hook_args: claude_hook_args(&app),
         codex_hook_args: codex_hook_args(&app),
         opencode_plugin_path: reporter_path(&app, "session-reporter.js"),
-    })
+    };
+    log_line(
+        &app,
+        &format!(
+            "spawn-context: v{} claudeHook={} codexHook={} opencodePlugin={}",
+            env!("CARGO_PKG_VERSION"),
+            dto.claude_hook_args.is_some(),
+            dto.codex_hook_args.is_some(),
+            dto.opencode_plugin_path.is_some(),
+        ),
+    );
+    Ok(dto)
 }
 
 /// The shared hook script's shell command line, `/bin/sh`-explicit — bundling
@@ -126,6 +168,7 @@ pub fn watch_spool(app: &AppHandle) -> Result<SpoolWatcher, String> {
         }
     }
 
+    log_line(app, &format!("spool: watching {}", dir.display()));
     let emitter = app.clone();
     let watched = dir.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
@@ -158,8 +201,18 @@ fn deliver(app: &AppHandle, path: &Path) {
     let Ok(content) = fs::read_to_string(path) else {
         return;
     };
-    if let Some(postback) = parse_postback(&content) {
-        let _ = app.emit(SESSION_BOUND_EVENT, &postback);
+    match parse_postback(&content) {
+        Some(postback) => {
+            log_line(
+                app,
+                &format!(
+                    "spool: bound pane={} session={}",
+                    postback.pane_id, postback.session_id
+                ),
+            );
+            let _ = app.emit(SESSION_BOUND_EVENT, &postback);
+        }
+        None => log_line(app, &format!("spool: unparsable postback {}", path.display())),
     }
     let _ = fs::remove_file(path);
 }

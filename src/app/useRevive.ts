@@ -3,6 +3,7 @@ import type { AgentInfo } from "../domain/agents";
 import type { Pane } from "../domain/panes";
 import { buildSpawnPlan, type SpawnPlanContext } from "../domain/spawnPlans";
 import { latestSession, sessionExists } from "../ipc/history";
+import { deckLog } from "../ipc/sessions";
 import { probeWorktree } from "../ipc/worktree";
 import { setPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
@@ -79,6 +80,10 @@ export function useRevive(
         sessionId =
           (await latestSession(agentType, dir).catch(() => null))?.id ?? null;
       }
+      deckLog(
+        `revive ${pane.id} (${agentType}): recorded=${recorded ?? "-"} → ` +
+          (sessionId ? `resume ${sessionId}` : "fresh"),
+      );
       if (sessionId && ctxRef.current) {
         setPaneSpawnSpec(
           pane.id,
