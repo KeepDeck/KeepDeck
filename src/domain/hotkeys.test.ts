@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentInfo } from "./agents";
-import { closeHotkeyTarget } from "./hotkeys";
+import { closeHotkeyTarget, maximizeHotkeyTarget } from "./hotkeys";
 import type { Workspace } from "./workspaces";
 
 const agents: AgentInfo[] = [
@@ -28,19 +28,25 @@ describe("closeHotkeyTarget", () => {
     ];
     expect(
       closeHotkeyTarget(workspaces, "ws-1", { "ws-1": "pane-2" }, agents),
-    ).toEqual({ wsId: "ws-1", paneId: "pane-2", label: "Claude Code 2" });
+    ).toEqual({
+      kind: "agent",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      label: "Claude Code 2",
+    });
   });
 
   it("prefers the pane's manual name for the confirm label", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1", name: "api" }])];
     expect(
       closeHotkeyTarget(workspaces, "ws-1", { "ws-1": "pane-1" }, agents),
-    ).toEqual({ wsId: "ws-1", paneId: "pane-1", label: "api" });
+    ).toEqual({ kind: "agent", wsId: "ws-1", paneId: "pane-1", label: "api" });
   });
 
   it("falls back to a solo pane when nothing is selected", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1", agentType: "claude" }])];
     expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents)).toEqual({
+      kind: "agent",
       wsId: "ws-1",
       paneId: "pane-1",
       label: "Claude Code 1",
@@ -64,9 +70,15 @@ describe("closeHotkeyTarget", () => {
     ).toMatchObject({ paneId: "pane-1" });
   });
 
-  it("returns null for an unknown active workspace or an empty one", () => {
+  it("targets the workspace itself when it has no panes", () => {
+    expect(closeHotkeyTarget([ws("ws-1", [])], "ws-1", {}, agents)).toEqual({
+      kind: "workspace",
+      wsId: "ws-1",
+    });
+  });
+
+  it("returns null for an unknown active workspace", () => {
     expect(closeHotkeyTarget([], "ws-1", {}, agents)).toBeNull();
-    expect(closeHotkeyTarget([ws("ws-1", [])], "ws-1", {}, agents)).toBeNull();
   });
 
   it("ignores another workspace's selection", () => {
@@ -76,6 +88,59 @@ describe("closeHotkeyTarget", () => {
     ];
     expect(
       closeHotkeyTarget(workspaces, "ws-1", { "ws-2": "pane-3" }, agents),
+    ).toBeNull();
+  });
+});
+
+describe("maximizeHotkeyTarget", () => {
+  const multi = [ws("ws-1", [{ id: "pane-1" }, { id: "pane-2" }])];
+
+  it("maximizes the selected pane", () => {
+    expect(
+      maximizeHotkeyTarget(multi, "ws-1", {}, { "ws-1": "pane-2" }),
+    ).toEqual({ wsId: "ws-1", paneId: "pane-2" });
+  });
+
+  it("restores the maximized pane even when the selection points elsewhere", () => {
+    expect(
+      maximizeHotkeyTarget(
+        multi,
+        "ws-1",
+        { "ws-1": "pane-1" },
+        { "ws-1": "pane-2" },
+      ),
+    ).toEqual({ wsId: "ws-1", paneId: "pane-1" });
+  });
+
+  it("falls back to the selection when the focus entry is stale", () => {
+    expect(
+      maximizeHotkeyTarget(
+        multi,
+        "ws-1",
+        { "ws-1": "pane-9" },
+        { "ws-1": "pane-2" },
+      ),
+    ).toEqual({ wsId: "ws-1", paneId: "pane-2" });
+  });
+
+  it("returns null for a solo pane — it is already full-size", () => {
+    const solo = [ws("ws-1", [{ id: "pane-1" }])];
+    expect(
+      maximizeHotkeyTarget(solo, "ws-1", {}, { "ws-1": "pane-1" }),
+    ).toBeNull();
+  });
+
+  it("returns null when the selection is stale or absent", () => {
+    expect(maximizeHotkeyTarget(multi, "ws-1", {}, {})).toBeNull();
+    expect(
+      maximizeHotkeyTarget(multi, "ws-1", {}, { "ws-1": "pane-9" }),
+    ).toBeNull();
+  });
+
+  it("returns null for an unknown active workspace or an empty one", () => {
+    expect(maximizeHotkeyTarget([], "ws-1", {}, {})).toBeNull();
+    expect(
+      maximizeHotkeyTarget([ws("ws-1", [])], "ws-1", {}, {}),
     ).toBeNull();
   });
 });
