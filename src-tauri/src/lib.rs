@@ -72,7 +72,6 @@ pub fn run() {
             history::history_latest,
             history::history_exists,
             sessions::session_spawn_context,
-            sessions::deck_log,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
             worktree::worktree_probe,
