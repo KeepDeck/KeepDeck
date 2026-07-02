@@ -16,6 +16,8 @@
 //! - **opencode** — the `session` table of
 //!   `~/.local/share/opencode/opencode.db` (SQLite), keyed by `directory`.
 
+pub mod codex_hook;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

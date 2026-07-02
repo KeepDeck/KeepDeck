@@ -60,9 +60,20 @@ pub struct SpawnContextDto {
 pub fn session_spawn_context(app: AppHandle) -> Result<SpawnContextDto, String> {
     Ok(SpawnContextDto {
         spool_dir: spool_dir(&app)?.to_string_lossy().into_owned(),
-        codex_hook_args: None,
+        codex_hook_args: codex_hook_args(&app),
         opencode_plugin_path: reporter_path(&app, "session-reporter.js"),
     })
+}
+
+/// The `-c` overrides arming the codex SessionStart reporter. Run through
+/// `/bin/sh <script>` explicitly — bundling may drop the exec bit. On a codex
+/// without hooks these overrides are inert (unknown `-c` keys are ignored),
+/// so no version gate is needed; such a pane just stays unbound and revives
+/// via latest-for-directory.
+fn codex_hook_args(app: &AppHandle) -> Option<Vec<String>> {
+    let script = reporter_path(app, "kd-codex-hook.sh")?;
+    let command = format!("/bin/sh {}", keepdeck_history::codex_hook::shell_quote(&script));
+    Some(keepdeck_history::codex_hook::cli_args(&command))
 }
 
 /// Absolute path of a reporter shipped in KeepDeck's resources, when present
