@@ -534,6 +534,42 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Restored-but-not-running tile ([F7]) — shown instead of the terminal until
+   the pane is revived; persists only when its directory is gone. */
+.pane__dormant {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background-color: #0b0e14;
+}
+
+.pane__dormant-path {
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane__dormant-action {
+  margin-top: 10px;
+  border: 1px solid #2a3343;
+  background-color: #161b26;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pane__dormant-action:hover {
+  background-color: #1b2230;
+  border-color: #3a4658;
+}
+
 .terminal-pane {
   flex: 1;
   min-height: 0;

@@ -14,15 +14,19 @@ export interface AgentInfo {
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */
   path: string | null;
+  /** CLI args placed before a session id to resume it ([F8]), e.g.
+   * `["--resume"]`. Optional so hand-built fixtures stay light; the Rust
+   * catalog always sends it. */
+  resumePrefix?: string[];
 }
 
 /** Static fallback catalog — used only if `agents_list` errors, so the picker is
  *  never empty. Kept minimal and in sync with the Rust `AGENTS` ids; `installed`
  *  is assumed true here since we couldn't detect (better to offer than to hide). */
 export const FALLBACK_AGENTS: AgentInfo[] = [
-  { id: "claude", label: "Claude Code", command: "claude", installed: true, path: null },
-  { id: "opencode", label: "OpenCode", command: "opencode", installed: true, path: null },
-  { id: "codex", label: "Codex", command: "codex", installed: true, path: null },
+  { id: "claude", label: "Claude Code", command: "claude", installed: true, path: null, resumePrefix: ["--resume"] },
+  { id: "opencode", label: "OpenCode", command: "opencode", installed: true, path: null, resumePrefix: ["-s"] },
+  { id: "codex", label: "Codex", command: "codex", installed: true, path: null, resumePrefix: ["resume"] },
 ];
 
 /** Normalize a catalog response: a non-empty list passes through; anything empty
@@ -47,4 +51,15 @@ export function defaultAgentType(
   const pool = selectableAgents(agents);
   if (preferred && pool.some((a) => a.id === preferred)) return preferred;
   return pool[0]?.id ?? "claude";
+}
+
+/** Args to relaunch `agent` into recorded session `sessionId` ([F8]), or null
+ *  when the catalog carries no resume recipe — callers fall back to a fresh
+ *  spawn rather than guessing flags. */
+export function resumeArgs(
+  agent: AgentInfo | undefined,
+  sessionId: string,
+): string[] | null {
+  if (!agent?.resumePrefix || agent.resumePrefix.length === 0) return null;
+  return [...agent.resumePrefix, sessionId];
 }

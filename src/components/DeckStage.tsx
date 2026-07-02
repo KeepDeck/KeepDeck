@@ -30,6 +30,13 @@ interface DeckStageProps {
   onRenamePane(wsId: string, paneId: string, name: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
+  /** Dormant panes blocked from reviving: paneId → the missing directory
+   * ([F7] restore reconcile). */
+  dormantBlocked: Record<string, string>;
+  /** Spawn args per revived pane — the [F8] resume recipe ([F7] restore). */
+  argsByPane: Record<string, string[]>;
+  /** Detach a blocked pane from its gone worktree and start it fresh. */
+  onStartFresh(wsId: string, paneId: string): void;
 }
 
 /**
@@ -51,6 +58,9 @@ export function DeckStage({
   onCloseAgent,
   onRenamePane,
   onPaneTitle,
+  dormantBlocked,
+  argsByPane,
+  onStartFresh,
 }: DeckStageProps) {
   return (
     <>
@@ -110,6 +120,7 @@ export function DeckStage({
                   paneId={pane.id}
                   title={displayTitle}
                   command={command}
+                  args={argsByPane[pane.id]}
                   cwd={pane.cwd ?? ws.cwd}
                   branch={pane.branch}
                   visible={isActive && !isCollapsed}
@@ -117,6 +128,8 @@ export function DeckStage({
                   collapsed={isCollapsed}
                   selected={pane.id === selectedPaneId}
                   solo={solo}
+                  dormant={pane.dormant}
+                  blockedDir={dormantBlocked[pane.id] ?? null}
                   colSpan={colSpan}
                   onSelect={() => onSelectPane(ws.id, pane.id)}
                   onToggleFocus={() => onToggleFocus(ws.id, pane.id)}
@@ -124,6 +137,7 @@ export function DeckStage({
                   onClose={() => onCloseAgent(ws.id, pane.id, displayTitle)}
                   onRename={(name) => onRenamePane(ws.id, pane.id, name)}
                   onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
+                  onStartFresh={() => onStartFresh(ws.id, pane.id)}
                 />
               );
             })}

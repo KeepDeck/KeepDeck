@@ -5,6 +5,7 @@ import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import { spawnSession, type Session } from "../../ipc/session";
 import { openPath, openUrl } from "../../ipc/app";
+import { forgetPaneSpawn, recordPaneSpawn } from "../../app/paneSpawns";
 import { readText, writeText } from "../../ipc/clipboard";
 import { registerPaneInput } from "../../app/paneInput";
 import { keyAction } from "../../domain/keymap";
@@ -27,6 +28,9 @@ interface TerminalPaneProps {
   paneId: string;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
+  /** Extra CLI args for the program — the [F8] resume recipe. Read once at
+   * spawn time; later changes never restart a live session. */
+  args?: string[];
   /** Working directory for the session; omitted uses the app's cwd. */
   cwd?: string | null;
   /** Whether this pane is currently on screen (active workspace, not collapsed). */
@@ -54,6 +58,7 @@ interface TerminalPaneProps {
 export function TerminalPane({
   paneId,
   command,
+  args,
   cwd,
   visible,
   selected,
@@ -89,6 +94,10 @@ export function TerminalPane({
   onExitRef.current = onExit;
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
+  // Args matter only at spawn time — a ref keeps them out of the effect deps
+  // so a later change can't tear down and restart a live session.
+  const argsRef = useRef(args);
+  argsRef.current = args;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -254,7 +263,12 @@ export function TerminalPane({
       },
     });
 
-    spawnSession({ command, cwd, cols: term.cols, rows: term.rows }, (event) => {
+    // The spawn instant anchors session binding ([F7]/[F8] spawn-diff): the
+    // pane's session is the store entry its agent creates after this moment.
+    recordPaneSpawn(paneId);
+    spawnSession(
+      { command, args: argsRef.current, cwd, cols: term.cols, rows: term.rows },
+      (event) => {
       // Ignore events from a session whose pane was already torn down — notably
       // the throwaway first session of a StrictMode double-mount, whose close()
       // emits an exit (code 1) that would otherwise flash the [U4] "agent
@@ -316,6 +330,7 @@ export function TerminalPane({
       host.removeEventListener("copy", onCopy);
       host.removeEventListener("paste", onPaste, true);
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
+      forgetPaneSpawn(paneId);
       session?.close().catch(() => {});
       term.dispose();
       termRef.current = null;

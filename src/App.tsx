@@ -8,6 +8,9 @@ import { pickFolder } from "./ipc/dialogs";
 import { inspectRepo, probeWorktree } from "./ipc/worktree";
 import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
+import { usePersistence } from "./app/usePersistence";
+import { useRevive } from "./app/useRevive";
+import { useSessionBinding } from "./app/useSessionBinding";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -41,6 +44,13 @@ function App() {
   const deck = useDeck();
   // Detected agent catalog (labels/commands/install status), fetched from Rust.
   const { agents } = useAgents();
+  // Restore the saved deck on boot; save (debounced) on every change ([F7]).
+  const { restoring } = usePersistence(deck);
+  // Wake restored panes lazily per workspace — resuming recorded sessions —
+  // and report gone directories ([F7]/[F8]).
+  const revive = useRevive(deck, agents);
+  // Bind live panes to the agent sessions they create ([F7] spawn-diff).
+  useSessionBinding(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
@@ -109,6 +119,11 @@ function App() {
     agentCount: w.panes.length,
   }));
 
+  // While the saved deck is loading, paint only the shell background — the
+  // boot splash covers this moment; rendering the empty deck here would flash
+  // the first-run form before the restored workspaces arrive ([F7]).
+  if (restoring) return <div className="deck" />;
+
   return (
     <div className="deck">
       <header className="deck__bar">
@@ -175,6 +190,9 @@ function App() {
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onPaneTitle={deck.setPaneAutoTitle}
+            dormantBlocked={revive.blocked}
+            argsByPane={revive.argsByPane}
+            onStartFresh={revive.startFresh}
           />
 
           {showForm &&
