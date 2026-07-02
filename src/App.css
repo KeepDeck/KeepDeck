@@ -818,6 +818,60 @@ body {
   background-color: #1b2230;
 }
 
+/* Suggested-value fields (SuggestedInput): a relative wrapper hosting ONE
+   contextual inline button — ✕ clear when there's text, else ↺ reset when the
+   value drifted from the suggestion — and a hint look while the value still
+   equals the suggestion. */
+.form__field {
+  position: relative;
+}
+
+.form__field--gap {
+  margin-bottom: 20px;
+}
+
+.form__field-input {
+  box-sizing: border-box; /* keep width:100% + padding inside the field, not overflowing */
+  width: 100%;
+  margin-bottom: 0;
+  padding-right: 28px; /* reserved button slot — text doesn't jump when it appears */
+}
+
+.form__field-btn {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.form__field-btn:hover {
+  color: #e6e8eb;
+  background-color: #1b2230;
+}
+
+.form__field-btn--reset {
+  font-size: 13px; /* ↺ renders larger than × at equal font size */
+}
+
+/* The suggestion shown as a value: dimmed to placeholder color until the
+   field is focused or edited. */
+.form__input--hint {
+  color: #6b7280;
+}
+
 .form__git {
   margin-top: -12px;
   margin-bottom: 20px;
