@@ -3,6 +3,7 @@ mod dnd;
 mod links;
 mod menu;
 mod session;
+mod state;
 mod worktree;
 
 use serde::Serialize;
@@ -53,6 +54,9 @@ pub fn run() {
             session::session_write,
             session::session_resize,
             session::session_close,
+            state::deck_state_load,
+            state::deck_state_save,
+            state::deck_state_quarantine,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
             worktree::worktree_probe,
