@@ -113,6 +113,42 @@ describe("usePersistence", () => {
     ).toEqual(["ws-9"]);
   });
 
+  it("saves a structural change IMMEDIATELY — a new pane must never be lost", async () => {
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear(); // drop the boot save
+
+    act(() =>
+      deck.addAgentPane("ws-1", { id: "pane-9", agentType: "codex" }),
+    );
+    // No timer advance: the save must not wait for any debounce.
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    const saved = JSON.parse(ipc.saveDeckState.mock.calls[0][0]);
+    expect(saved.workspaces[0].panes.map((p: { id: string }) => p.id)).toEqual([
+      "pane-1",
+      "pane-9",
+    ]);
+  });
+
+  it("cosmetic churn cannot starve the save past the max wait", async () => {
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    // A busy TUI retitling itself every 400 ms reschedules a plain debounce
+    // forever — the maxWait cap must force a save within ~2 s anyway.
+    for (let i = 0; i < 6; i++) {
+      act(() => deck.setPaneAutoTitle("ws-1", "pane-1", `✳ thinking ${i}`));
+      await act(async () => vi.advanceTimersByTime(400));
+    }
+    expect(ipc.saveDeckState).toHaveBeenCalled();
+    const calls = ipc.saveDeckState.mock.calls;
+    const saved = JSON.parse(calls[calls.length - 1][0]);
+    expect(saved.workspaces[0].panes[0].autoTitle).toMatch(/✳ thinking/);
+  });
+
   it("quarantines an unusable document and starts empty", async () => {
     ipc.loadDeckState.mockResolvedValue("{corrupt");
     await mount();
