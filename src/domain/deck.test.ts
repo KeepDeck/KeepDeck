@@ -44,7 +44,10 @@ describe("deckReducer closeAgent", () => {
     expect(next.selectByWs).toEqual({});
   });
 
-  it("leaves selection/focus untouched when a non-selected pane is closed", () => {
+  it("keeps selection but clears a maximize that no longer resolves (solo survivor)", () => {
+    // Focus left on a now-solo workspace is masked (solo never maximizes)
+    // but would spring back on the NEXT added pane, rendering it collapsed
+    // and invisible — the reducer must not produce that state.
     const next = deckReducer(
       state({
         workspaces: [ws("a", ["a-1", "a-2"])],
@@ -55,6 +58,19 @@ describe("deckReducer closeAgent", () => {
       { type: "closeAgent", wsId: "a", paneId: "a-1" },
     );
     expect(next.selectByWs).toEqual({ a: "a-2" });
+    expect(next.focusByWs).toEqual({});
+  });
+
+  it("keeps a maximize that still resolves over the survivors", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        focusByWs: { a: "a-2" },
+        selectByWs: { a: "a-2" },
+      }),
+      { type: "closeAgent", wsId: "a", paneId: "a-3" },
+    );
     expect(next.focusByWs).toEqual({ a: "a-2" });
   });
 });

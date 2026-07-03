@@ -56,7 +56,10 @@ export function paneColumnSpan(index: number, count: number): number {
   const { columns, rows } = paneGrid(count);
   const lastRowStart = columns * (rows - 1);
   const lastRowCount = count - lastRowStart;
-  const total = lcm(columns, lastRowCount);
+  // The track count MUST come from the same formula the grid template uses —
+  // spans divide it exactly, so a drifted copy would misalign every
+  // non-square grid.
+  const total = paneGridTrackColumns(count);
   return index < lastRowStart ? total / columns : total / lastRowCount;
 }
 

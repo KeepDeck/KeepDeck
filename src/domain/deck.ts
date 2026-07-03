@@ -1,4 +1,4 @@
-import { type Pane, type PaneSession } from "./panes";
+import { resolveFocus, type Pane, type PaneSession } from "./panes";
 import {
   addAgentPane,
   closeAgent,
@@ -159,8 +159,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           .find((w) => w.id === wsId)
           ?.panes.filter((p) => p.id !== paneId) ?? [];
       const workspaces = closeAgent(state.workspaces, wsId, paneId);
+      // Drop the maximize key unless it still RESOLVES over the survivors —
+      // not only when the maximized pane itself was closed. A key left on a
+      // now-solo workspace is masked (solo never maximizes) but springs back
+      // on the NEXT added pane, rendering it collapsed and invisible.
+      const focused = state.focusByWs[wsId];
       const focusByWs =
-        state.focusByWs[wsId] === paneId
+        focused !== undefined && resolveFocus(remaining, focused) === null
           ? dropKey(state.focusByWs, wsId)
           : state.focusByWs;
       let selectByWs = state.selectByWs;

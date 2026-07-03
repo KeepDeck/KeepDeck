@@ -1,6 +1,7 @@
-/** Geometry helpers for drag-reordering the workspaces rail. Kept pure (and the
- * DOM read isolated) so the long-press/pointer wiring in `WorkspacesRail` stays
- * thin and the hit-test is unit-testable — mirrors `terminal/dnd.ts`. */
+/** Pure hit-test geometry for drag-reordering the workspaces rail — mirrors
+ * `domain/dnd.ts`. The DOM read feeding it lives in `app/railDnd.ts`, exactly
+ * as `app/dragDrop.ts` feeds the pane hit-test, so this module needs no DOM
+ * to test. */
 
 export interface RailItemRect {
   id: string;
@@ -22,11 +23,3 @@ export function railItemAtY(y: number, rects: RailItemRect[]): string | null {
   return rects[rects.length - 1].id; // below everything → the last item
 }
 
-/** Read each rail item's vertical extent from the DOM, in document order. Items
- * are tagged with `data-ws-id`. */
-export function collectRailItemRects(listEl: HTMLElement): RailItemRect[] {
-  return [...listEl.querySelectorAll<HTMLElement>("[data-ws-id]")].map((el) => {
-    const rect = el.getBoundingClientRect();
-    return { id: el.dataset.wsId ?? "", top: rect.top, bottom: rect.bottom };
-  });
-}
