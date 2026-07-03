@@ -243,6 +243,7 @@ function App() {
             dormantBlocked={revive.blocked}
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
+            onRetryProvision={provisioning.retryPane}
           />
 
           {showForm &&

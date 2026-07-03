@@ -39,6 +39,8 @@ interface DeckStageProps {
   specByPane: Record<string, SpawnPlan>;
   /** Detach a blocked pane from its gone worktree and start it fresh. */
   onStartFresh(wsId: string, paneId: string): void;
+  /** Re-issue a failed pane's worktree create (the failed card's Retry). */
+  onRetryProvision(wsId: string, paneId: string): void;
 }
 
 /**
@@ -63,6 +65,7 @@ export function DeckStage({
   dormantBlocked,
   specByPane,
   onStartFresh,
+  onRetryProvision,
 }: DeckStageProps) {
   return (
     <>
@@ -135,6 +138,7 @@ export function DeckStage({
                   solo={solo}
                   dormant={pane.dormant}
                   blockedDir={dormantBlocked[pane.id] ?? null}
+                  provisioning={pane.provisioning}
                   colSpan={colSpan}
                   onSelect={() => onSelectPane(ws.id, pane.id)}
                   onToggleFocus={() => onToggleFocus(ws.id, pane.id)}
@@ -143,6 +147,7 @@ export function DeckStage({
                   onRename={(name) => onRenamePane(ws.id, pane.id, name)}
                   onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
                   onStartFresh={() => onStartFresh(ws.id, pane.id)}
+                  onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
                 />
               );
             })}
