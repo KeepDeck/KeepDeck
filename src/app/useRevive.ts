@@ -45,6 +45,20 @@ export function useRevive(
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId);
 
+  // Reap entries whose pane is gone (closed directly, or with its workspace):
+  // ids are never reused, so without this the map only ever grows.
+  useEffect(() => {
+    setBlocked((prev) => {
+      const live = new Set(
+        deck.workspaces.flatMap((w) => w.panes.map((p) => p.id)),
+      );
+      const kept = Object.entries(prev).filter(([paneId]) => live.has(paneId));
+      return kept.length === Object.keys(prev).length
+        ? prev
+        : Object.fromEntries(kept);
+    });
+  }, [deck.workspaces]);
+
   useEffect(() => {
     // Wait for the spawn context: a resume plan built without it would miss
     // the agent's identity mechanism (e.g. codex hook args).

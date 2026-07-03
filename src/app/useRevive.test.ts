@@ -129,4 +129,22 @@ describe("useRevive — session policy", () => {
     expect(pane().dormant).toBe(true);
     expect(revive.blocked["pane-1"]).toBe("/repo/wt-gone");
   });
+
+  it("closing a blocked pane reaps its blocked entry", async () => {
+    // Pane ids are never reused, so entries left behind by closed panes
+    // would accumulate for the whole session.
+    ipc.probeWorktree.mockResolvedValue({
+      exists: false,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() => deck.hydrate(restored({ cwd: "/repo/wt-gone" })));
+    await settle();
+    expect(revive.blocked["pane-1"]).toBe("/repo/wt-gone");
+
+    act(() => deck.closeAgent("ws-1", "pane-1"));
+    await settle();
+    expect(revive.blocked).toEqual({});
+  });
 });
