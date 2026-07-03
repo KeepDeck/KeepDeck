@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { hydrateDeck, serializeDeck } from "../domain/persist";
+import { describeError, log } from "../ipc/log";
 import { loadDeckState, quarantineDeckState, saveDeckState } from "../ipc/state";
 import { seedAgentSeq, seedWorkspaceSeq } from "./ids";
 import type { Deck } from "./useDeck";
@@ -37,7 +38,10 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
         const restored = hydrateDeck(json);
         if (!restored) {
           // Unusable document: keep it around as deck.json.bak for inspection.
-          void quarantineDeckState().catch(() => {});
+          log.error("web:persist", "deck state unusable → quarantined, starting empty");
+          void quarantineDeckState().catch((e) =>
+            log.error("web:persist", `quarantine itself failed: ${describeError(e)}`),
+          );
           return;
         }
         // Mints first: ids issued after the restore must not collide with
@@ -46,7 +50,10 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
         seedWorkspaceSeq(restored.nextWorkspaceSeq);
         hydrateRef.current(restored.state);
       })
-      .catch(() => {}) // unreadable state → start empty
+      .catch((e) =>
+        // Unreadable state → start empty.
+        log.warn("web:persist", `deck state load failed: ${describeError(e)}`),
+      )
       .finally(() => {
         if (!cancelled) {
           loadedRef.current = true;
@@ -112,7 +119,9 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
         // The deck moved on during the round-trip → save the newer state.
         if (serializedRef.current !== snapshot) flushRef.current();
       },
-      () => {
+      (e) => {
+        // A failing save is silent data-loss risk — every failure is signal.
+        log.warn("web:persist", `deck state save failed: ${describeError(e)}`);
         savingRef.current = false;
         // Refs untouched: the state is still dirty. Retry on a delay so a
         // persistently failing disk doesn't spin a hot save loop.

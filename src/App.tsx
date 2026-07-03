@@ -5,6 +5,7 @@ import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { fetchAppInfo, openInEditor, type AppInfo } from "./ipc/app";
 import { pickFolder } from "./ipc/dialogs";
+import { describeError, log } from "./ipc/log";
 import { inspectRepo, probeWorktree } from "./ipc/worktree";
 import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
@@ -38,7 +39,10 @@ function App() {
   useEffect(() => {
     fetchAppInfo()
       .then(setInfo)
-      .catch(() => setInfo(null));
+      .catch((e) => {
+        log.warn("web:app", `app_info failed: ${describeError(e)}`);
+        setInfo(null);
+      });
   }, []);
 
   // The deck's workspaces + active id + per-workspace maximize/selection, in one
@@ -221,7 +225,11 @@ function App() {
             }
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
-            onOpenInEditor={(path) => void openInEditor(path).catch(() => {})}
+            onOpenInEditor={(path) =>
+              void openInEditor(path).catch((e) =>
+                log.warn("web:links", `open in editor failed for ${path}: ${describeError(e)}`),
+              )
+            }
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onPaneTitle={deck.setPaneAutoTitle}

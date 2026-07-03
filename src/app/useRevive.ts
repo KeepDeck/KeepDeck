@@ -3,7 +3,7 @@ import type { AgentInfo } from "../domain/agents";
 import type { Pane } from "../domain/panes";
 import { buildSpawnPlan, type SpawnPlanContext } from "../domain/spawnPlans";
 import { latestSession, sessionPresence } from "../ipc/history";
-import { log } from "../ipc/log";
+import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
 import { setPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
@@ -126,7 +126,10 @@ export function useRevive(
         })
         // A failed probe errs on the side of waking the pane fresh — worst
         // case the spawn itself reports the broken directory in the terminal.
-        .catch(() => deckRef.current.revivePane(active.id, pane.id))
+        .catch((e) => {
+          log.warn("web:revive", `${pane.id}: probe failed, waking fresh: ${describeError(e)}`);
+          deckRef.current.revivePane(active.id, pane.id);
+        })
         .finally(() => waking.current.delete(pane.id));
     }
   }, [active, blocked, ctx]);

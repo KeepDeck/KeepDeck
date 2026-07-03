@@ -186,7 +186,10 @@ fn deliver(app: &AppHandle, path: &Path) {
         // trace is the difference between "hook broken" and "hook never ran".
         None => log::warn!("spool: unparsable postback {}", path.display()),
     }
-    let _ = fs::remove_file(path);
+    if let Err(e) = fs::remove_file(path) {
+        // A stuck postback re-fires on every spool event until it's gone.
+        log::warn!("spool: consuming {} failed: {e}", path.display());
+    }
 }
 
 /// Parse a reporter's JSON. `None` for anything malformed — the spool is fed

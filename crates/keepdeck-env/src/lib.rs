@@ -151,6 +151,8 @@ fn login_shell_path() -> Option<String> {
             (!path.is_empty()).then_some(path)
         }
         Err(_) => {
+            // A hung rc file: agents may resolve against the bare PATH now.
+            log::warn!("login shell PATH probe timed out after 3s; using the inherited PATH");
             let _ = child.kill();
             let _ = child.wait();
             None

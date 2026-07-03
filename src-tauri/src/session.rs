@@ -175,6 +175,7 @@ pub fn session_spawn(
                 // Webview dropped the channel (reload/close). Kill the child so
                 // its reader/reaper thread sees EOF and exits — otherwise we leak
                 // an orphan process + a permanently blocked reaper thread.
+                log::debug!("session {session_id}: webview dropped channel, killing child");
                 let _ = registry.kill(&session_id);
                 break;
             }

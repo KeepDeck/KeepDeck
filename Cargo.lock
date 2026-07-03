@@ -2211,6 +2211,9 @@ dependencies = [
 [[package]]
 name = "keepdeck-env"
 version = "0.1.0"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "keepdeck-git"
