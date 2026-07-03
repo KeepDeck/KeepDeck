@@ -168,6 +168,64 @@ describe("usePersistence", () => {
     expect(saved.workspaces[0].panes[0].autoTitle).toMatch(/✳ thinking/);
   });
 
+  it("a FAILED save stays dirty and is retried — never marked saved", async () => {
+    // Advancing the saved-refs before the IPC resolves marks a failed write
+    // as done; the guard then suppresses every retry and the last pre-quit
+    // change is silently lost.
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    ipc.saveDeckState.mockRejectedValueOnce(new Error("disk full"));
+    act(() =>
+      deck.addAgentPane("ws-1", { id: "pane-9", agentType: "codex" }),
+    );
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1); // the failed attempt
+    await act(async () => {}); // let the rejection settle → retry scheduled
+
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(2); // retried
+    const saved = JSON.parse(ipc.saveDeckState.mock.calls[1][0]);
+    expect(saved.workspaces[0].panes.map((p: { id: string }) => p.id)).toEqual([
+      "pane-1",
+      "pane-9",
+    ]);
+
+    // The retry succeeded → clean; nothing keeps re-saving.
+    await act(async () => vi.advanceTimersByTime(5_000));
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(2);
+  });
+
+  it("a change landing during an in-flight save is saved right after it", async () => {
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    let resolveSave!: () => void;
+    ipc.saveDeckState.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    act(() =>
+      deck.addAgentPane("ws-1", { id: "pane-9", agentType: "codex" }),
+    );
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1); // in flight
+
+    // A binding lands while the save is still round-tripping.
+    act(() =>
+      deck.setPaneSession("ws-1", "pane-9", { id: "s-9", boundAt: "t" }),
+    );
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1); // no overlap
+
+    await act(async () => resolveSave());
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(2); // follow-up save
+    const saved = JSON.parse(ipc.saveDeckState.mock.calls[1][0]);
+    expect(saved.workspaces[0].panes[1].session.id).toBe("s-9");
+  });
+
   it("quarantines an unusable document and starts empty", async () => {
     ipc.loadDeckState.mockResolvedValue("{corrupt");
     await mount();

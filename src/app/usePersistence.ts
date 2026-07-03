@@ -87,15 +87,43 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
   // When the oldest still-unsaved change happened — the maxWait anchor.
   const dirtySinceRef = useRef<number | null>(null);
 
+  // An IPC save in flight — its settle handlers re-check for anything newer,
+  // so concurrent flushes never overlap (and never resolve out of order).
+  const savingRef = useRef(false);
+
   const flushNow = () => {
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
     dirtySinceRef.current = null;
-    lastSavedRef.current = serializedRef.current;
-    lastImmediateRef.current = immediateRef.current;
-    void saveDeckState(serializedRef.current).catch(() => {});
+    if (savingRef.current) return;
+    const snapshot = serializedRef.current;
+    const immediateSnapshot = immediateRef.current;
+    savingRef.current = true;
+    saveDeckState(snapshot).then(
+      () => {
+        // Only a CONFIRMED write advances the refs — advancing up front
+        // would mark a failed save as done, and the effect's guard would
+        // suppress every retry (silent loss of the last pre-quit change).
+        lastSavedRef.current = snapshot;
+        lastImmediateRef.current = immediateSnapshot;
+        savingRef.current = false;
+        // The deck moved on during the round-trip → save the newer state.
+        if (serializedRef.current !== snapshot) flushRef.current();
+      },
+      () => {
+        savingRef.current = false;
+        // Refs untouched: the state is still dirty. Retry on a delay so a
+        // persistently failing disk doesn't spin a hot save loop.
+        if (timerRef.current === null) {
+          timerRef.current = window.setTimeout(
+            () => flushRef.current(),
+            SAVE_DEBOUNCE_MS,
+          );
+        }
+      },
+    );
   };
   const flushRef = useRef(flushNow);
   flushRef.current = flushNow;
