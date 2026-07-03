@@ -61,12 +61,21 @@ pub struct SpawnContextDto {
 /// The spawn-plan context, resolved once at webview boot.
 #[tauri::command]
 pub fn session_spawn_context(app: AppHandle) -> Result<SpawnContextDto, String> {
-    Ok(SpawnContextDto {
+    let dto = SpawnContextDto {
         spool_dir: spool_dir(&app)?.to_string_lossy().into_owned(),
         claude_hook_args: claude_hook_args(&app),
         codex_hook_args: codex_hook_args(&app),
         opencode_plugin_path: reporter_path(&app, "session-reporter.js"),
-    })
+    };
+    // A missing reporter here is why a pane later revives "fresh" instead of
+    // resuming — flag it at the source.
+    log::info!(
+        "spawn-context: claudeHook={} codexHook={} opencodePlugin={}",
+        dto.claude_hook_args.is_some(),
+        dto.codex_hook_args.is_some(),
+        dto.opencode_plugin_path.is_some(),
+    );
+    Ok(dto)
 }
 
 /// The shared hook script's shell command line, `/bin/sh`-explicit — bundling
@@ -120,11 +129,15 @@ pub fn watch_spool(app: &AppHandle) -> Result<SpoolWatcher, String> {
 
     // Postbacks written while KeepDeck wasn't running belong to panes that no
     // longer exist — drop them instead of replaying stale bindings.
+    let mut stale = 0usize;
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
-            let _ = fs::remove_file(entry.path());
+            if fs::remove_file(entry.path()).is_ok() {
+                stale += 1;
+            }
         }
     }
+    log::info!("spool: watching {} (dropped {stale} stale postback(s))", dir.display());
 
     let emitter = app.clone();
     let watched = dir.clone();
@@ -158,8 +171,20 @@ fn deliver(app: &AppHandle, path: &Path) {
     let Ok(content) = fs::read_to_string(path) else {
         return;
     };
-    if let Some(postback) = parse_postback(&content) {
-        let _ = app.emit(SESSION_BOUND_EVENT, &postback);
+    match parse_postback(&content) {
+        Some(postback) => {
+            log::info!(
+                "spool: bound pane={} session={}",
+                postback.pane_id,
+                postback.session_id,
+            );
+            if let Err(e) = app.emit(SESSION_BOUND_EVENT, &postback) {
+                log::warn!("spool: emitting {SESSION_BOUND_EVENT} failed: {e}");
+            }
+        }
+        // A reporter wrote garbage — consumed and dropped by design, but a
+        // trace is the difference between "hook broken" and "hook never ran".
+        None => log::warn!("spool: unparsable postback {}", path.display()),
     }
     let _ = fs::remove_file(path);
 }

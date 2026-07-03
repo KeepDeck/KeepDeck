@@ -142,6 +142,15 @@ pub fn session_spawn(
     on_event: Channel<SessionEvent>,
 ) -> Result<String, String> {
     let command = resolve_command(spec.command, std::env::var("SHELL").ok());
+    // The one line that settles "which build / which args did this pane get"
+    // when a session-identity repro comes in. Env values stay private — the
+    // key names are what debugging needs.
+    log::info!(
+        "spawn: cmd={command} args={:?} env={:?} cwd={:?}",
+        spec.args,
+        spec.env.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+        spec.cwd,
+    );
     let pty_spec = PtySpec {
         command,
         args: spec.args,
