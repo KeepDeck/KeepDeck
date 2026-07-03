@@ -23,9 +23,11 @@ use tauri::State;
 ///
 /// Two agents spawning at once would otherwise race on the repo's `.git`
 /// config/ref locks; we hold the repo's lock across the add so they queue.
-#[derive(Default)]
+/// Clonable handle (the map is shared behind an `Arc`) so a command can move
+/// one into the blocking task that does the git work.
+#[derive(Default, Clone)]
 pub struct RepoLocks {
-    inner: Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>,
+    inner: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>>,
 }
 
 impl RepoLocks {
@@ -179,8 +181,9 @@ pub struct PathProbe {
 }
 
 /// Probe a candidate worktree path for the agent dialog's live hint. Never
-/// errors: an unusable path simply reports `exists: false`.
-#[tauri::command]
+/// errors: an unusable path simply reports `exists: false`. `(async)`: it
+/// stats the filesystem and shells out to git — off the main thread.
+#[tauri::command(async)]
 pub fn worktree_probe(path: String) -> PathProbe {
     let path = Path::new(&path);
     let exists = path.exists();
@@ -205,8 +208,9 @@ pub fn worktree_probe(path: String) -> PathProbe {
 }
 
 /// Inspect a working directory: is it a git repo, and if so its `HEAD`/branch.
-/// Never errors — a non-repo simply reports `is_repo: false`.
-#[tauri::command]
+/// Never errors — a non-repo simply reports `is_repo: false`. `(async)`: it
+/// shells out to git — off the main thread.
+#[tauri::command(async)]
 pub fn worktree_inspect(path: String) -> RepoInfo {
     let path = Path::new(&path);
     if !repo::is_git_repo(path) {
@@ -225,11 +229,23 @@ pub fn worktree_inspect(path: String) -> RepoInfo {
 
 /// Create an agent's worktree under `base_dir`, on a new branch, at the pinned
 /// base commit. Serialized per repo. Returns the path + branch to store.
+///
+/// Runs on the blocking pool: `git worktree add` checks out a full working
+/// tree, and a non-async command would occupy the main thread for the
+/// duration — stalling every other IPC call (keystrokes, PTY output, menus).
 #[tauri::command]
-pub fn worktree_create(
-    locks: State<RepoLocks>,
+pub async fn worktree_create(
+    locks: State<'_, RepoLocks>,
     spec: CreateSpec,
 ) -> Result<WorktreeRecord, String> {
+    let locks = locks.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || create_worktree(&locks, spec))
+        .await
+        .map_err(|e| format!("worktree create task failed: {e}"))?
+}
+
+/// [`worktree_create`] body, decoupled from Tauri state for testability.
+fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord, String> {
     let repo_path = PathBuf::from(&spec.repo);
     if !repo::is_git_repo(&repo_path) {
         return Err(format!("not a git repository: {}", spec.repo));
@@ -306,9 +322,15 @@ pub fn worktree_create(
 /// branch too. Without `force`, refuses a dirty worktree so work is never
 /// destroyed; with `branch` but no `force`, the branch delete uses the safe
 /// `-d`, which git refuses for unmerged commits.
+///
+/// Runs on the blocking pool like [`worktree_create`]: a forced remove deletes
+/// the whole worktree directory, which can take a while.
 #[tauri::command]
-pub fn worktree_remove(locks: State<RepoLocks>, spec: RemoveSpec) -> Result<(), String> {
-    remove_worktree(&locks, spec)
+pub async fn worktree_remove(locks: State<'_, RepoLocks>, spec: RemoveSpec) -> Result<(), String> {
+    let locks = locks.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || remove_worktree(&locks, spec))
+        .await
+        .map_err(|e| format!("worktree remove task failed: {e}"))?
 }
 
 /// [`worktree_remove`] body, decoupled from Tauri state for testability.
@@ -447,6 +469,41 @@ mod tests {
         git(&repo, &["branch", "kd/ws/1"]);
         git(&repo, &["branch", "kd/ws/1-2"]);
         assert_eq!(free_branch(&repo, "kd/ws/1").unwrap(), "kd/ws/1-3");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn create_suffixes_branch_and_dir_together_over_leftovers() {
+        // Clean worktrees survive pane closes by design, so a second create
+        // with the same workspace/index must step over the first one's branch
+        // AND folder, keeping both suffixes in step.
+        let repo = init_repo("create-suffix");
+        let base_dir = repo.with_file_name(format!(
+            "{}-wts",
+            repo.file_name().unwrap().to_string_lossy()
+        ));
+        let _ = std::fs::remove_dir_all(&base_dir);
+        let spec = |agent: &str| CreateSpec {
+            repo: repo.to_string_lossy().into_owned(),
+            base_dir: base_dir.to_string_lossy().into_owned(),
+            agent_id: agent.to_string(),
+            branch: None,
+            base: None,
+            workspace: "ws".to_string(),
+            index: 1,
+            dir: None,
+            path: None,
+        };
+        let locks = RepoLocks::default();
+
+        let first = create_worktree(&locks, spec("pane-1")).expect("first create");
+        let second = create_worktree(&locks, spec("pane-2")).expect("second create");
+
+        assert_eq!(first.branch, "kd/ws/1");
+        assert!(first.path.ends_with("kd-ws-1"), "path: {}", first.path);
+        assert_eq!(second.branch, "kd/ws/1-2");
+        assert!(second.path.ends_with("kd-ws-1-2"), "path: {}", second.path);
+        let _ = std::fs::remove_dir_all(&base_dir);
         let _ = std::fs::remove_dir_all(&repo);
     }
 

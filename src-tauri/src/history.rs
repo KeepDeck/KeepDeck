@@ -27,23 +27,30 @@ fn providers() -> Option<SessionProviders> {
 /// The most recent session of `agent` recorded for the working directory
 /// `dir`, optionally only when written after `since_ms`. `None` means
 /// "nothing found" — missing stores and unknown agents are not errors.
+///
+/// Runs on the blocking pool: store discovery walks transcript directories
+/// (arbitrarily large) and opens SQLite — not main-thread work.
 #[tauri::command]
-pub fn history_latest(
+pub async fn history_latest(
     agent: String,
     dir: String,
     since_ms: Option<u64>,
 ) -> Option<HistoryHitDto> {
-    let since = since_ms.map(|ms| UNIX_EPOCH + Duration::from_millis(ms));
-    providers()?
-        .latest_session(&agent, Path::new(&dir), since)
-        .map(|s| HistoryHitDto {
-            id: s.id,
-            modified_ms: s
-                .modified
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64,
-        })
+    tauri::async_runtime::spawn_blocking(move || {
+        let since = since_ms.map(|ms| UNIX_EPOCH + Duration::from_millis(ms));
+        providers()?
+            .latest_session(&agent, Path::new(&dir), since)
+            .map(|s| HistoryHitDto {
+                id: s.id,
+                modified_ms: s
+                    .modified
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            })
+    })
+    .await
+    .unwrap_or(None)
 }
 
 /// Tri-state pre-resume validation (mirrors the TS `SessionPresence`): only
@@ -69,12 +76,17 @@ impl From<Presence> for PresenceDto {
 
 /// Whether `agent`'s session `id` is still in its store for `dir` —
 /// pre-resume validation, so a stale binding degrades instead of resuming
-/// into an error. No HOME = no store to ask = `unknown`.
+/// into an error. No HOME = no store to ask = `unknown`. On the blocking
+/// pool like [`history_latest`], and a lost task degrades to `unknown` too.
 #[tauri::command]
-pub fn history_presence(agent: String, id: String, dir: String) -> PresenceDto {
-    providers().map_or(PresenceDto::Unknown, |p| {
-        p.session_presence(&agent, &id, Path::new(&dir)).into()
+pub async fn history_presence(agent: String, id: String, dir: String) -> PresenceDto {
+    tauri::async_runtime::spawn_blocking(move || {
+        providers().map_or(PresenceDto::Unknown, |p| {
+            p.session_presence(&agent, &id, Path::new(&dir)).into()
+        })
     })
+    .await
+    .unwrap_or(PresenceDto::Unknown)
 }
 
 #[cfg(test)]

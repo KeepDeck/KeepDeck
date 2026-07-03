@@ -14,21 +14,23 @@ use tauri::Manager;
 
 const FILE: &str = "deck.json";
 
-/// The stored deck JSON, or `None` on first run.
-#[tauri::command]
+/// The stored deck JSON, or `None` on first run. `(async)`, like every
+/// command here: disk IO stays off the main thread (the frontend already
+/// serializes saves, so ordering is preserved).
+#[tauri::command(async)]
 pub fn deck_state_load(app: tauri::AppHandle) -> Result<Option<String>, String> {
     load(&state_path(&app)?).map_err(|e| e.to_string())
 }
 
 /// Persist the deck JSON (already serialized and versioned by the webview).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn deck_state_save(app: tauri::AppHandle, json: String) -> Result<(), String> {
     save_atomic(&state_path(&app)?, &json).map_err(|e| e.to_string())
 }
 
 /// The webview failed to parse/validate the stored deck — keep the evidence
 /// as `deck.json.bak` so the next save can't silently destroy it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn deck_state_quarantine(app: tauri::AppHandle) -> Result<(), String> {
     quarantine(&state_path(&app)?).map_err(|e| e.to_string())
 }
