@@ -3,7 +3,12 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
-import { spawnSession, type Session } from "../../ipc/session";
+import {
+  acquirePane,
+  attachPane,
+  resizePane,
+  writePane,
+} from "../../app/ptyManager";
 import { openPath, openUrl } from "../../ipc/app";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerPaneInput } from "../../app/paneInput";
@@ -50,9 +55,11 @@ interface TerminalPaneProps {
 }
 
 /**
- * A single terminal pane backed by a live PTY session. On mount it spawns a
- * session, pipes the PTY output into xterm and keystrokes back to the PTY, and
- * keeps the PTY size in sync with the pane. On unmount it closes the session.
+ * A single terminal pane — a VIEW over a PTY session the `ptyManager` owns.
+ * On mount it acquires the pane's session (idempotent — an existing one is
+ * reused, with recent output replayed) and attaches xterm to it; keystrokes
+ * flow back through the manager. On unmount it only detaches: the process
+ * keeps running, and dies solely through the deck's explicit close actions.
  *
  * Renderer: xterm's default (canvas/DOM), NOT WebGL. A WebGL context per pane
  * was measured to behave worse across a grid of panes (the browser's ~16
@@ -128,13 +135,11 @@ export function TerminalPane({
     termRef.current = term;
     fitRef.current = fit;
 
-    let session: Session | null = null;
-    let disposed = false;
     let lastCols = term.cols;
     let lastRows = term.rows;
 
     const input = term.onData((data) => {
-      session?.write(data).catch(() => {});
+      writePane(paneId, data);
     });
 
     // Own terminal copy. Canvas-rendered text isn't DOM-selectable and WKWebView
@@ -159,7 +164,7 @@ export function TerminalPane({
         return false; // owned — don't let WKWebView copy the (garbage) textarea
       }
       const { send, block } = keyAction(e);
-      if (send) session?.write(send).catch(() => {});
+      if (send) writePane(paneId, send);
       if (block) {
         e.preventDefault();
         return false; // handled — don't let xterm emit its default (CR)
@@ -217,7 +222,7 @@ export function TerminalPane({
 
     // Route window-level input (a dropped file path, [F4]) into this session.
     const unregister = registerPaneInput(paneId, (text) => {
-      session?.write(text).catch(() => {});
+      writePane(paneId, text);
     });
 
     // Auto-naming ([F11]): mirror the terminal title (OSC 0/1/2) up to the pane.
@@ -271,49 +276,36 @@ export function TerminalPane({
       },
     });
 
-    spawnSession(
-      {
-        command,
-        args: argsRef.current,
-        env: envRef.current,
-        cwd,
-        cols: term.cols,
-        rows: term.rows,
-      },
-      (event) => {
-      // Ignore events from a session whose pane was already torn down — notably
-      // the throwaway first session of a StrictMode double-mount, whose close()
-      // emits an exit (code 1) that would otherwise flash the [U4] "agent
-      // exited" placeholder over the live agent. Also avoids writing to a
-      // disposed terminal.
-      if (disposed) return;
-      if (event.type === "output") {
-        term.write(new Uint8Array(event.bytes));
-      } else {
-        const suffix = event.code !== null ? ` (${event.code})` : "";
+    acquirePane(paneId, {
+      command,
+      args: argsRef.current,
+      env: envRef.current,
+      cwd,
+      cols: term.cols,
+      rows: term.rows,
+    });
+    const detach = attachPane(paneId, {
+      onOutput: (bytes) => term.write(bytes),
+      onExit: (code) => {
+        const suffix = code !== null ? ` (${code})` : "";
         term.writeln(`\r\n\x1b[90m[process exited${suffix}]\x1b[0m`);
-        onExitRef.current?.(event.code);
-      }
-    })
-      .then((s) => {
-        if (disposed) {
-          void s.close();
-          return;
-        }
-        session = s;
+        onExitRef.current?.(code);
+      },
+      onSpawnError: (message) => {
+        term.writeln(`\r\n\x1b[31m[failed to start session: ${message}]\x1b[0m`);
+      },
+      onReady: () => {
         // Sync the PTY to the current grid. A ResizeObserver can fire while the
-        // spawn promise is pending (sibling panes mounting) — it advances the
-        // lastCols/lastRows watermark but its `session?.resize` is a no-op
-        // (session still null), leaving the PTY stuck at the spawn size while
-        // xterm grew. That desync is what leaves blank rows + a phantom scroll
-        // (and garbles TUI repaints). Resize unconditionally now to converge.
+        // spawn is pending (sibling panes mounting) — it advances the
+        // lastCols/lastRows watermark but its resize is a no-op (no session
+        // yet), leaving the PTY stuck at the spawn size while xterm grew. That
+        // desync is what leaves blank rows + a phantom scroll (and garbles TUI
+        // repaints). Resize unconditionally now to converge.
         lastCols = term.cols;
         lastRows = term.rows;
-        s.resize(term.cols, term.rows).catch(() => {});
-      })
-      .catch((err: unknown) => {
-        term.writeln(`\r\n\x1b[31m[failed to start session: ${err}]\x1b[0m`);
-      });
+        resizePane(paneId, term.cols, term.rows);
+      },
+    });
 
     // Refit through the pump: xterm tracks the drag (one fit per frame), but
     // the PTY hears about it only once the size settles — otherwise every
@@ -337,7 +329,7 @@ export function TerminalPane({
         if (term.cols !== lastCols || term.rows !== lastRows) {
           lastCols = term.cols;
           lastRows = term.rows;
-          session?.resize(term.cols, term.rows).catch(() => {});
+          resizePane(paneId, term.cols, term.rows);
         }
       },
     });
@@ -347,7 +339,6 @@ export function TerminalPane({
     window.addEventListener("resize", requestRefit);
 
     return () => {
-      disposed = true;
       window.removeEventListener("resize", requestRefit);
       pump.dispose();
       observer.disconnect();
@@ -360,7 +351,9 @@ export function TerminalPane({
       host.removeEventListener("copy", onCopy);
       host.removeEventListener("paste", onPaste, true);
       ta?.removeEventListener("keydown", blockShiftEnterDefault, true);
-      session?.close().catch(() => {});
+      // Detach only — the session lives on in the manager. Closing a pane is
+      // a deck action (useCloseFlow → closePane), never a render artifact.
+      detach();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;

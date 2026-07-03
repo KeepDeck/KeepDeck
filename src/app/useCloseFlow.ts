@@ -4,6 +4,7 @@ import {
   type WorktreeTarget,
 } from "../domain/workspaces";
 import { discardWorktrees } from "./provisioning";
+import { closePanes } from "./ptyManager";
 import type { Deck } from "./useDeck";
 
 /** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
@@ -18,9 +19,10 @@ export type ClosingTarget = { targets: WorktreeTarget[] } & (
 
 /**
  * Owns the confirmed-close flow: both close paths ([U6]) park a ClosingTarget
- * for the confirm dialog; confirming closes in the UI first (unmounting the
- * pane ends its PTY session, so a worktree dir is no longer a live process
- * cwd), then optionally tears the worktrees down per the delete checkbox.
+ * for the confirm dialog; confirming removes the pane(s) from the deck AND
+ * ends their PTY sessions through the ptyManager (unmounting alone no longer
+ * kills a process), then optionally tears the worktrees down per the delete
+ * checkbox — after the closes settle, so no worktree dir is a live cwd.
  */
 export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
@@ -56,17 +58,27 @@ export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
   const confirmClose = () => {
     if (!closing) return;
     const targets = deleteWorktree ? closing.targets : [];
+    // Snapshot the pane ids before the reducer forgets them.
+    const paneIds =
+      closing.kind === "agent"
+        ? [closing.paneId]
+        : (deck.workspaces
+            .find((w) => w.id === closing.id)
+            ?.panes.map((p) => p.id) ?? []);
     if (closing.kind === "agent") deck.closeAgent(closing.wsId, closing.paneId);
     else deck.closeWorkspace(closing.id);
     setClosing(null);
     setDeleteWorktree(false);
+    const closed = closePanes(paneIds);
     if (targets.length > 0) {
-      void discardWorktrees(targets).then((failures) => {
-        if (failures.length > 0)
-          onError(
-            `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
-          );
-      });
+      void closed
+        .then(() => discardWorktrees(targets))
+        .then((failures) => {
+          if (failures.length > 0)
+            onError(
+              `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
+            );
+        });
     }
   };
 
