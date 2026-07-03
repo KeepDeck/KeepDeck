@@ -31,18 +31,32 @@ pub struct SessionRef {
     pub modified: SystemTime,
 }
 
+/// Pre-resume validation outcome: only a *definitive* absence may drop a
+/// session binding — a store that can't answer (locked SQLite, IO error)
+/// must keep it, or a still-resumable conversation is lost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Presence {
+    /// The session is in the store — resume will find it.
+    Present,
+    /// The store answered, and the session is not there.
+    Absent,
+    /// The store couldn't answer — absence is unproven.
+    Unknown,
+}
+
 /// One agent's session mechanics, behind one interface. Implementations are
 /// read-only over the agent's own store and best-effort by design — an
-/// unreadable/missing store yields `None`/`false`, never an error.
+/// unreadable store yields `None`/[`Presence::Unknown`], never an error.
 pub trait SessionProvider: Send + Sync {
     /// The catalog agent id this provider serves (`"claude"`).
     fn agent_id(&self) -> &'static str;
     /// The most recent session recorded for working directory `dir`,
     /// optionally only when written after `since`.
     fn latest(&self, dir: &Path, since: Option<SystemTime>) -> Option<SessionRef>;
-    /// Whether session `id` still exists for `dir` — pre-resume validation
-    /// (agents GC/rotate their stores; a stale id must degrade, not crash).
-    fn exists(&self, id: &str, dir: &Path) -> bool;
+    /// Whether session `id` is still in the store for `dir` — pre-resume
+    /// validation (agents GC/rotate their stores; a stale id must degrade,
+    /// not crash).
+    fn exists(&self, id: &str, dir: &Path) -> Presence;
 }
 
 /// The provider registry — the pure "session manager" core. Knows nothing
@@ -90,9 +104,12 @@ impl SessionProviders {
         self.get(agent)?.latest(dir, since)
     }
 
-    /// [`SessionProvider::exists`] dispatched by agent id.
-    pub fn session_exists(&self, agent: &str, id: &str, dir: &Path) -> bool {
-        self.get(agent).is_some_and(|p| p.exists(id, dir))
+    /// [`SessionProvider::exists`] dispatched by agent id. An agent the
+    /// catalog doesn't know can't be resumed at all — that is an
+    /// [`Presence::Absent`], not an [`Presence::Unknown`].
+    pub fn session_presence(&self, agent: &str, id: &str, dir: &Path) -> Presence {
+        self.get(agent)
+            .map_or(Presence::Absent, |p| p.exists(id, dir))
     }
 }
 
@@ -156,8 +173,16 @@ impl SessionProvider for ClaudeProvider {
         best
     }
 
-    fn exists(&self, id: &str, dir: &Path) -> bool {
-        !id.contains('/') && self.slug_dir(dir).join(format!("{id}.jsonl")).is_file()
+    fn exists(&self, id: &str, dir: &Path) -> Presence {
+        if id.is_empty() || id.contains('/') {
+            return Presence::Absent;
+        }
+        match fs::metadata(self.slug_dir(dir).join(format!("{id}.jsonl"))) {
+            Ok(meta) if meta.is_file() => Presence::Present,
+            Ok(_) => Presence::Absent,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Presence::Absent,
+            Err(_) => Presence::Unknown,
+        }
     }
 }
 
@@ -170,9 +195,11 @@ pub struct CodexProvider {
     pub sessions: PathBuf,
 }
 
-/// Runaway guard for the date-partitioned walk: only this many of the newest
-/// day directories are examined. Sessions older than ~3 months aren't worth a
-/// full-store scan.
+/// Runaway guard for the date-partitioned DISCOVERY walk (`latest`): only
+/// this many of the newest day directories are examined — sessions older
+/// than ~3 months aren't worth a full-store scan. `exists` deliberately does
+/// NOT apply it: it validates a KNOWN id, and a capped miss would report a
+/// still-resumable session as gone and wipe its binding.
 const CODEX_DAY_DIRS_LIMIT: usize = 90;
 
 impl SessionProvider for CodexProvider {
@@ -214,18 +241,18 @@ impl SessionProvider for CodexProvider {
 
     /// The id is embedded in the filename, so existence = "any rollout file
     /// ending in `<id>.jsonl` (or its compressed form)". `dir` is irrelevant —
-    /// codex resolves ids globally.
-    fn exists(&self, id: &str, _dir: &Path) -> bool {
+    /// codex resolves ids globally. Uncapped (see [`CODEX_DAY_DIRS_LIMIT`]),
+    /// and absence holds only when every day dir was actually scanned.
+    fn exists(&self, id: &str, _dir: &Path) -> Presence {
         if id.is_empty() || id.contains('/') {
-            return false;
+            return Presence::Absent;
         }
         let plain = format!("{id}.jsonl");
         let zst = format!("{id}.jsonl.zst");
-        for day in day_dirs_newest_first(&self.sessions)
-            .into_iter()
-            .take(CODEX_DAY_DIRS_LIMIT)
-        {
+        let (days, mut complete) = day_dirs_checked(&self.sessions);
+        for day in days {
             let Ok(entries) = fs::read_dir(&day) else {
+                complete = false; // an unreadable day leaves absence unproven
                 continue;
             };
             for entry in entries.flatten() {
@@ -234,11 +261,15 @@ impl SessionProvider for CodexProvider {
                 if name.starts_with("rollout-")
                     && (name.ends_with(&plain) || name.ends_with(&zst))
                 {
-                    return true;
+                    return Presence::Present;
                 }
             }
         }
-        false
+        if complete {
+            Presence::Absent
+        } else {
+            Presence::Unknown
+        }
     }
 }
 
@@ -267,9 +298,18 @@ fn read_first_line(path: &Path) -> Option<String> {
 /// entries are ignored; a lexicographic sort of zero-padded date parts IS the
 /// chronological order.
 fn day_dirs_newest_first(sessions: &Path) -> Vec<PathBuf> {
-    fn sorted_desc(dir: &Path) -> Vec<PathBuf> {
-        let Ok(entries) = fs::read_dir(dir) else {
-            return Vec::new();
+    day_dirs_checked(sessions).0
+}
+
+/// [`day_dirs_newest_first`] plus a completeness flag: `true` when every
+/// level was actually listed. A MISSING store root is complete (nothing was
+/// ever recorded — a definitive answer); any other listing failure means the
+/// walk may have skipped sessions.
+fn day_dirs_checked(sessions: &Path) -> (Vec<PathBuf>, bool) {
+    fn sorted_desc(dir: &Path) -> (Vec<PathBuf>, bool) {
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) => return (Vec::new(), e.kind() == std::io::ErrorKind::NotFound),
         };
         let mut dirs: Vec<PathBuf> = entries
             .flatten()
@@ -282,15 +322,20 @@ fn day_dirs_newest_first(sessions: &Path) -> Vec<PathBuf> {
             .collect();
         dirs.sort();
         dirs.reverse();
-        dirs
+        (dirs, true)
     }
     let mut days = Vec::new();
-    for year in sorted_desc(sessions) {
-        for month in sorted_desc(&year) {
-            days.extend(sorted_desc(&month));
+    let (years, mut complete) = sorted_desc(sessions);
+    for year in years {
+        let (months, ok) = sorted_desc(&year);
+        complete &= ok;
+        for month in months {
+            let (day_dirs, ok) = sorted_desc(&month);
+            complete &= ok;
+            days.extend(day_dirs);
         }
     }
-    days
+    (days, complete)
 }
 
 // -------------------------------------------------------------- opencode ----
@@ -302,16 +347,27 @@ pub struct OpencodeProvider {
     pub db: PathBuf,
 }
 
+/// How long a query waits out another process's write lock before failing —
+/// the DB belongs to a possibly-running opencode, so brief locks are normal.
+const OPENCODE_BUSY_TIMEOUT: Duration = Duration::from_millis(500);
+
 impl OpencodeProvider {
+    /// Read-only connection with the busy timeout applied.
+    fn connect(&self) -> rusqlite::Result<rusqlite::Connection> {
+        let conn = rusqlite::Connection::open_with_flags(
+            &self.db,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        conn.busy_timeout(OPENCODE_BUSY_TIMEOUT)?;
+        Ok(conn)
+    }
+
+    /// Best-effort connection for discovery (`latest`).
     fn open(&self) -> Option<rusqlite::Connection> {
         if !self.db.exists() {
             return None;
         }
-        rusqlite::Connection::open_with_flags(
-            &self.db,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .ok()
+        self.connect().ok()
     }
 }
 
@@ -335,16 +391,26 @@ impl SessionProvider for OpencodeProvider {
         after(modified, since).then_some(SessionRef { id, modified })
     }
 
-    fn exists(&self, id: &str, _dir: &Path) -> bool {
-        let Some(conn) = self.open() else {
-            return false;
+    fn exists(&self, id: &str, _dir: &Path) -> Presence {
+        match self.db.try_exists() {
+            Ok(false) => return Presence::Absent, // store never created
+            Ok(true) => {}
+            Err(_) => return Presence::Unknown,
+        }
+        let Ok(conn) = self.connect() else {
+            return Presence::Unknown;
         };
-        conn.query_row(
+        match conn.query_row(
             "SELECT 1 FROM session WHERE id = ?1 LIMIT 1",
             [id],
             |_| Ok(()),
-        )
-        .is_ok()
+        ) {
+            Ok(()) => Presence::Present,
+            Err(rusqlite::Error::QueryReturnedNoRows) => Presence::Absent,
+            // Locked / corrupt / IO — the store didn't answer; absence is
+            // unproven and the binding must survive.
+            Err(_) => Presence::Unknown,
+        }
     }
 }
 
@@ -452,9 +518,9 @@ mod tests {
         assert!(provider.latest(&cwd, Some(at(1_500))).is_none());
         assert!(provider.latest(Path::new("/elsewhere"), None).is_none());
 
-        assert!(provider.exists("uuid", &cwd));
-        assert!(!provider.exists("gone", &cwd));
-        assert!(!provider.exists("../uuid", &cwd)); // no path tricks
+        assert_eq!(provider.exists("uuid", &cwd), Presence::Present);
+        assert_eq!(provider.exists("gone", &cwd), Presence::Absent);
+        assert_eq!(provider.exists("../uuid", &cwd), Presence::Absent); // no path tricks
     }
 
     fn codex_meta(id: &str, cwd: &str) -> String {
@@ -513,10 +579,43 @@ mod tests {
         assert!(provider.latest(Path::new("/repo"), Some(at(1_500))).is_none());
 
         // exists() is filename-based and dir-independent; .zst counts too.
-        assert!(provider.exists("ok", Path::new("/anywhere")));
-        assert!(provider.exists("zzz", Path::new("/anywhere")));
-        assert!(!provider.exists("nope", Path::new("/anywhere")));
-        assert!(!provider.exists("", Path::new("/anywhere")));
+        assert_eq!(provider.exists("ok", Path::new("/anywhere")), Presence::Present);
+        assert_eq!(provider.exists("zzz", Path::new("/anywhere")), Presence::Present);
+        assert_eq!(provider.exists("nope", Path::new("/anywhere")), Presence::Absent);
+        assert_eq!(provider.exists("", Path::new("/anywhere")), Presence::Absent);
+    }
+
+    #[test]
+    fn codex_exists_finds_a_session_beyond_the_discovery_cap() {
+        // `latest` caps its walk at CODEX_DAY_DIRS_LIMIT day dirs; `exists`
+        // must NOT — a capped miss would wipe a still-resumable binding.
+        let sessions = temp_dir("codex-old");
+        let provider = CodexProvider {
+            sessions: sessions.clone(),
+        };
+        // The wanted session sits in the OLDEST of limit+5 populated days.
+        let days = CODEX_DAY_DIRS_LIMIT + 5;
+        for n in 0..days {
+            touch(
+                &sessions.join(format!("2026/01/{:03}/rollout-1-day{n}.jsonl", days - n)),
+                "{}",
+                at(1_000 + n as u64),
+            );
+        }
+        touch(
+            &sessions.join("2026/01/000/rollout-0-ancient.jsonl"),
+            "{}",
+            at(1),
+        );
+
+        assert_eq!(
+            provider.exists("ancient", Path::new("/anywhere")),
+            Presence::Present
+        );
+        assert_eq!(
+            provider.exists("never-was", Path::new("/anywhere")),
+            Presence::Absent
+        );
     }
 
     fn opencode_fixture(rows: &[(&str, &str, i64)]) -> OpencodeProvider {
@@ -557,7 +656,8 @@ mod tests {
             db: PathBuf::from("/no/such.db"),
         };
         assert!(missing.latest(Path::new("/x"), None).is_none());
-        assert!(!missing.exists("s", Path::new("/x")));
+        // A store that was never created is a DEFINITIVE absence.
+        assert_eq!(missing.exists("s", Path::new("/x")), Presence::Absent);
 
         let provider = opencode_fixture(&[("s", "/repo", 1_000_000_000_000)]);
         assert!(provider.latest(Path::new("/other"), None).is_none());
@@ -567,8 +667,24 @@ mod tests {
                 Some(UNIX_EPOCH + Duration::from_millis(1_500_000_000_000)),
             )
             .is_none());
-        assert!(provider.exists("s", Path::new("/anywhere")));
-        assert!(!provider.exists("nope", Path::new("/anywhere")));
+        assert_eq!(provider.exists("s", Path::new("/anywhere")), Presence::Present);
+        assert_eq!(provider.exists("nope", Path::new("/anywhere")), Presence::Absent);
+    }
+
+    #[test]
+    fn opencode_reports_unknown_when_the_store_cannot_answer() {
+        // A present-but-unreadable DB (here: not SQLite at all — stands in
+        // for locked/corrupt) must NOT report absence: that wipes a binding
+        // `opencode -s` would still accept.
+        let db = temp_dir("opencode-bad").join("opencode.db");
+        fs::write(&db, "not a sqlite database").unwrap();
+        let provider = OpencodeProvider { db };
+
+        assert_eq!(
+            provider.exists("s", Path::new("/anywhere")),
+            Presence::Unknown
+        );
+        assert!(provider.latest(Path::new("/repo"), None).is_none()); // still best-effort
     }
 
     #[test]
@@ -590,8 +706,15 @@ mod tests {
             providers.latest_session("claude", &cwd, None).unwrap().id,
             "uuid-1"
         );
-        assert!(providers.session_exists("claude", "uuid-1", &cwd));
+        assert_eq!(
+            providers.session_presence("claude", "uuid-1", &cwd),
+            Presence::Present
+        );
         assert!(providers.latest_session("unknown", &cwd, None).is_none());
-        assert!(!providers.session_exists("unknown", "x", &cwd));
+        // An agent outside the catalog can't be resumed — definitive absence.
+        assert_eq!(
+            providers.session_presence("unknown", "x", &cwd),
+            Presence::Absent
+        );
     }
 }

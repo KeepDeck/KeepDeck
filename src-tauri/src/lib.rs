@@ -70,7 +70,7 @@ pub fn run() {
             state::deck_state_save,
             state::deck_state_quarantine,
             history::history_latest,
-            history::history_exists,
+            history::history_presence,
             sessions::session_spawn_context,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
