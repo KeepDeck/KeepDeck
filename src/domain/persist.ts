@@ -1,8 +1,11 @@
 import type { DeckState } from "./deck";
 import type { Pane, PaneSession } from "./panes";
+import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "./agents";
+import { FALLBACK_AGENTS } from "./agents";
+import { MAX_PANES } from "./layout";
 
 /**
  * Deck persistence — schema, serialization and hydration ([F7]).
@@ -123,6 +126,18 @@ export function hydrateDeck(json: string): HydratedDeck | null {
     return out;
   };
 
+  // A focus (maximize) entry must also still RESOLVE — a solo workspace is
+  // never maximized, and a stale key persisted by an older version would
+  // otherwise maximize the wrong pane as soon as a second pane is added.
+  const readFocus = (value: unknown): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const [wsId, paneId] of Object.entries(readSelection(value))) {
+      const ws = workspaces.find((w) => w.id === wsId);
+      if (ws && resolveFocus(ws.panes, paneId) === paneId) out[wsId] = paneId;
+    }
+    return out;
+  };
+
   const activeId = resolveActiveId(
     workspaces,
     typeof raw.activeId === "string" ? raw.activeId : "",
@@ -132,7 +147,7 @@ export function hydrateDeck(json: string): HydratedDeck | null {
     state: {
       workspaces,
       activeId,
-      focusByWs: readSelection(raw.focusByWs),
+      focusByWs: readFocus(raw.focusByWs),
       selectByWs: readSelection(raw.selectByWs),
     },
     nextAgentSeq: maxSeq(workspaces.flatMap((w) => w.panes.map((p) => p.id)), "pane") + 1,
@@ -140,7 +155,10 @@ export function hydrateDeck(json: string): HydratedDeck | null {
   };
 }
 
-const AGENT_TYPES: readonly AgentType[] = ["claude", "opencode", "codex"];
+/** The restorable agent ids, derived from the one TS catalog — a hand-kept
+ * copy here compiled clean while missing a newly added agent, silently
+ * degrading its restored panes to the default. */
+const AGENT_TYPES: readonly AgentType[] = FALLBACK_AGENTS.map((a) => a.id);
 
 function readWorkspace(value: unknown): Workspace | null {
   if (!isRecord(value)) return null;
@@ -149,6 +167,11 @@ function readWorkspace(value: unknown): Workspace | null {
     return null;
   if (worktreeBaseDir !== null && typeof worktreeBaseDir !== "string") return null;
   if (!Array.isArray(value.panes)) return null;
+  // Every creation path clamps to MAX_PANES and the grid renderer throws past
+  // it — an oversized (hand-edited) pane list is an unusable document, so it
+  // quarantines like any other malformed shape instead of blanking the app on
+  // every launch.
+  if (value.panes.length > MAX_PANES) return null;
 
   const panes: Pane[] = [];
   for (const p of value.panes) {

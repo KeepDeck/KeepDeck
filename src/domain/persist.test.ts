@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FALLBACK_AGENTS } from "./agents";
 import type { DeckState } from "./deck";
 import { hydrateDeck, serializeDeck } from "./persist";
 
@@ -92,6 +93,52 @@ describe("hydrateDeck — unusable input", () => {
       ),
     ).toBeNull();
   });
+
+  it("rejects a workspace with more panes than the grid can render", () => {
+    // paneGrid throws past MAX_PANES and there is no error boundary: a
+    // hand-edited oversized deck would otherwise blank the app on EVERY
+    // launch. Unusable → quarantine, like any malformed shape.
+    const panes = Array.from({ length: 17 }, (_, i) => ({ id: `pane-${i + 1}` }));
+    expect(
+      hydrateDeck(
+        JSON.stringify({
+          version: 1,
+          activeId: "ws-1",
+          focusByWs: {},
+          selectByWs: {},
+          workspaces: [
+            { id: "ws-1", name: "x", cwd: "/x", worktreeBaseDir: null, panes },
+          ],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("restores a pane of EVERY cataloged agent type", () => {
+    // AGENT_TYPES is derived from the TS catalog: a 4th agent added there is
+    // restorable automatically, with no separate hand-kept id list to forget
+    // (forgetting silently degraded restored panes to the default agent).
+    for (const agent of FALLBACK_AGENTS) {
+      const restored = hydrateDeck(
+        JSON.stringify({
+          version: 1,
+          activeId: "ws-1",
+          focusByWs: {},
+          selectByWs: {},
+          workspaces: [
+            {
+              id: "ws-1",
+              name: "x",
+              cwd: "/x",
+              worktreeBaseDir: null,
+              panes: [{ id: "pane-1", agentType: agent.id }],
+            },
+          ],
+        }),
+      )!;
+      expect(restored.state.workspaces[0].panes[0].agentType).toBe(agent.id);
+    }
+  });
 });
 
 describe("hydrateDeck — tolerated degradations", () => {
@@ -123,6 +170,30 @@ describe("hydrateDeck — tolerated degradations", () => {
 
   it("degrades an unknown agentType to the default instead of rejecting", () => {
     expect(restored.state.workspaces[0].panes[0].agentType).toBeUndefined();
+  });
+
+  it("drops a persisted maximize that no longer resolves (solo workspace)", () => {
+    // Decks written before the closeAgent fix can carry a focus key on a
+    // solo workspace; restoring it verbatim would maximize the wrong pane
+    // as soon as a second pane is added.
+    const stale = hydrateDeck(
+      JSON.stringify({
+        version: 1,
+        activeId: "ws-1",
+        focusByWs: { "ws-1": "pane-1" },
+        selectByWs: {},
+        workspaces: [
+          {
+            id: "ws-1",
+            name: "x",
+            cwd: "/x",
+            worktreeBaseDir: null,
+            panes: [{ id: "pane-1" }],
+          },
+        ],
+      }),
+    )!;
+    expect(stale.state.focusByWs).toEqual({});
   });
 
   it("seeds mints at 1 when no ids match the minted format", () => {
