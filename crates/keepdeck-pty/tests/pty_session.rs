@@ -57,7 +57,7 @@ fn reports_nonzero_exit_code() {
 #[test]
 fn echoes_written_input() {
     // `cat` re-emits whatever is written to its stdin.
-    let (mut session, rx) = PtySession::spawn(spec("cat", &[])).expect("spawn cat");
+    let (session, rx) = PtySession::spawn(spec("cat", &[])).expect("spawn cat");
     session.write(b"ping\n").expect("write to pty");
 
     let mut seen = String::new();
@@ -85,6 +85,31 @@ fn echoes_written_input() {
 fn resize_succeeds_on_live_session() {
     let (session, _rx) = PtySession::spawn(spec("cat", &[])).expect("spawn cat");
     session.resize(120, 40).expect("resize a live pty should succeed");
+}
+
+#[test]
+fn kill_lands_while_a_write_is_blocked_on_a_hung_child() {
+    use std::sync::Arc;
+
+    // `sleep` never reads stdin: the PTY input buffer fills and a large write
+    // blocks holding the writer lock. Kill must not queue behind it — one
+    // shared lock here turned a hung agent into an uncloseable pane.
+    let (session, rx) = PtySession::spawn(spec("sleep", &["30"])).expect("spawn sleep");
+    let session = Arc::new(session);
+
+    let writer = session.clone();
+    std::thread::spawn(move || {
+        // Far larger than any PTY input buffer, so write_all stays blocked
+        // until the child dies; the thread then ends on the write error.
+        let flood = vec![b'x'; 8 * 1024 * 1024];
+        let _ = writer.write(&flood);
+    });
+    std::thread::sleep(Duration::from_millis(300));
+
+    session.kill().expect("kill must not block behind the write");
+    let (_out, exit) = run_to_exit(&rx, Duration::from_secs(10));
+    let exit = exit.expect("child should exit after kill despite the blocked write");
+    assert!(!exit.success, "sleep was killed, not completed");
 }
 
 #[test]

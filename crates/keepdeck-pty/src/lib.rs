@@ -15,7 +15,7 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -94,11 +94,20 @@ pub enum PtyEvent {
 /// reader thread ends on EOF and emits [`PtyEvent::Exited`]); call [`kill`] to
 /// terminate it.
 ///
+/// All methods take `&self` and each control surface guards only its own
+/// state: a `write_all` blocked on a full PTY input buffer (a child that
+/// stopped draining stdin) must never delay [`kill`] or [`resize`] — one lock
+/// across all three turned a hung agent into an uncloseable pane.
+///
 /// [`kill`]: PtySession::kill
+/// [`resize`]: PtySession::resize
 pub struct PtySession {
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
-    killer: Box<dyn ChildKiller + Send + Sync>,
+    /// Resize path — independent of the writer.
+    master: Mutex<Box<dyn MasterPty + Send>>,
+    /// Write path — the only lock a blocking `write_all` holds.
+    writer: Mutex<Box<dyn Write + Send>>,
+    /// Kill fallback (non-Unix / no pid); the Unix path needs no lock at all.
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     /// Child pid, for the SIGTERM→SIGKILL escalation in [`kill`](Self::kill) (Unix).
     pid: Option<u32>,
     /// Set by the reaper once the child is waited on, so `kill`'s escalation
@@ -170,9 +179,9 @@ impl PtySession {
 
         Ok((
             Self {
-                master: pair.master,
-                writer,
-                killer,
+                master: Mutex::new(pair.master),
+                writer: Mutex::new(writer),
+                killer: Mutex::new(killer),
                 pid,
                 exited,
             },
@@ -180,22 +189,29 @@ impl PtySession {
         ))
     }
 
-    /// Write input bytes to the PTY (keystrokes, pasted text).
-    pub fn write(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.writer.write_all(bytes)?;
-        self.writer.flush()
+    /// Write input bytes to the PTY (keystrokes, pasted text). May block until
+    /// the child drains its stdin; only the writer lock is held meanwhile.
+    pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
+        let mut writer = self.writer.lock().expect("pty writer poisoned");
+        writer.write_all(bytes)?;
+        writer.flush()
     }
 
     /// Resize the PTY to `cols` x `rows` character cells.
     pub fn resize(&self, cols: u16, rows: u16) -> io::Result<()> {
-        self.master.resize(pty_size(cols, rows)).map_err(to_io)
+        self.master
+            .lock()
+            .expect("pty master poisoned")
+            .resize(pty_size(cols, rows))
+            .map_err(to_io)
     }
 
     /// Terminate the child: SIGTERM now, then SIGKILL after a grace period if
     /// it's still alive — so a well-behaved agent can clean up, but a trap that
     /// swallows the signal can't survive a close. (A bare `ChildKiller::kill`
-    /// only sends a catchable SIGHUP.)
-    pub fn kill(&mut self) -> io::Result<()> {
+    /// only sends a catchable SIGHUP.) The Unix path takes no lock, so a close
+    /// always lands even while a write is blocked on a hung child.
+    pub fn kill(&self) -> io::Result<()> {
         #[cfg(unix)]
         if let Some(pid) = self.pid {
             // Already reaped → nothing to signal (and avoids a recycled pid).
@@ -215,7 +231,7 @@ impl PtySession {
             return Ok(());
         }
         // No pid, or non-Unix: fall back to the killer's signal.
-        self.killer.kill()
+        self.killer.lock().expect("pty killer poisoned").kill()
     }
 }
 

@@ -48,6 +48,9 @@ pub fn run() {
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
         .setup(|app| {
+            // Image pastes leave temp PNGs a pane's CLI reads asynchronously —
+            // they can only be reaped at the NEXT startup, here.
+            clipboard::sweep_stale_clipboard_files();
             // The session spool: agents report their session ids here; the
             // watcher lives as managed state for the app's lifetime.
             let watcher = sessions::watch_spool(app.handle())?;
