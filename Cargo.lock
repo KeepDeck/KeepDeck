@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "keepdeck"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "image",
  "infer",
