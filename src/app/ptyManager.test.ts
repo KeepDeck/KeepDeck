@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SessionEvent } from "../ipc/session";
 
 /** Controllable spawn fake: each call is recorded with its event channel and a
  * deferred result, so tests drive resolution, output and exit explicitly. */
