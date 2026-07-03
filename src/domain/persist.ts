@@ -1,5 +1,5 @@
 import type { DeckState } from "./deck";
-import type { Pane, PaneSession } from "./panes";
+import type { Pane, PaneProvisioning, PaneSession } from "./panes";
 import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
@@ -18,10 +18,18 @@ import { MAX_PANES } from "./layout";
  *
  * Hydration marks every restored pane `dormant`: a PTY can't survive a restart,
  * so panes come back as quiet tiles and are revived (resumed or freshly
- * spawned) lazily per workspace by the app layer.
+ * spawned) lazily per workspace by the app layer. The exception is a pane
+ * whose worktree create was still in flight when the app quit — it comes back
+ * NOT dormant but with its provisioning marked failed ("interrupted"), so the
+ * card offers Retry instead of the revive flow spawning a terminal into a
+ * directory that may not exist.
  */
 
 export const DECK_STATE_VERSION = 1;
+
+/** What the app closed in the middle of creating: hydration stamps this onto
+ * a restored in-flight provisioning so it surfaces as the failed card. */
+export const PROVISIONING_INTERRUPTED = "Worktree creation was interrupted";
 
 interface PersistedPane {
   id: string;
@@ -31,6 +39,8 @@ interface PersistedPane {
   name?: string;
   autoTitle?: string;
   session?: PaneSession;
+  /** The worktree-create intent, without the runtime `error`. */
+  provisioning?: Omit<PaneProvisioning, "error">;
 }
 
 interface PersistedWorkspace {
@@ -81,6 +91,11 @@ export function serializeDeck(state: DeckState): string {
         ...(p.name !== undefined && { name: p.name }),
         ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
         ...(p.session !== undefined && { session: p.session }),
+        // The intent only: the error is runtime state, and hydration stamps
+        // its own ("interrupted") on whatever comes back.
+        ...(p.provisioning !== undefined && {
+          provisioning: stripError(p.provisioning),
+        }),
       })),
     })),
   };
@@ -203,7 +218,43 @@ function readPane(value: unknown): Pane | null {
   ) {
     pane.session = { id: session.id, boundAt: session.boundAt };
   }
+  const provisioning = readProvisioning(value.provisioning);
+  if (provisioning) {
+    // The app quit mid-create: come back as the failed card — the intent
+    // powers Retry, and the pane must NOT be dormant or the revive flow
+    // would spawn a terminal into a directory that may not exist.
+    delete pane.dormant;
+    pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
+  }
   return pane;
+}
+
+/** The persisted worktree-create intent, or `null` when absent/malformed —
+ * a bad intent degrades the pane to a plain dormant one instead of rejecting
+ * the deck (mirrors the agentType degradation above). */
+function readProvisioning(value: unknown): Omit<PaneProvisioning, "error"> | null {
+  if (!isRecord(value)) return null;
+  if (
+    typeof value.repo !== "string" ||
+    typeof value.workspace !== "string" ||
+    typeof value.index !== "number"
+  )
+    return null;
+  const intent: Omit<PaneProvisioning, "error"> = {
+    repo: value.repo,
+    workspace: value.workspace,
+    index: value.index,
+  };
+  if (typeof value.baseDir === "string") intent.baseDir = value.baseDir;
+  if (typeof value.path === "string") intent.path = value.path;
+  if (typeof value.branch === "string") intent.branch = value.branch;
+  return intent;
+}
+
+/** The provisioning intent without its runtime `error` field. */
+function stripError(p: PaneProvisioning): Omit<PaneProvisioning, "error"> {
+  const { error: _error, ...intent } = p;
+  return intent;
 }
 
 /** Highest `<prefix>-N` among `ids` (0 when none match — seeds start at 1). */

@@ -8,9 +8,11 @@ import {
   renameWorkspace,
   resetPaneLocation,
   resolveActiveId,
+  resolvePaneProvisioning,
   revivePane,
   setPaneAutoTitle,
   setPaneHead,
+  setPaneProvisioningError,
   setPaneSession,
   type PaneHead,
   type Workspace,
@@ -66,7 +68,24 @@ export type DeckAction =
       session: PaneSession | null;
     }
   /** The pane's worktree moved (a checkout inside it) — live branch badge. */
-  | { type: "setPaneHead"; wsId: string; paneId: string; head: PaneHead };
+  | { type: "setPaneHead"; wsId: string; paneId: string; head: PaneHead }
+  /** A background worktree create landed: pin the pane to it and mount its
+   * terminal. */
+  | {
+      type: "resolvePaneProvisioning";
+      wsId: string;
+      paneId: string;
+      cwd: string;
+      branch: string;
+    }
+  /** Record why a pane's worktree create failed, or clear it (`null`) when a
+   * Retry starts. */
+  | {
+      type: "setPaneProvisioningError";
+      wsId: string;
+      paneId: string;
+      error: string | null;
+    };
 
 export const initialDeckState: DeckState = {
   workspaces: [],
@@ -269,6 +288,28 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         action.wsId,
         action.paneId,
         action.head,
+      );
+      if (workspaces === state.workspaces) return state;
+      return { ...state, workspaces };
+    }
+    case "resolvePaneProvisioning": {
+      // Same ref when the pane was closed mid-create — the late result of a
+      // background create must not resurrect anything.
+      const workspaces = resolvePaneProvisioning(
+        state.workspaces,
+        action.wsId,
+        action.paneId,
+        { cwd: action.cwd, branch: action.branch },
+      );
+      if (workspaces === state.workspaces) return state;
+      return { ...state, workspaces };
+    }
+    case "setPaneProvisioningError": {
+      const workspaces = setPaneProvisioningError(
+        state.workspaces,
+        action.wsId,
+        action.paneId,
+        action.error,
       );
       if (workspaces === state.workspaces) return state;
       return { ...state, workspaces };

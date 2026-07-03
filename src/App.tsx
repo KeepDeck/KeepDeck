@@ -71,10 +71,10 @@ function App() {
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
 
-  const provisioning = useProvisioning(deck, agents, setError);
+  const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
-  const agentFlow = useAgentDialog(deck, agents, setError);
+  const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, setError);
 
@@ -140,9 +140,9 @@ function App() {
   };
 
   const handleCreateWorkspace = (config: SpawnConfig) => {
-    void provisioning.createWorkspace(config).then((created) => {
-      if (created) setCreating(false);
-    });
+    // Optimistic: the workspace (and its provisioning cards) land at once.
+    provisioning.createWorkspace(config);
+    setCreating(false);
   };
 
   const railWorkspaces = deck.workspaces.map((w) => ({
@@ -158,11 +158,15 @@ function App() {
   if (restoring || !spawnCtx) return <div className="deck" />;
 
   // Every live pane's spawn plan (cached per pane id — a claude plan mints
-  // its session id once). Dormant panes get theirs at revive time.
+  // its session id once). Dormant panes get theirs at revive time; a
+  // provisioning pane has no working directory yet, so spawning would drop
+  // the agent into the workspace cwd — exactly the fallback the cards
+  // replaced.
   const specByPane: Record<string, SpawnPlan> = {};
   for (const ws of deck.workspaces) {
     for (const pane of ws.panes) {
-      if (!pane.dormant) specByPane[pane.id] = paneSpawnSpec(pane, spawnCtx, agents);
+      if (!pane.dormant && !pane.provisioning)
+        specByPane[pane.id] = paneSpawnSpec(pane, spawnCtx, agents);
     }
   }
 
@@ -239,6 +243,7 @@ function App() {
             dormantBlocked={revive.blocked}
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
+            onRetryProvision={provisioning.retryPane}
           />
 
           {showForm &&
@@ -247,7 +252,6 @@ function App() {
               <ModalOverlay>
                 <WorkspaceForm
                   onCreate={handleCreateWorkspace}
-                  busy={provisioning.busy}
                   onCancel={() => setCreating(false)}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
@@ -259,7 +263,6 @@ function App() {
               <div className="deck__overlay">
                 <WorkspaceForm
                   onCreate={handleCreateWorkspace}
-                  busy={provisioning.busy}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
                 />
@@ -274,7 +277,7 @@ function App() {
               suggestedBranch={agentFlow.dialog.suggestedBranch}
               probePath={probeWorktree}
               pickFolder={pickFolder}
-              onConfirm={(result) => void agentFlow.confirm(result)}
+              onConfirm={agentFlow.confirm}
               onCancel={agentFlow.cancel}
             />
           )}

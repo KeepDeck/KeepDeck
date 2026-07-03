@@ -3,6 +3,7 @@ import { MAX_PANES } from "./layout";
 import {
   appendPane,
   makePanes,
+  makeProvisioningPanes,
   paneBranchBadge,
   paneDisplayTitle,
   removePane,
@@ -37,6 +38,39 @@ describe("makePanes", () => {
     expect(makePanes(1, MAX_PANES + 5, "claude")).toHaveLength(MAX_PANES);
     expect(makePanes(1, 0, "claude")).toEqual([]);
     expect(makePanes(1, -2, "claude")).toEqual([]);
+  });
+});
+
+describe("makeProvisioningPanes", () => {
+  it("builds panes carrying their per-index create intent", () => {
+    expect(
+      makeProvisioningPanes(5, 2, "codex", {
+        cwd: "/repo",
+        baseDir: "/wt",
+        name: "deck",
+      }),
+    ).toEqual([
+      {
+        id: "pane-5",
+        agentType: "codex",
+        provisioning: { repo: "/repo", baseDir: "/wt", workspace: "deck", index: 1 },
+      },
+      {
+        id: "pane-6",
+        agentType: "codex",
+        provisioning: { repo: "/repo", baseDir: "/wt", workspace: "deck", index: 2 },
+      },
+    ]);
+  });
+
+  it("clamps to MAX_PANES like makePanes", () => {
+    expect(
+      makeProvisioningPanes(1, MAX_PANES + 3, "claude", {
+        cwd: "/repo",
+        baseDir: "/wt",
+        name: "ws",
+      }),
+    ).toHaveLength(MAX_PANES);
   });
 });
 

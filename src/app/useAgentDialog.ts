@@ -5,11 +5,11 @@ import {
   type AgentType,
 } from "../domain/agents";
 import type { AgentDialogResult } from "../domain/agentLocation";
-import { paneId } from "../domain/panes";
+import { paneId, type Pane } from "../domain/panes";
 import type { Workspace } from "../domain/workspaces";
-import { describeError, log } from "../ipc/log";
-import { createWorktree, inspectRepo, suggestWorktree } from "../ipc/worktree";
+import { inspectRepo, suggestWorktree } from "../ipc/worktree";
 import { mintAgentSeq } from "./ids";
+import { provisionInto, runProvisioning } from "./provisioning";
 import type { Deck } from "./useDeck";
 
 /** Everything the "+ Agent" dialog needs to render, captured at open time. */
@@ -31,13 +31,11 @@ export interface AgentDialogSpec {
 /**
  * Owns the "+ Agent" flow: open the dialog with per-workspace suggestions,
  * then turn its result into a pane — bare (main repo), attached to an existing
- * worktree, or a fresh worktree created at the chosen path ([F2]).
+ * worktree, or a fresh worktree created at the chosen path ([F2]). The fresh
+ * worktree lands optimistically: the pane joins the grid as a provisioning
+ * card at once and the create runs in the background.
  */
-export function useAgentDialog(
-  deck: Deck,
-  agents: AgentInfo[],
-  onError: (message: string) => void,
-) {
+export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
 
   const openFor = async (ws: Workspace) => {
@@ -75,7 +73,7 @@ export function useAgentDialog(
     });
   };
 
-  const confirm = async ({ agentType, name, location }: AgentDialogResult) => {
+  const confirm = ({ agentType, name, location }: AgentDialogResult) => {
     const dlg = dialog;
     if (!dlg) return;
     setDialog(null);
@@ -102,31 +100,23 @@ export function useAgentDialog(
       });
       return;
     }
-    // New worktree AT the chosen path (created verbatim, no suffix).
-    try {
-      const base =
-        (await inspectRepo(ws.cwd).catch(() => null))?.head ?? undefined;
-      const rec = await createWorktree({
+    // New worktree AT the chosen path (created verbatim, no suffix): the pane
+    // joins the grid as a provisioning card right away; the background create
+    // resolves it — or flips it to the failed card with Retry.
+    const pane: Pane = {
+      id: dlg.agentId,
+      name: paneName,
+      agentType,
+      provisioning: {
         repo: ws.cwd,
-        baseDir: "",
-        agentId: dlg.agentId,
-        branch: location.branch,
-        base,
+        path: location.path,
+        branch: location.branch || undefined,
         workspace: ws.name,
         index: dlg.index,
-        path: location.path,
-      });
-      deck.addAgentPane(dlg.wsId, {
-        id: dlg.agentId,
-        cwd: rec.path,
-        branch: rec.branch,
-        name: paneName,
-        agentType,
-      });
-    } catch (e) {
-      log.error("web:agent-dialog", `worktree create failed: ${describeError(e)}`);
-      onError(`Failed to create agent worktree:\n${e}`);
-    }
+      },
+    };
+    deck.addAgentPane(dlg.wsId, pane);
+    void runProvisioning([pane], provisionInto(deck, dlg.wsId));
   };
 
   const cancel = () => setDialog(null);

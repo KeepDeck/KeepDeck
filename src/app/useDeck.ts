@@ -46,5 +46,19 @@ export function useDeck() {
       dispatch({ type: "setPaneSession", wsId, paneId, session }),
     setPaneHead: (wsId: string, paneId: string, head: PaneHead) =>
       dispatch({ type: "setPaneHead", wsId, paneId, head }),
+    resolvePaneProvisioning: (
+      wsId: string,
+      paneId: string,
+      worktree: { cwd: string; branch: string },
+    ) =>
+      dispatch({
+        type: "resolvePaneProvisioning",
+        wsId,
+        paneId,
+        cwd: worktree.cwd,
+        branch: worktree.branch,
+      }),
+    setPaneProvisioningError: (wsId: string, paneId: string, error: string | null) =>
+      dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
   };
 }

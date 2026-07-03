@@ -15,11 +15,11 @@ import { WORKSPACE_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 export type { SpawnConfig } from "../../domain/workspaces";
 
 interface WorkspaceFormProps {
+  /** Registers the workspace immediately (optimistic provisioning) — the
+   * caller closes the form on the same tick, so there is no busy state. */
   onCreate(config: SpawnConfig): void;
   /** Provided only when there's a workspace to return to (omitted on first run). */
   onCancel?(): void;
-  /** Provisioning in flight — disables Create to block a reentrant submit. */
-  busy?: boolean;
   /** Native folder picker; null when cancelled. Injected so the form stays
    * free of IPC. */
   pickFolder(title: string): Promise<string | null>;
@@ -35,7 +35,6 @@ interface WorkspaceFormProps {
 export function WorkspaceForm({
   onCreate,
   onCancel,
-  busy,
   pickFolder,
   inspectDir,
 }: WorkspaceFormProps) {
@@ -224,10 +223,10 @@ export function WorkspaceForm({
         <button
           type="submit"
           className="form__create"
-          disabled={!cwd || busy}
+          disabled={!cwd}
           title={cwd ? "Create workspace" : "Choose a working directory first"}
         >
-          {busy ? "Creating…" : "Create workspace"}
+          Create workspace
         </button>
       </div>
     </form>

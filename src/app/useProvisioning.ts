@@ -1,82 +1,66 @@
-import { useRef, useState } from "react";
 import { defaultAgentType, type AgentInfo } from "../domain/agents";
 import type { SpawnConfig, Workspace } from "../domain/workspaces";
 import { mintAgentSeqs, mintWorkspaceSeq } from "./ids";
-import { provisionPanes } from "./provisioning";
+import { planPanes, provisionInto, runProvisioning } from "./provisioning";
 import type { Deck } from "./useDeck";
 
 /**
- * Owns workspace provisioning: the create-workspace form submit and the
- * empty-workspace count picker. One reentrancy guard covers both — a ref, not
- * state, so a second submit during the await can't double-provision; `busy` is
- * the render-time mirror that disables the UI.
+ * Owns workspace provisioning: the create-workspace form submit, the
+ * empty-workspace count picker, and the failed-card Retry. All of it is
+ * optimistic — panes land in the deck synchronously (as provisioning cards in
+ * worktree mode) and the actual worktree creates run in the background, so
+ * there is no busy state and nothing to double-submit: the form closes and
+ * the count picker unmounts on the same tick that registers the panes.
  */
-export function useProvisioning(
-  deck: Deck,
-  agents: AgentInfo[],
-  onError: (message: string) => void,
-) {
-  const submitting = useRef(false);
-  const [busy, setBusy] = useState(false);
-
-  /** Run one provisioning job under the guard; resolves false when skipped. */
-  const run = async (job: () => Promise<void>): Promise<boolean> => {
-    if (submitting.current) return false;
-    submitting.current = true;
-    setBusy(true);
-    try {
-      await job();
-      return true;
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
+export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
+  /** Add `count` agents to an existing (empty) workspace. */
+  const startWorkspace = (workspaceId: string, count: number) => {
+    const ws = deck.workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return;
+    const startSeq = mintAgentSeqs(count);
+    const panes = planPanes(ws, startSeq, count, defaultAgentType(agents));
+    deck.setPanes(workspaceId, panes);
+    void runProvisioning(panes, provisionInto(deck, workspaceId));
   };
 
-  /** Add `count` agents to an existing (empty) workspace. */
-  const startWorkspace = (workspaceId: string, count: number) =>
-    run(async () => {
-      const ws = deck.workspaces.find((w) => w.id === workspaceId);
-      if (!ws) return;
-      const startSeq = mintAgentSeqs(count);
-      const panes = await provisionPanes(
-        ws,
-        startSeq,
-        count,
-        defaultAgentType(agents),
-        onError,
-      );
-      deck.setPanes(workspaceId, panes);
-    });
-
-  /** Provision and register a whole new workspace from the create form. */
+  /** Register a whole new workspace from the create form — immediately. */
   const createWorkspace = ({
     name,
     cwd,
     agentType,
     count,
     worktreeBaseDir,
-  }: SpawnConfig) =>
-    run(async () => {
-      const wsSeq = mintWorkspaceSeq();
-      const startSeq = mintAgentSeqs(count);
-      const wsName = name.trim() || `workspace-${wsSeq}`;
-      const panes = await provisionPanes(
-        { cwd, worktreeBaseDir, name: wsName },
-        startSeq,
-        count,
-        agentType,
-        onError,
-      );
-      const workspace: Workspace = {
-        id: `ws-${wsSeq}`,
-        name: wsName,
-        cwd,
-        worktreeBaseDir,
-        panes,
-      };
-      deck.createWorkspace(workspace);
-    });
+  }: SpawnConfig) => {
+    const wsSeq = mintWorkspaceSeq();
+    const startSeq = mintAgentSeqs(count);
+    const wsName = name.trim() || `workspace-${wsSeq}`;
+    const panes = planPanes(
+      { cwd, worktreeBaseDir, name: wsName },
+      startSeq,
+      count,
+      agentType,
+    );
+    const workspace: Workspace = {
+      id: `ws-${wsSeq}`,
+      name: wsName,
+      cwd,
+      worktreeBaseDir,
+      panes,
+    };
+    deck.createWorkspace(workspace);
+    void runProvisioning(panes, provisionInto(deck, workspace.id));
+  };
 
-  return { busy, startWorkspace, createWorkspace };
+  /** Re-issue a failed pane's worktree create from its stored intent. */
+  const retryPane = (wsId: string, paneId: string) => {
+    const pane = deck.workspaces
+      .find((w) => w.id === wsId)
+      ?.panes.find((p) => p.id === paneId);
+    if (!pane?.provisioning) return;
+    // Back to the creating card first, then re-run the same intent.
+    deck.setPaneProvisioningError(wsId, paneId, null);
+    void runProvisioning([pane], provisionInto(deck, wsId));
+  };
+
+  return { startWorkspace, createWorkspace, retryPane };
 }

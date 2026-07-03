@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { PaneProvisioning } from "../../domain/panes";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 
@@ -38,6 +39,11 @@ interface AgentPaneProps {
   blockedDir?: string | null;
   /** Detach from the missing worktree and start fresh in the workspace cwd. */
   onStartFresh?(): void;
+  /** The pane's worktree create in flight or failed — render a status card
+   * instead of a terminal until it resolves (optimistic provisioning). */
+  provisioning?: PaneProvisioning | null;
+  /** Re-issue the failed create from its stored intent. */
+  onRetryProvision?(): void;
   /** Grid columns this pane spans (>1 lets a partial last row fill the width). */
   colSpan: number;
   onSelect(): void;
@@ -72,6 +78,7 @@ export function AgentPane({
   solo,
   dormant,
   blockedDir,
+  provisioning,
   colSpan,
   onSelect,
   onToggleFocus,
@@ -80,6 +87,7 @@ export function AgentPane({
   onRename,
   onTitle,
   onStartFresh,
+  onRetryProvision,
 }: AgentPaneProps) {
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
@@ -126,7 +134,9 @@ export function AgentPane({
             {title}
           </span>
         )}
-        {cwd && (
+        {cwd && !provisioning && (
+          // Hidden while provisioning: the pane has no directory of its own
+          // yet, and the fallback cwd would open the wrong folder.
           <button
             type="button"
             className="pane__open"
@@ -165,7 +175,42 @@ export function AgentPane({
         </div>
       </header>
       <div className="pane__body">
-        {dormant ? (
+        {provisioning ? (
+          // The worktree behind this pane is still being created (or failed):
+          // a status card instead of a terminal — mounting one now would
+          // spawn the agent into somebody else's directory.
+          provisioning.error ? (
+            <div className="pane__dormant" role="alert">
+              <span className="pane__exit-title">Worktree failed</span>
+              <span
+                className="pane__exit-sub pane__dormant-path"
+                title={provisioning.error}
+              >
+                {provisioning.error}
+              </span>
+              {onRetryProvision && (
+                <button
+                  type="button"
+                  className="pane__dormant-action"
+                  onClick={onRetryProvision}
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="pane__dormant" role="status">
+              <span className="pane__provision-bar" aria-hidden />
+              <span className="pane__provision-pulse" aria-hidden>
+                <span />
+                <span />
+                <span />
+              </span>
+              <span className="pane__exit-title">Creating worktree…</span>
+              <ProvisionLocation provisioning={provisioning} />
+            </div>
+          )
+        ) : dormant ? (
           // Restored, no PTY behind it ([F7]). Normally transient (the revive
           // effect wakes active-workspace panes); it persists only when the
           // pane's directory is gone.
@@ -213,6 +258,25 @@ export function AgentPane({
         )}
       </div>
     </section>
+  );
+}
+
+/** The creating card's location line: "branch · path" from what the intent
+ * knows (the batch flow auto-names its branch on the Rust side, so it may
+ * only have the base folder). */
+function ProvisionLocation({
+  provisioning,
+}: {
+  provisioning: PaneProvisioning;
+}) {
+  const location = [provisioning.branch, provisioning.path ?? provisioning.baseDir]
+    .filter(Boolean)
+    .join(" · ");
+  if (!location) return null;
+  return (
+    <span className="pane__exit-sub pane__dormant-path" title={location}>
+      {location}
+    </span>
   );
 }
 
