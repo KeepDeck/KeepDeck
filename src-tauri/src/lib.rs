@@ -6,6 +6,7 @@ mod history;
 mod links;
 mod logging;
 mod menu;
+mod migration;
 mod paths;
 mod session;
 mod sessions;
@@ -63,6 +64,9 @@ pub fn run() {
             // Image pastes leave temp PNGs a pane's CLI reads asynchronously —
             // they can only be reaped at the NEXT startup, here.
             clipboard::sweep_stale_clipboard_files();
+            // Adopt state a legacy install left in the identifier-keyed
+            // dirs — before the webview boots and asks for the deck.
+            migration::run(app.handle());
             // The session spool: agents report their session ids here; the
             // watcher lives as managed state for the app's lifetime.
             let watcher = sessions::watch_spool(app.handle())?;
