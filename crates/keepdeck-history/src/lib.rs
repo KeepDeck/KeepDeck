@@ -208,7 +208,7 @@ impl SessionProvider for CodexProvider {
     }
 
     fn latest(&self, dir: &Path, since: Option<SystemTime>) -> Option<SessionRef> {
-        let wanted = dir.to_string_lossy();
+        let wanted = cwd_candidates(dir);
         // Newest-first day walk: the first cwd match is the most recent session.
         for day in day_dirs_newest_first(&self.sessions)
             .into_iter()
@@ -274,13 +274,15 @@ impl SessionProvider for CodexProvider {
 }
 
 /// The session id from a rollout file's first line, when its recorded cwd
-/// matches — `{"type":"session_meta","payload":{"id":…,"cwd":…}}`. Malformed
-/// lines are skipped, not errors (the store is another program's private data).
-fn codex_meta_id(path: &Path, wanted_cwd: &str) -> Option<String> {
+/// matches one of the wanted spellings —
+/// `{"type":"session_meta","payload":{"id":…,"cwd":…}}`. Malformed lines are
+/// skipped, not errors (the store is another program's private data).
+fn codex_meta_id(path: &Path, wanted_cwds: &[String]) -> Option<String> {
     let content = read_first_line(path)?;
     let meta: serde_json::Value = serde_json::from_str(&content).ok()?;
     let payload = &meta["payload"];
-    if payload["cwd"].as_str()? != wanted_cwd {
+    let cwd = payload["cwd"].as_str()?;
+    if !wanted_cwds.iter().any(|wanted| wanted == cwd) {
         return None;
     }
     Some(payload["id"].as_str()?.to_string())
@@ -378,12 +380,12 @@ impl SessionProvider for OpencodeProvider {
 
     fn latest(&self, dir: &Path, since: Option<SystemTime>) -> Option<SessionRef> {
         let conn = self.open()?;
-        let dir = dir.to_string_lossy();
+        let dirs = cwd_candidates(dir);
         let (id, time_updated): (String, i64) = conn
             .query_row(
-                "SELECT id, time_updated FROM session WHERE directory = ?1 \
+                "SELECT id, time_updated FROM session WHERE directory IN (?1, ?2) \
                  ORDER BY time_updated DESC LIMIT 1",
-                [dir.as_ref()],
+                rusqlite::params![dirs[0], dirs[dirs.len() - 1]],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .ok()?;
@@ -421,6 +423,21 @@ impl SessionProvider for OpencodeProvider {
 /// to the path as given when it no longer resolves.
 fn canonical(dir: &Path) -> PathBuf {
     dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf())
+}
+
+/// The cwd spellings an agent may have recorded for `dir`: as given, plus the
+/// resolved form when it differs. Agents typically record their own
+/// (symlink-free) getcwd while the deck stores the logical pane path — under
+/// a symlinked root (macOS `/tmp`, `/var`) the two never literally match.
+/// Offering BOTH keeps the literal case working exactly as before.
+fn cwd_candidates(dir: &Path) -> Vec<String> {
+    let raw = dir.to_string_lossy().into_owned();
+    let resolved = canonical(dir).to_string_lossy().into_owned();
+    if resolved == raw {
+        vec![raw]
+    } else {
+        vec![raw, resolved]
+    }
 }
 
 /// `time_updated` as a `SystemTime`; the column holds epoch millis (Drizzle),
@@ -585,6 +602,40 @@ mod tests {
         assert_eq!(provider.exists("", Path::new("/anywhere")), Presence::Absent);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn codex_matches_a_symlinked_cwd_in_both_spellings() {
+        // Agents record their own (resolved) getcwd; the deck stores the
+        // logical pane path. Under a symlinked root (macOS /tmp, /var) the
+        // raw spelling alone never matches — both must.
+        let base = temp_dir("codex-link");
+        let real = base.join("real");
+        fs::create_dir_all(&real).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let resolved = link.canonicalize().unwrap();
+
+        let sessions = base.join("sessions");
+        let provider = CodexProvider {
+            sessions: sessions.clone(),
+        };
+        touch(
+            &sessions.join("2026/07/03/rollout-1-aaa.jsonl"),
+            &codex_meta("aaa", &resolved.to_string_lossy()),
+            at(1_000),
+        );
+        // Queried by the SYMLINK, recorded resolved — the canonical candidate.
+        assert_eq!(provider.latest(&link, None).unwrap().id, "aaa");
+
+        touch(
+            &sessions.join("2026/07/03/rollout-2-bbb.jsonl"),
+            &codex_meta("bbb", &link.to_string_lossy()),
+            at(2_000),
+        );
+        // A raw-path recording still matches too; the newest wins.
+        assert_eq!(provider.latest(&link, None).unwrap().id, "bbb");
+    }
+
     #[test]
     fn codex_exists_finds_a_session_beyond_the_discovery_cap() {
         // `latest` caps its walk at CODEX_DAY_DIRS_LIMIT day dirs; `exists`
@@ -669,6 +720,22 @@ mod tests {
             .is_none());
         assert_eq!(provider.exists("s", Path::new("/anywhere")), Presence::Present);
         assert_eq!(provider.exists("nope", Path::new("/anywhere")), Presence::Absent);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opencode_matches_a_symlinked_cwd_in_both_spellings() {
+        let base = temp_dir("opencode-link");
+        let real = base.join("real");
+        fs::create_dir_all(&real).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let resolved = link.canonicalize().unwrap();
+        let resolved = resolved.to_string_lossy();
+
+        let provider = opencode_fixture(&[("linked", resolved.as_ref(), 1_000_000_000_000)]);
+        // Queried by the SYMLINK, recorded resolved — must still be found.
+        assert_eq!(provider.latest(&link, None).unwrap().id, "linked");
     }
 
     #[test]
