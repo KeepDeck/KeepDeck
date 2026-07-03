@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { PathProbe } from "../domain/agentLocation";
 
 /** Mirrors the Rust `RepoInfo` (camelCase). */
@@ -85,4 +86,41 @@ export function removeWorktree(
   return invoke("worktree_remove", {
     spec: { repo, path, force: opts.force ?? false, branch: opts.branch ?? null },
   });
+}
+
+/**
+ * HEAD-change events (live branch badge). The Rust watcher over a registered
+ * worktree's gitdir emits one whenever a checkout inside that worktree moves
+ * its HEAD — and once immediately at registration, which is what reconciles a
+ * stale persisted branch on boot. Mirrors `WORKTREE_HEAD_EVENT` in
+ * src-tauri/src/head_watch.rs.
+ */
+export const WORKTREE_HEAD_EVENT = "deck://worktree/head";
+
+/** Mirrors the Rust `HeadEvent` (camelCase): on a branch, or detached at a
+ *  commit. `path` is the worktree path exactly as registered — the pane key. */
+export interface WorktreeHead {
+  path: string;
+  branch: string | null;
+  head: string | null;
+}
+
+/** Subscribe to worktree HEAD changes; resolves to the unlisten function. */
+export function onWorktreeHead(
+  handler: (head: WorktreeHead) => void,
+): Promise<() => void> {
+  return listen<WorktreeHead>(WORKTREE_HEAD_EVENT, (event) =>
+    handler(event.payload),
+  );
+}
+
+/** Start watching a worktree's HEAD (idempotent per path). Rejects when the
+ *  path isn't a git worktree — e.g. its directory is gone. */
+export function watchWorktree(path: string): Promise<void> {
+  return invoke("worktree_watch", { path });
+}
+
+/** Stop watching a worktree's HEAD (pane closed / workspace gone). */
+export function unwatchWorktree(path: string): Promise<void> {
+  return invoke("worktree_unwatch", { path });
 }

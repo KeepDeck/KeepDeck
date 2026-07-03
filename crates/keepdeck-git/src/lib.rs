@@ -15,8 +15,10 @@ mod cmd;
 mod error;
 
 pub mod branch;
+pub mod head;
 pub mod repo;
 pub mod worktree;
 
 pub use error::GitError;
+pub use head::Head;
 pub use worktree::WorktreeInfo;

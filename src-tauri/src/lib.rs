@@ -1,6 +1,7 @@
 mod agents;
 mod clipboard;
 mod dnd;
+mod head_watch;
 mod history;
 mod links;
 mod logging;
@@ -52,6 +53,7 @@ pub fn run() {
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
+        .manage(head_watch::HeadWatchers::default())
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();
@@ -90,6 +92,8 @@ pub fn run() {
             worktree::worktree_probe,
             worktree::worktree_create,
             worktree::worktree_remove,
+            head_watch::worktree_watch,
+            head_watch::worktree_unwatch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

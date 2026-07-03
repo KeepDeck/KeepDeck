@@ -6,7 +6,7 @@ import {
   paneGrid,
   paneGridTrackColumns,
 } from "../domain/layout";
-import { paneDisplayTitle, resolveFocus } from "../domain/panes";
+import { paneBranchBadge, paneDisplayTitle, resolveFocus } from "../domain/panes";
 import type { Workspace } from "../domain/workspaces";
 import { AgentPane } from "./agent/AgentPane";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
@@ -116,6 +116,7 @@ export function DeckStage({
               const agentInfo = agents.find((a) => a.id === agentType);
               const command = agentInfo?.command ?? agentType;
               const displayTitle = paneDisplayTitle(pane, index, agents);
+              const badge = paneBranchBadge(pane);
               return (
                 <AgentPane
                   key={pane.id}
@@ -125,7 +126,8 @@ export function DeckStage({
                   args={specByPane[pane.id]?.args}
                   env={specByPane[pane.id]?.env}
                   cwd={pane.cwd ?? ws.cwd}
-                  branch={pane.branch}
+                  branch={badge?.label}
+                  branchTitle={badge?.full}
                   visible={isActive && !isCollapsed}
                   focused={isFocused}
                   collapsed={isCollapsed}

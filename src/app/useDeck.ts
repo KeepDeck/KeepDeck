@@ -1,7 +1,7 @@
 import { useReducer } from "react";
 import { deckReducer, initialDeckState, type DeckState } from "../domain/deck";
 import type { Pane, PaneSession } from "../domain/panes";
-import type { Workspace } from "../domain/workspaces";
+import type { PaneHead, Workspace } from "../domain/workspaces";
 
 /** The deck surface the application hooks drive (state + bound actions). */
 export type Deck = ReturnType<typeof useDeck>;
@@ -44,5 +44,7 @@ export function useDeck() {
       dispatch({ type: "resetPaneLocation", wsId, paneId }),
     setPaneSession: (wsId: string, paneId: string, session: PaneSession | null) =>
       dispatch({ type: "setPaneSession", wsId, paneId, session }),
+    setPaneHead: (wsId: string, paneId: string, head: PaneHead) =>
+      dispatch({ type: "setPaneHead", wsId, paneId, head }),
   };
 }

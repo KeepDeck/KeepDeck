@@ -14,8 +14,11 @@ interface AgentPaneProps {
   env?: [string, string][];
   /** Working directory for the session. */
   cwd?: string | null;
-  /** Git branch of the agent's worktree, shown in the header when isolated. */
+  /** Badge label for the agent's git position — its worktree branch, or a
+   * short commit id when detached. Kept live by the HEAD watcher. */
   branch?: string | null;
+  /** Full form for the badge tooltip (full branch name / full commit SHA). */
+  branchTitle?: string | null;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -61,6 +64,7 @@ export function AgentPane({
   env,
   cwd,
   branch,
+  branchTitle,
   visible,
   focused,
   collapsed,
@@ -133,7 +137,7 @@ export function AgentPane({
           </button>
         )}
         {branch && (
-          <span className="pane__branch" title={branch}>
+          <span className="pane__branch" title={branchTitle ?? branch}>
             {branch}
           </span>
         )}
