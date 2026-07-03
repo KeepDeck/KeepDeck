@@ -9,6 +9,7 @@ import type { SpawnConfig } from "../../domain/workspaces";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
+import { SuggestedInput } from "../../ui/SuggestedInput";
 import { WORKSPACE_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
 export type { SpawnConfig } from "../../domain/workspaces";
@@ -44,7 +45,8 @@ export function WorkspaceForm({
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
   const [count, setCount] = useState(1);
-  const [worktreeDir, setWorktreeDir] = useState<string | null>(null);
+  // Empty string = no worktree isolation; maps to null in SpawnConfig.
+  const [worktreeDir, setWorktreeDir] = useState("");
   const [nudge, setNudge] = useState(false);
   const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
     null,
@@ -100,7 +102,14 @@ export function WorkspaceForm({
   };
 
   const create = () => {
-    if (cwd) onCreate({ name, cwd, agentType, count, worktreeBaseDir: worktreeDir });
+    if (cwd)
+      onCreate({
+        name,
+        cwd,
+        agentType,
+        count,
+        worktreeBaseDir: worktreeDir.trim() || null,
+      });
   };
 
   const submit = () => {
@@ -108,7 +117,7 @@ export function WorkspaceForm({
     // No worktree dir chosen but the working dir is a git repo → in-app nudge
     // (no system dialogs) before running every agent in one repo working tree.
     // Skipped for an empty workspace ([F15]): no agents run, nothing to isolate.
-    if (count > 0 && !worktreeDir && git?.isRepo) {
+    if (count > 0 && !worktreeDir.trim() && git?.isRepo) {
       setNudge(true);
       return;
     }
@@ -159,22 +168,16 @@ export function WorkspaceForm({
       )}
 
       <span className="form__label">Worktree directory (optional)</span>
-      <div className="form__dir">
-        <span
-          className={`form__dir-path${worktreeDir ? "" : " form__dir-path--empty"}`}
-          title={worktreeDir ?? undefined}
-        >
-          {worktreeDir ?? "Agents run in the working directory"}
-        </span>
-        {worktreeDir && (
-          <button
-            type="button"
-            className="form__dir-btn"
-            onClick={() => setWorktreeDir(null)}
-          >
-            Clear
-          </button>
-        )}
+      <div className="form__path">
+        <SuggestedInput
+          value={worktreeDir}
+          suggestion=""
+          onChange={setWorktreeDir}
+          className="form__path-field"
+          placeholder="Agents run in the working directory"
+          ariaLabel="Worktree directory"
+          clearTitle="Clear — agents run in the working directory"
+        />
         <button
           type="button"
           className="form__dir-btn"
