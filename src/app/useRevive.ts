@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentInfo } from "../domain/agents";
 import type { Pane } from "../domain/panes";
 import { buildSpawnPlan, type SpawnPlanContext } from "../domain/spawnPlans";
-import { latestSession, sessionExists } from "../ipc/history";
+import { latestSession, sessionPresence } from "../ipc/history";
 import { probeWorktree } from "../ipc/worktree";
 import { setPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
@@ -60,17 +60,19 @@ export function useRevive(
         // written (a pane the user never spoke to), or one the agent GC'd.
         // Either way the pane starts FRESH: falling back to
         // newest-in-directory here would resurrect someone else's
-        // conversation (the empty-claude-pane bug). A failed CHECK trusts
-        // the binding (worst case: the resume exits visibly).
-        const alive = await sessionExists(agentType, recorded, dir).catch(
-          () => true,
+        // conversation (the empty-claude-pane bug). Only a DEFINITIVE
+        // absence counts: an unanswerable store ("unknown" — locked DB, IO
+        // error) or a failed check trusts the binding (worst case: the
+        // resume exits visibly), never wipes a resumable conversation.
+        const presence = await sessionPresence(agentType, recorded, dir).catch(
+          () => "unknown" as const,
         );
-        sessionId = alive ? recorded : null;
+        sessionId = presence === "absent" ? null : recorded;
         // Drop the dead binding — a pane must not keep pointing at a ghost:
         // the binding hook refuses to overwrite an existing session, so a
         // stale one would block the fresh spawn's identity from ever being
         // recorded (the lost-"test"-conversation bug).
-        if (!alive) {
+        if (presence === "absent") {
           deckRef.current.setPaneSession(active.id, pane.id, null);
         }
       } else {

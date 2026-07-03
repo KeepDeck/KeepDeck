@@ -15,12 +15,12 @@ import { useRevive, type ReviveApi } from "./useRevive";
 
 const ipc = vi.hoisted(() => ({
   probeWorktree: vi.fn(),
-  sessionExists: vi.fn(),
+  sessionPresence: vi.fn(),
   latestSession: vi.fn(),
 }));
 vi.mock("../ipc/worktree", () => ({ probeWorktree: ipc.probeWorktree }));
 vi.mock("../ipc/history", () => ({
-  sessionExists: ipc.sessionExists,
+  sessionPresence: ipc.sessionPresence,
   latestSession: ipc.latestSession,
 }));
 
@@ -66,7 +66,7 @@ describe("useRevive — session policy", () => {
       empty: false,
       branch: null,
     });
-    ipc.sessionExists.mockReset();
+    ipc.sessionPresence.mockReset();
     ipc.latestSession.mockReset().mockResolvedValue(null);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -79,8 +79,8 @@ describe("useRevive — session policy", () => {
 
   const pane = () => deck.workspaces[0].panes[0];
 
-  it("a recorded session that still exists is resumed", async () => {
-    ipc.sessionExists.mockResolvedValue(true);
+  it("a recorded session that's still PRESENT is resumed", async () => {
+    ipc.sessionPresence.mockResolvedValue("present");
     act(() => deck.hydrate(restored({ session: { id: "old", boundAt: "t" } })));
     await settle();
 
@@ -89,11 +89,11 @@ describe("useRevive — session policy", () => {
     expect(ipc.latestSession).not.toHaveBeenCalled();
   });
 
-  it("a recorded session that's GONE starts fresh — NEVER someone else's", async () => {
+  it("a recorded session that's ABSENT starts fresh — NEVER someone else's", async () => {
     // The empty-claude-pane bug: an assigned id nobody spoke to never
     // materialized; falling back to newest-in-directory resurrected an
     // unrelated old conversation.
-    ipc.sessionExists.mockResolvedValue(false);
+    ipc.sessionPresence.mockResolvedValue("absent");
     act(() => deck.hydrate(restored({ session: { id: "ghost", boundAt: "t" } })));
     await settle();
 
@@ -106,6 +106,20 @@ describe("useRevive — session policy", () => {
     expect(pane().session).toBeUndefined();
   });
 
+  it("an UNANSWERABLE store keeps the binding and still resumes", async () => {
+    // A locked/unreadable store is NOT absence: wiping the binding here
+    // loses a conversation `--resume` would still open. Worst case the
+    // resume exits visibly in the terminal.
+    ipc.sessionPresence.mockResolvedValue("unknown");
+    act(() => deck.hydrate(restored({ session: { id: "old", boundAt: "t" } })));
+    await settle();
+
+    expect(pane().dormant).toBeUndefined();
+    expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "old"]);
+    expect(pane().session).toEqual({ id: "old", boundAt: "t" }); // kept
+    expect(ipc.latestSession).not.toHaveBeenCalled();
+  });
+
   it("a never-bound pane falls back to the directory's newest session", async () => {
     ipc.latestSession.mockResolvedValue({ id: "found", modifiedMs: 1 });
     act(() => deck.hydrate(restored({})));
@@ -113,7 +127,7 @@ describe("useRevive — session policy", () => {
 
     expect(pane().dormant).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "found"]);
-    expect(ipc.sessionExists).not.toHaveBeenCalled();
+    expect(ipc.sessionPresence).not.toHaveBeenCalled();
   });
 
   it("a gone directory blocks revival instead of spawning into nowhere", async () => {

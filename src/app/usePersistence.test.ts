@@ -131,6 +131,25 @@ describe("usePersistence", () => {
     ]);
   });
 
+  it("a session binding saves IMMEDIATELY — quit must not lose it", async () => {
+    // ⌘Q is a native menu role that never reaches the webview, so a binding
+    // riding the debounce would vanish with it — and next launch would
+    // resume the directory's newest session, possibly someone else's
+    // conversation.
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear(); // drop the boot save
+
+    act(() =>
+      deck.setPaneSession("ws-1", "pane-1", { id: "s-1", boundAt: "t" }),
+    );
+    // No timer advance: the save must not wait for any debounce.
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    const saved = JSON.parse(ipc.saveDeckState.mock.calls[0][0]);
+    expect(saved.workspaces[0].panes[0].session.id).toBe("s-1");
+  });
+
   it("cosmetic churn cannot starve the save past the max wait", async () => {
     ipc.loadDeckState.mockResolvedValue(STORED);
     await mount();
@@ -147,6 +166,64 @@ describe("usePersistence", () => {
     const calls = ipc.saveDeckState.mock.calls;
     const saved = JSON.parse(calls[calls.length - 1][0]);
     expect(saved.workspaces[0].panes[0].autoTitle).toMatch(/✳ thinking/);
+  });
+
+  it("a FAILED save stays dirty and is retried — never marked saved", async () => {
+    // Advancing the saved-refs before the IPC resolves marks a failed write
+    // as done; the guard then suppresses every retry and the last pre-quit
+    // change is silently lost.
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    ipc.saveDeckState.mockRejectedValueOnce(new Error("disk full"));
+    act(() =>
+      deck.addAgentPane("ws-1", { id: "pane-9", agentType: "codex" }),
+    );
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1); // the failed attempt
+    await act(async () => {}); // let the rejection settle → retry scheduled
+
+    await act(async () => vi.advanceTimersByTime(500));
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(2); // retried
+    const saved = JSON.parse(ipc.saveDeckState.mock.calls[1][0]);
+    expect(saved.workspaces[0].panes.map((p: { id: string }) => p.id)).toEqual([
+      "pane-1",
+      "pane-9",
+    ]);
+
+    // The retry succeeded → clean; nothing keeps re-saving.
+    await act(async () => vi.advanceTimersByTime(5_000));
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(2);
+  });
+
+  it("a change landing during an in-flight save is saved right after it", async () => {
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    let resolveSave!: () => void;
+    ipc.saveDeckState.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveSave = resolve;
+      }),
+    );
+    act(() =>
+      deck.addAgentPane("ws-1", { id: "pane-9", agentType: "codex" }),
+    );
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1); // in flight
+
+    // A binding lands while the save is still round-tripping.
+    act(() =>
+      deck.setPaneSession("ws-1", "pane-9", { id: "s-9", boundAt: "t" }),
+    );
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1); // no overlap
+
+    await act(async () => resolveSave());
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(2); // follow-up save
+    const saved = JSON.parse(ipc.saveDeckState.mock.calls[1][0]);
+    expect(saved.workspaces[0].panes[1].session.id).toBe("s-9");
   });
 
   it("quarantines an unusable document and starts empty", async () => {
