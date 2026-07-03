@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { noAutoCorrect } from "../../ui/inputProps";
-import { collectRailItemRects, railItemAtY } from "../../domain/railDnd";
+import { collectRailItemRects } from "../../app/railDnd";
+import { railItemAtY } from "../../domain/railDnd";
 
 /** View model for the rail (the domain `Workspace` lives in `../workspaces`). */
 export interface WorkspaceItem {
