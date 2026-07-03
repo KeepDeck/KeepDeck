@@ -5,6 +5,7 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "log:default",
     "dialog:default",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text"

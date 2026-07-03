@@ -3,6 +3,7 @@ import type { AgentInfo } from "../domain/agents";
 import type { Pane } from "../domain/panes";
 import { buildSpawnPlan, type SpawnPlanContext } from "../domain/spawnPlans";
 import { latestSession, sessionPresence } from "../ipc/history";
+import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
 import { setPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
@@ -95,6 +96,11 @@ export function useRevive(
         sessionId =
           (await latestSession(agentType, dir).catch(() => null))?.id ?? null;
       }
+      log.info(
+        "web:revive",
+        `${pane.id} (${agentType}): recorded=${recorded ?? "-"} → ` +
+          (sessionId ? `resume ${sessionId}` : "fresh"),
+      );
       if (sessionId && ctxRef.current) {
         setPaneSpawnSpec(
           pane.id,
@@ -115,11 +121,15 @@ export function useRevive(
       void probeWorktree(dir)
         .then((probe) => {
           if (probe.exists) return wake(pane, dir);
+          log.warn("web:revive", `${pane.id}: directory gone ${dir} → blocked tile`);
           setBlocked((b) => ({ ...b, [pane.id]: dir }));
         })
         // A failed probe errs on the side of waking the pane fresh — worst
         // case the spawn itself reports the broken directory in the terminal.
-        .catch(() => deckRef.current.revivePane(active.id, pane.id))
+        .catch((e) => {
+          log.warn("web:revive", `${pane.id}: probe failed, waking fresh: ${describeError(e)}`);
+          deckRef.current.revivePane(active.id, pane.id);
+        })
         .finally(() => waking.current.delete(pane.id));
     }
   }, [active, blocked, ctx]);

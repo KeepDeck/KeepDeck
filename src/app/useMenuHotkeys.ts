@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { describeError, log } from "../ipc/log";
 import {
   CLOSE_AGENT_EVENT,
   NEW_AGENT_EVENT,
@@ -36,7 +37,9 @@ export function useMenuHotkeys(actions: MenuActions) {
           if (cancelled) un();
           else unlisteners.push(un);
         })
-        .catch(() => {});
+        .catch((e) =>
+          log.warn("web:menu", `subscribing ${event} failed: ${describeError(e)}`),
+        );
     };
     subscribe(NEW_WORKSPACE_EVENT, "newWorkspace");
     subscribe(NEW_AGENT_EVENT, "newAgent");

@@ -3,7 +3,9 @@ mod clipboard;
 mod dnd;
 mod history;
 mod links;
+mod logging;
 mod menu;
+mod paths;
 mod session;
 mod sessions;
 mod state;
@@ -39,7 +41,10 @@ fn app_info() -> AppInfo {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Trim past runs' log files before the plugin opens this run's own.
+    let collected = logging::collect_garbage();
     tauri::Builder::default()
+        .plugin(logging::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -47,7 +52,12 @@ pub fn run() {
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
-        .setup(|app| {
+        .setup(move |app| {
+            logging::install_panic_hook();
+            logging::banner();
+            if collected > 0 {
+                log::info!("log gc: removed {collected} old file(s)");
+            }
             // Image pastes leave temp PNGs a pane's CLI reads asynchronously —
             // they can only be reaped at the NEXT startup, here.
             clipboard::sweep_stale_clipboard_files();

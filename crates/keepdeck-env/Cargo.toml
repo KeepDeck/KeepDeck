@@ -5,4 +5,5 @@ edition = "2021"
 description = "PATH augmentation and program resolution for KeepDeck (shared by the PTY and agent layers)."
 
 [dependencies]
-# none — pure std.
+# The logging facade only — where lines land is the app's concern.
+log = "0.4"

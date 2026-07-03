@@ -340,7 +340,9 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
     }
     // Drop the administrative record (best-effort) — after the remove above,
     // or INSTEAD of it when the dir vanished externally.
-    let _ = worktree::prune(&repo_path);
+    if let Err(e) = worktree::prune(&repo_path) {
+        log::warn!("worktree: prune after remove failed in {}: {e}", repo_path.display());
+    }
     // Branch removal is separate: a branch can't be deleted while its worktree
     // is checked out, so it only runs now that the worktree is gone.
     if let Some(branch) = spec.branch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {

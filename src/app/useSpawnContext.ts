@@ -3,6 +3,7 @@ import {
   EMPTY_SPAWN_CONTEXT,
   type SpawnPlanContext,
 } from "../domain/spawnPlans";
+import { describeError, log } from "../ipc/log";
 import { spawnContext } from "../ipc/sessions";
 
 /**
@@ -16,7 +17,12 @@ export function useSpawnContext(): SpawnPlanContext | null {
   useEffect(() => {
     let cancelled = false;
     void spawnContext()
-      .catch(() => EMPTY_SPAWN_CONTEXT)
+      .catch((e) => {
+        // Identity mechanisms silently off is exactly the state that burned
+        // an hour once — make the degradation visible.
+        log.warn("web:spawn-context", `load failed, identity off: ${describeError(e)}`);
+        return EMPTY_SPAWN_CONTEXT;
+      })
       .then((loaded) => {
         if (!cancelled) setCtx(loaded);
       });

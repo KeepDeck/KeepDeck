@@ -117,6 +117,8 @@ fn event_for(id: &str) -> Option<&'static str> {
 /// items (copy, quit, …) act natively and never reach this map.
 pub fn handle_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
     if let Some(event) = event_for(id) {
-        let _ = app.emit(event, ());
+        if let Err(e) = app.emit(event, ()) {
+            log::warn!("menu: emitting {event} failed: {e}");
+        }
     }
 }
