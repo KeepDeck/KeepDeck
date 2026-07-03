@@ -9,6 +9,7 @@ import {
   renameWorkspace,
   resolveActiveId,
   setPaneAutoTitle,
+  paneOccupyingPath,
   setPaneHead,
   worktreeCwds,
   worktreeTargets,
@@ -250,5 +251,45 @@ describe("worktreeCwds", () => {
 
   it("is empty for a deck with no worktree panes", () => {
     expect(worktreeCwds([ws("a", [1, 2])])).toEqual(new Set());
+  });
+});
+
+describe("paneOccupyingPath", () => {
+  const deck: Workspace[] = [
+    {
+      ...ws("a", []),
+      panes: [
+        { id: "a-p1", cwd: "/wt/one", branch: "kd/a/1" },
+        { id: "a-p2" }, // workspace-cwd pane — occupies no worktree
+      ],
+    },
+    {
+      ...ws("b", []),
+      panes: [{ id: "b-p1", dormant: true, cwd: "/wt/two", branch: "kd/b/2" }],
+    },
+  ];
+
+  it("finds the pane running at the path, across workspaces", () => {
+    const hit = paneOccupyingPath(deck, "/wt/one");
+    expect(hit?.ws.id).toBe("a");
+    expect(hit?.pane.id).toBe("a-p1");
+    expect(hit?.index).toBe(0);
+  });
+
+  it("treats trailing slashes and whitespace as the same directory", () => {
+    expect(paneOccupyingPath(deck, "  /wt/one/ ")?.pane.id).toBe("a-p1");
+    const slashed: Workspace[] = [
+      { ...ws("c", []), panes: [{ id: "c-p1", cwd: "/wt/three/" }] },
+    ];
+    expect(paneOccupyingPath(slashed, "/wt/three")?.pane.id).toBe("c-p1");
+  });
+
+  it("counts a dormant pane — it revives right back into its directory", () => {
+    expect(paneOccupyingPath(deck, "/wt/two")?.pane.id).toBe("b-p1");
+  });
+
+  it("reports a free path (and an empty one) as unoccupied", () => {
+    expect(paneOccupyingPath(deck, "/wt/free")).toBeNull();
+    expect(paneOccupyingPath(deck, "   ")).toBeNull();
   });
 });
