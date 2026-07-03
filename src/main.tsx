@@ -1,8 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { initLogging } from "./ipc/log";
 import { suppressNativeContextMenu } from "./ui/contextMenu";
 
+initLogging();
 suppressNativeContextMenu();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

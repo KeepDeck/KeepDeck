@@ -7,6 +7,7 @@ import {
 import type { AgentDialogResult } from "../domain/agentLocation";
 import { paneId } from "../domain/panes";
 import type { Workspace } from "../domain/workspaces";
+import { describeError, log } from "../ipc/log";
 import { createWorktree, inspectRepo, suggestWorktree } from "../ipc/worktree";
 import { mintAgentSeq } from "./ids";
 import type { Deck } from "./useDeck";
@@ -123,7 +124,7 @@ export function useAgentDialog(
         agentType,
       });
     } catch (e) {
-      console.error("worktree create failed", e);
+      log.error("web:agent-dialog", `worktree create failed: ${describeError(e)}`);
       onError(`Failed to create agent worktree:\n${e}`);
     }
   };

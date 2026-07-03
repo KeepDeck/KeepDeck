@@ -2,6 +2,7 @@ import type { AgentType } from "../domain/agents";
 import { clampPaneCount } from "../domain/layout";
 import { makePanes, paneId, type Pane } from "../domain/panes";
 import type { WorktreeTarget } from "../domain/workspaces";
+import { describeError, log } from "../ipc/log";
 import { createWorktree, inspectRepo, removeWorktree } from "../ipc/worktree";
 
 /**
@@ -41,7 +42,7 @@ export async function provisionPanes(
       });
       panes.push({ id: agentId, cwd: rec.path, branch: rec.branch, agentType });
     } catch (e) {
-      console.error("worktree create failed", e);
+      log.error("web:provisioning", `worktree create failed for ${agentId}: ${describeError(e)}`);
       onError(`Failed to create worktree for ${agentId}:\n${e}`);
       panes.push({ id: agentId, agentType }); // fall back to the workspace cwd
     }
@@ -64,6 +65,7 @@ export async function discardWorktrees(
     try {
       await removeWorktree(t.repo, t.path, { force: true, branch: t.branch });
     } catch (e) {
+      log.warn("web:provisioning", `worktree discard failed for ${t.path}: ${describeError(e)}`);
       failures.push(`${t.branch}: ${e}`);
     }
   }
