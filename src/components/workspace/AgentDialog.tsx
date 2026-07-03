@@ -35,6 +35,11 @@ interface AgentDialogProps {
   /** Probe a candidate worktree path for the live hint (injected — the dialog
    * itself stays free of IPC). */
   probePath(path: string): Promise<PathProbe>;
+  /** Who already runs in a candidate path — a display label like
+   * `"Agent 2" in "KeepDeck"` — or null when it's free. Injected (the dialog
+   * stays free of deck state); an occupied path blocks Create: two agents in
+   * one worktree stomp each other's files and git state. */
+  occupantAt(path: string): string | null;
   /** Native folder picker; null when cancelled. Injected for the same reason. */
   pickFolder(title: string): Promise<string | null>;
   onConfirm(result: AgentDialogResult): void;
@@ -56,6 +61,7 @@ export function AgentDialog({
   suggestedPath,
   suggestedBranch,
   probePath,
+  occupantAt,
   pickFolder,
   onConfirm,
   onCancel,
@@ -104,7 +110,8 @@ export function AgentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, repo]);
 
-  const kind = repo ? classifyLocation(path, probe) : "main";
+  const occupant = repo && path.trim() ? occupantAt(path) : null;
+  const kind = repo ? classifyLocation(path, probe, occupant !== null) : "main";
   const valid = canCreateAgent(kind, branch);
 
   const buildLocation = (): AgentLocation => {
@@ -161,7 +168,12 @@ export function AgentDialog({
                 Choose…
               </button>
             </div>
-            <LocationHint kind={kind} repoBranch={repo.branch} probe={probe} />
+            <LocationHint
+              kind={kind}
+              repoBranch={repo.branch}
+              probe={probe}
+              occupant={occupant}
+            />
 
             {kind === "new" && (
               <>
@@ -214,10 +226,12 @@ function LocationHint({
   kind,
   repoBranch,
   probe,
+  occupant,
 }: {
   kind: ReturnType<typeof classifyLocation>;
   repoBranch: string | null;
   probe: PathProbe | null;
+  occupant: string | null;
 }) {
   switch (kind) {
     case "main":
@@ -235,6 +249,13 @@ function LocationHint({
         <span className="form__git">
           ✓ Attach to existing worktree
           {probe?.branch ? ` · ${probe.branch}` : ""}
+        </span>
+      );
+    case "occupied":
+      return (
+        <span className="form__error">
+          Already in use by {occupant ?? "another agent"} — one agent per
+          worktree
         </span>
       );
     case "blocked":
