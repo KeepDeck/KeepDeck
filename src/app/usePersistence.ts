@@ -75,16 +75,21 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
   serializedRef.current = serialized;
 
   // What a quit must never lose: the deck's SHAPE (which workspaces/panes
-  // exist) AND each pane's session binding. These save immediately, never
-  // debounced — a just-added pane or a fresh binding lost on quit is data
-  // loss (a wiped binding resumes someone else's conversation), ⌘Q is a
+  // exist), each pane's session binding AND its provisioning transition.
+  // These save immediately, never debounced — a just-added pane or a fresh
+  // binding lost on quit is data loss (a wiped binding resumes someone
+  // else's conversation; a resolved worktree saved as still-creating would
+  // restore as an interrupted card whose Retry mints a -2 sibling), ⌘Q is a
   // native menu role that never reaches the webview, and `beforeunload` is
   // not reliable in Tauri as a safety net.
   const immediate = deck.workspaces
     .map(
       (w) =>
         `${w.id}:${w.panes
-          .map((p) => `${p.id}=${p.session?.id ?? ""}`)
+          .map(
+            (p) =>
+              `${p.id}=${p.session?.id ?? ""}${p.provisioning ? "+wip" : ""}`,
+          )
           .join(",")}`,
     )
     .join(";");

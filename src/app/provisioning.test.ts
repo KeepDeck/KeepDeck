@@ -7,29 +7,55 @@ const worktree = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/worktree", () => worktree);
 
-import { discardWorktrees, provisionPanes } from "./provisioning";
+import {
+  discardWorktrees,
+  planPanes,
+  provisionInto,
+  runProvisioning,
+} from "./provisioning";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("provisionPanes", () => {
-  it("builds bare panes (no git calls) when the workspace has no worktree base", async () => {
-    const panes = await provisionPanes(
-      { cwd: "/repo", worktreeBaseDir: null, name: "ws" },
-      5,
-      2,
-      "claude",
-      () => {},
-    );
-    expect(panes).toEqual([
+describe("planPanes", () => {
+  it("builds bare panes when the workspace has no worktree base", () => {
+    expect(
+      planPanes(
+        { cwd: "/repo", worktreeBaseDir: null, name: "ws" },
+        5,
+        2,
+        "claude",
+      ),
+    ).toEqual([
       { id: "pane-5", agentType: "claude" },
       { id: "pane-6", agentType: "claude" },
     ]);
-    expect(worktree.createWorktree).not.toHaveBeenCalled();
   });
 
-  it("pins one base commit and gives each pane its worktree record", async () => {
+  it("builds provisioning cards in worktree mode — synchronously, no git calls", () => {
+    const panes = planPanes(
+      { cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" },
+      1,
+      2,
+      "codex",
+    );
+    expect(panes.map((p) => p.provisioning?.index)).toEqual([1, 2]);
+    expect(panes[0].provisioning).toMatchObject({
+      repo: "/repo",
+      baseDir: "/wt",
+      workspace: "ws",
+    });
+    expect(worktree.inspectRepo).not.toHaveBeenCalled();
+    expect(worktree.createWorktree).not.toHaveBeenCalled();
+  });
+});
+
+describe("runProvisioning", () => {
+  const cards = () =>
+    planPanes({ cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" }, 1, 2, "claude");
+
+  it("resolves each pane as its create lands, all pinned to ONE base commit", async () => {
     worktree.inspectRepo.mockResolvedValue({
       isRepo: true,
       head: "abc123",
@@ -42,39 +68,74 @@ describe("provisionPanes", () => {
         branch: `kd/ws/${agentId}`,
       }),
     );
-    const panes = await provisionPanes(
-      { cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" },
-      1,
-      2,
-      "claude",
-      () => {},
-    );
-    expect(panes[0]).toMatchObject({ id: "pane-1", cwd: "/wt/pane-1" });
-    expect(panes[1]).toMatchObject({ id: "pane-2", branch: "kd/ws/pane-2" });
-    // Both creates share the SAME resolved base — a concurrent batch must not
-    // straddle a moving HEAD.
-    expect(worktree.createWorktree).toHaveBeenCalledTimes(2);
+    const onResolved = vi.fn();
+    const onFailed = vi.fn();
+
+    await runProvisioning(cards(), { onResolved, onFailed });
+
+    expect(onResolved).toHaveBeenCalledWith("pane-1", {
+      cwd: "/wt/pane-1",
+      branch: "kd/ws/pane-1",
+    });
+    expect(onResolved).toHaveBeenCalledWith("pane-2", {
+      cwd: "/wt/pane-2",
+      branch: "kd/ws/pane-2",
+    });
+    expect(onFailed).not.toHaveBeenCalled();
+    // A concurrent batch must not straddle a moving HEAD.
     for (const call of worktree.createWorktree.mock.calls) {
       expect(call[0]).toMatchObject({ base: "abc123" });
     }
   });
 
-  it("falls back to a cwd pane and reports when one create fails", async () => {
+  it("a failed create lands on ITS pane's card; the rest still resolve — no cwd fallback", async () => {
     worktree.inspectRepo.mockRejectedValue(new Error("no repo"));
     worktree.createWorktree
       .mockResolvedValueOnce({ agentId: "pane-1", path: "/wt/1", branch: "b1" })
       .mockRejectedValueOnce(new Error("boom"));
-    const onError = vi.fn();
-    const panes = await provisionPanes(
-      { cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" },
-      1,
-      2,
-      "claude",
-      onError,
+    const onResolved = vi.fn();
+    const onFailed = vi.fn();
+
+    await runProvisioning(cards(), { onResolved, onFailed });
+
+    expect(onResolved).toHaveBeenCalledTimes(1);
+    expect(onResolved).toHaveBeenCalledWith("pane-1", {
+      cwd: "/wt/1",
+      branch: "b1",
+    });
+    expect(onFailed).toHaveBeenCalledTimes(1);
+    expect(onFailed.mock.calls[0][0]).toBe("pane-2");
+    expect(onFailed.mock.calls[0][1]).toContain("boom");
+  });
+
+  it("ignores panes without an intent entirely (a retry passes one card)", async () => {
+    await runProvisioning([{ id: "pane-1", agentType: "claude" }], {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(),
+    });
+    expect(worktree.inspectRepo).not.toHaveBeenCalled();
+    expect(worktree.createWorktree).not.toHaveBeenCalled();
+  });
+});
+
+describe("provisionInto", () => {
+  it("routes results into the deck's provisioning actions for that workspace", () => {
+    const deck = {
+      resolvePaneProvisioning: vi.fn(),
+      setPaneProvisioningError: vi.fn(),
+    };
+    const cb = provisionInto(deck, "ws-1");
+    cb.onResolved("pane-1", { cwd: "/wt/1", branch: "b1" });
+    cb.onFailed("pane-2", "boom");
+    expect(deck.resolvePaneProvisioning).toHaveBeenCalledWith("ws-1", "pane-1", {
+      cwd: "/wt/1",
+      branch: "b1",
+    });
+    expect(deck.setPaneProvisioningError).toHaveBeenCalledWith(
+      "ws-1",
+      "pane-2",
+      "boom",
     );
-    expect(panes[0]).toMatchObject({ cwd: "/wt/1" });
-    expect(panes[1]).toEqual({ id: "pane-2", agentType: "claude" });
-    expect(onError).toHaveBeenCalledTimes(1);
   });
 });
 
