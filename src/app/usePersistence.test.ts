@@ -131,6 +131,25 @@ describe("usePersistence", () => {
     ]);
   });
 
+  it("a session binding saves IMMEDIATELY — quit must not lose it", async () => {
+    // ⌘Q is a native menu role that never reaches the webview, so a binding
+    // riding the debounce would vanish with it — and next launch would
+    // resume the directory's newest session, possibly someone else's
+    // conversation.
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear(); // drop the boot save
+
+    act(() =>
+      deck.setPaneSession("ws-1", "pane-1", { id: "s-1", boundAt: "t" }),
+    );
+    // No timer advance: the save must not wait for any debounce.
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    const saved = JSON.parse(ipc.saveDeckState.mock.calls[0][0]);
+    expect(saved.workspaces[0].panes[0].session.id).toBe("s-1");
+  });
+
   it("cosmetic churn cannot starve the save past the max wait", async () => {
     ipc.loadDeckState.mockResolvedValue(STORED);
     await mount();

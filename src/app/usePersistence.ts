@@ -4,8 +4,8 @@ import { loadDeckState, quarantineDeckState, saveDeckState } from "../ipc/state"
 import { seedAgentSeq, seedWorkspaceSeq } from "./ids";
 import type { Deck } from "./useDeck";
 
-/** Debounce for cosmetic churn (titles, session bindings) — a burst lands as
- * one save. */
+/** Debounce for cosmetic churn (titles, selection) — a burst lands as one
+ * save. */
 const SAVE_DEBOUNCE_MS = 500;
 
 /** Churn may defer a save at most this long. Busy agent TUIs retitle
@@ -67,15 +67,23 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
   const serializedRef = useRef(serialized);
   serializedRef.current = serialized;
 
-  // The deck's SHAPE — which workspaces/panes exist. Shape changes save
-  // immediately, never debounced: losing a just-added pane on quit is data
-  // loss, and `beforeunload` is not reliable in Tauri as a safety net.
-  const structural = deck.workspaces
-    .map((w) => `${w.id}:${w.panes.map((p) => p.id).join(",")}`)
+  // What a quit must never lose: the deck's SHAPE (which workspaces/panes
+  // exist) AND each pane's session binding. These save immediately, never
+  // debounced — a just-added pane or a fresh binding lost on quit is data
+  // loss (a wiped binding resumes someone else's conversation), ⌘Q is a
+  // native menu role that never reaches the webview, and `beforeunload` is
+  // not reliable in Tauri as a safety net.
+  const immediate = deck.workspaces
+    .map(
+      (w) =>
+        `${w.id}:${w.panes
+          .map((p) => `${p.id}=${p.session?.id ?? ""}`)
+          .join(",")}`,
+    )
     .join(";");
-  const structuralRef = useRef(structural);
-  structuralRef.current = structural;
-  const lastStructuralRef = useRef<string | null>(null);
+  const immediateRef = useRef(immediate);
+  immediateRef.current = immediate;
+  const lastImmediateRef = useRef<string | null>(null);
   // When the oldest still-unsaved change happened — the maxWait anchor.
   const dirtySinceRef = useRef<number | null>(null);
 
@@ -86,7 +94,7 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
     }
     dirtySinceRef.current = null;
     lastSavedRef.current = serializedRef.current;
-    lastStructuralRef.current = structuralRef.current;
+    lastImmediateRef.current = immediateRef.current;
     void saveDeckState(serializedRef.current).catch(() => {});
   };
   const flushRef = useRef(flushNow);
@@ -98,13 +106,14 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
   useEffect(() => {
     if (!loadedRef.current || serialized === lastSavedRef.current) return;
 
-    // A pane/workspace appeared or vanished → save NOW.
-    if (structural !== lastStructuralRef.current) {
+    // A pane/workspace appeared or vanished, or a session was (re)bound →
+    // save NOW.
+    if (immediate !== lastImmediateRef.current) {
       flushRef.current();
       return;
     }
 
-    // Cosmetic churn (titles, bindings, selection): debounce, but never past
+    // Cosmetic churn (titles, selection): debounce, but never past
     // SAVE_MAX_WAIT_MS after the first deferred change — continuous churn
     // must converge to a save, not starve it.
     const now = Date.now();
@@ -113,7 +122,7 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
     const delay = Math.min(SAVE_DEBOUNCE_MS, Math.max(0, deadline - now));
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     timerRef.current = window.setTimeout(() => flushRef.current(), delay);
-  }, [serialized, structural, restoring]);
+  }, [serialized, immediate, restoring]);
 
   // Best-effort flush of a pending debounce when the window goes away.
   useEffect(() => {
