@@ -13,6 +13,7 @@ import { usePersistence } from "./app/usePersistence";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useSpawnContext } from "./app/useSpawnContext";
+import { useWorktreeHead } from "./app/useWorktreeHead";
 import { paneSpawnSpec } from "./app/spawnSpecs";
 import type { SpawnPlan } from "./domain/spawnPlans";
 import { useProvisioning } from "./app/useProvisioning";
@@ -61,6 +62,8 @@ function App() {
   const revive = useRevive(deck, agents, spawnCtx);
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
   useSessionBinding(deck);
+  // Keep each worktree pane's branch badge live (checkouts inside a worktree).
+  useWorktreeHead(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.

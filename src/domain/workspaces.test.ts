@@ -9,6 +9,8 @@ import {
   renameWorkspace,
   resolveActiveId,
   setPaneAutoTitle,
+  setPaneHead,
+  worktreeCwds,
   worktreeTargets,
   type Workspace,
 } from "./workspaces";
@@ -186,5 +188,67 @@ describe("setPaneAutoTitle", () => {
     expect(setPaneAutoTitle(set, "a", "a-p1", "")[0].panes[0]).toEqual({
       id: "a-p1",
     });
+  });
+});
+
+describe("setPaneHead", () => {
+  const deck = (): Workspace[] => [
+    {
+      ...ws("a", []),
+      panes: [
+        { id: "a-p1", cwd: "/wt/a-p1", branch: "kd/a/1" },
+        { id: "a-p2", cwd: "/wt/a-p2", branch: "kd/a/2" },
+      ],
+    },
+  ];
+
+  it("moves the target pane to its new branch, leaving others alone", () => {
+    const after = setPaneHead(deck(), "a", "a-p1", { branch: "feature/x" });
+    expect(after[0].panes[0].branch).toBe("feature/x");
+    expect(after[0].panes[1].branch).toBe("kd/a/2");
+  });
+
+  it("swaps branch for head on a detach, and back on a re-attach", () => {
+    const sha = "a".repeat(40);
+    const detached = setPaneHead(deck(), "a", "a-p1", { head: sha });
+    expect(detached[0].panes[0].branch).toBeUndefined();
+    expect(detached[0].panes[0].head).toBe(sha);
+
+    const back = setPaneHead(detached, "a", "a-p1", { branch: "kd/a/1" });
+    expect(back[0].panes[0].branch).toBe("kd/a/1");
+    expect(back[0].panes[0].head).toBeUndefined();
+  });
+
+  it("returns the SAME array for a same-position event (no re-render)", () => {
+    const before = deck();
+    expect(setPaneHead(before, "a", "a-p1", { branch: "kd/a/1" })).toBe(before);
+  });
+
+  it("returns the SAME array when the pane is gone (event raced a close)", () => {
+    const before = deck();
+    expect(setPaneHead(before, "a", "gone", { branch: "x" })).toBe(before);
+  });
+});
+
+describe("worktreeCwds", () => {
+  it("collects distinct pane cwds across workspaces, skipping cwd-fallback panes", () => {
+    const deck: Workspace[] = [
+      {
+        ...ws("a", []),
+        panes: [
+          { id: "a-p1", cwd: "/wt/one", branch: "kd/a/1" },
+          { id: "a-p2" }, // runs in the workspace folder — nothing to watch
+        ],
+      },
+      {
+        ...ws("b", []),
+        panes: [{ id: "b-p1", cwd: "/wt/two", branch: "kd/b/1" }],
+      },
+    ];
+    expect(worktreeCwds(deck)).toEqual(new Set(["/wt/one", "/wt/two"]));
+  });
+
+  it("is empty for a deck with no worktree panes", () => {
+    expect(worktreeCwds([ws("a", [1, 2])])).toEqual(new Set());
   });
 });

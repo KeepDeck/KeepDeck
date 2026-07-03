@@ -174,9 +174,9 @@ export function setPaneSession(
 }
 
 /** Detach a pane from its (gone) worktree so it can start fresh in the
- * workspace cwd ([F7] restore reconcile): drops `cwd`/`branch` AND the recorded
- * session — a directory-bound session can't resume somewhere else. Returns the
- * SAME array when there's nothing to drop. */
+ * workspace cwd ([F7] restore reconcile): drops `cwd`/`branch`/`head` AND the
+ * recorded session — a directory-bound session can't resume somewhere else.
+ * Returns the SAME array when there's nothing to drop. */
 export function resetPaneLocation(
   workspaces: Workspace[],
   workspaceId: string,
@@ -185,14 +185,62 @@ export function resetPaneLocation(
   const pane = workspaces
     .find((w) => w.id === workspaceId)
     ?.panes.find((p) => p.id === paneId);
-  if (!pane || (!pane.cwd && !pane.branch && !pane.session)) return workspaces;
+  if (!pane || (!pane.cwd && !pane.branch && !pane.head && !pane.session))
+    return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId) return p;
-      const { cwd: _cwd, branch: _branch, session: _session, ...rest } = p;
+      const { cwd: _cwd, branch: _branch, head: _head, session: _session, ...rest } = p;
       return rest;
     }),
   );
+}
+
+/** A worktree's current git position, as delivered by the HEAD watcher:
+ * on a branch, or detached at a commit. */
+export interface PaneHead {
+  branch?: string;
+  head?: string;
+}
+
+/** Record where a pane's worktree currently is — the live-branch-badge update.
+ * Sets `branch` on a checkout, swaps it for `head` on a detach. Same-position
+ * events (checkout touches HEAD more than once) return the SAME array. */
+export function setPaneHead(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  next: PaneHead,
+): Workspace[] {
+  const pane = workspaces
+    .find((w) => w.id === workspaceId)
+    ?.panes.find((p) => p.id === paneId);
+  if (!pane || (pane.branch === next.branch && pane.head === next.head))
+    return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) => {
+      if (p.id !== paneId) return p;
+      const { branch: _branch, head: _head, ...rest } = p;
+      return {
+        ...rest,
+        ...(next.branch !== undefined && { branch: next.branch }),
+        ...(next.head !== undefined && { head: next.head }),
+      };
+    }),
+  );
+}
+
+/** The distinct worktree directories the deck's panes run in — the set the
+ * HEAD-watch lifecycle keeps registered (a pane without `cwd` runs in the
+ * workspace folder and owns no worktree to watch). */
+export function worktreeCwds(workspaces: Workspace[]): Set<string> {
+  const cwds = new Set<string>();
+  for (const ws of workspaces) {
+    for (const pane of ws.panes) {
+      if (pane.cwd) cwds.add(pane.cwd);
+    }
+  }
+  return cwds;
 }
 
 /** Move the workspace with `id` to `toIndex` (clamped to the list), preserving
