@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { FALLBACK_AGENTS } from "./agents";
 import type { DeckState } from "./deck";
-import { hydrateDeck, serializeDeck } from "./persist";
+import {
+  PROVISIONING_INTERRUPTED,
+  hydrateDeck,
+  serializeDeck,
+} from "./persist";
 
 const state: DeckState = {
   workspaces: [
@@ -210,5 +214,58 @@ describe("hydrateDeck — tolerated degradations", () => {
     )!;
     expect(custom.nextAgentSeq).toBe(1);
     expect(custom.nextWorkspaceSeq).toBe(1);
+  });
+});
+
+describe("provisioning panes across a restart", () => {
+  const provisioningState: DeckState = {
+    workspaces: [
+      {
+        id: "ws-1",
+        name: "deck",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        panes: [
+          {
+            id: "pane-1",
+            agentType: "claude",
+            provisioning: {
+              repo: "/repo",
+              baseDir: "/wt",
+              workspace: "deck",
+              index: 1,
+              error: "fatal: mid-create failure",
+            },
+          },
+        ],
+      },
+    ],
+    activeId: "ws-1",
+    focusByWs: {},
+    selectByWs: {},
+  };
+
+  it("persists the intent, never the runtime error, and restores an interrupted failed card", () => {
+    const json = serializeDeck(provisioningState);
+    expect(json).not.toContain("mid-create failure");
+    const pane = hydrateDeck(json)!.state.workspaces[0].panes[0];
+    expect(pane.provisioning).toEqual({
+      repo: "/repo",
+      baseDir: "/wt",
+      workspace: "deck",
+      index: 1,
+      error: PROVISIONING_INTERRUPTED,
+    });
+    // NOT dormant: the revive flow must leave it alone — there may be no
+    // directory to spawn a terminal into.
+    expect(pane.dormant).toBeUndefined();
+  });
+
+  it("degrades a malformed intent to a plain dormant pane instead of rejecting the deck", () => {
+    const doc = JSON.parse(serializeDeck(provisioningState));
+    doc.workspaces[0].panes[0].provisioning = { repo: 42 };
+    const pane = hydrateDeck(JSON.stringify(doc))!.state.workspaces[0].panes[0];
+    expect(pane.provisioning).toBeUndefined();
+    expect(pane.dormant).toBe(true);
   });
 });

@@ -39,6 +39,17 @@ function mapWorkspace(
   );
 }
 
+/** The pane `paneId` of workspace `workspaceId`, if both exist. */
+function findPane(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+): Pane | undefined {
+  return workspaces
+    .find((w) => w.id === workspaceId)
+    ?.panes.find((p) => p.id === paneId);
+}
+
 /** Append an already-formed agent pane (e.g. with a provisioned worktree) to one
  * workspace, respecting its cap. */
 export function addAgentPane(
@@ -134,9 +145,7 @@ export function revivePane(
   workspaceId: string,
   paneId: string,
 ): Workspace[] {
-  const pane = workspaces
-    .find((w) => w.id === workspaceId)
-    ?.panes.find((p) => p.id === paneId);
+  const pane = findPane(workspaces, workspaceId, paneId);
   if (!pane?.dormant) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
@@ -158,9 +167,7 @@ export function setPaneSession(
   paneId: string,
   session: PaneSession | null,
 ): Workspace[] {
-  const pane = workspaces
-    .find((w) => w.id === workspaceId)
-    ?.panes.find((p) => p.id === paneId);
+  const pane = findPane(workspaces, workspaceId, paneId);
   if (!pane || (pane.session?.id ?? null) === (session?.id ?? null))
     return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
@@ -182,9 +189,7 @@ export function resetPaneLocation(
   workspaceId: string,
   paneId: string,
 ): Workspace[] {
-  const pane = workspaces
-    .find((w) => w.id === workspaceId)
-    ?.panes.find((p) => p.id === paneId);
+  const pane = findPane(workspaces, workspaceId, paneId);
   if (!pane || (!pane.cwd && !pane.branch && !pane.head && !pane.session))
     return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
@@ -212,9 +217,7 @@ export function setPaneHead(
   paneId: string,
   next: PaneHead,
 ): Workspace[] {
-  const pane = workspaces
-    .find((w) => w.id === workspaceId)
-    ?.panes.find((p) => p.id === paneId);
+  const pane = findPane(workspaces, workspaceId, paneId);
   if (!pane || (pane.branch === next.branch && pane.head === next.head))
     return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
@@ -225,6 +228,52 @@ export function setPaneHead(
         ...rest,
         ...(next.branch !== undefined && { branch: next.branch }),
         ...(next.head !== undefined && { head: next.head }),
+      };
+    }),
+  );
+}
+
+/** The pane's background worktree create landed: pin the pane to the created
+ * worktree and drop the provisioning card so its terminal mounts. Returns the
+ * SAME array when the pane is gone (closed mid-create — the stray worktree on
+ * disk is accepted; worktrees survive closes anyway) or wasn't provisioning. */
+export function resolvePaneProvisioning(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  worktree: { cwd: string; branch: string },
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane?.provisioning) return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) => {
+      if (p.id !== paneId) return p;
+      const { provisioning: _done, ...rest } = p;
+      return { ...rest, cwd: worktree.cwd, branch: worktree.branch };
+    }),
+  );
+}
+
+/** Record why a pane's worktree create failed — the card flips to the failed
+ * state showing it — or clear it (`null`) when a Retry starts, flipping back
+ * to creating. Returns the SAME array for a gone / non-provisioning pane and
+ * when the error already equals the target. */
+export function setPaneProvisioningError(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  error: string | null,
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane?.provisioning) return workspaces;
+  if ((pane.provisioning.error ?? null) === error) return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) => {
+      if (p.id !== paneId || !p.provisioning) return p;
+      const { error: _old, ...intent } = p.provisioning;
+      return {
+        ...p,
+        provisioning: error === null ? intent : { ...intent, error },
       };
     }),
   );

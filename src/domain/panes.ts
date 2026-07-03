@@ -11,6 +11,26 @@ export interface PaneSession {
   boundAt: string;
 }
 
+/** A pane's worktree create captured as intent: everything needed to (re)issue
+ * the `worktree_create` call. Kept on the pane while the create runs in the
+ * background — and after a failure, so Retry can re-use it. A pane with this
+ * set renders a status card instead of a terminal. */
+export interface PaneProvisioning {
+  /** The repository (the workspace cwd) the worktree is created in. */
+  repo: string;
+  /** Batch flow: the folder the worktree dir is auto-placed under. */
+  baseDir?: string;
+  /** Exact user-chosen worktree path (the "+ Agent" dialog flow). */
+  path?: string;
+  /** Explicit branch to create; the batch flow auto-names on the Rust side. */
+  branch?: string;
+  /** Workspace name and agent index — the auto branch-name inputs. */
+  workspace: string;
+  index: number;
+  /** Why the create failed; set flips the card from creating to failed. */
+  error?: string;
+}
+
 /** One agent pane in the grid. Each pane runs its own agent type; the display
  * title comes from `name` / the auto title / the derived "Agent N". */
 export interface Pane {
@@ -38,6 +58,9 @@ export interface Pane {
   dormant?: boolean;
   /** The recorded agent session this pane resumes on revive ([F7]/[F8]). */
   session?: PaneSession;
+  /** The in-flight (or failed) worktree create behind this pane — no terminal
+   * mounts until it resolves. */
+  provisioning?: PaneProvisioning;
 }
 
 /** The id for the pane numbered `seq` — the single mint point, since it's the
@@ -110,5 +133,29 @@ export function makePanes(
   return Array.from({ length: n }, (_, i) => ({
     id: paneId(startSeq + i),
     agentType,
+  }));
+}
+
+/** Build `count` panes numbered from `startSeq` that are still WAITING for
+ * their worktrees: each carries its create intent (per-index, for the auto
+ * branch name) so the background runner — and a later Retry — can issue the
+ * actual create. The deck shows them immediately; terminals mount as each
+ * create resolves. */
+export function makeProvisioningPanes(
+  startSeq: number,
+  count: number,
+  agentType: AgentType,
+  ws: { cwd: string; baseDir: string; name: string },
+): Pane[] {
+  const n = clampPaneCount(count);
+  return Array.from({ length: n }, (_, i) => ({
+    id: paneId(startSeq + i),
+    agentType,
+    provisioning: {
+      repo: ws.cwd,
+      baseDir: ws.baseDir,
+      workspace: ws.name,
+      index: i + 1,
+    },
   }));
 }

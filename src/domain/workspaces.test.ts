@@ -8,8 +8,10 @@ import {
   renamePane,
   renameWorkspace,
   resolveActiveId,
+  resolvePaneProvisioning,
   setPaneAutoTitle,
   setPaneHead,
+  setPaneProvisioningError,
   worktreeCwds,
   worktreeTargets,
   type Workspace,
@@ -250,5 +252,71 @@ describe("worktreeCwds", () => {
 
   it("is empty for a deck with no worktree panes", () => {
     expect(worktreeCwds([ws("a", [1, 2])])).toEqual(new Set());
+  });
+});
+
+describe("pane provisioning transforms", () => {
+  const provisioningWs = (): Workspace => ({
+    id: "a",
+    name: "a",
+    cwd: "/repo",
+    worktreeBaseDir: "/wt",
+    panes: [
+      {
+        id: "a-p1",
+        provisioning: { repo: "/repo", baseDir: "/wt", workspace: "a", index: 1 },
+      },
+      { id: "a-p2", cwd: "/wt/live", branch: "kd/a/2" },
+    ],
+  });
+
+  it("resolvePaneProvisioning pins the worktree and drops the card", () => {
+    const next = resolvePaneProvisioning([provisioningWs()], "a", "a-p1", {
+      cwd: "/wt/kd-a-1",
+      branch: "kd/a/1",
+    });
+    expect(next[0].panes[0]).toEqual({
+      id: "a-p1",
+      cwd: "/wt/kd-a-1",
+      branch: "kd/a/1",
+    });
+  });
+
+  it("resolvePaneProvisioning no-ops (same ref) for a gone or live pane", () => {
+    // Gone: the pane was closed mid-create; the late result must change nothing.
+    const workspaces = [provisioningWs()];
+    expect(
+      resolvePaneProvisioning(workspaces, "a", "gone", { cwd: "/x", branch: "b" }),
+    ).toBe(workspaces);
+    expect(
+      resolvePaneProvisioning(workspaces, "a", "a-p2", { cwd: "/x", branch: "b" }),
+    ).toBe(workspaces);
+  });
+
+  it("setPaneProvisioningError records the failure and a retry clears it", () => {
+    const failed = setPaneProvisioningError(
+      [provisioningWs()],
+      "a",
+      "a-p1",
+      "boom",
+    );
+    expect(failed[0].panes[0].provisioning?.error).toBe("boom");
+    const retrying = setPaneProvisioningError(failed, "a", "a-p1", null);
+    expect(retrying[0].panes[0].provisioning).toEqual({
+      repo: "/repo",
+      baseDir: "/wt",
+      workspace: "a",
+      index: 1,
+    });
+  });
+
+  it("setPaneProvisioningError no-ops (same ref) on a non-provisioning pane and an unchanged error", () => {
+    const workspaces = [provisioningWs()];
+    expect(setPaneProvisioningError(workspaces, "a", "a-p2", "boom")).toBe(
+      workspaces,
+    );
+    expect(setPaneProvisioningError(workspaces, "a", "a-p1", null)).toBe(
+      workspaces,
+    );
   });
 });

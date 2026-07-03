@@ -371,3 +371,67 @@ describe("setPaneHead (live branch badge)", () => {
     expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1", dormant: true });
   });
 });
+
+describe("deckReducer provisioning actions", () => {
+  const provisioningWs: Workspace = {
+    id: "ws-1",
+    name: "ws-1",
+    cwd: "/repo",
+    worktreeBaseDir: "/wt",
+    panes: [
+      {
+        id: "pane-1",
+        provisioning: { repo: "/repo", baseDir: "/wt", workspace: "ws-1", index: 1 },
+      },
+    ],
+  };
+
+  it("resolvePaneProvisioning pins the created worktree onto the pane", () => {
+    const next = deckReducer(
+      state({ workspaces: [provisioningWs], activeId: "ws-1" }),
+      {
+        type: "resolvePaneProvisioning",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        cwd: "/wt/kd-ws-1",
+        branch: "kd/ws-1/1",
+      },
+    );
+    expect(next.workspaces[0].panes[0]).toEqual({
+      id: "pane-1",
+      cwd: "/wt/kd-ws-1",
+      branch: "kd/ws-1/1",
+    });
+  });
+
+  it("a late resolve for a closed pane is a no-op (same state ref)", () => {
+    const start = state({ workspaces: [provisioningWs], activeId: "ws-1" });
+    expect(
+      deckReducer(start, {
+        type: "resolvePaneProvisioning",
+        wsId: "ws-1",
+        paneId: "closed-long-ago",
+        cwd: "/x",
+        branch: "b",
+      }),
+    ).toBe(start);
+  });
+
+  it("setPaneProvisioningError flips the card to failed and a retry flips it back", () => {
+    const start = state({ workspaces: [provisioningWs], activeId: "ws-1" });
+    const failed = deckReducer(start, {
+      type: "setPaneProvisioningError",
+      wsId: "ws-1",
+      paneId: "pane-1",
+      error: "fatal: oops",
+    });
+    expect(failed.workspaces[0].panes[0].provisioning?.error).toBe("fatal: oops");
+    const retrying = deckReducer(failed, {
+      type: "setPaneProvisioningError",
+      wsId: "ws-1",
+      paneId: "pane-1",
+      error: null,
+    });
+    expect(retrying.workspaces[0].panes[0].provisioning?.error).toBeUndefined();
+  });
+});
