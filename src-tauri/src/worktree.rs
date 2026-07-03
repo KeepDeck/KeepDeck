@@ -308,10 +308,21 @@ pub fn worktree_create(
 /// `-d`, which git refuses for unmerged commits.
 #[tauri::command]
 pub fn worktree_remove(locks: State<RepoLocks>, spec: RemoveSpec) -> Result<(), String> {
+    remove_worktree(&locks, spec)
+}
+
+/// [`worktree_remove`] body, decoupled from Tauri state for testability.
+///
+/// An externally-deleted worktree directory must never abort the removal:
+/// there is no work left to lose, and bailing out would leak the `.git`
+/// registration and the `kd/…` branch forever. So the dirty check only runs
+/// while the directory exists, and a failed `git worktree remove` on a gone
+/// directory falls through to `prune`, which is exactly the tool for that.
+fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
     let repo_path = PathBuf::from(&spec.repo);
     let path = PathBuf::from(&spec.path);
 
-    if !spec.force && worktree::is_dirty(&path).map_err(|e| e.to_string())? {
+    if !spec.force && path.exists() && worktree::is_dirty(&path).map_err(|e| e.to_string())? {
         return Err("worktree has uncommitted changes; not removing".to_string());
     }
 
@@ -320,8 +331,15 @@ pub fn worktree_remove(locks: State<RepoLocks>, spec: RemoveSpec) -> Result<(), 
     // fail to lock or have its admin-state pruned mid-write.
     let lock = locks.for_repo(&repo_path);
     let _guard = lock.lock().expect("repo lock poisoned");
-    worktree::remove(&repo_path, &path, spec.force).map_err(|e| e.to_string())?;
-    // Best-effort: drop the administrative record if the dir is already gone.
+    match worktree::remove(&repo_path, &path, spec.force) {
+        Ok(()) => {}
+        // Git refuses to `remove` a worktree whose dir is already gone; only a
+        // failure with the dir still present is a real error.
+        Err(_) if !path.exists() => {}
+        Err(e) => return Err(e.to_string()),
+    }
+    // Drop the administrative record (best-effort) — after the remove above,
+    // or INSTEAD of it when the dir vanished externally.
     let _ = worktree::prune(&repo_path);
     // Branch removal is separate: a branch can't be deleted while its worktree
     // is checked out, so it only runs now that the worktree is gone.
@@ -428,5 +446,102 @@ mod tests {
         git(&repo, &["branch", "kd/ws/1-2"]);
         assert_eq!(free_branch(&repo, "kd/ws/1").unwrap(), "kd/ws/1-3");
         let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    /// A repo with a `kd/<label>` branch checked out in a sibling worktree.
+    fn repo_with_worktree(label: &str) -> (PathBuf, PathBuf, String) {
+        let repo = init_repo(label);
+        let branch = format!("kd/{label}/1");
+        let wt = repo.with_file_name(format!(
+            "{}-wt",
+            repo.file_name().unwrap().to_string_lossy()
+        ));
+        let _ = std::fs::remove_dir_all(&wt);
+        git(&repo, &["worktree", "add", "-q", "-b", &branch, wt.to_str().unwrap()]);
+        (repo, wt, branch)
+    }
+
+    /// Stdout of a git query in `repo` (assertion helper).
+    fn git_out(repo: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .output()
+            .expect("run git");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    #[test]
+    fn remove_reaps_registration_and_branch_when_the_dir_was_deleted_externally() {
+        // The dir vanished behind KeepDeck's back (manual rm, cleanup tool).
+        // `git worktree remove` refuses a gone dir — the removal must fall
+        // through to prune instead of aborting, or the .git registration and
+        // the kd/ branch leak forever.
+        let (repo, wt, branch) = repo_with_worktree("reap-forced");
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: true,
+                branch: Some(branch.clone()),
+            },
+        )
+        .expect("a gone dir must not abort the removal");
+
+        let list = git_out(&repo, &["worktree", "list", "--porcelain"]);
+        assert!(!list.contains("-wt"), "registration leaked:\n{list}");
+        let branches = git_out(&repo, &["branch", "--list", &branch]);
+        assert!(branches.trim().is_empty(), "branch leaked: {branches}");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn remove_without_force_skips_the_dirty_check_on_a_gone_dir() {
+        // The default (safe) path: is_dirty shells `git -C <path> status`,
+        // which errors on a missing dir — that error must read as "nothing to
+        // lose", not abort the whole removal.
+        let (repo, wt, branch) = repo_with_worktree("reap-default");
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: false,
+                branch: Some(branch.clone()),
+            },
+        )
+        .expect("a gone dir has nothing to lose — the safe path must proceed");
+
+        let branches = git_out(&repo, &["branch", "--list", &branch]);
+        assert!(branches.trim().is_empty(), "branch leaked: {branches}");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn remove_without_force_still_refuses_a_dirty_worktree() {
+        // The safety property the dirty check exists for must survive the fix.
+        let (repo, wt, branch) = repo_with_worktree("keep-dirty");
+        std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
+
+        let result = remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: false,
+                branch: Some(branch),
+            },
+        );
+
+        assert!(result.is_err(), "dirty worktree must be kept");
+        assert!(wt.join("wip.txt").exists(), "work was destroyed");
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&wt);
     }
 }
