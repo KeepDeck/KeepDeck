@@ -7,7 +7,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use keepdeck_git::{repo, worktree};
+use keepdeck_git::{head, repo, worktree, Head};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -154,4 +154,36 @@ fn safe_delete_refuses_unmerged_branch_but_force_removes_it() {
     assert!(!repo::branch_exists(&repo_dir, "kd/unmerged").unwrap());
 
     fs::remove_dir_all(&repo_dir).ok();
+}
+
+#[test]
+fn head_tracks_checkouts_inside_a_worktree() {
+    let repo_dir = init_repo();
+    let base = repo::resolve_commit(&repo_dir, "HEAD").expect("resolve base");
+
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("kd-head-1");
+    worktree::add(&repo_dir, &wt, "kd/head/1", &base).expect("add worktree");
+
+    // The worktree's private gitdir is where its HEAD lives — distinct from the
+    // main repo's, so per-worktree checkouts are observable independently.
+    let wt_gitdir = head::git_dir(&wt).expect("worktree gitdir");
+    let main_gitdir = head::git_dir(&repo_dir).expect("main gitdir");
+    assert_ne!(wt_gitdir, main_gitdir);
+    assert!(wt_gitdir.starts_with(&main_gitdir), "linked worktree gitdir nests under .git");
+
+    assert_eq!(head::read_head(&wt_gitdir), Some(Head::Branch("kd/head/1".into())));
+
+    // A checkout inside the worktree rewrites ITS HEAD; the main repo's stays.
+    let main_before = head::read_head(&main_gitdir).expect("main head");
+    git(&wt, &["checkout", "-q", "-b", "kd/head/renamed"]);
+    assert_eq!(head::read_head(&wt_gitdir), Some(Head::Branch("kd/head/renamed".into())));
+    assert_eq!(head::read_head(&main_gitdir), Some(main_before));
+
+    // Detaching lands on the commit itself.
+    git(&wt, &["checkout", "-q", "--detach"]);
+    assert_eq!(head::read_head(&wt_gitdir), Some(Head::Detached(base)));
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
 }
