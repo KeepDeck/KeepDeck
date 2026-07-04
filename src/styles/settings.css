@@ -93,3 +93,31 @@
 .settings__number {
   width: 140px;
 }
+
+/* Experiment toggle: checkbox + label with an explanatory hint below. */
+.settings__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.settings__toggle input {
+  margin-top: 2px;
+  accent-color: #2f6f4f;
+  cursor: pointer;
+}
+
+.settings__toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: #c5c8c6;
+}
+
+.settings__toggle-text .settings__hint {
+  margin: 0;
+}

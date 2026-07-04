@@ -199,3 +199,70 @@ describe("WorkspaceForm default agent ([F6])", () => {
     expect(typeButton("Codex").className).toContain("form__type--active");
   });
 });
+
+describe("WorkspaceForm setup command (experimental run presets)", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let created: SpawnConfig[];
+
+  beforeEach(() => {
+    resetAgentsCache();
+    catalog.list = TWO_AGENTS;
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    created = [];
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const setupInput = () =>
+    document.querySelector<HTMLInputElement>(
+      'input[aria-label="Worktree setup command"]',
+    );
+
+  const mount = async (flag: boolean) => {
+    await seedDefaultAgent("claude");
+    updateSettings({ experimentRunPresets: flag });
+    await act(async () =>
+      root.render(
+        createElement(WorkspaceForm, {
+          onCreate: (c: SpawnConfig) => created.push(c),
+          pickFolder: async () => "/repo",
+          inspectDir: async () => ({ isRepo: false, branch: null }),
+        }),
+      ),
+    );
+    await act(async () => chooseBtn().click());
+    await act(async () => {});
+  };
+
+  it("stays hidden while the experiment is off, even with a worktree dir", async () => {
+    await mount(false);
+    type(worktreeInput(), "/wt");
+    expect(setupInput()).toBeNull();
+    submit();
+    expect(created[0].setup).toBeUndefined();
+  });
+
+  it("appears once a worktree dir is set and submits trimmed", async () => {
+    await mount(true);
+    // Setup prepares worktrees — without a worktree dir there's no field.
+    expect(setupInput()).toBeNull();
+    type(worktreeInput(), "/wt");
+    type(setupInput()!, "  pnpm install  ");
+    submit();
+    expect(created[0].setup).toBe("pnpm install");
+    expect(created[0].worktreeBaseDir).toBe("/wt");
+  });
+
+  it("clearing the worktree dir drops a typed setup from the config", async () => {
+    await mount(true);
+    type(worktreeInput(), "/wt");
+    type(setupInput()!, "pnpm install");
+    type(worktreeInput(), "");
+    expect(setupInput()).toBeNull();
+    submit();
+    expect(created[0].setup).toBeUndefined();
+    expect(created[0].worktreeBaseDir).toBeNull();
+  });
+});

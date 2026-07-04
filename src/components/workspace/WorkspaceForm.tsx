@@ -54,6 +54,12 @@ export function WorkspaceForm({
   const [count, setCount] = useState(1);
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
   const [worktreeDir, setWorktreeDir] = useState("");
+  // One-time worktree setup command (experimental run presets). The field
+  // renders only while the experiment is on AND worktrees are in play — but
+  // whatever was typed still submits if the flag flips mid-form: gating is
+  // about discovery, not about discarding input.
+  const runPresetsOn = useSettings()?.experimentRunPresets ?? false;
+  const [setup, setSetup] = useState("");
   const [nudge, setNudge] = useState(false);
   const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
     null,
@@ -133,6 +139,10 @@ export function WorkspaceForm({
         agentType,
         count,
         worktreeBaseDir: worktreeDir.trim() || null,
+        // Setup runs at worktree creation — without a worktree dir there is
+        // nothing for it to prepare.
+        ...(worktreeDir.trim() &&
+          setup.trim() && { setup: setup.trim() }),
       });
   };
 
@@ -210,6 +220,20 @@ export function WorkspaceForm({
           Choose…
         </button>
       </div>
+
+      {runPresetsOn && worktreeDir.trim() !== "" && (
+        <>
+          <span className="form__label">Worktree setup command (optional)</span>
+          <input
+            {...noAutoCorrect}
+            className="form__input"
+            value={setup}
+            onChange={(e) => setSetup(e.target.value)}
+            placeholder="e.g. pnpm install — runs once in each new worktree"
+            aria-label="Worktree setup command"
+          />
+        </>
+      )}
 
       <span className="form__label">Agent</span>
       {/* Agent type is per-pane and only used when agents spawn, so it's

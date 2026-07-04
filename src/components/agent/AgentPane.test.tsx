@@ -152,3 +152,94 @@ describe("AgentPane — provisioning cards", () => {
     expect(document.querySelector(".pane__open")).toBeNull();
   });
 });
+
+describe("AgentPane — run panes (experimental run presets)", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("the header ▶ renders only when a picker callback is wired, and fires it", () => {
+    const onRunPreset = vi.fn();
+    act(() =>
+      root.render(createElement(AgentPane, { ...baseProps, onRunPreset })),
+    );
+    const play = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Run a preset next to Claude 1"]',
+    );
+    expect(play).not.toBeNull();
+    act(() => play!.click());
+    expect(onRunPreset).toHaveBeenCalledTimes(1);
+
+    act(() => root.render(createElement(AgentPane, { ...baseProps })));
+    expect(
+      document.querySelector('button[aria-label="Run a preset next to Claude 1"]'),
+    ).toBeNull();
+  });
+
+  it("a dormant run pane offers Run instead of waking — no terminal mounts", () => {
+    const onRunAgain = vi.fn();
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          dormant: true,
+          runCommand: "pnpm dev",
+          onRunAgain,
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Not running");
+    expect(document.body.textContent).toContain("pnpm dev");
+    expect(TerminalPane).not.toHaveBeenCalled();
+    const run = document.querySelector<HTMLButtonElement>(".pane__dormant-action");
+    expect(run!.textContent).toBe("Run");
+    act(() => run!.click());
+    expect(onRunAgain).toHaveBeenCalledTimes(1);
+  });
+
+  it("a run pane's exit card says Command exited and Run again clears it", () => {
+    const onRunAgain = vi.fn();
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          runCommand: "pnpm dev",
+          onRunAgain,
+        }),
+      ),
+    );
+    // The stubbed terminal reports the process death through its prop.
+    const { onExit } = vi.mocked(TerminalPane).mock.calls[0][0];
+    act(() => onExit!(1));
+
+    expect(document.body.textContent).toContain("Command exited");
+    const again = document.querySelector<HTMLButtonElement>(".pane__exit-action");
+    expect(again!.textContent).toBe("Run again");
+
+    act(() => again!.click());
+    expect(onRunAgain).toHaveBeenCalledTimes(1);
+    // The card must not survive into the fresh session.
+    expect(document.body.textContent).not.toContain("Command exited");
+  });
+
+  it("an agent pane's exit card offers no Run again", () => {
+    act(() => root.render(createElement(AgentPane, { ...baseProps })));
+    const { onExit } = vi.mocked(TerminalPane).mock.calls[0][0];
+    act(() => onExit!(0));
+
+    expect(document.body.textContent).toContain("Agent exited");
+    expect(document.querySelector(".pane__exit-action")).toBeNull();
+  });
+});

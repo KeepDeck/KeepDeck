@@ -21,6 +21,10 @@ import type { SpawnPlan } from "./domain/spawnPlans";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
+import { useRunPane } from "./app/useRunPane";
+import { RunPresetPicker } from "./components/run/RunPresetPicker";
+import { addPreset, removePreset } from "./domain/runPresets";
+import type { Pane } from "./domain/panes";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import { closeHotkeyTarget, maximizeHotkeyTarget } from "./domain/hotkeys";
@@ -83,6 +87,14 @@ function App() {
   const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, setError);
+  // Run panes (experimental run presets): launch/re-run, plus the ▶ picker's
+  // target — the workspace and source-pane worktree it opened over.
+  const runPane = useRunPane(deck);
+  const [runPicker, setRunPicker] = useState<{
+    wsId: string;
+    cwd?: string;
+    branch?: string;
+  } | null>(null);
 
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
   // ([F4]).
@@ -94,8 +106,9 @@ function App() {
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
   // Transactional dialogs — while one is up, nothing else may open over it.
-  const dialogOpen =
-    agentFlow.dialog !== null || closeFlow.closing !== null || error !== null;
+  // One list, one rule: a new dialog joins by being added here.
+  const transactions = [agentFlow.dialog, closeFlow.closing, error, runPicker];
+  const dialogOpen = transactions.some((t) => t !== null);
   const modalOpen = showForm || dialogOpen || settingsOpen;
 
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
@@ -156,6 +169,42 @@ function App() {
     // Optimistic: the workspace (and its provisioning cards) land at once.
     provisioning.createWorkspace(config);
     setCreating(false);
+  };
+
+  // The ▶ picker's target workspace, resolved live so a save/delete of a
+  // preset re-renders the open picker with the fresh list.
+  const runPickerWs = runPicker
+    ? (deck.workspaces.find((w) => w.id === runPicker.wsId) ?? null)
+    : null;
+
+  const openRunPicker = (wsId: string, pane: Pane) =>
+    setRunPicker({ wsId, cwd: pane.cwd, branch: pane.branch });
+
+  const handleRunPick = (preset: { id: string; name: string; command: string }) => {
+    const target = runPicker;
+    setRunPicker(null);
+    if (!target) return;
+    void runPane.launch(target.wsId, target, {
+      presetId: preset.id,
+      command: preset.command,
+      name: preset.name,
+    });
+  };
+
+  const handleRunAdHoc = (command: string, saveAs: string | null) => {
+    const target = runPicker;
+    setRunPicker(null);
+    if (!target || !runPickerWs) return;
+    let presetId: string | undefined;
+    let name = command;
+    if (saveAs !== null) {
+      const next = addPreset(runPickerWs.run, saveAs, command);
+      const created = next.presets[next.presets.length - 1];
+      presetId = created.id;
+      name = created.name;
+      deck.setWorkspaceRun(target.wsId, next);
+    }
+    void runPane.launch(target.wsId, target, { presetId, command, name });
   };
 
   const railWorkspaces = deck.workspaces.map((w) => ({
@@ -276,6 +325,14 @@ function App() {
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
             onRetryProvision={provisioning.retryPane}
+            // The experiment flag gates the entry point (every ▶) — run panes
+            // that already exist keep working through onRunAgain regardless.
+            onOpenRunPicker={
+              settings.experimentRunPresets && !modalOpen
+                ? openRunPicker
+                : undefined
+            }
+            onRunAgain={(wsId, paneId) => void runPane.runAgain(wsId, paneId)}
           />
 
           {showForm &&
@@ -326,6 +383,24 @@ function App() {
               confirmLabel="OK"
               onConfirm={() => setError(null)}
             />
+          )}
+
+          {runPicker && runPickerWs && (
+            <ModalOverlay>
+              <RunPresetPicker
+                presets={runPickerWs.run?.presets ?? []}
+                onPick={handleRunPick}
+                onAdHoc={handleRunAdHoc}
+                onDelete={(id) =>
+                  runPickerWs.run &&
+                  deck.setWorkspaceRun(
+                    runPicker.wsId,
+                    removePreset(runPickerWs.run, id),
+                  )
+                }
+                onCancel={() => setRunPicker(null)}
+              />
+            </ModalOverlay>
           )}
 
           {settingsOpen && (

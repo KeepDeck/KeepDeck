@@ -48,6 +48,15 @@ export function CloseIcon() {
   );
 }
 
+/** Run — the conventional play triangle (run presets). */
+export function PlayIcon() {
+  return (
+    <svg {...iconProps}>
+      <polygon points="6 4 20 12 6 20 6 4" />
+    </svg>
+  );
+}
+
 /** Arrow driving into the next fixed slot — "use the next available one"
  * (Lucide `arrow-right-to-line`, ISC). */
 export function NextIcon() {
