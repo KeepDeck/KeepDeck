@@ -214,3 +214,58 @@ describe("RunTab", () => {
     expect(manager.removeRun).toHaveBeenCalledWith("run-2");
   });
 });
+
+describe("RunTab — target follows the highlighted pane", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let setRun: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    manager.sessions = [];
+    setRun = vi.fn();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const select = () =>
+    document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Run target directory"]',
+    )!;
+
+  it("re-highlighting another worktree pane moves the target (the ▶ flow)", () => {
+    const render = (selectedPaneId: string) =>
+      act(() =>
+        root.render(
+          createElement(RunTab, { ws, selectedPaneId, onSetRun: setRun }),
+        ),
+      );
+    render("pane-1");
+    expect(select().value).toBe("/wt/a");
+    render("pane-2");
+    expect(select().value).toBe("/wt/b");
+  });
+
+  it("a manual pick survives re-renders that do NOT change the highlight", () => {
+    const render = () =>
+      act(() =>
+        root.render(
+          createElement(RunTab, { ws, selectedPaneId: "pane-1", onSetRun: setRun }),
+        ),
+      );
+    render();
+    const set = Object.getOwnPropertyDescriptor(
+      HTMLSelectElement.prototype,
+      "value",
+    )!.set!;
+    act(() => {
+      set.call(select(), ws.cwd);
+      select().dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(select().value).toBe("/repo");
+    render(); // same highlight → the manual pick holds
+    expect(select().value).toBe("/repo");
+  });
+});

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { launchRun, removeRun, restartRun, stopRun } from "../../app/runManager";
 import { useRunSessions } from "../../app/useRunSessions";
 import { addPreset, removePreset } from "../../domain/runPresets";
@@ -17,10 +17,19 @@ import type { DockTabProps } from "./tabs";
  */
 export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
   // Where to run: a pane's worktree, or the workspace folder. Defaults to
-  // the highlighted pane's worktree — "run what I'm looking at".
+  // the highlighted pane's worktree — "run what I'm looking at" — and
+  // FOLLOWS the highlight (the pane-header ▶ selects, then reveals this
+  // panel); a manual pick holds only until the next pane click. Same
+  // seen-ref idiom as WorkspaceForm's default-agent follow.
   const [target, setTarget] = useState(
     () => ws.panes.find((p) => p.id === selectedPaneId)?.cwd ?? ws.cwd,
   );
+  const seenSelectedRef = useRef(selectedPaneId);
+  if (seenSelectedRef.current !== selectedPaneId) {
+    seenSelectedRef.current = selectedPaneId;
+    const followed = ws.panes.find((p) => p.id === selectedPaneId)?.cwd;
+    if (followed && followed !== target) setTarget(followed);
+  }
   const [command, setCommand] = useState("");
   const [save, setSave] = useState(false);
   const [name, setName] = useState("");

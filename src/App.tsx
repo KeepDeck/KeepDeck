@@ -289,6 +289,16 @@ function App() {
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
             onRetryProvision={provisioning.retryPane}
+            // The pane-header ▶: select the pane (the Run tab follows the
+            // highlight for its target) and reveal the panel.
+            onOpenRun={
+              settings.experimentRunPresets
+                ? (wsId, paneId) => {
+                    deck.selectPane(wsId, paneId);
+                    setDockOpen(true);
+                  }
+                : undefined
+            }
           />
 
           {showForm &&
