@@ -1,18 +1,18 @@
 /**
- * Run presets — launch the app under development in a pane (experimental).
+ * Run presets — launch the app under development (experimental).
  *
  * A workspace owns named shell commands ("presets") plus an optional one-time
- * `setup` command; a pane launched from one runs `$SHELL -c <command>` in its
- * worktree. Everything is stack-agnostic by design: KeepDeck injects a small
- * env contract (worktree, branch, a deterministic port block) and otherwise
- * carries no semantics — a vite server, a gradle install and a `go run` are
- * all just commands. Inline env (`FOO=1 cmd`) covers per-preset variables, so
- * the schema stays minimal.
+ * `setup` command; the Run panel executes one as `$SHELL -c <command>` in a
+ * chosen worktree — strictly OUTSIDE the agent world (its own session
+ * manager, not panes). Everything is stack-agnostic by design: KeepDeck
+ * injects a small env contract (worktree, branch, a deterministic port
+ * block) and otherwise carries no semantics — a vite server, a gradle
+ * install and a `go run` are all just commands. Inline env (`FOO=1 cmd`)
+ * covers per-preset variables, so the schema stays minimal.
  *
  * Presets live on the workspace (persisted with the deck): deleting the
- * workspace deletes them structurally, and panes inherit their workspace's
- * list. The experiment flag gates only the UI entry points — this module and
- * everything below it are flag-agnostic.
+ * workspace deletes them structurally. The experiment flag gates only the UI
+ * entry point — this module and everything below it are flag-agnostic.
  */
 
 /** One named launch command of a workspace. */
@@ -30,15 +30,6 @@ export interface WorkspaceRun {
    * the provisioning flow after `worktree_create`; failure → the Retry card. */
   setup?: string;
   presets: RunPreset[];
-}
-
-/** What a run pane remembers about its command. */
-export interface PaneRun {
-  /** The preset this command came from; an ad-hoc run has none. */
-  presetId?: string;
-  /** The command line snapshot at launch — later preset edits don't rewrite
-   * a pane that is already running (or dormant, awaiting revive). */
-  command: string;
 }
 
 /** Env every run/setup command receives. `port` is the base of the pane's
@@ -119,16 +110,6 @@ export function readWorkspaceRun(value: unknown): WorkspaceRun | null {
   if (typeof value.setup === "string" && value.setup.trim() !== "") {
     run.setup = value.setup;
   }
-  return run;
-}
-
-/** Tolerant read of a persisted pane-run value: `null` degrades the pane to
- * a plain one (same spirit as [`readWorkspaceRun`]). */
-export function readPaneRun(value: unknown): PaneRun | null {
-  if (!isRecord(value) || typeof value.command !== "string") return null;
-  if (value.command.trim() === "") return null;
-  const run: PaneRun = { command: value.command };
-  if (typeof value.presetId === "string") run.presetId = value.presetId;
   return run;
 }
 

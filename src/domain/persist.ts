@@ -1,8 +1,8 @@
 import type { DeckState } from "./deck";
 import type { Pane, PaneProvisioning, PaneSession } from "./panes";
 import { resolveFocus } from "./panes";
-import type { PaneRun, WorkspaceRun } from "./runPresets";
-import { readPaneRun, readWorkspaceRun } from "./runPresets";
+import type { WorkspaceRun } from "./runPresets";
+import { readWorkspaceRun } from "./runPresets";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "./agents";
@@ -43,7 +43,6 @@ interface PersistedPane {
   session?: PaneSession;
   /** The worktree-create intent, without the runtime `error`/`phase`. */
   provisioning?: Omit<PaneProvisioning, "error" | "phase">;
-  run?: PaneRun;
 }
 
 interface PersistedWorkspace {
@@ -101,7 +100,6 @@ export function serializeDeck(state: DeckState): string {
         ...(p.provisioning !== undefined && {
           provisioning: stripRuntime(p.provisioning),
         }),
-        ...(p.run !== undefined && { run: p.run }),
       })),
     })),
   };
@@ -238,10 +236,6 @@ function readPane(value: unknown): Pane | null {
     delete pane.dormant;
     pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
   }
-  // A malformed run degrades the pane to a plain dormant one — same spirit
-  // as the agentType fallback above.
-  const run = readPaneRun(value.run);
-  if (run) pane.run = run;
   return pane;
 }
 

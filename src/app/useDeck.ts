@@ -65,7 +65,5 @@ export function useDeck() {
       dispatch({ type: "setPaneProvisioningPhase", wsId, paneId, phase }),
     setWorkspaceRun: (id: string, run: WorkspaceRun) =>
       dispatch({ type: "setWorkspaceRun", id, run }),
-    sleepPane: (wsId: string, paneId: string) =>
-      dispatch({ type: "sleepPane", wsId, paneId }),
   };
 }

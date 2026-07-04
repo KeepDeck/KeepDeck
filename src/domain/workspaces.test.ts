@@ -15,7 +15,6 @@ import {
   paneOccupyingPath,
   pathOccupancy,
   setPaneHead,
-  sleepPane,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setWorkspaceRun,
@@ -500,58 +499,6 @@ describe("setWorkspaceRun", () => {
   });
 });
 
-describe("run panes borrow, never own", () => {
-  const wsWithRunPane: Workspace = {
-    id: "a",
-    name: "a",
-    cwd: "/repo",
-    worktreeBaseDir: null,
-    panes: [
-      { id: "agent", cwd: "/wt/1", branch: "kd/1" },
-      { id: "runner", cwd: "/wt/1", branch: "kd/1", run: { command: "pnpm dev" } },
-    ],
-  };
-
-  it("worktreeTargets never offers a run pane's directory for deletion", () => {
-    // Closing the dev server must not offer deleting the worktree out from
-    // under the agent that owns it.
-    expect(worktreeTargets(wsWithRunPane, "runner")).toEqual([]);
-    expect(worktreeTargets(wsWithRunPane)).toEqual([
-      { repo: "/repo", path: "/wt/1", branch: "kd/1" },
-    ]);
-  });
-
-  it("paneOccupyingPath ignores run panes — they share a dir by design", () => {
-    const only = {
-      ...wsWithRunPane,
-      panes: wsWithRunPane.panes.filter((p) => p.run),
-    };
-    expect(paneOccupyingPath([only], "/wt/1")).toBeNull();
-  });
-});
-
-describe("sleepPane", () => {
-  it("puts a live pane back to sleep, and only that pane", () => {
-    const after = sleepPane([ws("a", [1, 2])], "a", "a-p1");
-    expect(after[0].panes[0].dormant).toBe(true);
-    expect(after[0].panes[1].dormant).toBeUndefined();
-  });
-
-  it("is a no-op (same ref) for dormant, provisioning or missing panes", () => {
-    const state = [
-      {
-        ...ws("a", []),
-        panes: [
-          { id: "sleeping", dormant: true },
-          { id: "card", provisioning: { repo: "/r", workspace: "a", index: 1 } },
-        ],
-      },
-    ];
-    expect(sleepPane(state, "a", "sleeping")).toBe(state);
-    expect(sleepPane(state, "a", "card")).toBe(state);
-    expect(sleepPane(state, "a", "ghost")).toBe(state);
-  });
-});
 
 describe("setPaneProvisioningPhase", () => {
   const provisioning = (extra = {}) => [

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   addPreset,
-  readPaneRun,
   readWorkspaceRun,
   removePreset,
   runEnv,
@@ -101,18 +100,3 @@ describe("readWorkspaceRun", () => {
   });
 });
 
-describe("readPaneRun", () => {
-  it("round-trips, with presetId optional", () => {
-    expect(readPaneRun({ command: "pnpm dev" })).toEqual({ command: "pnpm dev" });
-    expect(readPaneRun({ command: "pnpm dev", presetId: "run-1" })).toEqual({
-      command: "pnpm dev",
-      presetId: "run-1",
-    });
-  });
-
-  it("rejects a missing or blank command", () => {
-    for (const bad of [undefined, null, {}, { command: " " }, { presetId: "x" }]) {
-      expect(readPaneRun(bad)).toBeNull();
-    }
-  });
-});

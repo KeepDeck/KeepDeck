@@ -94,51 +94,7 @@
   margin-bottom: 8px;
 }
 
-/* Run-pane header marker: the play glyph before the title. */
-.pane__run-mark {
-  display: inline-flex;
-  vertical-align: -2px;
-  margin-right: 6px;
-  color: #58b368;
-}
-
-/* A run pane's exit state docks as a strip above the log instead of the
-   centered overlay — the output stays readable and selectable. */
-.pane__body--stacked {
-  flex-direction: column;
-}
-
-.pane__runbar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 3px 6px 3px 10px;
-  border-bottom: 1px solid #2a3343;
-  background-color: #161b26;
-  font-size: 12px;
-  color: #9aa3af;
-  user-select: none;
-}
-
-.pane__runbar-action {
-  border: 1px solid #2a3343;
-  border-radius: 5px;
-  background-color: #0e121a;
-  color: #c5c8c6;
-  font: inherit;
-  font-size: 11px;
-  padding: 2px 10px;
-  cursor: pointer;
-}
-
-.pane__runbar-action:hover {
-  background-color: #1b2230;
-  border-color: #3a4658;
-}
-
-/* The picker's command field: multi-line (a preset can be a small script). */
+/* The launcher's command field: multi-line (a preset can be a small script). */
 .run__command {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   resize: vertical;

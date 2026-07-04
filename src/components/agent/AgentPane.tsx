@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { PaneProvisioning } from "../../domain/panes";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
-import { CloseIcon, MaximizeIcon, PlayIcon, RestoreIcon } from "../../ui/icons";
+import { CloseIcon, MaximizeIcon, RestoreIcon } from "../../ui/icons";
 
 interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
@@ -45,15 +45,6 @@ interface AgentPaneProps {
   provisioning?: PaneProvisioning | null;
   /** Re-issue the failed create from its stored intent. */
   onRetryProvision?(): void;
-  /** Set = this is a run pane executing this command (experimental run
-   * presets); shapes the dormant tile ("Run" instead of auto-wake) and the
-   * exit card ("Run again"). */
-  runCommand?: string | null;
-  /** Open the run-preset picker for this pane's worktree — the header ▶.
-   * Absent = hidden (experiment off, at the pane cap, or a run pane). */
-  onRunPreset?(): void;
-  /** (Re)run a run pane's command — the dormant tile and the exit card. */
-  onRunAgain?(): void;
   /** Grid columns this pane spans (>1 lets a partial last row fill the width). */
   colSpan: number;
   onSelect(): void;
@@ -98,9 +89,6 @@ export function AgentPane({
   onTitle,
   onStartFresh,
   onRetryProvision,
-  runCommand,
-  onRunPreset,
-  onRunAgain,
 }: AgentPaneProps) {
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
@@ -110,11 +98,6 @@ export function AgentPane({
   const commitRename = () => {
     onRename(draft.trim());
     setEditing(false);
-  };
-  // The exit card must not survive into the fresh session a re-run spawns.
-  const runAgain = () => {
-    setExit(null);
-    onRunAgain?.();
   };
   return (
     <section
@@ -149,21 +132,12 @@ export function AgentPane({
               setEditing(true);
             }}
           >
-            {runCommand && (
-              // What marks a run pane as NOT an agent — its header carries
-              // the play glyph instead of the agent affordances.
-              <span className="pane__run-mark" aria-label="Run pane">
-                <PlayIcon />
-              </span>
-            )}
             {title}
           </span>
         )}
-        {cwd && !provisioning && !runCommand && (
-          // Hidden while provisioning (no directory of its own yet — the
-          // fallback cwd would open the wrong folder) and on run panes: the
-          // worktree belongs to the agent next door, whose header already
-          // offers it.
+        {cwd && !provisioning && (
+          // Hidden while provisioning: the pane has no directory of its own
+          // yet, and the fallback cwd would open the wrong folder.
           <button
             type="button"
             className="pane__open"
@@ -179,17 +153,6 @@ export function AgentPane({
           </span>
         )}
         <div className="pane__actions">
-          {onRunPreset && (
-            <button
-              type="button"
-              className="pane__action"
-              onClick={onRunPreset}
-              title="Run a preset in this agent's folder"
-              aria-label={`Run a preset next to ${title}`}
-            >
-              <PlayIcon />
-            </button>
-          )}
           {!solo && (
             <button
               type="button"
@@ -212,28 +175,7 @@ export function AgentPane({
           </button>
         </div>
       </header>
-      <div
-        className={`pane__body${runCommand && exit && !dormant ? " pane__body--stacked" : ""}`}
-      >
-        {runCommand && exit && !dormant && (
-          // A run pane's exit state is a docked strip, NOT the centered
-          // overlay: the last screenful of output is exactly what the user
-          // needs to read and copy after a dev server dies.
-          <div className="pane__runbar" role="status">
-            <span className="pane__runbar-text">
-              {exit.code !== null
-                ? `Command exited (code ${exit.code})`
-                : "Command terminated"}
-            </span>
-            <button
-              type="button"
-              className="pane__runbar-action"
-              onClick={runAgain}
-            >
-              Run again
-            </button>
-          </div>
-        )}
+      <div className="pane__body">
         {provisioning ? (
           // The worktree behind this pane is still being created (or failed):
           // a status card instead of a terminal — mounting one now would
@@ -276,8 +218,7 @@ export function AgentPane({
         ) : dormant ? (
           // Restored, no PTY behind it ([F7]). Normally transient (the revive
           // effect wakes active-workspace panes); it persists only when the
-          // pane's directory is gone — or for a run pane, which never
-          // auto-starts and waits for an explicit Run.
+          // pane's directory is gone.
           <div className="pane__dormant" role="status">
             {blockedDir ? (
               <>
@@ -292,25 +233,6 @@ export function AgentPane({
                     onClick={onStartFresh}
                   >
                     Start fresh in the workspace folder
-                  </button>
-                )}
-              </>
-            ) : runCommand ? (
-              <>
-                <span className="pane__exit-title">Not running</span>
-                <span
-                  className="pane__exit-sub pane__dormant-path"
-                  title={runCommand}
-                >
-                  {runCommand}
-                </span>
-                {onRunAgain && (
-                  <button
-                    type="button"
-                    className="pane__dormant-action"
-                    onClick={runAgain}
-                  >
-                    Run
                   </button>
                 )}
               </>
@@ -331,7 +253,7 @@ export function AgentPane({
             onTitle={onTitle}
           />
         )}
-        {exit && !dormant && !runCommand && (
+        {exit && !dormant && (
           <div className="pane__exit" role="status">
             <span className="pane__exit-title">Agent exited</span>
             <span className="pane__exit-sub">

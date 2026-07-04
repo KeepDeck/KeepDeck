@@ -4,7 +4,6 @@ import {
   type AgentInfo,
   type AgentType,
 } from "./agents";
-import { runEnv } from "./runPresets";
 
 /**
  * Spawn plans — session identity v2 ([F7]/[F8]).
@@ -112,19 +111,6 @@ export function buildSpawnPlan(
       };
     }
   }
-}
-
-/** A run pane's plan: the pane spawns the user's shell (command `null` on the
- * spawn spec) with `-c <command>` — non-interactive, so no job control and the
- * whole command tree shares one process group, which is what lets a close kill
- * everything. The env is the run contract (worktree/branch/port); `port` is
- * omitted (not defaulted) when allocation failed — a preset that needs it
- * should fail visibly in its own terminal. */
-export function buildRunPlan(
-  command: string,
-  location: { worktree: string; branch?: string; port?: number },
-): SpawnPlan {
-  return { args: ["-c", command], env: runEnv(location) };
 }
 
 function mintUuid(): string {

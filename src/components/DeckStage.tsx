@@ -1,14 +1,12 @@
 import type { AgentInfo } from "../domain/agents";
 import type { SpawnPlan } from "../domain/spawnPlans";
 import {
-  MAX_PANES,
   gridTracks,
   paneColumnSpan,
   paneGrid,
   paneGridTrackColumns,
 } from "../domain/layout";
 import { paneBranchBadge, paneDisplayTitle, resolveFocus } from "../domain/panes";
-import type { Pane } from "../domain/panes";
 import type { Workspace } from "../domain/workspaces";
 import { AgentPane } from "./agent/AgentPane";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
@@ -43,11 +41,6 @@ interface DeckStageProps {
   onStartFresh(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
   onRetryProvision(wsId: string, paneId: string): void;
-  /** Open the run-preset picker for a pane's worktree (experimental run
-   * presets) — absent while the experiment is off, which hides every ▶. */
-  onOpenRunPicker?(wsId: string, pane: Pane): void;
-  /** (Re)run a run pane's command — its dormant tile and exit card. */
-  onRunAgain?(wsId: string, paneId: string): void;
 }
 
 /**
@@ -73,8 +66,6 @@ export function DeckStage({
   specByPane,
   onStartFresh,
   onRetryProvision,
-  onOpenRunPicker,
-  onRunAgain,
 }: DeckStageProps) {
   return (
     <>
@@ -123,14 +114,10 @@ export function DeckStage({
                 : paneColumnSpan(index, ws.panes.length);
               // Agent command/label are per pane (not the workspace), resolved
               // from the fetched catalog ([F1]); fall back to the id string
-              // while the catalog is still loading. A run pane spawns the
-              // user's shell instead — its command line rides the spawn args
-              // (`-c <command>`, from the pane's plan).
+              // while the catalog is still loading.
               const agentType = pane.agentType ?? "claude";
               const agentInfo = agents.find((a) => a.id === agentType);
-              const command = pane.run
-                ? null
-                : (agentInfo?.command ?? agentType);
+              const command = agentInfo?.command ?? agentType;
               const displayTitle = paneDisplayTitle(pane, index, agents);
               const badge = paneBranchBadge(pane);
               return (
@@ -161,21 +148,6 @@ export function DeckStage({
                   onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
                   onStartFresh={() => onStartFresh(ws.id, pane.id)}
                   onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
-                  runCommand={pane.run?.command}
-                  // ▶ lives on agent panes (a run pane launches nothing) and
-                  // hides at the pane cap — the launched pane couldn't land.
-                  onRunPreset={
-                    onOpenRunPicker &&
-                    !pane.run &&
-                    ws.panes.length < MAX_PANES
-                      ? () => onOpenRunPicker(ws.id, pane)
-                      : undefined
-                  }
-                  onRunAgain={
-                    pane.run && onRunAgain
-                      ? () => onRunAgain(ws.id, pane.id)
-                      : undefined
-                  }
                 />
               );
             })}

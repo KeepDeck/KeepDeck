@@ -17,7 +17,6 @@ import {
   setPaneProvisioningPhase,
   setPaneSession,
   setWorkspaceRun,
-  sleepPane,
   type PaneHead,
   type Workspace,
 } from "./workspaces";
@@ -92,12 +91,9 @@ export type DeckAction =
     }
   /** The provisioning card's step: the worktree exists, setup is running. */
   | { type: "setPaneProvisioningPhase"; wsId: string; paneId: string; phase: "setup" }
-  /** Replace a workspace's run presets / setup command (the picker's save
+  /** Replace a workspace's run presets / setup command (the Run panel's save
    * and delete paths). */
-  | { type: "setWorkspaceRun"; id: string; run: WorkspaceRun }
-  /** Put a live pane back to sleep (unmounts its terminal) — the run-again
-   * flow's first half. */
-  | { type: "sleepPane"; wsId: string; paneId: string };
+  | { type: "setWorkspaceRun"; id: string; run: WorkspaceRun };
 
 export const initialDeckState: DeckState = {
   workspaces: [],
@@ -341,10 +337,5 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ...state,
         workspaces: setWorkspaceRun(state.workspaces, action.id, action.run),
       };
-    case "sleepPane": {
-      const workspaces = sleepPane(state.workspaces, action.wsId, action.paneId);
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
   }
 }

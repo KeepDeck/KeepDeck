@@ -104,13 +104,8 @@ export interface WorktreeTarget {
  */
 export function worktreeTargets(ws: Workspace, paneId?: string): WorktreeTarget[] {
   const panes = paneId ? ws.panes.filter((p) => p.id === paneId) : ws.panes;
-  // A run pane BORROWS the worktree it launched into (usually an agent's);
-  // it never owns one, so closing it must not offer deleting the directory
-  // out from under the agent.
   return panes.flatMap((p) =>
-    p.cwd && p.branch && !p.run
-      ? [{ repo: ws.cwd, path: p.cwd, branch: p.branch }]
-      : [],
+    p.cwd && p.branch ? [{ repo: ws.cwd, path: p.cwd, branch: p.branch }] : [],
   );
 }
 
@@ -167,22 +162,6 @@ export function setPaneAutoTitle(
   const next = title.trim() || undefined;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => (p.id === paneId ? { ...p, autoTitle: next } : p)),
-  );
-}
-
-/** Put a live pane back to sleep so its terminal unmounts — the run-again
- * flow's first half (its PTY entry is closed separately; a fresh revive then
- * remounts and respawns). Never sleeps a provisioning pane: its card is not
- * a terminal. Returns the SAME array when there's nothing to do. */
-export function sleepPane(
-  workspaces: Workspace[],
-  workspaceId: string,
-  paneId: string,
-): Workspace[] {
-  const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane || pane.dormant || pane.provisioning) return workspaces;
-  return mapWorkspace(workspaces, workspaceId, (panes) =>
-    panes.map((p) => (p.id === paneId ? { ...p, dormant: true } : p)),
   );
 }
 
@@ -392,10 +371,6 @@ export function paneOccupyingPath(
   if (!wanted) return null;
   for (const ws of workspaces) {
     for (const [index, pane] of ws.panes.entries()) {
-      // Run panes don't occupy: they share a directory with an agent by
-      // design (the dev server next to the agent editing it), so one must
-      // not block attaching the agent the worktree is actually for.
-      if (pane.run) continue;
       const held = pane.cwd ?? pane.provisioning?.path;
       if (held && normalizePath(held) === wanted) return { ws, pane, index };
     }
