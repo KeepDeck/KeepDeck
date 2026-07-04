@@ -69,3 +69,21 @@ describe("canCreateAgent", () => {
     expect(canCreateAgent("blocked", "kd/ws/1")).toBe(false);
   });
 });
+
+describe("occupied locations", () => {
+  it("an occupied path outranks every probe outcome, even mid-probe", () => {
+    expect(classifyLocation("/wt/a", null, true)).toBe("occupied");
+    expect(classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), true)).toBe(
+      "occupied",
+    );
+    expect(classifyLocation("/wt/a", probe({ exists: true }), true)).toBe("occupied");
+  });
+
+  it("an empty path stays main — bare panes legitimately share the workspace cwd", () => {
+    expect(classifyLocation("", null, true)).toBe("main");
+  });
+
+  it("an occupied path can never be created", () => {
+    expect(canCreateAgent("occupied", "some-branch")).toBe(false);
+  });
+});

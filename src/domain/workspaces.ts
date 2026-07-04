@@ -279,6 +279,50 @@ export function setPaneProvisioningError(
   );
 }
 
+/** A pane already running in a directory, and where it lives — the reason a
+ * candidate worktree path can't take a second agent. */
+export interface PathOccupant {
+  ws: Workspace;
+  pane: Pane;
+  /** The pane's index in its workspace (feeds the display-title derivation). */
+  index: number;
+}
+
+/** Path spelling differences that don't change the directory: surrounding
+ * whitespace and trailing slashes. NOT a canonicalizer (no fs access) — two
+ * genuinely different spellings of one dir (symlinks, `..`) stay distinct. */
+function normalizePath(path: string): string {
+  const trimmed = path.trim();
+  const stripped = trimmed.replace(/\/+$/, "");
+  return stripped === "" ? trimmed : stripped;
+}
+
+/**
+ * The pane already occupying `path`, or `null` when it's free. Scans EVERY
+ * workspace's panes: a pane's worktree can live anywhere — `worktreeBaseDir`
+ * is only a suggestion source, so workspace-level paths predict nothing.
+ * Dormant panes count (they revive right back into their directory), and so
+ * does a provisioning intent: a pane whose worktree create is still in flight
+ * (or failed, awaiting Retry) has no `cwd` yet but holds its target path.
+ * This is what blocks the "+ Agent" dialog from attaching a second agent to a
+ * worktree one pane already runs in (two agents in one dir stomp each other's
+ * files and git state).
+ */
+export function paneOccupyingPath(
+  workspaces: Workspace[],
+  path: string,
+): PathOccupant | null {
+  const wanted = normalizePath(path);
+  if (!wanted) return null;
+  for (const ws of workspaces) {
+    for (const [index, pane] of ws.panes.entries()) {
+      const held = pane.cwd ?? pane.provisioning?.path;
+      if (held && normalizePath(held) === wanted) return { ws, pane, index };
+    }
+  }
+  return null;
+}
+
 /** The distinct worktree directories the deck's panes run in — the set the
  * HEAD-watch lifecycle keeps registered (a pane without `cwd` runs in the
  * workspace folder and owns no worktree to watch). */

@@ -24,16 +24,20 @@ export type LocationKind =
   | "checking" // path entered, probe still in flight
   | "new" // path is free → create a new worktree there
   | "existing" // path is a git worktree → attach the agent to it ([F12])
+  | "occupied" // a pane already runs in this directory → can't take a second
   | "blocked"; // path exists but isn't a worktree → can't use it
 
-/** Classify a candidate worktree path from its probe. Pure. An existing EMPTY
- * dir counts as "new" — git can create a worktree into it; only a non-empty
- * non-worktree dir is blocked. */
+/** Classify a candidate worktree path from its probe. Pure. Occupancy (a pane
+ * of this deck already runs there) is known synchronously and outranks every
+ * probe outcome — even mid-probe. An existing EMPTY dir counts as "new" — git
+ * can create a worktree into it; only a non-empty non-worktree dir is blocked. */
 export function classifyLocation(
   path: string,
   probe: PathProbe | null,
+  occupied = false,
 ): LocationKind {
   if (!path.trim()) return "main";
+  if (occupied) return "occupied";
   if (!probe) return "checking";
   if (!probe.exists) return "new";
   if (probe.isWorktree) return "existing";
@@ -41,8 +45,8 @@ export function classifyLocation(
 }
 
 /** Whether Create is allowed for a classified location + current branch input.
- * A new worktree needs a branch name; a still-probing or blocked path can't be
- * created. Pure. */
+ * A new worktree needs a branch name; a still-probing, occupied or blocked
+ * path can't be created. Pure. */
 export function canCreateAgent(kind: LocationKind, branch: string): boolean {
   switch (kind) {
     case "main":
@@ -51,6 +55,7 @@ export function canCreateAgent(kind: LocationKind, branch: string): boolean {
     case "new":
       return branch.trim().length > 0;
     case "checking":
+    case "occupied":
     case "blocked":
       return false;
   }
