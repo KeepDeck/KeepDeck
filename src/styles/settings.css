@@ -4,6 +4,35 @@
   max-width: 640px;
 }
 
+.settings__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+/* The title's spacing moves to the head row it now shares with the ✕. */
+.settings__title {
+  margin: 0;
+}
+
+.settings__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.settings__close:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
+}
+
 .settings__body {
   display: grid;
   grid-template-columns: 148px 1fr;

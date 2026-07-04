@@ -172,13 +172,18 @@ describe("SettingsDialog", () => {
     expect(ipc.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("Done and Escape only dismiss", async () => {
+  it("Done, the ✕ and Escape only dismiss", async () => {
     await mount();
     act(() => button("Done").click());
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Close settings"]')!
+        .click(),
+    );
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(closed).toBe(2);
+    expect(closed).toBe(3);
     expect(ipc.saveSettings).not.toHaveBeenCalled();
   });
 });

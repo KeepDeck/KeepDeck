@@ -26,7 +26,18 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
         aria-modal="true"
         aria-label="Settings"
       >
-        <h2 className="form__title">Settings</h2>
+        <div className="settings__head">
+          <h2 className="form__title settings__title">Settings</h2>
+          <button
+            type="button"
+            className="settings__close"
+            onClick={onClose}
+            title="Close settings"
+            aria-label="Close settings"
+          >
+            <CloseIcon />
+          </button>
+        </div>
 
         <div className="settings__body">
           <nav className="settings__nav" aria-label="Settings sections">
@@ -64,5 +75,24 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
         </div>
       </div>
     </ModalOverlay>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
   );
 }
