@@ -1,11 +1,15 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { initSettings } from "./app/settingsManager";
 import { initLogging } from "./ipc/log";
 import { suppressNativeContextMenu } from "./ui/contextMenu";
 
 initLogging();
 suppressNativeContextMenu();
+// Kick off the settings load with the other boot IO — the first paint gates
+// on it (App renders the bare shell until the store settles).
+void initSettings();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

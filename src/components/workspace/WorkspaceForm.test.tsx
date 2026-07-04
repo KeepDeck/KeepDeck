@@ -3,6 +3,12 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceForm } from "./WorkspaceForm";
+import {
+  initSettings,
+  resetSettingsManager,
+  updateSettings,
+} from "../../app/settingsManager";
+import { resetAgentsCache } from "../../app/useAgents";
 import type { SpawnConfig } from "../../domain/workspaces";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -24,6 +30,21 @@ const catalog = vi.hoisted(() => ({ list: [] as unknown[] }));
 vi.mock("../../ipc/agents", () => ({
   listAgents: async () => catalog.list,
 }));
+
+// The form reads the default agent from the settings store ([F6]); run the
+// real manager over a mocked IPC so the tests exercise the store→hook bridge.
+vi.mock("../../ipc/settings", () => ({
+  loadSettings: async () => null,
+  saveSettings: async () => {},
+  quarantineSettings: async () => {},
+}));
+
+/** Boot the settings store and set the default-agent preference. */
+async function seedDefaultAgent(defaultAgent: SpawnConfig["agentType"]) {
+  resetSettingsManager();
+  await initSettings();
+  updateSettings({ defaultAgent });
+}
 
 const worktreeInput = () =>
   document.querySelector<HTMLInputElement>('input[aria-label="Worktree directory"]')!;
@@ -60,6 +81,7 @@ describe("WorkspaceForm worktree directory", () => {
   let created: SpawnConfig[];
 
   beforeEach(() => {
+    resetAgentsCache();
     catalog.list = TWO_AGENTS;
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
@@ -69,17 +91,14 @@ describe("WorkspaceForm worktree directory", () => {
   afterEach(() => act(() => root.unmount()));
 
   /** Mount with a chosen working directory (via the picker, as in the app). */
-  const mount = async (
-    isRepo: boolean,
-    defaultAgent: SpawnConfig["agentType"] = "claude",
-  ) => {
+  const mount = async (isRepo: boolean) => {
+    await seedDefaultAgent("claude");
     await act(async () =>
       root.render(
         createElement(WorkspaceForm, {
           onCreate: (c: SpawnConfig) => created.push(c),
           pickFolder: async () => "/repo",
           inspectDir: async () => ({ isRepo, branch: null }),
-          defaultAgent,
         }),
       ),
     );
@@ -125,6 +144,7 @@ describe("WorkspaceForm default agent ([F6])", () => {
   let root: Root;
 
   beforeEach(() => {
+    resetAgentsCache();
     catalog.list = TWO_AGENTS;
     document.body.innerHTML = "";
     root = createRoot(document.body.appendChild(document.createElement("div")));
@@ -132,13 +152,13 @@ describe("WorkspaceForm default agent ([F6])", () => {
   afterEach(() => act(() => root.unmount()));
 
   const mount = async (defaultAgent: SpawnConfig["agentType"]) => {
+    await seedDefaultAgent(defaultAgent);
     await act(async () =>
       root.render(
         createElement(WorkspaceForm, {
           onCreate: () => {},
           pickFolder: async () => "/repo",
           inspectDir: async () => ({ isRepo: false, branch: null }),
-          defaultAgent,
         }),
       ),
     );
@@ -162,11 +182,12 @@ describe("WorkspaceForm default agent ([F6])", () => {
 
   it("follows a preference change while the picker is untouched", async () => {
     // The settings dialog opens OVER the form (first run: the form is the
-    // only screen) — a default set there must reach the mounted form.
+    // only screen) — a default set there must reach the mounted form
+    // through the store subscription.
     catalog.list = THREE_AGENTS;
     await mount("claude");
     expect(typeButton("Claude Code").className).toContain("form__type--active");
-    await mount("opencode"); // re-render with the new preference
+    act(() => updateSettings({ defaultAgent: "opencode" }));
     expect(typeButton("OpenCode").className).toContain("form__type--active");
   });
 
@@ -174,7 +195,7 @@ describe("WorkspaceForm default agent ([F6])", () => {
     catalog.list = THREE_AGENTS;
     await mount("claude");
     act(() => (typeButton("Codex") as HTMLButtonElement).click());
-    await mount("opencode"); // the settings dialog moves the preference
+    act(() => updateSettings({ defaultAgent: "opencode" })); // the settings dialog moves the preference
     expect(typeButton("Codex").className).toContain("form__type--active");
   });
 });

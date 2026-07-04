@@ -1,54 +1,23 @@
 import { useState } from "react";
-import { selectableAgents, type AgentInfo } from "../../domain/agents";
-import {
-  SCROLLBACK_MAX,
-  SCROLLBACK_MIN,
-  clampScrollback,
-  type Settings,
-} from "../../domain/settings";
+import { CloseIcon } from "../../ui/icons";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
+import { SETTINGS_SECTIONS } from "./sections";
 
 interface SettingsDialogProps {
-  settings: Settings;
-  /** Agent catalog for the default-agent picker ([F1]). */
-  agents: AgentInfo[];
-  /** Apply a change — every control writes through instantly ([F6]). */
-  onChange(patch: Partial<Settings>): void;
   onClose(): void;
 }
 
 /**
- * Global settings ([F6]) — an in-app modal (no system windows). Controls
- * apply instantly through `onChange`; Done/Esc only dismiss. The scrollback
- * field commits on blur/Enter, not per keystroke — clamping while the user
- * is still typing would fight the input.
+ * Global settings ([F6]) — an in-app modal (no system windows): a left nav of
+ * sections over a panel area. Sections talk to the settings store themselves;
+ * controls apply instantly, Done/Esc only dismiss.
  */
-export function SettingsDialog({
-  settings,
-  agents,
-  onChange,
-  onClose,
-}: SettingsDialogProps) {
+export function SettingsDialog({ onClose }: SettingsDialogProps) {
   useEscape(onClose);
-  const agentOptions = selectableAgents(agents);
-  const [scrollbackDraft, setScrollbackDraft] = useState(
-    String(settings.scrollback),
-  );
-
-  const commitScrollback = () => {
-    const parsed = Number(scrollbackDraft);
-    // A number input surfaces rejected garbage as "" — and Number("") is 0,
-    // so the emptiness check must come first or garbage would commit the min.
-    if (scrollbackDraft.trim() === "" || !Number.isFinite(parsed)) {
-      // Nothing usable — revert to the live value instead of guessing.
-      setScrollbackDraft(String(settings.scrollback));
-      return;
-    }
-    const clamped = clampScrollback(parsed);
-    setScrollbackDraft(String(clamped));
-    if (clamped !== settings.scrollback) onChange({ scrollback: clamped });
-  };
+  const [activeId, setActiveId] = useState(SETTINGS_SECTIONS[0].id);
+  const active =
+    SETTINGS_SECTIONS.find((s) => s.id === activeId) ?? SETTINGS_SECTIONS[0];
 
   return (
     <ModalOverlay>
@@ -58,43 +27,47 @@ export function SettingsDialog({
         aria-modal="true"
         aria-label="Settings"
       >
-        <h2 className="form__title">Settings</h2>
+        <div className="settings__head">
+          <h2 className="form__title settings__title">Settings</h2>
+          <button
+            type="button"
+            className="settings__close"
+            onClick={onClose}
+            title="Close settings"
+            aria-label="Close settings"
+          >
+            <CloseIcon />
+          </button>
+        </div>
 
-        <span className="form__label">Default agent</span>
-        <div className="form__types">
-          {agentOptions.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              className={`form__type${a.id === settings.defaultAgent ? " form__type--active" : ""}`}
-              onClick={() => onChange({ defaultAgent: a.id })}
+        <div className="settings__body">
+          <nav className="settings__nav" aria-label="Settings sections">
+            {SETTINGS_SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`settings__nav-item${s.id === active.id ? " settings__nav-item--active" : ""}`}
+                aria-current={s.id === active.id || undefined}
+                onClick={() => setActiveId(s.id)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </nav>
+          {SETTINGS_SECTIONS.map((s) => (
+            // Every section stays mounted and inactive ones hide (the
+            // DeckStage pattern): switching must not remount a panel — a
+            // remount refetches the agent catalog and flashes the panel
+            // empty, and it would drop an uncommitted draft.
+            <div
+              key={s.id}
+              className="settings__section"
+              hidden={s.id !== active.id}
             >
-              {a.label}
-            </button>
+              <s.Component />
+            </div>
           ))}
         </div>
-        <span className="settings__hint">
-          Preselected when creating workspaces and agents
-        </span>
-
-        <span className="form__label">Terminal scrollback</span>
-        <input
-          className="form__input settings__number"
-          type="number"
-          min={SCROLLBACK_MIN}
-          max={SCROLLBACK_MAX}
-          step={1000}
-          value={scrollbackDraft}
-          onChange={(e) => setScrollbackDraft(e.target.value)}
-          onBlur={commitScrollback}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitScrollback();
-          }}
-          aria-label="Terminal scrollback lines"
-        />
-        <span className="settings__hint">
-          Lines kept per pane · applies to open terminals
-        </span>
 
         <div className="confirm__actions">
           <button type="button" className="form__create" onClick={onClose} autoFocus>

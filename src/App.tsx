@@ -55,8 +55,7 @@ function App() {
   // Detected agent catalog (labels/commands/install status), fetched from Rust.
   const { agents } = useAgents();
   // Global preferences ([F6]) — loaded before the first paint, saved through.
-  const settingsStore = useSettings();
-  const settings = settingsStore.settings;
+  const settings = useSettings();
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   const { restoring } = usePersistence(deck);
   // Per-install spawn-plan constants (spool dir, reporter activation) — the
@@ -81,11 +80,7 @@ function App() {
   const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
-  const agentFlow = useAgentDialog(
-    deck,
-    agents,
-    settings?.defaultAgent ?? "claude",
-  );
+  const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, setError);
 
@@ -259,7 +254,6 @@ function App() {
             focusByWs={deck.focusByWs}
             selectedPaneId={selectedPaneId}
             agents={agents}
-            scrollback={settings.scrollback}
             onStartWorkspace={(wsId, count) =>
               void provisioning.startWorkspace(wsId, count)
             }
@@ -291,7 +285,6 @@ function App() {
                   onCancel={settingsOpen ? undefined : () => setCreating(false)}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
-                  defaultAgent={settings.defaultAgent}
                 />
               </ModalOverlay>
             ) : (
@@ -302,7 +295,6 @@ function App() {
                   onCreate={handleCreateWorkspace}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
-                  defaultAgent={settings.defaultAgent}
                 />
               </div>
             ))}
@@ -332,12 +324,7 @@ function App() {
           )}
 
           {settingsOpen && (
-            <SettingsDialog
-              settings={settings}
-              agents={agents}
-              onChange={settingsStore.update}
-              onClose={() => setSettingsOpen(false)}
-            />
+            <SettingsDialog onClose={() => setSettingsOpen(false)} />
           )}
 
           {closeFlow.closing && (

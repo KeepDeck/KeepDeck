@@ -39,7 +39,9 @@ describe("useAgentDialog suggestions", () => {
   let flow: ReturnType<typeof useAgentDialog>;
 
   function Host({ deck }: { deck: Deck }) {
-    flow = useAgentDialog(deck, [], "claude");
+    // No settings store seeded here: the default-agent preference falls back
+    // to "claude" — these tests cover suggestions, not the type picker.
+    flow = useAgentDialog(deck, []);
     return null;
   }
 

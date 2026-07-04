@@ -20,8 +20,6 @@ interface DeckStageProps {
   selectedPaneId: string | null;
   /** Agent catalog, for pane commands and derived titles. */
   agents: AgentInfo[];
-  /** Scrollback lines per terminal pane ([F6]). */
-  scrollback: number;
   /** The empty-workspace count picker chose `count` agents. */
   onStartWorkspace(wsId: string, count: number): void;
   onSelectPane(wsId: string, paneId: string): void;
@@ -57,7 +55,6 @@ export function DeckStage({
   focusByWs,
   selectedPaneId,
   agents,
-  scrollback,
   onStartWorkspace,
   onSelectPane,
   onToggleFocus,
@@ -132,7 +129,6 @@ export function DeckStage({
                   args={specByPane[pane.id]?.args}
                   env={specByPane[pane.id]?.env}
                   cwd={pane.cwd ?? ws.cwd}
-                  scrollback={scrollback}
                   branch={badge?.label}
                   branchTitle={badge?.full}
                   visible={isActive && !isCollapsed}
