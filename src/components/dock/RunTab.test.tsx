@@ -32,13 +32,29 @@ const ws: Workspace = {
   cwd: "/repo",
   worktreeBaseDir: "/wt",
   run: {
-    presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }],
+    presets: [
+      { id: "run-1", name: "Dev", command: "pnpm dev" },
+      { id: "run-2", name: "Tests", command: "pnpm test" },
+    ],
   },
   panes: [
     { id: "pane-1", cwd: "/wt/a", branch: "kd/a" },
     { id: "pane-2", cwd: "/wt/b", branch: "kd/b" },
   ],
 };
+
+const running = (over: Partial<RunSession> = {}): RunSession => ({
+  id: "s1",
+  wsId: "ws-1",
+  name: "Dev",
+  presetId: "run-1",
+  command: "pnpm dev",
+  worktree: "/wt/b",
+  branch: "kd/b",
+  port: 17_040,
+  status: { kind: "running" },
+  ...over,
+});
 
 function type(el: HTMLTextAreaElement | HTMLInputElement, text: string) {
   const set = Object.getOwnPropertyDescriptor(
@@ -51,7 +67,14 @@ function type(el: HTMLTextAreaElement | HTMLInputElement, text: string) {
   });
 }
 
-describe("RunTab", () => {
+const button = (label: string) =>
+  document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+const byText = (text: string) =>
+  Array.from(document.querySelectorAll("button")).find(
+    (b) => b.textContent === text,
+  );
+
+describe("RunTab — the merged Commands list", () => {
   let host: HTMLElement;
   let root: Root;
   let setRun: ReturnType<typeof vi.fn>;
@@ -77,16 +100,14 @@ describe("RunTab", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
-  it("defaults the target to the highlighted pane's worktree and runs a preset there", () => {
+  it("every command gets a row; the idle glyph launches in the current target", () => {
     mount();
-    const target = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Run target directory"]',
-    )!;
-    expect(target.textContent).toBe("kd/b");
-
-    act(() =>
-      document.querySelector<HTMLButtonElement>(".run__preset-run")!.click(),
+    const names = [...document.querySelectorAll(".run__cmd-name")].map(
+      (n) => n.textContent,
     );
+    expect(names).toEqual(["Dev", "Tests"]);
+
+    act(() => button("Run: Dev")!.click());
     expect(manager.launchRun).toHaveBeenCalledWith(
       "ws-1",
       { worktree: "/wt/b", branch: "kd/b" },
@@ -94,126 +115,119 @@ describe("RunTab", () => {
     );
   });
 
-  it("falls back to the workspace folder without a highlighted worktree pane", () => {
-    mount({}, "nope");
-    const target = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Run target directory"]',
-    )!;
-    expect(target.textContent).toBe("Workspace folder");
+  it("a session in the CURRENT target fuses into its command's row", () => {
+    manager.sessions = [running()];
+    mount();
+
+    // One row for Dev — no separate sessions list.
+    expect(document.querySelectorAll(".run__cmd").length).toBe(2);
+    expect(document.body.textContent).toContain(":17040");
+    // The glyph's hover face stops it.
+    act(() => button("Stop: Dev")!.click());
+    expect(manager.stopRun).toHaveBeenCalledWith("s1");
+    // No idle Run action — the command already runs here.
+    expect(button("Run: Dev")).toBeNull();
   });
 
-  it("the command form hides behind Add command, opens ABOVE the preset list", () => {
-    mount();
-    expect(
-      document.querySelector('textarea[aria-label="Command to run"]'),
-    ).toBeNull();
+  it("an instance in ANOTHER target indents as a child row with its own controls", () => {
+    manager.sessions = [
+      running({ worktree: "/wt/a", branch: "kd/a", status: { kind: "exited", code: 1 } }),
+    ];
+    mount(); // current target = /wt/b
 
-    act(() =>
-      Array.from(document.querySelectorAll("button"))
-        .find((b) => b.textContent === "+ Add command")!
-        .click(),
-    );
+    const child = document.querySelector(".run__cmd--child")!;
+    expect(child.textContent).toContain("kd/a");
+    expect(child.textContent).toContain("exit 1");
+    // The parent row still offers launching HERE.
+    expect(button("Run: Dev")).not.toBeNull();
+    // The child's glyph re-runs in ITS target (restart-in-place).
+    act(() => button("Run again: Dev (kd/a)")!.click());
+    expect(manager.restartRun).toHaveBeenCalledWith("s1");
+    act(() => button("Remove run Dev in kd/a")!.click());
+    expect(manager.removeRun).toHaveBeenCalledWith("s1");
+  });
+
+  it("a dead session's glyph becomes Run again (replace, not pile)", () => {
+    manager.sessions = [running({ status: { kind: "exited", code: 1 } })];
+    mount();
+    expect(document.body.textContent).toContain("exit 1");
+    act(() => button("Run again: Dev")!.click());
+    expect(manager.restartRun).toHaveBeenCalledWith("s1");
+  });
+
+  it("an orphan session (its command was deleted) keeps a row with Remove only", () => {
+    manager.sessions = [running({ presetId: "run-9", name: "old dev" })];
+    mount();
+    expect(document.body.textContent).toContain("old dev");
+    expect(button("Edit preset old dev")).toBeNull();
+    act(() => button("Remove run old dev")!.click());
+    expect(manager.removeRun).toHaveBeenCalledWith("s1");
+  });
+
+  it("the log caption names whose output is shown", () => {
+    manager.sessions = [running()];
+    mount();
+    const cap = document.querySelector(".run__logcap")!;
+    expect(cap.textContent).toContain("Dev");
+    expect(cap.textContent).toContain("kd/b");
+    expect(cap.textContent).toContain(":17040");
+  });
+
+  it("the header + opens the form ABOVE the list; Add saves without launching", () => {
+    mount();
+    expect(document.querySelector(".run__form")).toBeNull();
+
+    act(() => button("Add command")!.click());
     const form = document.querySelector(".run__form")!;
-    const list = document.querySelector(".run__presets")!;
-    // The form precedes the list in the document.
+    const list = document.querySelector(".run__cmds")!;
     expect(
       form.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-  });
 
-  it("Add stores the draft as a preset WITHOUT launching, and collapses the form", () => {
-    mount();
-    act(() =>
-      Array.from(document.querySelectorAll("button"))
-        .find((b) => b.textContent === "+ Add command")!
-        .click(),
-    );
     type(
       document.querySelector<HTMLTextAreaElement>(
         'textarea[aria-label="Command to run"]',
       )!,
       "pnpm worker",
     );
-    type(
-      document.querySelector<HTMLInputElement>('input[aria-label="Preset name"]')!,
-      "Worker",
-    );
-    act(() =>
-      Array.from(document.querySelectorAll("button"))
-        .find((b) => b.textContent === "Add")!
-        .click(),
-    );
-
+    act(() => byText("Add")!.click());
     expect(setRun).toHaveBeenCalledWith({
       presets: [
-        { id: "run-1", name: "Dev", command: "pnpm dev" },
-        { id: "run-2", name: "Worker", command: "pnpm worker" },
+        ...ws.run!.presets,
+        { id: "run-3", name: "pnpm worker", command: "pnpm worker" },
       ],
     });
     expect(manager.launchRun).not.toHaveBeenCalled();
-    // Collapsed back to the affordance.
-    expect(
-      document.querySelector('textarea[aria-label="Command to run"]'),
-    ).toBeNull();
+    expect(document.querySelector(".run__form")).toBeNull();
   });
 
-  it("deleting a preset edits the workspace, never launches", () => {
+  it("✎ opens the form loaded; Save rewrites in place; ✕ deletes the command", () => {
     mount();
-    act(() =>
-      document
-        .querySelector<HTMLButtonElement>('button[aria-label="Delete preset Dev"]')!
-        .click(),
-    );
-    expect(setRun).toHaveBeenCalledWith({ presets: [] });
-    expect(manager.launchRun).not.toHaveBeenCalled();
+    act(() => button("Edit preset Dev")!.click());
+    const field = document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Command to run"]',
+    )!;
+    expect(field.value).toBe("pnpm dev");
+    type(field, "pnpm install\npnpm tauri dev");
+    act(() => byText("Save")!.click());
+    expect(setRun).toHaveBeenCalledWith({
+      presets: [
+        { id: "run-1", name: "Dev", command: "pnpm install\npnpm tauri dev" },
+        ws.run!.presets[1],
+      ],
+    });
+
+    act(() => button("Delete preset Tests")!.click());
+    expect(setRun).toHaveBeenLastCalledWith({
+      presets: expect.not.arrayContaining([
+        expect.objectContaining({ id: "run-2" }),
+      ]) as unknown as Workspace["run"],
+    });
   });
 
-  it("session rows: Stop while running, Restart after exit, ✕ removes", () => {
-    manager.sessions = [
-      {
-        id: "run-1",
-        wsId: "ws-1",
-        name: "Dev",
-        command: "pnpm dev",
-        worktree: "/wt/a",
-        port: 17_040,
-        status: { kind: "running" },
-      },
-      {
-        id: "run-2",
-        wsId: "ws-1",
-        name: "srv",
-        command: "go run .",
-        worktree: "/wt/b",
-        status: { kind: "exited", code: 1 },
-      },
-      {
-        id: "run-3",
-        wsId: "OTHER",
-        name: "foreign",
-        command: "x",
-        worktree: "/x",
-        status: { kind: "running" },
-      },
-    ];
-    mount();
-
-    // Only this workspace's sessions show.
-    expect(document.body.textContent).not.toContain("foreign");
-    expect(document.body.textContent).toContain(":17040");
-    expect(document.body.textContent).toContain("exit 1");
-
-    const buttons = Array.from(document.querySelectorAll("button"));
-    act(() => buttons.find((b) => b.textContent === "Stop")!.click());
-    expect(manager.stopRun).toHaveBeenCalledWith("run-1");
-    act(() => buttons.find((b) => b.textContent === "Restart")!.click());
-    expect(manager.restartRun).toHaveBeenCalledWith("run-2");
-    act(() =>
-      document
-        .querySelector<HTMLButtonElement>('button[aria-label="Remove run srv"]')!
-        .click(),
-    );
-    expect(manager.removeRun).toHaveBeenCalledWith("run-2");
+  it("empty state invites the first command", () => {
+    mount({ run: undefined });
+    expect(document.body.textContent).toContain("No run commands yet");
   });
 });
 
@@ -269,79 +283,5 @@ describe("RunTab — target follows the highlighted pane", () => {
     expect(target().textContent).toBe("Workspace folder");
     render(); // same highlight → the manual pick holds
     expect(target().textContent).toBe("Workspace folder");
-  });
-});
-
-describe("RunTab — preset editing", () => {
-  let host: HTMLElement;
-  let root: Root;
-  let setRun: ReturnType<typeof vi.fn>;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    manager.sessions = [];
-    setRun = vi.fn();
-    document.body.innerHTML = "";
-    host = document.body.appendChild(document.createElement("div"));
-    root = createRoot(host);
-    act(() =>
-      root.render(
-        createElement(RunTab, { ws, selectedPaneId: "pane-1", onSetRun: setRun }),
-      ),
-    );
-  });
-  afterEach(() => act(() => root.unmount()));
-
-  const field = () =>
-    document.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="Command to run"]',
-    )!;
-  const button = (text: string) =>
-    Array.from(document.querySelectorAll("button")).find(
-      (b) => b.textContent === text,
-    )!;
-
-  it("✎ opens the form with the preset loaded; Save rewrites it without launching", () => {
-    act(() =>
-      document
-        .querySelector<HTMLButtonElement>('button[aria-label="Edit preset Dev"]')!
-        .click(),
-    );
-    expect(field().value).toBe("pnpm dev");
-    type(field(), "pnpm install\npnpm tauri dev");
-
-    act(() => button("Save").click());
-    expect(setRun).toHaveBeenCalledWith({
-      presets: [
-        { id: "run-1", name: "Dev", command: "pnpm install\npnpm tauri dev" },
-      ],
-    });
-    expect(manager.launchRun).not.toHaveBeenCalled();
-    // The form collapses back behind Add command.
-    expect(
-      document.querySelector('textarea[aria-label="Command to run"]'),
-    ).toBeNull();
-    expect(button("+ Add command")).toBeDefined();
-  });
-
-  it("Cancel leaves the preset untouched and collapses the form", () => {
-    act(() =>
-      document
-        .querySelector<HTMLButtonElement>('button[aria-label="Edit preset Dev"]')!
-        .click(),
-    );
-    type(field(), "something else");
-    act(() => button("Cancel").click());
-    expect(setRun).not.toHaveBeenCalled();
-    expect(
-      document.querySelector('textarea[aria-label="Command to run"]'),
-    ).toBeNull();
-  });
-
-  it("the row shows the name only — a multi-line command never leaks into it", () => {
-    expect(document.body.textContent).not.toContain("pnpm dev");
-    expect(
-      document.querySelector(".run__preset-run")!.getAttribute("title"),
-    ).toBe("Run: pnpm dev");
   });
 });

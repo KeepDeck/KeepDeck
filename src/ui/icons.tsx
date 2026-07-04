@@ -75,6 +75,24 @@ export function PlayIcon() {
   );
 }
 
+/** Filled play — a state glyph's ACTION face (run/run-again on hover). */
+export function PlayFillIcon() {
+  return (
+    <svg {...iconProps} fill="currentColor" strokeWidth={0} width={11} height={11}>
+      <polygon points="6 4 20 12 6 20 6 4" />
+    </svg>
+  );
+}
+
+/** Filled stop square — the running glyph's ACTION face. */
+export function StopFillIcon() {
+  return (
+    <svg {...iconProps} fill="currentColor" strokeWidth={0} width={10} height={10}>
+      <rect x="5" y="5" width="14" height="14" rx="1.5" />
+    </svg>
+  );
+}
+
 /** Arrow driving into the next fixed slot — "use the next available one"
  * (Lucide `arrow-right-to-line`, ISC). */
 export function NextIcon() {

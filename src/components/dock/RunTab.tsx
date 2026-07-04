@@ -1,19 +1,32 @@
 import { useRef, useState } from "react";
-import { launchRun, removeRun, restartRun, stopRun } from "../../app/runManager";
+import {
+  launchRun,
+  removeRun,
+  restartRun,
+  stopRun,
+} from "../../app/runManager";
 import { useRunSessions } from "../../app/useRunSessions";
 import { addPreset, removePreset, updatePreset } from "../../domain/runPresets";
-import type { RunRequest, RunSession } from "../../domain/runSessions";
+import { commandRows, type RunSession } from "../../domain/runSessions";
 import { Dropdown } from "../../ui/Dropdown";
 import { noAutoCorrect } from "../../ui/inputProps";
-import { CloseIcon, EditIcon, PlayIcon } from "../../ui/icons";
+import {
+  CloseIcon,
+  EditIcon,
+  PlayFillIcon,
+  PlayIcon,
+  StopFillIcon,
+} from "../../ui/icons";
 import { RunLog } from "./RunLog";
 import type { DockTabProps } from "./tabs";
 
 /**
- * The Run tab: launch the app under development in a chosen worktree — each
- * saved command is one click on its row. The command form stays collapsed
- * behind "Add command" (and opens ABOVE the list, also serving a row's ✎
- * edits). Below: this workspace's live runs and the selected run's log.
+ * The Run tab: one command — one row. Each row fuses a saved command with
+ * its live state for the CURRENT target: the state glyph on the left doubles
+ * as the control on hover (run / stop / run again), instances in other
+ * targets indent as child rows, and re-running replaces a dead session
+ * instead of piling a new one. The command form collapses behind the section
+ * header's "+" (the workspaces-rail idiom) and opens above the list.
  * Everything here drives `runManager`; nothing touches the agent grid.
  */
 export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
@@ -34,12 +47,13 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
   const [command, setCommand] = useState("");
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
-  // The command form is collapsed behind "Add command" (`null`); open, it
-  // either adds a new preset (`presetId: null`) or — via a row's ✎ —
+  // The command form is collapsed behind the header's "+" (`null`); open,
+  // it either adds a new command (`presetId: null`) or — via a row's ✎ —
   // rewrites an existing one.
   const [draft, setDraft] = useState<{ presetId: string | null } | null>(null);
 
   const sessions = useRunSessions().filter((s) => s.wsId === ws.id);
+  const rows = commandRows(ws.run?.presets ?? [], sessions, target);
   const shown =
     sessions.find((s) => s.id === picked) ?? sessions[sessions.length - 1];
 
@@ -56,12 +70,17 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     { value: ws.cwd, label: "Workspace folder" },
   ];
 
-  const launch = (request: RunRequest) => {
+  const targetLabel = (s: RunSession) =>
+    s.worktree === ws.cwd
+      ? "workspace folder"
+      : (s.branch ?? shortPath(s.worktree));
+
+  const launchHere = (preset: { id: string; name: string; command: string }) => {
     const branch = ws.panes.find((p) => p.cwd === target)?.branch;
     void launchRun(
       ws.id,
       { worktree: target, ...(branch && { branch }) },
-      request,
+      { presetId: preset.id, command: preset.command, name: preset.name },
     ).then(setPicked);
   };
 
@@ -85,8 +104,8 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     setDraft({ presetId });
   };
 
-  /** Add / Save — store the draft as a preset (rewrite when it came from a
-   * row's ✎), never launching. Running is the preset row's job. */
+  /** Add / Save — store the draft as a command (rewrite when it came from a
+   * row's ✎), never launching. Running is the row's job. */
   const saveDraft = () => {
     const line = command.trim();
     if (!line || !draft) return;
@@ -98,179 +117,278 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     closeDraft();
   };
 
+  /** The state glyph: rest face shows the state, hover face IS the control. */
+  const glyph = (s: RunSession | undefined, name: string, onIdleRun?: () => void) => {
+    const act = (title: string, run: () => void, icon: React.ReactNode) => (
+      <button
+        type="button"
+        className="run__g-act"
+        title={title}
+        aria-label={`${title}: ${name}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          run();
+        }}
+      >
+        {icon}
+      </button>
+    );
+    if (!s) {
+      return (
+        <span className={`run__g${onIdleRun ? " run__g--actable" : ""}`}>
+          <span className="run__g-rest run__g-idle">
+            <PlayIcon />
+          </span>
+          {onIdleRun && act("Run", onIdleRun, <PlayFillIcon />)}
+        </span>
+      );
+    }
+    switch (s.status.kind) {
+      case "running":
+        return (
+          <span className="run__g run__g--actable">
+            <span className="run__g-rest run__dot run__dot--running" />
+            {act("Stop", () => stopRun(s.id), <StopFillIcon />)}
+          </span>
+        );
+      case "stopping":
+        return (
+          <span className="run__g">
+            <span className="run__g-rest run__dot run__dot--stopping" />
+          </span>
+        );
+      case "exited":
+        return (
+          <span className="run__g run__g--actable">
+            <span
+              className={`run__g-rest run__dot ${s.status.code === 0 ? "run__dot--exited" : "run__dot--failed"}`}
+            />
+            {act("Run again", () => void restartRun(s.id), <PlayFillIcon />)}
+          </span>
+        );
+      case "failed":
+        return (
+          <span className="run__g run__g--actable">
+            <span className="run__g-rest run__dot run__dot--failed" />
+            {act("Run again", () => void restartRun(s.id), <PlayFillIcon />)}
+          </span>
+        );
+    }
+  };
+
   return (
     <div className="run">
       <div className="run__config">
-      <span className="form__label">Run in</span>
-      <Dropdown
-        className="run__target"
-        options={targets}
-        value={target}
-        onChange={setTarget}
-        ariaLabel="Run target directory"
-      />
+        <span className="form__label">Run in</span>
+        <Dropdown
+          className="run__target"
+          options={targets}
+          value={target}
+          onChange={setTarget}
+          ariaLabel="Run target directory"
+        />
 
-      {draft ? (
-        // The command form lives ABOVE the list and only while in use —
-        // adding a command (or rewriting one, via a row's ✎).
-        <div className="run__form">
-          <span className="form__label">Command</span>
-          <textarea
-            {...noAutoCorrect}
-            className="form__input run__command"
-            value={command}
-            rows={3}
-            autoFocus
-            onChange={(e) => setCommand(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter inserts a newline (multi-line commands are legitimate
-              // shell); ⌘/Ctrl+Enter saves.
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                saveDraft();
-              }
-            }}
-            placeholder="e.g. pnpm dev — $KEEPDECK_PORT is yours to use"
-            aria-label="Command to run"
-          />
-          <input
-            {...noAutoCorrect}
-            className="form__input run__save-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Preset name (optional)"
-            aria-label="Preset name"
-          />
-          <div className="run__launch">
-            <button
-              type="button"
-              className="form__cancel run__go"
-              onClick={closeDraft}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="form__create run__go"
-              disabled={!command.trim()}
-              onClick={saveDraft}
-              title={command.trim() ? "Save the command" : "Type a command first"}
-            >
-              {draft.presetId ? "Save" : "Add"}
-            </button>
-          </div>
+        <div className="run__sect">
+          <span className="form__label">Commands</span>
+          <button
+            type="button"
+            className="run__sect-add"
+            onClick={draft ? closeDraft : openAdd}
+            title="Add command"
+            aria-label="Add command"
+            aria-expanded={draft !== null}
+          >
+            +
+          </button>
         </div>
-      ) : (
-        <button type="button" className="run__add" onClick={openAdd}>
-          + Add command
-        </button>
-      )}
 
-      {(ws.run?.presets.length ?? 0) > 0 && (
-        <>
-          <span className="form__label">Presets</span>
-          <ul className="run__presets">
-            {ws.run!.presets.map((p) => (
-              <li key={p.id} className="run__preset">
-                {/* Name only: a command preview mangles multi-line scripts
-                    and bloats the row — the full command lives in the
-                    tooltip and behind ✎. */}
-                <button
-                  type="button"
-                  className="run__preset-run"
-                  onClick={() =>
-                    launch({ presetId: p.id, command: p.command, name: p.name })
-                  }
-                  title={`Run: ${p.command}`}
-                >
-                  <PlayIcon />
-                  <span className="run__preset-name">{p.name}</span>
-                </button>
-                <button
-                  type="button"
-                  className="run__preset-delete"
-                  onClick={() => startEditing(p.id)}
-                  title={`Edit preset "${p.name}"`}
-                  aria-label={`Edit preset ${p.name}`}
-                >
-                  <EditIcon />
-                </button>
-                <button
-                  type="button"
-                  className="run__preset-delete"
-                  onClick={() => ws.run && onSetRun(removePreset(ws.run, p.id))}
-                  title={`Delete preset "${p.name}"`}
-                  aria-label={`Delete preset ${p.name}`}
-                >
-                  <CloseIcon />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      {sessions.length > 0 && (
-        <>
-          <span className="form__label">Sessions</span>
-          <ul className="run__sessions">
-            {sessions.map((s) => (
-              <li
-                key={s.id}
-                className={`run__session${shown?.id === s.id ? " run__session--active" : ""}`}
+        {draft && (
+          // The command form lives ABOVE the list and only while in use.
+          <div className="run__form">
+            <textarea
+              {...noAutoCorrect}
+              className="form__input run__command"
+              value={command}
+              rows={3}
+              autoFocus
+              onChange={(e) => setCommand(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter inserts a newline (multi-line commands are
+                // legitimate shell); ⌘/Ctrl+Enter saves.
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  saveDraft();
+                }
+              }}
+              placeholder="e.g. pnpm dev — $KEEPDECK_PORT is yours to use"
+              aria-label="Command to run"
+            />
+            <input
+              {...noAutoCorrect}
+              className="form__input run__save-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Name (optional)"
+              aria-label="Preset name"
+            />
+            <div className="run__launch">
+              <button
+                type="button"
+                className="form__cancel run__go"
+                onClick={closeDraft}
               >
-                <button
-                  type="button"
-                  className="run__session-pick"
-                  onClick={() => setPicked(s.id)}
-                  title={`${s.command} · ${s.worktree}`}
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="form__create run__go"
+                disabled={!command.trim()}
+                onClick={saveDraft}
+                title={command.trim() ? "Save the command" : "Type a command first"}
+              >
+                {draft.presetId ? "Save" : "Add"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {rows.length === 0 && !draft && (
+          <div className="run__empty">
+            <span className="run__empty-title">No run commands yet</span>
+            <span className="run__empty-sub">
+              Add one to launch the app you're building —{" "}
+              <code>$KEEPDECK_PORT</code>, the worktree and its branch come
+              preset.
+            </span>
+          </div>
+        )}
+
+        <ul className="run__cmds">
+          {rows.map((row) => {
+            const rowName = row.preset?.name ?? row.session!.name;
+            const key = row.preset?.id ?? row.session!.id;
+            return (
+              <li key={key} className="run__item">
+                <div
+                  className={`run__cmd${row.session && shown?.id === row.session.id ? " run__cmd--active" : ""}`}
+                  onClick={
+                    row.session
+                      ? () => setPicked(row.session!.id)
+                      : undefined
+                  }
                 >
-                  <span className={`run__dot run__dot--${s.status.kind}`} />
-                  <span className="run__session-name">{s.name}</span>
-                  <span className="run__session-note">{sessionNote(s)}</span>
-                </button>
-                {s.status.kind === "running" ? (
-                  <button
-                    type="button"
-                    className="run__session-act"
-                    onClick={() => stopRun(s.id)}
-                    title="Stop (SIGTERM, then SIGKILL after 3s)"
+                  {glyph(
+                    row.session,
+                    rowName,
+                    row.preset ? () => launchHere(row.preset!) : undefined,
+                  )}
+                  <span className="run__cmd-name" title={row.preset?.command ?? row.session?.command}>
+                    {rowName}
+                  </span>
+                  <span className="run__cmd-acts">
+                    {row.preset ? (
+                      <>
+                        <button
+                          type="button"
+                          className="run__act"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditing(row.preset!.id);
+                          }}
+                          title={`Edit "${rowName}"`}
+                          aria-label={`Edit preset ${rowName}`}
+                        >
+                          <EditIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="run__act"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (ws.run) onSetRun(removePreset(ws.run, row.preset!.id));
+                          }}
+                          title={`Delete "${rowName}"`}
+                          aria-label={`Delete preset ${rowName}`}
+                        >
+                          <CloseIcon />
+                        </button>
+                      </>
+                    ) : (
+                      // An orphan: its preset is gone — only the session
+                      // itself can be dismissed (killing it if alive).
+                      <button
+                        type="button"
+                        className="run__act"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeRun(row.session!.id);
+                        }}
+                        title="Remove (kills the process if it still runs)"
+                        aria-label={`Remove run ${rowName}`}
+                      >
+                        <CloseIcon />
+                      </button>
+                    )}
+                  </span>
+                  <span
+                    className={`run__cmd-meta${metaBad(row.session) ? " run__cmd-meta--bad" : ""}`}
                   >
-                    Stop
-                  </button>
-                ) : s.status.kind !== "stopping" ? (
-                  <button
-                    type="button"
-                    className="run__session-act"
-                    onClick={() => void restartRun(s.id)}
-                    title="Run this command again"
+                    {sessionNote(row.session)}
+                  </span>
+                </div>
+                {row.elsewhere.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`run__cmd run__cmd--child${shown?.id === s.id ? " run__cmd--active" : ""}`}
+                    onClick={() => setPicked(s.id)}
                   >
-                    Restart
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="run__preset-delete"
-                  onClick={() => removeRun(s.id)}
-                  title="Remove (kills the process if it still runs)"
-                  aria-label={`Remove run ${s.name}`}
-                >
-                  <CloseIcon />
-                </button>
+                    {glyph(s, `${rowName} (${targetLabel(s)})`)}
+                    <span className="run__cmd-name" title={s.worktree}>
+                      {targetLabel(s)}
+                    </span>
+                    <span className="run__cmd-acts">
+                      <button
+                        type="button"
+                        className="run__act"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeRun(s.id);
+                        }}
+                        title="Remove (kills the process if it still runs)"
+                        aria-label={`Remove run ${rowName} in ${targetLabel(s)}`}
+                      >
+                        <CloseIcon />
+                      </button>
+                    </span>
+                    <span
+                      className={`run__cmd-meta${metaBad(s) ? " run__cmd-meta--bad" : ""}`}
+                    >
+                      {sessionNote(s)}
+                    </span>
+                  </div>
+                ))}
               </li>
-            ))}
-          </ul>
-        </>
-      )}
+            );
+          })}
+        </ul>
       </div>
 
-      {shown && <RunLog key={shown.id} sessionId={shown.id} />}
+      {shown && (
+        <div className="run__logbox">
+          <div className="run__logcap" title={`${shown.command} · ${shown.worktree}`}>
+            <b>{shown.name}</b> · {targetLabel(shown)}
+            {sessionNote(shown) && <> · {sessionNote(shown)}</>}
+          </div>
+          <RunLog key={shown.id} sessionId={shown.id} />
+        </div>
+      )}
     </div>
   );
 }
 
-/** The session row's muted note: the port while alive, the outcome after. */
-function sessionNote(s: RunSession): string {
+/** The row's muted note: the port while alive, the outcome after. */
+function sessionNote(s: RunSession | undefined): string {
+  if (!s) return "";
   switch (s.status.kind) {
     case "running":
       return s.port !== undefined ? `:${s.port}` : "";
@@ -283,7 +401,16 @@ function sessionNote(s: RunSession): string {
   }
 }
 
-/** Last two path segments — enough to tell worktrees apart in a select. */
+/** Whether the note reads as a failure (colors the meta). */
+function metaBad(s: RunSession | undefined): boolean {
+  if (!s) return false;
+  return (
+    s.status.kind === "failed" ||
+    (s.status.kind === "exited" && s.status.code !== 0 && s.status.code !== null)
+  );
+}
+
+/** Last two path segments — enough to tell worktrees apart in a list. */
 function shortPath(path: string): string {
   return path.split("/").filter(Boolean).slice(-2).join("/");
 }
