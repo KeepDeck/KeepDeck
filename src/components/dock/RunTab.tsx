@@ -10,11 +10,11 @@ import { RunLog } from "./RunLog";
 import type { DockTabProps } from "./tabs";
 
 /**
- * The Run tab: launch the app under development in a chosen worktree —
- * saved presets in one click, or an ad-hoc (multi-line) command, optionally
- * saved as a preset on the way. Below the launcher: this workspace's live
- * runs and the selected run's log. Everything here drives `runManager`;
- * nothing touches the agent grid.
+ * The Run tab: launch the app under development in a chosen worktree — each
+ * saved command is one click on its row. The command form stays collapsed
+ * behind "Add command" (and opens ABOVE the list, also serving a row's ✎
+ * edits). Below: this workspace's live runs and the selected run's log.
+ * Everything here drives `runManager`; nothing touches the agent grid.
  */
 export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
   // Where to run: a pane's worktree, or the workspace folder. Defaults to
@@ -32,12 +32,12 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     if (followed && followed !== target) setTarget(followed);
   }
   const [command, setCommand] = useState("");
-  const [save, setSave] = useState(false);
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
-  // The preset whose ✎ loaded the drafts: the command form is in edit mode —
-  // submitting REWRITES that preset (no launch) instead of running ad hoc.
-  const [editing, setEditing] = useState<string | null>(null);
+  // The command form is collapsed behind "Add command" (`null`); open, it
+  // either adds a new preset (`presetId: null`) or — via a row's ✎ —
+  // rewrites an existing one.
+  const [draft, setDraft] = useState<{ presetId: string | null } | null>(null);
 
   const sessions = useRunSessions().filter((s) => s.wsId === ws.id);
   const shown =
@@ -65,39 +65,37 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     ).then(setPicked);
   };
 
-  const resetDrafts = () => {
-    setEditing(null);
+  const closeDraft = () => {
+    setDraft(null);
     setCommand("");
-    setSave(false);
     setName("");
+  };
+
+  const openAdd = () => {
+    setCommand("");
+    setName("");
+    setDraft({ presetId: null });
   };
 
   const startEditing = (presetId: string) => {
     const preset = ws.run?.presets.find((p) => p.id === presetId);
     if (!preset) return;
-    setEditing(presetId);
     setCommand(preset.command);
     setName(preset.name);
-    setSave(false);
+    setDraft({ presetId });
   };
 
-  const submit = () => {
+  /** Add / Save — store the draft as a preset (rewrite when it came from a
+   * row's ✎), never launching. Running is the preset row's job. */
+  const saveDraft = () => {
     const line = command.trim();
-    if (!line) return;
-    if (editing) {
-      if (ws.run) onSetRun(updatePreset(ws.run, editing, name, line));
-      resetDrafts();
-      return;
-    }
-    if (save) {
-      const next = addPreset(ws.run, name, line);
-      const created = next.presets[next.presets.length - 1];
-      onSetRun(next);
-      launch({ presetId: created.id, command: line, name: created.name });
-    } else {
-      launch({ command: line, name: line });
-    }
-    resetDrafts();
+    if (!line || !draft) return;
+    onSetRun(
+      draft.presetId && ws.run
+        ? updatePreset(ws.run, draft.presetId, name, line)
+        : addPreset(ws.run, name, line),
+    );
+    closeDraft();
   };
 
   return (
@@ -110,6 +108,62 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
         onChange={setTarget}
         ariaLabel="Run target directory"
       />
+
+      {draft ? (
+        // The command form lives ABOVE the list and only while in use —
+        // adding a command (or rewriting one, via a row's ✎).
+        <div className="run__form">
+          <span className="form__label">Command</span>
+          <textarea
+            {...noAutoCorrect}
+            className="form__input run__command"
+            value={command}
+            rows={3}
+            autoFocus
+            onChange={(e) => setCommand(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter inserts a newline (multi-line commands are legitimate
+              // shell); ⌘/Ctrl+Enter saves.
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                saveDraft();
+              }
+            }}
+            placeholder="e.g. pnpm dev — $KEEPDECK_PORT is yours to use"
+            aria-label="Command to run"
+          />
+          <input
+            {...noAutoCorrect}
+            className="form__input run__save-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Preset name (optional)"
+            aria-label="Preset name"
+          />
+          <div className="run__launch">
+            <button
+              type="button"
+              className="form__cancel run__go"
+              onClick={closeDraft}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="form__create run__go"
+              disabled={!command.trim()}
+              onClick={saveDraft}
+              title={command.trim() ? "Save the command" : "Type a command first"}
+            >
+              {draft.presetId ? "Save" : "Add"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="run__add" onClick={openAdd}>
+          + Add command
+        </button>
+      )}
 
       {(ws.run?.presets.length ?? 0) > 0 && (
         <>
@@ -153,66 +207,6 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
             ))}
           </ul>
         </>
-      )}
-
-      <span className="form__label">Command</span>
-      <textarea
-        {...noAutoCorrect}
-        className="form__input run__command"
-        value={command}
-        rows={3}
-        onChange={(e) => setCommand(e.target.value)}
-        onKeyDown={(e) => {
-          // Enter inserts a newline (multi-line commands are legitimate
-          // shell); ⌘/Ctrl+Enter submits (run, or save while editing).
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        placeholder={"e.g. pnpm dev — $KEEPDECK_PORT is yours to use\n⌘⏎ runs"}
-        aria-label="Command to run"
-      />
-      <div className="run__launch">
-        {editing ? (
-          <button type="button" className="form__cancel run__go" onClick={resetDrafts}>
-            Cancel
-          </button>
-        ) : (
-          <label className="run__save">
-            <input
-              type="checkbox"
-              checked={save}
-              onChange={(e) => setSave(e.target.checked)}
-            />
-            <span>Save as preset</span>
-          </label>
-        )}
-        <button
-          type="button"
-          className="form__create run__go"
-          disabled={!command.trim()}
-          onClick={submit}
-          title={
-            !command.trim()
-              ? "Type a command first"
-              : editing
-                ? "Save the preset"
-                : "Run the command"
-          }
-        >
-          {editing ? "Save" : "Run"}
-        </button>
-      </div>
-      {(save || editing) && (
-        <input
-          {...noAutoCorrect}
-          className="form__input run__save-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Preset name (optional)"
-          aria-label="Preset name"
-        />
       )}
 
       {sessions.length > 0 && (

@@ -192,23 +192,33 @@
   color: #e5736f;
 }
 
-.run__save {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  font-size: 13px;
-  color: #c5c8c6;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.run__save input {
-  cursor: pointer;
-}
-
 .run__save-name {
+  margin-bottom: 12px;
+}
+
+/* Collapsed entry to the command form — a quiet, full-width affordance. */
+.run__add {
+  margin-bottom: 16px;
+  padding: 7px 10px;
+  border: 1px dashed #2a3343;
+  border-radius: 8px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.run__add:hover {
+  border-color: #3a4658;
+  color: #c5c8c6;
+  background-color: #11151d;
+}
+
+.run__form {
+  display: flex;
+  flex-direction: column;
   margin-bottom: 8px;
 }
 

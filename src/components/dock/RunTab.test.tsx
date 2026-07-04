@@ -102,35 +102,37 @@ describe("RunTab", () => {
     expect(target.textContent).toBe("Workspace folder");
   });
 
-  it("runs an ad-hoc command, and clears the draft after", () => {
+  it("the command form hides behind Add command, opens ABOVE the preset list", () => {
     mount();
-    const field = document.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="Command to run"]',
-    )!;
-    type(field, "go run ./cmd");
+    expect(
+      document.querySelector('textarea[aria-label="Command to run"]'),
+    ).toBeNull();
+
     act(() =>
       Array.from(document.querySelectorAll("button"))
-        .find((b) => b.textContent === "Run")!
+        .find((b) => b.textContent === "+ Add command")!
         .click(),
     );
-    expect(manager.launchRun).toHaveBeenCalledWith(
-      "ws-1",
-      { worktree: "/wt/b", branch: "kd/b" },
-      { command: "go run ./cmd", name: "go run ./cmd" },
-    );
-    expect(field.value).toBe("");
+    const form = document.querySelector(".run__form")!;
+    const list = document.querySelector(".run__presets")!;
+    // The form precedes the list in the document.
+    expect(
+      form.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
-  it("save-as-preset saves through onSetRun and launches with the new preset id", () => {
+  it("Add stores the draft as a preset WITHOUT launching, and collapses the form", () => {
     mount();
+    act(() =>
+      Array.from(document.querySelectorAll("button"))
+        .find((b) => b.textContent === "+ Add command")!
+        .click(),
+    );
     type(
       document.querySelector<HTMLTextAreaElement>(
         'textarea[aria-label="Command to run"]',
       )!,
       "pnpm worker",
-    );
-    act(() =>
-      document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(),
     );
     type(
       document.querySelector<HTMLInputElement>('input[aria-label="Preset name"]')!,
@@ -138,7 +140,7 @@ describe("RunTab", () => {
     );
     act(() =>
       Array.from(document.querySelectorAll("button"))
-        .find((b) => b.textContent === "Run")!
+        .find((b) => b.textContent === "Add")!
         .click(),
     );
 
@@ -148,11 +150,11 @@ describe("RunTab", () => {
         { id: "run-2", name: "Worker", command: "pnpm worker" },
       ],
     });
-    expect(manager.launchRun).toHaveBeenCalledWith(
-      "ws-1",
-      expect.anything(),
-      { presetId: "run-2", command: "pnpm worker", name: "Worker" },
-    );
+    expect(manager.launchRun).not.toHaveBeenCalled();
+    // Collapsed back to the affordance.
+    expect(
+      document.querySelector('textarea[aria-label="Command to run"]'),
+    ).toBeNull();
   });
 
   it("deleting a preset edits the workspace, never launches", () => {
@@ -299,7 +301,7 @@ describe("RunTab — preset editing", () => {
       (b) => b.textContent === text,
     )!;
 
-  it("✎ loads the preset into the form; Save rewrites it without launching", () => {
+  it("✎ opens the form with the preset loaded; Save rewrites it without launching", () => {
     act(() =>
       document
         .querySelector<HTMLButtonElement>('button[aria-label="Edit preset Dev"]')!
@@ -315,12 +317,14 @@ describe("RunTab — preset editing", () => {
       ],
     });
     expect(manager.launchRun).not.toHaveBeenCalled();
-    // Back to run mode with clean drafts.
-    expect(field().value).toBe("");
-    expect(button("Run")).toBeDefined();
+    // The form collapses back behind Add command.
+    expect(
+      document.querySelector('textarea[aria-label="Command to run"]'),
+    ).toBeNull();
+    expect(button("+ Add command")).toBeDefined();
   });
 
-  it("Cancel leaves the preset untouched and clears the drafts", () => {
+  it("Cancel leaves the preset untouched and collapses the form", () => {
     act(() =>
       document
         .querySelector<HTMLButtonElement>('button[aria-label="Edit preset Dev"]')!
@@ -329,7 +333,9 @@ describe("RunTab — preset editing", () => {
     type(field(), "something else");
     act(() => button("Cancel").click());
     expect(setRun).not.toHaveBeenCalled();
-    expect(field().value).toBe("");
+    expect(
+      document.querySelector('textarea[aria-label="Command to run"]'),
+    ).toBeNull();
   });
 
   it("the row shows the name only — a multi-line command never leaks into it", () => {
