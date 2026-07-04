@@ -48,23 +48,29 @@ export function CloseIcon() {
   );
 }
 
-/** Skip forward (chevrons) — "use the next available one". */
+/** Arrow driving into the next fixed slot — "use the next available one"
+ * (Lucide `arrow-right-to-line`, ISC). */
 export function NextIcon() {
   return (
     <svg {...iconProps}>
-      <polyline points="5 6 11 12 5 18" />
-      <polyline points="13 6 19 12 13 18" />
+      <path d="M17 12H3" />
+      <path d="m11 18 6-6-6-6" />
+      <path d="M21 5v14" />
     </svg>
   );
 }
 
-/** Chain link — attach to something that already exists. */
+/** Two plug halves closing the gap — attach to something already running,
+ * the dev-tool attach/connect idiom (Tabler `plug-connected`, MIT). */
 export function AttachIcon() {
   return (
     <svg {...iconProps}>
-      <path d="M15 7h2a5 5 0 0 1 0 10h-2" />
-      <path d="M9 17H7A5 5 0 0 1 7 7h2" />
-      <line x1="8" y1="12" x2="16" y2="12" />
+      <path d="M7 12l5 5l-1.5 1.5a3.536 3.536 0 1 1 -5 -5l1.5 -1.5" />
+      <path d="M17 12l-5 -5l1.5 -1.5a3.536 3.536 0 1 1 5 5l-1.5 1.5" />
+      <path d="M3 21l2.5 -2.5" />
+      <path d="M18.5 5.5l2.5 -2.5" />
+      <path d="M10 11l-2 2" />
+      <path d="M13 14l-2 2" />
     </svg>
   );
 }
