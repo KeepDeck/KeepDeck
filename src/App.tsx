@@ -180,7 +180,12 @@ function App() {
   for (const ws of deck.workspaces) {
     for (const pane of ws.panes) {
       if (!pane.dormant && !pane.provisioning)
-        specByPane[pane.id] = paneSpawnSpec(pane, spawnCtx, agents);
+        specByPane[pane.id] = paneSpawnSpec(
+          pane,
+          spawnCtx,
+          agents,
+          pane.cwd ?? ws.cwd,
+        );
     }
   }
 

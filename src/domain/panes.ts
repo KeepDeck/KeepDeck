@@ -30,6 +30,10 @@ export interface PaneProvisioning {
   index: number;
   /** Why the create failed; set flips the card from creating to failed. */
   error?: string;
+  /** The worktree exists and the workspace's one-time setup command is
+   * running in it. Runtime-only, like `error`: never persisted — a restart
+   * mid-setup comes back as the interrupted failed card. */
+  phase?: "setup";
 }
 
 /** One agent pane in the grid. Each pane runs its own agent type; the display

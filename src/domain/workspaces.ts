@@ -17,6 +17,9 @@ export interface SpawnConfig {
   count: number;
   /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
   worktreeBaseDir: string | null;
+  /** One-time worktree setup command (experimental run presets); blank/absent
+   * = none. */
+  setup?: string;
 }
 
 export interface Workspace {
@@ -101,8 +104,13 @@ export interface WorktreeTarget {
  */
 export function worktreeTargets(ws: Workspace, paneId?: string): WorktreeTarget[] {
   const panes = paneId ? ws.panes.filter((p) => p.id === paneId) : ws.panes;
+  // A run pane BORROWS the worktree it launched into (usually an agent's);
+  // it never owns one, so closing it must not offer deleting the directory
+  // out from under the agent.
   return panes.flatMap((p) =>
-    p.cwd && p.branch ? [{ repo: ws.cwd, path: p.cwd, branch: p.branch }] : [],
+    p.cwd && p.branch && !p.run
+      ? [{ repo: ws.cwd, path: p.cwd, branch: p.branch }]
+      : [],
   );
 }
 
@@ -159,6 +167,22 @@ export function setPaneAutoTitle(
   const next = title.trim() || undefined;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => (p.id === paneId ? { ...p, autoTitle: next } : p)),
+  );
+}
+
+/** Put a live pane back to sleep so its terminal unmounts — the run-again
+ * flow's first half (its PTY entry is closed separately; a fresh revive then
+ * remounts and respawns). Never sleeps a provisioning pane: its card is not
+ * a terminal. Returns the SAME array when there's nothing to do. */
+export function sleepPane(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane || pane.dormant || pane.provisioning) return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) => (p.id === paneId ? { ...p, dormant: true } : p)),
   );
 }
 
@@ -291,16 +315,43 @@ export function setPaneProvisioningError(
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
   if (!pane?.provisioning) return workspaces;
-  if ((pane.provisioning.error ?? null) === error) return workspaces;
+  if (
+    (pane.provisioning.error ?? null) === error &&
+    pane.provisioning.phase === undefined
+  )
+    return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId || !p.provisioning) return p;
-      const { error: _old, ...intent } = p.provisioning;
+      // The phase resets with the error either way: a failure ends the setup
+      // it reported, and a Retry restarts at the create step.
+      const { error: _old, phase: _phase, ...intent } = p.provisioning;
       return {
         ...p,
         provisioning: error === null ? intent : { ...intent, error },
       };
     }),
+  );
+}
+
+/** Mark which step a pane's provisioning is at — the card's status line
+ * ("Creating worktree…" vs "Running setup…"). Only ever set on a live,
+ * un-failed provisioning; the SAME array otherwise. */
+export function setPaneProvisioningPhase(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  phase: "setup",
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane?.provisioning || pane.provisioning.error !== undefined) return workspaces;
+  if (pane.provisioning.phase === phase) return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) =>
+      p.id === paneId && p.provisioning
+        ? { ...p, provisioning: { ...p.provisioning, phase } }
+        : p,
+    ),
   );
 }
 
@@ -341,6 +392,10 @@ export function paneOccupyingPath(
   if (!wanted) return null;
   for (const ws of workspaces) {
     for (const [index, pane] of ws.panes.entries()) {
+      // Run panes don't occupy: they share a directory with an agent by
+      // design (the dev server next to the agent editing it), so one must
+      // not block attaching the agent the worktree is actually for.
+      if (pane.run) continue;
       const held = pane.cwd ?? pane.provisioning?.path;
       if (held && normalizePath(held) === wanted) return { ws, pane, index };
     }

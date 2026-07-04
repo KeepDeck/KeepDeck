@@ -116,6 +116,10 @@ export function useRevive(
     for (const pane of active.panes) {
       if (!pane.dormant || pane.id in blocked || waking.current.has(pane.id))
         continue;
+      // Run panes never auto-start: a dev server firing on app boot is a
+      // surprise, not a restore. Their dormant tile offers Run instead
+      // (the run-again flow), so they simply stay asleep here.
+      if (pane.run) continue;
       const dir = pane.cwd ?? active.cwd;
       waking.current.add(pane.id);
       void probeWorktree(dir)

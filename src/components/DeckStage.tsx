@@ -114,10 +114,14 @@ export function DeckStage({
                 : paneColumnSpan(index, ws.panes.length);
               // Agent command/label are per pane (not the workspace), resolved
               // from the fetched catalog ([F1]); fall back to the id string
-              // while the catalog is still loading.
+              // while the catalog is still loading. A run pane spawns the
+              // user's shell instead — its command line rides the spawn args
+              // (`-c <command>`, from the pane's plan).
               const agentType = pane.agentType ?? "claude";
               const agentInfo = agents.find((a) => a.id === agentType);
-              const command = agentInfo?.command ?? agentType;
+              const command = pane.run
+                ? null
+                : (agentInfo?.command ?? agentType);
               const displayTitle = paneDisplayTitle(pane, index, agents);
               const badge = paneBranchBadge(pane);
               return (

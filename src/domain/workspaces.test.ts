@@ -15,7 +15,9 @@ import {
   paneOccupyingPath,
   pathOccupancy,
   setPaneHead,
+  sleepPane,
   setPaneProvisioningError,
+  setPaneProvisioningPhase,
   setWorkspaceRun,
   worktreeCwds,
   worktreeTargets,
@@ -495,5 +497,92 @@ describe("setWorkspaceRun", () => {
       setup: "pnpm i",
     });
     expect(after[0].run).toEqual({ presets: [], setup: "pnpm i" });
+  });
+});
+
+describe("run panes borrow, never own", () => {
+  const wsWithRunPane: Workspace = {
+    id: "a",
+    name: "a",
+    cwd: "/repo",
+    worktreeBaseDir: null,
+    panes: [
+      { id: "agent", cwd: "/wt/1", branch: "kd/1" },
+      { id: "runner", cwd: "/wt/1", branch: "kd/1", run: { command: "pnpm dev" } },
+    ],
+  };
+
+  it("worktreeTargets never offers a run pane's directory for deletion", () => {
+    // Closing the dev server must not offer deleting the worktree out from
+    // under the agent that owns it.
+    expect(worktreeTargets(wsWithRunPane, "runner")).toEqual([]);
+    expect(worktreeTargets(wsWithRunPane)).toEqual([
+      { repo: "/repo", path: "/wt/1", branch: "kd/1" },
+    ]);
+  });
+
+  it("paneOccupyingPath ignores run panes — they share a dir by design", () => {
+    const only = {
+      ...wsWithRunPane,
+      panes: wsWithRunPane.panes.filter((p) => p.run),
+    };
+    expect(paneOccupyingPath([only], "/wt/1")).toBeNull();
+  });
+});
+
+describe("sleepPane", () => {
+  it("puts a live pane back to sleep, and only that pane", () => {
+    const after = sleepPane([ws("a", [1, 2])], "a", "a-p1");
+    expect(after[0].panes[0].dormant).toBe(true);
+    expect(after[0].panes[1].dormant).toBeUndefined();
+  });
+
+  it("is a no-op (same ref) for dormant, provisioning or missing panes", () => {
+    const state = [
+      {
+        ...ws("a", []),
+        panes: [
+          { id: "sleeping", dormant: true },
+          { id: "card", provisioning: { repo: "/r", workspace: "a", index: 1 } },
+        ],
+      },
+    ];
+    expect(sleepPane(state, "a", "sleeping")).toBe(state);
+    expect(sleepPane(state, "a", "card")).toBe(state);
+    expect(sleepPane(state, "a", "ghost")).toBe(state);
+  });
+});
+
+describe("setPaneProvisioningPhase", () => {
+  const provisioning = (extra = {}) => [
+    {
+      ...ws("a", []),
+      panes: [
+        { id: "p", provisioning: { repo: "/r", workspace: "a", index: 1, ...extra } },
+      ],
+    },
+  ];
+
+  it("marks the setup step on a live create", () => {
+    const after = setPaneProvisioningPhase(provisioning(), "a", "p", "setup");
+    expect(after[0].panes[0].provisioning?.phase).toBe("setup");
+  });
+
+  it("never marks a failed card, and re-marking is a no-op", () => {
+    const failed = provisioning({ error: "boom" });
+    expect(setPaneProvisioningPhase(failed, "a", "p", "setup")).toBe(failed);
+    const marked = provisioning({ phase: "setup" });
+    expect(setPaneProvisioningPhase(marked, "a", "p", "setup")).toBe(marked);
+  });
+
+  it("a failure clears the phase along with setting the error", () => {
+    const after = setPaneProvisioningError(
+      provisioning({ phase: "setup" }),
+      "a",
+      "p",
+      "Setup failed: boom",
+    );
+    expect(after[0].panes[0].provisioning?.phase).toBeUndefined();
+    expect(after[0].panes[0].provisioning?.error).toBe("Setup failed: boom");
   });
 });

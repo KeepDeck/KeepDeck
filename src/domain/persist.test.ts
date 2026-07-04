@@ -330,3 +330,38 @@ describe("run presets round-trip", () => {
     expect(pane.dormant).toBe(true);
   });
 });
+
+describe("provisioning phase is runtime-only", () => {
+  it("a mid-setup deck serializes without the phase", () => {
+    const state: DeckState = {
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "a",
+          cwd: "/repo",
+          worktreeBaseDir: "/wt",
+          panes: [
+            {
+              id: "pane-1",
+              provisioning: {
+                repo: "/repo",
+                workspace: "a",
+                index: 1,
+                phase: "setup",
+              },
+            },
+          ],
+        },
+      ],
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+    };
+    const json = serializeDeck(state);
+    expect(json).not.toContain("setup");
+    // Restored as the interrupted failed card, like any in-flight create.
+    const pane = hydrateDeck(json)!.state.workspaces[0].panes[0];
+    expect(pane.provisioning?.phase).toBeUndefined();
+    expect(pane.provisioning?.error).toBe(PROVISIONING_INTERRUPTED);
+  });
+});

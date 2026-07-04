@@ -1,6 +1,7 @@
 import type { AgentInfo } from "../domain/agents";
 import type { Pane } from "../domain/panes";
 import {
+  buildRunPlan,
   buildSpawnPlan,
   type SpawnPlan,
   type SpawnPlanContext,
@@ -22,17 +23,22 @@ export function setPaneSpawnSpec(paneId: string, spec: SpawnPlan): void {
 }
 
 /** The pane's spawn plan — cached, or built fresh on first use. Called during
- * render, so it must stay side-effect-free apart from the cache itself. */
+ * render, so it must stay side-effect-free apart from the cache itself.
+ * `cwd` is the pane's resolved working directory (its worktree, else the
+ * workspace folder) — a run pane's env contract is built from it. The launch
+ * and run-again flows pre-register a run plan carrying the allocated port;
+ * this fallback builds one without it (documented on [`buildRunPlan`]). */
 export function paneSpawnSpec(
   pane: Pane,
   ctx: SpawnPlanContext,
   agents: AgentInfo[],
+  cwd: string,
 ): SpawnPlan {
   const cached = specs.get(pane.id);
   if (cached) return cached;
-  const spec = buildSpawnPlan(pane.agentType ?? "claude", pane.id, ctx, {
-    agents,
-  });
+  const spec = pane.run
+    ? buildRunPlan(pane.run.command, { worktree: cwd, branch: pane.branch })
+    : buildSpawnPlan(pane.agentType ?? "claude", pane.id, ctx, { agents });
   specs.set(pane.id, spec);
   return spec;
 }

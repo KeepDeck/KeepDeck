@@ -41,8 +41,8 @@ interface PersistedPane {
   name?: string;
   autoTitle?: string;
   session?: PaneSession;
-  /** The worktree-create intent, without the runtime `error`. */
-  provisioning?: Omit<PaneProvisioning, "error">;
+  /** The worktree-create intent, without the runtime `error`/`phase`. */
+  provisioning?: Omit<PaneProvisioning, "error" | "phase">;
   run?: PaneRun;
 }
 
@@ -96,10 +96,10 @@ export function serializeDeck(state: DeckState): string {
         ...(p.name !== undefined && { name: p.name }),
         ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
         ...(p.session !== undefined && { session: p.session }),
-        // The intent only: the error is runtime state, and hydration stamps
-        // its own ("interrupted") on whatever comes back.
+        // The intent only: error and phase are runtime state, and hydration
+        // stamps its own error ("interrupted") on whatever comes back.
         ...(p.provisioning !== undefined && {
-          provisioning: stripError(p.provisioning),
+          provisioning: stripRuntime(p.provisioning),
         }),
         ...(p.run !== undefined && { run: p.run }),
       })),
@@ -248,7 +248,9 @@ function readPane(value: unknown): Pane | null {
 /** The persisted worktree-create intent, or `null` when absent/malformed —
  * a bad intent degrades the pane to a plain dormant one instead of rejecting
  * the deck (mirrors the agentType degradation above). */
-function readProvisioning(value: unknown): Omit<PaneProvisioning, "error"> | null {
+function readProvisioning(
+  value: unknown,
+): Omit<PaneProvisioning, "error" | "phase"> | null {
   if (!isRecord(value)) return null;
   if (
     typeof value.repo !== "string" ||
@@ -256,7 +258,7 @@ function readProvisioning(value: unknown): Omit<PaneProvisioning, "error"> | nul
     typeof value.index !== "number"
   )
     return null;
-  const intent: Omit<PaneProvisioning, "error"> = {
+  const intent: Omit<PaneProvisioning, "error" | "phase"> = {
     repo: value.repo,
     workspace: value.workspace,
     index: value.index,
@@ -267,9 +269,11 @@ function readProvisioning(value: unknown): Omit<PaneProvisioning, "error"> | nul
   return intent;
 }
 
-/** The provisioning intent without its runtime `error` field. */
-function stripError(p: PaneProvisioning): Omit<PaneProvisioning, "error"> {
-  const { error: _error, ...intent } = p;
+/** The provisioning intent without its runtime `error`/`phase` fields. */
+function stripRuntime(
+  p: PaneProvisioning,
+): Omit<PaneProvisioning, "error" | "phase"> {
+  const { error: _error, phase: _phase, ...intent } = p;
   return intent;
 }
 
