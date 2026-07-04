@@ -8,6 +8,7 @@ mod logging;
 mod menu;
 mod migration;
 mod paths;
+mod ports;
 mod session;
 mod sessions;
 mod state;
@@ -93,6 +94,7 @@ pub fn run() {
             state::settings_quarantine,
             history::history_latest,
             history::history_presence,
+            ports::ports_allocate,
             sessions::session_spawn_context,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
