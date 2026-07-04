@@ -45,6 +45,43 @@ export interface RunRequest {
   name: string;
 }
 
+/** One row of the Run tab's merged Commands list: a preset fused with its
+ * live state. `session` is the CURRENT target's instance (it drives the
+ * row's glyph and meta — the row always answers "what would happen HERE");
+ * `elsewhere` are instances in other targets, rendered as indented child
+ * rows with their own controls. A row without a preset is an orphan: its
+ * preset was deleted while the session lived. */
+export interface CommandRow {
+  preset?: { id: string; name: string; command: string };
+  session?: RunSession;
+  elsewhere: RunSession[];
+}
+
+/** Fuse the workspace's presets with its live sessions for `currentTarget`.
+ * Every preset gets a row (idle ones too); sessions whose preset is gone
+ * trail as orphan rows so a running process never becomes invisible. */
+export function commandRows(
+  presets: readonly { id: string; name: string; command: string }[],
+  sessions: readonly RunSession[],
+  currentTarget: string,
+): CommandRow[] {
+  const claimed = new Set<string>();
+  const rows: CommandRow[] = presets.map((preset) => {
+    const mine = sessions.filter((s) => s.presetId === preset.id);
+    for (const s of mine) claimed.add(s.id);
+    const session = mine.find((s) => s.worktree === currentTarget);
+    return {
+      preset,
+      ...(session && { session }),
+      elsewhere: mine.filter((s) => s !== session),
+    };
+  });
+  for (const s of sessions) {
+    if (!claimed.has(s.id)) rows.push({ session: s, elsewhere: [] });
+  }
+  return rows;
+}
+
 /** Spawn options for a run command: the user's shell, non-interactive `-c` —
  * no job control, so the whole command tree shares one process group and a
  * close kills everything. Size is a placeholder; the log view resizes the

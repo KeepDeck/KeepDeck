@@ -98,7 +98,12 @@ describe("launchRun", () => {
     expect(getRunSessions()[0].status).toEqual({ kind: "exited", code: 1 });
 
     pty.spawnSession.mockRejectedValueOnce(new Error("no shell"));
-    await launchRun("ws-1", TARGET, DEV);
+    // A DIFFERENT preset: same-preset relaunches reuse the dead session.
+    await launchRun("ws-1", TARGET, {
+      presetId: "run-2",
+      command: "pnpm worker",
+      name: "Worker",
+    });
     await vi.waitFor(() => {
       expect(getRunSessions()[1].status).toEqual({
         kind: "failed",
@@ -209,5 +214,48 @@ describe("spawn failure output", () => {
     });
     expect(seen).toContain("spawn failed: ");
     expect(seen).toContain("No such file or directory");
+  });
+});
+
+describe("relaunch replaces, never piles", () => {
+  it("launching a preset with a DEAD session in the same target reuses it", async () => {
+    const id = await launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    pty.spawned[0].emit({ type: "output", bytes: [111] });
+    pty.spawned[0].emit({ type: "exit", success: false, code: 1 });
+
+    // The preset was edited meanwhile — the relaunch carries the new command.
+    const again = await launchRun("ws-1", TARGET, {
+      ...DEV,
+      command: "pnpm dev --host",
+    });
+    expect(again).toBe(id);
+    expect(getRunSessions()).toHaveLength(1);
+    expect(getRunSessions()[0]).toMatchObject({
+      id,
+      command: "pnpm dev --host",
+      status: { kind: "running" },
+    });
+    expect(pty.spawned).toHaveLength(2);
+    // The dead run's output must not haunt the fresh log.
+    const seen: number[] = [];
+    attachRun(id, { onOutput: (b) => seen.push(...b) });
+    expect(seen).toEqual([]);
+  });
+
+  it("launching a preset already RUNNING in the target is a no-op", async () => {
+    const id = await launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+
+    const again = await launchRun("ws-1", TARGET, DEV);
+    expect(again).toBe(id);
+    expect(pty.spawned).toHaveLength(1);
+    expect(getRunSessions()).toHaveLength(1);
+  });
+
+  it("the same preset in ANOTHER target is a separate instance", async () => {
+    await launchRun("ws-1", TARGET, DEV);
+    await launchRun("ws-1", { worktree: "/wt/2" }, DEV);
+    expect(getRunSessions()).toHaveLength(2);
   });
 });

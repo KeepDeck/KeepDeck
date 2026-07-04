@@ -61,12 +61,37 @@ function update(id: string, patch: Partial<RunSession>): void {
  * id. The port block is allocated first so the env contract rides the spawn;
  * allocation failure degrades to an env without `KEEPDECK_PORT` (the command
  * still runs and fails visibly if it needed one).
+ *
+ * Launching a preset that already has a session in this target REPLACES a
+ * dead one (fresh buffer and port, the preset's CURRENT command — it may
+ * have been edited since) and is a no-op on a live one: the list stays
+ * bounded by commands × targets, never by click history.
  */
 export async function launchRun(
   wsId: string,
   target: { worktree: string; branch?: string },
   request: RunRequest,
 ): Promise<string> {
+  if (request.presetId) {
+    const existing = [...entries.values()].find(
+      (e) =>
+        e.session.wsId === wsId &&
+        e.session.presetId === request.presetId &&
+        e.session.worktree === target.worktree,
+    );
+    if (existing) {
+      const { kind } = existing.session.status;
+      if (kind === "running" || kind === "stopping") return existing.session.id;
+      existing.session = {
+        ...existing.session,
+        name: request.name,
+        command: request.command,
+        ...(target.branch ? { branch: target.branch } : {}),
+      };
+      await restartRun(existing.session.id);
+      return existing.session.id;
+    }
+  }
   const id = `run-${++seq}`;
   const port = await allocatePorts(target.worktree).catch((e) => {
     log.warn(
