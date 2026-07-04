@@ -8,6 +8,7 @@ import {
   resetSettingsManager,
   updateSettings,
 } from "../../app/settingsManager";
+import { resetAgentsCache } from "../../app/useAgents";
 import type { SpawnConfig } from "../../domain/workspaces";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -80,6 +81,7 @@ describe("WorkspaceForm worktree directory", () => {
   let created: SpawnConfig[];
 
   beforeEach(() => {
+    resetAgentsCache();
     catalog.list = TWO_AGENTS;
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
@@ -142,6 +144,7 @@ describe("WorkspaceForm default agent ([F6])", () => {
   let root: Root;
 
   beforeEach(() => {
+    resetAgentsCache();
     catalog.list = TWO_AGENTS;
     document.body.innerHTML = "";
     root = createRoot(document.body.appendChild(document.createElement("div")));
