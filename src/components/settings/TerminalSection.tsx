@@ -11,8 +11,8 @@ import {
 /**
  * Terminal preferences: scrollback ([F6]). The field commits on blur/Enter,
  * not per keystroke — clamping while the user is still typing would fight
- * the input. The draft lives and dies with the section (switching away
- * discards an uncommitted edit; the committed value is in the store).
+ * the input. The dialog keeps hidden sections mounted, so an uncommitted
+ * draft survives switching sections and dies with the dialog.
  */
 export function TerminalSection() {
   const scrollback = useSettings()?.scrollback ?? DEFAULT_SETTINGS.scrollback;

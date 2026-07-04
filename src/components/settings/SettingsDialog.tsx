@@ -42,9 +42,19 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               </button>
             ))}
           </nav>
-          <div className="settings__section">
-            <active.Component />
-          </div>
+          {SETTINGS_SECTIONS.map((s) => (
+            // Every section stays mounted and inactive ones hide (the
+            // DeckStage pattern): switching must not remount a panel — a
+            // remount refetches the agent catalog and flashes the panel
+            // empty, and it would drop an uncommitted draft.
+            <div
+              key={s.id}
+              className="settings__section"
+              hidden={s.id !== active.id}
+            >
+              <s.Component />
+            </div>
+          ))}
         </div>
 
         <div className="confirm__actions">

@@ -48,6 +48,12 @@
   min-width: 0;
 }
 
+/* The author display:flex above would defeat the `hidden` attribute the
+   dialog uses to park inactive sections — restate it. */
+.settings__section[hidden] {
+  display: none;
+}
+
 .settings__hint {
   margin-top: -12px;
   margin-bottom: 20px;

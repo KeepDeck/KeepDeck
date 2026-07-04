@@ -30,9 +30,10 @@ const ipc = vi.hoisted(() => ({
 vi.mock("../../ipc/settings", () => ipc);
 
 // The General section fetches the agent catalog itself (re-detect on open).
-vi.mock("../../ipc/agents", () => ({
-  listAgents: async () => FALLBACK_AGENTS,
+const agentsIpc = vi.hoisted(() => ({
+  listAgents: vi.fn(async () => FALLBACK_AGENTS),
 }));
+vi.mock("../../ipc/agents", () => agentsIpc);
 
 const button = (text: string) =>
   Array.from(document.querySelectorAll("button")).find(
@@ -42,6 +43,9 @@ const scrollbackInput = () =>
   document.querySelector<HTMLInputElement>(
     'input[aria-label="Terminal scrollback lines"]',
   );
+/** The section panel an element lives in — visibility is per panel (`hidden`),
+ * inactive sections stay mounted. */
+const panelOf = (el: Element) => el.closest(".settings__section")!;
 
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
@@ -67,6 +71,7 @@ describe("SettingsDialog", () => {
 
   beforeEach(() => {
     ipc.saveSettings.mockClear();
+    agentsIpc.listAgents.mockClear();
     resetSettingsManager();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -94,20 +99,37 @@ describe("SettingsDialog", () => {
 
   const toTerminal = () => act(() => button("Terminal").click());
 
-  it("opens on General; the nav switches panels", async () => {
+  it("opens on General; the nav switches which panel is visible", async () => {
     await mount();
-    expect(button("Claude Code")).toBeDefined();
-    expect(scrollbackInput()).toBeNull(); // Terminal panel not rendered
+    expect(panelOf(button("Claude Code")).hasAttribute("hidden")).toBe(false);
+    expect(panelOf(scrollbackInput()!).hasAttribute("hidden")).toBe(true);
     expect(button("General").className).toContain("settings__nav-item--active");
 
     toTerminal();
-    expect(scrollbackInput()).not.toBeNull();
-    expect(
-      Array.from(document.querySelectorAll("button")).find(
-        (b) => b.textContent === "Claude Code",
-      ),
-    ).toBeUndefined();
+    expect(panelOf(scrollbackInput()!).hasAttribute("hidden")).toBe(false);
+    expect(panelOf(button("Claude Code")).hasAttribute("hidden")).toBe(true);
     expect(button("Terminal").className).toContain("settings__nav-item--active");
+  });
+
+  it("switching sections never refetches the agent catalog", async () => {
+    // A remount would refetch and flash the General panel empty while the
+    // IPC roundtrip runs — panels must stay mounted across switches.
+    await mount();
+    agentsIpc.listAgents.mockClear();
+    toTerminal();
+    act(() => button("General").click());
+    expect(agentsIpc.listAgents).not.toHaveBeenCalled();
+  });
+
+  it("an uncommitted scrollback draft survives a section round-trip", async () => {
+    await mount();
+    toTerminal();
+    type(scrollbackInput()!, "7");
+    act(() => button("General").click());
+    toTerminal();
+    expect(scrollbackInput()!.value).toBe("7");
+    // Still a draft — leaving the section is not a commit.
+    expect(getSettings()?.scrollback).toBe(DEFAULT_SETTINGS.scrollback);
   });
 
   it("picking an agent writes the default through to the store", async () => {
