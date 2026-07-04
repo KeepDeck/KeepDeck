@@ -13,6 +13,7 @@ import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
+import { updateSettings } from "./app/settingsManager";
 import { useSettings } from "./app/useSettings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useWorktreeHead } from "./app/useWorktreeHead";
@@ -55,8 +56,7 @@ function App() {
   // Detected agent catalog (labels/commands/install status), fetched from Rust.
   const { agents } = useAgents();
   // Global preferences ([F6]) — loaded before the first paint, saved through.
-  const settingsStore = useSettings();
-  const settings = settingsStore.settings;
+  const settings = useSettings();
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   const { restoring } = usePersistence(deck);
   // Per-install spawn-plan constants (spool dir, reporter activation) — the
@@ -335,7 +335,7 @@ function App() {
             <SettingsDialog
               settings={settings}
               agents={agents}
-              onChange={settingsStore.update}
+              onChange={updateSettings}
               onClose={() => setSettingsOpen(false)}
             />
           )}
