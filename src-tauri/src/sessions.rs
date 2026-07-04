@@ -31,12 +31,13 @@ pub struct SessionPostback {
     pub session_id: String,
 }
 
-/// Where reporters drop their postbacks for this app instance.
-pub fn spool_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
+/// Where reporters drop their postbacks: `<keepdeck_home>/session-spool`.
+/// Living in the flavored home keeps dev and release spools apart — the
+/// watcher wipes and consumes postbacks unconditionally, so two flavors
+/// sharing one spool would steal each other's session bindings.
+pub fn spool_dir() -> Result<PathBuf, String> {
+    let dir = crate::paths::keepdeck_home()
+        .ok_or("no home directory for the session spool")?
         .join("session-spool");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
@@ -62,7 +63,7 @@ pub struct SpawnContextDto {
 #[tauri::command]
 pub fn session_spawn_context(app: AppHandle) -> Result<SpawnContextDto, String> {
     let dto = SpawnContextDto {
-        spool_dir: spool_dir(&app)?.to_string_lossy().into_owned(),
+        spool_dir: spool_dir()?.to_string_lossy().into_owned(),
         claude_hook_args: claude_hook_args(&app),
         codex_hook_args: codex_hook_args(&app),
         opencode_plugin_path: reporter_path(&app, "session-reporter.js"),
@@ -125,7 +126,7 @@ fn reporter_path(app: &AppHandle, name: &str) -> Option<String> {
 /// Start watching the spool. Called once at app setup; the returned watcher
 /// must be kept alive (it's stored in Tauri's managed state).
 pub fn watch_spool(app: &AppHandle) -> Result<SpoolWatcher, String> {
-    let dir = spool_dir(app)?;
+    let dir = spool_dir()?;
 
     // Postbacks written while KeepDeck wasn't running belong to panes that no
     // longer exist — drop them instead of replaying stale bindings.
