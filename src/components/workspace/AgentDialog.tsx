@@ -14,8 +14,10 @@ import {
   classifyLocation,
   type AgentDialogResult,
   type AgentLocation,
+  type Occupancy,
   type PathProbe,
 } from "../../domain/agentLocation";
+import { AttachIcon, NextIcon } from "../../ui/icons";
 
 export type { AgentDialogResult } from "../../domain/agentLocation";
 
@@ -35,11 +37,12 @@ interface AgentDialogProps {
   /** Probe a candidate worktree path for the live hint (injected — the dialog
    * itself stays free of IPC). */
   probePath(path: string): Promise<PathProbe>;
-  /** Whether a pane of this deck already runs in a candidate path. Injected
-   * (the dialog stays free of deck state). An occupied path pauses Create and
-   * offers the user the choice: jump to the next free path, or — for a real
-   * worktree — knowingly attach alongside the other agent. */
-  isOccupied(path: string): boolean;
+  /** How a pane of this deck already holds a candidate path, if one does.
+   * Injected (the dialog stays free of deck state). An occupied path pauses
+   * Create and offers the user the choice: jump to the next free path, or —
+   * for `"worktree"` occupancy, which itself proves the dir is a live
+   * worktree — knowingly attach alongside the other agent, instantly. */
+  occupancyAt(path: string): Occupancy;
   /** The next suggested location not held by an open pane — the "Use next
    * available" action for an occupied path; null when none can be offered. */
   nextFreeLocation(
@@ -66,7 +69,7 @@ export function AgentDialog({
   suggestedPath,
   suggestedBranch,
   probePath,
-  isOccupied,
+  occupancyAt,
   nextFreeLocation,
   pickFolder,
   onConfirm,
@@ -121,9 +124,9 @@ export function AgentDialog({
 
   useEffect(() => setAttachAnyway(false), [path]);
 
-  const occupied = repo && path.trim() ? isOccupied(path) : false;
+  const occupancy = repo && path.trim() ? occupancyAt(path) : null;
   const kind = repo
-    ? classifyLocation(path, probe, occupied, attachAnyway)
+    ? classifyLocation(path, probe, occupancy, attachAnyway)
     : "main";
   const valid = canCreateAgent(kind, branch);
 
@@ -196,6 +199,7 @@ export function AgentDialog({
               kind={kind}
               repoBranch={repo.branch}
               probe={probe}
+              canAttach={occupancy === "worktree"}
               onUseNext={useNextFree}
               onAttachAnyway={() => setAttachAnyway(true)}
             />
@@ -247,18 +251,21 @@ export function AgentDialog({
 }
 
 /** The live hint under the worktree field: what the current path will do.
- * The occupied state is a choice, not a dead end — inline actions let the
- * user jump to the next free path or (for a real worktree) attach anyway. */
+ * The occupied state is a choice, not a dead end — inline icon actions let
+ * the user jump to the next free path or (when the occupant's dir is a live
+ * worktree, `canAttach`) attach alongside it anyway. */
 function LocationHint({
   kind,
   repoBranch,
   probe,
+  canAttach,
   onUseNext,
   onAttachAnyway,
 }: {
   kind: ReturnType<typeof classifyLocation>;
   repoBranch: string | null;
   probe: PathProbe | null;
+  canAttach: boolean;
   onUseNext(): void;
   onAttachAnyway(): void;
 }) {
@@ -285,16 +292,24 @@ function LocationHint({
         <>
           <span className="form__error">Already in use by another agent</span>
           <div className="form__choices">
-            <button type="button" className="form__choice" onClick={onUseNext}>
-              Use next available
+            <button
+              type="button"
+              className="form__choice"
+              onClick={onUseNext}
+              title="Use next available"
+              aria-label="Use next available"
+            >
+              <NextIcon />
             </button>
-            {probe?.isWorktree && (
+            {canAttach && (
               <button
                 type="button"
                 className="form__choice"
                 onClick={onAttachAnyway}
+                title="Attach anyway"
+                aria-label="Attach anyway"
               >
-                Attach anyway
+                <AttachIcon />
               </button>
             )}
           </div>

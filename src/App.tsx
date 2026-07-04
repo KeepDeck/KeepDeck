@@ -24,7 +24,7 @@ import { useCloseFlow } from "./app/useCloseFlow";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import { closeHotkeyTarget, maximizeHotkeyTarget } from "./domain/hotkeys";
-import { paneOccupyingPath, type SpawnConfig } from "./domain/workspaces";
+import { pathOccupancy, type SpawnConfig } from "./domain/workspaces";
 import { MAX_PANES } from "./domain/layout";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
@@ -314,9 +314,7 @@ function App() {
               suggestedPath={agentFlow.dialog.suggestedPath}
               suggestedBranch={agentFlow.dialog.suggestedBranch}
               probePath={probeWorktree}
-              isOccupied={(path) =>
-                paneOccupyingPath(deck.workspaces, path) !== null
-              }
+              occupancyAt={(path) => pathOccupancy(deck.workspaces, path)}
               nextFreeLocation={agentFlow.nextFree}
               pickFolder={pickFolder}
               onConfirm={agentFlow.confirm}
