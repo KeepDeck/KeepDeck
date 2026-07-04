@@ -162,4 +162,20 @@ describe("WorkspaceForm default agent ([F6])", () => {
     await mount("opencode"); // not in the mocked catalog
     expect(typeButton("Claude Code").className).toContain("form__type--active");
   });
+
+  it("follows a preference change while the picker is untouched", async () => {
+    // The settings dialog opens OVER the form (first run: the form is the
+    // only screen) — a default set there must reach the mounted form.
+    await mount(null);
+    expect(typeButton("Claude Code").className).toContain("form__type--active");
+    await mount("codex"); // re-render with the new preference
+    expect(typeButton("Codex").className).toContain("form__type--active");
+  });
+
+  it("a manual pick survives a preference change", async () => {
+    await mount(null);
+    act(() => (typeButton("Codex") as HTMLButtonElement).click());
+    await mount("claude"); // the settings dialog moves the preference
+    expect(typeButton("Codex").className).toContain("form__type--active");
+  });
 });

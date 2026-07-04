@@ -100,12 +100,10 @@ function App() {
   const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
-  const modalOpen =
-    showForm ||
-    agentFlow.dialog !== null ||
-    closeFlow.closing !== null ||
-    error !== null ||
-    settingsOpen;
+  // Transactional dialogs — while one is up, nothing else may open over it.
+  const dialogOpen =
+    agentFlow.dialog !== null || closeFlow.closing !== null || error !== null;
+  const modalOpen = showForm || dialogOpen || settingsOpen;
 
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
   // ⌘W asks to close the selected pane (an empty workspace: the workspace
@@ -146,7 +144,11 @@ function App() {
       if (target) deck.toggleFocus(target.wsId, target.paneId);
     },
     openSettings: () => {
-      if (modalOpen) return;
+      // The create form is a passive surface, not a transaction — settings
+      // open over it (on first run the form is the only screen there is, so
+      // blocking would make settings unreachable). Its Esc yields while the
+      // settings dialog is on top.
+      if (dialogOpen || settingsOpen) return;
       setSettingsOpen(true);
     },
   });
@@ -229,9 +231,10 @@ function App() {
             type="button"
             className="bar__icon"
             onClick={() => setSettingsOpen(true)}
-            // Mirrors the ⌘, guard: the first-run form isn't a blocking
-            // overlay, so the bar stays clickable under it.
-            disabled={showForm}
+            // Mirrors the ⌘, guard. The create form does NOT disable this:
+            // on first run it's the only screen, and settings must stay
+            // reachable over it (e.g. to pick the default agent first).
+            disabled={dialogOpen || settingsOpen}
             title="Settings"
             aria-label="Open settings"
           >
@@ -284,7 +287,10 @@ function App() {
               <ModalOverlay>
                 <WorkspaceForm
                   onCreate={handleCreateWorkspace}
-                  onCancel={() => setCreating(false)}
+                  // Esc must peel one layer at a time: while the settings
+                  // dialog is above this form, the form's own Esc yields
+                  // (an undefined onCancel also hides the covered button).
+                  onCancel={settingsOpen ? undefined : () => setCreating(false)}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
                   defaultAgent={settings.defaultAgent}
