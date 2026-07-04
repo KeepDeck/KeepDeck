@@ -9,13 +9,21 @@ import type { SpawnConfig } from "../../domain/workspaces";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
-// The form pulls the agent catalog via useAgents → IPC; pin a static one.
+// The form pulls the agent catalog via useAgents → IPC; pin a static one
+// (two installed agents, so the default-agent preference has a real choice).
 vi.mock("../../ipc/agents", () => ({
   listAgents: async () => [
     {
       id: "claude",
       label: "Claude Code",
       command: "claude",
+      installed: true,
+      path: null,
+    },
+    {
+      id: "codex",
+      label: "Codex",
+      command: "codex",
       installed: true,
       path: null,
     },
@@ -65,13 +73,17 @@ describe("WorkspaceForm worktree directory", () => {
   afterEach(() => act(() => root.unmount()));
 
   /** Mount with a chosen working directory (via the picker, as in the app). */
-  const mount = async (isRepo: boolean) => {
+  const mount = async (
+    isRepo: boolean,
+    defaultAgent: SpawnConfig["agentType"] | null = null,
+  ) => {
     await act(async () =>
       root.render(
         createElement(WorkspaceForm, {
           onCreate: (c: SpawnConfig) => created.push(c),
           pickFolder: async () => "/repo",
           inspectDir: async () => ({ isRepo, branch: null }),
+          defaultAgent,
         }),
       ),
     );
@@ -110,5 +122,44 @@ describe("WorkspaceForm worktree directory", () => {
     submit();
     expect(created).toHaveLength(0); // nudge dialog instead of create
     expect(document.body.textContent).toContain("No worktree isolation");
+  });
+});
+
+describe("WorkspaceForm default agent ([F6])", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    root = createRoot(document.body.appendChild(document.createElement("div")));
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const mount = async (defaultAgent: SpawnConfig["agentType"] | null) => {
+    await act(async () =>
+      root.render(
+        createElement(WorkspaceForm, {
+          onCreate: () => {},
+          pickFolder: async () => "/repo",
+          inspectDir: async () => ({ isRepo: false, branch: null }),
+          defaultAgent,
+        }),
+      ),
+    );
+    await act(async () => {}); // flush the agent-catalog load
+  };
+
+  const typeButton = (label: string) =>
+    Array.from(document.querySelectorAll(".form__type")).find(
+      (b) => b.textContent === label,
+    )!;
+
+  it("preselects the configured default agent", async () => {
+    await mount("codex");
+    expect(typeButton("Codex").className).toContain("form__type--active");
+  });
+
+  it("an uninstalled preference snaps to the first installed", async () => {
+    await mount("opencode"); // not in the mocked catalog
+    expect(typeButton("Claude Code").className).toContain("form__type--active");
   });
 });

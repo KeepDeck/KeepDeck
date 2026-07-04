@@ -23,17 +23,56 @@ export type ClosingTarget = { targets: WorktreeTarget[] } & (
  * ends their PTY sessions through the ptyManager (unmounting alone no longer
  * kills a process), then optionally tears the worktrees down per the delete
  * checkbox — after the closes settle, so no worktree dir is a live cwd.
+ *
+ * With `confirmBeforeClose` off ([F6]) a request acts immediately — and never
+ * deletes worktrees, since that opt-in checkbox lives inside the skipped
+ * dialog.
  */
-export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
+export function useCloseFlow(
+  deck: Deck,
+  onError: (message: string) => void,
+  confirmBeforeClose: boolean,
+) {
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
   // Opt-in: also delete the closing target's worktree(s) + branch(es). Reset
   // each time the dialog opens so the destructive choice is never sticky.
   const [deleteWorktree, setDeleteWorktree] = useState(false);
 
+  const performClose = (target: ClosingTarget, discard: WorktreeTarget[]) => {
+    // Snapshot the pane ids before the reducer forgets them.
+    const paneIds =
+      target.kind === "agent"
+        ? [target.paneId]
+        : (deck.workspaces
+            .find((w) => w.id === target.id)
+            ?.panes.map((p) => p.id) ?? []);
+    if (target.kind === "agent") deck.closeAgent(target.wsId, target.paneId);
+    else deck.closeWorkspace(target.id);
+    const closed = closePanes(paneIds);
+    if (discard.length > 0) {
+      void closed
+        .then(() => discardWorktrees(discard))
+        .then((failures) => {
+          if (failures.length > 0)
+            onError(
+              `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
+            );
+        });
+    }
+  };
+
+  const request = (target: ClosingTarget) => {
+    if (!confirmBeforeClose) {
+      performClose(target, []);
+      return;
+    }
+    setDeleteWorktree(false);
+    setClosing(target);
+  };
+
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
     const ws = deck.workspaces.find((w) => w.id === wsId);
-    setDeleteWorktree(false);
-    setClosing({
+    request({
       kind: "agent",
       wsId,
       paneId,
@@ -45,8 +84,7 @@ export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
   const requestCloseWorkspace = (id: string) => {
     const ws = deck.workspaces.find((w) => w.id === id);
     if (!ws) return;
-    setDeleteWorktree(false);
-    setClosing({
+    request({
       kind: "workspace",
       id,
       name: ws.name,
@@ -57,29 +95,9 @@ export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
 
   const confirmClose = () => {
     if (!closing) return;
-    const targets = deleteWorktree ? closing.targets : [];
-    // Snapshot the pane ids before the reducer forgets them.
-    const paneIds =
-      closing.kind === "agent"
-        ? [closing.paneId]
-        : (deck.workspaces
-            .find((w) => w.id === closing.id)
-            ?.panes.map((p) => p.id) ?? []);
-    if (closing.kind === "agent") deck.closeAgent(closing.wsId, closing.paneId);
-    else deck.closeWorkspace(closing.id);
     setClosing(null);
     setDeleteWorktree(false);
-    const closed = closePanes(paneIds);
-    if (targets.length > 0) {
-      void closed
-        .then(() => discardWorktrees(targets))
-        .then((failures) => {
-          if (failures.length > 0)
-            onError(
-              `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
-            );
-        });
-    }
+    performClose(closing, deleteWorktree ? closing.targets : []);
   };
 
   const cancelClose = () => setClosing(null);

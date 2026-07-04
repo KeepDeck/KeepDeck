@@ -25,6 +25,9 @@ interface WorkspaceFormProps {
   pickFolder(title: string): Promise<string | null>;
   /** Probe a chosen working directory for the git hint (injected likewise). */
   inspectDir(path: string): Promise<{ isRepo: boolean; branch: string | null }>;
+  /** Global default agent preference ([F6]); null preselects the first
+   * installed agent. */
+  defaultAgent: AgentType | null;
 }
 
 /**
@@ -37,10 +40,11 @@ export function WorkspaceForm({
   onCancel,
   pickFolder,
   inspectDir,
+  defaultAgent,
 }: WorkspaceFormProps) {
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState<string | null>(null);
-  const [agentType, setAgentType] = useState<AgentType>("claude");
+  const [agentType, setAgentType] = useState<AgentType>(defaultAgent ?? "claude");
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
   const [count, setCount] = useState(1);
@@ -72,11 +76,12 @@ export function WorkspaceForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd]);
 
-  // Once detection resolves, snap off an uninstalled default (e.g. "claude" when
-  // only OpenCode is installed) to the first selectable agent ([F1]).
+  // Once detection resolves, snap off an uninstalled default (e.g. a "codex"
+  // preference when only OpenCode is installed) to the first selectable
+  // agent ([F1]); the global preference still wins while it's selectable.
   useEffect(() => {
     if (agentOptions.length && !agentOptions.some((a) => a.id === agentType)) {
-      setAgentType(defaultAgentType(agents));
+      setAgentType(defaultAgentType(agents, defaultAgent ?? undefined));
     }
     // Re-check only when the catalog changes, not on every manual pick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
