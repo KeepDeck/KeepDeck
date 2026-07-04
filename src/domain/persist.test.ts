@@ -269,3 +269,64 @@ describe("provisioning panes across a restart", () => {
     expect(pane.dormant).toBe(true);
   });
 });
+
+describe("run presets round-trip", () => {
+  const runState: DeckState = {
+    workspaces: [
+      {
+        id: "ws-1",
+        name: "app",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        run: {
+          setup: "pnpm i",
+          presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }],
+        },
+        panes: [
+          {
+            id: "pane-1",
+            cwd: "/repo/wt-1",
+            branch: "kd/app/1",
+            run: { presetId: "run-1", command: "pnpm dev" },
+          },
+        ],
+      },
+    ],
+    activeId: "ws-1",
+    focusByWs: {},
+    selectByWs: {},
+  };
+
+  it("persists and restores the workspace config and the pane command", () => {
+    // Flag-agnostic by design: a deck saved with the experiment on must
+    // survive a load-and-save with it off, so hydration always parses run.
+    const restored = hydrateDeck(serializeDeck(runState))!;
+    expect(restored.state.workspaces[0].run).toEqual(runState.workspaces[0].run);
+    expect(restored.state.workspaces[0].panes[0].run).toEqual({
+      presetId: "run-1",
+      command: "pnpm dev",
+    });
+    // A run pane revives like any other restored pane.
+    expect(restored.state.workspaces[0].panes[0].dormant).toBe(true);
+  });
+
+  it("a workspace without run config stays without one (sparse)", () => {
+    const bare: DeckState = {
+      ...runState,
+      workspaces: [{ ...runState.workspaces[0], run: undefined, panes: [] }],
+    };
+    expect(serializeDeck(bare)).not.toContain('"run"');
+    expect(hydrateDeck(serializeDeck(bare))!.state.workspaces[0].run).toBeUndefined();
+  });
+
+  it("degrades malformed run values without rejecting the deck", () => {
+    const doc = JSON.parse(serializeDeck(runState));
+    doc.workspaces[0].run = { presets: "not a list" };
+    doc.workspaces[0].panes[0].run = { command: 42 };
+    const restored = hydrateDeck(JSON.stringify(doc))!;
+    expect(restored.state.workspaces[0].run).toBeUndefined();
+    const pane = restored.state.workspaces[0].panes[0];
+    expect(pane.run).toBeUndefined();
+    expect(pane.dormant).toBe(true);
+  });
+});

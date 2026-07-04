@@ -28,11 +28,18 @@ export interface Settings {
   defaultAgent: AgentType;
   /** Scrollback lines kept per terminal pane. */
   scrollback: number;
+  /** Experiment: run presets — launch the app under development in a pane.
+   * A flat boolean (not a nested experiments object) so it rides the per-key
+   * hydration and sparse serialization unchanged; generalize into a registry
+   * only when a few more experiments exist. Read at the UI entry points
+   * only — the layers beneath are flag-agnostic. */
+  experimentRunPresets: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
   scrollback: 10_000,
+  experimentRunPresets: false,
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -93,6 +100,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (typeof doc.scrollback === "number" && Number.isFinite(doc.scrollback)) {
     settings.scrollback = clampScrollback(doc.scrollback);
+  }
+  if (typeof doc.experimentRunPresets === "boolean") {
+    settings.experimentRunPresets = doc.experimentRunPresets;
   }
 
   const extras: Record<string, unknown> = {};

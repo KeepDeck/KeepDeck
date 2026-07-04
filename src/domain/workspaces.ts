@@ -1,5 +1,6 @@
 import type { AgentType } from "./agents";
 import type { Occupancy } from "./agentLocation";
+import type { WorkspaceRun } from "./runPresets";
 import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
@@ -26,6 +27,10 @@ export interface Workspace {
   /** Base folder holding this workspace's per-agent git worktrees; `null` when
    * agents run directly in `cwd` (no isolation). */
   worktreeBaseDir: string | null;
+  /** Launch presets + the one-time worktree setup command (experimental).
+   * Lives here — not in its own document — so deleting the workspace deletes
+   * its run config structurally, like the panes. */
+  run?: WorkspaceRun;
   panes: Pane[];
 }
 
@@ -99,6 +104,25 @@ export function worktreeTargets(ws: Workspace, paneId?: string): WorktreeTarget[
   return panes.flatMap((p) =>
     p.cwd && p.branch ? [{ repo: ws.cwd, path: p.cwd, branch: p.branch }] : [],
   );
+}
+
+/** Replace one workspace's run configuration (preset saved/removed, setup
+ * edited); an empty config (no presets, no setup) drops the field so the
+ * persisted document stays sparse. */
+export function setWorkspaceRun(
+  workspaces: Workspace[],
+  id: string,
+  run: WorkspaceRun,
+): Workspace[] {
+  const empty = run.presets.length === 0 && run.setup === undefined;
+  return workspaces.map((ws) => {
+    if (ws.id !== id) return ws;
+    if (empty) {
+      const { run: _gone, ...rest } = ws;
+      return rest;
+    }
+    return { ...ws, run };
+  });
 }
 
 /** Rename one workspace, leaving the rest untouched. */

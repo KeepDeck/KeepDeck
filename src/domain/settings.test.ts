@@ -31,12 +31,23 @@ describe("hydrateSettings", () => {
         version: 1,
         defaultAgent: "codex",
         scrollback: 50_000,
+        experimentRunPresets: true,
       }),
     );
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
+      experimentRunPresets: true,
     });
+  });
+
+  it("a non-boolean experiment flag degrades to off", () => {
+    // Experiments must be opted into explicitly — truthy garbage ("yes", 1)
+    // from a hand edit stays off rather than enabling one by accident.
+    for (const junk of ["yes", 1, null, {}]) {
+      const doc = hydrateSettings(JSON.stringify({ experimentRunPresets: junk }));
+      expect(doc?.settings.experimentRunPresets).toBe(false);
+    }
   });
 
   it("a malformed value degrades ONLY its own key", () => {
@@ -98,6 +109,7 @@ describe("serializeSettings", () => {
     const doc = defaultSettingsDocument();
     doc.settings.defaultAgent = "opencode";
     doc.settings.scrollback = 42_000;
+    doc.settings.experimentRunPresets = true;
     expect(hydrateSettings(serializeSettings(doc))).toEqual(doc);
   });
 });

@@ -1,6 +1,8 @@
 import type { DeckState } from "./deck";
 import type { Pane, PaneProvisioning, PaneSession } from "./panes";
 import { resolveFocus } from "./panes";
+import type { PaneRun, WorkspaceRun } from "./runPresets";
+import { readPaneRun, readWorkspaceRun } from "./runPresets";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "./agents";
@@ -41,6 +43,7 @@ interface PersistedPane {
   session?: PaneSession;
   /** The worktree-create intent, without the runtime `error`. */
   provisioning?: Omit<PaneProvisioning, "error">;
+  run?: PaneRun;
 }
 
 interface PersistedWorkspace {
@@ -48,6 +51,7 @@ interface PersistedWorkspace {
   name: string;
   cwd: string;
   worktreeBaseDir: string | null;
+  run?: WorkspaceRun;
   panes: PersistedPane[];
 }
 
@@ -83,6 +87,7 @@ export function serializeDeck(state: DeckState): string {
       name: ws.name,
       cwd: ws.cwd,
       worktreeBaseDir: ws.worktreeBaseDir,
+      ...(ws.run !== undefined && { run: ws.run }),
       panes: ws.panes.map((p) => ({
         id: p.id,
         ...(p.agentType !== undefined && { agentType: p.agentType }),
@@ -96,6 +101,7 @@ export function serializeDeck(state: DeckState): string {
         ...(p.provisioning !== undefined && {
           provisioning: stripError(p.provisioning),
         }),
+        ...(p.run !== undefined && { run: p.run }),
       })),
     })),
   };
@@ -194,7 +200,13 @@ function readWorkspace(value: unknown): Workspace | null {
     if (!pane) return null;
     panes.push(pane);
   }
-  return { id, name, cwd, worktreeBaseDir, panes };
+  const ws: Workspace = { id, name, cwd, worktreeBaseDir, panes };
+  // Parsed unconditionally — the run-presets experiment flag gates UI entry
+  // points, never stored data: a deck saved with the flag on must survive a
+  // load-and-save with it off. Malformed → the workspace just has no config.
+  const run = readWorkspaceRun(value.run);
+  if (run) ws.run = run;
+  return ws;
 }
 
 function readPane(value: unknown): Pane | null {
@@ -226,6 +238,10 @@ function readPane(value: unknown): Pane | null {
     delete pane.dormant;
     pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
   }
+  // A malformed run degrades the pane to a plain dormant one — same spirit
+  // as the agentType fallback above.
+  const run = readPaneRun(value.run);
+  if (run) pane.run = run;
   return pane;
 }
 

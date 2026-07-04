@@ -1,4 +1,5 @@
 import type { AgentInfo, AgentType } from "./agents";
+import type { PaneRun } from "./runPresets";
 import { MAX_PANES, clampPaneCount } from "./layout";
 
 /** The agent session a pane is bound to — the resume key ([F7]/[F8]). Bound at
@@ -61,6 +62,10 @@ export interface Pane {
   /** The in-flight (or failed) worktree create behind this pane — no terminal
    * mounts until it resolves. */
   provisioning?: PaneProvisioning;
+  /** Set = this is a run pane: it executes a shell command (a preset or an
+   * ad-hoc line) instead of an agent, and stays outside every agent flow —
+   * session identity, resume, the default-agent logic. */
+  run?: PaneRun;
 }
 
 /** The id for the pane numbered `seq` — the single mint point, since it's the
