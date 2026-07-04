@@ -35,11 +35,16 @@ interface AgentDialogProps {
   /** Probe a candidate worktree path for the live hint (injected — the dialog
    * itself stays free of IPC). */
   probePath(path: string): Promise<PathProbe>;
-  /** Who already runs in a candidate path — a display label like
-   * `"Agent 2" in "KeepDeck"` — or null when it's free. Injected (the dialog
-   * stays free of deck state); an occupied path blocks Create: two agents in
-   * one worktree stomp each other's files and git state. */
-  occupantAt(path: string): string | null;
+  /** Whether a pane of this deck already runs in a candidate path. Injected
+   * (the dialog stays free of deck state). An occupied path pauses Create and
+   * offers the user the choice: jump to the next free path, or — for a real
+   * worktree — knowingly attach alongside the other agent. */
+  isOccupied(path: string): boolean;
+  /** The next suggested location not held by an open pane — the "Use next
+   * available" action for an occupied path; null when none can be offered. */
+  nextFreeLocation(
+    currentPath: string,
+  ): Promise<{ path: string; branch: string } | null>;
   /** Native folder picker; null when cancelled. Injected for the same reason. */
   pickFolder(title: string): Promise<string | null>;
   onConfirm(result: AgentDialogResult): void;
@@ -61,7 +66,8 @@ export function AgentDialog({
   suggestedPath,
   suggestedBranch,
   probePath,
-  occupantAt,
+  isOccupied,
+  nextFreeLocation,
   pickFolder,
   onConfirm,
   onCancel,
@@ -71,6 +77,9 @@ export function AgentDialog({
   const [path, setPath] = useState(suggestedPath);
   const [branch, setBranch] = useState(suggestedBranch);
   const [probe, setProbe] = useState<PathProbe | null>(null);
+  // The user's explicit "Attach anyway" on an occupied path; any path edit
+  // voids it — consent covers the path it was given for, not the next one.
+  const [attachAnyway, setAttachAnyway] = useState(false);
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
   useEscape(onCancel);
@@ -110,9 +119,24 @@ export function AgentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, repo]);
 
-  const occupant = repo && path.trim() ? occupantAt(path) : null;
-  const kind = repo ? classifyLocation(path, probe, occupant !== null) : "main";
+  useEffect(() => setAttachAnyway(false), [path]);
+
+  const occupied = repo && path.trim() ? isOccupied(path) : false;
+  const kind = repo
+    ? classifyLocation(path, probe, occupied, attachAnyway)
+    : "main";
   const valid = canCreateAgent(kind, branch);
+
+  // "Use next available": swap the occupied path (and its branch) for the
+  // next free suggestion. A null result (no base, IPC down) leaves the field
+  // as is — the blocking hint still explains the state.
+  const useNextFree = async () => {
+    const free = await nextFreeLocation(path);
+    if (free) {
+      setPath(free.path);
+      setBranch(free.branch);
+    }
+  };
 
   const buildLocation = (): AgentLocation => {
     if (kind === "new") return { kind: "new", path: path.trim(), branch: branch.trim() };
@@ -172,7 +196,8 @@ export function AgentDialog({
               kind={kind}
               repoBranch={repo.branch}
               probe={probe}
-              occupant={occupant}
+              onUseNext={useNextFree}
+              onAttachAnyway={() => setAttachAnyway(true)}
             />
 
             {kind === "new" && (
@@ -221,17 +246,21 @@ export function AgentDialog({
   );
 }
 
-/** The live hint under the worktree field: what the current path will do. */
+/** The live hint under the worktree field: what the current path will do.
+ * The occupied state is a choice, not a dead end — inline actions let the
+ * user jump to the next free path or (for a real worktree) attach anyway. */
 function LocationHint({
   kind,
   repoBranch,
   probe,
-  occupant,
+  onUseNext,
+  onAttachAnyway,
 }: {
   kind: ReturnType<typeof classifyLocation>;
   repoBranch: string | null;
   probe: PathProbe | null;
-  occupant: string | null;
+  onUseNext(): void;
+  onAttachAnyway(): void;
 }) {
   switch (kind) {
     case "main":
@@ -253,10 +282,23 @@ function LocationHint({
       );
     case "occupied":
       return (
-        <span className="form__error">
-          Already in use by {occupant ?? "another agent"} — one agent per
-          worktree
-        </span>
+        <>
+          <span className="form__error">Already in use by another agent</span>
+          <div className="form__choices">
+            <button type="button" className="form__choice" onClick={onUseNext}>
+              Use next available
+            </button>
+            {probe?.isWorktree && (
+              <button
+                type="button"
+                className="form__choice"
+                onClick={onAttachAnyway}
+              >
+                Attach anyway
+              </button>
+            )}
+          </div>
+        </>
       );
     case "blocked":
       return (

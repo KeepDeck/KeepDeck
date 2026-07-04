@@ -953,6 +953,33 @@ body {
   color: #e5736f;
 }
 
+/* Inline resolution actions under an occupied-path warning ("Use next
+   available" / "Attach anyway") — the user decides, right in the flow.
+   Pulls up against the warning line the same way hints pull up to fields. */
+.form__choices {
+  display: flex;
+  gap: 8px;
+  margin-top: -14px;
+  margin-bottom: 20px;
+}
+
+.form__choice {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid #2a3343;
+  border-radius: 6px;
+  background-color: #161b26;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.form__choice:hover {
+  background-color: #1b2230;
+  border-color: #3a4658;
+}
+
 .confirm {
   width: 100%;
   max-width: 420px;
