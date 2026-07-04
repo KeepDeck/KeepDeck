@@ -82,14 +82,13 @@ function App() {
   const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
-  const agentFlow = useAgentDialog(deck, agents, settings?.defaultAgent ?? null);
-  // A close (agent or workspace) awaiting confirmation ([U6]) — or acting
-  // immediately when the user turned confirmation off ([F6]).
-  const closeFlow = useCloseFlow(
+  const agentFlow = useAgentDialog(
     deck,
-    setError,
-    settings?.confirmBeforeClose ?? true,
+    agents,
+    settings?.defaultAgent ?? "claude",
   );
+  // A close (agent or workspace) awaiting confirmation ([U6]).
+  const closeFlow = useCloseFlow(deck, setError);
 
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
   // ([F4]).

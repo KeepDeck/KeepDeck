@@ -31,13 +31,11 @@ describe("hydrateSettings", () => {
         version: 1,
         defaultAgent: "codex",
         scrollback: 50_000,
-        confirmBeforeClose: false,
       }),
     );
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
-      confirmBeforeClose: false,
     });
   });
 
@@ -47,7 +45,6 @@ describe("hydrateSettings", () => {
       JSON.stringify({
         defaultAgent: "vim", // not an agent
         scrollback: 50_000, // fine
-        confirmBeforeClose: "yes", // not a boolean
       }),
     );
     expect(doc?.settings).toEqual({ ...DEFAULT_SETTINGS, scrollback: 50_000 });
@@ -64,9 +61,9 @@ describe("hydrateSettings", () => {
     expect(at(Number.NaN)).toBe(DEFAULT_SETTINGS.scrollback);
   });
 
-  it("null defaultAgent is a valid explicit 'automatic'", () => {
+  it("a null defaultAgent (older document) degrades to the default", () => {
     const doc = hydrateSettings(JSON.stringify({ defaultAgent: null }));
-    expect(doc?.settings.defaultAgent).toBeNull();
+    expect(doc?.settings.defaultAgent).toBe(DEFAULT_SETTINGS.defaultAgent);
   });
 });
 
@@ -79,9 +76,9 @@ describe("serializeSettings", () => {
 
   it("writes only the keys that differ from their defaults", () => {
     const doc = defaultSettingsDocument();
-    doc.settings.confirmBeforeClose = false;
+    doc.settings.defaultAgent = "codex";
     const out = JSON.parse(serializeSettings(doc));
-    expect(out).toEqual({ version: SETTINGS_VERSION, confirmBeforeClose: false });
+    expect(out).toEqual({ version: SETTINGS_VERSION, defaultAgent: "codex" });
   });
 
   it("preserves unknown keys across a hydrate→serialize round-trip", () => {

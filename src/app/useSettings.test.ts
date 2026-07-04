@@ -86,13 +86,13 @@ describe("useSettings", () => {
     ipc.loadSettings.mockResolvedValue(null);
     await mount();
 
-    act(() => store.update({ confirmBeforeClose: false }));
-    expect(store.settings?.confirmBeforeClose).toBe(false);
+    act(() => store.update({ defaultAgent: "opencode" }));
+    expect(store.settings?.defaultAgent).toBe("opencode");
     await act(async () => {});
     expect(ipc.saveSettings).toHaveBeenCalledTimes(1);
     expect(JSON.parse(ipc.saveSettings.mock.calls[0][0])).toEqual({
       version: 1,
-      confirmBeforeClose: false,
+      defaultAgent: "opencode",
     });
   });
 

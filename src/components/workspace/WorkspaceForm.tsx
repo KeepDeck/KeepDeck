@@ -25,9 +25,8 @@ interface WorkspaceFormProps {
   pickFolder(title: string): Promise<string | null>;
   /** Probe a chosen working directory for the git hint (injected likewise). */
   inspectDir(path: string): Promise<{ isRepo: boolean; branch: string | null }>;
-  /** Global default agent preference ([F6]); null preselects the first
-   * installed agent. */
-  defaultAgent: AgentType | null;
+  /** Global default agent preference ([F6]). */
+  defaultAgent: AgentType;
 }
 
 /**
@@ -44,7 +43,7 @@ export function WorkspaceForm({
 }: WorkspaceFormProps) {
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState<string | null>(null);
-  const [agentType, setAgentType] = useState<AgentType>(defaultAgent ?? "claude");
+  const [agentType, setAgentType] = useState<AgentType>(defaultAgent);
   // The user picked a type by hand — that choice must survive a defaultAgent
   // change made in the settings dialog while this form is open ([F6]).
   const [agentTouched, setAgentTouched] = useState(false);
@@ -84,7 +83,7 @@ export function WorkspaceForm({
   // agent ([F1]); the global preference still wins while it's selectable.
   useEffect(() => {
     if (agentOptions.length && !agentOptions.some((a) => a.id === agentType)) {
-      setAgentType(defaultAgentType(agents, defaultAgent ?? undefined));
+      setAgentType(defaultAgentType(agents, defaultAgent));
     }
     // Re-check only when the catalog changes, not on every manual pick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -101,7 +100,7 @@ export function WorkspaceForm({
   useEffect(() => {
     if (seenDefaultAgentRef.current === defaultAgent) return;
     seenDefaultAgentRef.current = defaultAgent;
-    if (!agentTouched) setAgentType(defaultAgentType(agents, defaultAgent ?? undefined));
+    if (!agentTouched) setAgentType(defaultAgentType(agents, defaultAgent));
     // A manual pick wins; re-derive only when the preference itself moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultAgent]);

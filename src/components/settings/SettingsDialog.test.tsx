@@ -22,8 +22,6 @@ const scrollbackInput = () =>
   document.querySelector<HTMLInputElement>(
     'input[aria-label="Terminal scrollback lines"]',
   )!;
-const checkbox = () =>
-  document.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
 
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
@@ -69,17 +67,16 @@ describe("SettingsDialog", () => {
       ),
     );
 
-  it("picking an agent (or Auto) writes the default through", () => {
+  it("picking an agent writes the default through", () => {
     mount({ defaultAgent: "codex" });
     act(() => button("Claude Code").click());
-    act(() => button("Auto").click());
-    expect(changes).toEqual([{ defaultAgent: "claude" }, { defaultAgent: null }]);
+    expect(changes).toEqual([{ defaultAgent: "claude" }]);
   });
 
   it("marks the active choice", () => {
     mount({ defaultAgent: "codex" });
     expect(button("Codex").className).toContain("form__type--active");
-    expect(button("Auto").className).not.toContain("form__type--active");
+    expect(button("Claude Code").className).not.toContain("form__type--active");
   });
 
   it("scrollback commits clamped on blur — not per keystroke", () => {
@@ -103,12 +100,6 @@ describe("SettingsDialog", () => {
     mount();
     blur(scrollbackInput());
     expect(changes).toEqual([]);
-  });
-
-  it("the close-confirm toggle writes through", () => {
-    mount();
-    act(() => checkbox().click());
-    expect(changes).toEqual([{ confirmBeforeClose: false }]);
   });
 
   it("Done and Escape only dismiss", () => {

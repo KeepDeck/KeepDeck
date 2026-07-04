@@ -62,14 +62,6 @@ export function SettingsDialog({
 
         <span className="form__label">Default agent</span>
         <div className="form__types">
-          <button
-            type="button"
-            className={`form__type${settings.defaultAgent === null ? " form__type--active" : ""}`}
-            onClick={() => onChange({ defaultAgent: null })}
-            title="Preselect the first installed agent"
-          >
-            Auto
-          </button>
           {agentOptions.map((a) => (
             <button
               key={a.id}
@@ -103,20 +95,6 @@ export function SettingsDialog({
         <span className="settings__hint">
           Lines kept per pane · applies to open terminals
         </span>
-
-        <label className="confirm__option settings__option">
-          <input
-            type="checkbox"
-            checked={settings.confirmBeforeClose}
-            onChange={(e) => onChange({ confirmBeforeClose: e.target.checked })}
-          />
-          <span className="confirm__option-text">
-            Confirm before closing an agent or workspace
-            <span className="confirm__option-note">
-              When off, closing never deletes worktrees
-            </span>
-          </span>
-        </label>
 
         <div className="confirm__actions">
           <button type="button" className="form__create" onClick={onClose} autoFocus>

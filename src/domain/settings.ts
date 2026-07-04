@@ -22,21 +22,17 @@ import { FALLBACK_AGENTS } from "./agents";
 export const SETTINGS_VERSION = 1;
 
 export interface Settings {
-  /** Agent preselected for new workspaces and panes; null = automatic
-   * (the first installed agent, [F1]). */
-  defaultAgent: AgentType | null;
+  /** Agent preselected for new workspaces and panes. Always a concrete
+   * agent; if it isn't installed, the pickers snap to the first one that
+   * is ([F1]). */
+  defaultAgent: AgentType;
   /** Scrollback lines kept per terminal pane. */
   scrollback: number;
-  /** Ask before closing an agent/workspace ([U6]). When off, closes act
-   * immediately — and never delete worktrees, since that opt-in checkbox
-   * lives inside the skipped dialog. */
-  confirmBeforeClose: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  defaultAgent: null,
+  defaultAgent: "claude",
   scrollback: 10_000,
-  confirmBeforeClose: true,
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -92,15 +88,11 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   const doc = raw as Record<string, unknown>;
 
   const settings: Settings = { ...DEFAULT_SETTINGS };
-  const agent = doc.defaultAgent;
-  if (agent === null || AGENT_TYPES.includes(agent as AgentType)) {
-    settings.defaultAgent = agent as AgentType | null;
+  if (AGENT_TYPES.includes(doc.defaultAgent as AgentType)) {
+    settings.defaultAgent = doc.defaultAgent as AgentType;
   }
   if (typeof doc.scrollback === "number" && Number.isFinite(doc.scrollback)) {
     settings.scrollback = clampScrollback(doc.scrollback);
-  }
-  if (typeof doc.confirmBeforeClose === "boolean") {
-    settings.confirmBeforeClose = doc.confirmBeforeClose;
   }
 
   const extras: Record<string, unknown> = {};

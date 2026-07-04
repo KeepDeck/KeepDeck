@@ -1029,11 +1029,6 @@ body {
   width: 140px;
 }
 
-/* A plain preference toggle — not the confirm dialog's destructive opt-in. */
-.settings__option input {
-  accent-color: #2f6f4f;
-}
-
 .form__dir-btn,
 .form__cancel {
   flex: none;

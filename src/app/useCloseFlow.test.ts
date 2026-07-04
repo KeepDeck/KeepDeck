@@ -28,12 +28,10 @@ vi.mock("./provisioning", () => ({
 
 let deck: Deck;
 let flow: ReturnType<typeof useCloseFlow>;
-// The [F6] confirm-before-close preference the Probe renders with.
-let confirmPref = true;
 
 function Probe() {
   deck = useDeck();
-  flow = useCloseFlow(deck, () => {}, confirmPref);
+  flow = useCloseFlow(deck, () => {});
   return null;
 }
 
@@ -61,7 +59,6 @@ describe("useCloseFlow + ptyManager", () => {
     pty.closePanes.mockClear();
     worktrees.discardWorktrees.mockClear();
     worktrees.order.length = 0;
-    confirmPref = true;
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -117,27 +114,5 @@ describe("useCloseFlow + ptyManager", () => {
     act(() => flow.cancelClose());
     expect(pty.closePanes).not.toHaveBeenCalled();
     expect(deck.workspaces[0].panes).toHaveLength(2);
-  });
-
-  it("with confirmation off, a request closes immediately — no dialog", () => {
-    confirmPref = false;
-    act(() => root.render(createElement(Probe)));
-    const wsId = seed();
-    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
-    expect(flow.closing).toBeNull(); // never parked for a dialog
-    expect(pty.closePanes).toHaveBeenCalledWith(["pane-1"]);
-    expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
-  });
-
-  it("with confirmation off, worktrees are NEVER deleted", async () => {
-    // The delete opt-in checkbox lives inside the skipped dialog, so this
-    // path must not be able to discard work.
-    confirmPref = false;
-    act(() => root.render(createElement(Probe)));
-    const wsId = seed(); // pane-2 runs on its own worktree
-    act(() => flow.requestCloseWorkspace(wsId));
-    await act(async () => {});
-    expect(pty.closePanes).toHaveBeenCalledWith(["pane-1", "pane-2"]);
-    expect(worktrees.discardWorktrees).not.toHaveBeenCalled();
   });
 });
