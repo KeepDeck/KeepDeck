@@ -4,13 +4,16 @@ import {
   addAgentPane,
   closeAgent,
   closeWorkspace,
+  firstFreeWorktree,
   moveWorkspace,
+  parentDir,
   renamePane,
   renameWorkspace,
   resolveActiveId,
   resolvePaneProvisioning,
   setPaneAutoTitle,
   paneOccupyingPath,
+  pathOccupancy,
   setPaneHead,
   setPaneProvisioningError,
   worktreeCwds,
@@ -374,5 +377,97 @@ describe("paneOccupyingPath", () => {
   it("reports a free path (and an empty one) as unoccupied", () => {
     expect(paneOccupyingPath(deck, "/wt/free")).toBeNull();
     expect(paneOccupyingPath(deck, "   ")).toBeNull();
+  });
+});
+
+describe("pathOccupancy", () => {
+  it("a running pane's dir is worktree occupancy; a provisioning target isn't", () => {
+    const deck: Workspace[] = [
+      {
+        ...ws("a", []),
+        panes: [
+          { id: "a-p1", cwd: "/wt/live", branch: "kd/a/1" },
+          {
+            id: "a-p2",
+            provisioning: { repo: "/r", path: "/wt/pending", workspace: "a", index: 2 },
+          },
+        ],
+      },
+    ];
+    expect(pathOccupancy(deck, "/wt/live")).toBe("worktree");
+    expect(pathOccupancy(deck, "/wt/pending")).toBe("provisioning");
+    expect(pathOccupancy(deck, "/wt/free")).toBeNull();
+  });
+});
+
+describe("firstFreeWorktree", () => {
+  /** Rust-style naming: index i → folder `kd-a-<i>`, branch `kd/a/<i>`. */
+  const suggest = async (i: number) => ({
+    branch: `kd/a/${i}`,
+    folder: `kd-a-${i}`,
+  });
+  /** A deck whose panes hold `/base/kd-a-<n>` for each given n. */
+  const holding = (...nums: number[]): Workspace[] => [
+    {
+      ...ws("a", []),
+      panes: nums.map((n) => ({ id: `a-p${n}`, cwd: `/base/kd-a-${n}` })),
+    },
+  ];
+
+  it("returns the start index untouched when it's free", async () => {
+    expect(await firstFreeWorktree(holding(1), "/base", suggest, 2)).toEqual({
+      path: "/base/kd-a-2",
+      branch: "kd/a/2",
+    });
+  });
+
+  it("skips occupied paths — folder and branch advance together", async () => {
+    expect(await firstFreeWorktree(holding(2, 3), "/base", suggest, 2)).toEqual({
+      path: "/base/kd-a-4",
+      branch: "kd/a/4",
+    });
+  });
+
+  it("skips a provisioning intent's target path too", async () => {
+    const deck: Workspace[] = [
+      {
+        ...ws("a", []),
+        panes: [
+          {
+            id: "a-p1",
+            provisioning: { repo: "/r", path: "/base/kd-a-2", workspace: "a", index: 2 },
+          },
+        ],
+      },
+    ];
+    expect((await firstFreeWorktree(deck, "/base", suggest, 2))?.path).toBe(
+      "/base/kd-a-3",
+    );
+  });
+
+  it("normalizes the base dir's trailing slash", async () => {
+    expect((await firstFreeWorktree([], "/base///", suggest, 1))?.path).toBe(
+      "/base/kd-a-1",
+    );
+  });
+
+  it("gives up when suggestions dry up, or when every try is occupied", async () => {
+    expect(await firstFreeWorktree([], "/base", async () => null, 1)).toBeNull();
+    // A suggest stuck on one occupied name must hit the cap, not spin forever.
+    const stuck = async () => ({ branch: "kd/a/2", folder: "kd-a-2" });
+    expect(await firstFreeWorktree(holding(2), "/base", stuck, 2)).toBeNull();
+  });
+});
+
+describe("parentDir", () => {
+  it("returns the containing directory", () => {
+    expect(parentDir("/base/kd-a-2")).toBe("/base");
+    expect(parentDir("/a/b/c/")).toBe("/a/b");
+  });
+
+  it("has no usable parent for bare names and root children", () => {
+    expect(parentDir("kd-a-2")).toBe("");
+    expect(parentDir("/kd-a-2")).toBe("");
+    expect(parentDir("/")).toBe("");
   });
 });

@@ -149,6 +149,36 @@
   color: #e5736f;
 }
 
+/* Inline resolution actions under an occupied-path warning ("Use next
+   available" / "Attach anyway") — icon buttons, the user decides right in
+   the flow; the tooltip carries the words. Pulls up against the warning line
+   the same way hints pull up to fields. */
+.form__choices {
+  display: flex;
+  gap: 6px;
+  margin-top: -14px;
+  margin-bottom: 20px;
+}
+
+.form__choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 5px 8px;
+  border: 1px solid #2a3343;
+  border-radius: 6px;
+  background-color: #161b26;
+  color: #9aa3af;
+  cursor: pointer;
+}
+
+.form__choice:hover {
+  background-color: #1b2230;
+  border-color: #3a4658;
+  color: #c5c8c6;
+}
+
 .form__dir-btn,
 .form__cancel {
   flex: none;

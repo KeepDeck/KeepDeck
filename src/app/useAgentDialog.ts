@@ -6,7 +6,11 @@ import {
 } from "../domain/agents";
 import type { AgentDialogResult } from "../domain/agentLocation";
 import { paneId, type Pane } from "../domain/panes";
-import type { Workspace } from "../domain/workspaces";
+import {
+  firstFreeWorktree,
+  parentDir,
+  type Workspace,
+} from "../domain/workspaces";
 import { inspectRepo, suggestWorktree } from "../ipc/worktree";
 import { mintAgentSeq } from "./ids";
 import { provisionInto, runProvisioning } from "./provisioning";
@@ -43,6 +47,10 @@ export function useAgentDialog(
 ) {
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
 
+  /** Per-index name suggestion for `ws`, IPC failures flattened to null. */
+  const suggestFor = (ws: Workspace) => (index: number) =>
+    suggestWorktree(ws.name, index).catch(() => null);
+
   const openFor = async (ws: Workspace) => {
     const seq = mintAgentSeq();
     const index = ws.panes.length + 1;
@@ -59,13 +67,25 @@ export function useAgentDialog(
     let suggestedPath = "";
     let suggestedBranch = "";
     if (repo) {
-      const s = await suggestWorktree(ws.name, index).catch(() => null);
-      if (s) {
-        suggestedBranch = s.branch;
-        // [F2]: prefill a path ONLY when the workspace has a base folder,
-        // otherwise start empty (= main repo) and let the user choose one.
-        if (ws.worktreeBaseDir)
-          suggestedPath = `${ws.worktreeBaseDir}/${s.folder}`;
+      if (ws.worktreeBaseDir) {
+        // [F2]: prefill a path ONLY when the workspace has a base folder —
+        // and never a dir an open pane already runs in: jump straight to the
+        // first free suggestion instead of opening onto an occupied-path error.
+        const free = await firstFreeWorktree(
+          deck.workspaces,
+          ws.worktreeBaseDir,
+          suggestFor(ws),
+          index,
+        );
+        if (free) {
+          suggestedPath = free.path;
+          suggestedBranch = free.branch;
+        }
+      } else {
+        // No base folder → start empty (= main repo), but still suggest a
+        // branch for when the user picks a path by hand.
+        const s = await suggestFor(ws)(index);
+        if (s) suggestedBranch = s.branch;
       }
     }
     setDialog({
@@ -125,7 +145,23 @@ export function useAgentDialog(
     void runProvisioning([pane], provisionInto(deck, dlg.wsId));
   };
 
+  /**
+   * The next suggested location not held by an open pane — the dialog's
+   * "Use next available" action for an occupied path. Suggests inside the
+   * workspace base folder when set, else right next to the occupied path;
+   * null when neither gives a base (or suggestions fail).
+   */
+  const nextFree = async (currentPath: string) => {
+    const dlg = dialog;
+    if (!dlg) return null;
+    const ws = deck.workspaces.find((w) => w.id === dlg.wsId);
+    if (!ws) return null;
+    const base = ws.worktreeBaseDir ?? parentDir(currentPath);
+    if (!base) return null;
+    return firstFreeWorktree(deck.workspaces, base, suggestFor(ws), dlg.index);
+  };
+
   const cancel = () => setDialog(null);
 
-  return { dialog, openFor, confirm, cancel };
+  return { dialog, openFor, confirm, cancel, nextFree };
 }

@@ -72,18 +72,36 @@ describe("canCreateAgent", () => {
 
 describe("occupied locations", () => {
   it("an occupied path outranks every probe outcome, even mid-probe", () => {
-    expect(classifyLocation("/wt/a", null, true)).toBe("occupied");
-    expect(classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), true)).toBe(
+    expect(classifyLocation("/wt/a", null, "worktree")).toBe("occupied");
+    expect(
+      classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), "worktree"),
+    ).toBe("occupied");
+    expect(classifyLocation("/wt/a", probe({ exists: false }), "provisioning")).toBe(
       "occupied",
     );
-    expect(classifyLocation("/wt/a", probe({ exists: true }), true)).toBe("occupied");
   });
 
   it("an empty path stays main — bare panes legitimately share the workspace cwd", () => {
-    expect(classifyLocation("", null, true)).toBe("main");
+    expect(classifyLocation("", null, "worktree")).toBe("main");
   });
 
   it("an occupied path can never be created", () => {
     expect(canCreateAgent("occupied", "some-branch")).toBe(false);
+  });
+
+  it("attach-anyway turns worktree occupancy into a plain attach — instantly, no probe needed", () => {
+    // The occupancy itself proves the dir is a worktree (a pane runs in it):
+    // the override applies even while the probe is still in flight.
+    expect(classifyLocation("/wt/a", null, "worktree", true)).toBe("existing");
+    expect(
+      classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), "worktree", true),
+    ).toBe("existing");
+  });
+
+  it("attach-anyway never applies to a provisioning target — nothing exists to attach to", () => {
+    expect(classifyLocation("/wt/a", null, "provisioning", true)).toBe("occupied");
+    expect(
+      classifyLocation("/wt/a", probe({ exists: false }), "provisioning", true),
+    ).toBe("occupied");
   });
 });

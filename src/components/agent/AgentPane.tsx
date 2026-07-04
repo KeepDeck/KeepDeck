@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { PaneProvisioning } from "../../domain/panes";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
+import { CloseIcon, MaximizeIcon, RestoreIcon } from "../../ui/icons";
 
 interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
@@ -284,45 +285,3 @@ function ProvisionLocation({
   );
 }
 
-const iconProps = {
-  viewBox: "0 0 24 24",
-  width: 13,
-  height: 13,
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 2,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-  "aria-hidden": true,
-};
-
-/** Expand-to-fill (enter fullscreen). */
-function MaximizeIcon() {
-  return (
-    <svg {...iconProps}>
-      <polyline points="15 3 21 3 21 9" />
-      <polyline points="9 21 3 21 3 15" />
-      <line x1="21" y1="3" x2="14" y2="10" />
-      <line x1="3" y1="21" x2="10" y2="14" />
-    </svg>
-  );
-}
-
-/** Restore / un-maximize — the conventional minimize glyph (a bottom bar),
- * clearly distinct from the expand arrows and easy to read. */
-function RestoreIcon() {
-  return (
-    <svg {...iconProps}>
-      <line x1="6" y1="18" x2="18" y2="18" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg {...iconProps}>
-      <line x1="18" y1="6" x2="6" y2="18" />
-      <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  );
-}
