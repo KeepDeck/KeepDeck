@@ -9,17 +9,20 @@ import type { SpawnConfig } from "../../domain/workspaces";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
-// The form pulls the agent catalog via useAgents → IPC; pin a static one.
+// The form pulls the agent catalog via useAgents → IPC; pin a swappable one
+// (the default-agent tests vary which agents count as installed).
+const agent = (id: string, label: string) => ({
+  id,
+  label,
+  command: id,
+  installed: true,
+  path: null,
+});
+const TWO_AGENTS = [agent("claude", "Claude Code"), agent("codex", "Codex")];
+const THREE_AGENTS = [...TWO_AGENTS, agent("opencode", "OpenCode")];
+const catalog = vi.hoisted(() => ({ list: [] as unknown[] }));
 vi.mock("../../ipc/agents", () => ({
-  listAgents: async () => [
-    {
-      id: "claude",
-      label: "Claude Code",
-      command: "claude",
-      installed: true,
-      path: null,
-    },
-  ],
+  listAgents: async () => catalog.list,
 }));
 
 const worktreeInput = () =>
@@ -57,6 +60,7 @@ describe("WorkspaceForm worktree directory", () => {
   let created: SpawnConfig[];
 
   beforeEach(() => {
+    catalog.list = TWO_AGENTS;
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -65,13 +69,17 @@ describe("WorkspaceForm worktree directory", () => {
   afterEach(() => act(() => root.unmount()));
 
   /** Mount with a chosen working directory (via the picker, as in the app). */
-  const mount = async (isRepo: boolean) => {
+  const mount = async (
+    isRepo: boolean,
+    defaultAgent: SpawnConfig["agentType"] = "claude",
+  ) => {
     await act(async () =>
       root.render(
         createElement(WorkspaceForm, {
           onCreate: (c: SpawnConfig) => created.push(c),
           pickFolder: async () => "/repo",
           inspectDir: async () => ({ isRepo, branch: null }),
+          defaultAgent,
         }),
       ),
     );
@@ -110,5 +118,63 @@ describe("WorkspaceForm worktree directory", () => {
     submit();
     expect(created).toHaveLength(0); // nudge dialog instead of create
     expect(document.body.textContent).toContain("No worktree isolation");
+  });
+});
+
+describe("WorkspaceForm default agent ([F6])", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    catalog.list = TWO_AGENTS;
+    document.body.innerHTML = "";
+    root = createRoot(document.body.appendChild(document.createElement("div")));
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const mount = async (defaultAgent: SpawnConfig["agentType"]) => {
+    await act(async () =>
+      root.render(
+        createElement(WorkspaceForm, {
+          onCreate: () => {},
+          pickFolder: async () => "/repo",
+          inspectDir: async () => ({ isRepo: false, branch: null }),
+          defaultAgent,
+        }),
+      ),
+    );
+    await act(async () => {}); // flush the agent-catalog load
+  };
+
+  const typeButton = (label: string) =>
+    Array.from(document.querySelectorAll(".form__type")).find(
+      (b) => b.textContent === label,
+    )!;
+
+  it("preselects the configured default agent", async () => {
+    await mount("codex");
+    expect(typeButton("Codex").className).toContain("form__type--active");
+  });
+
+  it("an uninstalled preference snaps to the first installed", async () => {
+    await mount("opencode"); // not in the mocked catalog
+    expect(typeButton("Claude Code").className).toContain("form__type--active");
+  });
+
+  it("follows a preference change while the picker is untouched", async () => {
+    // The settings dialog opens OVER the form (first run: the form is the
+    // only screen) — a default set there must reach the mounted form.
+    catalog.list = THREE_AGENTS;
+    await mount("claude");
+    expect(typeButton("Claude Code").className).toContain("form__type--active");
+    await mount("opencode"); // re-render with the new preference
+    expect(typeButton("OpenCode").className).toContain("form__type--active");
+  });
+
+  it("a manual pick survives a preference change", async () => {
+    catalog.list = THREE_AGENTS;
+    await mount("claude");
+    act(() => (typeButton("Codex") as HTMLButtonElement).click());
+    await mount("opencode"); // the settings dialog moves the preference
+    expect(typeButton("Codex").className).toContain("form__type--active");
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   selectableAgents,
   defaultAgentType,
@@ -25,6 +25,8 @@ interface WorkspaceFormProps {
   pickFolder(title: string): Promise<string | null>;
   /** Probe a chosen working directory for the git hint (injected likewise). */
   inspectDir(path: string): Promise<{ isRepo: boolean; branch: string | null }>;
+  /** Global default agent preference ([F6]). */
+  defaultAgent: AgentType;
 }
 
 /**
@@ -37,10 +39,14 @@ export function WorkspaceForm({
   onCancel,
   pickFolder,
   inspectDir,
+  defaultAgent,
 }: WorkspaceFormProps) {
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState<string | null>(null);
-  const [agentType, setAgentType] = useState<AgentType>("claude");
+  const [agentType, setAgentType] = useState<AgentType>(defaultAgent);
+  // The user picked a type by hand — that choice must survive a defaultAgent
+  // change made in the settings dialog while this form is open ([F6]).
+  const [agentTouched, setAgentTouched] = useState(false);
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
   const [count, setCount] = useState(1);
@@ -72,15 +78,32 @@ export function WorkspaceForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd]);
 
-  // Once detection resolves, snap off an uninstalled default (e.g. "claude" when
-  // only OpenCode is installed) to the first selectable agent ([F1]).
+  // Once detection resolves, snap off an uninstalled default (e.g. a "codex"
+  // preference when only OpenCode is installed) to the first selectable
+  // agent ([F1]); the global preference still wins while it's selectable.
   useEffect(() => {
     if (agentOptions.length && !agentOptions.some((a) => a.id === agentType)) {
-      setAgentType(defaultAgentType(agents));
+      setAgentType(defaultAgentType(agents, defaultAgent));
     }
     // Re-check only when the catalog changes, not on every manual pick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents]);
+
+  // Follow a defaultAgent CHANGE while the picker is untouched — the settings
+  // dialog opens OVER this form (first run: the form is the only screen), so
+  // a preference set there must reach the already-mounted form ([F6]). Acts
+  // only on a real change (compared to the last seen value — idempotent under
+  // StrictMode's double mount-effects): the initial state already honors the
+  // preference, and at mount time the catalog is still empty, so re-deriving
+  // then would clobber the initial pick with the bare fallback.
+  const seenDefaultAgentRef = useRef(defaultAgent);
+  useEffect(() => {
+    if (seenDefaultAgentRef.current === defaultAgent) return;
+    seenDefaultAgentRef.current = defaultAgent;
+    if (!agentTouched) setAgentType(defaultAgentType(agents, defaultAgent));
+    // A manual pick wins; re-derive only when the preference itself moves.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultAgent]);
 
   // Esc closes the form when there's a workspace to return to — but not while
   // the nudge is open (its own Esc handles that, so the form stays put).
@@ -199,7 +222,10 @@ export function WorkspaceForm({
             key={a.id}
             type="button"
             className={`form__type${a.id === agentType ? " form__type--active" : ""}`}
-            onClick={() => setAgentType(a.id)}
+            onClick={() => {
+              setAgentTouched(true);
+              setAgentType(a.id);
+            }}
             tabIndex={count === 0 ? -1 : undefined}
           >
             {a.label}

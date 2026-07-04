@@ -23,6 +23,7 @@ const baseProps = {
   title: "Claude 1",
   command: null,
   cwd: "/repo/work" as string | null,
+  scrollback: 10_000,
   branch: null,
   visible: true,
   focused: false,

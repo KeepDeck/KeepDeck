@@ -15,6 +15,8 @@ interface AgentPaneProps {
   env?: [string, string][];
   /** Working directory for the session. */
   cwd?: string | null;
+  /** Scrollback lines for the terminal ([F6]). */
+  scrollback: number;
   /** Badge label for the agent's git position — its worktree branch, or a
    * short commit id when detached. Kept live by the HEAD watcher. */
   branch?: string | null;
@@ -69,6 +71,7 @@ export function AgentPane({
   args,
   env,
   cwd,
+  scrollback,
   branch,
   branchTitle,
   visible,
@@ -242,6 +245,7 @@ export function AgentPane({
             args={args}
             env={env}
             cwd={cwd}
+            scrollback={scrollback}
             visible={visible}
             selected={selected}
             onExit={(code) => setExit({ code })}

@@ -27,6 +27,10 @@ pub const CLOSE_AGENT_EVENT: &str = "deck://menu/close-agent";
 const TOGGLE_MAXIMIZE_ID: &str = "toggle-maximize";
 /// Webview event for [`TOGGLE_MAXIMIZE_ID`]; mirrored in `src/ipc/menu.ts`.
 pub const TOGGLE_MAXIMIZE_EVENT: &str = "deck://menu/toggle-maximize";
+/// Menu item id for "Settings…" (⌘,) — the app submenu on macOS, File elsewhere.
+const SETTINGS_ID: &str = "settings";
+/// Webview event for [`SETTINGS_ID`]; mirrored in `src/ipc/menu.ts`.
+pub const SETTINGS_EVENT: &str = "deck://menu/settings";
 
 /// Build the app menu: our File items plus the standard roles. Edit keeps the
 /// predefined clipboard items — macOS routes ⌘C/⌘V through the menu, so
@@ -45,14 +49,20 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let toggle_maximize = MenuItemBuilder::with_id(TOGGLE_MAXIMIZE_ID, "Toggle Maximize Agent")
         .accelerator("CmdOrCtrl+Shift+M")
         .build(app)?;
+    let settings = MenuItemBuilder::with_id(SETTINGS_ID, "Settings…")
+        .accelerator("CmdOrCtrl+,")
+        .build(app)?;
 
     let menu = Menu::new(app)?;
 
-    // The application submenu (first slot on macOS).
+    // The application submenu (first slot on macOS); Settings… sits under
+    // About, where macOS users expect ⌘, to live.
     #[cfg(target_os = "macos")]
     menu.append(
         &SubmenuBuilder::new(app, "KeepDeck")
             .about(Some(tauri::menu::AboutMetadata::default()))
+            .separator()
+            .item(&settings)
             .separator()
             .services()
             .separator()
@@ -69,9 +79,9 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&new_agent)
         .separator()
         .item(&close_agent);
-    // Without a macOS application submenu, Quit lives in File.
+    // Without a macOS application submenu, Settings and Quit live in File.
     #[cfg(not(target_os = "macos"))]
-    let file = file.separator().quit();
+    let file = file.separator().item(&settings).separator().quit();
     menu.append(&file.build()?)?;
 
     menu.append(
@@ -109,6 +119,7 @@ fn event_for(id: &str) -> Option<&'static str> {
         NEW_AGENT_ID => Some(NEW_AGENT_EVENT),
         CLOSE_AGENT_ID => Some(CLOSE_AGENT_EVENT),
         TOGGLE_MAXIMIZE_ID => Some(TOGGLE_MAXIMIZE_EVENT),
+        SETTINGS_ID => Some(SETTINGS_EVENT),
         _ => None,
     }
 }

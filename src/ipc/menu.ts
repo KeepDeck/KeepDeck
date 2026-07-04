@@ -8,6 +8,7 @@ export const NEW_WORKSPACE_EVENT = "deck://menu/new-workspace";
 export const NEW_AGENT_EVENT = "deck://menu/new-agent";
 export const CLOSE_AGENT_EVENT = "deck://menu/close-agent";
 export const TOGGLE_MAXIMIZE_EVENT = "deck://menu/toggle-maximize";
+export const SETTINGS_EVENT = "deck://menu/settings";
 
 /** Subscribe to one of the menu events; resolves to an unlisten fn. */
 export function onMenuEvent(

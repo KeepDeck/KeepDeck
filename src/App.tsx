@@ -3,6 +3,7 @@ import { DeckStage } from "./components/DeckStage";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { AgentDialog } from "./components/workspace/AgentDialog";
+import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { fetchAppInfo, openInEditor, type AppInfo } from "./ipc/app";
 import { pickFolder } from "./ipc/dialogs";
 import { describeError, log } from "./ipc/log";
@@ -12,6 +13,7 @@ import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
+import { useSettings } from "./app/useSettings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useWorktreeHead } from "./app/useWorktreeHead";
 import { paneSpawnSpec } from "./app/spawnSpecs";
@@ -53,6 +55,9 @@ function App() {
   const deck = useDeck();
   // Detected agent catalog (labels/commands/install status), fetched from Rust.
   const { agents } = useAgents();
+  // Global preferences ([F6]) — loaded before the first paint, saved through.
+  const settingsStore = useSettings();
+  const settings = settingsStore.settings;
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   const { restoring } = usePersistence(deck);
   // Per-install spawn-plan constants (spool dir, reporter activation) — the
@@ -71,11 +76,17 @@ function App() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
+  // The settings dialog ([F6]) — opened from the app menu (⌘,) or the gear.
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
-  const agentFlow = useAgentDialog(deck, agents);
+  const agentFlow = useAgentDialog(
+    deck,
+    agents,
+    settings?.defaultAgent ?? "claude",
+  );
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, setError);
 
@@ -88,11 +99,10 @@ function App() {
   const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
-  const modalOpen =
-    showForm ||
-    agentFlow.dialog !== null ||
-    closeFlow.closing !== null ||
-    error !== null;
+  // Transactional dialogs — while one is up, nothing else may open over it.
+  const dialogOpen =
+    agentFlow.dialog !== null || closeFlow.closing !== null || error !== null;
+  const modalOpen = showForm || dialogOpen || settingsOpen;
 
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
   // ⌘W asks to close the selected pane (an empty workspace: the workspace
@@ -132,6 +142,14 @@ function App() {
       );
       if (target) deck.toggleFocus(target.wsId, target.paneId);
     },
+    openSettings: () => {
+      // The create form is a passive surface, not a transaction — settings
+      // open over it (on first run the form is the only screen there is, so
+      // blocking would make settings unreachable). Its Esc yields while the
+      // settings dialog is on top.
+      if (dialogOpen || settingsOpen) return;
+      setSettingsOpen(true);
+    },
   });
 
   const handleSelectWorkspace = (id: string) => {
@@ -152,11 +170,12 @@ function App() {
     agentCount: w.panes.length,
   }));
 
-  // While the saved deck (or the spawn context) is loading, paint only the
-  // shell background — the boot splash covers this moment; rendering panes
-  // before the spawn context arrives would spawn them without their session
-  // identity ([F7]/[F8]).
-  if (restoring || !spawnCtx) return <div className="deck" />;
+  // While the saved deck (or the spawn context, or the settings) is loading,
+  // paint only the shell background — the boot splash covers this moment;
+  // rendering panes before the spawn context arrives would spawn them without
+  // their session identity ([F7]/[F8]), and terminals read the scrollback
+  // setting at construction ([F6]).
+  if (restoring || !spawnCtx || !settings) return <div className="deck" />;
 
   // Every live pane's spawn plan (cached per pane id — a claude plan mints
   // its session id once). Dormant panes get theirs at revive time; a
@@ -207,6 +226,19 @@ function App() {
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
           </span>
+          <button
+            type="button"
+            className="bar__icon"
+            onClick={() => setSettingsOpen(true)}
+            // Mirrors the ⌘, guard. The create form does NOT disable this:
+            // on first run it's the only screen, and settings must stay
+            // reachable over it (e.g. to pick the default agent first).
+            disabled={dialogOpen || settingsOpen}
+            title="Settings"
+            aria-label="Open settings"
+          >
+            <GearIcon />
+          </button>
         </div>
       </header>
       <div className="deck__body">
@@ -228,6 +260,7 @@ function App() {
             focusByWs={deck.focusByWs}
             selectedPaneId={selectedPaneId}
             agents={agents}
+            scrollback={settings.scrollback}
             onStartWorkspace={(wsId, count) =>
               void provisioning.startWorkspace(wsId, count)
             }
@@ -253,9 +286,13 @@ function App() {
               <ModalOverlay>
                 <WorkspaceForm
                   onCreate={handleCreateWorkspace}
-                  onCancel={() => setCreating(false)}
+                  // Esc must peel one layer at a time: while the settings
+                  // dialog is above this form, the form's own Esc yields
+                  // (an undefined onCancel also hides the covered button).
+                  onCancel={settingsOpen ? undefined : () => setCreating(false)}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
+                  defaultAgent={settings.defaultAgent}
                 />
               </ModalOverlay>
             ) : (
@@ -266,6 +303,7 @@ function App() {
                   onCreate={handleCreateWorkspace}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
+                  defaultAgent={settings.defaultAgent}
                 />
               </div>
             ))}
@@ -295,6 +333,15 @@ function App() {
               message={error}
               confirmLabel="OK"
               onConfirm={() => setError(null)}
+            />
+          )}
+
+          {settingsOpen && (
+            <SettingsDialog
+              settings={settings}
+              agents={agents}
+              onChange={settingsStore.update}
+              onClose={() => setSettingsOpen(false)}
             />
           )}
 
@@ -342,6 +389,25 @@ function App() {
         </div>
       </div>
     </div>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
   );
 }
 

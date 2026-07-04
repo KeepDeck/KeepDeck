@@ -42,6 +42,8 @@ interface TerminalPaneProps {
   env?: [string, string][];
   /** Working directory for the session; omitted uses the app's cwd. */
   cwd?: string | null;
+  /** Scrollback lines to keep ([F6]); changes apply to the live terminal. */
+  scrollback: number;
   /** Whether this pane is currently on screen (active workspace, not collapsed). */
   visible: boolean;
   /** The highlighted pane — focus its terminal when it's on screen. */
@@ -72,6 +74,7 @@ export function TerminalPane({
   args,
   env,
   cwd,
+  scrollback,
   visible,
   selected,
   onExit,
@@ -112,6 +115,10 @@ export function TerminalPane({
   argsRef.current = args;
   const envRef = useRef(env);
   envRef.current = env;
+  // Scrollback seeds construction through a ref for the same reason; a live
+  // change is applied by its own effect below, not by a terminal rebuild.
+  const scrollbackRef = useRef(scrollback);
+  scrollbackRef.current = scrollback;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -122,9 +129,9 @@ export function TerminalPane({
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: 13,
       cursorBlink: true,
-      // xterm defaults to 1000 lines — too small for verbose agents. Bumped;
-      // make it configurable later (settings, [F6]).
-      scrollback: 10000,
+      // xterm defaults to 1000 lines — too small for verbose agents. The
+      // value is the [F6] setting.
+      scrollback: scrollbackRef.current,
       theme: { background: "#0b0e14", foreground: "#c5c8c6" },
     });
     const fit = new FitAddon();
@@ -359,6 +366,15 @@ export function TerminalPane({
       fitRef.current = null;
     };
   }, [command, cwd, paneId, showHint]);
+
+  // Scrollback is a runtime xterm option — apply a settings change to the
+  // live terminal ([F6]); shrinking trims the buffer, growing keeps it.
+  useEffect(() => {
+    const term = termRef.current;
+    if (term && term.options.scrollback !== scrollback) {
+      term.options.scrollback = scrollback;
+    }
+  }, [scrollback]);
 
   // When the pane comes back on screen (workspace switch, or un-maximized),
   // refit and repaint from the buffer so nothing is left blank.

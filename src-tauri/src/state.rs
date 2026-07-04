@@ -1,18 +1,21 @@
-//! Durable deck state ([F7]) — an OPAQUE JSON document owned by the webview.
+//! Durable opaque JSON documents owned by the webview: the deck state
+//! ([F7], `deck.json`) and the app settings ([F6], `settings.json`).
 //!
 //! All schema knowledge (validation, versioning, migration) lives in
-//! `src/domain/persist.ts`, next to the model it mirrors; this adapter only
-//! moves the bytes durably. The document lives at `<keepdeck_home>/deck.json`
-//! (legacy installs are adopted by `crate::migration`). Writes are atomic
-//! (tmp + rename) so a crash mid-write can never leave a torn `deck.json`,
-//! and a document the webview rejects is quarantined to `deck.json.bak`
-//! instead of being overwritten by the next save.
+//! `src/domain/persist.ts` / `src/domain/settings.ts`, next to the models it
+//! mirrors; this adapter only moves the bytes durably. The documents live
+//! under `<keepdeck_home>` (legacy installs are adopted by
+//! `crate::migration`). Writes are atomic (tmp + rename) so a crash
+//! mid-write can never leave a torn document, and a document the webview
+//! rejects is quarantined to a `.bak` sibling instead of being overwritten
+//! by the next save.
 
 use std::fs;
 use std::io::{self, ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
 
-const FILE: &str = "deck.json";
+const DECK_FILE: &str = "deck.json";
+const SETTINGS_FILE: &str = "settings.json";
 
 /// The stored deck JSON, or `None` on first run. `(async)`, like every
 /// command here: disk IO stays off the main thread (the frontend already
@@ -35,9 +38,37 @@ pub fn deck_state_quarantine() -> Result<(), String> {
     quarantine(&state_path()?).map_err(|e| e.to_string())
 }
 
+/// The stored settings JSON, or `None` on first run ([F6]).
+#[tauri::command(async)]
+pub fn settings_load() -> Result<Option<String>, String> {
+    load(&settings_path()?).map_err(|e| e.to_string())
+}
+
+/// Persist the settings JSON (already serialized and versioned by the webview).
+#[tauri::command(async)]
+pub fn settings_save(json: String) -> Result<(), String> {
+    save_atomic(&settings_path()?, &json).map_err(|e| e.to_string())
+}
+
+/// The webview failed to parse the stored settings — keep the evidence as
+/// `settings.json.bak` (the file is hand-editable, so a typo must not be
+/// silently destroyed by the next save).
+#[tauri::command(async)]
+pub fn settings_quarantine() -> Result<(), String> {
+    quarantine(&settings_path()?).map_err(|e| e.to_string())
+}
+
 fn state_path() -> Result<PathBuf, String> {
-    let dir = crate::paths::keepdeck_home().ok_or("no home directory for deck state")?;
-    Ok(dir.join(FILE))
+    doc_path(DECK_FILE)
+}
+
+fn settings_path() -> Result<PathBuf, String> {
+    doc_path(SETTINGS_FILE)
+}
+
+fn doc_path(file: &str) -> Result<PathBuf, String> {
+    let dir = crate::paths::keepdeck_home().ok_or("no home directory for app state")?;
+    Ok(dir.join(file))
 }
 
 fn load(path: &Path) -> io::Result<Option<String>> {
