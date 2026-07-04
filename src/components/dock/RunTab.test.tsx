@@ -79,10 +79,10 @@ describe("RunTab", () => {
 
   it("defaults the target to the highlighted pane's worktree and runs a preset there", () => {
     mount();
-    const select = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Run target directory"]',
+    const target = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Run target directory"]',
     )!;
-    expect(select.value).toBe("/wt/b");
+    expect(target.textContent).toBe("kd/b");
 
     act(() =>
       document.querySelector<HTMLButtonElement>(".run__preset-run")!.click(),
@@ -96,10 +96,10 @@ describe("RunTab", () => {
 
   it("falls back to the workspace folder without a highlighted worktree pane", () => {
     mount({}, "nope");
-    const select = document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Run target directory"]',
+    const target = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Run target directory"]',
     )!;
-    expect(select.value).toBe("/repo");
+    expect(target.textContent).toBe("Workspace folder");
   });
 
   it("runs an ad-hoc command, and clears the draft after", () => {
@@ -230,9 +230,9 @@ describe("RunTab — target follows the highlighted pane", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
-  const select = () =>
-    document.querySelector<HTMLSelectElement>(
-      'select[aria-label="Run target directory"]',
+  const target = () =>
+    document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Run target directory"]',
     )!;
 
   it("re-highlighting another worktree pane moves the target (the ▶ flow)", () => {
@@ -243,9 +243,9 @@ describe("RunTab — target follows the highlighted pane", () => {
         ),
       );
     render("pane-1");
-    expect(select().value).toBe("/wt/a");
+    expect(target().textContent).toBe("kd/a");
     render("pane-2");
-    expect(select().value).toBe("/wt/b");
+    expect(target().textContent).toBe("kd/b");
   });
 
   it("a manual pick survives re-renders that do NOT change the highlight", () => {
@@ -256,16 +256,86 @@ describe("RunTab — target follows the highlighted pane", () => {
         ),
       );
     render();
-    const set = Object.getOwnPropertyDescriptor(
-      HTMLSelectElement.prototype,
-      "value",
-    )!.set!;
-    act(() => {
-      set.call(select(), ws.cwd);
-      select().dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(select().value).toBe("/repo");
+    act(() => target().click());
+    act(() =>
+      Array.from(
+        document.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+      )
+        .find((o) => o.textContent === "Workspace folder")!
+        .click(),
+    );
+    expect(target().textContent).toBe("Workspace folder");
     render(); // same highlight → the manual pick holds
-    expect(select().value).toBe("/repo");
+    expect(target().textContent).toBe("Workspace folder");
+  });
+});
+
+describe("RunTab — preset editing", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let setRun: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    manager.sessions = [];
+    setRun = vi.fn();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    act(() =>
+      root.render(
+        createElement(RunTab, { ws, selectedPaneId: "pane-1", onSetRun: setRun }),
+      ),
+    );
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const field = () =>
+    document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Command to run"]',
+    )!;
+  const button = (text: string) =>
+    Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent === text,
+    )!;
+
+  it("✎ loads the preset into the form; Save rewrites it without launching", () => {
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Edit preset Dev"]')!
+        .click(),
+    );
+    expect(field().value).toBe("pnpm dev");
+    type(field(), "pnpm install\npnpm tauri dev");
+
+    act(() => button("Save").click());
+    expect(setRun).toHaveBeenCalledWith({
+      presets: [
+        { id: "run-1", name: "Dev", command: "pnpm install\npnpm tauri dev" },
+      ],
+    });
+    expect(manager.launchRun).not.toHaveBeenCalled();
+    // Back to run mode with clean drafts.
+    expect(field().value).toBe("");
+    expect(button("Run")).toBeDefined();
+  });
+
+  it("Cancel leaves the preset untouched and clears the drafts", () => {
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>('button[aria-label="Edit preset Dev"]')!
+        .click(),
+    );
+    type(field(), "something else");
+    act(() => button("Cancel").click());
+    expect(setRun).not.toHaveBeenCalled();
+    expect(field().value).toBe("");
+  });
+
+  it("the row shows the name only — a multi-line command never leaks into it", () => {
+    expect(document.body.textContent).not.toContain("pnpm dev");
+    expect(
+      document.querySelector(".run__preset-run")!.getAttribute("title"),
+    ).toBe("Run: pnpm dev");
   });
 });

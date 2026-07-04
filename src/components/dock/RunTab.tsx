@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { launchRun, removeRun, restartRun, stopRun } from "../../app/runManager";
 import { useRunSessions } from "../../app/useRunSessions";
-import { addPreset, removePreset } from "../../domain/runPresets";
+import { addPreset, removePreset, updatePreset } from "../../domain/runPresets";
 import type { RunRequest, RunSession } from "../../domain/runSessions";
+import { Dropdown } from "../../ui/Dropdown";
 import { noAutoCorrect } from "../../ui/inputProps";
-import { CloseIcon, PlayIcon } from "../../ui/icons";
+import { CloseIcon, EditIcon, PlayIcon } from "../../ui/icons";
 import { RunLog } from "./RunLog";
 import type { DockTabProps } from "./tabs";
 
@@ -34,18 +35,25 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
   const [save, setSave] = useState(false);
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
+  // The preset whose ✎ loaded the drafts: the command form is in edit mode —
+  // submitting REWRITES that preset (no launch) instead of running ad hoc.
+  const [editing, setEditing] = useState<string | null>(null);
 
   const sessions = useRunSessions().filter((s) => s.wsId === ws.id);
   const shown =
     sessions.find((s) => s.id === picked) ?? sessions[sessions.length - 1];
 
-  // Distinct run targets: each pane worktree once, the workspace folder last.
+  // Distinct run targets: each pane worktree once, the workspace folder last
+  // (dropped from the pane pass so an attached-to-main pane can't duplicate it).
   const targets = [
-    ...new Map(
-      ws.panes
-        .filter((p) => p.cwd)
-        .map((p) => [p.cwd!, p.branch ?? shortPath(p.cwd!)]),
-    ).entries(),
+    ...[
+      ...new Map(
+        ws.panes
+          .filter((p) => p.cwd && p.cwd !== ws.cwd)
+          .map((p) => [p.cwd!, p.branch ?? shortPath(p.cwd!)]),
+      ).entries(),
+    ].map(([value, label]) => ({ value, label })),
+    { value: ws.cwd, label: "Workspace folder" },
   ];
 
   const launch = (request: RunRequest) => {
@@ -57,9 +65,30 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     ).then(setPicked);
   };
 
-  const runAdHoc = () => {
+  const resetDrafts = () => {
+    setEditing(null);
+    setCommand("");
+    setSave(false);
+    setName("");
+  };
+
+  const startEditing = (presetId: string) => {
+    const preset = ws.run?.presets.find((p) => p.id === presetId);
+    if (!preset) return;
+    setEditing(presetId);
+    setCommand(preset.command);
+    setName(preset.name);
+    setSave(false);
+  };
+
+  const submit = () => {
     const line = command.trim();
     if (!line) return;
+    if (editing) {
+      if (ws.run) onSetRun(updatePreset(ws.run, editing, name, line));
+      resetDrafts();
+      return;
+    }
     if (save) {
       const next = addPreset(ws.run, name, line);
       const created = next.presets[next.presets.length - 1];
@@ -68,27 +97,19 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     } else {
       launch({ command: line, name: line });
     }
-    setCommand("");
-    setSave(false);
-    setName("");
+    resetDrafts();
   };
 
   return (
     <div className="run">
       <span className="form__label">Run in</span>
-      <select
-        className="form__input run__target"
+      <Dropdown
+        className="run__target"
+        options={targets}
         value={target}
-        onChange={(e) => setTarget(e.target.value)}
-        aria-label="Run target directory"
-      >
-        {targets.map(([cwd, label]) => (
-          <option key={cwd} value={cwd}>
-            {label}
-          </option>
-        ))}
-        <option value={ws.cwd}>Workspace folder</option>
-      </select>
+        onChange={setTarget}
+        ariaLabel="Run target directory"
+      />
 
       {(ws.run?.presets.length ?? 0) > 0 && (
         <>
@@ -96,6 +117,9 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
           <ul className="run__presets">
             {ws.run!.presets.map((p) => (
               <li key={p.id} className="run__preset">
+                {/* Name only: a command preview mangles multi-line scripts
+                    and bloats the row — the full command lives in the
+                    tooltip and behind ✎. */}
                 <button
                   type="button"
                   className="run__preset-run"
@@ -105,10 +129,16 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
                   title={`Run: ${p.command}`}
                 >
                   <PlayIcon />
-                  <span className="run__preset-text">
-                    <span className="run__preset-name">{p.name}</span>
-                    <span className="run__preset-command">{p.command}</span>
-                  </span>
+                  <span className="run__preset-name">{p.name}</span>
+                </button>
+                <button
+                  type="button"
+                  className="run__preset-delete"
+                  onClick={() => startEditing(p.id)}
+                  title={`Edit preset "${p.name}"`}
+                  aria-label={`Edit preset ${p.name}`}
+                >
+                  <EditIcon />
                 </button>
                 <button
                   type="button"
@@ -134,35 +164,47 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
         onChange={(e) => setCommand(e.target.value)}
         onKeyDown={(e) => {
           // Enter inserts a newline (multi-line commands are legitimate
-          // shell); ⌘/Ctrl+Enter runs.
+          // shell); ⌘/Ctrl+Enter submits (run, or save while editing).
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
-            runAdHoc();
+            submit();
           }
         }}
         placeholder={"e.g. pnpm dev — $KEEPDECK_PORT is yours to use\n⌘⏎ runs"}
         aria-label="Command to run"
       />
       <div className="run__launch">
-        <label className="run__save">
-          <input
-            type="checkbox"
-            checked={save}
-            onChange={(e) => setSave(e.target.checked)}
-          />
-          <span>Save as preset</span>
-        </label>
+        {editing ? (
+          <button type="button" className="form__cancel run__go" onClick={resetDrafts}>
+            Cancel
+          </button>
+        ) : (
+          <label className="run__save">
+            <input
+              type="checkbox"
+              checked={save}
+              onChange={(e) => setSave(e.target.checked)}
+            />
+            <span>Save as preset</span>
+          </label>
+        )}
         <button
           type="button"
           className="form__create run__go"
           disabled={!command.trim()}
-          onClick={runAdHoc}
-          title={command.trim() ? "Run the command" : "Type a command first"}
+          onClick={submit}
+          title={
+            !command.trim()
+              ? "Type a command first"
+              : editing
+                ? "Save the preset"
+                : "Run the command"
+          }
         >
-          Run
+          {editing ? "Save" : "Run"}
         </button>
       </div>
-      {save && (
+      {(save || editing) && (
         <input
           {...noAutoCorrect}
           className="form__input run__save-name"

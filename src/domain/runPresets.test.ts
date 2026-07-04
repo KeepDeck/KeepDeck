@@ -5,6 +5,7 @@ import {
   removePreset,
   runEnv,
   setSetup,
+  updatePreset,
   type WorkspaceRun,
 } from "./runPresets";
 
@@ -100,3 +101,31 @@ describe("readWorkspaceRun", () => {
   });
 });
 
+
+describe("updatePreset", () => {
+  const seeded = (): WorkspaceRun => ({
+    presets: [
+      { id: "run-1", name: "Dev", command: "pnpm dev" },
+      { id: "run-2", name: "Worker", command: "pnpm worker" },
+    ],
+  });
+
+  it("rewrites name and command in place, keeping id and order", () => {
+    const run = updatePreset(seeded(), "run-1", " Debug ", " pnpm tauri dev ");
+    expect(run.presets).toEqual([
+      { id: "run-1", name: "Debug", command: "pnpm tauri dev" },
+      { id: "run-2", name: "Worker", command: "pnpm worker" },
+    ]);
+  });
+
+  it("a blank name falls back to the (truncated) command", () => {
+    const run = updatePreset(seeded(), "run-2", "  ", "make dev");
+    expect(run.presets[1].name).toBe("make dev");
+  });
+
+  it("is a no-op (same ref) for unknown ids and blank commands", () => {
+    const run = seeded();
+    expect(updatePreset(run, "run-9", "x", "cmd")).toBe(run);
+    expect(updatePreset(run, "run-1", "x", "   ")).toBe(run);
+  });
+});

@@ -70,6 +70,27 @@ export function removePreset(run: WorkspaceRun, id: string): WorkspaceRun {
   return { ...run, presets: run.presets.filter((p) => p.id !== id) };
 }
 
+/** Rewrite the preset with `id` in place (same id, same position); the SAME
+ * object when it isn't present or the command trims empty. Name falls back
+ * like [`addPreset`]'s. */
+export function updatePreset(
+  run: WorkspaceRun,
+  id: string,
+  name: string,
+  command: string,
+): WorkspaceRun {
+  const trimmed = command.trim();
+  if (!trimmed || !run.presets.some((p) => p.id === id)) return run;
+  return {
+    ...run,
+    presets: run.presets.map((p) =>
+      p.id === id
+        ? { id, name: name.trim() || truncate(trimmed, 32), command: trimmed }
+        : p,
+    ),
+  };
+}
+
 /** Set (or clear, with blank) the workspace's one-time setup command. */
 export function setSetup(
   run: WorkspaceRun | undefined,
