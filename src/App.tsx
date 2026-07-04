@@ -29,7 +29,7 @@ import { paneDisplayTitle } from "./domain/panes";
 import { MAX_PANES } from "./domain/layout";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
-import "./App.css";
+import "./styles/index.css";
 
 /**
  * The composition root: owns only shell-level UI state (rail collapse, the

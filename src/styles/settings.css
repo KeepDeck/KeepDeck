@@ -1,0 +1,15 @@
+/* Settings dialog ([F6]) — the .form card, sized as a dialog. */
+.settings {
+  max-width: 460px;
+}
+
+.settings__hint {
+  margin-top: -12px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.settings__number {
+  width: 140px;
+}

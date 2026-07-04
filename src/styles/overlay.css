@@ -1,0 +1,29 @@
+/* New-workspace form (overlay + centered card) */
+.deck__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background-color: #0b0e14;
+}
+
+/* Translucent backdrop for true dialogs (confirm/error, "+ Agent", and the
+   "+"-triggered create form). Portaled to <body> and FIXED to the viewport so
+   it blankets the whole window — top bar + sidebar + deck — and blocks all
+   interaction behind it; the deck stays visible (blurred) through it. Unlike
+   .deck__overlay, which is opaque (the empty-state screen). */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background-color: rgba(7, 9, 13, 0.66);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}

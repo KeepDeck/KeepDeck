@@ -1,0 +1,204 @@
+.rail {
+  width: 200px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #1c2230;
+  background-color: #0e121a;
+  user-select: none;
+}
+
+.rail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 8px;
+}
+
+.rail__title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
+.rail__add {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rail__add:hover {
+  background-color: #151a24;
+  color: #c5c8c6;
+}
+
+.rail__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.rail__item {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  padding-right: 4px;
+  /* Pointer moves over an item are reorder-drag candidates, not page scrolls. */
+  touch-action: none;
+}
+
+.rail__item:hover {
+  background-color: #151a24;
+}
+
+.rail__item--active {
+  background-color: #1b2230;
+}
+
+/* While dragging, the whole list shows the grab cursor so the reorder reads as
+   a drag rather than a click. */
+.rail__list--reordering,
+.rail__list--reordering .rail__select {
+  cursor: grabbing;
+}
+
+/* The source row becomes a hollow placeholder marking where the dragged item
+   will land; the item itself rides the cursor as .rail__ghost. */
+.rail__item--placeholder {
+  opacity: 0;
+}
+
+/* Floating copy of the dragged item, portaled to <body> and tracking the
+   cursor (its `top` is set imperatively). Lifted look via shadow + slight tilt. */
+.rail__ghost {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background-color: #232c3b;
+  color: #c5c8c6;
+  font-size: 13px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  cursor: grabbing;
+  transform: scale(1.02);
+}
+
+.rail__ghost--active {
+  background-color: #2a3446;
+}
+
+.rail__ghost .rail__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail__select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 0;
+  background: transparent;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  /* Plain arrow on hover; the grab cursor appears only once a drag is armed
+     (.rail__list--reordering), so the item doesn't look click-draggable. */
+  cursor: default;
+}
+
+.rail__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #3b4658;
+  flex: none;
+}
+
+.rail__item--active .rail__dot {
+  background-color: #58b368;
+}
+
+.rail__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail__count {
+  font-size: 11px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+}
+
+.rail__close {
+  display: none;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rail__close:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+/* Show the × (and hide the count) when the workspace is focused or hovered. */
+.rail__item:hover .rail__count,
+.rail__item--active .rail__count {
+  display: none;
+}
+
+.rail__item:hover .rail__close,
+.rail__item--active .rail__close {
+  display: inline-flex;
+}
+
+.rail__rename {
+  flex: 1;
+  min-width: 0;
+  margin: 2px 4px;
+  padding: 5px 6px;
+  border: 1px solid #3a4658;
+  border-radius: 5px;
+  background-color: #0b0e14;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}

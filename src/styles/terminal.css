@@ -1,0 +1,42 @@
+.terminal-pane {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  background-color: #0b0e14;
+}
+
+.terminal-pane__host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* Transient in-pane notice ([F16]) — e.g. "File not found" after a Cmd+click
+   on a stale path. Anchored next to the clicked link (left/top set from
+   hintPosition.ts), auto-hides, and never intercepts clicks; long paths
+   ellipsize. */
+.terminal-pane__hint {
+  position: absolute;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 7px 14px;
+  border: 1px solid #2a3343;
+  border-radius: 6px;
+  background-color: #151a24;
+  color: #c5c8c6;
+  font-size: 13px;
+  pointer-events: none;
+  animation: hint-fade-in 120ms ease-out;
+}
+
+@keyframes hint-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
