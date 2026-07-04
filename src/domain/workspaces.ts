@@ -323,6 +323,53 @@ export function paneOccupyingPath(
   return null;
 }
 
+/** One worktree branch/folder name suggestion (mirrors the Rust
+ * `WorktreeSuggestion`); `suggest` in [`firstFreeWorktree`] yields these per
+ * index, `null` when no suggestion could be produced. */
+export interface WorktreeNameSuggestion {
+  branch: string;
+  folder: string;
+}
+
+/** How many suggestion indices [`firstFreeWorktree`] tries before giving up.
+ * Occupied paths are bounded by the open pane count, so any real deck resolves
+ * in a handful of steps — the cap only backstops a pathological `suggest`. */
+const MAX_SUGGESTION_TRIES = 100;
+
+/**
+ * The first suggested worktree path under `baseDir` NOT held by an open pane,
+ * with its matching branch — folder and branch advance together so the pair
+ * stays consistent (`kd-ws-3` ↔ `kd/ws/3`). Only in-app occupancy is skipped:
+ * a path that merely exists on disk stays suggestible (attaching to an idle
+ * worktree is a valid outcome). `null` when `suggest` yields nothing or every
+ * try is occupied.
+ */
+export async function firstFreeWorktree(
+  workspaces: Workspace[],
+  baseDir: string,
+  suggest: (index: number) => Promise<WorktreeNameSuggestion | null>,
+  startIndex: number,
+): Promise<{ path: string; branch: string } | null> {
+  const base = normalizePath(baseDir);
+  for (let i = startIndex; i < startIndex + MAX_SUGGESTION_TRIES; i++) {
+    const s = await suggest(i);
+    if (!s) return null;
+    const path = `${base}/${s.folder}`;
+    if (!paneOccupyingPath(workspaces, path)) return { path, branch: s.branch };
+  }
+  return null;
+}
+
+/** The directory containing `path`, or `""` when there is no usable parent
+ * (a bare name, or a direct child of the filesystem root) — string-only, no
+ * fs access. Fallback base for suggesting a worktree NEXT TO an occupied path
+ * when the workspace has no base folder of its own. */
+export function parentDir(path: string): string {
+  const norm = normalizePath(path);
+  const cut = norm.lastIndexOf("/");
+  return cut <= 0 ? "" : norm.slice(0, cut);
+}
+
 /** The distinct worktree directories the deck's panes run in — the set the
  * HEAD-watch lifecycle keeps registered (a pane without `cwd` runs in the
  * workspace folder and owns no worktree to watch). */
