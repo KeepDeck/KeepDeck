@@ -23,9 +23,9 @@ const baseProps = {
 };
 
 /** Type into a controlled input (native setter + bubbling input event). */
-function type(el: HTMLInputElement, text: string) {
+function type(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
   const set = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
+    Object.getPrototypeOf(el),
     "value",
   )!.set!;
   act(() => {
@@ -35,7 +35,9 @@ function type(el: HTMLInputElement, text: string) {
 }
 
 const commandInput = () =>
-  document.querySelector<HTMLInputElement>('input[aria-label="Command to run"]')!;
+  document.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="Command to run"]',
+  )!;
 const submit = () =>
   act(() => {
     document
@@ -100,6 +102,32 @@ describe("RunPresetPicker", () => {
     type(commandInput(), "  go run ./cmd/server  ");
     submit();
     expect(onAdHoc).toHaveBeenCalledWith("go run ./cmd/server", null);
+  });
+
+  it("the command is multi-line: Enter stays in the field, ⌘⏎ runs", () => {
+    const onAdHoc = vi.fn();
+    act(() =>
+      root.render(createElement(RunPresetPicker, { ...baseProps, onAdHoc })),
+    );
+
+    type(commandInput(), "export FOO=1\npnpm dev");
+    act(() => {
+      commandInput().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(onAdHoc).not.toHaveBeenCalled();
+
+    act(() => {
+      commandInput().dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          metaKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(onAdHoc).toHaveBeenCalledWith("export FOO=1\npnpm dev", null);
   });
 
   it("Save as preset reveals the name field and passes it through", () => {

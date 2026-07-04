@@ -209,7 +209,7 @@ describe("AgentPane — run panes (experimental run presets)", () => {
     expect(onRunAgain).toHaveBeenCalledTimes(1);
   });
 
-  it("a run pane's exit card says Command exited and Run again clears it", () => {
+  it("a run pane's exit is a docked strip, not the overlay — the log stays uncovered", () => {
     const onRunAgain = vi.fn();
     act(() =>
       root.render(
@@ -224,22 +224,39 @@ describe("AgentPane — run panes (experimental run presets)", () => {
     const { onExit } = vi.mocked(TerminalPane).mock.calls[0][0];
     act(() => onExit!(1));
 
-    expect(document.body.textContent).toContain("Command exited");
-    const again = document.querySelector<HTMLButtonElement>(".pane__exit-action");
+    // Strip above the log; the [U4] overlay (which dims the output the user
+    // needs to read and copy) must NOT render for run panes.
+    expect(document.querySelector(".pane__exit")).toBeNull();
+    expect(document.body.textContent).toContain("Command exited (code 1)");
+    const again = document.querySelector<HTMLButtonElement>(
+      ".pane__runbar-action",
+    );
     expect(again!.textContent).toBe("Run again");
 
     act(() => again!.click());
     expect(onRunAgain).toHaveBeenCalledTimes(1);
-    // The card must not survive into the fresh session.
-    expect(document.body.textContent).not.toContain("Command exited");
+    // The strip must not survive into the fresh session.
+    expect(document.querySelector(".pane__runbar")).toBeNull();
   });
 
-  it("an agent pane's exit card offers no Run again", () => {
+  it("a run pane header drops the agent affordances and carries the ▶ mark", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, { ...baseProps, runCommand: "pnpm dev" }),
+      ),
+    );
+    expect(document.querySelector(".pane__run-mark")).not.toBeNull();
+    // The worktree is the agent's; its own pane offers the editor button.
+    expect(document.querySelector(".pane__open")).toBeNull();
+  });
+
+  it("an agent pane's exit keeps the [U4] overlay and offers no Run again", () => {
     act(() => root.render(createElement(AgentPane, { ...baseProps })));
     const { onExit } = vi.mocked(TerminalPane).mock.calls[0][0];
     act(() => onExit!(0));
 
+    expect(document.querySelector(".pane__exit")).not.toBeNull();
     expect(document.body.textContent).toContain("Agent exited");
-    expect(document.querySelector(".pane__exit-action")).toBeNull();
+    expect(document.querySelector(".pane__runbar")).toBeNull();
   });
 });

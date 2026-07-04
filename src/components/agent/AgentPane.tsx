@@ -149,12 +149,21 @@ export function AgentPane({
               setEditing(true);
             }}
           >
+            {runCommand && (
+              // What marks a run pane as NOT an agent — its header carries
+              // the play glyph instead of the agent affordances.
+              <span className="pane__run-mark" aria-label="Run pane">
+                <PlayIcon />
+              </span>
+            )}
             {title}
           </span>
         )}
-        {cwd && !provisioning && (
-          // Hidden while provisioning: the pane has no directory of its own
-          // yet, and the fallback cwd would open the wrong folder.
+        {cwd && !provisioning && !runCommand && (
+          // Hidden while provisioning (no directory of its own yet — the
+          // fallback cwd would open the wrong folder) and on run panes: the
+          // worktree belongs to the agent next door, whose header already
+          // offers it.
           <button
             type="button"
             className="pane__open"
@@ -203,7 +212,28 @@ export function AgentPane({
           </button>
         </div>
       </header>
-      <div className="pane__body">
+      <div
+        className={`pane__body${runCommand && exit && !dormant ? " pane__body--stacked" : ""}`}
+      >
+        {runCommand && exit && !dormant && (
+          // A run pane's exit state is a docked strip, NOT the centered
+          // overlay: the last screenful of output is exactly what the user
+          // needs to read and copy after a dev server dies.
+          <div className="pane__runbar" role="status">
+            <span className="pane__runbar-text">
+              {exit.code !== null
+                ? `Command exited (code ${exit.code})`
+                : "Command terminated"}
+            </span>
+            <button
+              type="button"
+              className="pane__runbar-action"
+              onClick={runAgain}
+            >
+              Run again
+            </button>
+          </div>
+        )}
         {provisioning ? (
           // The worktree behind this pane is still being created (or failed):
           // a status card instead of a terminal — mounting one now would
@@ -301,23 +331,12 @@ export function AgentPane({
             onTitle={onTitle}
           />
         )}
-        {exit && !dormant && (
+        {exit && !dormant && !runCommand && (
           <div className="pane__exit" role="status">
-            <span className="pane__exit-title">
-              {runCommand ? "Command exited" : "Agent exited"}
-            </span>
+            <span className="pane__exit-title">Agent exited</span>
             <span className="pane__exit-sub">
               {exit.code !== null ? `exit code ${exit.code}` : "terminated"}
             </span>
-            {runCommand && onRunAgain && (
-              <button
-                type="button"
-                className="pane__dormant-action pane__exit-action"
-                onClick={runAgain}
-              >
-                Run again
-              </button>
-            )}
           </div>
         )}
       </div>

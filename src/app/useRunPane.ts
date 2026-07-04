@@ -1,3 +1,4 @@
+import { MAX_PANES } from "../domain/layout";
 import { paneId, type Pane } from "../domain/panes";
 import { buildRunPlan } from "../domain/spawnPlans";
 import { describeError, log } from "../ipc/log";
@@ -39,6 +40,13 @@ export function useRunPane(deck: Deck) {
   ): Promise<void> => {
     const ws = deck.workspaces.find((w) => w.id === wsId);
     if (!ws) return;
+    // The grid's hard cap. The ▶ hides at the cap already; this covers the
+    // race where the grid filled while the picker was open — bail loudly
+    // instead of letting the reducer drop the pane silently.
+    if (ws.panes.length >= MAX_PANES) {
+      log.warn("web:run", `launch refused: ${wsId} is at ${MAX_PANES} panes`);
+      return;
+    }
     const id = paneId(mintAgentSeq());
     const worktree = source.cwd ?? ws.cwd;
     const port = await allocatePorts(worktree).catch((e) => {

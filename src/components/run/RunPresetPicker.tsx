@@ -83,13 +83,22 @@ export function RunPresetPicker({
       )}
 
       <span className="form__label">Command</span>
-      <input
+      <textarea
         {...noAutoCorrect}
-        className="form__input"
+        className="form__input run__command"
         value={command}
         autoFocus
+        rows={3}
         onChange={(e) => setCommand(e.target.value)}
-        placeholder="e.g. pnpm dev — $KEEPDECK_PORT is yours to use"
+        onKeyDown={(e) => {
+          // Enter inserts a newline (multi-line commands are legitimate
+          // shell); ⌘/Ctrl+Enter runs.
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            runAdHoc();
+          }
+        }}
+        placeholder={"e.g. pnpm dev — $KEEPDECK_PORT is yours to use\n⌘⏎ runs"}
         aria-label="Command to run"
       />
 

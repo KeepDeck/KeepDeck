@@ -79,6 +79,18 @@ describe("launch", () => {
     expect(pane.run).toEqual({ command: "make dev" });
   });
 
+  it("refuses to launch past the 16-pane grid cap", async () => {
+    const full = ws(
+      Array.from({ length: 16 }, (_, i) => ({ id: `p${i}`, agentType: "claude" as const })),
+    );
+    const deck = fakeDeck([full]);
+    await useRunPane(deck).launch("ws-1", {}, { command: "pnpm dev", name: "Dev" });
+
+    // Refused before any side effect — no port probe, no silent reducer drop.
+    expect(ports.allocatePorts).not.toHaveBeenCalled();
+    expect(deck.addAgentPane).not.toHaveBeenCalled();
+  });
+
   it("a failed port allocation degrades to a plan without KEEPDECK_PORT", async () => {
     ports.allocatePorts.mockRejectedValue(new Error("range exhausted"));
     const deck = fakeDeck([ws()]);
