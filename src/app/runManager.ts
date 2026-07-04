@@ -130,6 +130,14 @@ function spawn(entry: Entry): void {
       if (entry.removed) return;
       const message = describeError(e);
       log.error("web:run", `${id}: spawn failed: ${message}`);
+      // The failure belongs in the session's own log, like any other output —
+      // a status note alone ("spawn failed") hides the WHY (e.g. the
+      // worktree was deleted: the OS error names the missing directory).
+      const bytes = new TextEncoder().encode(
+        `\x1b[31mspawn failed: ${message}\x1b[0m\r\n`,
+      );
+      entry.sink?.onOutput(bytes);
+      remember(entry, bytes);
       update(id, { status: { kind: "failed", message } });
     });
 }

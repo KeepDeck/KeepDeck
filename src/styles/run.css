@@ -1,10 +1,22 @@
 /* The Run tab (experimental run presets): launcher, sessions, log. */
 
+/* Two zones: the config (target, commands, sessions) scrolls on its own;
+   the log takes whatever remains and can never be squeezed out by growing
+   lists — it only yields entirely when there is no session to show. */
 .run {
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1;
+}
+
+.run__config {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  display: flex;
+  flex-direction: column;
 }
 
 .run__target {
@@ -119,8 +131,9 @@
 
 /* The log fills the rest of the tab; xterm needs a sized, positioned host. */
 .run__log {
-  flex: 1;
+  flex: 1 1 160px;
   min-height: 160px;
+  margin-top: 12px;
   position: relative;
   overflow: hidden;
   border: 1px solid #1c2230;

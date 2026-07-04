@@ -44,8 +44,9 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overscroll-behavior: none;
+  /* Tabs own their scrolling: one scroll container around the whole tab
+     let growing lists shove pinned areas (the run log) out of the panel. */
+  overflow: hidden;
   padding: 12px;
 }
 

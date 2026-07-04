@@ -100,6 +100,7 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
 
   return (
     <div className="run">
+      <div className="run__config">
       <span className="form__label">Run in</span>
       <Dropdown
         className="run__target"
@@ -261,6 +262,7 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
           </ul>
         </>
       )}
+      </div>
 
       {shown && <RunLog key={shown.id} sessionId={shown.id} />}
     </div>

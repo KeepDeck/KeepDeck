@@ -187,3 +187,27 @@ describe("attachRun", () => {
     expect(seen).toEqual([1, 2, 3]); // detached views hear nothing
   });
 });
+
+describe("spawn failure output", () => {
+  it("writes the failure reason into the session's own log", async () => {
+    pty.spawnSession.mockRejectedValueOnce(
+      new Error("No such file or directory (os error 2)"),
+    );
+    const id = await launchRun("ws-1", { worktree: "/gone" }, {
+      command: "pnpm dev",
+      name: "Dev",
+    });
+    await vi.waitFor(() =>
+      expect(getRunSessions()[0].status.kind).toBe("failed"),
+    );
+
+    let seen = "";
+    attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+    expect(seen).toContain("spawn failed: ");
+    expect(seen).toContain("No such file or directory");
+  });
+});
