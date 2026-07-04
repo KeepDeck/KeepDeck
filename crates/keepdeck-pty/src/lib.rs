@@ -211,21 +211,30 @@ impl PtySession {
     /// swallows the signal can't survive a close. (A bare `ChildKiller::kill`
     /// only sends a catchable SIGHUP.) The Unix path takes no lock, so a close
     /// always lands even while a write is blocked on a hung child.
+    ///
+    /// Both signals go to the child's process GROUP: the PTY spawn made the
+    /// child a session leader (its pid doubles as the pgid), and a non-
+    /// interactive `sh -c` runs without job control, so a run command's whole
+    /// tree — `&`-backgrounded children included — shares that group. Killing
+    /// only the leader let those children outlive the pane. A process that
+    /// double-forks out of the session (a self-daemonizer) is beyond any
+    /// group signal; that one is out of scope by design.
     pub fn kill(&self) -> io::Result<()> {
         #[cfg(unix)]
         if let Some(pid) = self.pid {
-            // Already reaped → nothing to signal (and avoids a recycled pid).
+            // Already reaped → nothing to signal. The group id is the reaped
+            // pid, and once the group empties the id can be recycled — a late
+            // group signal could hit an unrelated process.
             if self.exited.load(Ordering::Relaxed) {
                 return Ok(());
             }
             let pid = pid as i32;
-            // SAFETY: kill(2) on a child we own; harmless ESRCH if already gone.
-            unsafe { libc::kill(pid, libc::SIGTERM) };
+            signal_tree(pid, libc::SIGTERM);
             let exited = self.exited.clone();
             thread::spawn(move || {
                 thread::sleep(Duration::from_secs(3));
                 if !exited.load(Ordering::Relaxed) {
-                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                    signal_tree(pid, libc::SIGKILL);
                 }
             });
             return Ok(());
@@ -277,6 +286,19 @@ fn spawn_pump(
         exited.store(true, Ordering::Relaxed);
         let _ = tx.send(PtyEvent::Exited(info));
     });
+}
+
+/// Send `sig` to the process group led by `pid`, falling back to the lone
+/// process when the group signal is refused (ESRCH: the group dissolved
+/// between the liveness check and this call).
+#[cfg(unix)]
+fn signal_tree(pid: i32, sig: libc::c_int) {
+    // SAFETY: kill(2) on a group/process we spawned; ESRCH is harmless.
+    unsafe {
+        if libc::kill(-pid, sig) != 0 {
+            libc::kill(pid, sig);
+        }
+    }
 }
 
 /// Build a `PtySize` of `cols` x `rows` cells (pixel dimensions unused).
