@@ -48,6 +48,24 @@ export function CloseIcon() {
   );
 }
 
+/** Collapse-direction chevron (dropdown state). */
+export function ChevronDownIcon() {
+  return (
+    <svg {...iconProps}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+/** Edit — the conventional pencil (Lucide `pencil`, ISC). */
+export function EditIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  );
+}
+
 /** Run — the conventional play triangle (run presets). */
 export function PlayIcon() {
   return (
