@@ -13,7 +13,6 @@ import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
-import { updateSettings } from "./app/settingsManager";
 import { useSettings } from "./app/useSettings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useWorktreeHead } from "./app/useWorktreeHead";
@@ -325,12 +324,7 @@ function App() {
           )}
 
           {settingsOpen && (
-            <SettingsDialog
-              settings={settings}
-              agents={agents}
-              onChange={updateSettings}
-              onClose={() => setSettingsOpen(false)}
-            />
+            <SettingsDialog onClose={() => setSettingsOpen(false)} />
           )}
 
           {closeFlow.closing && (

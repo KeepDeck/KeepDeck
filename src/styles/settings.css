@@ -1,6 +1,51 @@
-/* Settings dialog ([F6]) — the .form card, sized as a dialog. */
+/* Settings dialog ([F6]) — the .form card with a left section nav over a
+   panel area (sections registry: components/settings/sections.ts). */
 .settings {
-  max-width: 460px;
+  max-width: 640px;
+}
+
+.settings__body {
+  display: grid;
+  grid-template-columns: 148px 1fr;
+  gap: 24px;
+  /* Room for the tallest section — switching must not resize the dialog. */
+  min-height: 180px;
+  margin-bottom: 8px;
+}
+
+.settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 16px;
+  border-right: 1px solid #1c2230;
+}
+
+.settings__nav-item {
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings__nav-item:hover {
+  color: #c5c8c6;
+}
+
+.settings__nav-item--active {
+  background-color: #1c2230;
+  color: #c5c8c6;
+}
+
+.settings__section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .settings__hint {

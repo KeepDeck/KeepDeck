@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  getSettings,
+  initSettings,
+  resetSettingsManager,
+  updateSettings,
+} from "../../app/settingsManager";
 import { FALLBACK_AGENTS } from "../../domain/agents";
 import {
   DEFAULT_SETTINGS,
@@ -14,6 +20,20 @@ import { SettingsDialog } from "./SettingsDialog";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
+// The dialog's sections talk to the real settings manager over a mocked IPC —
+// the tests cover the whole loop: control → store → re-render.
+const ipc = vi.hoisted(() => ({
+  loadSettings: vi.fn<() => Promise<string | null>>(async () => null),
+  saveSettings: vi.fn<(json: string) => Promise<void>>(async () => {}),
+  quarantineSettings: vi.fn<() => Promise<void>>(async () => {}),
+}));
+vi.mock("../../ipc/settings", () => ipc);
+
+// The General section fetches the agent catalog itself (re-detect on open).
+vi.mock("../../ipc/agents", () => ({
+  listAgents: async () => FALLBACK_AGENTS,
+}));
+
 const button = (text: string) =>
   Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === text,
@@ -21,7 +41,7 @@ const button = (text: string) =>
 const scrollbackInput = () =>
   document.querySelector<HTMLInputElement>(
     'input[aria-label="Terminal scrollback lines"]',
-  )!;
+  );
 
 /** Type into a controlled React input: set via the native setter (bypassing
  * React's value tracker) and fire a bubbling `input` event. */
@@ -43,72 +63,100 @@ const blur = (el: HTMLElement) =>
 
 describe("SettingsDialog", () => {
   let root: Root;
-  let changes: Partial<Settings>[];
   let closed: number;
 
   beforeEach(() => {
+    ipc.saveSettings.mockClear();
+    resetSettingsManager();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
-    changes = [];
     closed = 0;
   });
 
-  afterEach(() => act(() => root.unmount()));
-
-  const mount = (overrides: Partial<Settings> = {}) =>
-    act(() =>
-      root.render(
-        createElement(SettingsDialog, {
-          settings: { ...DEFAULT_SETTINGS, ...overrides },
-          agents: FALLBACK_AGENTS,
-          onChange: (patch: Partial<Settings>) => changes.push(patch),
-          onClose: () => closed++,
-        }),
-      ),
-    );
-
-  it("picking an agent writes the default through", () => {
-    mount({ defaultAgent: "codex" });
-    act(() => button("Claude Code").click());
-    expect(changes).toEqual([{ defaultAgent: "claude" }]);
+  afterEach(() => {
+    act(() => root.unmount());
+    resetSettingsManager();
   });
 
-  it("marks the active choice", () => {
-    mount({ defaultAgent: "codex" });
+  const mount = async (overrides: Partial<Settings> = {}) => {
+    await initSettings();
+    if (Object.keys(overrides).length > 0) updateSettings(overrides);
+    // Seeding writes aren't under test — let the queued save land, then drop it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    ipc.saveSettings.mockClear();
+    await act(async () =>
+      root.render(
+        createElement(SettingsDialog, { onClose: () => closed++ }),
+      ),
+    );
+    await act(async () => {}); // flush the agent-catalog load
+  };
+
+  const toTerminal = () => act(() => button("Terminal").click());
+
+  it("opens on General; the nav switches panels", async () => {
+    await mount();
+    expect(button("Claude Code")).toBeDefined();
+    expect(scrollbackInput()).toBeNull(); // Terminal panel not rendered
+    expect(button("General").className).toContain("settings__nav-item--active");
+
+    toTerminal();
+    expect(scrollbackInput()).not.toBeNull();
+    expect(
+      Array.from(document.querySelectorAll("button")).find(
+        (b) => b.textContent === "Claude Code",
+      ),
+    ).toBeUndefined();
+    expect(button("Terminal").className).toContain("settings__nav-item--active");
+  });
+
+  it("picking an agent writes the default through to the store", async () => {
+    await mount({ defaultAgent: "codex" });
+    act(() => button("Claude Code").click());
+    expect(getSettings()?.defaultAgent).toBe("claude");
+    // The active mark follows the store, not local state.
+    expect(button("Claude Code").className).toContain("form__type--active");
+  });
+
+  it("marks the active choice", async () => {
+    await mount({ defaultAgent: "codex" });
     expect(button("Codex").className).toContain("form__type--active");
     expect(button("Claude Code").className).not.toContain("form__type--active");
   });
 
-  it("scrollback commits clamped on blur — not per keystroke", () => {
-    mount();
-    type(scrollbackInput(), "7");
-    expect(changes).toEqual([]); // still typing
-    blur(scrollbackInput());
-    expect(changes).toEqual([{ scrollback: SCROLLBACK_MIN }]);
-    expect(scrollbackInput().value).toBe(String(SCROLLBACK_MIN));
+  it("scrollback commits clamped on blur — not per keystroke", async () => {
+    await mount();
+    toTerminal();
+    type(scrollbackInput()!, "7");
+    expect(getSettings()?.scrollback).toBe(DEFAULT_SETTINGS.scrollback); // still typing
+    blur(scrollbackInput()!);
+    expect(getSettings()?.scrollback).toBe(SCROLLBACK_MIN);
+    expect(scrollbackInput()!.value).toBe(String(SCROLLBACK_MIN));
   });
 
-  it("a non-number reverts to the live value instead of writing", () => {
-    mount();
-    type(scrollbackInput(), "lots");
-    blur(scrollbackInput());
-    expect(changes).toEqual([]);
-    expect(scrollbackInput().value).toBe(String(DEFAULT_SETTINGS.scrollback));
+  it("a non-number reverts to the live value instead of writing", async () => {
+    await mount();
+    toTerminal();
+    type(scrollbackInput()!, "lots");
+    blur(scrollbackInput()!);
+    expect(getSettings()?.scrollback).toBe(DEFAULT_SETTINGS.scrollback);
+    expect(scrollbackInput()!.value).toBe(String(DEFAULT_SETTINGS.scrollback));
   });
 
-  it("an unchanged commit writes nothing", () => {
-    mount();
-    blur(scrollbackInput());
-    expect(changes).toEqual([]);
+  it("an unchanged commit writes nothing", async () => {
+    await mount();
+    toTerminal();
+    blur(scrollbackInput()!);
+    expect(ipc.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("Done and Escape only dismiss", () => {
-    mount();
+  it("Done and Escape only dismiss", async () => {
+    await mount();
     act(() => button("Done").click());
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
     expect(closed).toBe(2);
-    expect(changes).toEqual([]);
+    expect(ipc.saveSettings).not.toHaveBeenCalled();
   });
 });
