@@ -27,21 +27,28 @@ export type LocationKind =
   | "occupied" // a pane already runs in this directory → can't take a second
   | "blocked"; // path exists but isn't a worktree → can't use it
 
-/** Classify a candidate worktree path from its probe. Pure. Occupancy (a pane
- * of this deck already runs there) is known synchronously and outranks every
- * probe outcome — even mid-probe — UNLESS the user explicitly chose to attach
- * anyway (`attachAnyway`), which is honored only for a confirmed existing
- * worktree: a pane still provisioning its target dir has nothing to attach to.
- * An existing EMPTY dir counts as "new" — git can create a worktree into it;
- * only a non-empty non-worktree dir is blocked. */
+/** How a pane of this deck already holds a candidate path: it RUNS there
+ * (`"worktree"` — the dir is a live git worktree, that's how panes get a cwd),
+ * or it's the target of an in-flight/failed worktree create (`"provisioning"`
+ * — nothing exists to attach to yet). `null` → free. */
+export type Occupancy = "worktree" | "provisioning" | null;
+
+/** Classify a candidate worktree path from its probe. Pure. Occupancy is
+ * known synchronously and outranks every probe outcome — even mid-probe —
+ * UNLESS the user explicitly chose to attach anyway (`attachAnyway`). The
+ * override needs no probe: `"worktree"` occupancy itself proves the dir is a
+ * worktree (a pane runs in it), while a `"provisioning"` target can never be
+ * attached. An existing EMPTY dir counts as "new" — git can create a worktree
+ * into it; only a non-empty non-worktree dir is blocked. */
 export function classifyLocation(
   path: string,
   probe: PathProbe | null,
-  occupied = false,
+  occupancy: Occupancy = null,
   attachAnyway = false,
 ): LocationKind {
   if (!path.trim()) return "main";
-  if (occupied && !(attachAnyway && probe?.isWorktree)) return "occupied";
+  if (occupancy === "worktree" && attachAnyway) return "existing";
+  if (occupancy) return "occupied";
   if (!probe) return "checking";
   if (!probe.exists) return "new";
   if (probe.isWorktree) return "existing";

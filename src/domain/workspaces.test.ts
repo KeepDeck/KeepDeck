@@ -13,6 +13,7 @@ import {
   resolvePaneProvisioning,
   setPaneAutoTitle,
   paneOccupyingPath,
+  pathOccupancy,
   setPaneHead,
   setPaneProvisioningError,
   worktreeCwds,
@@ -376,6 +377,26 @@ describe("paneOccupyingPath", () => {
   it("reports a free path (and an empty one) as unoccupied", () => {
     expect(paneOccupyingPath(deck, "/wt/free")).toBeNull();
     expect(paneOccupyingPath(deck, "   ")).toBeNull();
+  });
+});
+
+describe("pathOccupancy", () => {
+  it("a running pane's dir is worktree occupancy; a provisioning target isn't", () => {
+    const deck: Workspace[] = [
+      {
+        ...ws("a", []),
+        panes: [
+          { id: "a-p1", cwd: "/wt/live", branch: "kd/a/1" },
+          {
+            id: "a-p2",
+            provisioning: { repo: "/r", path: "/wt/pending", workspace: "a", index: 2 },
+          },
+        ],
+      },
+    ];
+    expect(pathOccupancy(deck, "/wt/live")).toBe("worktree");
+    expect(pathOccupancy(deck, "/wt/pending")).toBe("provisioning");
+    expect(pathOccupancy(deck, "/wt/free")).toBeNull();
   });
 });
 

@@ -1,4 +1,5 @@
 import type { AgentType } from "./agents";
+import type { Occupancy } from "./agentLocation";
 import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
@@ -321,6 +322,19 @@ export function paneOccupyingPath(
     }
   }
   return null;
+}
+
+/** How a pane holds `path` — see [`Occupancy`]: a pane with a `cwd` RUNS in
+ * the dir (so it provably is a live worktree), a provisioning intent merely
+ * targets it. This distinction is what lets the agent dialog offer "attach
+ * anyway" instantly, without waiting for a filesystem probe. */
+export function pathOccupancy(
+  workspaces: Workspace[],
+  path: string,
+): Occupancy {
+  const hit = paneOccupyingPath(workspaces, path);
+  if (!hit) return null;
+  return hit.pane.cwd ? "worktree" : "provisioning";
 }
 
 /** One worktree branch/folder name suggestion (mirrors the Rust
