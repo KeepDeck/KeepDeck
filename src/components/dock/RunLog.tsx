@@ -50,5 +50,11 @@ export function RunLog({ sessionId }: { sessionId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  return <div ref={hostRef} className="run__log" />;
+  // The inner host is what FitAddon measures — padding lives on the outer
+  // box so the text never touches the border, without lying to the fit.
+  return (
+    <div className="run__log">
+      <div ref={hostRef} className="run__log-host" />
+    </div>
+  );
 }

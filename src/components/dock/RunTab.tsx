@@ -47,6 +47,8 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
   const [command, setCommand] = useState("");
   const [name, setName] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
+  // The caption's ✕ hides the log; picking a row (or launching) re-opens it.
+  const [logOpen, setLogOpen] = useState(true);
   // The command form is collapsed behind the header's "+" (`null`); open,
   // it either adds a new command (`presetId: null`) or — via a row's ✎ —
   // rewrites an existing one.
@@ -54,8 +56,14 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
 
   const sessions = useRunSessions().filter((s) => s.wsId === ws.id);
   const rows = commandRows(ws.run?.presets ?? [], sessions, target);
-  const shown =
-    sessions.find((s) => s.id === picked) ?? sessions[sessions.length - 1];
+  const shown = logOpen
+    ? (sessions.find((s) => s.id === picked) ?? sessions[sessions.length - 1])
+    : undefined;
+
+  const pick = (id: string) => {
+    setPicked(id);
+    setLogOpen(true);
+  };
 
   // Distinct run targets: each pane worktree once, the workspace folder last
   // (dropped from the pane pass so an attached-to-main pane can't duplicate it).
@@ -75,13 +83,20 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
       ? "workspace folder"
       : (s.branch ?? shortPath(s.worktree));
 
-  const launchHere = (preset: { id: string; name: string; command: string }) => {
+  /** Launch a preset — in the current target, or a specific one (a child
+   * row's re-run). Always sends the preset's CURRENT command: the manager's
+   * replace-on-relaunch picks it up, so an edited command applies on the
+   * next run instead of resurrecting the old snapshot. */
+  const launchPreset = (
+    preset: { id: string; name: string; command: string },
+    where?: { worktree: string; branch?: string },
+  ) => {
     const branch = ws.panes.find((p) => p.cwd === target)?.branch;
     void launchRun(
       ws.id,
-      { worktree: target, ...(branch && { branch }) },
+      where ?? { worktree: target, ...(branch && { branch }) },
       { presetId: preset.id, command: preset.command, name: preset.name },
-    ).then(setPicked);
+    ).then(pick);
   };
 
   const closeDraft = () => {
@@ -117,8 +132,16 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     closeDraft();
   };
 
-  /** The state glyph: rest face shows the state, hover face IS the control. */
-  const glyph = (s: RunSession | undefined, name: string, onIdleRun?: () => void) => {
+  /** The state glyph: rest face shows the state, hover face IS the control.
+   * `rerun` overrides the dead-session action (preset rows relaunch with the
+   * preset's current command); without it, the snapshot restarts (orphans —
+   * their old command is all that's left of them). */
+  const glyph = (
+    s: RunSession | undefined,
+    name: string,
+    onIdleRun?: () => void,
+    rerun?: () => void,
+  ) => {
     const act = (title: string, run: () => void, icon: React.ReactNode) => (
       <button
         type="button"
@@ -163,14 +186,22 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
             <span
               className={`run__g-rest run__dot ${s.status.code === 0 ? "run__dot--exited" : "run__dot--failed"}`}
             />
-            {act("Run again", () => void restartRun(s.id), <PlayFillIcon />)}
+            {act(
+              "Run again",
+              rerun ?? (() => void restartRun(s.id)),
+              <PlayFillIcon />,
+            )}
           </span>
         );
       case "failed":
         return (
           <span className="run__g run__g--actable">
             <span className="run__g-rest run__dot run__dot--failed" />
-            {act("Run again", () => void restartRun(s.id), <PlayFillIcon />)}
+            {act(
+              "Run again",
+              rerun ?? (() => void restartRun(s.id)),
+              <PlayFillIcon />,
+            )}
           </span>
         );
     }
@@ -272,15 +303,14 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
                 <div
                   className={`run__cmd${row.session && shown?.id === row.session.id ? " run__cmd--active" : ""}`}
                   onClick={
-                    row.session
-                      ? () => setPicked(row.session!.id)
-                      : undefined
+                    row.session ? () => pick(row.session!.id) : undefined
                   }
                 >
                   {glyph(
                     row.session,
                     rowName,
-                    row.preset ? () => launchHere(row.preset!) : undefined,
+                    row.preset ? () => launchPreset(row.preset!) : undefined,
+                    row.preset ? () => launchPreset(row.preset!) : undefined,
                   )}
                   <span className="run__cmd-name" title={row.preset?.command ?? row.session?.command}>
                     {rowName}
@@ -340,9 +370,20 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
                   <div
                     key={s.id}
                     className={`run__cmd run__cmd--child${shown?.id === s.id ? " run__cmd--active" : ""}`}
-                    onClick={() => setPicked(s.id)}
+                    onClick={() => pick(s.id)}
                   >
-                    {glyph(s, `${rowName} (${targetLabel(s)})`)}
+                    {glyph(
+                      s,
+                      `${rowName} (${targetLabel(s)})`,
+                      undefined,
+                      row.preset
+                        ? () =>
+                            launchPreset(row.preset!, {
+                              worktree: s.worktree,
+                              ...(s.branch && { branch: s.branch }),
+                            })
+                        : undefined,
+                    )}
                     <span className="run__cmd-name" title={s.worktree}>
                       {targetLabel(s)}
                     </span>
@@ -376,8 +417,19 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
       {shown && (
         <div className="run__logbox">
           <div className="run__logcap" title={`${shown.command} · ${shown.worktree}`}>
-            <b>{shown.name}</b> · {targetLabel(shown)}
-            {sessionNote(shown) && <> · {sessionNote(shown)}</>}
+            <span className="run__logcap-text">
+              <b>{shown.name}</b> · {targetLabel(shown)}
+              {sessionNote(shown) && <> · {sessionNote(shown)}</>}
+            </span>
+            <button
+              type="button"
+              className="run__logcap-close"
+              onClick={() => setLogOpen(false)}
+              title="Hide the log"
+              aria-label="Hide the log"
+            >
+              <CloseIcon />
+            </button>
           </div>
           <RunLog key={shown.id} sessionId={shown.id} />
         </div>

@@ -320,9 +320,54 @@
 .run__log {
   flex: 1;
   min-height: 0;
-  position: relative;
   overflow: hidden;
+  /* Breathing room between the border and the text: on the OUTER box, so
+     FitAddon (which measures the inner host) sizes the grid to the space
+     that's actually available. */
+  padding: 6px 4px 6px 8px;
   /* xterm's own selection works inside. */
   user-select: text;
   -webkit-user-select: text;
+}
+
+.run__log-host {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* The caption's close control — hides the log until a row is picked again. */
+.run__logcap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.run__logcap-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run__logcap-close {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  padding: 0;
+  cursor: pointer;
+}
+
+.run__logcap-close:hover {
+  background-color: #243044;
+  color: #c5c8c6;
 }

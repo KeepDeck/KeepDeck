@@ -140,19 +140,47 @@ describe("RunTab — the merged Commands list", () => {
     expect(child.textContent).toContain("exit 1");
     // The parent row still offers launching HERE.
     expect(button("Run: Dev")).not.toBeNull();
-    // The child's glyph re-runs in ITS target (restart-in-place).
+    // The child's glyph re-runs in ITS target — with the preset's CURRENT
+    // command (the manager replaces the dead session for that target).
     act(() => button("Run again: Dev (kd/a)")!.click());
-    expect(manager.restartRun).toHaveBeenCalledWith("s1");
+    expect(manager.launchRun).toHaveBeenCalledWith(
+      "ws-1",
+      { worktree: "/wt/a", branch: "kd/a" },
+      { presetId: "run-1", command: "pnpm dev", name: "Dev" },
+    );
+    expect(manager.restartRun).not.toHaveBeenCalled();
     act(() => button("Remove run Dev in kd/a")!.click());
     expect(manager.removeRun).toHaveBeenCalledWith("s1");
   });
 
-  it("a dead session's glyph becomes Run again (replace, not pile)", () => {
-    manager.sessions = [running({ status: { kind: "exited", code: 1 } })];
+  it("Run again relaunches with the preset's CURRENT command, not the snapshot", () => {
+    manager.sessions = [
+      running({ command: "pnpm dev --old", status: { kind: "exited", code: 1 } }),
+    ];
     mount();
     expect(document.body.textContent).toContain("exit 1");
     act(() => button("Run again: Dev")!.click());
-    expect(manager.restartRun).toHaveBeenCalledWith("s1");
+    // The edited preset command wins over the dead session's snapshot.
+    expect(manager.launchRun).toHaveBeenCalledWith(
+      "ws-1",
+      { worktree: "/wt/b", branch: "kd/b" },
+      { presetId: "run-1", command: "pnpm dev", name: "Dev" },
+    );
+    expect(manager.restartRun).not.toHaveBeenCalled();
+  });
+
+  it("the caption's ✕ hides the log; picking a row brings it back", () => {
+    manager.sessions = [running()];
+    mount();
+    expect(document.querySelector(".run__logbox")).not.toBeNull();
+
+    act(() => button("Hide the log")!.click());
+    expect(document.querySelector(".run__logbox")).toBeNull();
+
+    act(() =>
+      document.querySelector<HTMLElement>(".run__cmd")!.click(),
+    );
+    expect(document.querySelector(".run__logbox")).not.toBeNull();
   });
 
   it("an orphan session (its command was deleted) keeps a row with Remove only", () => {
