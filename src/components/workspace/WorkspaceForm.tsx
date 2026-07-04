@@ -5,6 +5,7 @@ import {
   type AgentType,
 } from "../../domain/agents";
 import { useAgents } from "../../app/useAgents";
+import { useSettings } from "../../app/useSettings";
 import type { SpawnConfig } from "../../domain/workspaces";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { useEscape } from "../../ui/useEscape";
@@ -25,8 +26,6 @@ interface WorkspaceFormProps {
   pickFolder(title: string): Promise<string | null>;
   /** Probe a chosen working directory for the git hint (injected likewise). */
   inspectDir(path: string): Promise<{ isRepo: boolean; branch: string | null }>;
-  /** Global default agent preference ([F6]). */
-  defaultAgent: AgentType;
 }
 
 /**
@@ -39,10 +38,13 @@ export function WorkspaceForm({
   onCancel,
   pickFolder,
   inspectDir,
-  defaultAgent,
 }: WorkspaceFormProps) {
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState<string | null>(null);
+  // Global default agent preference ([F6]), straight from the settings store.
+  // Loaded before the form can mount (App gates the first paint on it); the
+  // fallback only covers isolated test mounts.
+  const defaultAgent = useSettings()?.defaultAgent ?? "claude";
   const [agentType, setAgentType] = useState<AgentType>(defaultAgent);
   // The user picked a type by hand — that choice must survive a defaultAgent
   // change made in the settings dialog while this form is open ([F6]).

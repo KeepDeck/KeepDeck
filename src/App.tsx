@@ -81,11 +81,7 @@ function App() {
   const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
-  const agentFlow = useAgentDialog(
-    deck,
-    agents,
-    settings?.defaultAgent ?? "claude",
-  );
+  const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, setError);
 
@@ -259,7 +255,6 @@ function App() {
             focusByWs={deck.focusByWs}
             selectedPaneId={selectedPaneId}
             agents={agents}
-            scrollback={settings.scrollback}
             onStartWorkspace={(wsId, count) =>
               void provisioning.startWorkspace(wsId, count)
             }
@@ -291,7 +286,6 @@ function App() {
                   onCancel={settingsOpen ? undefined : () => setCreating(false)}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
-                  defaultAgent={settings.defaultAgent}
                 />
               </ModalOverlay>
             ) : (
@@ -302,7 +296,6 @@ function App() {
                   onCreate={handleCreateWorkspace}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
-                  defaultAgent={settings.defaultAgent}
                 />
               </div>
             ))}

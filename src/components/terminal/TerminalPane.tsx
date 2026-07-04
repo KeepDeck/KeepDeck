@@ -12,7 +12,9 @@ import {
 import { openPath, openUrl } from "../../ipc/app";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerPaneInput } from "../../app/paneInput";
+import { useSettings } from "../../app/useSettings";
 import { keyAction } from "../../domain/keymap";
+import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
   createPasteHandler,
   isCopyChord,
@@ -42,8 +44,6 @@ interface TerminalPaneProps {
   env?: [string, string][];
   /** Working directory for the session; omitted uses the app's cwd. */
   cwd?: string | null;
-  /** Scrollback lines to keep ([F6]); changes apply to the live terminal. */
-  scrollback: number;
   /** Whether this pane is currently on screen (active workspace, not collapsed). */
   visible: boolean;
   /** The highlighted pane — focus its terminal when it's on screen. */
@@ -74,12 +74,15 @@ export function TerminalPane({
   args,
   env,
   cwd,
-  scrollback,
   visible,
   selected,
   onExit,
   onTitle,
 }: TerminalPaneProps) {
+  // Scrollback comes straight from the settings store ([F6]) — no prop
+  // threading through the grid. Loaded before panes can mount (App gates the
+  // first paint on it); the fallback only covers isolated test mounts.
+  const scrollback = useSettings()?.scrollback ?? DEFAULT_SETTINGS.scrollback;
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
