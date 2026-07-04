@@ -1,4 +1,135 @@
-/* Run presets (experimental): the ▶ picker and run-pane odds and ends. */
+/* The Run tab (experimental run presets): launcher, sessions, log. */
+
+.run {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.run__target {
+  margin-bottom: 16px;
+}
+
+.run__launch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.run__go {
+  padding: 6px 14px;
+}
+
+.run__sessions {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.run__session {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  padding-right: 2px;
+}
+
+.run__session:hover {
+  background-color: #151a24;
+}
+
+.run__session--active {
+  background-color: #1b2230;
+}
+
+.run__session-pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run__session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run__session-note {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.run__session-act {
+  flex: none;
+  border: 1px solid #2a3343;
+  border-radius: 5px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.run__session-act:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
+}
+
+.run__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.run__dot--running {
+  background-color: #58b368;
+}
+
+.run__dot--stopping {
+  background-color: #d9a24a;
+}
+
+.run__dot--exited {
+  background-color: #3b4658;
+}
+
+.run__dot--failed {
+  background-color: #e5736f;
+}
+
+/* The log fills the rest of the tab; xterm needs a sized, positioned host. */
+.run__log {
+  flex: 1;
+  min-height: 160px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #1c2230;
+  border-radius: 6px;
+  background-color: #0b0e14;
+  /* xterm's own selection works inside. */
+  user-select: text;
+  -webkit-user-select: text;
+}
 
 .run__presets {
   list-style: none;

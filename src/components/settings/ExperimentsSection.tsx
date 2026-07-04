@@ -23,9 +23,9 @@ export function ExperimentsSection() {
         <span className="settings__toggle-text">
           Run presets
           <span className="settings__hint">
-            Launch the app you're building in a pane: per-workspace run
-            commands (▶ in a pane header), a one-time worktree setup command,
-            and KEEPDECK_WORKTREE / KEEPDECK_BRANCH / KEEPDECK_PORT in the
+            Launch the app you're building from the Run panel: per-workspace
+            run commands, a one-time worktree setup command, and
+            KEEPDECK_WORKTREE / KEEPDECK_BRANCH / KEEPDECK_PORT in the
             command's environment. May change or disappear.
           </span>
         </span>

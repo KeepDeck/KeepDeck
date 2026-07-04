@@ -5,6 +5,7 @@ import {
 } from "../domain/workspaces";
 import { discardWorktrees } from "./provisioning";
 import { closePanes } from "./ptyManager";
+import { stopWorkspaceRuns } from "./runManager";
 import type { Deck } from "./useDeck";
 
 /** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
@@ -66,7 +67,12 @@ export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
             .find((w) => w.id === closing.id)
             ?.panes.map((p) => p.id) ?? []);
     if (closing.kind === "agent") deck.closeAgent(closing.wsId, closing.paneId);
-    else deck.closeWorkspace(closing.id);
+    else {
+      deck.closeWorkspace(closing.id);
+      // The workspace's run sessions (the Run panel's world) die with it —
+      // a dev server outliving its workspace would be a leak.
+      stopWorkspaceRuns(closing.id);
+    }
     setClosing(null);
     setDeleteWorktree(false);
     const closed = closePanes(paneIds);

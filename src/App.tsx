@@ -21,6 +21,7 @@ import type { SpawnPlan } from "./domain/spawnPlans";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
+import { DockPanel } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import { closeHotkeyTarget, maximizeHotkeyTarget } from "./domain/hotkeys";
@@ -76,6 +77,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   // The settings dialog ([F6]) — opened from the app menu (⌘,) or the gear.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The dock (Run panel, experimental) — a persistent side panel like the
+  // rail, not a modal.
+  const [dockOpen, setDockOpen] = useState(false);
 
   const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
@@ -221,6 +225,19 @@ function App() {
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
           </span>
+          {settings.experimentRunPresets && (
+            // The Run panel's one entry point — the experiment flag gates
+            // exactly this toggle; live runs keep working regardless.
+            <button
+              type="button"
+              className="bar__icon"
+              onClick={() => setDockOpen((o) => !o)}
+              title={dockOpen ? "Hide the Run panel" : "Show the Run panel"}
+              aria-label="Toggle run panel"
+            >
+              <DockIcon />
+            </button>
+          )}
           <button
             type="button"
             className="bar__icon"
@@ -370,6 +387,16 @@ function App() {
             </ConfirmDialog>
           )}
         </div>
+        {settings.experimentRunPresets && dockOpen && active && (
+          // Keyed by workspace: switching resets the tab-local state (run
+          // target, drafts) to the new workspace's context.
+          <DockPanel
+            key={active.id}
+            ws={active}
+            selectedPaneId={selectedPaneId}
+            onSetRun={(run) => deck.setWorkspaceRun(active.id, run)}
+          />
+        )}
       </div>
     </div>
   );
@@ -390,6 +417,25 @@ function GearIcon() {
     >
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
+function DockIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <line x1="15" y1="4" x2="15" y2="20" />
     </svg>
   );
 }
