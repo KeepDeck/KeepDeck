@@ -4,6 +4,7 @@ import {
   CLOSE_AGENT_EVENT,
   NEW_AGENT_EVENT,
   NEW_WORKSPACE_EVENT,
+  SETTINGS_EVENT,
   TOGGLE_MAXIMIZE_EVENT,
   onMenuEvent,
 } from "../ipc/menu";
@@ -17,6 +18,8 @@ export interface MenuActions {
   closeAgent(): void;
   /** View → Toggle Maximize Agent (⇧⌘M). */
   toggleMaximize(): void;
+  /** Settings… (⌘,) — the app submenu on macOS, File elsewhere ([F6]). */
+  openSettings(): void;
 }
 
 /**
@@ -45,6 +48,7 @@ export function useMenuHotkeys(actions: MenuActions) {
     subscribe(NEW_AGENT_EVENT, "newAgent");
     subscribe(CLOSE_AGENT_EVENT, "closeAgent");
     subscribe(TOGGLE_MAXIMIZE_EVENT, "toggleMaximize");
+    subscribe(SETTINGS_EVENT, "openSettings");
     return () => {
       cancelled = true;
       unlisteners.forEach((un) => un());

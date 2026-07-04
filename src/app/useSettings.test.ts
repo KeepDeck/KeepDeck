@@ -105,7 +105,8 @@ describe("useSettings", () => {
       store.update({ defaultAgent: "codex" });
     });
     await act(async () => {});
-    const last = ipc.saveSettings.mock.calls.at(-1)![0];
+    const calls = ipc.saveSettings.mock.calls;
+    const last = calls[calls.length - 1][0];
     expect(JSON.parse(last)).toEqual({
       version: 1,
       scrollback: 20_000,
