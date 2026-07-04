@@ -1,0 +1,265 @@
+/* Agent pane: header + terminal body */
+.pane {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  /* Always reserve the focus-border space (transparent) so the active border
+     never covers content and toggling focus causes no layout shift. */
+  border: 2px solid transparent;
+  transition: border-color 0.3s ease;
+  background-color: #0b0e14;
+}
+
+/* Hidden while another pane is maximized; stays mounted so its session lives. */
+.pane--collapsed {
+  display: none;
+}
+
+/* The focused pane — colour the reserved border. Content stays fully inside it. */
+.pane--active {
+  border-color: #58b368;
+}
+
+.pane__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  flex: none;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid #161b26;
+  background-color: #0e121a;
+  user-select: none;
+}
+
+/* Text button on the left of the header: open the agent's cwd in VS Code. */
+.pane__open {
+  flex: none;
+  margin-left: 8px;
+  padding: 0 8px;
+  height: 18px;
+  border: 1px solid #2a3446;
+  border-radius: 4px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pane__open:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
+  border-color: #3a4658;
+}
+
+.pane__title {
+  font-size: 12px;
+  color: #9aa3af;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* Inline rename of the pane title ([F11]). */
+.pane__rename {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid #3a4658;
+  border-radius: 4px;
+  background-color: #0b0e14;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.pane__branch {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #7fb88a;
+  background-color: #12211a;
+  border: 1px solid #1d3a2a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.pane__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.pane__action,
+.pane__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  line-height: 1;
+  padding: 3px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pane__action:hover,
+.pane__close:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
+}
+
+.pane__body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  /* Positioning context for the [U4] agent-exited placeholder overlay. */
+  position: relative;
+}
+
+/* Shown over the dead terminal when the agent process exits ([U4]). */
+.pane__exit {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background-color: rgba(11, 14, 20, 0.82);
+  /* Purely informational — never trap clicks; closing is in the pane header. */
+  pointer-events: none;
+  user-select: none;
+}
+
+.pane__exit-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #8b93a3;
+}
+
+.pane__exit-sub {
+  font-size: 12px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Restored-but-not-running tile ([F7]) — shown instead of the terminal until
+   the pane is revived; persists only when its directory is gone. */
+.pane__dormant {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background-color: #0b0e14;
+}
+
+.pane__dormant-path {
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane__dormant-action {
+  margin-top: 10px;
+  border: 1px solid #2a3343;
+  background-color: #161b26;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pane__dormant-action:hover {
+  background-color: #1b2230;
+  border-color: #3a4658;
+}
+
+/* Worktree-provisioning card (optimistic provisioning): the pane appears the
+   moment it's requested and this card fills it — thin indeterminate bar under
+   the header, pulsing dots over the status line — until its worktree lands. */
+.pane__provision-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+}
+
+.pane__provision-bar::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, #3a4658, transparent);
+  animation: pane-provision-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes pane-provision-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(350%);
+  }
+}
+
+.pane__provision-pulse {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.pane__provision-pulse span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: #8b93a3;
+  animation: pane-provision-pulse 1.2s ease-in-out infinite;
+}
+
+.pane__provision-pulse span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.pane__provision-pulse span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes pane-provision-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

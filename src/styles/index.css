@@ -1,0 +1,15 @@
+/* Feature-scoped split of the app stylesheet; each file mirrors a component
+   area (components/*, ui/*). Import order carries the cascade: settings.css
+   must follow form.css — .settings tightens .form's max-width at equal
+   specificity, so source order decides the winner. */
+@import "./base.css";
+@import "./deck.css";
+@import "./rail.css";
+@import "./pane.css";
+@import "./terminal.css";
+@import "./setup.css";
+@import "./overlay.css";
+@import "./form.css";
+@import "./confirm.css";
+@import "./settings.css";
+@import "./buttons.css";

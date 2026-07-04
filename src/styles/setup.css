@@ -1,0 +1,94 @@
+/* Empty-workspace setup (terminal-count picker) */
+.deck__setup {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #0b0e14;
+}
+
+.setup {
+  text-align: center;
+  padding: 24px;
+}
+
+.setup__title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #c5c8c6;
+}
+
+.setup__hint {
+  margin: 0 0 24px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.setup__tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  max-width: 620px;
+}
+
+.setup__tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 76px;
+  padding: 14px 8px;
+  border: 1px solid #1c2230;
+  border-radius: 10px;
+  background-color: #0e121a;
+  color: #9aa3af;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.setup__tile:hover {
+  border-color: #3a4658;
+  background-color: #151a24;
+  color: #c5c8c6;
+}
+
+.setup__preview {
+  display: grid;
+  gap: 2px;
+  width: 40px;
+  height: 40px;
+}
+
+.setup__cell {
+  border-radius: 2px;
+  background-color: #232a38;
+}
+
+.setup__cell--on {
+  background-color: #3a4658;
+}
+
+.setup__tile:hover .setup__cell--on {
+  background-color: #5a6b86;
+}
+
+.setup__count {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.setup__tile--active {
+  border-color: #5a6b86;
+  background-color: #161d29;
+  color: #c5c8c6;
+}
+
+.setup__tile--active .setup__cell--on {
+  background-color: #5a6b86;
+}
