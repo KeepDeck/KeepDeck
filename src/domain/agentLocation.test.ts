@@ -86,4 +86,28 @@ describe("occupied locations", () => {
   it("an occupied path can never be created", () => {
     expect(canCreateAgent("occupied", "some-branch")).toBe(false);
   });
+
+  it("attach-anyway turns an occupied existing worktree into a plain attach", () => {
+    expect(
+      classifyLocation(
+        "/wt/a",
+        probe({ exists: true, isWorktree: true }),
+        true,
+        true,
+      ),
+    ).toBe("existing");
+  });
+
+  it("attach-anyway is honored only for a confirmed worktree — not mid-probe, not for a provisioning target", () => {
+    // Probe still in flight: nothing confirmed to attach to yet.
+    expect(classifyLocation("/wt/a", null, true, true)).toBe("occupied");
+    // Occupied by a provisioning pane whose dir isn't created yet.
+    expect(classifyLocation("/wt/a", probe({ exists: false }), true, true)).toBe(
+      "occupied",
+    );
+    // Exists but isn't a worktree.
+    expect(
+      classifyLocation("/wt/a", probe({ exists: true }), true, true),
+    ).toBe("occupied");
+  });
 });

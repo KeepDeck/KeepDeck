@@ -29,15 +29,19 @@ export type LocationKind =
 
 /** Classify a candidate worktree path from its probe. Pure. Occupancy (a pane
  * of this deck already runs there) is known synchronously and outranks every
- * probe outcome — even mid-probe. An existing EMPTY dir counts as "new" — git
- * can create a worktree into it; only a non-empty non-worktree dir is blocked. */
+ * probe outcome — even mid-probe — UNLESS the user explicitly chose to attach
+ * anyway (`attachAnyway`), which is honored only for a confirmed existing
+ * worktree: a pane still provisioning its target dir has nothing to attach to.
+ * An existing EMPTY dir counts as "new" — git can create a worktree into it;
+ * only a non-empty non-worktree dir is blocked. */
 export function classifyLocation(
   path: string,
   probe: PathProbe | null,
   occupied = false,
+  attachAnyway = false,
 ): LocationKind {
   if (!path.trim()) return "main";
-  if (occupied) return "occupied";
+  if (occupied && !(attachAnyway && probe?.isWorktree)) return "occupied";
   if (!probe) return "checking";
   if (!probe.exists) return "new";
   if (probe.isWorktree) return "existing";
