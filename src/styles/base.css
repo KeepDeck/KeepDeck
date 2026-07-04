@@ -30,3 +30,12 @@ body {
 .xterm-viewport {
   overscroll-behavior: none;
 }
+
+/* WKWebView draws native macOS stepper arrows inside number inputs — the one
+   native-looking control in an otherwise fully custom UI. Keyboard ↑/↓ and
+   min/max still work; only the drawn buttons go. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
