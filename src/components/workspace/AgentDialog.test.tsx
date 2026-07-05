@@ -20,9 +20,11 @@ vi.mock("../../ipc/agents", () => ({
   ],
 }));
 
-/** Probe results: an attachable worktree, and a not-yet-existing dir. */
+/** Probe results: an attachable worktree, a not-yet-existing dir, and a
+ * non-empty non-worktree dir (blocked). */
 const WORKTREE: PathProbe = { exists: true, isWorktree: true, empty: false, branch: "kd/ws/2" };
 const MISSING: PathProbe = { exists: false, isWorktree: false, empty: false, branch: null };
+const BLOCKED: PathProbe = { exists: true, isWorktree: false, empty: false, branch: null };
 
 const pathInput = () =>
   document.querySelector<HTMLInputElement>('input[aria-label="Worktree path"]')!;
@@ -160,6 +162,27 @@ describe("AgentDialog occupied-path flow", () => {
     type(pathInput(), "/base/kd-ws-4");
     expect(errorText()).toBe("Already in use by another agent");
     expect(createBtn().disabled).toBe(true);
+  });
+
+  it("a blocked path offers Use next available — an error, but not a dead end", async () => {
+    // The prefilled dir has files and isn't a worktree (e.g. a leftover
+    // folder): no pane holds it, so the state comes from the probe.
+    await mount({
+      probeOf: { "/base/kd-ws-2": BLOCKED },
+      occupancyOf: {},
+    });
+    await settleProbe();
+    expect(errorText()).toBe(
+      "Folder has files and isn't a worktree — pick a new or empty folder",
+    );
+    expect(choiceBtn("Use next available")).toBeTruthy();
+    expect(choiceBtn("Attach anyway")).toBeNull(); // nothing to attach to
+    expect(createBtn().disabled).toBe(true);
+    await act(async () => choiceBtn("Use next available")!.click());
+    expect(pathInput().value).toBe("/base/kd-ws-3");
+    await settleProbe(); // free path probes as new → branch field appears
+    expect(branchInput()?.value).toBe("kd/ws/3");
+    expect(createBtn().disabled).toBe(false);
   });
 
   it("a provisioning target offers no Attach anyway — nothing exists to attach to", async () => {

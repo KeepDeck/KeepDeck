@@ -42,7 +42,8 @@ interface AgentDialogProps {
    * worktree — knowingly attach alongside the other agent, instantly. */
   occupancyAt(path: string): Occupancy;
   /** The next suggested location not held by an open pane — the "Use next
-   * available" action for an occupied path; null when none can be offered. */
+   * available" action for an occupied or blocked path; null when none can be
+   * offered. */
   nextFreeLocation(
     currentPath: string,
   ): Promise<{ path: string; branch: string } | null>;
@@ -249,9 +250,10 @@ export function AgentDialog({
 }
 
 /** The live hint under the worktree field: what the current path will do.
- * The occupied state is a choice, not a dead end — inline icon actions let
- * the user jump to the next free path or (when the occupant's dir is a live
- * worktree, `canAttach`) attach alongside it anyway. */
+ * The unusable states are a choice, not a dead end — inline icon actions let
+ * the user jump to the next free path (occupied AND blocked paths both offer
+ * it) or, for an occupied path whose dir is a live worktree (`canAttach`),
+ * attach alongside the other agent anyway. */
 function LocationHint({
   kind,
   repoBranch,
@@ -315,9 +317,22 @@ function LocationHint({
       );
     case "blocked":
       return (
-        <span className="form__error">
-          Folder has files and isn't a worktree — pick a new or empty folder
-        </span>
+        <>
+          <span className="form__error">
+            Folder has files and isn't a worktree — pick a new or empty folder
+          </span>
+          <div className="form__choices">
+            <button
+              type="button"
+              className="form__choice"
+              onClick={onUseNext}
+              title="Use next available"
+              aria-label="Use next available"
+            >
+              <NextIcon />
+            </button>
+          </div>
+        </>
       );
   }
 }
