@@ -12,11 +12,12 @@
   overflow: hidden;
 }
 
-/* Transient in-pane notice ([F16]) — e.g. "File not found" after a Cmd+click
-   on a stale path. Anchored next to the clicked link (left/top set from
-   hintPosition.ts), auto-hides, and never intercepts clicks; long paths
+/* Transient notice over a terminal surface ([F16]) — e.g. "File not found"
+   after a Cmd+click on a stale path. Shared by every xterm host (agent panes,
+   the Run log — PaneHint.tsx). Anchored next to the clicked link (left/top set
+   from hintPosition.ts), auto-hides, and never intercepts clicks; long paths
    ellipsize. */
-.terminal-pane__hint {
+.pane-hint {
   position: absolute;
   max-width: calc(100% - 16px);
   overflow: hidden;
