@@ -13,21 +13,20 @@ import { openPath, openUrl } from "../../ipc/app";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerPaneInput } from "../../app/paneInput";
 import { useSettings } from "../../app/useSettings";
-import { keyAction } from "../../domain/keymap";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
   createPasteHandler,
-  isCopyChord,
-  normalizeSelection,
-  osc52Text,
-} from "../../domain/clipboard";
-import {
+  createRefitPump,
   detectLinks,
+  isCopyChord,
+  keyAction,
+  logicalLineAt,
+  mapRange,
+  normalizeSelection,
   openErrorHint,
+  osc52Text,
   resolvePathTarget,
-} from "../../domain/links";
-import { createRefitPump } from "../../domain/refitPump";
-import { logicalLineAt, mapRange } from "../../domain/wrappedLines";
+} from "../../domain/terminal";
 import { useTransient } from "../../ui/useTransient";
 import { positionHint } from "../../ui/hintPosition";
 
