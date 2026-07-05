@@ -1,0 +1,282 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  API_VERSION,
+  type KeepDeckPlugin,
+  type PluginContext,
+  type PluginManifest,
+  type PluginServices,
+  type PluginStorage,
+} from "@keepdeck/plugin-api";
+import {
+  createContributionRegistries,
+  type ContributionRegistries,
+} from "../registries/contributions";
+import type { InstalledPlugin, PluginStatus } from "../model/installed";
+import type { PluginHostDeps } from "./deps";
+import { PluginHost } from "./host";
+
+const manifest = (
+  id: string,
+  overrides: Partial<PluginManifest> = {},
+): PluginManifest => ({
+  id,
+  name: id,
+  version: "1.0.0",
+  minApiVersion: "0.0.1",
+  capabilities: [],
+  contributes: {},
+  ...overrides,
+});
+
+const spyDisposable = () => ({ dispose: vi.fn() });
+
+function fakeDeps() {
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const storage: PluginStorage = {
+    workspace: vi.fn(() => storage.global),
+    global: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
+  };
+  const services: PluginServices = {
+    sessions: { spawn: vi.fn() },
+    ports: { allocate: vi.fn() },
+  };
+  const events = {
+    onWorkspaceClosed: vi.fn(spyDisposable),
+    onPaneSelected: vi.fn(spyDisposable),
+    onDeckChanged: vi.fn(spyDisposable),
+  };
+  const isEnabled = vi.fn((_id: string) => true);
+  const onEnabledChanged = vi.fn();
+  const deps: PluginHostDeps = {
+    storage: vi.fn(() => storage),
+    settings: vi.fn(() => ({
+      read: vi.fn(async () => ({})),
+      onChange: vi.fn(spyDisposable),
+    })),
+    events,
+    services: vi.fn(() => services),
+    log: vi.fn(() => logger),
+    isEnabled,
+    onEnabledChanged,
+  };
+  return { deps, logger, events, isEnabled, onEnabledChanged };
+}
+
+/** A plugin whose `activate` contributes one dock tab tagged with its own id —
+ * enough to observe activation order and cascade cleanup. */
+const registrar = (deactivate = vi.fn()): KeepDeckPlugin => ({
+  activate: vi.fn((ctx: PluginContext) => {
+    ctx.ui.registerDockTab({
+      id: ctx.manifest.id,
+      label: ctx.manifest.id,
+      Component: () => null,
+    });
+    ctx.events.onDeckChanged(() => {});
+  }),
+  deactivate,
+});
+
+const statusOf = (host: PluginHost, id: string): PluginStatus | undefined =>
+  host.getInstalled().find((p: InstalledPlugin) => p.manifest.id === id)
+    ?.status;
+
+const tabOwners = (registries: ContributionRegistries): string[] =>
+  registries.dockTabs.list().map((c) => c.pluginId);
+
+const allEmpty = (registries: ContributionRegistries): boolean =>
+  [
+    registries.dockTabs,
+    registries.topBarActions,
+    registries.paneActions,
+    registries.settingsSections,
+    registries.agents,
+  ].every((r) => r.list().length === 0);
+
+describe("PluginHost", () => {
+  it("activates built-ins first, then external, in install order — contributions follow", async () => {
+    const { deps } = fakeDeps();
+    const registries = createContributionRegistries();
+    const host = new PluginHost(deps, registries);
+
+    host.install({ manifest: manifest("b2"), load: async () => registrar() }, "builtin");
+    host.install({ manifest: manifest("e1"), load: async () => registrar() }, "external");
+    host.install({ manifest: manifest("b1"), load: async () => registrar() }, "builtin");
+    await host.activateAll();
+
+    expect(tabOwners(registries)).toEqual(["b2", "b1", "e1"]);
+    expect(statusOf(host, "e1")).toEqual({ kind: "active" });
+  });
+
+  it("is idempotent — activating an already-active plugin does not reload or re-register", async () => {
+    const { deps } = fakeDeps();
+    const registries = createContributionRegistries();
+    const host = new PluginHost(deps, registries);
+    const load = vi.fn(async () => registrar());
+    host.install({ manifest: manifest("p"), load }, "builtin");
+
+    await host.activate("p");
+    await host.activate("p");
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(tabOwners(registries)).toEqual(["p"]);
+  });
+
+  it("rejects a duplicate id — first install wins and the loader never runs", async () => {
+    const { deps, logger } = fakeDeps();
+    const host = new PluginHost(deps, createContributionRegistries());
+    const first = vi.fn(async () => registrar());
+    const second = vi.fn(async () => registrar());
+
+    host.install({ manifest: manifest("p"), load: first }, "builtin");
+    host.install({ manifest: manifest("p"), load: second }, "external");
+    await host.activateAll();
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn.mock.calls[0][0]).toContain("duplicate");
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).not.toHaveBeenCalled();
+    expect(statusOf(host, "p")).toEqual({ kind: "active" });
+  });
+
+  it("fails a plugin whose API floor is too new — before loading any code", async () => {
+    const { deps } = fakeDeps();
+    const host = new PluginHost(deps, createContributionRegistries());
+    const load = vi.fn(async () => registrar());
+    host.install(
+      { manifest: manifest("p", { minApiVersion: "9.9.9" }), load },
+      "external",
+    );
+
+    await host.activate("p");
+
+    const status = statusOf(host, "p");
+    expect(status?.kind).toBe("failed");
+    if (status?.kind === "failed") {
+      expect(status.reason).toContain("9.9.9");
+      expect(status.reason).toContain(API_VERSION);
+    }
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("leaves ZERO residue when activate throws mid-registration", async () => {
+    const { deps, events } = fakeDeps();
+    const registries = createContributionRegistries();
+    const host = new PluginHost(deps, registries);
+    const activate = vi.fn((ctx: PluginContext) => {
+      ctx.ui.registerDockTab({ id: "d", label: "d", Component: () => null });
+      ctx.ui.registerTopBarAction({ id: "tb", title: "tb", run: () => {} });
+      ctx.ui.registerPaneAction({ id: "pa", title: "pa", run: () => {} });
+      ctx.settings.registerSection({ label: "s", fields: [] });
+      ctx.agents.register({ id: "ag", label: "ag", detect: { bin: "x" }, hooks: {} });
+      ctx.events.onDeckChanged(() => {});
+      throw new Error("activate blew up");
+    });
+    host.install(
+      { manifest: manifest("p"), load: async () => ({ activate }) },
+      "builtin",
+    );
+
+    await host.activate("p");
+
+    expect(allEmpty(registries)).toBe(true);
+    expect(events.onDeckChanged.mock.results[0].value.dispose).toHaveBeenCalledTimes(1);
+    const status = statusOf(host, "p");
+    expect(status?.kind).toBe("failed");
+    if (status?.kind === "failed") {
+      expect(status.reason).toBe("activate blew up");
+    }
+  });
+
+  it("never activates a disabled plugin", async () => {
+    const { deps, isEnabled } = fakeDeps();
+    isEnabled.mockReturnValue(false);
+    const registries = createContributionRegistries();
+    const host = new PluginHost(deps, registries);
+    const load = vi.fn(async () => registrar());
+    host.install({ manifest: manifest("p"), load }, "builtin");
+
+    expect(statusOf(host, "p")).toEqual({ kind: "disabled" });
+    await host.activateAll();
+    expect(load).not.toHaveBeenCalled();
+    expect(allEmpty(registries)).toBe(true);
+  });
+
+  it("deactivate cascades — hook runs, contributions and event subscriptions clear", async () => {
+    const { deps, events } = fakeDeps();
+    const registries = createContributionRegistries();
+    const host = new PluginHost(deps, registries);
+    const deactivate = vi.fn();
+    host.install(
+      { manifest: manifest("p"), load: async () => registrar(deactivate) },
+      "builtin",
+    );
+
+    await host.activate("p");
+    expect(tabOwners(registries)).toEqual(["p"]);
+
+    await host.deactivate("p");
+    expect(deactivate).toHaveBeenCalledTimes(1);
+    expect(allEmpty(registries)).toBe(true);
+    expect(events.onDeckChanged.mock.results[0].value.dispose).toHaveBeenCalledTimes(1);
+    expect(statusOf(host, "p")).toEqual({ kind: "registered" });
+  });
+
+  it("a throwing deactivate hook still clears the plugin's contributions", async () => {
+    const { deps } = fakeDeps();
+    const registries = createContributionRegistries();
+    const host = new PluginHost(deps, registries);
+    const deactivate = vi.fn(() => {
+      throw new Error("bad teardown");
+    });
+    host.install(
+      { manifest: manifest("p"), load: async () => registrar(deactivate) },
+      "builtin",
+    );
+
+    await host.activate("p");
+    await host.deactivate("p");
+
+    expect(allEmpty(registries)).toBe(true);
+    expect(statusOf(host, "p")).toEqual({ kind: "registered" });
+  });
+
+  it("setEnabled(false) tears an active plugin down; setEnabled(true) re-activates it", async () => {
+    const { deps, onEnabledChanged } = fakeDeps();
+    const registries = createContributionRegistries();
+    const host = new PluginHost(deps, registries);
+    const deactivate = vi.fn();
+    host.install(
+      { manifest: manifest("p"), load: async () => registrar(deactivate) },
+      "builtin",
+    );
+    await host.activate("p");
+
+    await host.setEnabled("p", false);
+    expect(deactivate).toHaveBeenCalledTimes(1);
+    expect(allEmpty(registries)).toBe(true);
+    expect(statusOf(host, "p")).toEqual({ kind: "disabled" });
+    expect(onEnabledChanged).toHaveBeenCalledWith("p", false);
+
+    await host.setEnabled("p", true);
+    expect(statusOf(host, "p")).toEqual({ kind: "active" });
+    expect(tabOwners(registries)).toEqual(["p"]);
+    expect(onEnabledChanged).toHaveBeenCalledWith("p", true);
+  });
+
+  it("publishes a stable installed-snapshot that changes only on real change", async () => {
+    const { deps } = fakeDeps();
+    const host = new PluginHost(deps, createContributionRegistries());
+    const listener = vi.fn();
+    host.subscribe(listener);
+
+    const before = host.getInstalled();
+    host.install({ manifest: manifest("p"), load: async () => registrar() }, "builtin");
+    const afterInstall = host.getInstalled();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(afterInstall).not.toBe(before);
+    expect(host.getInstalled()).toBe(afterInstall);
+
+    await host.activate("p");
+    expect(host.getInstalled()).not.toBe(afterInstall);
+  });
+});
