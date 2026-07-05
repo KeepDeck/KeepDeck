@@ -56,9 +56,11 @@ export function buildSpawnPlan(
     resumeId?: string | null;
     /** Catalog for resume prefixes; falls back to the static recipes. */
     agents?: AgentInfo[];
-    /** Injected for tests; defaults to crypto.randomUUID (lowercase). */
-    mintId?: () => string;
-  } = {},
+    /** Mints a fresh session id (claude requires a lowercase UUID). Only a
+     * fresh claude spawn consumes it, but the plan builder decides that —
+     * the caller just brings the mint (see app/ids.ts). */
+    mintId: () => string;
+  },
 ): SpawnPlan {
   // Reporters can only post back when the spool exists.
   const reporterEnv: [string, string][] = ctx.spoolDir
@@ -81,7 +83,7 @@ export function buildSpawnPlan(
       const hook = ctx.claudeHookArgs ?? [];
       const env = hook.length > 0 ? reporterEnv : [];
       if (resume) return { args: [...hook, ...resume], env };
-      const id = (opts.mintId ?? mintUuid)();
+      const id = opts.mintId();
       return { args: [...hook, "--session-id", id], env, sessionId: id };
     }
     case "codex": {
@@ -111,8 +113,4 @@ export function buildSpawnPlan(
       };
     }
   }
-}
-
-function mintUuid(): string {
-  return crypto.randomUUID();
 }

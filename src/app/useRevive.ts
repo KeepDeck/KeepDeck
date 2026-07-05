@@ -8,6 +8,7 @@ import type { Pane } from "../domain/deck";
 import { latestSession, sessionPresence } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
+import { mintSessionId } from "./ids";
 import { setPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 
@@ -110,6 +111,7 @@ export function useRevive(
           buildSpawnPlan(agentType, pane.id, ctxRef.current, {
             resumeId: sessionId,
             agents: agentsRef.current,
+            mintId: mintSessionId,
           }),
         );
       }

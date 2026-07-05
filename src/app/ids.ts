@@ -34,3 +34,10 @@ export function seedAgentSeq(min: number): void {
 export function seedWorkspaceSeq(min: number): void {
   nextWorkspaceSeq = Math.max(nextWorkspaceSeq, min);
 }
+
+/** Mint a fresh agent session id — the app-layer randomness source behind
+ * `buildSpawnPlan`'s `mintId` (claude wants a lowercase UUID, which
+ * `crypto.randomUUID` guarantees). */
+export function mintSessionId(): string {
+  return crypto.randomUUID();
+}
