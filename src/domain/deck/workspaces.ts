@@ -1,4 +1,9 @@
-import type { AgentType, Occupancy } from "../agents";
+import {
+  classifyLocation,
+  type AgentType,
+  type Occupancy,
+  type PathProbe,
+} from "../agents";
 import type { WorkspaceRun } from "./workspaceRun";
 import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
 
@@ -409,23 +414,30 @@ const MAX_SUGGESTION_TRIES = 100;
 /**
  * The first suggested worktree path under `baseDir` NOT held by an open pane,
  * with its matching branch — folder and branch advance together so the pair
- * stays consistent (`kd-ws-3` ↔ `kd/ws/3`). Only in-app occupancy is skipped:
- * a path that merely exists on disk stays suggestible (attaching to an idle
- * worktree is a valid outcome). `null` when `suggest` yields nothing or every
- * try is occupied.
+ * stays consistent (`kd-ws-3` ↔ `kd/ws/3`). A path that merely exists on disk
+ * stays suggestible (attaching to an idle worktree is a valid outcome) —
+ * EXCEPT when `probe` classifies it as blocked (a non-empty non-worktree dir,
+ * e.g. a leftover folder): suggesting one would open the dialog straight onto
+ * an error. `probe` must never reject; a `null` probe result (backend down)
+ * keeps the candidate — the dialog's live hint still guards the actual create.
+ * `null` when `suggest` yields nothing or every try is taken.
  */
 export async function firstFreeWorktree(
   workspaces: Workspace[],
   baseDir: string,
   suggest: (index: number) => Promise<WorktreeNameSuggestion | null>,
   startIndex: number,
+  probe?: (path: string) => Promise<PathProbe | null>,
 ): Promise<{ path: string; branch: string } | null> {
   const base = normalizePath(baseDir);
   for (let i = startIndex; i < startIndex + MAX_SUGGESTION_TRIES; i++) {
     const s = await suggest(i);
     if (!s) return null;
     const path = `${base}/${s.folder}`;
-    if (!paneOccupyingPath(workspaces, path)) return { path, branch: s.branch };
+    if (paneOccupyingPath(workspaces, path)) continue;
+    const p = probe ? await probe(path) : null;
+    if (p && classifyLocation(path, p) === "blocked") continue;
+    return { path, branch: s.branch };
   }
   return null;
 }
@@ -438,6 +450,14 @@ export function parentDir(path: string): string {
   const norm = normalizePath(path);
   const cut = norm.lastIndexOf("/");
   return cut <= 0 ? "" : norm.slice(0, cut);
+}
+
+/** The last component of `path` — the folder name a worktree path implies,
+ * `""` when there is none (empty input, filesystem root). String-only, no
+ * fs access. */
+export function baseName(path: string): string {
+  const norm = normalizePath(path);
+  return norm.slice(norm.lastIndexOf("/") + 1);
 }
 
 /** The distinct worktree directories the deck's panes run in — the set the

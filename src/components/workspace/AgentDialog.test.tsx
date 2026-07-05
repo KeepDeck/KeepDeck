@@ -20,9 +20,11 @@ vi.mock("../../ipc/agents", () => ({
   ],
 }));
 
-/** Probe results: an attachable worktree, and a not-yet-existing dir. */
+/** Probe results: an attachable worktree, a not-yet-existing dir, and a
+ * non-empty non-worktree dir (blocked). */
 const WORKTREE: PathProbe = { exists: true, isWorktree: true, empty: false, branch: "kd/ws/2" };
 const MISSING: PathProbe = { exists: false, isWorktree: false, empty: false, branch: null };
+const BLOCKED: PathProbe = { exists: true, isWorktree: false, empty: false, branch: null };
 
 const pathInput = () =>
   document.querySelector<HTMLInputElement>('input[aria-label="Worktree path"]')!;
@@ -57,7 +59,7 @@ const submit = () =>
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 
-describe("AgentDialog occupied-path flow", () => {
+describe("AgentDialog worktree location flow", () => {
   let host: HTMLElement;
   let root: Root;
   let confirmed: AgentDialogResult[];
@@ -98,6 +100,14 @@ describe("AgentDialog occupied-path flow", () => {
           suggestedPath: "/base/kd-ws-2",
           suggestedBranch: "kd/ws/2",
           probePath: async (p: string) => probeOf[p] ?? MISSING,
+          // The real derivation lives in useAgentDialog (tested there); this
+          // fake mirrors its contract: canonical kd-ws-<n> folders map to
+          // kd/ws/<n>, anything else implies its own folder name.
+          branchForPath: async (p: string) => {
+            const folder = p.slice(p.lastIndexOf("/") + 1);
+            const m = /^kd-ws-(\d+)$/.exec(folder);
+            return m ? `kd/ws/${m[1]}` : folder || null;
+          },
           occupancyAt: (p: string) => occupancyOf[p] ?? null,
           nextFreeLocation: async () => ({ path: "/base/kd-ws-3", branch: "kd/ws/3" }),
           pickFolder: async () => null,
@@ -162,6 +172,27 @@ describe("AgentDialog occupied-path flow", () => {
     expect(createBtn().disabled).toBe(true);
   });
 
+  it("a blocked path offers Use next available — an error, but not a dead end", async () => {
+    // The prefilled dir has files and isn't a worktree (e.g. a leftover
+    // folder): no pane holds it, so the state comes from the probe.
+    await mount({
+      probeOf: { "/base/kd-ws-2": BLOCKED },
+      occupancyOf: {},
+    });
+    await settleProbe();
+    expect(errorText()).toBe(
+      "Folder has files and isn't a worktree — pick a new or empty folder",
+    );
+    expect(choiceBtn("Use next available")).toBeTruthy();
+    expect(choiceBtn("Attach anyway")).toBeNull(); // nothing to attach to
+    expect(createBtn().disabled).toBe(true);
+    await act(async () => choiceBtn("Use next available")!.click());
+    expect(pathInput().value).toBe("/base/kd-ws-3");
+    await settleProbe(); // free path probes as new → branch field appears
+    expect(branchInput()?.value).toBe("kd/ws/3");
+    expect(createBtn().disabled).toBe(false);
+  });
+
   it("a provisioning target offers no Attach anyway — nothing exists to attach to", async () => {
     await mount({
       probeOf: {},
@@ -171,5 +202,37 @@ describe("AgentDialog occupied-path flow", () => {
     expect(choiceBtn("Use next available")).toBeTruthy();
     expect(choiceBtn("Attach anyway")).toBeNull();
     expect(createBtn().disabled).toBe(true);
+  });
+
+  it("the branch follows the path's folder name while untouched", async () => {
+    await mount({ probeOf: {}, occupancyOf: {} }); // prefill probes as new
+    await settleProbe();
+    expect(branchInput()?.value).toBe("kd/ws/2");
+    type(pathInput(), "/base/kd-ws-7");
+    await settleProbe();
+    expect(branchInput()?.value).toBe("kd/ws/7");
+    // A hand-named folder implies its own name as the branch.
+    type(pathInput(), "/base/fix-login");
+    await settleProbe();
+    expect(branchInput()?.value).toBe("fix-login");
+  });
+
+  it("an edited branch stays the user's; reset re-attaches it to the path", async () => {
+    await mount({ probeOf: {}, occupancyOf: {} });
+    await settleProbe();
+    type(branchInput()!, "my/branch");
+    type(pathInput(), "/base/kd-ws-5");
+    await settleProbe();
+    expect(branchInput()?.value).toBe("my/branch"); // the edit wins
+    // ↺ resets to the branch the CURRENT path implies, not the open-time one…
+    const reset = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Reset to the suggested branch"]',
+    )!;
+    await act(async () => reset.click());
+    expect(branchInput()?.value).toBe("kd/ws/5");
+    // …and the branch follows the path again from here on.
+    type(pathInput(), "/base/kd-ws-6");
+    await settleProbe();
+    expect(branchInput()?.value).toBe("kd/ws/6");
   });
 });

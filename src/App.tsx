@@ -346,6 +346,7 @@ function App() {
               suggestedPath={agentFlow.dialog.suggestedPath}
               suggestedBranch={agentFlow.dialog.suggestedBranch}
               probePath={probeWorktree}
+              branchForPath={agentFlow.branchFor}
               occupancyAt={(path) => pathOccupancy(deck.workspaces, path)}
               nextFreeLocation={agentFlow.nextFree}
               pickFolder={pickFolder}
