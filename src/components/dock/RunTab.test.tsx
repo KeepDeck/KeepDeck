@@ -123,11 +123,24 @@ describe("RunTab — the merged Commands list", () => {
     // One row for Dev — no separate sessions list.
     expect(document.querySelectorAll(".run__cmd").length).toBe(2);
     expect(document.body.textContent).toContain(":17040");
-    // The glyph's hover face stops it.
+    // The stop sits BESIDE the status dot, at rest — not behind hover.
+    const live = document.querySelector(".run__g--live")!;
+    expect(live.querySelector(".run__dot--running")).not.toBeNull();
+    expect(live.contains(button("Stop: Dev"))).toBe(true);
     act(() => button("Stop: Dev")!.click());
     expect(manager.stopRun).toHaveBeenCalledWith("s1");
     // No idle Run action — the command already runs here.
     expect(button("Run: Dev")).toBeNull();
+  });
+
+  it("a stopping row shows only the status dot — no control until it lands", () => {
+    manager.sessions = [running({ status: { kind: "stopping" } })];
+    mount();
+    expect(document.querySelector(".run__dot--stopping")).not.toBeNull();
+    expect(button("Stop: Dev")).toBeNull();
+    expect(button("Run: Dev")).toBeNull();
+    // The caption's Stop is gone too — the kill is already in flight.
+    expect(button("Stop Dev")).toBeNull();
   });
 
   it("an instance in ANOTHER target indents as a child row with its own controls", () => {
@@ -200,6 +213,20 @@ describe("RunTab — the merged Commands list", () => {
     expect(cap.textContent).toContain("Dev");
     expect(cap.textContent).toContain("kd/b");
     expect(cap.textContent).toContain(":17040");
+  });
+
+  it("the log caption offers Stop while the session runs — and only then", () => {
+    manager.sessions = [running()];
+    mount();
+    const stop = button("Stop Dev")!;
+    expect(document.querySelector(".run__logcap")!.contains(stop)).toBe(true);
+    act(() => stop.click());
+    expect(manager.stopRun).toHaveBeenCalledWith("s1");
+
+    manager.sessions = [running({ status: { kind: "exited", code: 0 } })];
+    mount();
+    expect(button("Stop Dev")).toBeNull();
+    expect(button("Hide the log")).not.toBeNull();
   });
 
   it("the header + opens the form ABOVE the list; Add saves without launching", () => {

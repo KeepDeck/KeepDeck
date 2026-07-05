@@ -264,6 +264,22 @@
   display: inline-flex;
 }
 
+/* A live row: the dot stays a status light and the stop control sits
+   beside it, visible at REST — a running process must always show its
+   off switch, never hide it behind hover. */
+.run__g--live {
+  width: auto;
+  gap: 3px;
+}
+
+.run__g--live .run__g-act {
+  display: inline-flex;
+}
+
+.run__g-act:hover {
+  background-color: #243044;
+}
+
 .run__dot {
   width: 7px;
   height: 7px;
@@ -339,7 +355,8 @@
   overflow: hidden;
 }
 
-/* The caption's close control — hides the log until a row is picked again. */
+/* The caption's controls — stop the shown session while it runs, and
+   hide the log until a row is picked again. */
 .run__logcap {
   display: flex;
   align-items: center;
@@ -354,7 +371,7 @@
   white-space: nowrap;
 }
 
-.run__logcap-close {
+.run__logcap-act {
   flex: none;
   width: 18px;
   height: 18px;
@@ -369,7 +386,7 @@
   cursor: pointer;
 }
 
-.run__logcap-close:hover {
+.run__logcap-act:hover {
   background-color: #243044;
   color: #c5c8c6;
 }
