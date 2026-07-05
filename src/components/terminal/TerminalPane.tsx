@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -9,7 +9,6 @@ import {
   resizePane,
   writePane,
 } from "../../app/ptyManager";
-import { openPath, openUrl } from "../../ipc/app";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerPaneInput } from "../../app/paneInput";
 import { useSettings } from "../../app/useSettings";
@@ -17,18 +16,14 @@ import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
   createPasteHandler,
   createRefitPump,
-  detectLinks,
   isCopyChord,
   keyAction,
-  logicalLineAt,
-  mapRange,
   normalizeSelection,
-  openErrorHint,
   osc52Text,
-  resolvePathTarget,
 } from "../../domain/terminal";
 import { useTransient } from "../../ui/useTransient";
-import { positionHint } from "../../ui/hintPosition";
+import { HINT_MS, PaneHintView, type PaneHint } from "./PaneHint";
+import { registerTerminalLinks } from "./terminalLinks";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */
@@ -88,22 +83,6 @@ export function TerminalPane({
   // Transient in-pane notice ([F16]) — "File not found" after a Cmd+click on a
   // stale path (or a failed open). Self-clears; anchored to the click point.
   const [hint, showHint] = useTransient<PaneHint>(HINT_MS);
-  const hintRef = useRef<HTMLDivElement>(null);
-
-  // Position the hint once its size is measurable — before paint, so it never
-  // flashes at the wrong spot. Re-runs per show (each hint is a fresh object).
-  useLayoutEffect(() => {
-    const el = hintRef.current;
-    const pane = el?.parentElement;
-    if (!el || !pane || !hint) return;
-    const pos = positionHint(
-      hint,
-      { width: el.offsetWidth, height: el.offsetHeight },
-      { width: pane.clientWidth, height: pane.clientHeight },
-    );
-    el.style.left = `${pos.left}px`;
-    el.style.top = `${pos.top}px`;
-  }, [hint]);
 
   // Held in a ref so the exit handler inside the (command/cwd)-scoped effect
   // always calls the latest callback without re-running the effect.
@@ -237,52 +216,11 @@ export function TerminalPane({
     // Auto-naming ([F11]): mirror the terminal title (OSC 0/1/2) up to the pane.
     const titleSub = term.onTitleChange((t) => onTitleRef.current?.(t));
 
-    // Cmd+click a URL or file path in the output to open it ([F14]/[F10]);
-    // plain click is left for text selection (a plain click ON a link shows the
-    // ⌘ hint, [U8]). Relative paths resolve against the pane's cwd; the OS
-    // default app opens files / the default browser opens URLs. Detection runs
-    // on the whole LOGICAL line — the requested row joined with its wrapped
-    // neighbours — so a link the terminal wrapped is still one link, not
-    // per-row fragments.
-    const links = term.registerLinkProvider({
-      provideLinks(lineNumber, callback) {
-        const logical = logicalLineAt(term.buffer.active, lineNumber - 1);
-        const found = logical ? detectLinks(logical.rows.join("")) : [];
-        callback(
-          found.length === 0 || !logical
-            ? undefined
-            : found.map((d) => ({
-                text: d.text,
-                range: mapRange(logical, d.start, d.end),
-                activate(event: MouseEvent) {
-                  // Pane-local coords captured now, at click-time geometry,
-                  // not when a rejection lands later.
-                  const rect = host.getBoundingClientRect();
-                  const at = {
-                    x: event.clientX - rect.left,
-                    y: event.clientY - rect.top,
-                  };
-                  // The ⌘ affordance is undiscoverable — answer a plain (or
-                  // wrong-modifier) click on a link with how to open it ([U8]).
-                  if (!event.metaKey) {
-                    showHint({ text: "⌘-click to open", ...at });
-                    return;
-                  }
-                  const target =
-                    d.kind === "url"
-                      ? d.text
-                      : resolvePathTarget(d.text, cwd ?? "");
-                  const open =
-                    d.kind === "url" ? openUrl(target) : openPath(target);
-                  // Surface the failure — a deleted file, a bad URL — next to
-                  // the link that was clicked instead of swallowing it ([F16]).
-                  open.catch((err: unknown) =>
-                    showHint({ text: openErrorHint(err, target), ...at }),
-                  );
-                },
-              })),
-        );
-      },
+    // Cmd+click a URL or file path in the output to open it ([F14]/[F10]) —
+    // the shared linker; relative paths resolve against the pane's cwd.
+    const links = registerTerminalLinks(term, host, {
+      cwd: cwd ?? null,
+      showHint,
     });
 
     acquirePane(paneId, {
@@ -400,23 +338,9 @@ export function TerminalPane({
   return (
     <div className="terminal-pane">
       <div className="terminal-pane__host" ref={hostRef} />
-      {hint && (
-        <div className="terminal-pane__hint" role="status" ref={hintRef}>
-          {hint.text}
-        </div>
-      )}
+      <PaneHintView hint={hint} />
     </div>
   );
-}
-
-/** How long an in-pane hint stays up before it fades ([F16]). */
-const HINT_MS = 2000;
-
-/** A hint message anchored at the pane-local point that was clicked. */
-interface PaneHint {
-  text: string;
-  x: number;
-  y: number;
 }
 
 /**

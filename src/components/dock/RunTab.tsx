@@ -445,7 +445,7 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
               <CloseIcon />
             </button>
           </div>
-          <RunLog key={shown.id} sessionId={shown.id} />
+          <RunLog key={shown.id} sessionId={shown.id} cwd={shown.worktree} />
         </div>
       )}
     </div>

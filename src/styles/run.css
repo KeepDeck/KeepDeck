@@ -321,6 +321,8 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  /* Anchors the shared pane hint (PaneHint.tsx) next to a clicked link. */
+  position: relative;
   /* Breathing room between the border and the text: on the OUTER box, so
      FitAddon (which measures the inner host) sizes the grid to the space
      that's actually available. */
