@@ -103,7 +103,8 @@ export type DeckAction =
    * and delete paths). */
   | { type: "setWorkspaceRun"; id: string; run: WorkspaceRun }
   /** Set (or, via `undefined`, clear) one plugin's opaque persisted slot for
-   * a workspace — the host-rendered plugin settings write path. */
+   * a workspace — the write path behind a plugin's workspace-scoped storage
+   * (`ctx.storage.workspace(wsId)`). */
   | {
       type: "setWorkspacePluginSlot";
       wsId: string;

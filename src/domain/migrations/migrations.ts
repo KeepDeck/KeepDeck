@@ -71,6 +71,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *   1 — defaultAgent, scrollback.
  *   2 — + experimentRunPresets.
  *   3 — + `minVersion` compatibility floor.
+ *   4 — + experimentPlugins, plugins (per-plugin enabled flags & values).
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -78,7 +79,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 4;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

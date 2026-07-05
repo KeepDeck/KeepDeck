@@ -42,12 +42,29 @@ export interface Settings {
    * only when a few more experiments exist. Read at the UI entry points
    * only — the layers beneath are flag-agnostic. */
   experimentRunPresets: boolean;
+  /** Experiment: the plugin system — master switch for its UI surfaces
+   * (installed-plugins list, per-plugin settings panels). Flat like its
+   * sibling above; the plugins themselves stay registered and their `plugins`
+   * bag below stays intact while this is off, so flipping it back on doesn't
+   * lose anything. */
+  experimentPlugins: boolean;
+  /** Per-plugin persisted settings, keyed by plugin id. `enabled` is the
+   * per-plugin on/off switch (distinct from `experimentPlugins`, which gates
+   * the whole system's UI); `values` is what a plugin's host-rendered
+   * settings schema writes — opaque to this layer, like a workspace's plugin
+   * slot ([`Workspace.plugins`]) — only the two bags' SHAPE is ours. */
+  plugins: {
+    enabled: Record<string, boolean>;
+    values: Record<string, Record<string, unknown>>;
+  };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
   scrollback: 10_000,
   experimentRunPresets: false,
+  experimentPlugins: false,
+  plugins: { enabled: {}, values: {} },
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -85,6 +102,44 @@ export function clampScrollback(value: number): number {
 }
 
 /**
+ * Tolerant read of the persisted plugin settings bag: `null` when there's
+ * nothing to keep — an absent/malformed field, or one whose sub-parts all
+ * degrade to empty — so hydration leaves `settings.plugins` pointing at the
+ * shared `DEFAULT_SETTINGS.plugins` object and a later save stays sparse
+ * (mirrors how a malformed value elsewhere degrades to its exact default,
+ * object identity included, instead of a fresh-but-equal object that would
+ * defeat the `!==`-against-default check in `serializeSettings`).
+ *
+ * Each of `enabled` and `values` degrades independently, and within each, one
+ * bad entry never drops its siblings — the file is hand-editable.
+ */
+function readPlugins(value: unknown): Settings["plugins"] | null {
+  if (!isRecord(value)) return null;
+  const enabled: Record<string, boolean> = {};
+  if (isRecord(value.enabled)) {
+    for (const [id, v] of Object.entries(value.enabled)) {
+      if (typeof v === "boolean") enabled[id] = v;
+    }
+  }
+  const values: Record<string, Record<string, unknown>> = {};
+  if (isRecord(value.values)) {
+    for (const [id, v] of Object.entries(value.values)) {
+      // The per-plugin values object is opaque past this point — kept
+      // verbatim, like a workspace's plugin slot.
+      if (isRecord(v)) values[id] = v;
+    }
+  }
+  if (Object.keys(enabled).length === 0 && Object.keys(values).length === 0) {
+    return null;
+  }
+  return { enabled, values };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
  * Restore settings from stored JSON. Returns `null` only for a document that
  * isn't a JSON object at all — the caller quarantines it and starts from
  * defaults. Anything else yields usable settings: each recognized key is
@@ -117,6 +172,15 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   if (typeof doc.experimentRunPresets === "boolean") {
     settings.experimentRunPresets = doc.experimentRunPresets;
   }
+  if (typeof doc.experimentPlugins === "boolean") {
+    settings.experimentPlugins = doc.experimentPlugins;
+  }
+  const plugins = readPlugins(doc.plugins);
+  // Only replace the default's object reference when there's genuinely
+  // something to keep — otherwise `settings.plugins` stays pointing at
+  // `DEFAULT_SETTINGS.plugins`, which is what lets serialization's `!==`
+  // default check correctly treat an all-empty bag as sparse (unwritten).
+  if (plugins) settings.plugins = plugins;
 
   const extras: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(doc)) {

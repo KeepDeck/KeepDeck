@@ -32,12 +32,19 @@ describe("hydrateSettings", () => {
         defaultAgent: "codex",
         scrollback: 50_000,
         experimentRunPresets: true,
+        experimentPlugins: true,
+        plugins: {
+          enabled: { git: true },
+          values: { git: { remote: "origin" } },
+        },
       }),
     );
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
       experimentRunPresets: true,
+      experimentPlugins: true,
+      plugins: { enabled: { git: true }, values: { git: { remote: "origin" } } },
     });
   });
 
@@ -75,6 +82,68 @@ describe("hydrateSettings", () => {
   it("a null defaultAgent (older document) degrades to the default", () => {
     const doc = hydrateSettings(JSON.stringify({ defaultAgent: null }));
     expect(doc?.settings.defaultAgent).toBe(DEFAULT_SETTINGS.defaultAgent);
+  });
+
+  it("a non-boolean experimentPlugins degrades to off", () => {
+    for (const junk of ["yes", 1, null, {}]) {
+      const doc = hydrateSettings(JSON.stringify({ experimentPlugins: junk }));
+      expect(doc?.settings.experimentPlugins).toBe(false);
+    }
+  });
+});
+
+describe("hydrateSettings — plugins bag", () => {
+  it("defaults to empty enabled/values maps when the field is absent", () => {
+    const doc = hydrateSettings("{}");
+    expect(doc?.settings.plugins).toEqual({ enabled: {}, values: {} });
+  });
+
+  it("reads enabled flags and per-plugin values verbatim", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({
+        plugins: {
+          enabled: { git: true, notes: false },
+          values: { git: { remote: "origin", depth: 3 } },
+        },
+      }),
+    );
+    expect(doc?.settings.plugins).toEqual({
+      enabled: { git: true, notes: false },
+      values: { git: { remote: "origin", depth: 3 } },
+    });
+  });
+
+  it("a malformed entry degrades on its own, keeping its siblings", () => {
+    // The file is hand-editable: one bad plugin id must not wipe the rest.
+    const doc = hydrateSettings(
+      JSON.stringify({
+        plugins: {
+          enabled: { git: true, bad: "not a bool" },
+          values: { git: { x: 1 }, bad: "not an object" },
+        },
+      }),
+    );
+    expect(doc?.settings.plugins).toEqual({
+      enabled: { git: true },
+      values: { git: { x: 1 } },
+    });
+  });
+
+  it("a non-object plugins field degrades to defaults instead of rejecting the document", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({ plugins: "not an object", scrollback: 20_000 }),
+    );
+    expect(doc?.settings.plugins).toEqual({ enabled: {}, values: {} });
+    expect(doc?.settings.scrollback).toBe(20_000); // rest of the doc survives
+  });
+
+  it("an all-malformed plugins bag round-trips sparsely (no synthesized key)", () => {
+    // Degrading to an EMPTY bag must not itself count as "the user set this" —
+    // otherwise every load-then-save would inject a fresh, pointless key.
+    const doc = hydrateSettings(
+      JSON.stringify({ plugins: { enabled: { x: "nope" } } }),
+    )!;
+    expect(serializeSettings(doc)).not.toContain('"plugins"');
   });
 });
 
@@ -138,5 +207,17 @@ describe("schema revisions", () => {
     const out = JSON.parse(serializeSettings(doc));
     expect(out.version).toBe(SETTINGS_VERSION);
     expect(out.scrollback).toBe(20_000);
+  });
+
+  it("a v3 file (pre plugin system) reads cleanly and upgrades without inventing a plugins key", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({ version: 3, minVersion: 1, scrollback: 20_000 }),
+    )!;
+    expect(doc.settings.experimentPlugins).toBe(false);
+    expect(doc.settings.plugins).toEqual({ enabled: {}, values: {} });
+    const out = JSON.parse(serializeSettings(doc));
+    expect(out.version).toBe(SETTINGS_VERSION);
+    expect(out).not.toHaveProperty("plugins");
+    expect(out).not.toHaveProperty("experimentPlugins");
   });
 });
