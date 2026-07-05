@@ -101,17 +101,63 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::rename(&tmp, path)
 }
 
+/// Quarantined generations kept per document. One slot proved too few: the
+/// second quarantine silently destroyed the evidence of the first.
+const KEEP_BACKUPS: usize = 5;
+
 fn quarantine(path: &Path) -> io::Result<()> {
-    match fs::rename(path, path.with_extension("json.bak")) {
+    let name = match path.file_name() {
+        Some(n) => n.to_string_lossy().into_owned(),
+        None => return Ok(()),
+    };
+    // deck.json → deck.json.bak.<millis>; bump on the (theoretical) same-
+    // millisecond collision instead of renaming over an older backup.
+    let mut stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let mut target = path.with_file_name(format!("{name}.bak.{stamp}"));
+    while target.exists() {
+        stamp += 1;
+        target = path.with_file_name(format!("{name}.bak.{stamp}"));
+    }
+    match fs::rename(path, &target) {
         // Nothing on disk to quarantine is fine (e.g. the file vanished).
-        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
-        other => other,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        other => other?,
+    }
+    prune_backups(path, KEEP_BACKUPS);
+    Ok(())
+}
+
+/// Best-effort: keep the newest `keep` backups of `path` — everything named
+/// `<file>.bak*`, the legacy un-suffixed `.bak` included — and delete the
+/// rest. The quarantine itself already succeeded; a failing prune only logs.
+fn prune_backups(path: &Path, keep: usize) {
+    let (Some(dir), Some(name)) = (
+        path.parent(),
+        path.file_name().map(|n| n.to_string_lossy().into_owned()),
+    ) else {
+        return;
+    };
+    let prefix = format!("{name}.bak");
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let mut backups: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    backups.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
+    for (_, old) in backups.into_iter().skip(keep) {
+        if let Err(e) = fs::remove_file(&old) {
+            log::warn!("backup prune failed for {}: {e}", old.display());
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{load, quarantine, save_atomic};
+    use super::{load, quarantine, save_atomic, KEEP_BACKUPS};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -145,6 +191,17 @@ mod tests {
         assert!(!path.with_extension("json.tmp").exists());
     }
 
+    /// Every backup generation of `path`, any suffix style.
+    fn backups_of(path: &std::path::Path) -> Vec<PathBuf> {
+        let prefix = format!("{}.bak", path.file_name().unwrap().to_string_lossy());
+        std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+            .map(|e| e.path())
+            .collect()
+    }
+
     #[test]
     fn quarantine_preserves_the_rejected_document() {
         let path = temp_deck();
@@ -152,10 +209,59 @@ mod tests {
         quarantine(&path).unwrap();
 
         assert_eq!(load(&path).unwrap(), None);
-        assert_eq!(
-            std::fs::read_to_string(path.with_extension("json.bak")).unwrap(),
-            "not json"
-        );
+        let backups = backups_of(&path);
+        assert_eq!(backups.len(), 1);
+        assert_eq!(std::fs::read_to_string(&backups[0]).unwrap(), "not json");
+    }
+
+    #[test]
+    fn repeated_quarantines_keep_distinct_evidence() {
+        // One slot proved too few: the second quarantine used to destroy the
+        // first one's evidence by renaming over it.
+        let path = temp_deck();
+        save_atomic(&path, "first").unwrap();
+        quarantine(&path).unwrap();
+        save_atomic(&path, "second").unwrap();
+        quarantine(&path).unwrap();
+
+        let mut contents: Vec<String> = backups_of(&path)
+            .iter()
+            .map(|p| std::fs::read_to_string(p).unwrap())
+            .collect();
+        contents.sort();
+        assert_eq!(contents, vec!["first".to_string(), "second".to_string()]);
+    }
+
+    #[test]
+    fn prune_keeps_only_the_newest_generations() {
+        let path = temp_deck();
+        for i in 0..(KEEP_BACKUPS + 2) {
+            save_atomic(&path, &format!("gen-{i}")).unwrap();
+            quarantine(&path).unwrap();
+        }
+        let backups = backups_of(&path);
+        assert_eq!(backups.len(), KEEP_BACKUPS);
+        // The newest generation always survives.
+        let contents: Vec<String> = backups
+            .iter()
+            .map(|p| std::fs::read_to_string(p).unwrap())
+            .collect();
+        assert!(contents.contains(&format!("gen-{}", KEEP_BACKUPS + 1)));
+    }
+
+    #[test]
+    fn legacy_unsuffixed_bak_counts_toward_the_limit() {
+        let path = temp_deck();
+        save_atomic(&path.with_extension("json.bak"), "legacy").unwrap();
+        for i in 0..KEEP_BACKUPS {
+            save_atomic(&path, &format!("gen-{i}")).unwrap();
+            quarantine(&path).unwrap();
+        }
+        // legacy + KEEP_BACKUPS new ones → pruned back to the limit, and the
+        // legacy file (oldest by mtime) is what went.
+        let backups = backups_of(&path);
+        assert_eq!(backups.len(), KEEP_BACKUPS);
+        assert!(!path.with_extension("json.bak").exists());
     }
 
     #[test]
