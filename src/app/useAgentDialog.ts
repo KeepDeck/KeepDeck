@@ -4,7 +4,7 @@ import {
   type AgentInfo,
   type AgentType,
 } from "../domain/agents";
-import type { AgentDialogResult } from "../domain/agentLocation";
+import type { AgentDialogResult } from "../domain/agents";
 import { paneId, type Pane } from "../domain/panes";
 import {
   firstFreeWorktree,

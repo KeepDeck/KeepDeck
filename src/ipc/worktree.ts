@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { PathProbe } from "../domain/agentLocation";
+import type { PathProbe } from "../domain/agents";
 
 /** Mirrors the Rust `RepoInfo` (camelCase). */
 export interface RepoInfo {

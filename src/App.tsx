@@ -17,7 +17,7 @@ import { useSettings } from "./app/useSettings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useWorktreeHead } from "./app/useWorktreeHead";
 import { paneSpawnSpec } from "./app/spawnSpecs";
-import type { SpawnPlan } from "./domain/spawnPlans";
+import type { SpawnPlan } from "./domain/agents";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { dockPanel, dockToggle, paneRunShortcut } from "./domain/runCriteria";

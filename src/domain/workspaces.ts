@@ -1,5 +1,4 @@
-import type { AgentType } from "./agents";
-import type { Occupancy } from "./agentLocation";
+import type { AgentType, Occupancy } from "./agents";
 import type { WorkspaceRun } from "./runPresets";
 import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
 

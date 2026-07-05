@@ -16,10 +16,10 @@ import {
   type AgentLocation,
   type Occupancy,
   type PathProbe,
-} from "../../domain/agentLocation";
+} from "../../domain/agents";
 import { AttachIcon, NextIcon } from "../../ui/icons";
 
-export type { AgentDialogResult } from "../../domain/agentLocation";
+export type { AgentDialogResult } from "../../domain/agents";
 
 interface AgentDialogProps {
   /** Pre-selected agent type. */

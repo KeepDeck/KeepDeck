@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckState } from "../domain/deck";
-import { EMPTY_SPAWN_CONTEXT } from "../domain/spawnPlans";
+import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
 import { peekPaneSpawnSpec, resetPaneSpawnSpecs } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";

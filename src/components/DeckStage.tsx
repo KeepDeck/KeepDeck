@@ -1,5 +1,5 @@
 import type { AgentInfo } from "../domain/agents";
-import type { SpawnPlan } from "../domain/spawnPlans";
+import type { SpawnPlan } from "../domain/agents";
 import {
   gridTracks,
   paneColumnSpan,

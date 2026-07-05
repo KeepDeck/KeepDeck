@@ -4,7 +4,7 @@ import {
   buildSpawnPlan,
   type SpawnPlan,
   type SpawnPlanContext,
-} from "../domain/spawnPlans";
+} from "../domain/agents";
 
 /**
  * One spawn plan per pane id, stable across re-renders — module scope like
