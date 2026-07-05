@@ -34,6 +34,9 @@ export interface Workspace {
    * Lives here — not in its own document — so deleting the workspace deletes
    * its run config structurally, like the panes. */
   run?: WorkspaceRun;
+  /** Persisted keys this build doesn't know (written by a newer revision) —
+   * carried verbatim so a save round-trip never strips them. */
+  extras?: Record<string, unknown>;
   panes: Pane[];
 }
 

@@ -65,6 +65,9 @@ export interface Pane {
   /** The in-flight (or failed) worktree create behind this pane — no terminal
    * mounts until it resolves. */
   provisioning?: PaneProvisioning;
+  /** Persisted keys this build doesn't know (written by a newer revision) —
+   * carried verbatim so a save round-trip never strips them. */
+  extras?: Record<string, unknown>;
 }
 
 /** The id for the pane numbered `seq` — the single mint point, since it's the

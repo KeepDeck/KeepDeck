@@ -27,7 +27,7 @@ import { MAX_PANES } from "./layout";
  * directory that may not exist.
  */
 
-import { DECK_STATE_VERSION, migrateDeck } from "./migrations";
+import { DECK_MIN_READER, DECK_STATE_VERSION, migrateDeck } from "./migrations";
 
 export { DECK_STATE_VERSION } from "./migrations";
 
@@ -73,23 +73,43 @@ export interface HydratedDeck {
   nextAgentSeq: number;
   /** Seed for the workspace-seq mint: one past the highest restored ws number. */
   nextWorkspaceSeq: number;
+  /** Unknown top-level keys of the stored document (a newer revision's
+   * fields) — handed back to `serializeDeck` so saves never strip them. */
+  docExtras: Record<string, unknown>;
 }
+
+/** How reading the stored deck ended. `corrupt` quarantines (evidence kept,
+ * fresh start); `incompatible` PARKS the session — the file needs a newer
+ * reader and must stay untouched, so saving is disabled entirely. */
+export type HydrateDeckResult =
+  | { kind: "ok"; deck: HydratedDeck }
+  | { kind: "corrupt" }
+  | { kind: "incompatible"; version: number; minVersion: number };
 
 /** Serialize the deck for storage. Runtime-only pane state (`dormant`) is
  * stripped; the session binding is kept — it's the resume key. */
-export function serializeDeck(state: DeckState): string {
-  const persisted: PersistedDeck = {
+export function serializeDeck(
+  state: DeckState,
+  docExtras: Record<string, unknown> = {},
+): string {
+  // Extras spread FIRST at every level, so the keys this build owns always
+  // win — a newer revision's fields ride along, never override.
+  const persisted: Record<string, unknown> = {
     version: DECK_STATE_VERSION,
+    minVersion: DECK_MIN_READER,
+    ...docExtras,
     activeId: state.activeId,
     focusByWs: state.focusByWs,
     selectByWs: state.selectByWs,
     workspaces: state.workspaces.map((ws) => ({
+      ...ws.extras,
       id: ws.id,
       name: ws.name,
       cwd: ws.cwd,
       worktreeBaseDir: ws.worktreeBaseDir,
       ...(ws.run !== undefined && { run: ws.run }),
       panes: ws.panes.map((p) => ({
+        ...p.extras,
         id: p.id,
         ...(p.agentType !== undefined && { agentType: p.agentType }),
         ...(p.cwd !== undefined && { cwd: p.cwd }),
@@ -116,22 +136,25 @@ export function serializeDeck(state: DeckState): string {
  * Panes come back `dormant`; `activeId` is re-resolved (the persisted one may
  * be stale); focus/selection entries pointing at unknown ids are dropped.
  */
-export function hydrateDeck(json: string): HydratedDeck | null {
+export function hydrateDeck(json: string): HydrateDeckResult {
+  const corrupt = { kind: "corrupt" } as const;
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
   } catch {
-    return null;
+    return corrupt;
   }
-  if (!isRecord(parsed)) return null;
-  const raw = migrateDeck(parsed);
-  if (!raw) return null;
-  if (!Array.isArray(raw.workspaces)) return null;
+  if (!isRecord(parsed)) return corrupt;
+  const outcome = migrateDeck(parsed);
+  if (outcome.kind === "incompatible") return outcome;
+  if (outcome.kind === "unusable") return corrupt;
+  const raw = outcome.doc;
+  if (!Array.isArray(raw.workspaces)) return corrupt;
 
   const workspaces: Workspace[] = [];
   for (const w of raw.workspaces) {
     const ws = readWorkspace(w);
-    if (!ws) return null;
+    if (!ws) return corrupt;
     workspaces.push(ws);
   }
 
@@ -167,15 +190,63 @@ export function hydrateDeck(json: string): HydratedDeck | null {
   );
 
   return {
-    state: {
-      workspaces,
-      activeId,
-      focusByWs: readFocus(raw.focusByWs),
-      selectByWs: readSelection(raw.selectByWs),
+    kind: "ok",
+    deck: {
+      state: {
+        workspaces,
+        activeId,
+        focusByWs: readFocus(raw.focusByWs),
+        selectByWs: readSelection(raw.selectByWs),
+      },
+      nextAgentSeq:
+        maxSeq(workspaces.flatMap((w) => w.panes.map((p) => p.id)), "pane") + 1,
+      nextWorkspaceSeq: maxSeq(workspaces.map((w) => w.id), "ws") + 1,
+      docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
     },
-    nextAgentSeq: maxSeq(workspaces.flatMap((w) => w.panes.map((p) => p.id)), "pane") + 1,
-    nextWorkspaceSeq: maxSeq(workspaces.map((w) => w.id), "ws") + 1,
   };
+}
+
+/** The top-level keys this build owns; everything else is a doc extra. */
+const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "version",
+  "minVersion",
+  "activeId",
+  "focusByWs",
+  "selectByWs",
+  "workspaces",
+]);
+
+const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "name",
+  "cwd",
+  "worktreeBaseDir",
+  "run",
+  "panes",
+]);
+
+const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "agentType",
+  "cwd",
+  "branch",
+  "name",
+  "autoTitle",
+  "session",
+  "provisioning",
+]);
+
+/** The object's keys outside `known` — a newer revision's fields, preserved
+ * verbatim across our save round-trips. */
+function collectExtras(
+  value: Record<string, unknown>,
+  known: ReadonlySet<string>,
+): Record<string, unknown> {
+  const extras: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value)) {
+    if (!known.has(key)) extras[key] = v;
+  }
+  return extras;
 }
 
 /** The restorable agent ids, derived from the one TS catalog — a hand-kept
@@ -208,6 +279,8 @@ function readWorkspace(value: unknown): Workspace | null {
   // load-and-save with it off. Malformed → the workspace just has no config.
   const run = readWorkspaceRun(value.run);
   if (run) ws.run = run;
+  const extras = collectExtras(value, WS_KNOWN_KEYS);
+  if (Object.keys(extras).length > 0) ws.extras = extras;
   return ws;
 }
 
@@ -240,6 +313,8 @@ function readPane(value: unknown): Pane | null {
     delete pane.dormant;
     pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
   }
+  const extras = collectExtras(value, PANE_KNOWN_KEYS);
+  if (Object.keys(extras).length > 0) pane.extras = extras;
   return pane;
 }
 

@@ -79,9 +79,9 @@ describe("hydrateSettings", () => {
 });
 
 describe("serializeSettings", () => {
-  it("pure defaults write only the version — sparse by design", () => {
+  it("pure defaults write only the version markers — sparse by design", () => {
     expect(serializeSettings(defaultSettingsDocument())).toBe(
-      JSON.stringify({ version: SETTINGS_VERSION }),
+      JSON.stringify({ version: SETTINGS_VERSION, minVersion: 1 }),
     );
   });
 
@@ -89,7 +89,19 @@ describe("serializeSettings", () => {
     const doc = defaultSettingsDocument();
     doc.settings.defaultAgent = "codex";
     const out = JSON.parse(serializeSettings(doc));
-    expect(out).toEqual({ version: SETTINGS_VERSION, defaultAgent: "codex" });
+    expect(out).toEqual({
+      version: SETTINGS_VERSION,
+      minVersion: 1,
+      defaultAgent: "codex",
+    });
+  });
+
+  it("quarantines a settings file whose floor is above this build", () => {
+    expect(
+      hydrateSettings(
+        JSON.stringify({ version: 99, minVersion: 99, scrollback: 1 }),
+      ),
+    ).toBeNull();
   });
 
   it("preserves unknown keys across a hydrate→serialize round-trip", () => {

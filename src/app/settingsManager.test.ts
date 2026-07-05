@@ -93,6 +93,7 @@ describe("settingsManager", () => {
     expect(ipc.saveSettings).toHaveBeenCalledTimes(1);
     expect(JSON.parse(ipc.saveSettings.mock.calls[0][0])).toEqual({
       version: SETTINGS_VERSION,
+      minVersion: 1,
       defaultAgent: "opencode",
     });
   });
@@ -108,6 +109,7 @@ describe("settingsManager", () => {
     const last = calls[calls.length - 1][0];
     expect(JSON.parse(last)).toEqual({
       version: SETTINGS_VERSION,
+      minVersion: 1,
       scrollback: 20_000,
       defaultAgent: "codex",
     });

@@ -26,6 +26,7 @@ import { DockPanel } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import { closeHotkeyTarget, maximizeHotkeyTarget } from "./domain/hotkeys";
+import { DECK_STATE_VERSION } from "./domain/persist";
 import { pathOccupancy, type SpawnConfig } from "./domain/workspaces";
 import { MAX_PANES } from "./domain/layout";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
@@ -59,7 +60,9 @@ function App() {
   // Global preferences ([F6]) — loaded before the first paint, saved through.
   const settings = useSettings();
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
-  const { restoring } = usePersistence(deck);
+  // `frozen` = the stored deck needs a newer build: session parked, no saves.
+  const { restoring, frozen } = usePersistence(deck);
+  const [frozenAck, setFrozenAck] = useState(false);
   // Per-install spawn-plan constants (spool dir, reporter activation) — the
   // deck's first paint waits for it ([F7]/[F8] session identity v2).
   const spawnCtx = useSpawnContext();
@@ -109,7 +112,12 @@ function App() {
   const atCap = activeCount >= MAX_PANES;
   // Transactional dialogs — while one is up, nothing else may open over it.
   // One list, one rule: a new dialog joins by being added here.
-  const transactions = [agentFlow.dialog, closeFlow.closing, error];
+  const transactions = [
+    agentFlow.dialog,
+    closeFlow.closing,
+    error,
+    frozen && !frozenAck ? frozen : null,
+  ];
   const dialogOpen = transactions.some((t) => t !== null);
   const modalOpen = showForm || dialogOpen || settingsOpen;
 
@@ -358,6 +366,24 @@ function App() {
               message={error}
               confirmLabel="OK"
               onConfirm={() => setError(null)}
+            />
+          )}
+
+          {frozen && !frozenAck && (
+            // The parked-session notice: silent no-saving would be hidden
+            // data loss — this turns it into an announced trade-off.
+            <ConfirmDialog
+              title="Deck from a newer KeepDeck"
+              message={
+                `deck.json was written by a newer version of KeepDeck ` +
+                `(revision ${frozen.version}; this build reads up to revision ${DECK_STATE_VERSION}). ` +
+                `The file is left untouched.\n\n` +
+                `This session starts empty and will not be saved — anything ` +
+                `you create here is gone on quit. Run the newer version to ` +
+                `get your workspaces back.`
+              }
+              confirmLabel="OK"
+              onConfirm={() => setFrozenAck(true)}
             />
           )}
 

@@ -19,10 +19,15 @@ import { FALLBACK_AGENTS } from "./agents";
  *   never overrode it.
  */
 
-// Revision + future ladder live with every other document's in
-// domain/migrations.ts; reading stays per-key tolerant (no gate).
+// Revision + compatibility floor live with every other document's in
+// domain/migrations.ts; reading stays per-key tolerant — the floor is the
+// only gate (a breach quarantines: rare, true breaking changes only).
 export { SETTINGS_VERSION } from "./migrations";
-import { SETTINGS_VERSION } from "./migrations";
+import {
+  SETTINGS_MIN_READER,
+  SETTINGS_VERSION,
+  settingsFloorBreach,
+} from "./migrations";
 
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete
@@ -65,6 +70,7 @@ export function defaultSettingsDocument(): SettingsDocument {
 /** `version` plus every key `Settings` owns — everything else is an extra. */
 const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "version",
+  "minVersion",
   ...Object.keys(DEFAULT_SETTINGS),
 ]);
 
@@ -96,6 +102,10 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const doc = raw as Record<string, unknown>;
+  // Above our compatibility floor → quarantine (per-key tolerance covers
+  // additive futures; a raised floor means a key CHANGED MEANING, and
+  // half-understanding it would be worse than defaults + kept evidence).
+  if (settingsFloorBreach(doc) !== null) return null;
 
   const settings: Settings = { ...DEFAULT_SETTINGS };
   if (AGENT_TYPES.includes(doc.defaultAgent as AgentType)) {
@@ -120,6 +130,7 @@ export function hydrateSettings(json: string): SettingsDocument | null {
 export function serializeSettings(doc: SettingsDocument): string {
   const out: Record<string, unknown> = {
     version: SETTINGS_VERSION,
+    minVersion: SETTINGS_MIN_READER,
     ...doc.extras,
   };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {

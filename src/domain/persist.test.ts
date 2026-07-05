@@ -5,7 +5,15 @@ import {
   PROVISIONING_INTERRUPTED,
   hydrateDeck,
   serializeDeck,
+  type HydratedDeck,
 } from "./persist";
+
+/** Unwrap an expected-ok hydration; fails the test loudly otherwise. */
+function okDeck(json: string): HydratedDeck {
+  const result = hydrateDeck(json);
+  if (result.kind !== "ok") throw new Error(`expected ok, got ${result.kind}`);
+  return result.deck;
+}
 
 const state: DeckState = {
   workspaces: [
@@ -40,7 +48,7 @@ const state: DeckState = {
 };
 
 describe("serializeDeck → hydrateDeck round-trip", () => {
-  const restored = hydrateDeck(serializeDeck(state))!;
+  const restored = okDeck(serializeDeck(state));
 
   it("restores workspaces, selection maps and the active id", () => {
     expect(restored.state.activeId).toBe("ws-5");
@@ -81,9 +89,13 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
 
 describe("hydrateDeck — unusable input", () => {
   it("rejects non-JSON, wrong versions and malformed shapes", () => {
-    expect(hydrateDeck("not json")).toBeNull();
-    expect(hydrateDeck(JSON.stringify({ version: 99, workspaces: [] }))).toBeNull();
-    expect(hydrateDeck(JSON.stringify({ version: 1 }))).toBeNull();
+    expect(hydrateDeck("not json").kind).toBe("corrupt");
+    // No usable floor declared and no numeric... a bare version 99 declares
+    // floor 99 → parked, not corrupted.
+    expect(
+      hydrateDeck(JSON.stringify({ version: 99, workspaces: [] })).kind,
+    ).toBe("incompatible");
+    expect(hydrateDeck(JSON.stringify({ version: 1 })).kind).toBe("corrupt");
     // A workspace without a cwd is unusable — quarantine the whole file.
     expect(
       hydrateDeck(
@@ -94,8 +106,8 @@ describe("hydrateDeck — unusable input", () => {
           selectByWs: {},
           workspaces: [{ id: "ws-1", name: "x", panes: [] }],
         }),
-      ),
-    ).toBeNull();
+      ).kind,
+    ).toBe("corrupt");
   });
 
   it("rejects a workspace with more panes than the grid can render", () => {
@@ -114,8 +126,8 @@ describe("hydrateDeck — unusable input", () => {
             { id: "ws-1", name: "x", cwd: "/x", worktreeBaseDir: null, panes },
           ],
         }),
-      ),
-    ).toBeNull();
+      ).kind,
+    ).toBe("corrupt");
   });
 
   it("restores a pane of EVERY cataloged agent type", () => {
@@ -123,7 +135,7 @@ describe("hydrateDeck — unusable input", () => {
     // restorable automatically, with no separate hand-kept id list to forget
     // (forgetting silently degraded restored panes to the default agent).
     for (const agent of FALLBACK_AGENTS) {
-      const restored = hydrateDeck(
+      const restored = okDeck(
         JSON.stringify({
           version: 1,
           activeId: "ws-1",
@@ -139,7 +151,7 @@ describe("hydrateDeck — unusable input", () => {
             },
           ],
         }),
-      )!;
+      );
       expect(restored.state.workspaces[0].panes[0].agentType).toBe(agent.id);
     }
   });
@@ -161,7 +173,7 @@ describe("hydrateDeck — tolerated degradations", () => {
       },
     ],
   });
-  const restored = hydrateDeck(json)!;
+  const restored = okDeck(json);
 
   it("resolves a stale activeId to an existing workspace", () => {
     expect(restored.state.activeId).toBe("ws-1");
@@ -180,7 +192,7 @@ describe("hydrateDeck — tolerated degradations", () => {
     // Decks written before the closeAgent fix can carry a focus key on a
     // solo workspace; restoring it verbatim would maximize the wrong pane
     // as soon as a second pane is added.
-    const stale = hydrateDeck(
+    const stale = okDeck(
       JSON.stringify({
         version: 1,
         activeId: "ws-1",
@@ -196,12 +208,12 @@ describe("hydrateDeck — tolerated degradations", () => {
           },
         ],
       }),
-    )!;
+    );
     expect(stale.state.focusByWs).toEqual({});
   });
 
   it("seeds mints at 1 when no ids match the minted format", () => {
-    const custom = hydrateDeck(
+    const custom = okDeck(
       JSON.stringify({
         version: 1,
         activeId: "",
@@ -211,7 +223,7 @@ describe("hydrateDeck — tolerated degradations", () => {
           { id: "imported", name: "x", cwd: "/x", worktreeBaseDir: null, panes: [] },
         ],
       }),
-    )!;
+    );
     expect(custom.nextAgentSeq).toBe(1);
     expect(custom.nextWorkspaceSeq).toBe(1);
   });
@@ -248,7 +260,7 @@ describe("provisioning panes across a restart", () => {
   it("persists the intent, never the runtime error, and restores an interrupted failed card", () => {
     const json = serializeDeck(provisioningState);
     expect(json).not.toContain("mid-create failure");
-    const pane = hydrateDeck(json)!.state.workspaces[0].panes[0];
+    const pane = okDeck(json).state.workspaces[0].panes[0];
     expect(pane.provisioning).toEqual({
       repo: "/repo",
       baseDir: "/wt",
@@ -264,7 +276,7 @@ describe("provisioning panes across a restart", () => {
   it("degrades a malformed intent to a plain dormant pane instead of rejecting the deck", () => {
     const doc = JSON.parse(serializeDeck(provisioningState));
     doc.workspaces[0].panes[0].provisioning = { repo: 42 };
-    const pane = hydrateDeck(JSON.stringify(doc))!.state.workspaces[0].panes[0];
+    const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
     expect(pane.provisioning).toBeUndefined();
     expect(pane.dormant).toBe(true);
   });
@@ -293,7 +305,7 @@ describe("run presets round-trip", () => {
   it("persists and restores the workspace config", () => {
     // Flag-agnostic by design: a deck saved with the experiment on must
     // survive a load-and-save with it off, so hydration always parses run.
-    const restored = hydrateDeck(serializeDeck(runState))!;
+    const restored = okDeck(serializeDeck(runState));
     expect(restored.state.workspaces[0].run).toEqual(runState.workspaces[0].run);
   });
 
@@ -303,13 +315,13 @@ describe("run presets round-trip", () => {
       workspaces: [{ ...runState.workspaces[0], run: undefined, panes: [] }],
     };
     expect(serializeDeck(bare)).not.toContain('"run"');
-    expect(hydrateDeck(serializeDeck(bare))!.state.workspaces[0].run).toBeUndefined();
+    expect(okDeck(serializeDeck(bare)).state.workspaces[0].run).toBeUndefined();
   });
 
   it("degrades a malformed run value without rejecting the deck", () => {
     const doc = JSON.parse(serializeDeck(runState));
     doc.workspaces[0].run = { presets: "not a list" };
-    const restored = hydrateDeck(JSON.stringify(doc))!;
+    const restored = okDeck(JSON.stringify(doc));
     expect(restored.state.workspaces[0].run).toBeUndefined();
   });
 });
@@ -343,15 +355,17 @@ describe("provisioning phase is runtime-only", () => {
     const json = serializeDeck(state);
     expect(json).not.toContain("setup");
     // Restored as the interrupted failed card, like any in-flight create.
-    const pane = hydrateDeck(json)!.state.workspaces[0].panes[0];
+    const pane = okDeck(json).state.workspaces[0].panes[0];
     expect(pane.provisioning?.phase).toBeUndefined();
     expect(pane.provisioning?.error).toBe(PROVISIONING_INTERRUPTED);
   });
 });
 
-describe("schema revisions (version = revision, not just compatibility)", () => {
-  it("writes the current revision", () => {
-    expect(serializeDeck(state)).toContain('"version":2');
+describe("schema revisions and the compatibility floor", () => {
+  it("writes the current revision and its floor", () => {
+    const out = JSON.parse(serializeDeck(state));
+    expect(out.version).toBe(3);
+    expect(out.minVersion).toBe(1);
   });
 
   it("a v1 deck (pre run presets) migrates up on load", () => {
@@ -370,35 +384,65 @@ describe("schema revisions (version = revision, not just compatibility)", () => 
         },
       ],
     };
-    const restored = hydrateDeck(JSON.stringify(v1))!;
+    const restored = okDeck(JSON.stringify(v1));
     expect(restored.state.workspaces[0].panes[0].dormant).toBe(true);
     expect(restored.state.workspaces[0].run).toBeUndefined();
   });
 
-  it("a deck from a NEWER revision is rejected — quarantine beats misreading", () => {
-    expect(
-      hydrateDeck(
-        JSON.stringify({
-          version: 3,
-          activeId: "",
-          focusByWs: {},
-          selectByWs: {},
-          workspaces: [],
-        }),
-      ),
-    ).toBeNull();
+  it("round-trips a NEWER revision's unknown fields at every level", () => {
+    const future = {
+      version: 9,
+      minVersion: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      futureDocField: [1, 2],
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "x",
+          cwd: "/x",
+          worktreeBaseDir: null,
+          futureWsField: { a: 1 },
+          panes: [{ id: "pane-1", futurePaneField: "keep me" }],
+        },
+      ],
+    };
+    const restored = okDeck(JSON.stringify(future));
+    const saved = JSON.parse(
+      serializeDeck(restored.state, restored.docExtras),
+    );
+    // Saved by THIS build (its revision), with the future's fields intact.
+    expect(saved.version).toBe(3);
+    expect(saved.futureDocField).toEqual([1, 2]);
+    expect(saved.workspaces[0].futureWsField).toEqual({ a: 1 });
+    expect(saved.workspaces[0].panes[0].futurePaneField).toBe("keep me");
   });
 
-  it("a missing or non-numeric version is unusable", () => {
+  it("parks (not corrupts) a deck whose floor is above this build", () => {
+    const result = hydrateDeck(
+      JSON.stringify({
+        version: 9,
+        minVersion: 9,
+        activeId: "",
+        focusByWs: {},
+        selectByWs: {},
+        workspaces: [],
+      }),
+    );
+    expect(result).toEqual({ kind: "incompatible", version: 9, minVersion: 9 });
+  });
+
+  it("a missing or non-numeric version is corrupt", () => {
     expect(
       hydrateDeck(
         JSON.stringify({ activeId: "", focusByWs: {}, selectByWs: {}, workspaces: [] }),
-      ),
-    ).toBeNull();
+      ).kind,
+    ).toBe("corrupt");
     expect(
       hydrateDeck(
         JSON.stringify({ version: "1", activeId: "", focusByWs: {}, selectByWs: {}, workspaces: [] }),
-      ),
-    ).toBeNull();
+      ).kind,
+    ).toBe("corrupt");
   });
 });
