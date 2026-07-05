@@ -7,8 +7,8 @@ import {
   type PaneHead,
   type PaneSession,
   type Workspace,
+  type WorkspaceRun,
 } from "../domain/deck";
-import type { WorkspaceRun } from "../domain/runPresets";
 
 /** The deck surface the application hooks drive (state + bound actions). */
 export type Deck = ReturnType<typeof useDeck>;

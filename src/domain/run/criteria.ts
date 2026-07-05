@@ -1,6 +1,6 @@
-import { all, criterion, type Criterion } from "./criteria";
-import type { Settings } from "./settings";
-import type { Workspace } from "./deck";
+import { all, criterion, type Criterion } from "../criteria";
+import type { Settings } from "../settings";
+import type { Workspace } from "../deck";
 
 /**
  * The run feature's criteria — every surface of the experimental run presets

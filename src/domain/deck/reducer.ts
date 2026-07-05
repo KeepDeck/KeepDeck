@@ -1,5 +1,5 @@
 import { resolveFocus, type Pane, type PaneSession } from "./panes";
-import type { WorkspaceRun } from "../runPresets";
+import type { WorkspaceRun } from "./workspaceRun";
 import {
   addAgentPane,
   closeAgent,

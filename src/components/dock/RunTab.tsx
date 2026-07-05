@@ -7,8 +7,13 @@ import {
   stopRun,
 } from "../../app/runManager";
 import { useRunSessions } from "../../app/useRunSessions";
-import { addPreset, removePreset, updatePreset } from "../../domain/runPresets";
-import { commandRows, type RunSession } from "../../domain/runSessions";
+import {
+  addPreset,
+  commandRows,
+  removePreset,
+  updatePreset,
+  type RunSession,
+} from "../../domain/run";
 import { Dropdown } from "../../ui/Dropdown";
 import { noAutoCorrect } from "../../ui/inputProps";
 import {

@@ -1,8 +1,8 @@
 import type { DeckState } from "./reducer";
 import type { Pane, PaneProvisioning, PaneSession } from "./panes";
 import { resolveFocus } from "./panes";
-import type { WorkspaceRun } from "../runPresets";
-import { readWorkspaceRun } from "../runPresets";
+import type { WorkspaceRun } from "./workspaceRun";
+import { readWorkspaceRun } from "./workspaceRun";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "../agents";

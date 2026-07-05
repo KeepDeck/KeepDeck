@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, type Settings } from "./settings";
-import type { Workspace } from "./deck";
+import { DEFAULT_SETTINGS, type Settings } from "../settings";
+import type { Workspace } from "../deck";
 import {
   dockPanel,
   dockToggle,
   paneRunShortcut,
   setupField,
-} from "./runCriteria";
+} from "./criteria";
 
 const off: Settings = { ...DEFAULT_SETTINGS, experimentRunPresets: false };
 const on: Settings = { ...DEFAULT_SETTINGS, experimentRunPresets: true };

@@ -1,6 +1,5 @@
 import type { ComponentType } from "react";
-import type { WorkspaceRun } from "../../domain/runPresets";
-import type { Workspace } from "../../domain/deck";
+import type { Workspace, WorkspaceRun } from "../../domain/deck";
 import { RunTab } from "./RunTab";
 
 /** What every dock tab receives: the active workspace's context. A tab uses

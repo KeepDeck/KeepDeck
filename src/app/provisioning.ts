@@ -6,7 +6,7 @@ import {
   type PaneProvisioning,
   type WorktreeTarget,
 } from "../domain/deck";
-import { runEnv } from "../domain/runPresets";
+import { runEnv } from "../domain/run";
 import { describeError, log } from "../ipc/log";
 import { createWorktree, inspectRepo, removeWorktree } from "../ipc/worktree";
 import { acquirePane, attachPane, closePane } from "./ptyManager";

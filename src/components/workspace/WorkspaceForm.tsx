@@ -6,7 +6,7 @@ import {
 } from "../../domain/agents";
 import { useAgents } from "../../app/useAgents";
 import { useSettings } from "../../app/useSettings";
-import { setupField } from "../../domain/runCriteria";
+import { setupField } from "../../domain/run";
 import type { SpawnConfig } from "../../domain/deck";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { useEscape } from "../../ui/useEscape";
@@ -57,7 +57,7 @@ export function WorkspaceForm({
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
   const [worktreeDir, setWorktreeDir] = useState("");
   // One-time worktree setup command (experimental run presets). Visibility
-  // is a criterion (domain/runCriteria) — one place owns the condition.
+  // is a criterion (domain/run) — one place owns the condition.
   const [setup, setSetup] = useState("");
   const [nudge, setNudge] = useState(false);
   const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
