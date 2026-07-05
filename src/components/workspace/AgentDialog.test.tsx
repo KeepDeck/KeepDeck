@@ -7,7 +7,7 @@ import type {
   AgentDialogResult,
   Occupancy,
   PathProbe,
-} from "../../domain/agentLocation";
+} from "../../domain/agents";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =

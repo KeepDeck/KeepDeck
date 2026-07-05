@@ -1,13 +1,14 @@
-import type { AgentInfo } from "../domain/agents";
-import type { SpawnPlan } from "../domain/spawnPlans";
+import type { AgentInfo, SpawnPlan } from "../domain/agents";
 import {
   gridTracks,
+  paneBranchBadge,
   paneColumnSpan,
+  paneDisplayTitle,
   paneGrid,
   paneGridTrackColumns,
-} from "../domain/layout";
-import { paneBranchBadge, paneDisplayTitle, resolveFocus } from "../domain/panes";
-import type { Workspace } from "../domain/workspaces";
+  resolveFocus,
+  type Workspace,
+} from "../domain/deck";
 import { AgentPane } from "./agent/AgentPane";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 

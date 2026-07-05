@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   worktreeTargets,
   type WorktreeTarget,
-} from "../domain/workspaces";
+} from "../domain/deck";
 import { discardWorktrees } from "./provisioning";
 import { closePanes } from "./ptyManager";
 import { stopWorkspaceRuns } from "./runManager";

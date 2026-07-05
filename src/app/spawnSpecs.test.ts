@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { EMPTY_SPAWN_CONTEXT } from "../domain/spawnPlans";
+import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
 import {
   paneSpawnSpec,
   peekPaneSpawnSpec,

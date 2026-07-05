@@ -2,7 +2,7 @@ import {
   runSpawnOptions,
   type RunRequest,
   type RunSession,
-} from "../domain/runSessions";
+} from "../domain/run";
 import { describeError, log } from "../ipc/log";
 import { allocatePorts } from "../ipc/ports";
 import { spawnSession, type Session } from "../ipc/session";

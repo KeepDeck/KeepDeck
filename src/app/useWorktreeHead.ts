@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { onWorktreeHead, unwatchWorktree, watchWorktree } from "../ipc/worktree";
-import { worktreeCwds } from "../domain/workspaces";
+import { worktreeCwds } from "../domain/deck";
 import type { Deck } from "./useDeck";
 
 /**

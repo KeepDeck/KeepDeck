@@ -4,9 +4,9 @@ import {
   makeProvisioningPanes,
   type Pane,
   type PaneProvisioning,
-} from "../domain/panes";
-import { runEnv } from "../domain/runPresets";
-import type { WorktreeTarget } from "../domain/workspaces";
+  type WorktreeTarget,
+} from "../domain/deck";
+import { runEnv } from "../domain/run";
 import { describeError, log } from "../ipc/log";
 import { createWorktree, inspectRepo, removeWorktree } from "../ipc/worktree";
 import { acquirePane, attachPane, closePane } from "./ptyManager";

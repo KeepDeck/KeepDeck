@@ -1,8 +1,14 @@
 import { useReducer } from "react";
-import { deckReducer, initialDeckState, type DeckState } from "../domain/deck";
-import type { Pane, PaneSession } from "../domain/panes";
-import type { WorkspaceRun } from "../domain/runPresets";
-import type { PaneHead, Workspace } from "../domain/workspaces";
+import {
+  deckReducer,
+  initialDeckState,
+  type DeckState,
+  type Pane,
+  type PaneHead,
+  type PaneSession,
+  type Workspace,
+  type WorkspaceRun,
+} from "../domain/deck";
 
 /** The deck surface the application hooks drive (state + bound actions). */
 export type Deck = ReturnType<typeof useDeck>;

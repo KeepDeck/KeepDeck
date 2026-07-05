@@ -11,7 +11,8 @@
  *  - `syncPty` (SIGWINCH to the agent) waits until the size has SETTLED —
  *    no fit for `settleMs` — so one gesture costs the TUI one redraw.
  *
- * Schedulers are injectable for tests; defaults are the real rAF/timeout.
+ * Schedulers are supplied by the caller — the domain holds the coalescing
+ * policy only, no binding to the browser's rAF/timeout.
  */
 
 export interface RefitPump {
@@ -28,10 +29,10 @@ export interface RefitPumpOptions {
   syncPty(): void;
   /** Quiet time after the last fit before the PTY hears about it. */
   settleMs?: number;
-  raf?: (cb: () => void) => number;
-  cancelRaf?: (handle: number) => void;
-  setTimer?: (cb: () => void, ms: number) => number;
-  clearTimer?: (handle: number) => void;
+  raf: (cb: () => void) => number;
+  cancelRaf: (handle: number) => void;
+  setTimer: (cb: () => void, ms: number) => number;
+  clearTimer: (handle: number) => void;
 }
 
 export const DEFAULT_SETTLE_MS = 175;
@@ -41,10 +42,10 @@ export function createRefitPump(options: RefitPumpOptions): RefitPump {
     fit,
     syncPty,
     settleMs = DEFAULT_SETTLE_MS,
-    raf = (cb) => requestAnimationFrame(cb),
-    cancelRaf = (h) => cancelAnimationFrame(h),
-    setTimer = (cb, ms) => window.setTimeout(cb, ms),
-    clearTimer = (h) => window.clearTimeout(h),
+    raf,
+    cancelRaf,
+    setTimer,
+    clearTimer,
   } = options;
 
   let frame: number | null = null;

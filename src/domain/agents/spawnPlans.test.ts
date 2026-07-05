@@ -43,7 +43,7 @@ describe("buildSpawnPlan — claude (assigned identity + hook reporter)", () => 
 
 describe("buildSpawnPlan — codex (hook reporter)", () => {
   it("arms the SessionStart hook and the reporter env", () => {
-    const plan = buildSpawnPlan("codex", "pane-2", ctx);
+    const plan = buildSpawnPlan("codex", "pane-2", ctx, { mintId: mint });
     expect(plan.args).toEqual(ctx.codexHookArgs);
     expect(plan.env).toEqual([
       ["KEEPDECK_PANE_ID", "pane-2"],
@@ -52,12 +52,12 @@ describe("buildSpawnPlan — codex (hook reporter)", () => {
   });
 
   it("puts the global -c flags BEFORE the resume subcommand", () => {
-    const plan = buildSpawnPlan("codex", "pane-2", ctx, { resumeId: "uuid-9" });
+    const plan = buildSpawnPlan("codex", "pane-2", ctx, { resumeId: "uuid-9", mintId: mint });
     expect(plan.args).toEqual([...ctx.codexHookArgs!, "resume", "uuid-9"]);
   });
 
   it("degrades to a bare spawn when the hook is unavailable", () => {
-    const plan = buildSpawnPlan("codex", "pane-2", EMPTY_SPAWN_CONTEXT);
+    const plan = buildSpawnPlan("codex", "pane-2", EMPTY_SPAWN_CONTEXT, { mintId: mint });
     expect(plan.args).toEqual([]);
     expect(plan.env).toEqual([]);
   });
@@ -65,7 +65,7 @@ describe("buildSpawnPlan — codex (hook reporter)", () => {
 
 describe("buildSpawnPlan — opencode (plugin reporter)", () => {
   it("injects the plugin via a MERGING per-invocation config", () => {
-    const plan = buildSpawnPlan("opencode", "pane-3", ctx);
+    const plan = buildSpawnPlan("opencode", "pane-3", ctx, { mintId: mint });
     expect(plan.args).toEqual([]);
     const env = Object.fromEntries(plan.env);
     expect(env.KEEPDECK_PANE_ID).toBe("pane-3");
@@ -76,14 +76,14 @@ describe("buildSpawnPlan — opencode (plugin reporter)", () => {
   });
 
   it("resumes with -s and still arms the plugin (catches /new)", () => {
-    const plan = buildSpawnPlan("opencode", "pane-3", ctx, { resumeId: "ses_x" });
+    const plan = buildSpawnPlan("opencode", "pane-3", ctx, { resumeId: "ses_x", mintId: mint });
     expect(plan.args).toEqual(["-s", "ses_x"]);
     expect(Object.fromEntries(plan.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
   });
 
   it("degrades to a bare spawn without the plugin or the spool", () => {
-    expect(buildSpawnPlan("opencode", "pane-3", EMPTY_SPAWN_CONTEXT).env).toEqual([]);
-    const noSpool = buildSpawnPlan("opencode", "pane-3", { ...ctx, spoolDir: "" });
+    expect(buildSpawnPlan("opencode", "pane-3", EMPTY_SPAWN_CONTEXT, { mintId: mint }).env).toEqual([]);
+    const noSpool = buildSpawnPlan("opencode", "pane-3", { ...ctx, spoolDir: "" }, { mintId: mint });
     expect(noSpool.env).toEqual([]);
   });
 });

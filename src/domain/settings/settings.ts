@@ -1,5 +1,5 @@
-import type { AgentType } from "./agents";
-import { FALLBACK_AGENTS } from "./agents";
+import type { AgentType } from "../agents";
+import { FALLBACK_AGENTS } from "../agents";
 
 /**
  * Global app settings ([F6]) — schema, serialization and hydration.
@@ -20,14 +20,14 @@ import { FALLBACK_AGENTS } from "./agents";
  */
 
 // Revision + compatibility floor live with every other document's in
-// domain/migrations.ts; reading stays per-key tolerant — the floor is the
+// domain/migrations; reading stays per-key tolerant — the floor is the
 // only gate (a breach quarantines: rare, true breaking changes only).
-export { SETTINGS_VERSION } from "./migrations";
+export { SETTINGS_VERSION } from "../migrations";
 import {
   SETTINGS_MIN_READER,
   SETTINGS_VERSION,
   settingsFloorBreach,
-} from "./migrations";
+} from "../migrations";
 
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete

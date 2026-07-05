@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { RunSession } from "../domain/runSessions";
+import type { RunSession } from "../domain/run";
 import { getRunSessions, subscribeRuns } from "./runManager";
 
 /**

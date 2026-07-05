@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { paneAtPoint } from "../domain/dnd";
+import { paneAtPoint } from "../domain/deck";
 import { pathsAreImages } from "../ipc/app";
 import { describeError, log } from "../ipc/log";
 import { onFileDrop } from "../ipc/webview";

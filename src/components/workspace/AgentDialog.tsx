@@ -1,25 +1,23 @@
 import { useEffect, useState } from "react";
 import {
+  canCreateAgent,
+  classifyLocation,
   selectableAgents,
   defaultAgentType as pickDefaultAgentType,
+  type AgentDialogResult,
+  type AgentLocation,
   type AgentType,
+  type Occupancy,
+  type PathProbe,
 } from "../../domain/agents";
 import { useAgents } from "../../app/useAgents";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
-import {
-  canCreateAgent,
-  classifyLocation,
-  type AgentDialogResult,
-  type AgentLocation,
-  type Occupancy,
-  type PathProbe,
-} from "../../domain/agentLocation";
 import { AttachIcon, NextIcon } from "../../ui/icons";
 
-export type { AgentDialogResult } from "../../domain/agentLocation";
+export type { AgentDialogResult } from "../../domain/agents";
 
 interface AgentDialogProps {
   /** Pre-selected agent type. */

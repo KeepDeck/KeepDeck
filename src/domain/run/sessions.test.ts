@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commandRows, runSpawnOptions, type RunSession } from "./runSessions";
+import { commandRows, runSpawnOptions, type RunSession } from "./sessions";
 
 const PRESETS = [
   { id: "run-1", name: "Dev", command: "pnpm dev" },

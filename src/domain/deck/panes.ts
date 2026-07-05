@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentType } from "./agents";
+import type { AgentInfo, AgentType } from "../agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
 
 /** The agent session a pane is bound to — the resume key ([F7]/[F8]). Bound at

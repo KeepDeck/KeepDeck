@@ -1,5 +1,5 @@
 /** Pure hit-test geometry for drag-reordering the workspaces rail — mirrors
- * `domain/dnd.ts`. The DOM read feeding it lives in `app/railDnd.ts`, exactly
+ * `paneDnd.ts`. The DOM read feeding it lives in `app/railDnd.ts`, exactly
  * as `app/dragDrop.ts` feeds the pane hit-test, so this module needs no DOM
  * to test. */
 

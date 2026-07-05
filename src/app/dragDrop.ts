@@ -1,4 +1,5 @@
-import { formatDroppedPaths, type PaneRect } from "../domain/dnd";
+import { type PaneRect } from "../domain/deck";
+import { formatDroppedPaths } from "../domain/terminal";
 import { writeToPane } from "./paneInput";
 
 /**

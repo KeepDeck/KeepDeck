@@ -14,7 +14,7 @@ const VS_CODE_APP: &str = "Visual Studio Code";
 
 /// Why an open failed, sent to the webview as the command's structured
 /// rejection so the click path can tell "the file is gone" ([F16]) apart from
-/// a generic opener failure. Wire shape (narrowed in `src/domain/links.ts`):
+/// a generic opener failure. Wire shape (narrowed in `src/domain/terminal/links.ts`):
 /// `{ kind: "notFound", path }` | `{ kind: "failed", message }`.
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -90,7 +90,7 @@ mod tests {
         );
     }
 
-    // The webview narrows on this exact JSON shape (src/domain/links.ts) — pin it.
+    // The webview narrows on this exact JSON shape (src/domain/terminal/links.ts) — pin it.
     #[test]
     fn open_error_serializes_with_camel_case_kind_tag() {
         let not_found = OpenError::NotFound { path: "/x".into() };

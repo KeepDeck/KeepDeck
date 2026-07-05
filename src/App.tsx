@@ -17,18 +17,22 @@ import { useSettings } from "./app/useSettings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useWorktreeHead } from "./app/useWorktreeHead";
 import { paneSpawnSpec } from "./app/spawnSpecs";
-import type { SpawnPlan } from "./domain/spawnPlans";
+import type { SpawnPlan } from "./domain/agents";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
-import { dockPanel, dockToggle, paneRunShortcut } from "./domain/runCriteria";
+import { dockPanel, dockToggle, paneRunShortcut } from "./domain/run";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { DockPanel } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
-import { closeHotkeyTarget, maximizeHotkeyTarget } from "./domain/hotkeys";
-import { DECK_STATE_VERSION } from "./domain/persist";
-import { pathOccupancy, type SpawnConfig } from "./domain/workspaces";
-import { MAX_PANES } from "./domain/layout";
+import {
+  closeHotkeyTarget,
+  DECK_STATE_VERSION,
+  MAX_PANES,
+  maximizeHotkeyTarget,
+  pathOccupancy,
+  type SpawnConfig,
+} from "./domain/deck";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import "./styles/index.css";
@@ -98,7 +102,7 @@ function App() {
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
   // The dock's render condition — one named criterion, declared in
-  // domain/runCriteria; the narrowing to a workspace happens here.
+  // domain/run; the narrowing to a workspace happens here.
   const dockWs = dockPanel.satisfiedBy({
     settings,
     dockOpen,
@@ -244,7 +248,7 @@ function App() {
             {info ? ` · ${info.version}` : ""}
           </span>
           {dockToggle.satisfiedBy({ settings }) && (
-            // Every run-preset surface asks domain/runCriteria — conditions
+            // Every run-preset surface asks domain/run — conditions
             // change there, in one place; live runs keep working regardless.
             <button
               type="button"

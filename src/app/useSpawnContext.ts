@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   EMPTY_SPAWN_CONTEXT,
   type SpawnPlanContext,
-} from "../domain/spawnPlans";
+} from "../domain/agents";
 import { describeError, log } from "../ipc/log";
 import { spawnContext } from "../ipc/sessions";
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PaneProvisioning } from "../../domain/panes";
+import type { PaneProvisioning } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { CloseIcon, MaximizeIcon, PlayIcon, RestoreIcon } from "../../ui/icons";
