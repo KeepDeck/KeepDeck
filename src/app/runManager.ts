@@ -143,6 +143,17 @@ function spawn(entry: Entry): void {
     } else {
       entry.handle = null;
       log.info("web:run", `${id}: exited (code ${event.code ?? "?"})`);
+      // The run's end belongs in its own log, like agent panes do — the
+      // status chip alone leaves the log ending mid-stream. A `stopping`
+      // session died because the user pulled the plug: say that instead of
+      // the kill signal's exit code.
+      const note =
+        entry.session.status.kind === "stopping"
+          ? "[stopped]"
+          : `[process exited${event.code != null ? ` (${event.code})` : ""}]`;
+      const bytes = new TextEncoder().encode(`\r\n\x1b[90m${note}\x1b[0m\r\n`);
+      entry.sink?.onOutput(bytes);
+      remember(entry, bytes);
       update(id, { status: { kind: "exited", code: event.code } });
     }
   })
