@@ -12,7 +12,7 @@ import {
   type Pane,
   type Workspace,
 } from "../domain/deck";
-import { inspectRepo, suggestWorktree } from "../ipc/worktree";
+import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
 import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";
 import { provisionInto, runProvisioning } from "./provisioning";
@@ -48,6 +48,10 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
   const suggestFor = (ws: Workspace) => (index: number) =>
     suggestWorktree(ws.name, index).catch(() => null);
 
+  /** Disk probe for suggestion filtering, IPC failures flattened to null
+   * (= don't filter — the dialog's live hint still guards the create). */
+  const probeFor = (path: string) => probeWorktree(path).catch(() => null);
+
   const openFor = async (ws: Workspace) => {
     const seq = mintAgentSeq();
     const index = ws.panes.length + 1;
@@ -69,13 +73,15 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
     if (repo) {
       if (ws.worktreeBaseDir) {
         // [F2]: prefill a path ONLY when the workspace has a base folder —
-        // and never a dir an open pane already runs in: jump straight to the
-        // first free suggestion instead of opening onto an occupied-path error.
+        // and never a dir an open pane already runs in, nor one blocked on
+        // disk: jump straight to the first usable suggestion instead of
+        // opening onto an occupied- or blocked-path error.
         const free = await firstFreeWorktree(
           deck.workspaces,
           ws.worktreeBaseDir,
           suggestFor(ws),
           index,
+          probeFor,
         );
         if (free) {
           suggestedPath = free.path;
@@ -146,10 +152,11 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
   };
 
   /**
-   * The next suggested location not held by an open pane — the dialog's
-   * "Use next available" action for an occupied path. Suggests inside the
-   * workspace base folder when set, else right next to the occupied path;
-   * null when neither gives a base (or suggestions fail).
+   * The next suggested location not held by an open pane (nor blocked on
+   * disk) — the dialog's "Use next available" action for an occupied or
+   * blocked path. Suggests inside the workspace base folder when set, else
+   * right next to the unusable path; null when neither gives a base (or
+   * suggestions fail).
    */
   const nextFree = async (currentPath: string) => {
     const dlg = dialog;
@@ -158,7 +165,13 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
     if (!ws) return null;
     const base = ws.worktreeBaseDir ?? parentDir(currentPath);
     if (!base) return null;
-    return firstFreeWorktree(deck.workspaces, base, suggestFor(ws), dlg.index);
+    return firstFreeWorktree(
+      deck.workspaces,
+      base,
+      suggestFor(ws),
+      dlg.index,
+      probeFor,
+    );
   };
 
   const cancel = () => setDialog(null);

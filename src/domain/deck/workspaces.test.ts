@@ -459,6 +459,37 @@ describe("firstFreeWorktree", () => {
     const stuck = async () => ({ branch: "kd/a/2", folder: "kd-a-2" });
     expect(await firstFreeWorktree(holding(2), "/base", stuck, 2)).toBeNull();
   });
+
+  it("skips a candidate the probe classifies as blocked (leftover dir with files)", async () => {
+    const probe = async (path: string) => ({
+      exists: path === "/base/kd-a-1",
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    expect(await firstFreeWorktree([], "/base", suggest, 1, probe)).toEqual({
+      path: "/base/kd-a-2",
+      branch: "kd/a/2",
+    });
+  });
+
+  it("keeps a candidate that probes as an idle worktree — attaching is a valid outcome", async () => {
+    const probe = async () => ({
+      exists: true,
+      isWorktree: true,
+      empty: false,
+      branch: "kd/a/1",
+    });
+    expect((await firstFreeWorktree([], "/base", suggest, 1, probe))?.path).toBe(
+      "/base/kd-a-1",
+    );
+  });
+
+  it("a null probe result (backend down) keeps the candidate", async () => {
+    expect(
+      (await firstFreeWorktree([], "/base", suggest, 1, async () => null))?.path,
+    ).toBe("/base/kd-a-1");
+  });
 });
 
 describe("parentDir", () => {
