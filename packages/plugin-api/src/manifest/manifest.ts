@@ -27,15 +27,23 @@ export interface PluginManifest {
   capabilities: Capability[];
   /** Static contribution summary — what the plugin will register when
    * activated. Lets the host render tab strips and pick lazy-activation
-   * moments without executing plugin code. */
+   * moments without executing plugin code. Every list entry is the same
+   * `{id, label}` shape: `label` is what a user sees in lists and consent —
+   * runtime contributions carry their own richer fields. */
   contributes: {
-    dockTabs?: { id: string; label: string }[];
-    topBarActions?: { id: string; title: string }[];
-    paneActions?: { id: string; title: string }[];
-    agents?: { id: string; label: string }[];
+    dockTabs?: ContributionSummary[];
+    topBarActions?: ContributionSummary[];
+    paneActions?: ContributionSummary[];
+    agents?: ContributionSummary[];
     /** The plugin registers a host-rendered settings section. */
     settings?: boolean;
   };
+}
+
+/** One statically-declared contribution: identity plus a display name. */
+export interface ContributionSummary {
+  id: string;
+  label: string;
 }
 
 export type ManifestResult =
@@ -148,46 +156,53 @@ function readContributes(
     return {};
   }
   const out: PluginManifest["contributes"] = {};
-  const lists = [
-    ["dockTabs", "label"],
-    ["topBarActions", "title"],
-    ["paneActions", "title"],
-    ["agents", "label"],
-  ] as const;
-  for (const [key, textField] of lists) {
-    const entries = value[key];
-    if (entries === undefined) continue;
-    if (!Array.isArray(entries)) {
-      errors.push(`contributes.${key}: must be an array`);
-      continue;
-    }
-    const read: { id: string; [k: string]: string }[] = [];
-    entries.forEach((entry, i) => {
-      if (
-        !isRecord(entry) ||
-        typeof entry.id !== "string" ||
-        !entry.id.trim() ||
-        typeof entry[textField] !== "string" ||
-        !(entry[textField] as string).trim()
-      ) {
-        errors.push(
-          `contributes.${key}[${i}]: needs string "id" and "${textField}"`,
-        );
-        return;
-      }
-      read.push({ id: entry.id, [textField]: entry[textField] as string });
-    });
-    if (read.length > 0) {
-      // The cast is safe: each list's element shape is {id} + its text field.
-      (out as Record<string, unknown>)[key] = read;
-    }
-  }
+  const dockTabs = readSummaries(value.dockTabs, "dockTabs", errors);
+  if (dockTabs) out.dockTabs = dockTabs;
+  const topBarActions = readSummaries(
+    value.topBarActions,
+    "topBarActions",
+    errors,
+  );
+  if (topBarActions) out.topBarActions = topBarActions;
+  const paneActions = readSummaries(value.paneActions, "paneActions", errors);
+  if (paneActions) out.paneActions = paneActions;
+  const agents = readSummaries(value.agents, "agents", errors);
+  if (agents) out.agents = agents;
   if (value.settings !== undefined) {
     if (typeof value.settings !== "boolean")
       errors.push("contributes.settings: must be a boolean");
     else out.settings = value.settings;
   }
   return out;
+}
+
+/** One summary list; `undefined` when absent, invalid, or empty (an entry
+ * error is reported but never drops the whole list's valid siblings). */
+function readSummaries(
+  value: unknown,
+  key: string,
+  errors: string[],
+): ContributionSummary[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    errors.push(`contributes.${key}: must be an array`);
+    return undefined;
+  }
+  const read: ContributionSummary[] = [];
+  value.forEach((entry, i) => {
+    if (
+      !isRecord(entry) ||
+      typeof entry.id !== "string" ||
+      !entry.id.trim() ||
+      typeof entry.label !== "string" ||
+      !entry.label.trim()
+    ) {
+      errors.push(`contributes.${key}[${i}]: needs string "id" and "label"`);
+      return;
+    }
+    read.push({ id: entry.id, label: entry.label });
+  });
+  return read.length > 0 ? read : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -16,7 +16,7 @@ const GOLDEN = {
   ],
   contributes: {
     dockTabs: [{ id: "preview", label: "Preview" }],
-    topBarActions: [{ id: "open", title: "Open preview" }],
+    topBarActions: [{ id: "open", label: "Open preview" }],
     settings: true,
   },
 };
