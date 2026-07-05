@@ -134,6 +134,15 @@ export async function launchRun(
 /** Spawn (or respawn, for restart) the entry's command. */
 function spawn(entry: Entry): void {
   const id = entry.session.id;
+  // Echo the command line first, the way a shell shows what it's about to
+  // run. The Commands list only ever shows a preset's NAME; the log is where
+  // the actual command becomes visible — including one edited in deck.json
+  // (a plain file) behind a familiar name. Newlines are normalized so a
+  // multi-line script doesn't stair-step across the terminal grid.
+  const echo = entry.session.command.replace(/\r?\n/g, "\r\n");
+  const banner = new TextEncoder().encode(`\x1b[90m[run] ${echo}\x1b[0m\r\n`);
+  entry.sink?.onOutput(banner);
+  remember(entry, banner);
   spawnSession(runSpawnOptions(entry.session), (event) => {
     if (entry.removed) return;
     if (event.type === "output") {
