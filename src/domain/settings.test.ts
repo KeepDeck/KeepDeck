@@ -119,3 +119,12 @@ describe("clampScrollback", () => {
     expect(clampScrollback(10_000)).toBe(10_000);
   });
 });
+
+describe("schema revisions", () => {
+  it("a v1 file reads tolerantly and upgrades to the current revision on save", () => {
+    const doc = hydrateSettings(JSON.stringify({ version: 1, scrollback: 20_000 }))!;
+    const out = JSON.parse(serializeSettings(doc));
+    expect(out.version).toBe(SETTINGS_VERSION);
+    expect(out.scrollback).toBe(20_000);
+  });
+});

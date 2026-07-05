@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS } from "../domain/settings";
+import { DEFAULT_SETTINGS, SETTINGS_VERSION } from "../domain/settings";
 import {
   getSettings,
   initSettings,
@@ -92,7 +92,7 @@ describe("settingsManager", () => {
     await flush();
     expect(ipc.saveSettings).toHaveBeenCalledTimes(1);
     expect(JSON.parse(ipc.saveSettings.mock.calls[0][0])).toEqual({
-      version: 1,
+      version: SETTINGS_VERSION,
       defaultAgent: "opencode",
     });
   });
@@ -107,7 +107,7 @@ describe("settingsManager", () => {
     const calls = ipc.saveSettings.mock.calls;
     const last = calls[calls.length - 1][0];
     expect(JSON.parse(last)).toEqual({
-      version: 1,
+      version: SETTINGS_VERSION,
       scrollback: 20_000,
       defaultAgent: "codex",
     });

@@ -348,3 +348,57 @@ describe("provisioning phase is runtime-only", () => {
     expect(pane.provisioning?.error).toBe(PROVISIONING_INTERRUPTED);
   });
 });
+
+describe("schema revisions (version = revision, not just compatibility)", () => {
+  it("writes the current revision", () => {
+    expect(serializeDeck(state)).toContain('"version":2');
+  });
+
+  it("a v1 deck (pre run presets) migrates up on load", () => {
+    const v1 = {
+      version: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "x",
+          cwd: "/x",
+          worktreeBaseDir: null,
+          panes: [{ id: "pane-1", agentType: "claude" }],
+        },
+      ],
+    };
+    const restored = hydrateDeck(JSON.stringify(v1))!;
+    expect(restored.state.workspaces[0].panes[0].dormant).toBe(true);
+    expect(restored.state.workspaces[0].run).toBeUndefined();
+  });
+
+  it("a deck from a NEWER revision is rejected — quarantine beats misreading", () => {
+    expect(
+      hydrateDeck(
+        JSON.stringify({
+          version: 3,
+          activeId: "",
+          focusByWs: {},
+          selectByWs: {},
+          workspaces: [],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("a missing or non-numeric version is unusable", () => {
+    expect(
+      hydrateDeck(
+        JSON.stringify({ activeId: "", focusByWs: {}, selectByWs: {}, workspaces: [] }),
+      ),
+    ).toBeNull();
+    expect(
+      hydrateDeck(
+        JSON.stringify({ version: "1", activeId: "", focusByWs: {}, selectByWs: {}, workspaces: [] }),
+      ),
+    ).toBeNull();
+  });
+});

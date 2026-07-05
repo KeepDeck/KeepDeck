@@ -27,7 +27,9 @@ import { MAX_PANES } from "./layout";
  * directory that may not exist.
  */
 
-export const DECK_STATE_VERSION = 1;
+import { DECK_STATE_VERSION, migrateDeck } from "./migrations";
+
+export { DECK_STATE_VERSION } from "./migrations";
 
 /** What the app closed in the middle of creating: hydration stamps this onto
  * a restored in-flight provisioning so it surfaces as the failed card. */
@@ -115,13 +117,15 @@ export function serializeDeck(state: DeckState): string {
  * be stale); focus/selection entries pointing at unknown ids are dropped.
  */
 export function hydrateDeck(json: string): HydratedDeck | null {
-  let raw: unknown;
+  let parsed: unknown;
   try {
-    raw = JSON.parse(json);
+    parsed = JSON.parse(json);
   } catch {
     return null;
   }
-  if (!isRecord(raw) || raw.version !== DECK_STATE_VERSION) return null;
+  if (!isRecord(parsed)) return null;
+  const raw = migrateDeck(parsed);
+  if (!raw) return null;
   if (!Array.isArray(raw.workspaces)) return null;
 
   const workspaces: Workspace[] = [];

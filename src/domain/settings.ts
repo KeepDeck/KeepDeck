@@ -19,7 +19,10 @@ import { FALLBACK_AGENTS } from "./agents";
  *   never overrode it.
  */
 
-export const SETTINGS_VERSION = 1;
+// Revision + future ladder live with every other document's in
+// domain/migrations.ts; reading stays per-key tolerant (no gate).
+export { SETTINGS_VERSION } from "./migrations";
+import { SETTINGS_VERSION } from "./migrations";
 
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete
