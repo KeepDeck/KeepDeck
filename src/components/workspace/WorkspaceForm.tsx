@@ -6,6 +6,7 @@ import {
 } from "../../domain/agents";
 import { useAgents } from "../../app/useAgents";
 import { useSettings } from "../../app/useSettings";
+import { setupField } from "../../domain/runCriteria";
 import type { SpawnConfig } from "../../domain/workspaces";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { useEscape } from "../../ui/useEscape";
@@ -41,10 +42,11 @@ export function WorkspaceForm({
 }: WorkspaceFormProps) {
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState<string | null>(null);
+  const settings = useSettings();
   // Global default agent preference ([F6]), straight from the settings store.
   // Loaded before the form can mount (App gates the first paint on it); the
   // fallback only covers isolated test mounts.
-  const defaultAgent = useSettings()?.defaultAgent ?? "claude";
+  const defaultAgent = settings?.defaultAgent ?? "claude";
   const [agentType, setAgentType] = useState<AgentType>(defaultAgent);
   // The user picked a type by hand — that choice must survive a defaultAgent
   // change made in the settings dialog while this form is open ([F6]).
@@ -54,11 +56,8 @@ export function WorkspaceForm({
   const [count, setCount] = useState(1);
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
   const [worktreeDir, setWorktreeDir] = useState("");
-  // One-time worktree setup command (experimental run presets). The field
-  // renders only while the experiment is on AND worktrees are in play — but
-  // whatever was typed still submits if the flag flips mid-form: gating is
-  // about discovery, not about discarding input.
-  const runPresetsOn = useSettings()?.experimentRunPresets ?? false;
+  // One-time worktree setup command (experimental run presets). Visibility
+  // is a criterion (domain/runCriteria) — one place owns the condition.
   const [setup, setSetup] = useState("");
   const [nudge, setNudge] = useState(false);
   const [git, setGit] = useState<{ isRepo: boolean; branch: string | null } | null>(
@@ -221,7 +220,7 @@ export function WorkspaceForm({
         </button>
       </div>
 
-      {runPresetsOn && worktreeDir.trim() !== "" && (
+      {setupField.satisfiedBy({ settings, worktreeDir }) && (
         <>
           <span className="form__label">Worktree setup command (optional)</span>
           <input

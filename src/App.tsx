@@ -20,6 +20,7 @@ import { paneSpawnSpec } from "./app/spawnSpecs";
 import type { SpawnPlan } from "./domain/spawnPlans";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
+import { dockPanel, dockToggle, paneRunShortcut } from "./domain/runCriteria";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { DockPanel } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
@@ -93,6 +94,15 @@ function App() {
   useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
+  // The dock's render condition — one named criterion, declared in
+  // domain/runCriteria; the narrowing to a workspace happens here.
+  const dockWs = dockPanel.satisfiedBy({
+    settings,
+    dockOpen,
+    activeWorkspace: active,
+  })
+    ? active
+    : null;
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
   const activeCount = active?.panes.length ?? 0;
@@ -225,9 +235,9 @@ function App() {
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
           </span>
-          {settings.experimentRunPresets && (
-            // The Run panel's one entry point — the experiment flag gates
-            // exactly this toggle; live runs keep working regardless.
+          {dockToggle.satisfiedBy({ settings }) && (
+            // Every run-preset surface asks domain/runCriteria — conditions
+            // change there, in one place; live runs keep working regardless.
             <button
               type="button"
               className="bar__icon"
@@ -292,7 +302,7 @@ function App() {
             // The pane-header ▶: select the pane (the Run tab follows the
             // highlight for its target) and reveal the panel.
             onOpenRun={
-              settings.experimentRunPresets
+              paneRunShortcut.satisfiedBy({ settings })
                 ? (wsId, paneId) => {
                     deck.selectPane(wsId, paneId);
                     setDockOpen(true);
@@ -397,14 +407,14 @@ function App() {
             </ConfirmDialog>
           )}
         </div>
-        {settings.experimentRunPresets && dockOpen && active && (
+        {dockWs && (
           // Keyed by workspace: switching resets the tab-local state (run
           // target, drafts) to the new workspace's context.
           <DockPanel
-            key={active.id}
-            ws={active}
+            key={dockWs.id}
+            ws={dockWs}
             selectedPaneId={selectedPaneId}
-            onSetRun={(run) => deck.setWorkspaceRun(active.id, run)}
+            onSetRun={(run) => deck.setWorkspaceRun(dockWs.id, run)}
           />
         )}
       </div>
