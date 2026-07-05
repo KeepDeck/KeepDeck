@@ -9,6 +9,38 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  build: {
+    rollupOptions: {
+      input: {
+        index: "index.html",
+        // The four bridge chunks plugin bundles resolve through the
+        // production import map (see index.html). They need STABLE
+        // filenames — a plugin's import map entry can't chase a content
+        // hash across app releases — so they get explicit `entryFileNames`
+        // below, while every other entry (the app itself) keeps the normal
+        // hashed name for cache-busting.
+        "react-bridge": "src/plugins/bridges/react.js",
+        "react-jsx-runtime-bridge": "src/plugins/bridges/react-jsx-runtime.js",
+        "react-dom-client-bridge": "src/plugins/bridges/react-dom-client.js",
+        "plugin-api-bridge": "src/plugins/bridges/plugin-api.js",
+      },
+      output: {
+        entryFileNames: (chunk) =>
+          chunk.name.endsWith("-bridge")
+            ? `assets/${chunk.name}.js`
+            : "assets/[name]-[hash].js",
+      },
+      // Vite's app build defaults to `preserveEntrySignatures: false`, which
+      // STRIPS a chunk's exports once it decides the chunk is an "entry" —
+      // verified in a live spike: without this, the bridge chunks build
+      // clean but export nothing, so the import map resolves plugin imports
+      // to a module with no named bindings. "exports-only" keeps each
+      // entry's exports (bridges need it) without generating the full
+      // preserved-facade output shape a plain library build would.
+      preserveEntrySignatures: "exports-only",
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

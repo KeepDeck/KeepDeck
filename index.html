@@ -4,6 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>KeepDeck</title>
+    <!--
+      Import map for built-in plugin bundles (built with react / react-dom /
+      @keepdeck/plugin-api marked `external` — see scripts/build-plugins.mjs).
+      Each bare specifier below resolves to the matching bridge chunk built
+      from src/plugins/bridges/ (stable filenames per vite.config.ts), so a
+      plugin component shares the HOST's React instance instead of bundling
+      its own.
+
+      Placement: `vite build` relocates a source import-map script tag to
+      immediately before the module script, so declaring it here in the head
+      is safe — verified in a live spike against the built app. (This
+      comment avoids spelling out that tag literally — an angle-bracket
+      "script" example inside an HTML comment confuses Vite's own HTML
+      transform and truncates the comment; verified the hard way.)
+
+      Dev only: WebKit (the Tauri webview) rejects this import map in `vite
+      dev` because Vite's injected `/@vite/client` module loads first and
+      wins the specifier resolution race — also verified live. That's fine:
+      the dev plugin loader imports plugin SOURCE through Vite instead of
+      through this map, so dev never depends on it. Don't try to fix dev.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "/assets/react-bridge.js",
+          "react/jsx-runtime": "/assets/react-jsx-runtime-bridge.js",
+          "react-dom/client": "/assets/react-dom-client-bridge.js",
+          "@keepdeck/plugin-api": "/assets/plugin-api-bridge.js"
+        }
+      }
+    </script>
     <style>
       /* Paint the document dark on the very first frame — before the JS bundle
          (which carries App.css) parses — so the webview never flashes white on
