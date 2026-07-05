@@ -40,6 +40,8 @@ export function useDeck() {
       dispatch({ type: "toggleFocus", wsId, paneId }),
     selectPane: (wsId: string, paneId: string) =>
       dispatch({ type: "selectPane", wsId, paneId }),
+    toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),
+    openDock: (wsId: string) => dispatch({ type: "openDock", wsId }),
     renamePane: (wsId: string, paneId: string, name: string) =>
       dispatch({ type: "renamePane", wsId, paneId, name }),
     setPaneAutoTitle: (wsId: string, paneId: string, title: string) =>

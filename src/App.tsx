@@ -85,10 +85,6 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   // The settings dialog ([F6]) — opened from the app menu (⌘,) or the gear.
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // The dock (Run panel, experimental) — a persistent side panel like the
-  // rail, not a modal.
-  const [dockOpen, setDockOpen] = useState(false);
-
   const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
@@ -101,6 +97,10 @@ function App() {
   useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
+  // The dock (Run panel, experimental) — a persistent side panel like the
+  // rail, not a modal. Open/closed is PER workspace (deck.dockByWs), so
+  // switching workspaces switches to that workspace's own dock state.
+  const dockOpen = deck.dockByWs[deck.activeId] ?? false;
   // The dock's render condition — one named criterion, declared in
   // domain/run; the narrowing to a workspace happens here.
   const dockWs = dockPanel.satisfiedBy({
@@ -253,7 +253,7 @@ function App() {
             <button
               type="button"
               className="bar__icon"
-              onClick={() => setDockOpen((o) => !o)}
+              onClick={() => active && deck.toggleDock(active.id)}
               title={dockOpen ? "Hide the Run panel" : "Show the Run panel"}
               aria-label="Toggle run panel"
             >
@@ -317,7 +317,7 @@ function App() {
               paneRunShortcut.satisfiedBy({ settings })
                 ? (wsId, paneId) => {
                     deck.selectPane(wsId, paneId);
-                    setDockOpen(true);
+                    deck.openDock(wsId);
                   }
                 : undefined
             }

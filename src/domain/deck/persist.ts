@@ -197,6 +197,8 @@ export function hydrateDeck(json: string): HydrateDeckResult {
         activeId,
         focusByWs: readFocus(raw.focusByWs),
         selectByWs: readSelection(raw.selectByWs),
+        // Session-only by decision: never stored, every launch starts closed.
+        dockByWs: {},
       },
       nextAgentSeq:
         maxSeq(workspaces.flatMap((w) => w.panes.map((p) => p.id)), "pane") + 1,

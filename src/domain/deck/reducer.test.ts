@@ -105,6 +105,48 @@ describe("deckReducer closeWorkspace", () => {
     expect(next.activeId).toBe("");
     expect(next.selectByWs).toEqual({});
   });
+
+  it("drops the closed workspace's dock entry", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])],
+        activeId: "a",
+        dockByWs: { a: true, b: true },
+      }),
+      { type: "closeWorkspace", id: "a" },
+    );
+    expect(next.dockByWs).toEqual({ b: true });
+  });
+});
+
+describe("deckReducer dock (Run panel per workspace)", () => {
+  it("toggleDock opens one workspace's dock without touching the others", () => {
+    const next = deckReducer(
+      state({ workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])], activeId: "a" }),
+      { type: "toggleDock", wsId: "a" },
+    );
+    expect(next.dockByWs).toEqual({ a: true });
+  });
+
+  it("toggleDock on an open dock removes the entry (absent = closed)", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])],
+        activeId: "a",
+        dockByWs: { a: true, b: true },
+      }),
+      { type: "toggleDock", wsId: "a" },
+    );
+    expect(next.dockByWs).toEqual({ b: true });
+  });
+
+  it("openDock reveals the dock and is a no-op (same ref) when already open", () => {
+    const closed = state({ workspaces: [ws("a", ["a-1"])], activeId: "a" });
+    const opened = deckReducer(closed, { type: "openDock", wsId: "a" });
+    expect(opened.dockByWs).toEqual({ a: true });
+    // A repeated ▶ shortcut must not cause a re-render.
+    expect(deckReducer(opened, { type: "openDock", wsId: "a" })).toBe(opened);
+  });
 });
 
 describe("deckReducer moveWorkspace", () => {

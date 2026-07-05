@@ -48,6 +48,7 @@ const restored = (pane: object): DeckState => ({
   activeId: "ws-1",
   focusByWs: {},
   selectByWs: {},
+  dockByWs: {},
 });
 
 /** Let the probe→validate→revive promise chain settle. */
