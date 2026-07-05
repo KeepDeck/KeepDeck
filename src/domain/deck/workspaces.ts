@@ -38,6 +38,13 @@ export interface Workspace {
    * Lives here — not in its own document — so deleting the workspace deletes
    * its run config structurally, like the panes. */
   run?: WorkspaceRun;
+  /** Per-plugin persisted state, one opaque slot per plugin id. The slot's
+   * CONTENT is the owning plugin's business — never inspected here, like an
+   * unknown `agentType` below the persistence boundary — only the bag SHAPE
+   * (an id-keyed record) is ours. Lives here — not in its own document — so
+   * deleting the workspace deletes every plugin's state for it structurally,
+   * like `run`. */
+  plugins?: Record<string, unknown>;
   /** Persisted keys this build doesn't know (written by a newer revision) —
    * carried verbatim so a save round-trip never strips them. */
   extras?: Record<string, unknown>;
@@ -132,6 +139,37 @@ export function setWorkspaceRun(
       return rest;
     }
     return { ...ws, run };
+  });
+}
+
+/** Set (or, via `undefined`, delete) one plugin's opaque persisted slot in a
+ * workspace's plugin bag. The slot's CONTENT is never inspected here — only
+ * the bag shape is ours (mirrors `setWorkspaceRun`'s treatment of its own
+ * sub-schema). Deleting the last slot drops the whole bag so the persisted
+ * document stays sparse, like an emptied `run`. Returns the SAME array when
+ * nothing actually changes — deleting an already-absent slot, or setting a
+ * slot to the value it already holds — so a resubmit from the host-rendered
+ * settings UI causes no re-render. */
+export function setWorkspacePluginSlot(
+  workspaces: Workspace[],
+  wsId: string,
+  pluginId: string,
+  value: unknown | undefined,
+): Workspace[] {
+  const ws = workspaces.find((w) => w.id === wsId);
+  if (!ws) return workspaces;
+  if (ws.plugins?.[pluginId] === value) return workspaces;
+  return workspaces.map((w) => {
+    if (w.id !== wsId) return w;
+    if (value === undefined) {
+      const { [pluginId]: _gone, ...rest } = w.plugins ?? {};
+      if (Object.keys(rest).length === 0) {
+        const { plugins: _empty, ...others } = w;
+        return others;
+      }
+      return { ...w, plugins: rest };
+    }
+    return { ...w, plugins: { ...w.plugins, [pluginId]: value } };
   });
 }
 

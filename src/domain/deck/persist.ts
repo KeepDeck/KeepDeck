@@ -53,6 +53,7 @@ interface PersistedWorkspace {
   cwd: string;
   worktreeBaseDir: string | null;
   run?: WorkspaceRun;
+  plugins?: Record<string, unknown>;
   panes: PersistedPane[];
 }
 
@@ -108,6 +109,9 @@ export function serializeDeck(
       cwd: ws.cwd,
       worktreeBaseDir: ws.worktreeBaseDir,
       ...(ws.run !== undefined && { run: ws.run }),
+      // Sparse: an empty bag (the last slot just got deleted) never hits disk.
+      ...(ws.plugins !== undefined &&
+        Object.keys(ws.plugins).length > 0 && { plugins: ws.plugins }),
       panes: ws.panes.map((p) => ({
         ...p.extras,
         id: p.id,
@@ -224,6 +228,7 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "cwd",
   "worktreeBaseDir",
   "run",
+  "plugins",
   "panes",
 ]);
 
@@ -281,6 +286,10 @@ function readWorkspace(value: unknown): Workspace | null {
   // load-and-save with it off. Malformed → the workspace just has no config.
   const run = readWorkspaceRun(value.run);
   if (run) ws.run = run;
+  // Parsed unconditionally too, like `run` — a plugin's slot must survive a
+  // load-and-save even while the plugin system experiment is off.
+  const plugins = readWorkspacePlugins(value.plugins);
+  if (plugins) ws.plugins = plugins;
   const extras = collectExtras(value, WS_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) ws.extras = extras;
   return ws;
@@ -318,6 +327,18 @@ function readPane(value: unknown): Pane | null {
   const extras = collectExtras(value, PANE_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) pane.extras = extras;
   return pane;
+}
+
+/** Tolerant read of a persisted plugin-slot bag: `null` for anything that
+ * isn't a plain object (the workspace simply has no plugin state, degrading
+ * like a bad `run` config rather than rejecting the deck). A valid bag's
+ * entries are kept VERBATIM — a slot's content is the owning plugin's
+ * business, never validated below the persistence boundary (mirrors the
+ * unknown-agentType degradation above, one level up: only the bag shape is
+ * ours). */
+function readWorkspacePlugins(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  return { ...value };
 }
 
 /** The persisted worktree-create intent, or `null` when absent/malformed —

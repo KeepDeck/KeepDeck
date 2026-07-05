@@ -16,6 +16,7 @@ import {
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setPaneSession,
+  setWorkspacePluginSlot,
   setWorkspaceRun,
   type PaneHead,
   type Workspace,
@@ -100,7 +101,15 @@ export type DeckAction =
   | { type: "setPaneProvisioningPhase"; wsId: string; paneId: string; phase: "setup" }
   /** Replace a workspace's run presets / setup command (the Run panel's save
    * and delete paths). */
-  | { type: "setWorkspaceRun"; id: string; run: WorkspaceRun };
+  | { type: "setWorkspaceRun"; id: string; run: WorkspaceRun }
+  /** Set (or, via `undefined`, clear) one plugin's opaque persisted slot for
+   * a workspace — the host-rendered plugin settings write path. */
+  | {
+      type: "setWorkspacePluginSlot";
+      wsId: string;
+      pluginId: string;
+      value: unknown;
+    };
 
 export const initialDeckState: DeckState = {
   workspaces: [],
@@ -357,5 +366,15 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ...state,
         workspaces: setWorkspaceRun(state.workspaces, action.id, action.run),
       };
+    case "setWorkspacePluginSlot": {
+      const workspaces = setWorkspacePluginSlot(
+        state.workspaces,
+        action.wsId,
+        action.pluginId,
+        action.value,
+      );
+      if (workspaces === state.workspaces) return state;
+      return { ...state, workspaces };
+    }
   }
 }

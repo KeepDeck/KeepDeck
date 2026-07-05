@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FALLBACK_AGENTS } from "../agents";
 import type { DeckState } from "./reducer";
 import {
+  DECK_STATE_VERSION,
   PROVISIONING_INTERRUPTED,
   hydrateDeck,
   serializeDeck,
@@ -335,6 +336,79 @@ describe("run presets round-trip", () => {
   });
 });
 
+describe("workspace plugin slots round-trip", () => {
+  const pluginState: DeckState = {
+    workspaces: [
+      {
+        id: "ws-1",
+        name: "app",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        // An arbitrary, deeply nested value — the slot's content is the
+        // owning plugin's business, never validated by this layer.
+        plugins: {
+          git: {
+            remote: "origin",
+            nested: { branches: ["main", "dev"], count: 2 },
+          },
+        },
+        panes: [{ id: "pane-1" }],
+      },
+    ],
+    activeId: "ws-1",
+    focusByWs: {},
+    selectByWs: {},
+    dockByWs: {},
+  };
+
+  it("persists and restores an arbitrary nested slot value verbatim", () => {
+    const restored = okDeck(serializeDeck(pluginState));
+    expect(restored.state.workspaces[0].plugins).toEqual(
+      pluginState.workspaces[0].plugins,
+    );
+  });
+
+  it("a workspace without any plugin state stays without the field (sparse)", () => {
+    const bare: DeckState = {
+      ...pluginState,
+      workspaces: [{ ...pluginState.workspaces[0], plugins: undefined }],
+    };
+    expect(serializeDeck(bare)).not.toContain('"plugins"');
+    expect(
+      okDeck(serializeDeck(bare)).state.workspaces[0].plugins,
+    ).toBeUndefined();
+  });
+
+  it("drops a non-object plugins bag while the rest of the workspace survives", () => {
+    const doc = JSON.parse(serializeDeck(pluginState));
+    doc.workspaces[0].plugins = "not an object";
+    const restored = okDeck(JSON.stringify(doc));
+    expect(restored.state.workspaces[0].plugins).toBeUndefined();
+    expect(restored.state.workspaces[0].panes[0].id).toBe("pane-1");
+  });
+
+  it("a v3 deck (pre plugin slots) loads cleanly through the ladder", () => {
+    const v3 = {
+      version: 3,
+      minVersion: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "x",
+          cwd: "/x",
+          worktreeBaseDir: null,
+          panes: [{ id: "pane-1" }],
+        },
+      ],
+    };
+    const restored = okDeck(JSON.stringify(v3));
+    expect(restored.state.workspaces[0].plugins).toBeUndefined();
+  });
+});
+
 describe("provisioning phase is runtime-only", () => {
   it("a mid-setup deck serializes without the phase", () => {
     const state: DeckState = {
@@ -374,7 +448,7 @@ describe("provisioning phase is runtime-only", () => {
 describe("schema revisions and the compatibility floor", () => {
   it("writes the current revision and its floor", () => {
     const out = JSON.parse(serializeDeck(state));
-    expect(out.version).toBe(3);
+    expect(out.version).toBe(DECK_STATE_VERSION);
     expect(out.minVersion).toBe(1);
   });
 
@@ -423,7 +497,7 @@ describe("schema revisions and the compatibility floor", () => {
       serializeDeck(restored.state, restored.docExtras),
     );
     // Saved by THIS build (its revision), with the future's fields intact.
-    expect(saved.version).toBe(3);
+    expect(saved.version).toBe(DECK_STATE_VERSION);
     expect(saved.futureDocField).toEqual([1, 2]);
     expect(saved.workspaces[0].futureWsField).toEqual({ a: 1 });
     expect(saved.workspaces[0].panes[0].futurePaneField).toBe("keep me");

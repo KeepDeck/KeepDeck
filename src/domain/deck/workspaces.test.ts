@@ -17,6 +17,7 @@ import {
   setPaneHead,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
+  setWorkspacePluginSlot,
   setWorkspaceRun,
   worktreeCwds,
   worktreeTargets,
@@ -527,6 +528,60 @@ describe("setWorkspaceRun", () => {
       setup: "pnpm i",
     });
     expect(after[0].run).toEqual({ presets: [], setup: "pnpm i" });
+  });
+});
+
+describe("setWorkspacePluginSlot", () => {
+  it("creates a new slot in the target workspace only", () => {
+    const before = [ws("a", []), ws("b", [])];
+    const after = setWorkspacePluginSlot(before, "a", "git", { remote: "origin" });
+    expect(after[0].plugins).toEqual({ git: { remote: "origin" } });
+    expect(after[1]).toBe(before[1]); // b untouched — same reference
+  });
+
+  it("replaces an existing slot's value", () => {
+    const seeded = setWorkspacePluginSlot([ws("a", [])], "a", "git", { v: 1 });
+    const replaced = setWorkspacePluginSlot(seeded, "a", "git", { v: 2 });
+    expect(replaced[0].plugins).toEqual({ git: { v: 2 } });
+  });
+
+  it("two plugins' slots coexist independently in one workspace", () => {
+    const withGit = setWorkspacePluginSlot([ws("a", [])], "a", "git", { v: 1 });
+    const withBoth = setWorkspacePluginSlot(withGit, "a", "notes", { text: "hi" });
+    expect(withBoth[0].plugins).toEqual({
+      git: { v: 1 },
+      notes: { text: "hi" },
+    });
+    // Changing one slot leaves the other exactly as it was.
+    const changed = setWorkspacePluginSlot(withBoth, "a", "git", { v: 2 });
+    expect(changed[0].plugins).toEqual({ git: { v: 2 }, notes: { text: "hi" } });
+  });
+
+  it("deletes a slot via undefined, dropping the whole bag when it was the last one", () => {
+    const seeded = setWorkspacePluginSlot([ws("a", [])], "a", "git", { v: 1 });
+    const cleared = setWorkspacePluginSlot(seeded, "a", "git", undefined);
+    expect("plugins" in cleared[0]).toBe(false);
+  });
+
+  it("deleting one of several slots keeps the bag with the rest", () => {
+    const withGit = setWorkspacePluginSlot([ws("a", [])], "a", "git", { v: 1 });
+    const withBoth = setWorkspacePluginSlot(withGit, "a", "notes", { text: "hi" });
+    const after = setWorkspacePluginSlot(withBoth, "a", "git", undefined);
+    expect(after[0].plugins).toEqual({ notes: { text: "hi" } });
+  });
+
+  it("returns the SAME array on a genuine no-op", () => {
+    // Deleting an already-absent slot.
+    const empty = [ws("a", [])];
+    expect(setWorkspacePluginSlot(empty, "a", "git", undefined)).toBe(empty);
+
+    // Re-setting a slot to the value it already holds (same reference).
+    const value = { v: 1 };
+    const seeded = setWorkspacePluginSlot([ws("a", [])], "a", "git", value);
+    expect(setWorkspacePluginSlot(seeded, "a", "git", value)).toBe(seeded);
+
+    // Unknown workspace id.
+    expect(setWorkspacePluginSlot(empty, "gone", "git", { v: 1 })).toBe(empty);
   });
 });
 

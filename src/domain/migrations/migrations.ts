@@ -39,8 +39,9 @@ export type MigrationOutcome =
  *   1 — workspaces, panes, session bindings, provisioning intents.
  *   2 — + `Workspace.run` (launch presets & setup command).
  *   3 — + `minVersion` compatibility floor, unknown keys preserved.
+ *   4 — + `Workspace.plugins` (per-plugin persisted state bag).
  */
-export const DECK_STATE_VERSION = 3;
+export const DECK_STATE_VERSION = 4;
 /** Every revision so far is additive over v1 — any reader fits. */
 export const DECK_MIN_READER = 1;
 
@@ -54,9 +55,15 @@ function migrateDeckFromV2toV3(doc: RawDoc): RawDoc {
   return doc;
 }
 
+/** v3 → v4: `Workspace.plugins` added — additive, nothing to transform. */
+function migrateDeckFromV3toV4(doc: RawDoc): RawDoc {
+  return doc;
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
+  3: migrateDeckFromV3toV4,
 };
 
 /**
