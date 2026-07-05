@@ -218,6 +218,54 @@ describe("spawn failure output", () => {
   });
 });
 
+describe("exit note in the run's log", () => {
+  it("a natural exit streams a grey [process exited (code)] line to the attached view", async () => {
+    const id = await launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    let seen = "";
+    attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+
+    pty.spawned[0].emit({ type: "exit", success: false, code: 1 });
+    expect(seen).toContain("[process exited (1)]");
+  });
+
+  it("a user stop writes [stopped], not the kill signal's exit code", async () => {
+    const id = await launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+
+    stopRun(id);
+    // The fake close emitted the exit event (code null), as the backend does.
+    let seen = "";
+    attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+    expect(seen).toContain("[stopped]");
+    expect(seen).not.toContain("[process exited");
+  });
+
+  it("the note is buffered — a log opened after the exit still shows it", async () => {
+    const id = await launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    pty.spawned[0].emit({ type: "output", bytes: [104, 105] }); // "hi"
+    pty.spawned[0].emit({ type: "exit", success: true, code: 0 });
+
+    let seen = "";
+    attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+    expect(seen).toContain("hi");
+    expect(seen).toContain("[process exited (0)]");
+  });
+});
+
 describe("relaunch replaces, never piles", () => {
   it("launching a preset with a DEAD session in the same target reuses it", async () => {
     const id = await launchRun("ws-1", TARGET, DEV);
