@@ -2,7 +2,7 @@
 //! ([F7], `deck.json`) and the app settings ([F6], `settings.json`).
 //!
 //! All schema knowledge (validation, versioning, migration) lives in
-//! `src/domain/persist.ts` / `src/domain/settings.ts`, next to the models it
+//! `src/domain/deck/persist.ts` / `src/domain/settings`, next to the models it
 //! mirrors; this adapter only moves the bytes durably. The documents live
 //! under `<keepdeck_home>` (legacy installs are adopted by
 //! `crate::migration`). Writes are atomic (tmp + rename) so a crash

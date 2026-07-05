@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 /**
  * Durable deck state ([F7]). The JSON is opaque to the Rust side — schema,
- * validation and migrations live in `src/domain/deck.ts`; these commands
+ * validation and migrations live in `src/domain/deck/persist.ts`; these commands
  * only move the bytes (atomically, in the app config dir).
  */
 

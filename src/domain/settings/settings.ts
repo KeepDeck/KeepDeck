@@ -20,7 +20,7 @@ import { FALLBACK_AGENTS } from "../agents";
  */
 
 // Revision + compatibility floor live with every other document's in
-// domain/migrations.ts; reading stays per-key tolerant — the floor is the
+// domain/migrations; reading stays per-key tolerant — the floor is the
 // only gate (a breach quarantines: rare, true breaking changes only).
 export { SETTINGS_VERSION } from "../migrations";
 import {

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 /**
  * Durable app settings ([F6]). The JSON is opaque to the Rust side — schema,
- * validation and per-key tolerance live in `src/domain/settings.ts`; these
+ * validation and per-key tolerance live in `src/domain/settings`; these
  * commands only move the bytes (atomically, in the KeepDeck home).
  */
 
