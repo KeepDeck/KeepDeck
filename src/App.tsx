@@ -20,7 +20,7 @@ import { paneSpawnSpec } from "./app/spawnSpecs";
 import type { SpawnPlan } from "./domain/agents";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
-import { dockPanel, dockToggle, paneRunShortcut } from "./domain/run";
+import { dockPanel, dockToggle } from "./domain/run";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { DockPanel } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
@@ -311,16 +311,6 @@ function App() {
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
             onRetryProvision={provisioning.retryPane}
-            // The pane-header ▶: select the pane (the Run tab follows the
-            // highlight for its target) and reveal the panel.
-            onOpenRun={
-              paneRunShortcut.satisfiedBy({ settings })
-                ? (wsId, paneId) => {
-                    deck.selectPane(wsId, paneId);
-                    deck.openDock(wsId);
-                  }
-                : undefined
-            }
           />
 
           {showForm &&
