@@ -9,7 +9,7 @@ import {
   updateSettings,
 } from "../../app/settingsManager";
 import { resetAgentsCache } from "../../app/useAgents";
-import type { SpawnConfig } from "../../domain/workspaces";
+import type { SpawnConfig } from "../../domain/deck";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =

@@ -1,5 +1,5 @@
 import { defaultAgentType, type AgentInfo } from "../domain/agents";
-import type { SpawnConfig, Workspace } from "../domain/workspaces";
+import type { SpawnConfig, Workspace } from "../domain/deck";
 import { mintAgentSeqs, mintWorkspaceSeq } from "./ids";
 import { planPanes, provisionInto, runProvisioning } from "./provisioning";
 import type { Deck } from "./useDeck";

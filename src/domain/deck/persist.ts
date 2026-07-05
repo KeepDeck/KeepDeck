@@ -1,12 +1,12 @@
-import type { DeckState } from "./deck";
+import type { DeckState } from "./reducer";
 import type { Pane, PaneProvisioning, PaneSession } from "./panes";
 import { resolveFocus } from "./panes";
-import type { WorkspaceRun } from "./runPresets";
-import { readWorkspaceRun } from "./runPresets";
+import type { WorkspaceRun } from "../runPresets";
+import { readWorkspaceRun } from "../runPresets";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
-import type { AgentType } from "./agents";
-import { FALLBACK_AGENTS } from "./agents";
+import type { AgentType } from "../agents";
+import { FALLBACK_AGENTS } from "../agents";
 import { MAX_PANES } from "./layout";
 
 /**
@@ -27,9 +27,9 @@ import { MAX_PANES } from "./layout";
  * directory that may not exist.
  */
 
-import { DECK_MIN_READER, DECK_STATE_VERSION, migrateDeck } from "./migrations";
+import { DECK_MIN_READER, DECK_STATE_VERSION, migrateDeck } from "../migrations";
 
-export { DECK_STATE_VERSION } from "./migrations";
+export { DECK_STATE_VERSION } from "../migrations";
 
 /** What the app closed in the middle of creating: hydration stamps this onto
  * a restored in-flight provisioning so it surfaces as the failed card. */

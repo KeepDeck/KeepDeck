@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentInfo } from "../domain/agents";
-import type { Pane } from "../domain/panes";
-import { buildSpawnPlan, type SpawnPlanContext } from "../domain/agents";
+import {
+  buildSpawnPlan,
+  type AgentInfo,
+  type SpawnPlanContext,
+} from "../domain/agents";
+import type { Pane } from "../domain/deck";
 import { latestSession, sessionPresence } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";

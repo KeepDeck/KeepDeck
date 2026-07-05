@@ -7,14 +7,14 @@ import {
 import { useAgents } from "../../app/useAgents";
 import { useSettings } from "../../app/useSettings";
 import { setupField } from "../../domain/runCriteria";
-import type { SpawnConfig } from "../../domain/workspaces";
+import type { SpawnConfig } from "../../domain/deck";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { SuggestedInput } from "../../ui/SuggestedInput";
 import { WORKSPACE_COUNTS, TerminalCountTiles } from "./TerminalCountTiles";
 
-export type { SpawnConfig } from "../../domain/workspaces";
+export type { SpawnConfig } from "../../domain/deck";
 
 interface WorkspaceFormProps {
   /** Registers the workspace immediately (optimistic provisioning) — the

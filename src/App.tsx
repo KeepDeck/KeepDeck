@@ -25,10 +25,14 @@ import { useCloseFlow } from "./app/useCloseFlow";
 import { DockPanel } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
-import { closeHotkeyTarget, maximizeHotkeyTarget } from "./domain/hotkeys";
-import { DECK_STATE_VERSION } from "./domain/persist";
-import { pathOccupancy, type SpawnConfig } from "./domain/workspaces";
-import { MAX_PANES } from "./domain/layout";
+import {
+  closeHotkeyTarget,
+  DECK_STATE_VERSION,
+  MAX_PANES,
+  maximizeHotkeyTarget,
+  pathOccupancy,
+  type SpawnConfig,
+} from "./domain/deck";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import "./styles/index.css";

@@ -1,16 +1,17 @@
 import { useState } from "react";
 import {
   defaultAgentType,
+  type AgentDialogResult,
   type AgentInfo,
   type AgentType,
 } from "../domain/agents";
-import type { AgentDialogResult } from "../domain/agents";
-import { paneId, type Pane } from "../domain/panes";
 import {
   firstFreeWorktree,
+  paneId,
   parentDir,
+  type Pane,
   type Workspace,
-} from "../domain/workspaces";
+} from "../domain/deck";
 import { inspectRepo, suggestWorktree } from "../ipc/worktree";
 import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";

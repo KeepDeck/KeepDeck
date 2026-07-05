@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, type Settings } from "./settings";
-import type { Workspace } from "./workspaces";
+import type { Workspace } from "./deck";
 import {
   dockPanel,
   dockToggle,

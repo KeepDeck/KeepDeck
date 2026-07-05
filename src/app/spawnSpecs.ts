@@ -1,10 +1,10 @@
-import type { AgentInfo } from "../domain/agents";
-import type { Pane } from "../domain/panes";
 import {
   buildSpawnPlan,
+  type AgentInfo,
   type SpawnPlan,
   type SpawnPlanContext,
 } from "../domain/agents";
+import type { Pane } from "../domain/deck";
 
 /**
  * One spawn plan per pane id, stable across re-renders — module scope like

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { hydrateDeck, serializeDeck } from "../domain/persist";
+import { hydrateDeck, serializeDeck } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { loadDeckState, quarantineDeckState, saveDeckState } from "../ipc/state";
 import { seedAgentSeq, seedWorkspaceSeq } from "./ids";

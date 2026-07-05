@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { FALLBACK_AGENTS } from "./agents";
-import type { DeckState } from "./deck";
+import { FALLBACK_AGENTS } from "../agents";
+import type { DeckState } from "./reducer";
 import {
   PROVISIONING_INTERRUPTED,
   hydrateDeck,

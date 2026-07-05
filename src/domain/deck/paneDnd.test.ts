@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { paneAtPoint, type PaneRect } from "./dnd";
+import { paneAtPoint, type PaneRect } from "./paneDnd";
 
 describe("paneAtPoint", () => {
   const rects: PaneRect[] = [
