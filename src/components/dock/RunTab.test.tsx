@@ -139,6 +139,8 @@ describe("RunTab — the merged Commands list", () => {
     expect(document.querySelector(".run__dot--stopping")).not.toBeNull();
     expect(button("Stop: Dev")).toBeNull();
     expect(button("Run: Dev")).toBeNull();
+    // The caption's Stop is gone too — the kill is already in flight.
+    expect(button("Stop Dev")).toBeNull();
   });
 
   it("an instance in ANOTHER target indents as a child row with its own controls", () => {
@@ -211,6 +213,20 @@ describe("RunTab — the merged Commands list", () => {
     expect(cap.textContent).toContain("Dev");
     expect(cap.textContent).toContain("kd/b");
     expect(cap.textContent).toContain(":17040");
+  });
+
+  it("the log caption offers Stop while the session runs — and only then", () => {
+    manager.sessions = [running()];
+    mount();
+    const stop = button("Stop Dev")!;
+    expect(document.querySelector(".run__logcap")!.contains(stop)).toBe(true);
+    act(() => stop.click());
+    expect(manager.stopRun).toHaveBeenCalledWith("s1");
+
+    manager.sessions = [running({ status: { kind: "exited", code: 0 } })];
+    mount();
+    expect(button("Stop Dev")).toBeNull();
+    expect(button("Hide the log")).not.toBeNull();
   });
 
   it("the header + opens the form ABOVE the list; Add saves without launching", () => {

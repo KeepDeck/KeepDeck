@@ -355,7 +355,8 @@
   overflow: hidden;
 }
 
-/* The caption's close control — hides the log until a row is picked again. */
+/* The caption's controls — stop the shown session while it runs, and
+   hide the log until a row is picked again. */
 .run__logcap {
   display: flex;
   align-items: center;
@@ -370,7 +371,7 @@
   white-space: nowrap;
 }
 
-.run__logcap-close {
+.run__logcap-act {
   flex: none;
   width: 18px;
   height: 18px;
@@ -385,7 +386,7 @@
   cursor: pointer;
 }
 
-.run__logcap-close:hover {
+.run__logcap-act:hover {
   background-color: #243044;
   color: #c5c8c6;
 }

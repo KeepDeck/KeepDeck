@@ -437,9 +437,20 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
               <b>{shown.name}</b> · {targetLabel(shown)}
               {sessionNote(shown) && <> · {sessionNote(shown)}</>}
             </span>
+            {shown.status.kind === "running" && (
+              <button
+                type="button"
+                className="run__logcap-act"
+                onClick={() => stopRun(shown.id)}
+                title={`Stop "${shown.name}"`}
+                aria-label={`Stop ${shown.name}`}
+              >
+                <StopFillIcon />
+              </button>
+            )}
             <button
               type="button"
-              className="run__logcap-close"
+              className="run__logcap-act"
               onClick={() => setLogOpen(false)}
               title="Hide the log"
               aria-label="Hide the log"
