@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import {
   launchRun,
+  removeDeadRunsFor,
   removeRun,
   restartRun,
   stopRun,
@@ -297,7 +298,9 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
         <ul className="run__cmds">
           {rows.map((row) => {
             const rowName = row.preset?.name ?? row.session!.name;
-            const key = row.preset?.id ?? row.session!.id;
+            // Namespaced: preset ids (`run-N`) and session ids must never
+            // produce the same key even if their numbers coincide.
+            const key = row.preset ? `p:${row.preset.id}` : `s:${row.session!.id}`;
             return (
               <li key={key} className="run__item">
                 <div
@@ -335,7 +338,13 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
                           className="run__act"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (ws.run) onSetRun(removePreset(ws.run, row.preset!.id));
+                            if (!ws.run) return;
+                            onSetRun(removePreset(ws.run, row.preset!.id));
+                            // Dead sessions of a deleted command are swept —
+                            // a same-named orphan row reading as "the delete
+                            // didn't work" was exactly the reported bug; a
+                            // RUNNING one stays visible until it stops.
+                            removeDeadRunsFor(ws.id, row.preset!.id);
                           }}
                           title={`Delete "${rowName}"`}
                           aria-label={`Delete preset ${rowName}`}

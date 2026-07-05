@@ -92,7 +92,10 @@ export async function launchRun(
       return existing.session.id;
     }
   }
-  const id = `run-${++seq}`;
+  // `rs-` namespace: preset ids are `run-N`, and the two must never collide
+  // (list rows key on either — a shared namespace produced duplicate React
+  // keys and phantom rows).
+  const id = `rs-${++seq}`;
   const port = await allocatePorts(target.worktree).catch((e) => {
     log.warn(
       "web:run",
@@ -216,6 +219,22 @@ export function removeRun(id: string): void {
   }
   entries.delete(id);
   notify();
+}
+
+/** A preset was deleted: sweep its DEAD sessions (nothing running to
+ * protect — leaving them made the deletion look like it didn't work); a
+ * live one stays visible as an orphan row until it stops. */
+export function removeDeadRunsFor(wsId: string, presetId: string): void {
+  for (const entry of [...entries.values()]) {
+    const s = entry.session;
+    if (
+      s.wsId === wsId &&
+      s.presetId === presetId &&
+      (s.status.kind === "exited" || s.status.kind === "failed")
+    ) {
+      removeRun(s.id);
+    }
+  }
 }
 
 /** A workspace is closing: its runs die with it — nothing may leak. */

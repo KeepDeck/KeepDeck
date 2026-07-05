@@ -40,6 +40,7 @@ import {
   attachRun,
   getRunSessions,
   launchRun,
+  removeDeadRunsFor,
   removeRun,
   resetRunManager,
   restartRun,
@@ -257,5 +258,30 @@ describe("relaunch replaces, never piles", () => {
     await launchRun("ws-1", TARGET, DEV);
     await launchRun("ws-1", { worktree: "/wt/2" }, DEV);
     expect(getRunSessions()).toHaveLength(2);
+  });
+});
+
+describe("removeDeadRunsFor", () => {
+  it("sweeps the preset's dead sessions and leaves the running ones alone", async () => {
+    await launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    pty.spawned[0].emit({ type: "exit", success: false, code: 1 });
+    const live = await launchRun("ws-1", { worktree: "/wt/2" }, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(2));
+
+    removeDeadRunsFor("ws-1", "run-1");
+    const left = getRunSessions();
+    expect(left.map((s) => s.id)).toEqual([live]);
+    expect(left[0].status.kind).toBe("running");
+    expect(pty.spawned[1].close).not.toHaveBeenCalled();
+  });
+
+  it("touches nothing of other presets or workspaces", async () => {
+    await launchRun("ws-1", TARGET, { presetId: "run-2", command: "x", name: "x" });
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    pty.spawned[0].emit({ type: "exit", success: false, code: 1 });
+
+    removeDeadRunsFor("ws-1", "run-1");
+    expect(getRunSessions()).toHaveLength(1);
   });
 });

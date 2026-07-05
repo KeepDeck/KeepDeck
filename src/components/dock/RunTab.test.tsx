@@ -15,6 +15,7 @@ const manager = vi.hoisted(() => ({
   stopRun: vi.fn(),
   restartRun: vi.fn(async () => {}),
   removeRun: vi.fn(),
+  removeDeadRunsFor: vi.fn(),
   subscribeRuns: vi.fn(() => () => {}),
   getRunSessions: vi.fn(() => manager.sessions),
 }));
@@ -246,6 +247,9 @@ describe("RunTab — the merged Commands list", () => {
     });
 
     act(() => button("Delete preset Tests")!.click());
+    // Dead sessions of the deleted command are swept — without this a
+    // same-named orphan row made the delete look like it didn't work.
+    expect(manager.removeDeadRunsFor).toHaveBeenCalledWith("ws-1", "run-2");
     expect(setRun).toHaveBeenLastCalledWith({
       presets: expect.not.arrayContaining([
         expect.objectContaining({ id: "run-2" }),
