@@ -123,10 +123,21 @@ describe("RunTab — the merged Commands list", () => {
     // One row for Dev — no separate sessions list.
     expect(document.querySelectorAll(".run__cmd").length).toBe(2);
     expect(document.body.textContent).toContain(":17040");
-    // The glyph's hover face stops it.
+    // The stop sits BESIDE the status dot, at rest — not behind hover.
+    const live = document.querySelector(".run__g--live")!;
+    expect(live.querySelector(".run__dot--running")).not.toBeNull();
+    expect(live.contains(button("Stop: Dev"))).toBe(true);
     act(() => button("Stop: Dev")!.click());
     expect(manager.stopRun).toHaveBeenCalledWith("s1");
     // No idle Run action — the command already runs here.
+    expect(button("Run: Dev")).toBeNull();
+  });
+
+  it("a stopping row shows only the status dot — no control until it lands", () => {
+    manager.sessions = [running({ status: { kind: "stopping" } })];
+    mount();
+    expect(document.querySelector(".run__dot--stopping")).not.toBeNull();
+    expect(button("Stop: Dev")).toBeNull();
     expect(button("Run: Dev")).toBeNull();
   });
 

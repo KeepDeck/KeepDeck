@@ -29,9 +29,9 @@ import type { DockTabProps } from "./tabs";
 /**
  * The Run tab: one command — one row. Each row fuses a saved command with
  * its live state for the CURRENT target: the state glyph on the left doubles
- * as the control on hover (run / stop / run again), instances in other
- * targets indent as child rows, and re-running replaces a dead session
- * instead of piling a new one. The command form collapses behind the section
+ * as the control — visible at rest while running (stop), on hover otherwise
+ * (run / run again) — instances in other targets indent as child rows, and
+ * re-running replaces a dead session instead of piling a new one. The command form collapses behind the section
  * header's "+" (the workspaces-rail idiom) and opens above the list.
  * Everything here drives `runManager`; nothing touches the agent grid.
  */
@@ -138,7 +138,9 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     closeDraft();
   };
 
-  /** The state glyph: rest face shows the state, hover face IS the control.
+  /** The state glyph: rest face shows the state, hover face IS the control —
+   * except RUNNING, whose stop sits beside the dot at rest: a live process
+   * must always show its off switch, and the dot stays a status light.
    * `rerun` overrides the dead-session action (preset rows relaunch with the
    * preset's current command); without it, the snapshot restarts (orphans —
    * their old command is all that's left of them). */
@@ -175,8 +177,8 @@ export function RunTab({ ws, selectedPaneId, onSetRun }: DockTabProps) {
     switch (s.status.kind) {
       case "running":
         return (
-          <span className="run__g run__g--actable">
-            <span className="run__g-rest run__dot run__dot--running" />
+          <span className="run__g run__g--live">
+            <span className="run__dot run__dot--running" />
             {act("Stop", () => stopRun(s.id), <StopFillIcon />)}
           </span>
         );
