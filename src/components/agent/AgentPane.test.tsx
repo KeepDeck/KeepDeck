@@ -152,36 +152,3 @@ describe("AgentPane — provisioning cards", () => {
     expect(document.querySelector(".pane__open")).toBeNull();
   });
 });
-
-
-describe("AgentPane — the Run panel shortcut (experimental run presets)", () => {
-  let host: HTMLElement;
-  let root: Root;
-
-  beforeEach(() => {
-    document.body.innerHTML = "";
-    host = document.createElement("div");
-    document.body.appendChild(host);
-    root = createRoot(host);
-  });
-
-  afterEach(() => {
-    act(() => root.unmount());
-  });
-
-  it("the header ▶ renders only when wired, and fires", () => {
-    const onOpenRun = vi.fn();
-    act(() => root.render(createElement(AgentPane, { ...baseProps, onOpenRun })));
-    const play = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open the Run panel for Claude 1"]',
-    );
-    expect(play).not.toBeNull();
-    act(() => play!.click());
-    expect(onOpenRun).toHaveBeenCalledTimes(1);
-
-    act(() => root.render(createElement(AgentPane, { ...baseProps })));
-    expect(
-      document.querySelector('button[aria-label="Open the Run panel for Claude 1"]'),
-    ).toBeNull();
-  });
-});

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { PaneProvisioning } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
-import { CloseIcon, MaximizeIcon, PlayIcon, RestoreIcon } from "../../ui/icons";
+import { CloseIcon, MaximizeIcon, RestoreIcon } from "../../ui/icons";
 
 interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
@@ -45,9 +45,6 @@ interface AgentPaneProps {
   provisioning?: PaneProvisioning | null;
   /** Re-issue the failed create from its stored intent. */
   onRetryProvision?(): void;
-  /** Open the Run panel targeting this pane's worktree — the header ▶
-   * (experimental run presets; absent = hidden). */
-  onOpenRun?(): void;
   /** Grid columns this pane spans (>1 lets a partial last row fill the width). */
   colSpan: number;
   onSelect(): void;
@@ -92,7 +89,6 @@ export function AgentPane({
   onTitle,
   onStartFresh,
   onRetryProvision,
-  onOpenRun,
 }: AgentPaneProps) {
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
@@ -157,17 +153,6 @@ export function AgentPane({
           </span>
         )}
         <div className="pane__actions">
-          {onOpenRun && (
-            <button
-              type="button"
-              className="pane__action"
-              onClick={onOpenRun}
-              title="Run a command in this agent's worktree"
-              aria-label={`Open the Run panel for ${title}`}
-            >
-              <PlayIcon />
-            </button>
-          )}
           {!solo && (
             <button
               type="button"

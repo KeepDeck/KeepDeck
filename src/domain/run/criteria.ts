@@ -24,9 +24,6 @@ const experimentOn: Criterion<{ settings: Settings | null }> = criterion(
 /** The top bar's dock toggle. */
 export const dockToggle = experimentOn;
 
-/** The pane-header ▶ shortcut (select the pane, reveal the dock). */
-export const paneRunShortcut = experimentOn;
-
 /** The dock panel itself: feature on, toggled open, a workspace to serve. */
 export const dockPanel = all<{
   settings: Settings | null;

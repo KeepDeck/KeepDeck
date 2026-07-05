@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, type Settings } from "../settings";
 import type { Workspace } from "../deck";
-import {
-  dockPanel,
-  dockToggle,
-  paneRunShortcut,
-  setupField,
-} from "./criteria";
+import { dockPanel, dockToggle, setupField } from "./criteria";
 
 const off: Settings = { ...DEFAULT_SETTINGS, experimentRunPresets: false };
 const on: Settings = { ...DEFAULT_SETTINGS, experimentRunPresets: true };
@@ -22,7 +17,6 @@ describe("run criteria — every surface is one named declaration", () => {
   it("every surface is hidden while the experiment is off (or settings not loaded)", () => {
     for (const settings of [off, null]) {
       expect(dockToggle.satisfiedBy({ settings })).toBe(false);
-      expect(paneRunShortcut.satisfiedBy({ settings })).toBe(false);
       expect(
         dockPanel.satisfiedBy({ settings, dockOpen: true, activeWorkspace: ws }),
       ).toBe(false);
@@ -30,9 +24,8 @@ describe("run criteria — every surface is one named declaration", () => {
     }
   });
 
-  it("the flag alone reveals the toggle and the pane shortcut", () => {
+  it("the flag alone reveals the toggle", () => {
     expect(dockToggle.satisfiedBy({ settings: on })).toBe(true);
-    expect(paneRunShortcut.satisfiedBy({ settings: on })).toBe(true);
   });
 
   it("the dock panel needs the flag AND the toggle AND a workspace", () => {
