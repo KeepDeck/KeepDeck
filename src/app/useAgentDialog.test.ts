@@ -116,6 +116,19 @@ describe("useAgentDialog suggestions", () => {
     expect(flow.dialog?.suggestedBranch).toBe("kd/KeepDeck/1");
   });
 
+  it("branchFor maps a canonical folder to its canonical branch, else the folder name", async () => {
+    const ws = workspace({});
+    await mount(ws);
+    await act(async () => flow.openFor(ws)); // branchFor works on the open dialog
+    // The exact kd-<ws>-<n> shape resolves through the suggest IPC…
+    expect(await flow.branchFor("/anywhere/kd-KeepDeck-7")).toBe("kd/KeepDeck/7");
+    // …anything else — including a near-miss with a numeric tail — is taken
+    // verbatim as the branch (the backend sanitizes at create time).
+    expect(await flow.branchFor("/anywhere/fix-login")).toBe("fix-login");
+    expect(await flow.branchFor("/anywhere/foo-3")).toBe("foo-3");
+    expect(await flow.branchFor("")).toBeNull();
+  });
+
   it("nextFree suggests beside the occupied path when the workspace has no base folder", async () => {
     const ws = workspace({
       worktreeBaseDir: null,

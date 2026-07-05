@@ -452,6 +452,14 @@ export function parentDir(path: string): string {
   return cut <= 0 ? "" : norm.slice(0, cut);
 }
 
+/** The last component of `path` — the folder name a worktree path implies,
+ * `""` when there is none (empty input, filesystem root). String-only, no
+ * fs access. */
+export function baseName(path: string): string {
+  const norm = normalizePath(path);
+  return norm.slice(norm.lastIndexOf("/") + 1);
+}
+
 /** The distinct worktree directories the deck's panes run in — the set the
  * HEAD-watch lifecycle keeps registered (a pane without `cwd` runs in the
  * workspace folder and owns no worktree to watch). */

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   canCreateAgent,
   classifyLocation,
@@ -30,11 +30,16 @@ interface AgentDialogProps {
    * folder set ([F2]: suggest a default only then, otherwise start empty =
    * main repo). Editable; empty means the agent runs in the main repo. */
   suggestedPath: string;
-  /** Prefilled branch for a new worktree. */
+  /** Prefilled branch for a new worktree — the initial value of the live
+   * branch suggestion (`branchForPath` keeps it following the path). */
   suggestedBranch: string;
   /** Probe a candidate worktree path for the live hint (injected — the dialog
    * itself stays free of IPC). */
   probePath(path: string): Promise<PathProbe>;
+  /** The branch the current path implies — keeps the branch following the
+   * worktree name while the user hasn't edited it. Null = no usable name
+   * (the previous suggestion stays). */
+  branchForPath(path: string): Promise<string | null>;
   /** How a pane of this deck already holds a candidate path, if one does.
    * Injected (the dialog stays free of deck state). An occupied path pauses
    * Create and offers the user the choice: jump to the next free path, or —
@@ -58,9 +63,10 @@ interface AgentDialogProps {
  * DERIVED FROM THE PATH ([F2]), not a toggle: an empty "Worktree" field runs
  * the agent in the workspace's main repo; a path creates a new worktree there
  * (or attaches to an existing one). A live hint — modeled on the create
- * wizard's git-detected hint — says what the current path will do. Agent type
- * and location are per-agent, not tied to the workspace; the type list is the
- * detected install catalog ([F1]).
+ * wizard's git-detected hint — says what the current path will do. The branch
+ * follows the worktree's folder name until the user edits it (the ↺ reset
+ * re-attaches it to the path). Agent type and location are per-agent, not
+ * tied to the workspace; the type list is the detected install catalog ([F1]).
  */
 export function AgentDialog({
   defaultAgentType,
@@ -68,6 +74,7 @@ export function AgentDialog({
   suggestedPath,
   suggestedBranch,
   probePath,
+  branchForPath,
   occupancyAt,
   nextFreeLocation,
   pickFolder,
@@ -78,6 +85,12 @@ export function AgentDialog({
   const [name, setName] = useState("");
   const [path, setPath] = useState(suggestedPath);
   const [branch, setBranch] = useState(suggestedBranch);
+  // The live branch suggestion, following the path's folder name. Equality is
+  // the whole edit-tracking: while `branch === derivedBranch` the branch is
+  // untouched and keeps following; an edit detaches it; the ↺ reset restores
+  // equality and re-attaches — exactly SuggestedInput's own state machine.
+  const [derivedBranch, setDerivedBranch] = useState(suggestedBranch);
+  const derivedRef = useRef(suggestedBranch);
   const [probe, setProbe] = useState<PathProbe | null>(null);
   // The user's explicit "Attach anyway" on an occupied path; any path edit
   // voids it — consent covers the path it was given for, not the next one.
@@ -122,6 +135,30 @@ export function AgentDialog({
   }, [path, repo]);
 
   useEffect(() => setAttachAnyway(false), [path]);
+
+  // Follow the path with the branch (debounced like the probe): an untouched
+  // branch — one still equal to the suggestion it came from — moves to the new
+  // path's implied branch; an edited one stays the user's.
+  useEffect(() => {
+    if (!repo || !path.trim()) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      branchForPath(path)
+        .then((b) => {
+          if (cancelled || b === null) return;
+          const previous = derivedRef.current;
+          setBranch((prev) => (prev === previous ? b : prev));
+          derivedRef.current = b;
+          setDerivedBranch(b);
+        })
+        .catch(() => {});
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, repo]);
 
   const occupancy = repo && path.trim() ? occupancyAt(path) : null;
   const kind = repo
@@ -208,7 +245,7 @@ export function AgentDialog({
                 <span className="form__label">Branch</span>
                 <SuggestedInput
                   value={branch}
-                  suggestion={suggestedBranch}
+                  suggestion={derivedBranch}
                   onChange={setBranch}
                   className="form__field--gap"
                   ariaLabel="Branch name"

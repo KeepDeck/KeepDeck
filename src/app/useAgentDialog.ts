@@ -6,6 +6,7 @@ import {
   type AgentType,
 } from "../domain/agents";
 import {
+  baseName,
   firstFreeWorktree,
   paneId,
   parentDir,
@@ -174,7 +175,31 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
     );
   };
 
+  /**
+   * The branch a worktree path implies — the dialog's live branch suggestion,
+   * so the branch follows the worktree name until the user edits it. The
+   * canonical branch when the folder matches this workspace's own naming
+   * (`kd-<ws>-<n>` ↔ `kd/<ws>/<n>` — matched via the suggest IPC, the single
+   * source of the scheme, not a TS re-implementation), else the folder name
+   * verbatim (the backend sanitizes an explicit branch at create time). Null
+   * when the path yields no usable name.
+   */
+  const branchFor = async (path: string): Promise<string | null> => {
+    const dlg = dialog;
+    if (!dlg) return null;
+    const ws = deck.workspaces.find((w) => w.id === dlg.wsId);
+    if (!ws) return null;
+    const folder = baseName(path);
+    if (!folder) return null;
+    const tail = /-(\d+)$/.exec(folder);
+    if (tail) {
+      const s = await suggestFor(ws)(Number(tail[1]));
+      if (s?.folder === folder) return s.branch;
+    }
+    return folder;
+  };
+
   const cancel = () => setDialog(null);
 
-  return { dialog, openFor, confirm, cancel, nextFree };
+  return { dialog, openFor, confirm, cancel, nextFree, branchFor };
 }
