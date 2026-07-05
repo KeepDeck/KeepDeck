@@ -20,10 +20,13 @@ import { paneSpawnSpec } from "./app/spawnSpecs";
 import type { SpawnPlan } from "./domain/spawnPlans";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
+import { dockPanel, dockToggle, paneRunShortcut } from "./domain/runCriteria";
 import { useCloseFlow } from "./app/useCloseFlow";
+import { DockPanel } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import { closeHotkeyTarget, maximizeHotkeyTarget } from "./domain/hotkeys";
+import { DECK_STATE_VERSION } from "./domain/persist";
 import { pathOccupancy, type SpawnConfig } from "./domain/workspaces";
 import { MAX_PANES } from "./domain/layout";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
@@ -57,7 +60,9 @@ function App() {
   // Global preferences ([F6]) — loaded before the first paint, saved through.
   const settings = useSettings();
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
-  const { restoring } = usePersistence(deck);
+  // `frozen` = the stored deck needs a newer build: session parked, no saves.
+  const { restoring, frozen } = usePersistence(deck);
+  const [frozenAck, setFrozenAck] = useState(false);
   // Per-install spawn-plan constants (spool dir, reporter activation) — the
   // deck's first paint waits for it ([F7]/[F8] session identity v2).
   const spawnCtx = useSpawnContext();
@@ -76,6 +81,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   // The settings dialog ([F6]) — opened from the app menu (⌘,) or the gear.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The dock (Run panel, experimental) — a persistent side panel like the
+  // rail, not a modal.
+  const [dockOpen, setDockOpen] = useState(false);
 
   const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
@@ -89,13 +97,28 @@ function App() {
   useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
+  // The dock's render condition — one named criterion, declared in
+  // domain/runCriteria; the narrowing to a workspace happens here.
+  const dockWs = dockPanel.satisfiedBy({
+    settings,
+    dockOpen,
+    activeWorkspace: active,
+  })
+    ? active
+    : null;
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
   // Transactional dialogs — while one is up, nothing else may open over it.
-  const dialogOpen =
-    agentFlow.dialog !== null || closeFlow.closing !== null || error !== null;
+  // One list, one rule: a new dialog joins by being added here.
+  const transactions = [
+    agentFlow.dialog,
+    closeFlow.closing,
+    error,
+    frozen && !frozenAck ? frozen : null,
+  ];
+  const dialogOpen = transactions.some((t) => t !== null);
   const modalOpen = showForm || dialogOpen || settingsOpen;
 
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
@@ -220,6 +243,19 @@ function App() {
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
           </span>
+          {dockToggle.satisfiedBy({ settings }) && (
+            // Every run-preset surface asks domain/runCriteria — conditions
+            // change there, in one place; live runs keep working regardless.
+            <button
+              type="button"
+              className="bar__icon"
+              onClick={() => setDockOpen((o) => !o)}
+              title={dockOpen ? "Hide the Run panel" : "Show the Run panel"}
+              aria-label="Toggle run panel"
+            >
+              <DockIcon />
+            </button>
+          )}
           <button
             type="button"
             className="bar__icon"
@@ -271,6 +307,16 @@ function App() {
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
             onRetryProvision={provisioning.retryPane}
+            // The pane-header ▶: select the pane (the Run tab follows the
+            // highlight for its target) and reveal the panel.
+            onOpenRun={
+              paneRunShortcut.satisfiedBy({ settings })
+                ? (wsId, paneId) => {
+                    deck.selectPane(wsId, paneId);
+                    setDockOpen(true);
+                  }
+                : undefined
+            }
           />
 
           {showForm &&
@@ -323,6 +369,24 @@ function App() {
             />
           )}
 
+          {frozen && !frozenAck && (
+            // The parked-session notice: silent no-saving would be hidden
+            // data loss — this turns it into an announced trade-off.
+            <ConfirmDialog
+              title="Deck from a newer KeepDeck"
+              message={
+                `deck.json was written by a newer version of KeepDeck ` +
+                `(revision ${frozen.version}; this build reads up to revision ${DECK_STATE_VERSION}). ` +
+                `The file is left untouched.\n\n` +
+                `This session starts empty and will not be saved — anything ` +
+                `you create here is gone on quit. Run the newer version to ` +
+                `get your workspaces back.`
+              }
+              confirmLabel="OK"
+              onConfirm={() => setFrozenAck(true)}
+            />
+          )}
+
           {settingsOpen && (
             <SettingsDialog onClose={() => setSettingsOpen(false)} />
           )}
@@ -369,6 +433,16 @@ function App() {
             </ConfirmDialog>
           )}
         </div>
+        {dockWs && (
+          // Keyed by workspace: switching resets the tab-local state (run
+          // target, drafts) to the new workspace's context.
+          <DockPanel
+            key={dockWs.id}
+            ws={dockWs}
+            selectedPaneId={selectedPaneId}
+            onSetRun={(run) => deck.setWorkspaceRun(dockWs.id, run)}
+          />
+        )}
       </div>
     </div>
   );
@@ -389,6 +463,25 @@ function GearIcon() {
     >
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
+
+function DockIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <line x1="15" y1="4" x2="15" y2="20" />
     </svg>
   );
 }

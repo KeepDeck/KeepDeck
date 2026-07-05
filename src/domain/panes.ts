@@ -29,6 +29,10 @@ export interface PaneProvisioning {
   index: number;
   /** Why the create failed; set flips the card from creating to failed. */
   error?: string;
+  /** The worktree exists and the workspace's one-time setup command is
+   * running in it. Runtime-only, like `error`: never persisted — a restart
+   * mid-setup comes back as the interrupted failed card. */
+  phase?: "setup";
 }
 
 /** One agent pane in the grid. Each pane runs its own agent type; the display
@@ -61,6 +65,9 @@ export interface Pane {
   /** The in-flight (or failed) worktree create behind this pane — no terminal
    * mounts until it resolves. */
   provisioning?: PaneProvisioning;
+  /** Persisted keys this build doesn't know (written by a newer revision) —
+   * carried verbatim so a save round-trip never strips them. */
+  extras?: Record<string, unknown>;
 }
 
 /** The id for the pane numbered `seq` — the single mint point, since it's the

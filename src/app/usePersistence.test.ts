@@ -35,10 +35,11 @@ const STORED = JSON.stringify({
 
 let deck: Deck;
 let restoring: boolean;
+let frozen: ReturnType<typeof usePersistence>["frozen"];
 
 function Probe() {
   deck = useDeck();
-  restoring = usePersistence(deck).restoring;
+  ({ restoring, frozen } = usePersistence(deck));
   return null;
 }
 
@@ -233,6 +234,67 @@ describe("usePersistence", () => {
     expect(ipc.quarantineDeckState).toHaveBeenCalledTimes(1);
     expect(restoring).toBe(false);
     expect(deck.workspaces).toEqual([]);
+  });
+
+  it("PARKS on a deck above the compatibility floor: untouched, never saved over", async () => {
+    ipc.loadDeckState.mockResolvedValue(
+      JSON.stringify({ version: 99, minVersion: 99, workspaces: [] }),
+    );
+    await mount();
+
+    expect(frozen).toEqual({ version: 99, minVersion: 99 });
+    // Parked ≠ corrupt: the file is NOT quarantined — it must survive us.
+    expect(ipc.quarantineDeckState).not.toHaveBeenCalled();
+    expect(deck.workspaces).toEqual([]);
+
+    // Whatever the user does in the parked session, nothing reaches disk.
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-9",
+        name: "doomed",
+        cwd: "/x",
+        worktreeBaseDir: null,
+        panes: [],
+      }),
+    );
+    await act(async () => vi.advanceTimersByTime(10_000));
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+  });
+
+  it("reads a NEWER deck whose floor admits us, preserving its unknown fields", async () => {
+    ipc.loadDeckState.mockResolvedValue(
+      JSON.stringify({
+        version: 99,
+        minVersion: 1,
+        activeId: "ws-1",
+        focusByWs: {},
+        selectByWs: {},
+        futureTopLevel: { theyKnow: true },
+        workspaces: [
+          {
+            id: "ws-1",
+            name: "restored",
+            cwd: "/repo",
+            worktreeBaseDir: null,
+            futureWsField: 7,
+            panes: [{ id: "pane-1", agentType: "claude", futurePaneField: "x" }],
+          },
+        ],
+      }),
+    );
+    await mount();
+
+    expect(frozen).toBeNull();
+    expect(deck.workspaces.map((w) => w.id)).toEqual(["ws-1"]);
+
+    // The boot save round-trips the future fields verbatim.
+    await act(async () => vi.runOnlyPendingTimers());
+    const saved = JSON.parse(
+      ipc.saveDeckState.mock.calls[ipc.saveDeckState.mock.calls.length - 1][0],
+    );
+    expect(saved.futureTopLevel).toEqual({ theyKnow: true });
+    expect(saved.workspaces[0].futureWsField).toBe(7);
+    expect(saved.workspaces[0].panes[0].futurePaneField).toBe("x");
   });
 
   it("starts empty on first run (no stored state, nothing quarantined)", async () => {

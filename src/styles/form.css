@@ -258,3 +258,80 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* In-app dropdown (ui/Dropdown.tsx): a form field that opens our own menu —
+   never the OS popup. The wrapper anchors the absolutely-positioned list. */
+.dropdown {
+  position: relative;
+}
+
+.dropdown__button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: #c5c8c6;
+  /* form__input's field rhythm belongs to the WRAPPER (the call site owns
+     spacing): a margin on the button inflates the wrapper's height — a
+     .dropdown used as a flex item collapses nothing — and shoves the menu,
+     anchored to the wrapper's bottom, that far below the field. */
+  margin-bottom: 0;
+}
+
+.dropdown__button svg {
+  flex: none;
+  color: #6b7280;
+}
+
+.dropdown__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  border: 1px solid #2a3343;
+  border-radius: 8px;
+  background-color: #151a24;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+}
+
+.dropdown__option {
+  display: block;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #c5c8c6;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown__option:hover {
+  background-color: #1b2230;
+}
+
+.dropdown__option--active {
+  background-color: #1b2230;
+  color: #eafff3;
+}

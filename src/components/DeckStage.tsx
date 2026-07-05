@@ -41,6 +41,9 @@ interface DeckStageProps {
   onStartFresh(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
   onRetryProvision(wsId: string, paneId: string): void;
+  /** Open the Run panel for a pane's worktree — the header ▶ (experimental
+   * run presets; absent while the experiment is off, hiding every ▶). */
+  onOpenRun?(wsId: string, paneId: string): void;
 }
 
 /**
@@ -66,6 +69,7 @@ export function DeckStage({
   specByPane,
   onStartFresh,
   onRetryProvision,
+  onOpenRun,
 }: DeckStageProps) {
   return (
     <>
@@ -148,6 +152,9 @@ export function DeckStage({
                   onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
                   onStartFresh={() => onStartFresh(ws.id, pane.id)}
                   onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
+                  onOpenRun={
+                    onOpenRun ? () => onOpenRun(ws.id, pane.id) : undefined
+                  }
                 />
               );
             })}

@@ -1,6 +1,7 @@
 import { useReducer } from "react";
 import { deckReducer, initialDeckState, type DeckState } from "../domain/deck";
 import type { Pane, PaneSession } from "../domain/panes";
+import type { WorkspaceRun } from "../domain/runPresets";
 import type { PaneHead, Workspace } from "../domain/workspaces";
 
 /** The deck surface the application hooks drive (state + bound actions). */
@@ -60,5 +61,9 @@ export function useDeck() {
       }),
     setPaneProvisioningError: (wsId: string, paneId: string, error: string | null) =>
       dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
+    setPaneProvisioningPhase: (wsId: string, paneId: string, phase: "setup") =>
+      dispatch({ type: "setPaneProvisioningPhase", wsId, paneId, phase }),
+    setWorkspaceRun: (id: string, run: WorkspaceRun) =>
+      dispatch({ type: "setWorkspaceRun", id, run }),
   };
 }

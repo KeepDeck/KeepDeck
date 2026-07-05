@@ -19,7 +19,15 @@ import { FALLBACK_AGENTS } from "./agents";
  *   never overrode it.
  */
 
-export const SETTINGS_VERSION = 1;
+// Revision + compatibility floor live with every other document's in
+// domain/migrations.ts; reading stays per-key tolerant — the floor is the
+// only gate (a breach quarantines: rare, true breaking changes only).
+export { SETTINGS_VERSION } from "./migrations";
+import {
+  SETTINGS_MIN_READER,
+  SETTINGS_VERSION,
+  settingsFloorBreach,
+} from "./migrations";
 
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete
@@ -28,11 +36,18 @@ export interface Settings {
   defaultAgent: AgentType;
   /** Scrollback lines kept per terminal pane. */
   scrollback: number;
+  /** Experiment: run presets — launch the app under development in a pane.
+   * A flat boolean (not a nested experiments object) so it rides the per-key
+   * hydration and sparse serialization unchanged; generalize into a registry
+   * only when a few more experiments exist. Read at the UI entry points
+   * only — the layers beneath are flag-agnostic. */
+  experimentRunPresets: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
   scrollback: 10_000,
+  experimentRunPresets: false,
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -55,6 +70,7 @@ export function defaultSettingsDocument(): SettingsDocument {
 /** `version` plus every key `Settings` owns — everything else is an extra. */
 const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "version",
+  "minVersion",
   ...Object.keys(DEFAULT_SETTINGS),
 ]);
 
@@ -86,6 +102,10 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const doc = raw as Record<string, unknown>;
+  // Above our compatibility floor → quarantine (per-key tolerance covers
+  // additive futures; a raised floor means a key CHANGED MEANING, and
+  // half-understanding it would be worse than defaults + kept evidence).
+  if (settingsFloorBreach(doc) !== null) return null;
 
   const settings: Settings = { ...DEFAULT_SETTINGS };
   if (AGENT_TYPES.includes(doc.defaultAgent as AgentType)) {
@@ -93,6 +113,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (typeof doc.scrollback === "number" && Number.isFinite(doc.scrollback)) {
     settings.scrollback = clampScrollback(doc.scrollback);
+  }
+  if (typeof doc.experimentRunPresets === "boolean") {
+    settings.experimentRunPresets = doc.experimentRunPresets;
   }
 
   const extras: Record<string, unknown> = {};
@@ -107,6 +130,7 @@ export function hydrateSettings(json: string): SettingsDocument | null {
 export function serializeSettings(doc: SettingsDocument): string {
   const out: Record<string, unknown> = {
     version: SETTINGS_VERSION,
+    minVersion: SETTINGS_MIN_READER,
     ...doc.extras,
   };
   for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {

@@ -31,12 +31,23 @@ describe("hydrateSettings", () => {
         version: 1,
         defaultAgent: "codex",
         scrollback: 50_000,
+        experimentRunPresets: true,
       }),
     );
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
+      experimentRunPresets: true,
     });
+  });
+
+  it("a non-boolean experiment flag degrades to off", () => {
+    // Experiments must be opted into explicitly — truthy garbage ("yes", 1)
+    // from a hand edit stays off rather than enabling one by accident.
+    for (const junk of ["yes", 1, null, {}]) {
+      const doc = hydrateSettings(JSON.stringify({ experimentRunPresets: junk }));
+      expect(doc?.settings.experimentRunPresets).toBe(false);
+    }
   });
 
   it("a malformed value degrades ONLY its own key", () => {
@@ -68,9 +79,9 @@ describe("hydrateSettings", () => {
 });
 
 describe("serializeSettings", () => {
-  it("pure defaults write only the version — sparse by design", () => {
+  it("pure defaults write only the version markers — sparse by design", () => {
     expect(serializeSettings(defaultSettingsDocument())).toBe(
-      JSON.stringify({ version: SETTINGS_VERSION }),
+      JSON.stringify({ version: SETTINGS_VERSION, minVersion: 1 }),
     );
   });
 
@@ -78,7 +89,19 @@ describe("serializeSettings", () => {
     const doc = defaultSettingsDocument();
     doc.settings.defaultAgent = "codex";
     const out = JSON.parse(serializeSettings(doc));
-    expect(out).toEqual({ version: SETTINGS_VERSION, defaultAgent: "codex" });
+    expect(out).toEqual({
+      version: SETTINGS_VERSION,
+      minVersion: 1,
+      defaultAgent: "codex",
+    });
+  });
+
+  it("quarantines a settings file whose floor is above this build", () => {
+    expect(
+      hydrateSettings(
+        JSON.stringify({ version: 99, minVersion: 99, scrollback: 1 }),
+      ),
+    ).toBeNull();
   });
 
   it("preserves unknown keys across a hydrate→serialize round-trip", () => {
@@ -98,6 +121,7 @@ describe("serializeSettings", () => {
     const doc = defaultSettingsDocument();
     doc.settings.defaultAgent = "opencode";
     doc.settings.scrollback = 42_000;
+    doc.settings.experimentRunPresets = true;
     expect(hydrateSettings(serializeSettings(doc))).toEqual(doc);
   });
 });
@@ -105,5 +129,14 @@ describe("serializeSettings", () => {
 describe("clampScrollback", () => {
   it("keeps in-range values untouched", () => {
     expect(clampScrollback(10_000)).toBe(10_000);
+  });
+});
+
+describe("schema revisions", () => {
+  it("a v1 file reads tolerantly and upgrades to the current revision on save", () => {
+    const doc = hydrateSettings(JSON.stringify({ version: 1, scrollback: 20_000 }))!;
+    const out = JSON.parse(serializeSettings(doc));
+    expect(out.version).toBe(SETTINGS_VERSION);
+    expect(out.scrollback).toBe(20_000);
   });
 });

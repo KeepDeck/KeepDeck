@@ -1,6 +1,8 @@
 import type { DeckState } from "./deck";
 import type { Pane, PaneProvisioning, PaneSession } from "./panes";
 import { resolveFocus } from "./panes";
+import type { WorkspaceRun } from "./runPresets";
+import { readWorkspaceRun } from "./runPresets";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "./agents";
@@ -25,7 +27,9 @@ import { MAX_PANES } from "./layout";
  * directory that may not exist.
  */
 
-export const DECK_STATE_VERSION = 1;
+import { DECK_MIN_READER, DECK_STATE_VERSION, migrateDeck } from "./migrations";
+
+export { DECK_STATE_VERSION } from "./migrations";
 
 /** What the app closed in the middle of creating: hydration stamps this onto
  * a restored in-flight provisioning so it surfaces as the failed card. */
@@ -39,8 +43,8 @@ interface PersistedPane {
   name?: string;
   autoTitle?: string;
   session?: PaneSession;
-  /** The worktree-create intent, without the runtime `error`. */
-  provisioning?: Omit<PaneProvisioning, "error">;
+  /** The worktree-create intent, without the runtime `error`/`phase`. */
+  provisioning?: Omit<PaneProvisioning, "error" | "phase">;
 }
 
 interface PersistedWorkspace {
@@ -48,6 +52,7 @@ interface PersistedWorkspace {
   name: string;
   cwd: string;
   worktreeBaseDir: string | null;
+  run?: WorkspaceRun;
   panes: PersistedPane[];
 }
 
@@ -68,22 +73,43 @@ export interface HydratedDeck {
   nextAgentSeq: number;
   /** Seed for the workspace-seq mint: one past the highest restored ws number. */
   nextWorkspaceSeq: number;
+  /** Unknown top-level keys of the stored document (a newer revision's
+   * fields) — handed back to `serializeDeck` so saves never strip them. */
+  docExtras: Record<string, unknown>;
 }
+
+/** How reading the stored deck ended. `corrupt` quarantines (evidence kept,
+ * fresh start); `incompatible` PARKS the session — the file needs a newer
+ * reader and must stay untouched, so saving is disabled entirely. */
+export type HydrateDeckResult =
+  | { kind: "ok"; deck: HydratedDeck }
+  | { kind: "corrupt" }
+  | { kind: "incompatible"; version: number; minVersion: number };
 
 /** Serialize the deck for storage. Runtime-only pane state (`dormant`) is
  * stripped; the session binding is kept — it's the resume key. */
-export function serializeDeck(state: DeckState): string {
-  const persisted: PersistedDeck = {
+export function serializeDeck(
+  state: DeckState,
+  docExtras: Record<string, unknown> = {},
+): string {
+  // Extras spread FIRST at every level, so the keys this build owns always
+  // win — a newer revision's fields ride along, never override.
+  const persisted: Record<string, unknown> = {
     version: DECK_STATE_VERSION,
+    minVersion: DECK_MIN_READER,
+    ...docExtras,
     activeId: state.activeId,
     focusByWs: state.focusByWs,
     selectByWs: state.selectByWs,
     workspaces: state.workspaces.map((ws) => ({
+      ...ws.extras,
       id: ws.id,
       name: ws.name,
       cwd: ws.cwd,
       worktreeBaseDir: ws.worktreeBaseDir,
+      ...(ws.run !== undefined && { run: ws.run }),
       panes: ws.panes.map((p) => ({
+        ...p.extras,
         id: p.id,
         ...(p.agentType !== undefined && { agentType: p.agentType }),
         ...(p.cwd !== undefined && { cwd: p.cwd }),
@@ -91,10 +117,10 @@ export function serializeDeck(state: DeckState): string {
         ...(p.name !== undefined && { name: p.name }),
         ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
         ...(p.session !== undefined && { session: p.session }),
-        // The intent only: the error is runtime state, and hydration stamps
-        // its own ("interrupted") on whatever comes back.
+        // The intent only: error and phase are runtime state, and hydration
+        // stamps its own error ("interrupted") on whatever comes back.
         ...(p.provisioning !== undefined && {
-          provisioning: stripError(p.provisioning),
+          provisioning: stripRuntime(p.provisioning),
         }),
       })),
     })),
@@ -110,20 +136,25 @@ export function serializeDeck(state: DeckState): string {
  * Panes come back `dormant`; `activeId` is re-resolved (the persisted one may
  * be stale); focus/selection entries pointing at unknown ids are dropped.
  */
-export function hydrateDeck(json: string): HydratedDeck | null {
-  let raw: unknown;
+export function hydrateDeck(json: string): HydrateDeckResult {
+  const corrupt = { kind: "corrupt" } as const;
+  let parsed: unknown;
   try {
-    raw = JSON.parse(json);
+    parsed = JSON.parse(json);
   } catch {
-    return null;
+    return corrupt;
   }
-  if (!isRecord(raw) || raw.version !== DECK_STATE_VERSION) return null;
-  if (!Array.isArray(raw.workspaces)) return null;
+  if (!isRecord(parsed)) return corrupt;
+  const outcome = migrateDeck(parsed);
+  if (outcome.kind === "incompatible") return outcome;
+  if (outcome.kind === "unusable") return corrupt;
+  const raw = outcome.doc;
+  if (!Array.isArray(raw.workspaces)) return corrupt;
 
   const workspaces: Workspace[] = [];
   for (const w of raw.workspaces) {
     const ws = readWorkspace(w);
-    if (!ws) return null;
+    if (!ws) return corrupt;
     workspaces.push(ws);
   }
 
@@ -159,15 +190,63 @@ export function hydrateDeck(json: string): HydratedDeck | null {
   );
 
   return {
-    state: {
-      workspaces,
-      activeId,
-      focusByWs: readFocus(raw.focusByWs),
-      selectByWs: readSelection(raw.selectByWs),
+    kind: "ok",
+    deck: {
+      state: {
+        workspaces,
+        activeId,
+        focusByWs: readFocus(raw.focusByWs),
+        selectByWs: readSelection(raw.selectByWs),
+      },
+      nextAgentSeq:
+        maxSeq(workspaces.flatMap((w) => w.panes.map((p) => p.id)), "pane") + 1,
+      nextWorkspaceSeq: maxSeq(workspaces.map((w) => w.id), "ws") + 1,
+      docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
     },
-    nextAgentSeq: maxSeq(workspaces.flatMap((w) => w.panes.map((p) => p.id)), "pane") + 1,
-    nextWorkspaceSeq: maxSeq(workspaces.map((w) => w.id), "ws") + 1,
   };
+}
+
+/** The top-level keys this build owns; everything else is a doc extra. */
+const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "version",
+  "minVersion",
+  "activeId",
+  "focusByWs",
+  "selectByWs",
+  "workspaces",
+]);
+
+const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "name",
+  "cwd",
+  "worktreeBaseDir",
+  "run",
+  "panes",
+]);
+
+const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "id",
+  "agentType",
+  "cwd",
+  "branch",
+  "name",
+  "autoTitle",
+  "session",
+  "provisioning",
+]);
+
+/** The object's keys outside `known` — a newer revision's fields, preserved
+ * verbatim across our save round-trips. */
+function collectExtras(
+  value: Record<string, unknown>,
+  known: ReadonlySet<string>,
+): Record<string, unknown> {
+  const extras: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value)) {
+    if (!known.has(key)) extras[key] = v;
+  }
+  return extras;
 }
 
 /** The restorable agent ids, derived from the one TS catalog — a hand-kept
@@ -194,7 +273,15 @@ function readWorkspace(value: unknown): Workspace | null {
     if (!pane) return null;
     panes.push(pane);
   }
-  return { id, name, cwd, worktreeBaseDir, panes };
+  const ws: Workspace = { id, name, cwd, worktreeBaseDir, panes };
+  // Parsed unconditionally — the run-presets experiment flag gates UI entry
+  // points, never stored data: a deck saved with the flag on must survive a
+  // load-and-save with it off. Malformed → the workspace just has no config.
+  const run = readWorkspaceRun(value.run);
+  if (run) ws.run = run;
+  const extras = collectExtras(value, WS_KNOWN_KEYS);
+  if (Object.keys(extras).length > 0) ws.extras = extras;
+  return ws;
 }
 
 function readPane(value: unknown): Pane | null {
@@ -226,13 +313,17 @@ function readPane(value: unknown): Pane | null {
     delete pane.dormant;
     pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
   }
+  const extras = collectExtras(value, PANE_KNOWN_KEYS);
+  if (Object.keys(extras).length > 0) pane.extras = extras;
   return pane;
 }
 
 /** The persisted worktree-create intent, or `null` when absent/malformed —
  * a bad intent degrades the pane to a plain dormant one instead of rejecting
  * the deck (mirrors the agentType degradation above). */
-function readProvisioning(value: unknown): Omit<PaneProvisioning, "error"> | null {
+function readProvisioning(
+  value: unknown,
+): Omit<PaneProvisioning, "error" | "phase"> | null {
   if (!isRecord(value)) return null;
   if (
     typeof value.repo !== "string" ||
@@ -240,7 +331,7 @@ function readProvisioning(value: unknown): Omit<PaneProvisioning, "error"> | nul
     typeof value.index !== "number"
   )
     return null;
-  const intent: Omit<PaneProvisioning, "error"> = {
+  const intent: Omit<PaneProvisioning, "error" | "phase"> = {
     repo: value.repo,
     workspace: value.workspace,
     index: value.index,
@@ -251,9 +342,11 @@ function readProvisioning(value: unknown): Omit<PaneProvisioning, "error"> | nul
   return intent;
 }
 
-/** The provisioning intent without its runtime `error` field. */
-function stripError(p: PaneProvisioning): Omit<PaneProvisioning, "error"> {
-  const { error: _error, ...intent } = p;
+/** The provisioning intent without its runtime `error`/`phase` fields. */
+function stripRuntime(
+  p: PaneProvisioning,
+): Omit<PaneProvisioning, "error" | "phase"> {
+  const { error: _error, phase: _phase, ...intent } = p;
   return intent;
 }
 

@@ -20,7 +20,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
     const startSeq = mintAgentSeqs(count);
     const panes = planPanes(ws, startSeq, count, defaultAgentType(agents));
     deck.setPanes(workspaceId, panes);
-    void runProvisioning(panes, provisionInto(deck, workspaceId));
+    void runProvisioning(panes, provisionInto(deck, workspaceId), ws.run?.setup);
   };
 
   /** Register a whole new workspace from the create form — immediately. */
@@ -30,10 +30,12 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
     agentType,
     count,
     worktreeBaseDir,
+    setup,
   }: SpawnConfig) => {
     const wsSeq = mintWorkspaceSeq();
     const startSeq = mintAgentSeqs(count);
     const wsName = name.trim() || `workspace-${wsSeq}`;
+    const wsSetup = setup?.trim() || undefined;
     const panes = planPanes(
       { cwd, worktreeBaseDir, name: wsName },
       startSeq,
@@ -45,21 +47,21 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
       name: wsName,
       cwd,
       worktreeBaseDir,
+      ...(wsSetup && { run: { presets: [], setup: wsSetup } }),
       panes,
     };
     deck.createWorkspace(workspace);
-    void runProvisioning(panes, provisionInto(deck, workspace.id));
+    void runProvisioning(panes, provisionInto(deck, workspace.id), wsSetup);
   };
 
   /** Re-issue a failed pane's worktree create from its stored intent. */
   const retryPane = (wsId: string, paneId: string) => {
-    const pane = deck.workspaces
-      .find((w) => w.id === wsId)
-      ?.panes.find((p) => p.id === paneId);
-    if (!pane?.provisioning) return;
+    const ws = deck.workspaces.find((w) => w.id === wsId);
+    const pane = ws?.panes.find((p) => p.id === paneId);
+    if (!ws || !pane?.provisioning) return;
     // Back to the creating card first, then re-run the same intent.
     deck.setPaneProvisioningError(wsId, paneId, null);
-    void runProvisioning([pane], provisionInto(deck, wsId));
+    void runProvisioning([pane], provisionInto(deck, wsId), ws.run?.setup);
   };
 
   return { startWorkspace, createWorkspace, retryPane };

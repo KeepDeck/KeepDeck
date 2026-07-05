@@ -48,6 +48,51 @@ export function CloseIcon() {
   );
 }
 
+/** Collapse-direction chevron (dropdown state). */
+export function ChevronDownIcon() {
+  return (
+    <svg {...iconProps}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+/** Edit — the conventional pencil (Lucide `pencil`, ISC). */
+export function EditIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  );
+}
+
+/** Run — the conventional play triangle (run presets). */
+export function PlayIcon() {
+  return (
+    <svg {...iconProps}>
+      <polygon points="6 4 20 12 6 20 6 4" />
+    </svg>
+  );
+}
+
+/** Filled play — a state glyph's ACTION face (run/run-again on hover). */
+export function PlayFillIcon() {
+  return (
+    <svg {...iconProps} fill="currentColor" strokeWidth={0} width={11} height={11}>
+      <polygon points="6 4 20 12 6 20 6 4" />
+    </svg>
+  );
+}
+
+/** Filled stop square — the running glyph's ACTION face. */
+export function StopFillIcon() {
+  return (
+    <svg {...iconProps} fill="currentColor" strokeWidth={0} width={10} height={10}>
+      <rect x="5" y="5" width="14" height="14" rx="1.5" />
+    </svg>
+  );
+}
+
 /** Arrow driving into the next fixed slot — "use the next available one"
  * (Lucide `arrow-right-to-line`, ISC). */
 export function NextIcon() {

@@ -20,13 +20,31 @@ const SAVE_MAX_WAIT_MS = 2_000;
  * gates the first paint so the empty first-run form doesn't flash before the
  * restored deck arrives.
  */
-export function usePersistence(deck: Deck): { restoring: boolean } {
+/** The deck on disk needs a newer reader — this session runs parked. */
+export interface FrozenDeck {
+  version: number;
+  minVersion: number;
+}
+
+export function usePersistence(deck: Deck): {
+  restoring: boolean;
+  /** Set when the stored deck's compatibility floor is above this build:
+   * the session starts empty and NOTHING is saved — the newer file must
+   * survive us untouched. */
+  frozen: FrozenDeck | null;
+} {
   const [restoring, setRestoring] = useState(true);
+  const [frozen, setFrozen] = useState<FrozenDeck | null>(null);
   // Never save before the restore attempt finished — an early save would
   // overwrite the stored deck with the initial empty state.
   const loadedRef = useRef(false);
+  // Mirrors `frozen` for the save paths (flush closures outlive renders).
+  const frozenRef = useRef(false);
   const lastSavedRef = useRef<string | null>(null);
   const timerRef = useRef<number | null>(null);
+  // Unknown top-level keys of the restored document — written back verbatim
+  // on every save so a newer revision's fields survive our round-trips.
+  const docExtrasRef = useRef<Record<string, unknown>>({});
   const hydrateRef = useRef(deck.hydrate);
   hydrateRef.current = deck.hydrate;
 
@@ -35,8 +53,20 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
     void loadDeckState()
       .then((json) => {
         if (cancelled || json === null) return;
-        const restored = hydrateDeck(json);
-        if (!restored) {
+        const result = hydrateDeck(json);
+        if (result.kind === "incompatible") {
+          // A file from beyond this build's compatibility floor: PARK.
+          // No quarantine, no saves — it must still be there, intact, when
+          // the newer build comes back.
+          log.warn(
+            "web:persist",
+            `deck revision ${result.version} needs a reader ≥ ${result.minVersion} — session parked, saving disabled`,
+          );
+          frozenRef.current = true;
+          setFrozen({ version: result.version, minVersion: result.minVersion });
+          return;
+        }
+        if (result.kind === "corrupt") {
           // Unusable document: keep it around as deck.json.bak for inspection.
           log.error("web:persist", "deck state unusable → quarantined, starting empty");
           void quarantineDeckState().catch((e) =>
@@ -46,9 +76,10 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
         }
         // Mints first: ids issued after the restore must not collide with
         // restored `pane-N`/`ws-N`.
-        seedAgentSeq(restored.nextAgentSeq);
-        seedWorkspaceSeq(restored.nextWorkspaceSeq);
-        hydrateRef.current(restored.state);
+        seedAgentSeq(result.deck.nextAgentSeq);
+        seedWorkspaceSeq(result.deck.nextWorkspaceSeq);
+        docExtrasRef.current = result.deck.docExtras;
+        hydrateRef.current(result.deck.state);
       })
       .catch((e) =>
         // Unreadable state → start empty.
@@ -65,12 +96,15 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
     };
   }, []);
 
-  const serialized = serializeDeck({
-    workspaces: deck.workspaces,
-    activeId: deck.activeId,
-    focusByWs: deck.focusByWs,
-    selectByWs: deck.selectByWs,
-  });
+  const serialized = serializeDeck(
+    {
+      workspaces: deck.workspaces,
+      activeId: deck.activeId,
+      focusByWs: deck.focusByWs,
+      selectByWs: deck.selectByWs,
+    },
+    docExtrasRef.current,
+  );
   const serializedRef = useRef(serialized);
   serializedRef.current = serialized;
 
@@ -104,6 +138,9 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
   const savingRef = useRef(false);
 
   const flushNow = () => {
+    // Parked session: the file on disk belongs to a newer build — nothing
+    // this session does may reach it.
+    if (frozenRef.current) return;
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -177,5 +214,5 @@ export function usePersistence(deck: Deck): { restoring: boolean } {
     return () => window.removeEventListener("beforeunload", flush);
   }, []);
 
-  return { restoring };
+  return { restoring, frozen };
 }

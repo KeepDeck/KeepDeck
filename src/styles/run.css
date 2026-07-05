@@ -1,0 +1,373 @@
+/* The Run tab (experimental run presets): one command — one row. */
+
+/* Two zones: the config (target, commands) scrolls on its own; the log takes
+   whatever remains and can never be squeezed out by growing lists — it only
+   yields entirely when there is no session to show. */
+.run {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.run__config {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.run__target {
+  margin-bottom: 16px;
+}
+
+/* Section head with the rail's "+" idiom. */
+.run__sect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.run__sect .form__label {
+  margin-bottom: 0;
+}
+
+.run__sect-add {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.run__sect-add:hover,
+.run__sect-add[aria-expanded="true"] {
+  background-color: #1b2230;
+  color: #c5c8c6;
+}
+
+/* ── The command form (opens above the list, only while in use) ─────── */
+.run__form {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+}
+
+/* Multi-line: a command can be a small script. */
+.run__command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  resize: vertical;
+  min-height: 60px;
+}
+
+.run__save-name {
+  margin-bottom: 12px;
+}
+
+.run__launch {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.run__go {
+  padding: 6px 14px;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────── */
+.run__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  padding: 28px 16px;
+}
+
+.run__empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #8b93a3;
+}
+
+.run__empty-sub {
+  font-size: 12px;
+  color: #6b7280;
+  max-width: 30ch;
+  line-height: 1.5;
+}
+
+.run__empty-sub code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #9aa3af;
+}
+
+/* ── The merged Commands list: rail-language rows ───────────────────── */
+.run__cmds {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.run__item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.run__cmd {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  /* Fixed row height: hover swaps the 11px meta for 20px action buttons,
+     and without this the row grew by the difference on every mouse-over. */
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #c5c8c6;
+  cursor: default;
+}
+
+.run__cmd:hover {
+  background-color: #151a24;
+}
+
+.run__cmd--active {
+  background-color: #1b2230;
+}
+
+/* An instance in another target: indented, labeled by its place. */
+.run__cmd--child {
+  padding-left: 33px;
+}
+
+.run__cmd--child .run__cmd-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #9aa3af;
+}
+
+.run__cmd-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run__cmd-meta {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.run__cmd-meta--bad {
+  color: #e5736f;
+}
+
+/* The rail idiom: hover swaps the muted meta for the action cluster —
+   except on child rows, whose port must stay readable. */
+.run__cmd-acts {
+  display: none;
+  gap: 2px;
+}
+
+.run__cmd:hover .run__cmd-meta {
+  display: none;
+}
+
+.run__cmd:hover .run__cmd-acts {
+  display: inline-flex;
+}
+
+.run__cmd--child:hover .run__cmd-meta {
+  display: block;
+}
+
+.run__act {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  padding: 0;
+  cursor: pointer;
+}
+
+.run__act:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+/* ── The state glyph: rest face = state, hover face = its control ───── */
+.run__g {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.run__g-rest {
+  display: inline-flex;
+}
+
+.run__g-idle {
+  color: #6b7280;
+}
+
+.run__g-act {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #c5c8c6;
+  padding: 0;
+  cursor: pointer;
+}
+
+.run__cmd:hover .run__g--actable .run__g-rest {
+  display: none;
+}
+
+.run__cmd:hover .run__g--actable .run__g-act {
+  display: inline-flex;
+}
+
+.run__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.run__dot--running {
+  background-color: #58b368;
+}
+
+.run__dot--stopping {
+  background-color: #d9a24a;
+}
+
+.run__dot--exited {
+  background-color: #3b4658;
+}
+
+.run__dot--failed {
+  background-color: #e5736f;
+}
+
+/* ── The log: caption strip naming whose output this is, then xterm ─── */
+.run__logbox {
+  flex: 1 1 160px;
+  min-height: 160px;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #1c2230;
+  border-radius: 6px;
+  background-color: #0b0e14;
+}
+
+.run__logcap {
+  flex: none;
+  padding: 4px 10px;
+  border-bottom: 1px solid #1c2230;
+  background-color: #11151d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.run__logcap b {
+  color: #9aa3af;
+  font-weight: 500;
+}
+
+.run__log {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* Breathing room between the border and the text: on the OUTER box, so
+     FitAddon (which measures the inner host) sizes the grid to the space
+     that's actually available. */
+  padding: 6px 4px 6px 8px;
+  /* xterm's own selection works inside. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.run__log-host {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* The caption's close control — hides the log until a row is picked again. */
+.run__logcap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.run__logcap-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run__logcap-close {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  padding: 0;
+  cursor: pointer;
+}
+
+.run__logcap-close:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}

@@ -1,5 +1,6 @@
 import type { AgentType } from "./agents";
 import type { Occupancy } from "./agentLocation";
+import type { WorkspaceRun } from "./runPresets";
 import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
@@ -16,6 +17,9 @@ export interface SpawnConfig {
   count: number;
   /** Base folder for per-agent git worktrees; `null` = agents run in `cwd`. */
   worktreeBaseDir: string | null;
+  /** One-time worktree setup command (experimental run presets); blank/absent
+   * = none. */
+  setup?: string;
 }
 
 export interface Workspace {
@@ -26,6 +30,13 @@ export interface Workspace {
   /** Base folder holding this workspace's per-agent git worktrees; `null` when
    * agents run directly in `cwd` (no isolation). */
   worktreeBaseDir: string | null;
+  /** Launch presets + the one-time worktree setup command (experimental).
+   * Lives here — not in its own document — so deleting the workspace deletes
+   * its run config structurally, like the panes. */
+  run?: WorkspaceRun;
+  /** Persisted keys this build doesn't know (written by a newer revision) —
+   * carried verbatim so a save round-trip never strips them. */
+  extras?: Record<string, unknown>;
   panes: Pane[];
 }
 
@@ -99,6 +110,25 @@ export function worktreeTargets(ws: Workspace, paneId?: string): WorktreeTarget[
   return panes.flatMap((p) =>
     p.cwd && p.branch ? [{ repo: ws.cwd, path: p.cwd, branch: p.branch }] : [],
   );
+}
+
+/** Replace one workspace's run configuration (preset saved/removed, setup
+ * edited); an empty config (no presets, no setup) drops the field so the
+ * persisted document stays sparse. */
+export function setWorkspaceRun(
+  workspaces: Workspace[],
+  id: string,
+  run: WorkspaceRun,
+): Workspace[] {
+  const empty = run.presets.length === 0 && run.setup === undefined;
+  return workspaces.map((ws) => {
+    if (ws.id !== id) return ws;
+    if (empty) {
+      const { run: _gone, ...rest } = ws;
+      return rest;
+    }
+    return { ...ws, run };
+  });
 }
 
 /** Rename one workspace, leaving the rest untouched. */
@@ -267,16 +297,43 @@ export function setPaneProvisioningError(
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
   if (!pane?.provisioning) return workspaces;
-  if ((pane.provisioning.error ?? null) === error) return workspaces;
+  if (
+    (pane.provisioning.error ?? null) === error &&
+    pane.provisioning.phase === undefined
+  )
+    return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId || !p.provisioning) return p;
-      const { error: _old, ...intent } = p.provisioning;
+      // The phase resets with the error either way: a failure ends the setup
+      // it reported, and a Retry restarts at the create step.
+      const { error: _old, phase: _phase, ...intent } = p.provisioning;
       return {
         ...p,
         provisioning: error === null ? intent : { ...intent, error },
       };
     }),
+  );
+}
+
+/** Mark which step a pane's provisioning is at — the card's status line
+ * ("Creating worktree…" vs "Running setup…"). Only ever set on a live,
+ * un-failed provisioning; the SAME array otherwise. */
+export function setPaneProvisioningPhase(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  phase: "setup",
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane?.provisioning || pane.provisioning.error !== undefined) return workspaces;
+  if (pane.provisioning.phase === phase) return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) =>
+      p.id === paneId && p.provisioning
+        ? { ...p, provisioning: { ...p.provisioning, phase } }
+        : p,
+    ),
   );
 }
 
