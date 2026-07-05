@@ -36,6 +36,10 @@ interface HostEntry {
   plugin: KeepDeckPlugin | null;
   /** Set while active — the cascade cleanup for this activation's context. */
   disposeAll: (() => void) | null;
+  /** An activation is in flight (`load()`/`activate` awaited). Guards a
+   * concurrent second `activate` from double-loading, and lets the commit
+   * point detect a mid-flight disable. */
+  activating: boolean;
 }
 
 /**
@@ -90,6 +94,7 @@ export class PluginHost {
       status: enabled ? { kind: "registered" } : { kind: "disabled" },
       plugin: null,
       disposeAll: null,
+      activating: false,
     });
     this.notify();
   }
@@ -117,6 +122,9 @@ export class PluginHost {
     if (entry.status.kind === "active" || entry.status.kind === "disabled") {
       return;
     }
+    // A second activate while `load()` is awaited would double-register every
+    // contribution; the first flight owns the outcome.
+    if (entry.activating) return;
 
     if (!satisfiesApiFloor(entry.manifest.minApiVersion)) {
       this.fail(
@@ -132,9 +140,26 @@ export class PluginHost {
       this.registries,
       this.deps,
     );
+    entry.activating = true;
     try {
       const plugin = await entry.load();
       await plugin.activate(ctx);
+      if (wasDisabledMidFlight(entry)) {
+        // The user disabled the plugin while `load()`/`activate` were in
+        // flight — committing would silently overrule that. Unwind the fresh
+        // activation and leave the disable in force.
+        if (plugin.deactivate) {
+          try {
+            await plugin.deactivate();
+          } catch (error) {
+            this.deps
+              .log(id)
+              .error(`deactivate hook failed: ${describeError(error)}`);
+          }
+        }
+        disposeAll();
+        return;
+      }
       entry.plugin = plugin;
       entry.disposeAll = disposeAll;
       entry.status = { kind: "active" };
@@ -142,6 +167,8 @@ export class PluginHost {
     } catch (error) {
       disposeAll();
       this.fail(entry, describeError(error));
+    } finally {
+      entry.activating = false;
     }
   }
 
@@ -235,4 +262,11 @@ export class PluginHost {
     );
     for (const listener of [...this.listeners]) listener();
   }
+}
+
+/** Whether `setEnabled(false)` flipped the entry while `load()`/`activate`
+ * were awaited. A function boundary on purpose: inline, TS's control-flow
+ * narrowing from the pre-await guard makes the comparison "impossible". */
+function wasDisabledMidFlight(entry: { status: PluginStatus }): boolean {
+  return entry.status.kind === "disabled";
 }

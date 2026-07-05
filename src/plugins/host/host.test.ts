@@ -279,4 +279,53 @@ describe("PluginHost", () => {
     await host.activate("p");
     expect(host.getInstalled()).not.toBe(afterInstall);
   });
+
+  it("a mid-flight disable wins over the activation — disabled, zero residue", async () => {
+    const { deps, registries, host } = hostWithRegistries();
+    const deactivate = vi.fn();
+    // A loader the test resolves by hand, holding the activation in flight.
+    let release!: (plugin: KeepDeckPlugin) => void;
+    const gate = new Promise<KeepDeckPlugin>((r) => {
+      release = r;
+    });
+    host.install({ manifest: manifest("p"), load: () => gate }, "builtin");
+
+    const activation = host.activate("p");
+    await host.setEnabled("p", false);
+    release(registrar(deactivate));
+    await activation;
+
+    expect(statusOf(host, "p")).toEqual({ kind: "disabled" });
+    expect(allEmpty(registries)).toBe(true);
+    // The fresh instance got its farewell even though it never committed.
+    expect(deactivate).toHaveBeenCalledTimes(1);
+    expect(deps.onEnabledChanged).toHaveBeenCalledWith("p", false);
+  });
+
+  it("concurrent activations load once and register once", async () => {
+    const { registries, host } = hostWithRegistries();
+    let release!: (plugin: KeepDeckPlugin) => void;
+    const gate = new Promise<KeepDeckPlugin>((r) => {
+      release = r;
+    });
+    const load = vi.fn(() => gate);
+    host.install({ manifest: manifest("p"), load }, "builtin");
+
+    const first = host.activate("p");
+    const second = host.activate("p");
+    release(registrar());
+    await Promise.all([first, second]);
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(tabOwners(registries)).toEqual(["p"]);
+    expect(statusOf(host, "p")).toEqual({ kind: "active" });
+  });
 });
+
+/** Host + its registries + deps in one line, for tests that inspect all. */
+function hostWithRegistries() {
+  const { deps, onEnabledChanged } = fakeDeps();
+  const registries = createContributionRegistries();
+  const host = new PluginHost(deps, registries);
+  return { deps: { ...deps, onEnabledChanged }, registries, host };
+}
