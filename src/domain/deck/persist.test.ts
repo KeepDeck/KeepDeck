@@ -45,6 +45,8 @@ const state: DeckState = {
   activeId: "ws-5",
   focusByWs: { "ws-2": "pane-3" },
   selectByWs: { "ws-2": "pane-3" },
+  // Open on purpose: the round-trip must NOT carry it (session-only).
+  dockByWs: { "ws-2": true },
 };
 
 describe("serializeDeck → hydrateDeck round-trip", () => {
@@ -71,6 +73,11 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
   it("derives the id-mint seeds from the highest persisted ids", () => {
     expect(restored.nextAgentSeq).toBe(8); // pane-7 + 1
     expect(restored.nextWorkspaceSeq).toBe(6); // ws-5 + 1
+  });
+
+  it("never persists the dock state — every launch starts closed", () => {
+    expect(serializeDeck(state)).not.toContain("dockByWs");
+    expect(restored.state.dockByWs).toEqual({});
   });
 
   it("does not persist the runtime dormant flag", () => {
@@ -255,6 +262,7 @@ describe("provisioning panes across a restart", () => {
     activeId: "ws-1",
     focusByWs: {},
     selectByWs: {},
+    dockByWs: {},
   };
 
   it("persists the intent, never the runtime error, and restores an interrupted failed card", () => {
@@ -300,6 +308,7 @@ describe("run presets round-trip", () => {
     activeId: "ws-1",
     focusByWs: {},
     selectByWs: {},
+    dockByWs: {},
   };
 
   it("persists and restores the workspace config", () => {
@@ -351,6 +360,7 @@ describe("provisioning phase is runtime-only", () => {
       activeId: "ws-1",
       focusByWs: {},
       selectByWs: {},
+      dockByWs: {},
     };
     const json = serializeDeck(state);
     expect(json).not.toContain("setup");

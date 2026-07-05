@@ -102,6 +102,8 @@ export function usePersistence(deck: Deck): {
       activeId: deck.activeId,
       focusByWs: deck.focusByWs,
       selectByWs: deck.selectByWs,
+      // Session-only (never serialized) — present to satisfy the state shape.
+      dockByWs: deck.dockByWs,
     },
     docExtrasRef.current,
   );

@@ -35,6 +35,9 @@ export interface DeckState {
   focusByWs: Record<string, string>;
   /** Highlighted (selected) pane per workspace id. */
   selectByWs: Record<string, string>;
+  /** Run-panel dock open per workspace id (absent = closed). Session-only by
+   * decision — the codec never writes it, so every launch starts closed. */
+  dockByWs: Record<string, boolean>;
 }
 
 export type DeckAction =
@@ -51,6 +54,10 @@ export type DeckAction =
   | { type: "closeWorkspace"; id: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
   | { type: "selectPane"; wsId: string; paneId: string }
+  /** Flip a workspace's Run-panel dock (the top bar's dock button). */
+  | { type: "toggleDock"; wsId: string }
+  /** Reveal a workspace's Run-panel dock (the pane-header ▶ shortcut). */
+  | { type: "openDock"; wsId: string }
   /** Manual pane rename ([F11]); empty name reverts to auto/derived. */
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
   /** Auto title from the terminal (OSC) for a pane ([F11]). */
@@ -100,6 +107,7 @@ export const initialDeckState: DeckState = {
   activeId: "",
   focusByWs: {},
   selectByWs: {},
+  dockByWs: {},
 };
 
 /** Default a workspace's selection to its first pane, only if it has none yet. */
@@ -114,10 +122,10 @@ function withDefaultSelection(
 }
 
 /** Drop `key` from a map, returning the same reference when it's absent. */
-function dropKey(
-  map: Record<string, string>,
+function dropKey<T>(
+  map: Record<string, T>,
   key: string,
-): Record<string, string> {
+): Record<string, T> {
   if (!(key in map)) return map;
   const next = { ...map };
   delete next[key];
@@ -211,13 +219,14 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       const workspaces = closeWorkspace(state.workspaces, action.id);
       const activeId = resolveActiveId(workspaces, state.activeId);
       const focusByWs = dropKey(state.focusByWs, action.id);
+      const dockByWs = dropKey(state.dockByWs, action.id);
       const newActive = workspaces.find((w) => w.id === activeId);
       const selectByWs = withDefaultSelection(
         dropKey(state.selectByWs, action.id),
         activeId,
         newActive,
       );
-      return { workspaces, activeId, focusByWs, selectByWs };
+      return { workspaces, activeId, focusByWs, selectByWs, dockByWs };
     }
     case "toggleFocus": {
       const { wsId, paneId } = action;
@@ -232,6 +241,17 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ...state,
         selectByWs: { ...state.selectByWs, [action.wsId]: action.paneId },
       };
+    case "toggleDock": {
+      const dockByWs = state.dockByWs[action.wsId]
+        ? dropKey(state.dockByWs, action.wsId)
+        : { ...state.dockByWs, [action.wsId]: true };
+      return { ...state, dockByWs };
+    }
+    case "openDock": {
+      // Same ref when already open — a repeated ▶ causes no re-render.
+      if (state.dockByWs[action.wsId]) return state;
+      return { ...state, dockByWs: { ...state.dockByWs, [action.wsId]: true } };
+    }
     case "renamePane":
       return {
         ...state,
