@@ -341,6 +341,11 @@ export function TerminalPane({
           resizePane(paneId, term.cols, term.rows);
         }
       },
+      // The real browser schedulers — the pump itself is environment-free.
+      raf: (cb) => requestAnimationFrame(cb),
+      cancelRaf: (h) => cancelAnimationFrame(h),
+      setTimer: (cb, ms) => window.setTimeout(cb, ms),
+      clearTimer: (h) => window.clearTimeout(h),
     });
     const requestRefit = () => pump.request();
     const observer = new ResizeObserver(requestRefit);
