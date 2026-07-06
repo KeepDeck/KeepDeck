@@ -53,3 +53,10 @@
 .dock__body[hidden] {
   display: none;
 }
+
+/* The error-boundary fallback for a crashed plugin tab. */
+.plugin-error {
+  padding: 16px;
+  font-size: 12px;
+  color: #b3564f;
+}

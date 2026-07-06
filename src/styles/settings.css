@@ -121,3 +121,22 @@
 .settings__toggle-text .settings__hint {
   margin: 0;
 }
+
+/* Installed-plugins list under the Plugins experiment: the toggles reuse the
+   experiment idiom, the block only adds separation from the flags above. */
+.settings__plugins {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #1f242e;
+}
+
+/* One host-rendered plugin settings control (label over input). */
+.settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}

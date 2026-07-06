@@ -73,5 +73,7 @@ export function useDeck() {
       dispatch({ type: "setPaneProvisioningPhase", wsId, paneId, phase }),
     setWorkspaceRun: (id: string, run: WorkspaceRun) =>
       dispatch({ type: "setWorkspaceRun", id, run }),
+    setWorkspacePluginSlot: (wsId: string, pluginId: string, value: unknown) =>
+      dispatch({ type: "setWorkspacePluginSlot", wsId, pluginId, value }),
   };
 }
