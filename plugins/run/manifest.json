@@ -1,0 +1,15 @@
+{
+  "id": "keepdeck.run",
+  "name": "Run",
+  "version": "0.1.0",
+  "minApiVersion": "0.0.2",
+  "description": "Launch the app under development: named shell commands per workspace, run in a pane's worktree with the KeepDeck env contract, streamed to a live log.",
+  "capabilities": [
+    { "kind": "exec", "commands": ["$SHELL"] },
+    { "kind": "ports" },
+    { "kind": "open" }
+  ],
+  "contributes": {
+    "dockTabs": [{ "id": "run", "label": "Run" }]
+  }
+}

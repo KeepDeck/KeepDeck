@@ -120,6 +120,7 @@ describe("build pipeline (e2e against the real plugins/sample)", () => {
       encoding: "utf8",
     });
     expect(out).toContain("built keepdeck.sample");
+    expect(out).toContain("built keepdeck.run");
 
     const bundlePath = join(distRoot, "plugins", "keepdeck.sample", "index.js");
     const bundle = readFileSync(bundlePath, "utf8");
@@ -145,12 +146,16 @@ describe("build pipeline (e2e against the real plugins/sample)", () => {
     );
     expect(copiedManifest).toBe(sourceManifest);
 
-    // index.json lists the plugin, sorted by id, in the documented shape.
+    // index.json lists every built-in plugin, sorted by id, in the documented
+    // shape (keepdeck.run sorts before keepdeck.sample).
     const index = JSON.parse(
       readFileSync(join(distRoot, "plugins", "index.json"), "utf8"),
     );
     expect(index).toEqual({
-      plugins: [{ id: "keepdeck.sample", dir: "plugins/keepdeck.sample" }],
+      plugins: [
+        { id: "keepdeck.run", dir: "plugins/keepdeck.run" },
+        { id: "keepdeck.sample", dir: "plugins/keepdeck.sample" },
+      ],
     });
   });
 
