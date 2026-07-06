@@ -55,8 +55,6 @@ export type DeckAction =
   | { type: "selectPane"; wsId: string; paneId: string }
   /** Flip a workspace's dock (the top bar's dock button). */
   | { type: "toggleDock"; wsId: string }
-  /** Reveal a workspace's dock programmatically. */
-  | { type: "openDock"; wsId: string }
   /** Manual pane rename ([F11]); empty name reverts to auto/derived. */
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
   /** Auto title from the terminal (OSC) for a pane ([F11]). */
@@ -251,11 +249,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ? dropKey(state.dockByWs, action.wsId)
         : { ...state.dockByWs, [action.wsId]: true };
       return { ...state, dockByWs };
-    }
-    case "openDock": {
-      // Same ref when already open — a repeated ▶ causes no re-render.
-      if (state.dockByWs[action.wsId]) return state;
-      return { ...state, dockByWs: { ...state.dockByWs, [action.wsId]: true } };
     }
     case "renamePane":
       return {
