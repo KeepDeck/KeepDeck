@@ -99,6 +99,31 @@ importers:
         specifier: ~5.8.3
         version: 5.8.3
 
+  plugins/run:
+    dependencies:
+      '@keepdeck/plugin-api':
+        specifier: workspace:*
+        version: link:../../packages/plugin-api
+      '@keepdeck/terminal-kit':
+        specifier: workspace:*
+        version: link:../../packages/terminal-kit
+      '@xterm/addon-fit':
+        specifier: ^0.10.0
+        version: 0.10.0(@xterm/xterm@5.5.0)
+      '@xterm/xterm':
+        specifier: ^5.5.0
+        version: 5.5.0
+      react:
+        specifier: ^19.1.0
+        version: 19.2.7
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.17
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+
   plugins/sample:
     dependencies:
       '@keepdeck/plugin-api':
