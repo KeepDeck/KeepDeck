@@ -6,6 +6,12 @@ import type { Disposable } from "./disposable.ts";
  * points, with serializable input/output mutated in place (the opencode
  * model). Serializable I/O is what lets the same hook run in-process or
  * across the external tier's RPC boundary.
+ *
+ * FORWARD SURFACE: declared ahead of a consumer on purpose — the CLI agents
+ * (claude/codex/opencode) migrate onto this in a later stage. Until then the
+ * host's own spawnSpecs/domain/agents is the live spawn path; when the
+ * migration lands, reconcile this contract against that mechanism so the two
+ * spawn models don't drift.
  */
 export interface PluginAgents {
   register(agent: AgentContribution): Disposable;

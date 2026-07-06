@@ -12,7 +12,9 @@ export interface PluginUi {
   registerDockTab(tab: DockTabContribution): Disposable;
   /** Contribute an icon action to the top bar's right cluster. */
   registerTopBarAction(action: TopBarActionContribution): Disposable;
-  /** Contribute an icon action to every agent pane's header. */
+  /** Contribute an icon action to every agent pane's header. FORWARD
+   * SURFACE: wired through the contract and RPC but not yet rendered by the
+   * host — a plausible pane-header contribution awaiting its first consumer. */
   registerPaneAction(action: PaneActionContribution): Disposable;
 }
 

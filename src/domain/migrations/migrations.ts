@@ -45,7 +45,12 @@ export type MigrationOutcome =
  *       `presets` move to `plugins["keepdeck.run"]`; `run` itself is dropped.
  */
 export const DECK_STATE_VERSION = 5;
-/** Every revision so far is additive over v1 — any reader fits. */
+/** The oldest reader that can still make sense of a current document. Held at
+ * 1 deliberately: v1→v4 were additive, and v5's `run` retirement moves data
+ * an old reader wouldn't understand INTO keys it preserves as extras — so an
+ * old build reading a v5 deck loses the Run panel's state (recoverable, not
+ * corrupt) rather than misreading anything. The floor rises only when a
+ * change would make an old reader misinterpret data it still consumes. */
 export const DECK_MIN_READER = 1;
 
 /** v1 → v2: `Workspace.run` added — additive, nothing to transform. */

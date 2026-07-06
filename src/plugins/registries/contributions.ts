@@ -138,17 +138,3 @@ export function createContributionRegistries(): ContributionRegistries {
     agents: createContributionRegistry(),
   };
 }
-
-/** Sweep every registry of a plugin's contributions in one pass. The host's
- * cascade cleanup runs the plugin's tracked disposables (the precise path);
- * this is the coarse fallback for forgetting a plugin wholesale. */
-export function removeAllContributionsFor(
-  registries: ContributionRegistries,
-  pluginId: string,
-): void {
-  registries.dockTabs.removeAllFor(pluginId);
-  registries.topBarActions.removeAllFor(pluginId);
-  registries.paneActions.removeAllFor(pluginId);
-  registries.settingsSections.removeAllFor(pluginId);
-  registries.agents.removeAllFor(pluginId);
-}

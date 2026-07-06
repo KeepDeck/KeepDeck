@@ -19,7 +19,6 @@ export {
 export {
   createContributionRegistries,
   createContributionRegistry,
-  removeAllContributionsFor,
   type Contribution,
   type ContributionRegistries,
   type ContributionRegistry,

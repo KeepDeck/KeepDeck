@@ -5,6 +5,9 @@
  * of the contract carry an `experimental` marker in their name instead of a
  * separate v-next package (the opencode convention), so a plugin's floor
  * stays meaningful across app releases.
+ *
+ * This is the load-bearing version; keep package.json's `version` in lockstep
+ * with it (that one exists only so the workspace resolves the package).
  */
 export const API_VERSION = "0.0.4";
 
