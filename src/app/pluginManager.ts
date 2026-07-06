@@ -195,6 +195,12 @@ export function bootstrapPlugins(): Promise<void> {
       : await discoverBuiltPlugins();
     for (const install of installs) pluginHost.install(install, "builtin");
     await pluginHost.activateAll();
+    // The one boot line that says the system came up — failures are logged
+    // per plugin by the host, so silence here would hide a healthy boot.
+    const states = pluginHost
+      .getInstalled()
+      .map((p) => `${p.manifest.id}=${p.status.kind}`);
+    log.info("web:plugins", `bootstrap: ${states.join(", ") || "no plugins"}`);
   })().catch((e) => {
     log.error("web:plugins", `bootstrap failed: ${describeError(e)}`);
   });
