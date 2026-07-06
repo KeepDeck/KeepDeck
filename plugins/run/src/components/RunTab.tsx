@@ -10,15 +10,15 @@ import {
 import { getRuntime } from "../runtime";
 import { usePresets } from "./usePresets";
 import { useRunSessions } from "./useRunSessions";
-import { Dropdown } from "./ui/Dropdown";
-import { noAutoCorrect } from "./ui/inputProps";
+import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
+import { noAutoCorrect } from "@keepdeck/ui-kit/inputProps";
 import {
   CloseIcon,
   EditIcon,
   PlayFillIcon,
   PlayIcon,
   StopFillIcon,
-} from "./ui/icons";
+} from "@keepdeck/ui-kit/icons";
 import { RunLog } from "./RunLog";
 
 /**

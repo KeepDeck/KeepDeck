@@ -1,17 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDownIcon } from "./icons";
 
-/**
- * An in-app replacement for `<select>`: the app renders its own UI for every
- * interaction (no system dialogs, no WebView context menus), and a native
- * select popup is the same kind of foreign chrome. The closed control is a form
- * field; the open menu is our DOM — closes on pick, click-outside and Escape.
- *
- * Vendored from the host's src/ui/Dropdown because a built-in plugin bundles
- * standalone (it can't import host src/), and this stage adds no new npm deps.
- * Its `dropdown*` classNames come from the host stylesheet — the builtin-tier
- * rule.
- */
 export interface DropdownOption {
   value: string;
   label: string;
@@ -26,6 +15,13 @@ interface DropdownProps {
   className?: string;
 }
 
+/**
+ * An in-app replacement for `<select>`: the app renders its own UI for every
+ * interaction (no system dialogs, no WebView context menus), and a native
+ * select popup is the same kind of foreign chrome. The closed control is a
+ * form field; the open menu is our DOM — closes on pick, click-outside and
+ * Escape. Keyboard cursor navigation can come when a consumer needs it.
+ */
 export function Dropdown({
   options,
   value,
