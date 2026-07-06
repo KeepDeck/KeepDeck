@@ -29,7 +29,8 @@ it) with this layout:
 
 Rules enforced by the packer **and** by the app's reader:
 
-- entry paths are relative, forward-slash, no `..`, no symlinks, no duplicates;
+- entry paths are relative, forward-slash, no `..`, no drive letters (`c:…`),
+  no symlinks, no duplicates;
 - ≤ 1000 entries, ≤ 20 MB per file, ≤ 50 MB total (uncompressed);
 - `manifest.json` passes the strict validator (`readManifest`);
 - every declared dock tab has its `<tabId>.html`, and a declared `logic` bundle exists.
@@ -51,16 +52,20 @@ The script validates the tree (listing every problem at once), then writes a
 deterministic archive — same tree, byte-identical container. It is the
 format's reference implementation; this document is its prose.
 
-No tooling at hand? The format is plain zip, so any archiver works — but the
-app refuses a container without `container.json`, so write it yourself first:
+No tooling at hand? The format is plain zip, so any archiver works — but two
+things bite: the app refuses a container without `container.json`, and it
+reads **stored (uncompressed) entries only**, so a plain `zip -r` (which
+deflates) produces a container the app silently drops. Store everything with
+`-0`:
 
 ```sh
 cd my-plugin
 printf '{"format":1}\n' > container.json
-zip -r ../My.kdplugin .
+zip -0 -r ../My.kdplugin .
 ```
 
-The script remains the recommended path: it validates before packing.
+The script remains the recommended path: it stores by default and validates
+before packing.
 
 ## Developing
 

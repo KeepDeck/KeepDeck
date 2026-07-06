@@ -113,9 +113,23 @@ async function buildOne(pluginDir, distRoot) {
   // of `jsx`/"react/jsx-runtime" — a specifier this script does NOT mark
   // external, so react's entire development bundle silently inlines into
   // what must be a slim, externalized plugin bundle. A shipped plugin bundle
-  // is always a production build, regardless of who invoked this script.
+  // is always a production build. Save/restore around the build so an
+  // in-process caller doesn't have NODE_ENV flipped out from under it.
+  const priorNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = "production";
+  try {
+    await buildPluginBundle(entry, outDir);
+  } finally {
+    if (priorNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = priorNodeEnv;
+  }
 
+  cpSync(join(pluginDir, "manifest.json"), join(outDir, "manifest.json"));
+  console.log(`  built ${manifest.id}  (${pluginDir} -> ${join(distRoot, "plugins", manifest.id)})`);
+  return manifest.id;
+}
+
+async function buildPluginBundle(entry, outDir) {
   await build({
     root: process.cwd(),
     // Never let this pick up the HOST's vite.config.ts (its `build.rollupOptions`
@@ -136,10 +150,6 @@ async function buildOne(pluginDir, distRoot) {
       rollupOptions: { external: EXTERNAL },
     },
   });
-
-  cpSync(join(pluginDir, "manifest.json"), join(outDir, "manifest.json"));
-  console.log(`  built ${manifest.id}  (${pluginDir} -> ${join(distRoot, "plugins", manifest.id)})`);
-  return manifest.id;
 }
 
 function writeIndex(distRoot, ids) {

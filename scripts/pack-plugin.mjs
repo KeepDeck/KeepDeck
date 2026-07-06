@@ -103,6 +103,13 @@ function walk(root, rel, files, problems) {
       problems.push(`${join(rel, name)}: backslash in a name — forward slashes only`);
       continue;
     }
+    // A drive-letter-shaped name (`c:foo`) is rejected by the app's reader —
+    // pack it and the whole container goes invisible at install. Catch it
+    // here so "packs here, loads there" holds.
+    if (/^[a-zA-Z]:/.test(name)) {
+      problems.push(`${join(rel, name)}: drive-letter name — not allowed in a container`);
+      continue;
+    }
     const relPath = rel ? `${rel}/${name}` : name;
     const full = join(root, relPath);
     const stat = lstatSync(full);
@@ -140,13 +147,15 @@ export async function run(argv = process.argv.slice(2)) {
     );
     return null;
   }
-  const dir = resolve(argv[0]);
   const oFlag = argv.indexOf("-o");
+  if (oFlag !== -1 && !argv[oFlag + 1]) throw new Error("-o needs a path");
+  // The plugin dir is the first NON-flag argument, so `-o` can lead.
+  const dirArg = argv.find((a, i) => a !== "-o" && argv[i - 1] !== "-o");
+  if (!dirArg) throw new Error("no plugin directory given");
+  const dir = resolve(dirArg);
   const { manifest, files } = validatePluginDir(dir);
   const out =
-    oFlag !== -1 && argv[oFlag + 1]
-      ? argv[oFlag + 1]
-      : `${sanitizeFileName(manifest.name)}.kdplugin`;
+    oFlag !== -1 ? argv[oFlag + 1] : `${sanitizeFileName(manifest.name)}.kdplugin`;
   writeFileSync(out, buildContainer(dir, files));
   console.log(`packed ${manifest.id} ${manifest.version} (${files.length + 1} entries) -> ${out}`);
   return out;

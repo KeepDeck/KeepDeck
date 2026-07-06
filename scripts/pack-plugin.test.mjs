@@ -91,6 +91,11 @@ describe("validatePluginDir", () => {
     expect(() => validatePluginDir(dir)).toThrow(/manifest.json: id/);
   });
 
+  it("rejects a drive-letter name the reader would refuse", () => {
+    writeFileSync(join(dir, "c:evil.txt"), "x");
+    expect(() => validatePluginDir(dir)).toThrow(/drive-letter/);
+  });
+
   it("rejects symlinks — the reader bans them, packing would defer the failure", () => {
     symlinkSync("/etc/hosts", join(dir, "assets", "hosts"));
     expect(() => validatePluginDir(dir)).toThrow(/symlink/);
