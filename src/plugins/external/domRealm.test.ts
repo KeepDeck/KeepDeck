@@ -5,7 +5,7 @@ import { domRealm } from "./realmPlugin";
 /** The production realm's iframe MUST carry both sandbox tokens: `allow-scripts`
  * to run the guest, and `allow-same-origin` so the document keeps its own
  * kdplugin://<id> origin — without the latter it gets an opaque origin and its
- * own CSP `script-src 'self'` refuses to load logic.js, so the realm never
+ * own CSP `script-src 'self'` refuses to load its main bundle, so the realm never
  * boots (caught in live verification, this locks it in). */
 describe("domRealm", () => {
   afterEach(() => {
@@ -13,7 +13,7 @@ describe("domRealm", () => {
   });
 
   it("creates a hidden iframe with allow-scripts AND allow-same-origin", () => {
-    void domRealm.openRealm("kdplugin://dev.x/__logic__.html");
+    void domRealm.openRealm("kdplugin://dev.x/__main__.html");
     const frame = document.body.querySelector("iframe");
     expect(frame).not.toBeNull();
     expect(frame!.hidden).toBe(true);

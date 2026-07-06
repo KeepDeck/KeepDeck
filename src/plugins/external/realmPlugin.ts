@@ -37,7 +37,7 @@ const ACTIVATION_TIMEOUT_MS = 15_000;
  *   (components never cross a realm boundary; the App renders each as a
  *   sandboxed iframe under the plugin's own origin);
  * - when the manifest declares a `logic` bundle, a hidden logic realm boots
- *   from the synthesized `__logic__.html` (which loads that bundle), gets a
+ *   from the synthesized `__main__.html` (which loads that bundle), gets a
  *   `MessagePort`, and speaks the SAME context surface over RPC — actions,
  *   storage, events, capability-gated services;
  * - deactivation disposes the bridge (failing in-flight calls, closing the
@@ -63,7 +63,7 @@ export function makeExternalPlugin(
           iframe: `${tab.id}.html`,
         });
       }
-      if (manifest.logic === undefined) return;
+      if (manifest.main === undefined) return;
 
       const channel = new MessageChannel();
       const bridge = createHostBridge(channel.port1, ctx);
@@ -73,7 +73,7 @@ export function makeExternalPlugin(
       // pending forever, wedging the plugin's `activating` flag with no
       // escape but disable. One deadline covers open + activate.
       const realm = await withTimeout(
-        dom.openRealm(externalPluginUrl(manifest.id, "__logic__.html")),
+        dom.openRealm(externalPluginUrl(manifest.id, "__main__.html")),
         activationTimeoutMs,
         `logic realm document did not load within ${activationTimeoutMs}ms`,
       );
@@ -128,7 +128,7 @@ function withTimeout<T>(
  * origin, and all are cross-origin to the host `tauri://localhost`), not
  * opaqueness — the Figma/Logseq model. Without it the document would get an
  * opaque origin, and its own CSP `script-src 'self'` would then refuse to
- * load `/logic.js` (self ≠ the scheme origin), so the realm could never boot.
+ * load `/main.js` (self ≠ the scheme origin), so the realm could never boot.
  * The sandbox still withholds top-navigation, forms, popups, etc.; network
  * reach is bounded by the per-plugin CSP `connect-src`. */
 export const domRealm: RealmDom = {

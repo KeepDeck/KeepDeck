@@ -138,16 +138,16 @@ describe("readManifest", () => {
     expect(result.errors[0]).toContain("contributes.dockTabs[0]");
   });
 
-  it("accepts a declared logic bundle and rejects a hostile path", () => {
-    const ok = readManifest({ ...GOLDEN, logic: "dist/logic.js" });
-    expect(ok.ok && ok.manifest.logic).toBe("dist/logic.js");
+  it("accepts a declared main bundle and rejects a hostile path", () => {
+    const ok = readManifest({ ...GOLDEN, main: "dist/main.js" });
+    expect(ok.ok && ok.manifest.main).toBe("dist/main.js");
     for (const bad of ["/abs.js", "a/../b.js", "", "a\\b.js", "./x.js"]) {
-      const result = readManifest({ ...GOLDEN, logic: bad });
+      const result = readManifest({ ...GOLDEN, main: bad });
       expect(result.ok, bad).toBe(false);
     }
     // Absent stays absent — pure-UI plugins carry no field.
     const pure = readManifest({ ...GOLDEN });
-    expect(pure.ok && "logic" in pure.manifest).toBe(false);
+    expect(pure.ok && "main" in pure.manifest).toBe(false);
   });
 
   it("rejects id shapes outside the lowercase dotted grammar", () => {

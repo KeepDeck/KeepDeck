@@ -23,10 +23,11 @@ export interface PluginManifest {
   /** Minimum plugin-API version this plugin needs (see `API_VERSION`). */
   minApiVersion: string;
   description?: string;
-  /** The plugin's logic bundle, as a path inside the plugin (e.g.
-   * `"logic.js"`). Absent = a pure-UI plugin: no logic realm is booted.
-   * External tier only today; built-ins carry code in their own bundle. */
-  logic?: string;
+  /** The plugin's entry bundle — a path inside the plugin (e.g. `"main.js"`),
+   * the module run in its logic realm. Absent = a pure-UI plugin: no logic
+   * realm is booted. External tier only today; built-ins carry code in their
+   * own bundle. */
+  main?: string;
   /** Platform access the plugin may use; empty = pure UI. */
   capabilities: Capability[];
   /** Static contribution summary — what the plugin will register when
@@ -94,7 +95,7 @@ export function readManifest(value: unknown): ManifestResult {
   if (!parseVersion(minApiVersion))
     errors.push(`minApiVersion: "${minApiVersion}" is not major.minor.patch`);
 
-  const logic = readLogicPath(value.logic, errors);
+  const main = readMainPath(value.main, errors);
   const capabilities = readCapabilities(value.capabilities, errors);
   const contributes = readContributes(value.contributes, errors);
 
@@ -109,7 +110,7 @@ export function readManifest(value: unknown): ManifestResult {
       ...(typeof value.description === "string" && value.description.trim()
         ? { description: value.description.trim() }
         : {}),
-      ...(logic !== null && { logic }),
+      ...(main !== null && { main }),
       capabilities,
       contributes,
     },
@@ -170,10 +171,10 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
   return out;
 }
 
-/** An optional relative path to the logic bundle: plain segments only —
- * the same grammar the container's entry table enforces, checked here so a
- * bad manifest fails at validation, not at realm boot. */
-function readLogicPath(value: unknown, errors: string[]): string | null {
+/** An optional relative path to the entry bundle (`main`): plain segments
+ * only — the same grammar the container's entry table enforces, checked here
+ * so a bad manifest fails at validation, not at realm boot. */
+function readMainPath(value: unknown, errors: string[]): string | null {
   if (value === undefined) return null;
   if (
     typeof value !== "string" ||
@@ -182,7 +183,7 @@ function readLogicPath(value: unknown, errors: string[]): string | null {
     value.includes("\\") ||
     value.split("/").some((seg) => seg === "" || seg === "." || seg === "..")
   ) {
-    errors.push('logic: must be a plain relative path like "logic.js"');
+    errors.push('main: must be a plain relative path like "main.js"');
     return null;
   }
   return value;

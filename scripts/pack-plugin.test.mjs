@@ -73,14 +73,14 @@ describe("validatePluginDir", () => {
     expect(message).toContain("container.json: reserved");
   });
 
-  it("rejects a declared logic bundle that is not in the tree", () => {
+  it("rejects a declared main bundle that is not in the tree", () => {
     writeFileSync(
       join(dir, "manifest.json"),
-      JSON.stringify({ ...MANIFEST, logic: "logic.js" }),
+      JSON.stringify({ ...MANIFEST, main: "main.js" }),
     );
-    expect(() => validatePluginDir(dir)).toThrow(/logic: declared bundle/);
-    writeFileSync(join(dir, "logic.js"), "export default 1;");
-    expect(validatePluginDir(dir).manifest.logic).toBe("logic.js");
+    expect(() => validatePluginDir(dir)).toThrow(/main: declared bundle/);
+    writeFileSync(join(dir, "main.js"), "export default 1;");
+    expect(validatePluginDir(dir).manifest.main).toBe("main.js");
   });
 
   it("rejects a manifest the strict validator refuses", () => {

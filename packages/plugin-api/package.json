@@ -1,6 +1,6 @@
 {
   "name": "@keepdeck/plugin-api",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "private": true,
   "description": "The contract KeepDeck plugins build against: manifest, context, contribution types.",
   "type": "module",

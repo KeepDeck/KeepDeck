@@ -22,7 +22,7 @@ it) with this layout:
 |------------------|----------|---------|
 | `container.json` | yes      | Written by the packer: `{ "format": 1 }` — the container-format revision. A reader refuses a higher format ("created by a newer KeepDeck"). |
 | `manifest.json`  | yes      | The plugin: id, name, version, `minApiVersion`, capabilities, contributions. Validated strictly on load. |
-| logic bundle     | no       | Self-contained ESM run in the plugin's logic realm (hooks, storage, events over RPC), declared by the manifest's `logic` field (e.g. `"logic": "logic.js"`) — no field, no realm. No externals — bundle everything, including `@keepdeck/plugin-guest`. |
+| entry bundle     | no       | Self-contained ESM run in the plugin's logic realm (hooks, storage, events over RPC), declared by the manifest's `main` field (e.g. `"main": "main.js"`) — no field, no realm. No externals — bundle everything, including `@keepdeck/plugin-guest`. |
 | `<tabId>.html`   | per dock tab | The document for each `contributes.dockTabs` entry, shown in a sandboxed iframe under the plugin's own origin. Bring your own JS/CSS/framework — the iframe is isolated. |
 | `SIGNATURE`      | reserved | Future integrity block. Absent today; readers ignore it. |
 | anything else    | no       | Assets, referenced by relative paths only. |
@@ -33,7 +33,7 @@ Rules enforced by the packer **and** by the app's reader:
   no symlinks, no duplicates;
 - ≤ 1000 entries, ≤ 20 MB per file, ≤ 50 MB total (uncompressed);
 - `manifest.json` passes the strict validator (`readManifest`);
-- every declared dock tab has its `<tabId>.html`, and a declared `logic` bundle exists.
+- every declared dock tab has its `<tabId>.html`, and a declared `main` bundle exists.
 
 Network access from plugin documents is limited by CSP to the domains the
 manifest declares in its `net` capability — undeclared hosts are blocked by

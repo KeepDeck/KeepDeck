@@ -652,15 +652,15 @@ fn safe_lookup(root: &Path, relative: &str) -> Lookup {
 }
 
 /// The reserved document path a plugin's logic realm boots from — see
-/// [`logic_html_body`]. NEVER read from the plugin's own source, even if it
+/// [`main_html_body`]. NEVER read from the plugin's own source, even if it
 /// ships an entry at this exact name: [`handle_request`] intercepts it
 /// before either `PluginSource` variant is consulted, so a shipped
-/// `__logic__.html` is silently shadowed. Reserving one path name is a far
+/// `__main__.html` is silently shadowed. Reserving one path name is a far
 /// smaller surface than teaching every plugin author to avoid a magic file.
-const LOGIC_HTML_PATH: &str = "__logic__.html";
+const MAIN_HTML_PATH: &str = "__main__.html";
 
-/// The synthesized `__logic__.html` body for a plugin whose manifest
-/// declares a `logic` bundle — the minimal same-origin HTML document the
+/// The synthesized `__main__.html` body for a plugin whose manifest
+/// declares a `main` entry bundle — the minimal same-origin HTML document the
 /// host needs in order to load that bundle as a module and boot the logic
 /// realm inside it, so plugin authors never hand-write a boilerplate
 /// wrapper. The src is root-relative so it resolves under the plugin's own
@@ -670,7 +670,7 @@ const LOGIC_HTML_PATH: &str = "__logic__.html";
 /// plain-segment grammar the TS validator enforces (`readManifest`) — a dev
 /// folder's manifest reaches this handler WITHOUT having passed TS
 /// validation, and an attribute-breaking path must die here, not render.
-fn logic_html_body(logic_path: &str) -> Option<Vec<u8>> {
+fn main_html_body(logic_path: &str) -> Option<Vec<u8>> {
     let plain = !logic_path.is_empty()
         && !logic_path.starts_with('/')
         && !logic_path.contains('\\')
@@ -695,12 +695,12 @@ fn logic_html_body(logic_path: &str) -> Option<Vec<u8>> {
     )
 }
 
-/// The manifest's declared logic bundle path, if any — the field that
-/// decides whether a logic realm exists at all (see
+/// The manifest's declared entry-bundle path (`main`), if any — the field
+/// that decides whether a logic realm exists at all (see
 /// `packages/plugin-api/src/manifest/manifest.ts`, the schema's owner).
-fn manifest_logic(manifest_json: &str) -> Option<String> {
+fn manifest_main(manifest_json: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(manifest_json).ok()?;
-    value.get("logic")?.as_str().map(str::to_owned)
+    value.get("main")?.as_str().map(str::to_owned)
 }
 
 /// Handle one `kdplugin://<plugin-id>/<path>` request. Pure and synchronous
@@ -742,21 +742,21 @@ pub fn handle_request(
 
     let relative = request.uri().path().trim_start_matches('/');
 
-    let body = if relative == LOGIC_HTML_PATH {
-        // Reserved name (see `LOGIC_HTML_PATH`): synthesized when the
-        // manifest declares a logic bundle that actually exists, 404
+    let body = if relative == MAIN_HTML_PATH {
+        // Reserved name (see `MAIN_HTML_PATH`): synthesized when the
+        // manifest declares a `main` bundle that actually exists, 404
         // otherwise — never read from the plugin itself, so a shipped
-        // `__logic__.html` never surfaces.
-        // Grammar FIRST (before touching the filesystem): `logic_html_body`
+        // `__main__.html` never surfaces.
+        // Grammar FIRST (before touching the filesystem): `main_html_body`
         // rejects `..`/absolute/backslash, and for a `Dir` the existence
         // check then runs through `safe_lookup` — so a dev-folder manifest
-        // declaring `logic: "../../etc/passwd"` can never reach a read of a
+        // declaring `main: "../../etc/passwd"` can never reach a read of a
         // path outside the plugin's own folder, and nothing is ever read
         // just to answer this boolean.
-        let synthesized = manifest_logic(&record.manifest_json)
-            .filter(|logic| logic_html_body(logic).is_some())
+        let synthesized = manifest_main(&record.manifest_json)
+            .filter(|logic| main_html_body(logic).is_some())
             .filter(|logic| logic_bundle_exists(&source, logic))
-            .and_then(|logic| logic_html_body(&logic));
+            .and_then(|logic| main_html_body(&logic));
         match synthesized {
             Some(bytes) => bytes,
             None => {
@@ -782,11 +782,11 @@ pub fn handle_request(
     )
 }
 
-/// Whether the plugin's declared logic bundle actually exists — a guarded,
+/// Whether the plugin's declared entry bundle actually exists — a guarded,
 /// content-free existence check (never a full read). For a `Dir` it runs
 /// through [`safe_lookup`], so a symlink escaping the folder counts as
 /// absent; for an `Archive` it's a zip name lookup, which can't escape the
-/// file. Callers must grammar-check `relative` first (see the `__logic__`
+/// file. Callers must grammar-check `relative` first (see the `__main__`
 /// synthesis site).
 fn logic_bundle_exists(source: &PluginSource, relative: &str) -> bool {
     match source {
@@ -1025,9 +1025,9 @@ mod tests {
         format!(r#"{{"id":"{id}","name":"n","version":"0.0.1","minApiVersion":"0.0.1","capabilities":[]}}"#)
     }
 
-    fn manifest_with_logic(id: &str, logic: &str) -> String {
+    fn manifest_with_main(id: &str, main: &str) -> String {
         format!(
-            r#"{{"id":"{id}","name":"n","version":"0.0.1","minApiVersion":"0.0.1","capabilities":[],"logic":"{logic}"}}"#
+            r#"{{"id":"{id}","name":"n","version":"0.0.1","minApiVersion":"0.0.1","capabilities":[],"main":"{main}"}}"#
         )
     }
 
@@ -1733,49 +1733,49 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
-    // ---- __logic__.html synthesis ----
+    // ---- __main__.html synthesis ----
 
     #[test]
-    fn logic_html_is_synthesized_when_logic_js_exists_dev() {
+    fn logic_html_is_synthesized_when_main_exists_dev() {
         let root = temp_root();
         write(
             &root.join("demo/manifest.json"),
-            &manifest_with_logic("demo.plugin", "logic.js"),
+            &manifest_with_main("demo.plugin", "main.js"),
         );
-        write(&root.join("demo/logic.js"), "export default 1;");
+        write(&root.join("demo/main.js"), "export default 1;");
 
         let resp = handle_request(
             Some(&root),
             "tauri://localhost",
-            &get("kdplugin://demo.plugin/__logic__.html"),
+            &get("kdplugin://demo.plugin/__main__.html"),
         );
 
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(resp.headers().get(header::CONTENT_TYPE).unwrap(), "text/html");
-        assert_eq!(resp.body(), &logic_html_body("logic.js").unwrap());
+        assert_eq!(resp.body(), &main_html_body("main.js").unwrap());
     }
 
     #[test]
-    fn logic_html_is_synthesized_when_logic_js_exists_archive() {
+    fn logic_html_is_synthesized_when_main_exists_archive() {
         let root = temp_root();
         let mut entries = valid_container_entries("demo.archive");
         // Replace the manifest with one declaring the bundle, add the bundle.
         entries.retain(|(name, _)| name != "manifest.json");
         entries.push((
             "manifest.json".to_string(),
-            manifest_with_logic("demo.archive", "logic.js").into_bytes(),
+            manifest_with_main("demo.archive", "main.js").into_bytes(),
         ));
-        entries.push(("logic.js".to_string(), b"export default 1;".to_vec()));
+        entries.push(("main.js".to_string(), b"export default 1;".to_vec()));
         write_container(&root.join("demo.kdplugin"), &entries);
 
         let resp = handle_request(
             Some(&root),
             "tauri://localhost",
-            &get("kdplugin://demo.archive/__logic__.html"),
+            &get("kdplugin://demo.archive/__main__.html"),
         );
 
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(resp.body(), &logic_html_body("logic.js").unwrap());
+        assert_eq!(resp.body(), &main_html_body("main.js").unwrap());
     }
 
     #[test]
@@ -1783,12 +1783,12 @@ mod tests {
         let root = temp_root();
         write(&root.join("demo/manifest.json"), &manifest("demo.plugin"));
         // Even a present file doesn't count — the manifest is the contract.
-        write(&root.join("demo/logic.js"), "export default 1;");
+        write(&root.join("demo/main.js"), "export default 1;");
 
         let resp = handle_request(
             Some(&root),
             "tauri://localhost",
-            &get("kdplugin://demo.plugin/__logic__.html"),
+            &get("kdplugin://demo.plugin/__main__.html"),
         );
 
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -1799,19 +1799,19 @@ mod tests {
         let root = temp_root();
         write(
             &root.join("demo/manifest.json"),
-            &manifest_with_logic("demo.plugin", "logic.js"),
+            &manifest_with_main("demo.plugin", "main.js"),
         );
-        write(&root.join("demo/logic.js"), "export default 1;");
-        write(&root.join("demo/__logic__.html"), "<html>REAL, SHIPPED</html>");
+        write(&root.join("demo/main.js"), "export default 1;");
+        write(&root.join("demo/__main__.html"), "<html>REAL, SHIPPED</html>");
 
         let resp = handle_request(
             Some(&root),
             "tauri://localhost",
-            &get("kdplugin://demo.plugin/__logic__.html"),
+            &get("kdplugin://demo.plugin/__main__.html"),
         );
 
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(resp.body(), &logic_html_body("logic.js").unwrap());
+        assert_eq!(resp.body(), &main_html_body("main.js").unwrap());
     }
 
     #[test]
@@ -1820,12 +1820,12 @@ mod tests {
         // Declared but absent file.
         write(
             &root.join("gone/manifest.json"),
-            &manifest_with_logic("demo.gone", "logic.js"),
+            &manifest_with_main("demo.gone", "main.js"),
         );
         let resp = handle_request(
             Some(&root),
             "tauri://localhost",
-            &get("kdplugin://demo.gone/__logic__.html"),
+            &get("kdplugin://demo.gone/__main__.html"),
         );
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
@@ -1833,12 +1833,12 @@ mod tests {
         // render into markup (dev manifests bypass TS validation).
         write(
             &root.join("evil/manifest.json"),
-            r#"{"id":"demo.evil","logic":"a\"><script>x</script>.js"}"#,
+            r#"{"id":"demo.evil","main":"a\"><script>x</script>.js"}"#,
         );
         let resp = handle_request(
             Some(&root),
             "tauri://localhost",
-            &get("kdplugin://demo.evil/__logic__.html"),
+            &get("kdplugin://demo.evil/__main__.html"),
         );
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
@@ -1944,14 +1944,14 @@ mod tests {
         write(&root.join("secret.txt"), "TOP SECRET");
         write(
             &root.join("evil/manifest.json"),
-            &manifest_with_logic("demo.evil", "../secret.txt"),
+            &manifest_with_main("demo.evil", "../secret.txt"),
         );
         // Even the grammar rejects `..`, but assert the request outcome:
         // 404, and the outside file's bytes never appear in the response.
         let resp = handle_request(
             Some(&root),
             "tauri://localhost",
-            &get("kdplugin://demo.evil/__logic__.html"),
+            &get("kdplugin://demo.evil/__main__.html"),
         );
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         assert!(resp.body().is_empty());
