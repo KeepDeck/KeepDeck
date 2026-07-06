@@ -138,13 +138,38 @@
   margin-bottom: 16px;
 }
 
-/* Plugins section: a Rescan bar, per-plugin rows with an optional dev badge
-   and a Restart affordance. */
-.settings__plugins-bar {
+/* Plugins section: a quiet header (folder caption + an icon-only rescan that
+   reuses the top bar's ghost-icon idiom), per-plugin rows with an optional
+   dev badge and a Restart affordance. */
+.settings__plugins-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #1f242e;
+}
+
+.settings__plugins-head .settings__hint {
+  margin: 0;
+}
+
+.settings__spin {
+  display: inline-flex;
+  animation: settings-spin 0.7s linear infinite;
+}
+
+@keyframes settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings__spin {
+    animation: none;
+  }
 }
 
 .settings__plugin {

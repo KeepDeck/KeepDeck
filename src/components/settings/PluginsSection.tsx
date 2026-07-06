@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { Capability } from "@keepdeck/plugin-api";
+import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import {
   externalPluginInfo,
   pluginHost,
@@ -17,20 +19,32 @@ import { useInstalledPlugins } from "../../plugins";
  */
 export function PluginsSection() {
   const installed = useInstalledPlugins(pluginHost);
+  const [scanning, setScanning] = useState(false);
+
+  const rescan = () => {
+    if (scanning) return;
+    setScanning(true);
+    void rescanPlugins().finally(() => setScanning(false));
+  };
 
   return (
     <>
-      <div className="settings__plugins-bar">
-        <button
-          type="button"
-          className="form__create"
-          onClick={() => void rescanPlugins()}
-        >
-          Rescan
-        </button>
+      <div className="settings__plugins-head">
         <span className="settings__hint">
           Plugins live in <code>~/.config/keepdeck/plugins</code>.
         </span>
+        <button
+          type="button"
+          className="bar__icon"
+          onClick={rescan}
+          disabled={scanning}
+          title="Rescan the plugins folder"
+          aria-label="Rescan plugins"
+        >
+          <span className={scanning ? "settings__spin" : undefined}>
+            <RefreshIcon />
+          </span>
+        </button>
       </div>
 
       {installed.length === 0 ? (
