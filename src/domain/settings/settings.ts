@@ -45,13 +45,19 @@ export interface Settings {
   plugins: {
     enabled: Record<string, boolean>;
     values: Record<string, Record<string, unknown>>;
+    /** Per-EXTERNAL-plugin consent receipts: the capability fingerprint the
+     * user last agreed to (set when enabling). An installed update whose
+     * manifest capabilities no longer match falls back to disabled until
+     * re-enabled — an escalation can't ride in on a stored enabled=true,
+     * even across app restarts. */
+    consented: Record<string, string>;
   };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
   scrollback: 10_000,
-  plugins: { enabled: {}, values: {} },
+  plugins: { enabled: {}, values: {}, consented: {} },
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -118,10 +124,20 @@ function readPlugins(value: unknown): Settings["plugins"] | null {
       if (isRecord(v)) values[id] = v;
     }
   }
-  if (Object.keys(enabled).length === 0 && Object.keys(values).length === 0) {
+  const consented: Record<string, string> = {};
+  if (isRecord(value.consented)) {
+    for (const [id, v] of Object.entries(value.consented)) {
+      if (typeof v === "string") consented[id] = v;
+    }
+  }
+  if (
+    Object.keys(enabled).length === 0 &&
+    Object.keys(values).length === 0 &&
+    Object.keys(consented).length === 0
+  ) {
     return null;
   }
-  return { enabled, values };
+  return { enabled, values, consented };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

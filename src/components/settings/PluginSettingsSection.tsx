@@ -26,7 +26,7 @@ export function PluginSettingsSection({
   // The write path re-reads the live bag imperatively (not via the hook):
   // two quick edits in one render frame must not clobber each other.
   const write = (key: string, value: unknown) => {
-    const plugins = getSettings()?.plugins ?? { enabled: {}, values: {} };
+    const plugins = getSettings()?.plugins ?? { enabled: {}, values: {}, consented: {} };
     updateSettings({
       plugins: {
         ...plugins,

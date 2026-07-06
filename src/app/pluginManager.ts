@@ -171,7 +171,7 @@ export const pluginHost = new PluginHost(
     },
     isEnabled: (pluginId) => getSettings()?.plugins.enabled[pluginId] ?? true,
     onEnabledChanged: (pluginId, enabled) => {
-      const plugins = getSettings()?.plugins ?? { enabled: {}, values: {} };
+      const plugins = getSettings()?.plugins ?? { enabled: {}, values: {}, consented: {} };
       updateSettings({
         plugins: {
           ...plugins,

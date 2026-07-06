@@ -118,6 +118,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *   5 — experimentRunPresets retired: an explicit stored `false` maps to
  *       plugins.enabled["keepdeck.run"]=false at read (the Run panel is the
  *       run plugin now); the key itself is consumed, never re-written.
+ *   6 — + plugins.consented (per-external-plugin capability fingerprints).
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -125,7 +126,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 5;
+export const SETTINGS_VERSION = 6;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

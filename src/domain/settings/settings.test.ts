@@ -40,7 +40,7 @@ describe("hydrateSettings", () => {
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
-      plugins: { enabled: { git: true }, values: { git: { remote: "origin" } } },
+      plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
     });
   });
 
@@ -102,7 +102,7 @@ describe("hydrateSettings", () => {
 describe("hydrateSettings — plugins bag", () => {
   it("defaults to empty enabled/values maps when the field is absent", () => {
     const doc = hydrateSettings("{}");
-    expect(doc?.settings.plugins).toEqual({ enabled: {}, values: {} });
+    expect(doc?.settings.plugins).toEqual({ enabled: {}, values: {}, consented: {} });
   });
 
   it("reads enabled flags and per-plugin values verbatim", () => {
@@ -117,6 +117,7 @@ describe("hydrateSettings — plugins bag", () => {
     expect(doc?.settings.plugins).toEqual({
       enabled: { git: true, notes: false },
       values: { git: { remote: "origin", depth: 3 } },
+      consented: {},
     });
   });
 
@@ -133,6 +134,7 @@ describe("hydrateSettings — plugins bag", () => {
     expect(doc?.settings.plugins).toEqual({
       enabled: { git: true },
       values: { git: { x: 1 } },
+      consented: {},
     });
   });
 
@@ -140,7 +142,7 @@ describe("hydrateSettings — plugins bag", () => {
     const doc = hydrateSettings(
       JSON.stringify({ plugins: "not an object", scrollback: 20_000 }),
     );
-    expect(doc?.settings.plugins).toEqual({ enabled: {}, values: {} });
+    expect(doc?.settings.plugins).toEqual({ enabled: {}, values: {}, consented: {} });
     expect(doc?.settings.scrollback).toBe(20_000); // rest of the doc survives
   });
 
@@ -219,7 +221,7 @@ describe("schema revisions", () => {
     const doc = hydrateSettings(
       JSON.stringify({ version: 3, minVersion: 1, scrollback: 20_000 }),
     )!;
-    expect(doc.settings.plugins).toEqual({ enabled: {}, values: {} });
+    expect(doc.settings.plugins).toEqual({ enabled: {}, values: {}, consented: {} });
     const out = JSON.parse(serializeSettings(doc));
     expect(out.version).toBe(SETTINGS_VERSION);
     expect(out).not.toHaveProperty("plugins");
