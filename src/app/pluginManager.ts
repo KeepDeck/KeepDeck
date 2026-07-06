@@ -11,9 +11,12 @@ import {
   type PluginInstall,
 } from "../plugins";
 import { createCapabilityGate } from "../plugins/capabilities";
+import { makeExternalPlugin } from "../plugins/external/realmPlugin";
+import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openUrl } from "../ipc/app";
 import { describeError, log } from "../ipc/log";
 import { allocatePorts } from "../ipc/ports";
+import { scanPlugins } from "../ipc/plugins";
 import { spawnSession } from "../ipc/session";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { getSettings, subscribeSettings, updateSettings } from "./settingsManager";
@@ -155,9 +158,12 @@ export const pluginHost = new PluginHost(
       onPaneSelected: (cb) => paneSelected.on(cb),
       onDeckChanged: (cb) => deckChanged.on(cb),
     },
-    services: (manifest) =>
+    services: (manifest, source) =>
       createCapabilityGate(manifest, serviceBackend, {
-        mode: "warn",
+        // A trusted built-in warns on an undeclared call (a bug to fix); an
+        // untrusted external plugin is refused (enforce) — the manifest's
+        // declaration is the boundary the user consented to.
+        mode: source === "external" ? "enforce" : "warn",
         log: loggerFor(manifest.id),
       }),
     log: loggerFor,
@@ -169,19 +175,69 @@ export const pluginHost = new PluginHost(
           getSettings()?.scrollback ?? DEFAULT_SETTINGS.scrollback,
       }),
     },
-    isEnabled: (pluginId) => getSettings()?.plugins.enabled[pluginId] ?? true,
+    isEnabled: (pluginId) => {
+      const stored = getSettings()?.plugins.enabled[pluginId];
+      const external = externalPlugins.get(pluginId);
+      if (external) {
+        // External plugins are OFF until the user explicitly enables them
+        // (consent), and stay off if the consented capabilities no longer
+        // match the installed ones (an update escalated its access).
+        if (stored !== true) return false;
+        const consented = getSettings()?.plugins.consented[pluginId];
+        return consented === capabilityFingerprint(external.manifest);
+      }
+      // A built-in defaults ON — it ships with the app, already trusted.
+      return stored ?? true;
+    },
     onEnabledChanged: (pluginId, enabled) => {
-      const plugins = getSettings()?.plugins ?? { enabled: {}, values: {}, consented: {} };
+      const plugins = getSettings()?.plugins ?? {
+        enabled: {},
+        values: {},
+        consented: {},
+      };
+      const external = externalPlugins.get(pluginId);
       updateSettings({
         plugins: {
           ...plugins,
           enabled: { ...plugins.enabled, [pluginId]: enabled },
+          // Enabling an external plugin records consent for its CURRENT
+          // capabilities — that receipt is what a later update is checked
+          // against. Disabling leaves the old receipt untouched (harmless).
+          consented:
+            enabled && external
+              ? {
+                  ...plugins.consented,
+                  [pluginId]: capabilityFingerprint(external.manifest),
+                }
+              : plugins.consented,
         },
       });
     },
   },
   pluginRegistries,
 );
+
+// ----------------------------------------------------- external discovery
+
+/** The currently-installed EXTERNAL plugins, keyed by id: the manifest (the
+ * host contract exposes only `isEnabled(id)`/`onEnabledChanged(id)`, so this
+ * is how those closures recover the manifest for the consent fingerprint) and
+ * whether it came from an unpacked DEV folder rather than a `.kdplugin`. Kept
+ * in lockstep with what's installed as external. */
+const externalPlugins = new Map<
+  string,
+  { manifest: PluginManifest; dev: boolean }
+>();
+
+/** External-plugin facts the settings UI needs: whether an id is external
+ * (its capabilities need consent) and whether it's a dev-folder install (a
+ * badge). `undefined` for a built-in. */
+export function externalPluginInfo(
+  pluginId: string,
+): { dev: boolean } | undefined {
+  const entry = externalPlugins.get(pluginId);
+  return entry ? { dev: entry.dev } : undefined;
+}
 
 function readPluginValues(pluginId: string): Record<string, unknown> {
   const section = pluginRegistries.settingsSections
@@ -204,10 +260,11 @@ let boot: Promise<void> | null = null;
  */
 export function bootstrapPlugins(): Promise<void> {
   boot ??= (async () => {
-    const installs = import.meta.env.DEV
+    const builtins = import.meta.env.DEV
       ? discoverDevPlugins()
       : await discoverBuiltPlugins();
-    for (const install of installs) pluginHost.install(install, "builtin");
+    for (const install of builtins) pluginHost.install(install, "builtin");
+    await syncExternalPlugins();
     await pluginHost.activateAll();
     // The one boot line that says the system came up — failures are logged
     // per plugin by the host, so silence here would hide a healthy boot.
@@ -219,6 +276,72 @@ export function bootstrapPlugins(): Promise<void> {
     log.error("web:plugins", `bootstrap failed: ${describeError(e)}`);
   });
   return boot;
+}
+
+/**
+ * Re-read the plugins folder and reconcile the installed external plugins to
+ * what's on disk — the manual "Rescan" (KeepDeck does not watch the folder,
+ * by decision). A container that appeared installs (disabled until consent, or
+ * activating if already consented); one that vanished is uninstalled (its
+ * realms and sessions die, its stored data survives); a container still
+ * present is reinstalled so its bytes reload (a replaced/updated plugin picks
+ * up its new code — and its new capabilities re-gate consent). Built-ins are
+ * untouched. Returns after the reconcile has settled.
+ */
+export async function rescanPlugins(): Promise<void> {
+  await syncExternalPlugins();
+  await pluginHost.activateAll();
+}
+
+/** Restart one installed plugin (Settings → Plugins). External plugins reload
+ * their code; built-ins restart their state. */
+export async function restartPlugin(pluginId: string): Promise<void> {
+  await pluginHost.restart(pluginId);
+}
+
+/** Reconcile installed external plugins to the scan: uninstall the gone,
+ * (re)install every scanned one so replaced containers reload. Idempotent —
+ * both boot and Rescan call it. Does NOT activate; the caller does. */
+async function syncExternalPlugins(): Promise<void> {
+  let records: Awaited<ReturnType<typeof scanPlugins>>;
+  try {
+    records = await scanPlugins();
+  } catch (e) {
+    log.warn("web:plugins", `plugin scan failed: ${describeError(e)}`);
+    return;
+  }
+
+  // Forget every currently-installed external plugin — the scan is the whole
+  // truth. Stored enabled/consent state lives in settings, so a reinstall of
+  // an unchanged plugin lands in exactly the same state.
+  for (const id of [...externalPlugins.keys()]) {
+    externalPlugins.delete(id);
+    await pluginHost.uninstall(id);
+  }
+
+  for (const record of records) {
+    const manifest = validate(record.dirName, safeJson(record.manifestJson));
+    if (!manifest) continue;
+    // First id wins (dev over archive is already the scan's order); a later
+    // duplicate is dropped by the host, so keep the map in sync with that.
+    if (externalPlugins.has(manifest.id)) continue;
+    externalPlugins.set(manifest.id, {
+      manifest,
+      dev: record.source === "dev",
+    });
+    pluginHost.install(
+      { manifest, load: async () => makeExternalPlugin(manifest) },
+      "external",
+    );
+  }
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 /** Dev: every `plugins/<dir>/manifest.json` in the workspace, entries loaded

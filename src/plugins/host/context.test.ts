@@ -56,7 +56,7 @@ describe("buildPluginContext", () => {
   it("routes UI/settings/agent registrations into the matching registries, tagged by plugin", () => {
     const registries = createContributionRegistries();
     const { deps } = fakeDeps();
-    const { ctx } = buildPluginContext(manifest("p"), registries, deps);
+    const { ctx } = buildPluginContext(manifest("p"), "builtin", registries, deps);
 
     const tab = { id: "t", label: "T", Component: () => null };
     ctx.ui.registerDockTab(tab);
@@ -71,12 +71,12 @@ describe("buildPluginContext", () => {
   it("threads storage/services/settings through the ports, namespaced by id", async () => {
     const { deps, storage, services, settingsView } = fakeDeps();
     const m = manifest("p");
-    const { ctx } = buildPluginContext(m, createContributionRegistries(), deps);
+    const { ctx } = buildPluginContext(m, "builtin", createContributionRegistries(), deps);
 
     expect(ctx.storage).toBe(storage);
     expect(deps.storage).toHaveBeenCalledWith("p");
     expect(ctx.services).toBe(services);
-    expect(deps.services).toHaveBeenCalledWith(m);
+    expect(deps.services).toHaveBeenCalledWith(m, "builtin");
 
     await ctx.settings.read();
     expect(settingsView.read).toHaveBeenCalledTimes(1);
@@ -86,6 +86,7 @@ describe("buildPluginContext", () => {
     const { deps, events } = fakeDeps();
     const { ctx, disposeAll } = buildPluginContext(
       manifest("p"),
+      "builtin",
       createContributionRegistries(),
       deps,
     );
@@ -104,6 +105,7 @@ describe("buildPluginContext", () => {
     const { deps, events } = fakeDeps();
     const { ctx, disposeAll } = buildPluginContext(
       manifest("p"),
+      "builtin",
       createContributionRegistries(),
       deps,
     );
@@ -129,6 +131,7 @@ describe("buildPluginContext", () => {
 
     const { ctx, disposeAll } = buildPluginContext(
       manifest("p"),
+      "builtin",
       createContributionRegistries(),
       deps,
     );

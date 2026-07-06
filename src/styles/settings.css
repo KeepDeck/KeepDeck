@@ -137,3 +137,45 @@
   gap: 6px;
   margin-bottom: 16px;
 }
+
+/* Plugins section: a Rescan bar, per-plugin rows with an optional dev badge
+   and a Restart affordance. */
+.settings__plugins-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.settings__plugin {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings__plugin .settings__toggle {
+  flex: 1;
+}
+
+.settings__plugin-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings__badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #2a2f3a;
+  color: #9aa3b2;
+}
+
+.settings__plugin-restart {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 12px;
+}

@@ -137,6 +137,7 @@ export class PluginHost {
     // Built before load so a throwing loader still has a (no-op) cleanup.
     const { ctx, disposeAll } = buildPluginContext(
       entry.manifest,
+      entry.source,
       this.registries,
       this.deps,
     );

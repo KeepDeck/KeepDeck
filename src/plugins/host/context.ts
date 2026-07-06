@@ -4,6 +4,7 @@ import type {
   PluginManifest,
 } from "@keepdeck/plugin-api";
 import type { ContributionRegistries } from "../registries/contributions";
+import type { PluginSource } from "../model/installed";
 import type { PluginHostDeps } from "./deps";
 import { describeError } from "./errors";
 
@@ -29,6 +30,7 @@ import { describeError } from "./errors";
  */
 export function buildPluginContext(
   manifest: PluginManifest,
+  source: PluginSource,
   registries: ContributionRegistries,
   deps: PluginHostDeps,
 ): { ctx: PluginContext; disposeAll(): void } {
@@ -88,7 +90,7 @@ export function buildPluginContext(
       onPaneSelected: (cb) => track(deps.events.onPaneSelected(cb)),
       onDeckChanged: (cb) => track(deps.events.onDeckChanged(cb)),
     },
-    services: deps.services(manifest),
+    services: deps.services(manifest, source),
     host: deps.hostFacts,
     log,
   };

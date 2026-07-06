@@ -7,6 +7,7 @@ import type {
   PluginSettings,
   PluginStorage,
 } from "@keepdeck/plugin-api";
+import type { PluginSource } from "../model/installed";
 
 /**
  * The ports the plugin core needs from the app — dependency inversion in one
@@ -35,8 +36,9 @@ export interface PluginHostDeps {
   events: PluginEvents;
   /** Platform services for a plugin. The manifest is threaded through so the
    * capability gate (built inside this dep, not here) can refuse a call the
-   * plugin never declared. */
-  services(manifest: PluginManifest): PluginServices;
+   * plugin never declared; `source` picks the gate's TIER — a trusted
+   * built-in warns on a violation, an untrusted external throws (enforce). */
+  services(manifest: PluginManifest, source: PluginSource): PluginServices;
   /** This plugin's logger — lines land in the shared log namespaced by id. */
   log(pluginId: string): PluginLogger;
   /** Read-only whitelisted host facts, shared by every plugin. */
