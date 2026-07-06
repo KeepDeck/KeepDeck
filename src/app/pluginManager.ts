@@ -228,7 +228,7 @@ export const pluginHost = new PluginHost(
  * in lockstep with what's installed as external. */
 const externalPlugins = new Map<
   string,
-  { manifest: PluginManifest; dev: boolean; sig: string }
+  { manifest: PluginManifest; dev: boolean; hasMain: boolean; sig: string }
 >();
 
 /** External-plugin facts the settings UI needs: whether an id is external
@@ -322,7 +322,7 @@ async function syncExternalPlugins(): Promise<boolean> {
   // What's on disk now, first-id-wins (dev over archive is the scan's order).
   const scanned = new Map<
     string,
-    { manifest: PluginManifest; dev: boolean; sig: string }
+    { manifest: PluginManifest; dev: boolean; hasMain: boolean; sig: string }
   >();
   for (const record of records) {
     const manifest = validate(record.dirName, safeJson(record.manifestJson));
@@ -330,6 +330,7 @@ async function syncExternalPlugins(): Promise<boolean> {
     scanned.set(manifest.id, {
       manifest,
       dev: record.source === "dev",
+      hasMain: record.hasMain,
       sig: JSON.stringify(manifest),
     });
   }
@@ -352,7 +353,10 @@ async function syncExternalPlugins(): Promise<boolean> {
     if (current) await pluginHost.uninstall(id); // changed — reload its code
     externalPlugins.set(id, next);
     pluginHost.install(
-      { manifest: next.manifest, load: async () => makeExternalPlugin(next.manifest) },
+      {
+        manifest: next.manifest,
+        load: async () => makeExternalPlugin(next.manifest, next.hasMain),
+      },
       "external",
     );
     changed = true;

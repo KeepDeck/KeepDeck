@@ -66,11 +66,9 @@ export function validatePluginDir(dir) {
       problems.push(`contributes.dockTabs["${tab.id}"]: missing ${tab.id}.html`);
     }
   }
-  // Same for the declared entry bundle — the manifest is the contract, the
-  // reader synthesizes the realm's document from this exact path.
-  if (manifest?.main && !files.some((f) => f.rel === manifest.main)) {
-    problems.push(`main: declared bundle "${manifest.main}" is not in the tree`);
-  }
+  // The entry bundle needs no validation: `main.js` at the root is the fixed
+  // convention (no manifest field), packed like any other file when present;
+  // a tree without one is simply a pure-UI plugin.
 
   for (const f of files) {
     if (RESERVED.has(f.rel)) {

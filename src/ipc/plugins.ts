@@ -19,6 +19,10 @@ export interface InstalledPluginRecord {
    *  included) — whichever `source` says this record is. */
   dirName: string;
   manifestJson: string;
+  /** Whether the plugin ships a `main.js` entry (the fixed convention). The
+   *  webview can't stat the plugin's files, so the scan reports it: present →
+   *  the host boots a logic realm; absent → a pure-UI plugin, no realm. */
+  hasMain: boolean;
   /** Which of the two installed-plugin shapes this is: a packaged
    *  `.kdplugin` container, or an unpacked dev folder. A dev folder always
    *  wins over an archive declaring the same id — see `resolvePluginDir`

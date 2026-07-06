@@ -27,17 +27,16 @@ function fakeRealm(guestPlugin?: KeepDeckPlugin) {
   return { dom, close, opened };
 }
 
-const withTabs = (id: string, main?: string) =>
+const withTabs = (id: string) =>
   fakeManifest(id, {
     contributes: { dockTabs: [{ id: "panel", label: "Panel" }] },
-    ...(main && { main }),
   });
 
 describe("makeExternalPlugin", () => {
   it("pure-UI: registers the manifest's iframe tabs and opens no realm", async () => {
     const host = createFakeHost();
     const { dom, opened } = fakeRealm();
-    const plugin = makeExternalPlugin(withTabs("dev.pure"), dom);
+    const plugin = makeExternalPlugin(withTabs("dev.pure"), false, dom);
 
     await plugin.activate(host.ctx);
 
@@ -55,7 +54,7 @@ describe("makeExternalPlugin", () => {
       },
     };
     const { dom, close, opened } = fakeRealm(guest);
-    const plugin = makeExternalPlugin(withTabs("dev.logic", "main.js"), dom);
+    const plugin = makeExternalPlugin(withTabs("dev.logic"), true, dom);
 
     await plugin.activate(host.ctx);
 
@@ -76,7 +75,7 @@ describe("makeExternalPlugin", () => {
       },
     };
     const { dom, close } = fakeRealm(guest);
-    const plugin = makeExternalPlugin(fakeManifest("dev.bad", { main: "main.js" }), dom);
+    const plugin = makeExternalPlugin(fakeManifest("dev.bad"), true, dom);
 
     await expect(plugin.activate(host.ctx)).rejects.toThrow("guest exploded");
     expect(close).toHaveBeenCalledTimes(1);
@@ -87,7 +86,8 @@ describe("makeExternalPlugin", () => {
     // openRealm never resolves — a wedged kdplugin:// read / a swallowed nav.
     const dom: RealmDom = { openRealm: () => new Promise(() => {}) };
     const plugin = makeExternalPlugin(
-      fakeManifest("dev.wedged", { main: "main.js" }),
+      fakeManifest("dev.wedged"),
+      true,
       dom,
       30,
     );
@@ -99,7 +99,7 @@ describe("makeExternalPlugin", () => {
   it("a realm that never connects fails by timeout and closes", async () => {
     const host = createFakeHost();
     const { dom, close } = fakeRealm(); // no guest: the port dangles
-    const plugin = makeExternalPlugin(fakeManifest("dev.hung", { main: "main.js" }), dom, 30);
+    const plugin = makeExternalPlugin(fakeManifest("dev.hung"), true, dom, 30);
 
     await expect(plugin.activate(host.ctx)).rejects.toThrow(
       "did not activate within 30ms",

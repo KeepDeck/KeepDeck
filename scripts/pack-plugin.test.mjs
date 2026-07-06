@@ -73,14 +73,10 @@ describe("validatePluginDir", () => {
     expect(message).toContain("container.json: reserved");
   });
 
-  it("rejects a declared main bundle that is not in the tree", () => {
-    writeFileSync(
-      join(dir, "manifest.json"),
-      JSON.stringify({ ...MANIFEST, main: "main.js" }),
-    );
-    expect(() => validatePluginDir(dir)).toThrow(/main: declared bundle/);
+  it("packs a main.js entry like any other file — no field to declare", () => {
     writeFileSync(join(dir, "main.js"), "export default 1;");
-    expect(validatePluginDir(dir).manifest.main).toBe("main.js");
+    const { files } = validatePluginDir(dir);
+    expect(files.some((f) => f.rel === "main.js")).toBe(true);
   });
 
   it("rejects a manifest the strict validator refuses", () => {
