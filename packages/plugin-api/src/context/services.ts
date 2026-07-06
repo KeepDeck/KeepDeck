@@ -6,6 +6,7 @@
 export interface PluginServices {
   readonly sessions: PluginSessions;
   readonly ports: PluginPorts;
+  readonly opener: PluginOpener;
 }
 
 export interface PluginSessions {
@@ -40,4 +41,11 @@ export interface PluginSessionHandle {
 export interface PluginPorts {
   /** Deterministic 10-port block for `key`. */
   allocate(key: string): Promise<number>;
+}
+
+/** Open things on the user's machine (capability: `open`) — the default
+ * browser for URLs, the default app for file paths. */
+export interface PluginOpener {
+  openUrl(url: string): Promise<void>;
+  openPath(path: string): Promise<void>;
 }

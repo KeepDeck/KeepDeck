@@ -11,9 +11,11 @@ import {
   type PluginInstall,
 } from "../plugins";
 import { createCapabilityGate } from "../plugins/capabilities";
+import { openPath, openUrl } from "../ipc/app";
 import { describeError, log } from "../ipc/log";
 import { allocatePorts } from "../ipc/ports";
 import { spawnSession } from "../ipc/session";
+import { DEFAULT_SETTINGS } from "../domain/settings";
 import { getSettings, subscribeSettings, updateSettings } from "./settingsManager";
 import { makeGlobalKvStub, makeWorkspaceKv, type DeckAccess } from "./pluginKv";
 import { mergeSectionValues } from "./pluginSettingsValues";
@@ -120,6 +122,10 @@ const serviceBackend: PluginServices = {
     },
   },
   ports: { allocate: (key) => allocatePorts(key) },
+  opener: {
+    openUrl: (url) => openUrl(url),
+    openPath: (path) => openPath(path),
+  },
 };
 
 export const pluginHost = new PluginHost(
@@ -155,6 +161,14 @@ export const pluginHost = new PluginHost(
         log: loggerFor(manifest.id),
       }),
     log: loggerFor,
+    hostFacts: {
+      // The whitelisted read-only host facts (see PluginHostFacts): grown a
+      // field at a time when a real plugin needs one.
+      settings: async () => ({
+        terminalScrollback:
+          getSettings()?.scrollback ?? DEFAULT_SETTINGS.scrollback,
+      }),
+    },
     isEnabled: (pluginId) => getSettings()?.plugins.enabled[pluginId] ?? true,
     onEnabledChanged: (pluginId, enabled) => {
       const plugins = getSettings()?.plugins ?? { enabled: {}, values: {} };

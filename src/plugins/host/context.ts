@@ -89,6 +89,7 @@ export function buildPluginContext(
       onDeckChanged: (cb) => track(deps.events.onDeckChanged(cb)),
     },
     services: deps.services(manifest),
+    host: deps.hostFacts,
     log,
   };
 

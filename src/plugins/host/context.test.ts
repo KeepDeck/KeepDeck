@@ -34,6 +34,7 @@ function fakeDeps() {
   const services: PluginServices = {
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
+    opener: { openUrl: vi.fn(), openPath: vi.fn() },
   };
   const events = {
     onWorkspaceClosed: vi.fn(spyDisposable),
@@ -46,6 +47,7 @@ function fakeDeps() {
     events,
     services: vi.fn(() => services),
     log: vi.fn(() => logger),
+    hostFacts: { settings: vi.fn(async () => ({ terminalScrollback: 10_000 })) },
   };
   return { deps, logger, events, settingsView, storage, services };
 }

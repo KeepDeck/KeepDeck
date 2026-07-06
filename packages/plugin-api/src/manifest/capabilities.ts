@@ -21,7 +21,10 @@ export type Capability =
    * CSP. Domains are literal hosts; `*` is deliberately not supported. */
   | { kind: "net"; domains: string[] }
   /** Allocate deterministic port blocks (`ports_allocate`). */
-  | { kind: "ports" };
+  | { kind: "ports" }
+  /** Open URLs in the default browser / files in their default app via the
+   * opener service — outward-facing side effects on the user's machine. */
+  | { kind: "open" };
 
 /** All manifest-legal capability kinds — the validator's source of truth. */
-export const CAPABILITY_KINDS = ["exec", "fs", "net", "ports"] as const;
+export const CAPABILITY_KINDS = ["exec", "fs", "net", "ports", "open"] as const;

@@ -32,6 +32,7 @@ function fakeBackend() {
   };
   const backend: PluginServices = {
     sessions: { spawn: vi.fn(async () => handle) },
+    opener: { openUrl: vi.fn(async () => {}), openPath: vi.fn(async () => {}) },
     ports: { allocate: vi.fn(async () => 4000) },
   };
   return { backend, handle };
@@ -246,5 +247,42 @@ describe("createCapabilityGate — zero capabilities", () => {
     expect(() => gate.ports.allocate("k")).toThrow();
     expect(backend.sessions.spawn).not.toHaveBeenCalled();
     expect(backend.ports.allocate).not.toHaveBeenCalled();
+  });
+
+  it("opener: allowed with the open capability, forwarded verbatim", async () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "open" }]),
+      backend,
+      { mode: "enforce", log },
+    );
+    await gate.opener.openUrl("http://localhost:3000");
+    await gate.opener.openPath("/tmp/report.html");
+    expect(backend.opener.openUrl).toHaveBeenCalledWith("http://localhost:3000");
+    expect(backend.opener.openPath).toHaveBeenCalledWith("/tmp/report.html");
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("opener: missing capability warns-and-forwards in warn mode, throws in enforce", async () => {
+    const warn = { ...fakeBackend(), log: fakeLog() };
+    const warnGate = createCapabilityGate(manifest([]), warn.backend, {
+      mode: "warn",
+      log: warn.log,
+    });
+    await warnGate.opener.openUrl("http://x");
+    expect(warn.log.warn).toHaveBeenCalledTimes(1);
+    expect(warn.log.warn.mock.calls[0][0]).toContain('"open" capability');
+    expect(warn.backend.opener.openUrl).toHaveBeenCalledTimes(1);
+
+    const hard = { ...fakeBackend(), log: fakeLog() };
+    const hardGate = createCapabilityGate(manifest([]), hard.backend, {
+      mode: "enforce",
+      log: hard.log,
+    });
+    expect(() => hardGate.opener.openPath("/etc/hosts")).toThrow(
+      '"open" capability',
+    );
+    expect(hard.backend.opener.openPath).not.toHaveBeenCalled();
   });
 });

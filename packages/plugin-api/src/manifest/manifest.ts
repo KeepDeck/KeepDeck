@@ -137,6 +137,9 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
       case "ports":
         out.push({ kind: "ports" });
         return;
+      case "open":
+        out.push({ kind: "open" });
+        return;
       default:
         errors.push(
           `${at}: unknown kind "${cap.kind}" (known: ${CAPABILITY_KINDS.join(", ")})`,

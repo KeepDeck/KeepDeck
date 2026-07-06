@@ -75,9 +75,29 @@ export function createCapabilityGate(
         return backend.ports.allocate(key);
       },
     },
+    opener: {
+      openUrl(url) {
+        admit(
+          hasOpenCapability(manifest.capabilities),
+          `opener.openUrl: "${url}" requires an "open" capability, which the manifest does not declare`,
+        );
+        return backend.opener.openUrl(url);
+      },
+      openPath(path) {
+        admit(
+          hasOpenCapability(manifest.capabilities),
+          `opener.openPath: "${path}" requires an "open" capability, which the manifest does not declare`,
+        );
+        return backend.opener.openPath(path);
+      },
+    },
   };
 }
 
 function hasPortsCapability(capabilities: Capability[]): boolean {
   return capabilities.some((capability) => capability.kind === "ports");
+}
+
+function hasOpenCapability(capabilities: Capability[]): boolean {
+  return capabilities.some((capability) => capability.kind === "open");
 }

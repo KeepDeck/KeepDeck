@@ -1,5 +1,6 @@
 import type {
   PluginEvents,
+  PluginHostFacts,
   PluginLogger,
   PluginManifest,
   PluginServices,
@@ -38,6 +39,8 @@ export interface PluginHostDeps {
   services(manifest: PluginManifest): PluginServices;
   /** This plugin's logger — lines land in the shared log namespaced by id. */
   log(pluginId: string): PluginLogger;
+  /** Read-only whitelisted host facts, shared by every plugin. */
+  hostFacts: PluginHostFacts;
   /**
    * Whether a plugin is enabled, read once at install to seed its status.
    * Absent → enabled by default. PERSISTENCE of the flag lives outside the

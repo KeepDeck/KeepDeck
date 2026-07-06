@@ -13,6 +13,7 @@ const GOLDEN = {
     { kind: "fs", scope: "workspace" },
     { kind: "net", domains: ["localhost"] },
     { kind: "ports" },
+    { kind: "open" },
   ],
   contributes: {
     dockTabs: [{ id: "preview", label: "Preview" }],

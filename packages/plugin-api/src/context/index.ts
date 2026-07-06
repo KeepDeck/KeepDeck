@@ -11,9 +11,11 @@ export type {
 export type { PluginContext } from "./context.ts";
 export type { Disposable } from "./disposable.ts";
 export type { PluginEvents } from "./events.ts";
+export type { HostSettingsSnapshot, PluginHostFacts } from "./hostFacts.ts";
 export type { PluginLogger } from "./log.ts";
 export type { KeepDeckPlugin } from "./plugin.ts";
 export type {
+  PluginOpener,
   PluginPorts,
   PluginServices,
   PluginSessionEvent,
