@@ -1,5 +1,5 @@
 import type { DeckState } from "./reducer";
-import type { Pane, PaneProvisioning, PaneSession } from "./panes";
+import type { Pane, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
@@ -32,36 +32,6 @@ export { DECK_STATE_VERSION } from "../migrations";
 /** What the app closed in the middle of creating: hydration stamps this onto
  * a restored in-flight provisioning so it surfaces as the failed card. */
 export const PROVISIONING_INTERRUPTED = "Worktree creation was interrupted";
-
-interface PersistedPane {
-  id: string;
-  agentType?: AgentType;
-  cwd?: string;
-  branch?: string;
-  name?: string;
-  autoTitle?: string;
-  session?: PaneSession;
-  /** The worktree-create intent, without the runtime `error`/`phase`. */
-  provisioning?: Omit<PaneProvisioning, "error" | "phase">;
-}
-
-interface PersistedWorkspace {
-  id: string;
-  name: string;
-  cwd: string;
-  worktreeBaseDir: string | null;
-  setup?: string;
-  plugins?: Record<string, unknown>;
-  panes: PersistedPane[];
-}
-
-export interface PersistedDeck {
-  version: number;
-  activeId: string;
-  focusByWs: Record<string, string>;
-  selectByWs: Record<string, string>;
-  workspaces: PersistedWorkspace[];
-}
 
 /** What hydration yields: the restored state plus the id-mint floors derived
  * from the highest persisted `pane-N` / `ws-N` (never stored separately — one
