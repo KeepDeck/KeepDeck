@@ -20,7 +20,6 @@ import { paneSpawnSpec } from "./app/spawnSpecs";
 import type { SpawnPlan } from "./domain/agents";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
-import { dockPanel, dockToggle } from "./domain/run";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { bootstrapPlugins, pluginRegistries } from "./app/pluginManager";
 import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
@@ -28,7 +27,6 @@ import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
 import { useContributions } from "./plugins";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { DockPanel, type DockTabItem } from "./components/dock/DockPanel";
-import { DOCK_TABS } from "./components/dock/tabs";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import {
@@ -112,40 +110,17 @@ function App() {
   useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
-  // The dock (Run panel, experimental) — a persistent side panel like the
-  // rail, not a modal. Open/closed is PER workspace (deck.dockByWs), so
-  // switching workspaces switches to that workspace's own dock state.
+  // The dock — a persistent side panel like the rail, not a modal. Open or
+  // closed is PER workspace (deck.dockByWs), so switching workspaces switches
+  // to that workspace's own dock state.
   const dockOpen = deck.dockByWs[deck.activeId] ?? false;
-  // The dock's render condition — one named criterion, declared in
-  // domain/run; the narrowing to a workspace happens here.
-  const dockWs = dockPanel.satisfiedBy({
-    settings,
-    dockOpen,
-    activeWorkspace: active,
-  })
-    ? active
-    : null;
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
-  // The dock's merged tab list: the legacy Run tab under its own criterion,
-  // then plugin tabs — each a contribution, rendered from SNAPSHOTS inside
-  // its own error boundary (a crashing plugin tab must not take the deck
-  // down). The dock itself is contribution-driven chrome: it exists only
-  // while this list is non-empty.
+  // The dock's tab list: every tab is a plugin contribution, rendered from
+  // SNAPSHOTS inside its own error boundary (a crashing plugin tab must not
+  // take the deck down). The dock itself is contribution-driven chrome: it
+  // exists only while this list is non-empty.
   const dockTabs: DockTabItem[] = [
-    ...(dockWs
-      ? DOCK_TABS.map((tab) => ({
-          id: tab.id,
-          label: tab.label,
-          element: (
-            <tab.Component
-              ws={dockWs}
-              selectedPaneId={selectedPaneId}
-              onSetRun={(run) => deck.setWorkspaceRun(dockWs.id, run)}
-            />
-          ),
-        }))
-      : []),
     ...(dockOpen && active
       ? pluginDockTabs.map((c) => ({
           id: `${c.pluginId}:${c.entry.id}`,
@@ -318,11 +293,9 @@ function App() {
               {c.entry.Icon ? <c.entry.Icon /> : c.entry.title.slice(0, 1)}
             </button>
           ))}
-          {(dockToggle.satisfiedBy({ settings }) ||
-            pluginDockTabs.length > 0) && (
-            // The dock toggle shows when EITHER tab source could populate the
-            // dock: the legacy Run criterion (domain/run) or a live plugin
-            // dock-tab contribution under the plugins experiment.
+          {pluginDockTabs.length > 0 && (
+            // The dock toggle exists only while some plugin contributes a
+            // dock tab — the dock is contribution-driven chrome.
             <button
               type="button"
               className="bar__icon"

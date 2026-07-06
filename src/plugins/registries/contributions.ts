@@ -20,8 +20,8 @@ import type {
  *    makes tab strips and action clusters deterministic run to run.
  * 2. **The snapshot is stable by reference.** `list()` returns the SAME array
  *    until a real change, a NEW array after — the exact contract React's store
- *    hook needs to avoid infinite re-render (the house idiom, see
- *    `src/app/runManager.ts`).
+ *    hook needs to avoid infinite re-render (the house idiom — a snapshot
+ *    rebuilt only on real change).
  */
 
 /** One registered entry tagged with the plugin that owns it. `pluginId` lets

@@ -8,7 +8,7 @@ import type { PluginHost } from "./host/host";
 
 /**
  * React bridges over the plugin core's external stores. Each is a two-line
- * `useSyncExternalStore` wrapper — the same shape as `src/app/useRunSessions`.
+ * `useSyncExternalStore` wrapper over a stable-snapshot store.
  *
  * They return the full, stable snapshot; a caller that wants only one plugin's
  * or one kind's slice filters IN RENDER. Filtering here would mint a fresh

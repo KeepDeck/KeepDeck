@@ -200,7 +200,7 @@ describe("WorkspaceForm default agent ([F6])", () => {
   });
 });
 
-describe("WorkspaceForm setup command (experimental run presets)", () => {
+describe("WorkspaceForm setup command", () => {
   let host: HTMLElement;
   let root: Root;
   let created: SpawnConfig[];
@@ -220,9 +220,8 @@ describe("WorkspaceForm setup command (experimental run presets)", () => {
       'input[aria-label="Worktree setup command"]',
     );
 
-  const mount = async (flag: boolean) => {
+  const mount = async () => {
     await seedDefaultAgent("claude");
-    updateSettings({ experimentRunPresets: flag });
     await act(async () =>
       root.render(
         createElement(WorkspaceForm, {
@@ -236,16 +235,8 @@ describe("WorkspaceForm setup command (experimental run presets)", () => {
     await act(async () => {});
   };
 
-  it("stays hidden while the experiment is off, even with a worktree dir", async () => {
-    await mount(false);
-    type(worktreeInput(), "/wt");
-    expect(setupInput()).toBeNull();
-    submit();
-    expect(created[0].setup).toBeUndefined();
-  });
-
   it("appears once a worktree dir is set and submits trimmed", async () => {
-    await mount(true);
+    await mount();
     // Setup prepares worktrees — without a worktree dir there's no field.
     expect(setupInput()).toBeNull();
     type(worktreeInput(), "/wt");
@@ -256,7 +247,7 @@ describe("WorkspaceForm setup command (experimental run presets)", () => {
   });
 
   it("clearing the worktree dir drops a typed setup from the config", async () => {
-    await mount(true);
+    await mount();
     type(worktreeInput(), "/wt");
     type(setupInput()!, "pnpm install");
     type(worktreeInput(), "");

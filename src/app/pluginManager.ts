@@ -22,7 +22,7 @@ import { mergeSectionValues } from "./pluginSettingsValues";
 
 /**
  * The owner of the plugin system — one per app, outside React, like
- * `settingsManager` and `runManager`. It constructs the contribution
+ * `settingsManager` and `ptyManager`. It constructs the contribution
  * registries and the `PluginHost`, supplies every port the host needs
  * (storage over the deck, settings values over `settingsManager`, deck
  * events, capability-gated platform services, the namespaced log), and boots
