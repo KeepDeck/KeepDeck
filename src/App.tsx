@@ -144,12 +144,15 @@ function App() {
                 />
               </ErrorBoundary>
             ) : (
-              // External tier: the plugin's own document, sandboxed under
-              // its own origin — scripts yes, same-origin powers no.
+              // External tier: the plugin's own document at its own
+              // kdplugin://<id> origin. allow-same-origin lets it load its own
+              // scripts/assets under that origin (per-plugin CSP still bounds
+              // its network); the origin — cross-origin to the host — is the
+              // isolation boundary, so it can't reach the host or other plugins.
               <iframe
                 className="dock__plugin-frame"
                 title={c.entry.label}
-                sandbox="allow-scripts"
+                sandbox="allow-scripts allow-same-origin"
                 src={externalPluginUrl(c.pluginId, c.entry.iframe)}
               />
             ),

@@ -122,20 +122,25 @@ function withTimeout<T>(
   });
 }
 
-/** The production realm: a hidden, sandboxed iframe. `allow-scripts` only —
- * no same-origin powers, no forms, no popups; the document's reach is its
- * own origin (per-plugin CSP included) plus the delivered MessagePort. */
+/** The production realm: a hidden, sandboxed iframe running at the PLUGIN's
+ * own `kdplugin://<id>` origin. `allow-same-origin` is deliberate and safe
+ * here: the isolation boundary is the ORIGIN (each plugin id is a distinct
+ * origin, and all are cross-origin to the host `tauri://localhost`), not
+ * opaqueness — the Figma/Logseq model. Without it the document would get an
+ * opaque origin, and its own CSP `script-src 'self'` would then refuse to
+ * load `/logic.js` (self ≠ the scheme origin), so the realm could never boot.
+ * The sandbox still withholds top-navigation, forms, popups, etc.; network
+ * reach is bounded by the per-plugin CSP `connect-src`. */
 export const domRealm: RealmDom = {
   openRealm(url) {
     return new Promise((resolve, reject) => {
       const frame = document.createElement("iframe");
       frame.hidden = true;
       frame.sandbox.add("allow-scripts");
+      frame.sandbox.add("allow-same-origin");
       frame.addEventListener("load", () => {
         resolve({
           post(port) {
-            // Opaque origin (sandbox without allow-same-origin) → "*" is the
-            // only addressable target; the payload is just the port itself.
             frame.contentWindow?.postMessage("kd-connect", "*", [port]);
           },
           close() {
