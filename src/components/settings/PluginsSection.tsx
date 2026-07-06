@@ -24,7 +24,13 @@ export function PluginsSection() {
   const rescan = () => {
     if (scanning) return;
     setScanning(true);
-    void rescanPlugins().finally(() => setScanning(false));
+    // Hold the spin for at least one full turn (matches the 0.7s animation),
+    // so a near-instant scan still gives visible feedback and stops cleanly
+    // at 0° rather than flickering off mid-frame.
+    const oneTurn = new Promise((r) => setTimeout(r, 700));
+    void Promise.all([rescanPlugins(), oneTurn]).finally(() =>
+      setScanning(false),
+    );
   };
 
   return (
