@@ -248,36 +248,66 @@ fn eocd_declared_entries(path: &Path) -> Result<u64, String> {
     let mut tail = vec![0u8; tail_len as usize];
     file.read_exact(&mut tail).map_err(|e| format!("read failed ({e})"))?;
 
-    // Scan backward for the LAST candidate signature whose recorded comment
-    // length accounts for EXACTLY the remaining tail bytes — the standard
-    // heuristic that keeps a comment containing stray signature bytes from
-    // being mistaken for the real EOCD.
-    let eocd_at = (0..=tail.len() - EOCD_LEN as usize)
-        .rev()
-        .find(|&i| {
-            tail[i..i + 4] == EOCD_SIG && {
-                let comment_len = u16::from_le_bytes([tail[i + 20], tail[i + 21]]) as usize;
-                i + EOCD_LEN as usize + comment_len == tail.len()
-            }
-        })
-        .ok_or_else(|| "no end-of-central-directory record found".to_string())?;
+    const CENTRAL_SIG: [u8; 4] = *b"PK\x01\x02";
 
-    let disk = u16::from_le_bytes([tail[eocd_at + 4], tail[eocd_at + 5]]);
-    let entries_this_disk = u16::from_le_bytes([tail[eocd_at + 8], tail[eocd_at + 9]]);
-    let total_entries = u16::from_le_bytes([tail[eocd_at + 10], tail[eocd_at + 11]]);
-    let central_dir_size = u32::from_le_bytes([
-        tail[eocd_at + 12],
-        tail[eocd_at + 13],
-        tail[eocd_at + 14],
-        tail[eocd_at + 15],
-    ]);
-    if disk != 0 || entries_this_disk != total_entries {
-        return Err("multi-disk zip archives are not supported".to_string());
+    // Scan backward for a candidate EOCD whose comment length reaches EOF AND
+    // whose declared central-directory offset points at a real central-
+    // directory file header. The second check is what keeps a FORGED trailing
+    // EOCD (appended after a real archive, its comment sized to reach EOF)
+    // from being trusted: the `zip` crate this count cross-checks against
+    // rejects such a record and falls back to the true, earlier EOCD, so
+    // without the CDFH check our finder and the crate could desync and the
+    // duplicate-entry guard (declared vs deduplicated count) would be
+    // defeated. Requiring the offset -> CDFH makes both select the same EOCD.
+    for i in (0..=tail.len() - EOCD_LEN as usize).rev() {
+        if tail[i..i + 4] != EOCD_SIG {
+            continue;
+        }
+        // Relaxed like the `zip` crate: the comment must not OVERSHOOT the
+        // file, but trailing garbage after it is tolerated (the crate does
+        // the same). Disambiguation between multiple candidates is the
+        // offset->CDFH probe below, not an exact comment length — which is
+        // also what keeps us selecting the same EOCD the crate does.
+        let comment_len = u16::from_le_bytes([tail[i + 20], tail[i + 21]]) as usize;
+        if i + EOCD_LEN as usize + comment_len > tail.len() {
+            continue;
+        }
+        let disk = u16::from_le_bytes([tail[i + 4], tail[i + 5]]);
+        let entries_this_disk = u16::from_le_bytes([tail[i + 8], tail[i + 9]]);
+        let total_entries = u16::from_le_bytes([tail[i + 10], tail[i + 11]]);
+        let central_dir_size =
+            u32::from_le_bytes([tail[i + 12], tail[i + 13], tail[i + 14], tail[i + 15]]);
+        let central_dir_offset =
+            u32::from_le_bytes([tail[i + 16], tail[i + 17], tail[i + 18], tail[i + 19]]);
+        if total_entries == ZIP64_U16
+            || central_dir_size == ZIP64_U32
+            || central_dir_offset == ZIP64_U32
+        {
+            return Err("ZIP64 containers are not supported".to_string());
+        }
+        if disk != 0 || entries_this_disk != total_entries {
+            return Err("multi-disk zip archives are not supported".to_string());
+        }
+        // Verify the central directory actually starts where this EOCD says.
+        // An empty archive (0 entries, 0 size) legitimately has no CDFH, so
+        // it's accepted without the signature probe.
+        if total_entries == 0 {
+            return Ok(0);
+        }
+        let cd_offset = central_dir_offset as u64;
+        if cd_offset + 4 > file_len {
+            continue; // offset past EOF — a forged record, keep scanning
+        }
+        let mut sig = [0u8; 4];
+        file.seek(SeekFrom::Start(cd_offset))
+            .map_err(|e| format!("seek failed ({e})"))?;
+        file.read_exact(&mut sig).map_err(|e| format!("read failed ({e})"))?;
+        if sig == CENTRAL_SIG {
+            return Ok(total_entries as u64);
+        }
+        // Offset didn't land on a header — not the real EOCD; keep scanning.
     }
-    if total_entries == ZIP64_U16 || central_dir_size == ZIP64_U32 {
-        return Err("ZIP64 containers are not supported".to_string());
-    }
-    Ok(total_entries as u64)
+    Err("no end-of-central-directory record found".to_string())
 }
 
 /// Open `path` as a `.kdplugin` container and validate it end to end
@@ -434,20 +464,29 @@ fn scan(root: &Path) -> Vec<InstalledPluginRecord> {
 /// same "one bad install must never break every other plugin's listing"
 /// policy [`scan_dev_folders`] applies to a broken folder. Sorted by file
 /// name.
-fn scan_archives(root: &Path) -> Vec<InstalledPluginRecord> {
+/// Sorted `(name, path)` for every direct child of `root` that `keep`
+/// accepts — the shared listing under both the archive and dev-folder scans
+/// and the per-request `resolve`. A missing/unreadable `root` lists nothing.
+fn sorted_entries(root: &Path, keep: impl Fn(&Path) -> bool) -> Vec<(String, PathBuf)> {
     let Ok(entries) = fs::read_dir(root) else {
         return Vec::new();
     };
-
-    let mut files: Vec<(String, PathBuf)> = entries
+    let mut out: Vec<(String, PathBuf)> = entries
         .flatten()
         .map(|entry| entry.path())
-        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "kdplugin"))
+        .filter(|path| keep(path))
         .filter_map(|path| Some((path.file_name()?.to_string_lossy().into_owned(), path)))
         .collect();
-    files.sort_by(|a, b| a.0.cmp(&b.0));
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
 
-    files
+fn is_archive(path: &Path) -> bool {
+    path.is_file() && path.extension().is_some_and(|ext| ext == "kdplugin")
+}
+
+fn scan_archives(root: &Path) -> Vec<InstalledPluginRecord> {
+    sorted_entries(root, is_archive)
         .into_iter()
         .filter_map(|(file_name, path)| match validate_archive(&path) {
             Ok(manifest_bytes) => match String::from_utf8(manifest_bytes) {
@@ -474,19 +513,8 @@ fn scan_archives(root: &Path) -> Vec<InstalledPluginRecord> {
 /// folder — one bad install must never break every other plugin's listing.
 /// Sorted by folder name.
 fn scan_dev_folders(root: &Path) -> Vec<InstalledPluginRecord> {
-    let Ok(entries) = fs::read_dir(root) else {
-        return Vec::new();
-    };
-
-    let mut dirs: Vec<(String, PathBuf)> = entries
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .filter_map(|path| Some((path.file_name()?.to_string_lossy().into_owned(), path)))
-        .collect();
-    dirs.sort_by(|a, b| a.0.cmp(&b.0));
-
-    dirs.into_iter()
+    sorted_entries(root, |path| path.is_dir())
+        .into_iter()
         .filter_map(|(dir_name, dir)| {
             let raw = match fs::read_to_string(dir.join("manifest.json")) {
                 Ok(raw) => raw,
@@ -510,18 +538,67 @@ fn scan_dev_folders(root: &Path) -> Vec<InstalledPluginRecord> {
 
 /// The record whose manifest `id` matches, preferring a dev folder over an
 /// archive — mirroring the TS reconciler's duplicate-id rule (see module
-/// docs) — and otherwise the first match in `scan`'s sorted order within
-/// whichever tier wins.
+/// docs) — and otherwise the first match in sorted order within whichever
+/// tier wins.
+///
+/// Unlike a full [`scan`], this validates only the ONE container it decides
+/// to serve: candidates are matched by a CHEAP manifest-id peek (a raw
+/// manifest read, no entry-table validation), and the winning archive is put
+/// through [`validate_archive`] only once its id matches — so serving an
+/// asset never re-validates every other installed plugin's container. A
+/// candidate whose id matches but fails validation is skipped, falling
+/// through to the next claimant of that id (mirroring `scan`'s drop policy).
 fn resolve(root: &Path, id: &str) -> Option<InstalledPluginRecord> {
-    let records = scan(root);
-    let matches = |record: &&InstalledPluginRecord| {
-        manifest_id(&record.manifest_json).as_deref() == Some(id)
-    };
-    records
-        .iter()
-        .find(|record| record.source == PluginSourceKind::Dev && matches(record))
-        .or_else(|| records.iter().find(matches))
-        .cloned()
+    // Dev folders first (they win a shared id), then archives; each tier in
+    // its own sorted order.
+    let dev = sorted_entries(root, |p| p.is_dir())
+        .into_iter()
+        .map(|(name, path)| (PluginSourceKind::Dev, name, path));
+    let archives = sorted_entries(root, is_archive)
+        .into_iter()
+        .map(|(name, path)| (PluginSourceKind::Archive, name, path));
+
+    for (kind, name, path) in dev.chain(archives) {
+        match kind {
+            PluginSourceKind::Dev => {
+                let Ok(raw) = fs::read_to_string(path.join("manifest.json")) else {
+                    continue;
+                };
+                if manifest_id(&raw).as_deref() != Some(id) {
+                    continue;
+                }
+                // Dev "validation" is only well-formed JSON — the id peek
+                // above already parsed it.
+                return Some(InstalledPluginRecord {
+                    dir_name: name,
+                    manifest_json: raw,
+                    source: PluginSourceKind::Dev,
+                });
+            }
+            PluginSourceKind::Archive => {
+                let peeked = read_zip_entry(&path, "manifest.json")
+                    .and_then(|b| String::from_utf8(b).ok());
+                if peeked.as_deref().and_then(manifest_id).as_deref() != Some(id) {
+                    continue;
+                }
+                // The id matches — now fully validate this one container.
+                match validate_archive(&path).and_then(|b| String::from_utf8(b).map_err(|e| e.to_string())) {
+                    Ok(manifest_json) => {
+                        return Some(InstalledPluginRecord {
+                            dir_name: name,
+                            manifest_json,
+                            source: PluginSourceKind::Archive,
+                        });
+                    }
+                    Err(reason) => {
+                        log::warn!("kdplugin: {name}: {reason}");
+                        // Fall through to the next claimant of this id.
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Pull just `id` out of a manifest, as loosely as possible — anything that
@@ -670,8 +747,15 @@ pub fn handle_request(
         // manifest declares a logic bundle that actually exists, 404
         // otherwise — never read from the plugin itself, so a shipped
         // `__logic__.html` never surfaces.
+        // Grammar FIRST (before touching the filesystem): `logic_html_body`
+        // rejects `..`/absolute/backslash, and for a `Dir` the existence
+        // check then runs through `safe_lookup` — so a dev-folder manifest
+        // declaring `logic: "../../etc/passwd"` can never reach a read of a
+        // path outside the plugin's own folder, and nothing is ever read
+        // just to answer this boolean.
         let synthesized = manifest_logic(&record.manifest_json)
-            .filter(|logic| source.read(logic).is_some())
+            .filter(|logic| logic_html_body(logic).is_some())
+            .filter(|logic| logic_bundle_exists(&source, logic))
             .and_then(|logic| logic_html_body(&logic));
         match synthesized {
             Some(bytes) => bytes,
@@ -696,6 +780,22 @@ pub fn handle_request(
         Some(&content_type),
         body,
     )
+}
+
+/// Whether the plugin's declared logic bundle actually exists — a guarded,
+/// content-free existence check (never a full read). For a `Dir` it runs
+/// through [`safe_lookup`], so a symlink escaping the folder counts as
+/// absent; for an `Archive` it's a zip name lookup, which can't escape the
+/// file. Callers must grammar-check `relative` first (see the `__logic__`
+/// synthesis site).
+fn logic_bundle_exists(source: &PluginSource, relative: &str) -> bool {
+    match source {
+        PluginSource::Dir(dir) => matches!(safe_lookup(dir, relative), Lookup::Found(_)),
+        PluginSource::Archive(path) => fs::File::open(path)
+            .ok()
+            .and_then(|f| ZipArchive::new(f).ok())
+            .is_some_and(|mut a| a.by_name(relative).is_ok()),
+    }
 }
 
 /// Bytes at `relative` inside `source`, or the status to fail the request
@@ -741,15 +841,57 @@ fn respond(
     if let Some(csp) = csp {
         builder = builder.header(header::CONTENT_SECURITY_POLICY, csp);
     }
-    builder.body(body).expect("response has a valid header set")
+    // Build fallibly: a header value the http crate rejects (e.g. a CR/LF a
+    // hostile manifest smuggled into the CSP) must not panic the whole
+    // webview — drop to a bare, self-only response instead. The CSP is
+    // additionally sanitized upstream (`csp_for` skips non-hostname domains),
+    // so this is defense in depth, not the primary guard.
+    match builder.body(body) {
+        Ok(response) => response,
+        Err(_) => Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "null")
+            .header(header::CACHE_CONTROL, "no-cache")
+            .body(Vec::new())
+            .expect("the minimal fallback response is always valid"),
+    }
 }
 
-/// Content-Type from the file extension — the same mapping
-/// `crates/tauri`'s own asset protocol serves the app's own bundle with
-/// (`.js`/`.mjs` -> `text/javascript` matters: a plugin's ES module script
-/// won't execute under the wrong MIME type in a strict browser context).
+/// Content-Type from the file extension. `tauri_utils::MimeType` covers the
+/// web-code types (`.js`/`.mjs` -> `text/javascript` matters — an ES module
+/// won't execute under the wrong MIME in a strict context), but its fallback
+/// for ANY unrecognized suffix is `text/html`, which silently breaks strict
+/// consumers of plugin assets (`.wasm` rejected by `instantiateStreaming`,
+/// fonts, source maps). So the common binary asset types are mapped
+/// explicitly first, and the true fallback is `application/octet-stream` —
+/// never `text/html` for a file we don't recognize.
 fn content_type_for(relative: &str) -> String {
-    MimeType::parse_from_uri(relative).to_string()
+    let ext = relative.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "wasm" => "application/wasm",
+        "map" => "application/json",
+        "webmanifest" => "application/manifest+json",
+        // A recognized web-code/text type -> tauri_utils; anything else it
+        // doesn't know becomes octet-stream, not the misleading text/html.
+        _ => {
+            return match MimeType::parse_from_uri(relative) {
+                MimeType::Html if ext != "html" && ext != "htm" => {
+                    "application/octet-stream".to_string()
+                }
+                other => other.to_string(),
+            };
+        }
+    }
+    .to_string()
 }
 
 /// The CSP for an `.html` response — the Figma `networkAccess` model: the
@@ -761,12 +903,48 @@ fn content_type_for(relative: &str) -> String {
 fn csp_for(manifest_json: &str) -> String {
     let mut connect_src = String::from("'self'");
     for domain in net_domains(manifest_json) {
-        connect_src.push_str(&format!(" https://{domain} http://{domain}"));
+        // A dev-folder manifest never passed TS validation, so re-check the
+        // hostname grammar HERE before splicing into the header — a value
+        // with a space/`;`/CR/LF would inject a CSP directive or break the
+        // header. Anything that isn't a bare hostname is dropped, not served.
+        if is_bare_hostname(&domain) {
+            connect_src.push_str(&format!(" https://{domain} http://{domain}"));
+        } else {
+            log::warn!("kdplugin: dropped a non-hostname net domain from CSP: {domain:?}");
+        }
     }
     format!(
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
          connect-src {connect_src}; img-src 'self' data:"
     )
+}
+
+/// Whether `s` is a bare hostname (dotted labels / `localhost` / IPv4) with
+/// an optional `:port` — the same shape the TS validator's `HOSTNAME` grammar
+/// enforces, re-stated here as the last line of defense before a domain is
+/// spliced into a CSP header (dev-folder manifests reach here unvalidated).
+fn is_bare_hostname(s: &str) -> bool {
+    if s.is_empty() || s.len() > 253 {
+        return false;
+    }
+    let (host, port) = match s.rsplit_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (s, None),
+    };
+    if let Some(p) = port {
+        if p.is_empty() || p.len() > 5 || !p.bytes().all(|b| b.is_ascii_digit()) {
+            return false;
+        }
+    }
+    !host.is_empty()
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
 }
 
 /// Every domain listed under a `{"kind":"net","domains":[...]}` capability
@@ -1722,6 +1900,96 @@ mod tests {
     #[test]
     fn content_type_for_html_is_text_html() {
         assert_eq!(content_type_for("index.html"), "text/html");
+    }
+
+    #[test]
+    fn content_type_for_binary_assets_is_never_text_html() {
+        assert_eq!(content_type_for("logo.png"), "image/png");
+        assert_eq!(content_type_for("mod.wasm"), "application/wasm");
+        assert_eq!(content_type_for("font.woff2"), "font/woff2");
+        assert_eq!(content_type_for("bundle.js.map"), "application/json");
+        // An extension neither the explicit table nor tauri_utils knows must
+        // fall back to octet-stream, NOT the misleading text/html.
+        assert_eq!(content_type_for("data.bin.xyz"), "application/octet-stream");
+    }
+
+    #[test]
+    fn csp_drops_a_non_hostname_domain_instead_of_injecting() {
+        // A domain smuggling a CSP separator (space/`;`) or CR/LF must not
+        // reach the header — is_bare_hostname rejects it and csp_for skips it.
+        let json = r#"{"id":"d","capabilities":[{"kind":"net","domains":["a.com; frame-src *","evil\r\nX: 1"]}]}"#;
+        let csp = csp_for(json);
+        assert!(!csp.contains("frame-src"));
+        assert!(!csp.contains('\r') && !csp.contains('\n'));
+        assert!(csp.contains("connect-src 'self'"));
+    }
+
+    #[test]
+    fn respond_never_panics_on_a_hostile_csp() {
+        // Even if a bad CSP string reached respond directly, the fallible
+        // build must degrade, not panic the webview.
+        let resp = respond(
+            "tauri://localhost",
+            StatusCode::OK,
+            Some("connect-src \r\n bad"),
+            Some("text/html"),
+            b"<p>x</p>".to_vec(),
+        );
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn dev_logic_path_escaping_the_folder_is_a_404_with_no_outside_read() {
+        let root = temp_root();
+        write(&root.join("secret.txt"), "TOP SECRET");
+        write(
+            &root.join("evil/manifest.json"),
+            &manifest_with_logic("demo.evil", "../secret.txt"),
+        );
+        // Even the grammar rejects `..`, but assert the request outcome:
+        // 404, and the outside file's bytes never appear in the response.
+        let resp = handle_request(
+            Some(&root),
+            "tauri://localhost",
+            &get("kdplugin://demo.evil/__logic__.html"),
+        );
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        assert!(resp.body().is_empty());
+    }
+
+    #[test]
+    fn a_forged_trailing_eocd_does_not_desync_the_entry_count() {
+        // The declared-count finder must return the TRUE central-directory
+        // count, ignoring a forged EOCD appended after the real one whose
+        // offset doesn't point at a real CD header — the exact desync that
+        // would let a duplicate-entry container pass the `declared vs
+        // deduplicated` guard. It must also select the same EOCD the `zip`
+        // crate does, so a valid container with trailing junk still reads.
+        let root = temp_root();
+        let entries = valid_container_entries("demo.forged");
+        let path = root.join("demo.kdplugin");
+        write_container(&path, &entries);
+        let real_count = eocd_declared_entries(&path).unwrap();
+        assert_eq!(real_count as usize, entries.len());
+
+        let mut bytes = fs::read(&path).unwrap();
+        // A forged EOCD claiming a DIFFERENT entry count, its comment sized
+        // to reach EOF, but its CD offset pointing past the file (no CDFH).
+        let mut fake = vec![0x50, 0x4b, 0x05, 0x06];
+        fake.extend_from_slice(&[0u8; 2]); // this disk
+        fake.extend_from_slice(&[0u8; 2]); // cd start disk
+        fake.extend_from_slice(&999u16.to_le_bytes()); // entries this disk
+        fake.extend_from_slice(&999u16.to_le_bytes()); // total entries (the lie)
+        fake.extend_from_slice(&[0u8; 4]); // cd size
+        fake.extend_from_slice(&0xffff_ff00u32.to_le_bytes()); // bogus offset
+        fake.extend_from_slice(&[0u8, 0u8]); // comment length 0
+        bytes.extend_from_slice(&fake);
+        fs::write(&path, &bytes).unwrap();
+
+        // The finder ignores the forged record and reports the real count.
+        assert_eq!(eocd_declared_entries(&path).unwrap(), real_count);
+        // And the container still validates and serves (crate agrees).
+        assert!(resolve(&root, "demo.forged").is_some());
     }
 
     // ---- origin_of ----

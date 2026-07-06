@@ -56,6 +56,11 @@ export type ManifestResult =
 
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 
+/** A bare hostname (dotted labels, `localhost`, IPv4) with an optional port —
+ * the only shape a `net` domain may take, since each is spliced into a CSP
+ * header. Deliberately excludes schemes, paths, and any separator/whitespace. */
+const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/i;
+
 /**
  * Validate an untrusted manifest value. Collects EVERY problem instead of
  * stopping at the first — a plugin author fixes the whole list in one round.
@@ -136,8 +141,14 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
       case "net":
         if (!isStringArray(cap.domains) || cap.domains.length === 0)
           errors.push(`${at}: net needs a non-empty "domains" string array`);
-        else if (cap.domains.some((d) => d.includes("*")))
-          errors.push(`${at}: net domains must be literal hosts, no wildcards`);
+        else if (cap.domains.some((d) => !HOSTNAME.test(d)))
+          // Strict hostname grammar: the domains are interpolated into the
+          // realm's CSP `connect-src` — a value carrying a space, `;`, or a
+          // CR/LF would inject a directive or break the header outright, so a
+          // non-hostname is a manifest ERROR, not a silently-passed string.
+          errors.push(
+            `${at}: net domains must be bare hostnames (optionally :port), no wildcards or separators`,
+          );
         else out.push({ kind: "net", domains: cap.domains });
         return;
       case "ports":

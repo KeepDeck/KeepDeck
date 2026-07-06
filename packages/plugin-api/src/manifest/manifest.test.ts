@@ -94,8 +94,14 @@ describe("readManifest", () => {
       [{ kind: "exec", commands: [] }, "non-empty"],
       [{ kind: "exec" }, "non-empty"],
       [{ kind: "fs", scope: "disk" }, '"workspace" or "everywhere"'],
-      [{ kind: "net", domains: ["*.evil.com"] }, "no wildcards"],
+      [{ kind: "net", domains: ["*.evil.com"] }, "bare hostnames"],
       [{ kind: "net", domains: [] }, "non-empty"],
+      // A domain must be a bare hostname — anything carrying a CSP separator
+      // or CR/LF would inject/break the realm's connect-src header.
+      [{ kind: "net", domains: ["a.com; frame-src *"] }, "bare hostnames"],
+      [{ kind: "net", domains: ["evil\r\nX: 1"] }, "bare hostnames"],
+      [{ kind: "net", domains: ["https://a.com"] }, "bare hostnames"],
+      [{ kind: "net", domains: ["a.com/path"] }, "bare hostnames"],
     ];
     for (const [cap, expected] of cases) {
       const result = readManifest({ ...GOLDEN, capabilities: [cap] });
