@@ -106,7 +106,6 @@ function App() {
   }, [settings]);
   const pluginDockTabs = useContributions(pluginRegistries.dockTabs);
   const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
-  const pluginsOn = settings?.experimentPlugins ?? false;
 
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
   // ([F4]).
@@ -129,10 +128,10 @@ function App() {
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
   // The dock's merged tab list: the legacy Run tab under its own criterion,
-  // then plugin tabs — each a contribution, gated by the plugins experiment
-  // and rendered from SNAPSHOTS inside its own error boundary (a crashing
-  // plugin tab must not take the deck down). The dock itself is
-  // contribution-driven chrome: it exists only while this list is non-empty.
+  // then plugin tabs — each a contribution, rendered from SNAPSHOTS inside
+  // its own error boundary (a crashing plugin tab must not take the deck
+  // down). The dock itself is contribution-driven chrome: it exists only
+  // while this list is non-empty.
   const dockTabs: DockTabItem[] = [
     ...(dockWs
       ? DOCK_TABS.map((tab) => ({
@@ -147,7 +146,7 @@ function App() {
           ),
         }))
       : []),
-    ...(pluginsOn && dockOpen && active
+    ...(dockOpen && active
       ? pluginDockTabs.map((c) => ({
           id: `${c.pluginId}:${c.entry.id}`,
           label: c.entry.label,
@@ -305,23 +304,22 @@ function App() {
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
           </span>
-          {pluginsOn &&
-            pluginTopBarActions.map((c) => (
-              // Plugin top-bar actions, in contribution order, before the
-              // built-in cluster.
-              <button
-                key={`${c.pluginId}:${c.entry.id}`}
-                type="button"
-                className="bar__icon"
-                onClick={() => c.entry.run()}
-                title={c.entry.title}
-                aria-label={c.entry.title}
-              >
-                {c.entry.Icon ? <c.entry.Icon /> : c.entry.title.slice(0, 1)}
-              </button>
-            ))}
+          {pluginTopBarActions.map((c) => (
+            // Plugin top-bar actions, in contribution order, before the
+            // built-in cluster.
+            <button
+              key={`${c.pluginId}:${c.entry.id}`}
+              type="button"
+              className="bar__icon"
+              onClick={() => c.entry.run()}
+              title={c.entry.title}
+              aria-label={c.entry.title}
+            >
+              {c.entry.Icon ? <c.entry.Icon /> : c.entry.title.slice(0, 1)}
+            </button>
+          ))}
           {(dockToggle.satisfiedBy({ settings }) ||
-            (pluginsOn && pluginDockTabs.length > 0)) && (
+            pluginDockTabs.length > 0) && (
             // The dock toggle shows when EITHER tab source could populate the
             // dock: the legacy Run criterion (domain/run) or a live plugin
             // dock-tab contribution under the plugins experiment.

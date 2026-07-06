@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { ExperimentsSection } from "./ExperimentsSection";
 import { GeneralSection } from "./GeneralSection";
+import { PluginsSection } from "./PluginsSection";
 import { TerminalSection } from "./TerminalSection";
 
 /** One page of the settings dialog ([F6]): a nav entry plus the panel it
@@ -16,5 +17,6 @@ export interface SettingsSection {
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "general", label: "General", Component: GeneralSection },
   { id: "terminal", label: "Terminal", Component: TerminalSection },
+  { id: "plugins", label: "Plugins", Component: PluginsSection },
   { id: "experiments", label: "Experiments", Component: ExperimentsSection },
 ];

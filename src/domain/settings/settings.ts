@@ -42,17 +42,12 @@ export interface Settings {
    * only when a few more experiments exist. Read at the UI entry points
    * only — the layers beneath are flag-agnostic. */
   experimentRunPresets: boolean;
-  /** Experiment: the plugin system — master switch for its UI surfaces
-   * (installed-plugins list, per-plugin settings panels). Flat like its
-   * sibling above; the plugins themselves stay registered and their `plugins`
-   * bag below stays intact while this is off, so flipping it back on doesn't
-   * lose anything. */
-  experimentPlugins: boolean;
-  /** Per-plugin persisted settings, keyed by plugin id. `enabled` is the
-   * per-plugin on/off switch (distinct from `experimentPlugins`, which gates
-   * the whole system's UI); `values` is what a plugin's host-rendered
-   * settings schema writes — opaque to this layer, like a workspace's plugin
-   * slot ([`Workspace.plugins`]) — only the two bags' SHAPE is ours. */
+  /** Per-plugin persisted settings, keyed by plugin id. The plugin system
+   * itself is not a flag — it simply exists (user decision); `enabled` is
+   * each plugin's own on/off switch, `values` is what a plugin's
+   * host-rendered settings schema writes — opaque to this layer, like a
+   * workspace's plugin slot ([`Workspace.plugins`]) — only the two bags'
+   * SHAPE is ours. */
   plugins: {
     enabled: Record<string, boolean>;
     values: Record<string, Record<string, unknown>>;
@@ -63,7 +58,6 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
   scrollback: 10_000,
   experimentRunPresets: false,
-  experimentPlugins: false,
   plugins: { enabled: {}, values: {} },
 };
 
@@ -171,9 +165,6 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (typeof doc.experimentRunPresets === "boolean") {
     settings.experimentRunPresets = doc.experimentRunPresets;
-  }
-  if (typeof doc.experimentPlugins === "boolean") {
-    settings.experimentPlugins = doc.experimentPlugins;
   }
   const plugins = readPlugins(doc.plugins);
   // Only replace the default's object reference when there's genuinely

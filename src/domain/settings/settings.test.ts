@@ -32,7 +32,6 @@ describe("hydrateSettings", () => {
         defaultAgent: "codex",
         scrollback: 50_000,
         experimentRunPresets: true,
-        experimentPlugins: true,
         plugins: {
           enabled: { git: true },
           values: { git: { remote: "origin" } },
@@ -43,7 +42,6 @@ describe("hydrateSettings", () => {
       defaultAgent: "codex",
       scrollback: 50_000,
       experimentRunPresets: true,
-      experimentPlugins: true,
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } } },
     });
   });
@@ -84,12 +82,6 @@ describe("hydrateSettings", () => {
     expect(doc?.settings.defaultAgent).toBe(DEFAULT_SETTINGS.defaultAgent);
   });
 
-  it("a non-boolean experimentPlugins degrades to off", () => {
-    for (const junk of ["yes", 1, null, {}]) {
-      const doc = hydrateSettings(JSON.stringify({ experimentPlugins: junk }));
-      expect(doc?.settings.experimentPlugins).toBe(false);
-    }
-  });
 });
 
 describe("hydrateSettings — plugins bag", () => {
@@ -213,11 +205,9 @@ describe("schema revisions", () => {
     const doc = hydrateSettings(
       JSON.stringify({ version: 3, minVersion: 1, scrollback: 20_000 }),
     )!;
-    expect(doc.settings.experimentPlugins).toBe(false);
     expect(doc.settings.plugins).toEqual({ enabled: {}, values: {} });
     const out = JSON.parse(serializeSettings(doc));
     expect(out.version).toBe(SETTINGS_VERSION);
     expect(out).not.toHaveProperty("plugins");
-    expect(out).not.toHaveProperty("experimentPlugins");
   });
 });

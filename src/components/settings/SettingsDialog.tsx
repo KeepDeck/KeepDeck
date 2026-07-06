@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react";
 import { pluginRegistries } from "../../app/pluginManager";
-import { useSettings } from "../../app/useSettings";
 import { useContributions } from "../../plugins";
 import { CloseIcon } from "../../ui/icons";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -17,12 +16,10 @@ interface SettingsDialogProps {
  * sections over a panel area. Sections talk to the settings store themselves;
  * controls apply instantly, Done/Esc only dismiss. Static sections come from
  * the `SETTINGS_SECTIONS` registry; plugin-contributed sections (rendered by
- * the host from their declared schema) follow, gated by the plugins
- * experiment like every plugin surface.
+ * the host from their declared schema) follow.
  */
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
   useEscape(onClose);
-  const pluginsOn = useSettings()?.experimentPlugins ?? false;
   const contributed = useContributions(pluginRegistries.settingsSections);
   const sections: { id: string; label: string; body: ReactNode }[] = [
     ...SETTINGS_SECTIONS.map((s) => ({
@@ -30,15 +27,11 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
       label: s.label,
       body: <s.Component />,
     })),
-    ...(pluginsOn
-      ? contributed.map((c) => ({
-          id: `plugin:${c.pluginId}`,
-          label: c.entry.label,
-          body: (
-            <PluginSettingsSection pluginId={c.pluginId} section={c.entry} />
-          ),
-        }))
-      : []),
+    ...contributed.map((c) => ({
+      id: `plugin:${c.pluginId}`,
+      label: c.entry.label,
+      body: <PluginSettingsSection pluginId={c.pluginId} section={c.entry} />,
+    })),
   ];
   const [activeId, setActiveId] = useState(sections[0].id);
   const active = sections.find((s) => s.id === activeId) ?? sections[0];
