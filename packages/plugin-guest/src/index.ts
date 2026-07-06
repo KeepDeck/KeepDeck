@@ -9,5 +9,6 @@
  * so tooling and tests on the plugin side share the exact same message shapes
  * the host uses.
  */
+export { bootstrapPluginRealm } from "./bootstrap";
 export { connectPluginGuest } from "./connect";
 export * from "./protocol";

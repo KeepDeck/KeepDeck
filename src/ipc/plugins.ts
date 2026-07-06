@@ -19,6 +19,10 @@ export interface InstalledPluginRecord {
    *  included) — whichever `source` says this record is. */
   dirName: string;
   manifestJson: string;
+  /** Whether the plugin ships a `logic.js` — the host boots a logic realm
+   *  only when there is logic to run; a pure-UI plugin just renders its
+   *  declared tabs. */
+  hasLogic: boolean;
   /** Which of the two installed-plugin shapes this is: a packaged
    *  `.kdplugin` container, or an unpacked dev folder. A dev folder always
    *  wins over an archive declaring the same id — see `resolvePluginDir`

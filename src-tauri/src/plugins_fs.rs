@@ -82,6 +82,10 @@ pub struct InstalledPluginRecord {
     /// how every lookup here turns a record back into a real path.
     pub dir_name: String,
     pub manifest_json: String,
+    /// Whether the plugin ships a `logic.js` — the TS host only boots a
+    /// logic realm (hidden iframe + RPC bridge) when there is logic to run;
+    /// a pure-UI plugin renders its declared tabs and nothing else.
+    pub has_logic: bool,
     /// Which of the two shapes this plugin is. Dev folders are always
     /// `Dev` by definition (see module docs); a `.kdplugin` file is
     /// `Archive` — it only appears here once it has passed
@@ -451,11 +455,16 @@ fn scan_archives(root: &Path) -> Vec<InstalledPluginRecord> {
         .into_iter()
         .filter_map(|(file_name, path)| match validate_archive(&path) {
             Ok(manifest_bytes) => match String::from_utf8(manifest_bytes) {
-                Ok(manifest_json) => Some(InstalledPluginRecord {
-                    dir_name: file_name,
-                    manifest_json,
-                    source: PluginSourceKind::Archive,
-                }),
+                Ok(manifest_json) => {
+                    let has_logic =
+                        PluginSource::Archive(path.clone()).read("logic.js").is_some();
+                    Some(InstalledPluginRecord {
+                        dir_name: file_name,
+                        manifest_json,
+                        has_logic,
+                        source: PluginSourceKind::Archive,
+                    })
+                }
                 Err(e) => {
                     log::warn!("plugins scan: {file_name}: manifest.json is not valid UTF-8 ({e})");
                     None
@@ -502,6 +511,7 @@ fn scan_dev_folders(root: &Path) -> Vec<InstalledPluginRecord> {
             Some(InstalledPluginRecord {
                 dir_name,
                 manifest_json: raw,
+                has_logic: dir.join("logic.js").is_file(),
                 source: PluginSourceKind::Dev,
             })
         })
