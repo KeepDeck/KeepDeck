@@ -8,7 +8,10 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 /// Save the clipboard's image (if any) to a uniquely-named temp PNG and
 /// return its absolute path. `None` when the clipboard holds no image — the
 /// common case for a text-less paste — or when encoding/writing fails.
-#[tauri::command]
+///
+/// `(async)` so the PNG encode (often multi-MB) + disk write run on Tauri's
+/// worker pool, not the main thread — a large image paste must not freeze the UI.
+#[tauri::command(async)]
 pub fn clipboard_image_to_temp(app: tauri::AppHandle) -> Option<String> {
     let image = app.clipboard().read_image().ok()?;
     save_rgba_png(image.rgba(), image.width(), image.height())
