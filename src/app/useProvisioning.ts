@@ -20,7 +20,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
     const startSeq = mintAgentSeqs(count);
     const panes = planPanes(ws, startSeq, count, defaultAgentType(agents));
     deck.setPanes(workspaceId, panes);
-    void runProvisioning(panes, provisionInto(deck, workspaceId), ws.run?.setup);
+    void runProvisioning(panes, provisionInto(deck, workspaceId), ws.setup);
   };
 
   /** Register a whole new workspace from the create form — immediately. */
@@ -47,7 +47,9 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
       name: wsName,
       cwd,
       worktreeBaseDir,
-      ...(wsSetup && { run: { presets: [], setup: wsSetup } }),
+      // Core field since deck v5: provisioning owns the setup command — it
+      // runs whether or not the Run plugin is installed.
+      ...(wsSetup && { setup: wsSetup }),
       panes,
     };
     deck.createWorkspace(workspace);
@@ -61,7 +63,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
     if (!ws || !pane?.provisioning) return;
     // Back to the creating card first, then re-run the same intent.
     deck.setPaneProvisioningError(wsId, paneId, null);
-    void runProvisioning([pane], provisionInto(deck, wsId), ws.run?.setup);
+    void runProvisioning([pane], provisionInto(deck, wsId), ws.setup);
   };
 
   return { startWorkspace, createWorkspace, retryPane };
