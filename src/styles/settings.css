@@ -122,15 +122,12 @@
   margin: 0;
 }
 
-/* Installed-plugins list under the Plugins experiment: the toggles reuse the
-   experiment idiom, the block only adds separation from the flags above. */
+/* Installed-plugins list (its own settings section): the toggles reuse the
+   experiment idiom. */
 .settings__plugins {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid #1f242e;
 }
 
 /* One host-rendered plugin settings control (label over input). */
