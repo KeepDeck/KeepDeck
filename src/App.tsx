@@ -26,6 +26,7 @@ import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
 import { useContributions } from "./plugins";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
+import { externalPluginUrl } from "./plugins/external/url";
 import { DockPanel, type DockTabItem } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
@@ -125,22 +126,33 @@ function App() {
       ? pluginDockTabs.map((c) => ({
           id: `${c.pluginId}:${c.entry.id}`,
           label: c.entry.label,
-          element: (
-            <ErrorBoundary
-              label={c.entry.label}
-              onError={(e) =>
-                log.error(
-                  `web:plugin:${c.pluginId}`,
-                  `dock tab "${c.entry.id}" crashed: ${describeError(e)}`,
-                )
-              }
-            >
-              <c.entry.Component
-                workspace={toWorkspaceSnapshot(active)}
-                selectedPaneId={selectedPaneId}
+          element:
+            "Component" in c.entry ? (
+              // Built-in tier: a trusted React component in the host tree.
+              <ErrorBoundary
+                label={c.entry.label}
+                onError={(e) =>
+                  log.error(
+                    `web:plugin:${c.pluginId}`,
+                    `dock tab "${c.entry.id}" crashed: ${describeError(e)}`,
+                  )
+                }
+              >
+                <c.entry.Component
+                  workspace={toWorkspaceSnapshot(active)}
+                  selectedPaneId={selectedPaneId}
+                />
+              </ErrorBoundary>
+            ) : (
+              // External tier: the plugin's own document, sandboxed under
+              // its own origin — scripts yes, same-origin powers no.
+              <iframe
+                className="dock__plugin-frame"
+                title={c.entry.label}
+                sandbox="allow-scripts"
+                src={externalPluginUrl(c.pluginId, c.entry.iframe)}
               />
-            </ErrorBoundary>
-          ),
+            ),
         }))
       : []),
   ];

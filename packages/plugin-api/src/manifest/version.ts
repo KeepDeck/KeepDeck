@@ -6,7 +6,7 @@
  * separate v-next package (the opencode convention), so a plugin's floor
  * stays meaningful across app releases.
  */
-export const API_VERSION = "0.0.2";
+export const API_VERSION = "0.0.3";
 
 /**
  * Whether an API at `apiVersion` satisfies a manifest's `minApiVersion`

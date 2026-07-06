@@ -16,13 +16,26 @@ export interface PluginUi {
   registerPaneAction(action: PaneActionContribution): Disposable;
 }
 
-/** Built-in tier: the tab is a React component rendered in the host tree.
- * (The external tier's iframe form joins this union with the sandbox.) */
-export interface DockTabContribution {
-  id: string;
-  label: string;
-  Component: ComponentType<DockTabProps>;
-}
+/** A dock tab, in one of two forms — by TIER, not by author choice:
+ * built-in plugins (compiled with the app, trusted) contribute a React
+ * component rendered in the host tree; external plugins contribute a
+ * document path inside their own bundle, rendered as a sandboxed iframe
+ * under the plugin's origin. The host renders whichever variant it finds. */
+export type DockTabContribution =
+  | {
+      id: string;
+      label: string;
+      /** Built-in tier: rendered in the host React tree, fed `DockTabProps`. */
+      Component: ComponentType<DockTabProps>;
+    }
+  | {
+      id: string;
+      label: string;
+      /** External tier: a document path relative to the plugin's install
+       * folder (e.g. `"ui/panel.html"`), served from the plugin's own origin
+       * and shown in a sandboxed iframe. */
+      iframe: string;
+    };
 
 /** What every dock tab receives — snapshots, not live state. */
 export interface DockTabProps {
