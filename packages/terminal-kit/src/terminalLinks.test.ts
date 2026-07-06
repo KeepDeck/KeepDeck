@@ -3,11 +3,13 @@ import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { registerTerminalLinks } from "./terminalLinks";
 import type { PaneHint } from "./PaneHint";
 
-const ipc = vi.hoisted(() => ({
+// The kit's linker is INVERTED: the open primitives are injected on the
+// target, not imported. A test hands in `vi.fn()`s directly — no ipc module to
+// mock, which is the whole point of the inversion.
+const opener = {
   openUrl: vi.fn(async (_url: string) => {}),
   openPath: vi.fn(async (_path: string) => {}),
-}));
-vi.mock("../../ipc/app", () => ipc);
+};
 
 /** Rows of a fake xterm buffer; `wrapped` marks a continuation row. */
 type Row = { text: string; wrapped?: boolean };
@@ -65,6 +67,7 @@ const flush = async () => {
 
 describe("registerTerminalLinks", () => {
   let showHint: ReturnType<typeof vi.fn<(hint: PaneHint) => void>>;
+  const target = (cwd: string | null) => ({ cwd, showHint, ...opener });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -75,7 +78,7 @@ describe("registerTerminalLinks", () => {
     const { term, provider } = stubTerm([
       { text: "  Local: http://localhost:5173/ ready" },
     ]);
-    registerTerminalLinks(term, host, { cwd: null, showHint });
+    registerTerminalLinks(term, host, target(null));
 
     const links = linksAt(provider(), 1);
     expect(links).toHaveLength(1);
@@ -88,7 +91,7 @@ describe("registerTerminalLinks", () => {
 
   it("reports a line without links as undefined", () => {
     const { term, provider } = stubTerm([{ text: "plain text, no links" }]);
-    registerTerminalLinks(term, host, { cwd: null, showHint });
+    registerTerminalLinks(term, host, target(null));
 
     expect(linksAt(provider(), 1)).toBeUndefined();
   });
@@ -98,7 +101,7 @@ describe("registerTerminalLinks", () => {
       { text: "ready at http://localhost:51" },
       { text: "73/", wrapped: true },
     ]);
-    registerTerminalLinks(term, host, { cwd: null, showHint });
+    registerTerminalLinks(term, host, target(null));
 
     for (const lineNumber of [1, 2]) {
       const links = linksAt(provider(), lineNumber);
@@ -113,7 +116,7 @@ describe("registerTerminalLinks", () => {
 
   it("answers a plain click with the ⌘ affordance instead of opening", () => {
     const { term, provider } = stubTerm([{ text: "http://localhost:5173/" }]);
-    registerTerminalLinks(term, host, { cwd: null, showHint });
+    registerTerminalLinks(term, host, target(null));
 
     linksAt(provider(), 1)![0].activate(click({ metaKey: false }), "");
     expect(showHint).toHaveBeenCalledWith({
@@ -122,31 +125,31 @@ describe("registerTerminalLinks", () => {
       x: 100,
       y: 200,
     });
-    expect(ipc.openUrl).not.toHaveBeenCalled();
-    expect(ipc.openPath).not.toHaveBeenCalled();
+    expect(opener.openUrl).not.toHaveBeenCalled();
+    expect(opener.openPath).not.toHaveBeenCalled();
   });
 
   it("opens a URL on ⌘-click", () => {
     const { term, provider } = stubTerm([{ text: "http://localhost:5173/" }]);
-    registerTerminalLinks(term, host, { cwd: null, showHint });
+    registerTerminalLinks(term, host, target(null));
 
     linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
-    expect(ipc.openUrl).toHaveBeenCalledWith("http://localhost:5173/");
+    expect(opener.openUrl).toHaveBeenCalledWith("http://localhost:5173/");
     expect(showHint).not.toHaveBeenCalled();
   });
 
   it("resolves a relative path against the surface's cwd on ⌘-click", () => {
     const { term, provider } = stubTerm([{ text: "error at src/main.ts:12" }]);
-    registerTerminalLinks(term, host, { cwd: "/wt/b", showHint });
+    registerTerminalLinks(term, host, target("/wt/b"));
 
     linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
-    expect(ipc.openPath).toHaveBeenCalledWith("/wt/b/src/main.ts");
+    expect(opener.openPath).toHaveBeenCalledWith("/wt/b/src/main.ts");
   });
 
   it("surfaces a failed open next to the click", async () => {
-    ipc.openUrl.mockRejectedValueOnce("boom");
+    opener.openUrl.mockRejectedValueOnce("boom");
     const { term, provider } = stubTerm([{ text: "http://localhost:5173/" }]);
-    registerTerminalLinks(term, host, { cwd: null, showHint });
+    registerTerminalLinks(term, host, target(null));
 
     linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
     await flush();
@@ -159,7 +162,7 @@ describe("registerTerminalLinks", () => {
 
   it("passes xterm's provider disposable through", () => {
     const { term, dispose } = stubTerm([{ text: "" }]);
-    registerTerminalLinks(term, host, { cwd: null, showHint }).dispose();
+    registerTerminalLinks(term, host, target(null)).dispose();
     expect(dispose).toHaveBeenCalled();
   });
 });

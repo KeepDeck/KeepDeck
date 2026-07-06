@@ -5,8 +5,12 @@ import "@xterm/xterm/css/xterm.css";
 import { attachRun, resizeRun } from "../../app/runManager";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
-import { useTransient } from "../../ui/useTransient";
-import { HINT_MS, PaneHintView, type PaneHint } from "../terminal/PaneHint";
+import {
+  HINT_MS,
+  PaneHintView,
+  useTransient,
+  type PaneHint,
+} from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "../terminal/terminalLinks";
 
 /**

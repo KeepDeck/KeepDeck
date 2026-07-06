@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { positionHint } from "../../ui/hintPosition";
+import { positionHint } from "./hintPosition";
 
 /** How long an in-pane hint stays up before it fades ([F16]). */
 export const HINT_MS = 2000;
@@ -18,6 +18,9 @@ export interface PaneHint {
  * `position: relative` box, next to the clicked point. Positioned once its
  * size is measurable — before paint, so it never flashes at the wrong spot;
  * re-runs per show (each hint is a fresh object).
+ *
+ * The `pane-hint` className is provided by the HOST stylesheet — see this
+ * package's index header for why a builtin-tier surface leans on host CSS.
  */
 export function PaneHintView({ hint }: { hint: PaneHint | null }) {
   const ref = useRef<HTMLDivElement>(null);

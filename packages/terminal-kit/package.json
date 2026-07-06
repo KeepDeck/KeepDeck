@@ -1,0 +1,18 @@
+{
+  "name": "@keepdeck/terminal-kit",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared xterm surface kit: the Cmd-click link provider (ipc-inverted), the transient PaneHint surface, and the pure link/wrapped-line helpers behind them.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0",
+    "@xterm/xterm": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "typescript": "~5.8.3"
+  }
+}
