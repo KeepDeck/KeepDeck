@@ -210,42 +210,30 @@ fn container_format(bytes: &[u8]) -> Result<u64, String> {
         .ok_or_else(|| "missing or non-numeric \"format\" field".to_string())
 }
 
-/// Sanity cap on how many bytes of a `.kdplugin`'s central directory
-/// [`central_directory_entry_names`] will ever read into memory — separate
-/// from, and far more generous than, anything a container built to
-/// [`MAX_ENTRIES`] could legitimately need (a real central directory for
-/// 1000 entries with ordinary names is a few tens of KB). It exists purely
-/// so a hostile EOCD record claiming a huge central directory can't turn
-/// "read the entry table" into "allocate an attacker-chosen amount of
-/// memory" before any other cap has even been checked.
-const MAX_CENTRAL_DIRECTORY_BYTES: u64 = 4 * 1024 * 1024;
-
-/// Every entry name in `path`'s central directory, in RAW ORDER, WITHOUT
-/// deduplication. This is the one thing [`ZipArchive`] cannot be used for:
-/// it resolves the central directory into a name-keyed map as it parses, so
-/// two entries sharing a name silently collapse into one (the later one
-/// wins) before a caller ever sees the first — [`ZipArchive::len`] and
-/// [`ZipArchive::by_index`] simply never observe the duplicate. A duplicate
-/// name is exactly the anomaly [`validate_archive`]'s duplicate guard
-/// exists to reject, so it has to be found here, by walking the raw
-/// records ourselves.
+/// The entry count the End Of Central Directory record DECLARES — read
+/// raw, without going through [`ZipArchive`]. This is the one number the
+/// crate cannot provide faithfully: it resolves the central directory into
+/// a name-keyed map as it parses, so two entries sharing a name silently
+/// collapse into one before [`ZipArchive::len`] ever sees them. Comparing
+/// this declared count against the crate's DEDUPLICATED count is therefore
+/// a complete duplicate-name detector (and catches a forged or truncated
+/// central directory for free) while keeping the custom parsing surface to
+/// one fixed-size record — no walking of per-entry records at all.
 ///
-/// Bounded and seek-based on purpose: this reads only the End Of Central
-/// Directory record's declared tail, then the central directory itself
-/// (capped at [`MAX_CENTRAL_DIRECTORY_BYTES`]) — never the whole file, so
-/// an attacker-sized `.kdplugin` can't turn a scan into an unbounded read.
-/// Anything that doesn't parse as a well-formed, single-disk, non-Zip64
-/// EOCD plus central directory is `Err`, which `validate_archive` treats as
-/// a rejection like any other malformed container — fail closed, never
-/// skip the check silently.
-fn central_directory_entry_names(path: &Path) -> Result<Vec<String>, String> {
+/// Bounded and seek-based: reads at most the EOCD record plus the maximal
+/// zip comment (64 KiB) from the file tail. ZIP64 is refused outright: a
+/// container capped at [`MAX_ENTRIES`]/[`MAX_TOTAL_BYTES`] can never need
+/// it, so the sentinel values only ever mean someone is probing the parser.
+/// Anything that doesn't parse as a well-formed, single-disk EOCD is `Err`,
+/// which [`validate_archive`] treats as a rejection — fail closed.
+fn eocd_declared_entries(path: &Path) -> Result<u64, String> {
     use std::io::{Seek, SeekFrom};
 
     const EOCD_SIG: [u8; 4] = *b"PK\x05\x06";
     const EOCD_LEN: u64 = 22;
     const MAX_COMMENT_LEN: u64 = 65535;
-    const CENTRAL_SIG: [u8; 4] = *b"PK\x01\x02";
-    const CENTRAL_FIXED_LEN: usize = 46;
+    const ZIP64_U16: u16 = 0xffff;
+    const ZIP64_U32: u32 = 0xffff_ffff;
 
     let mut file = fs::File::open(path).map_err(|e| format!("cannot open ({e})"))?;
     let file_len = file.metadata().map_err(|e| format!("cannot stat ({e})"))?.len();
@@ -274,54 +262,22 @@ fn central_directory_entry_names(path: &Path) -> Result<Vec<String>, String> {
         })
         .ok_or_else(|| "no end-of-central-directory record found".to_string())?;
 
-    let total_entries = u16::from_le_bytes([tail[eocd_at + 10], tail[eocd_at + 11]]) as usize;
-    let central_dir_size =
-        u32::from_le_bytes([tail[eocd_at + 12], tail[eocd_at + 13], tail[eocd_at + 14], tail[eocd_at + 15]])
-            as u64;
-    let central_dir_start =
-        u32::from_le_bytes([tail[eocd_at + 16], tail[eocd_at + 17], tail[eocd_at + 18], tail[eocd_at + 19]])
-            as u64;
-
-    if central_dir_size > MAX_CENTRAL_DIRECTORY_BYTES {
-        return Err(format!(
-            "central directory of {central_dir_size} bytes exceeds this reader's sanity cap"
-        ));
+    let disk = u16::from_le_bytes([tail[eocd_at + 4], tail[eocd_at + 5]]);
+    let entries_this_disk = u16::from_le_bytes([tail[eocd_at + 8], tail[eocd_at + 9]]);
+    let total_entries = u16::from_le_bytes([tail[eocd_at + 10], tail[eocd_at + 11]]);
+    let central_dir_size = u32::from_le_bytes([
+        tail[eocd_at + 12],
+        tail[eocd_at + 13],
+        tail[eocd_at + 14],
+        tail[eocd_at + 15],
+    ]);
+    if disk != 0 || entries_this_disk != total_entries {
+        return Err("multi-disk zip archives are not supported".to_string());
     }
-    if central_dir_start.saturating_add(central_dir_size) > file_len {
-        return Err("central directory offset/size runs past the end of the file".to_string());
+    if total_entries == ZIP64_U16 || central_dir_size == ZIP64_U32 {
+        return Err("ZIP64 containers are not supported".to_string());
     }
-
-    file.seek(SeekFrom::Start(central_dir_start))
-        .map_err(|e| format!("seek failed ({e})"))?;
-    let mut central = vec![0u8; central_dir_size as usize];
-    file.read_exact(&mut central).map_err(|e| format!("read failed ({e})"))?;
-
-    let mut names = Vec::with_capacity(total_entries);
-    let mut pos = 0usize;
-    for _ in 0..total_entries {
-        let header = central
-            .get(pos..pos + CENTRAL_FIXED_LEN)
-            .ok_or_else(|| "central directory record runs past its declared size".to_string())?;
-        if header[0..4] != CENTRAL_SIG {
-            return Err("central directory record has the wrong signature".to_string());
-        }
-        let name_len = u16::from_le_bytes([header[28], header[29]]) as usize;
-        let extra_len = u16::from_le_bytes([header[30], header[31]]) as usize;
-        let comment_len = u16::from_le_bytes([header[32], header[33]]) as usize;
-
-        let name_start = pos + CENTRAL_FIXED_LEN;
-        let name_bytes = central
-            .get(name_start..name_start + name_len)
-            .ok_or_else(|| "entry name runs past the central directory".to_string())?;
-        let name = std::str::from_utf8(name_bytes)
-            .map_err(|_| "entry name is not valid UTF-8".to_string())?
-            .to_string();
-        names.push(name);
-
-        pos = name_start + name_len + extra_len + comment_len;
-    }
-
-    Ok(names)
+    Ok(total_entries as u64)
 }
 
 /// Open `path` as a `.kdplugin` container and validate it end to end
@@ -329,10 +285,10 @@ fn central_directory_entry_names(path: &Path) -> Result<Vec<String>, String> {
 /// the packer, `scripts/pack-plugin.mjs`, so a container that packs there
 /// loads here) — in order:
 ///
-/// 1. the raw entry table has no more than [`MAX_ENTRIES`] names, none
-///    duplicated, and every one passes [`validate_entry_name`] (see
-///    [`central_directory_entry_names`] for why this phase can't go through
-///    `ZipArchive`);
+/// 1. the EOCD-declared entry count is within [`MAX_ENTRIES`] and MATCHES
+///    the crate's deduplicated view — a mismatch means duplicate names (or
+///    a forged central directory), see [`eocd_declared_entries`]; every
+///    name then passes [`validate_entry_name`];
 /// 2. none of them is a symlink (checked via `unix_mode`/`is_symlink` — a
 ///    zip "symlink" is a regular entry whose CONTENT is a target path, so
 ///    reading it as a normal file would silently hand back a path string
@@ -351,31 +307,34 @@ fn central_directory_entry_names(path: &Path) -> Result<Vec<String>, String> {
 /// name — nothing here is ever served or trusted before every check above
 /// has passed.
 fn validate_archive(path: &Path) -> Result<Vec<u8>, String> {
-    let names = central_directory_entry_names(path)?;
-    if names.len() > MAX_ENTRIES {
+    let declared = eocd_declared_entries(path)?;
+    if declared > MAX_ENTRIES as u64 {
         return Err(format!(
-            "{} entries exceeds the {MAX_ENTRIES}-entry cap",
-            names.len()
+            "{declared} entries exceeds the {MAX_ENTRIES}-entry cap"
         ));
     }
 
+    let file = fs::File::open(path).map_err(|e| format!("cannot open ({e})"))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|e| format!("not a valid zip archive ({e})"))?;
+    // The crate deduplicates names while parsing; the declared count doesn't.
+    // Equality is therefore the whole duplicate check — after it, the
+    // name-keyed view is faithful and everything else can go through it.
+    if archive.len() as u64 != declared {
+        return Err(format!(
+            "central directory declares {declared} entries but {} distinct names parse — duplicate or forged entries",
+            archive.len()
+        ));
+    }
+
+    let names: Vec<String> = archive.file_names().map(str::to_owned).collect();
     let mut seen = HashSet::with_capacity(names.len());
     for name in &names {
-        if !seen.insert(name.as_str()) {
-            return Err(format!("{name:?}: duplicate entry"));
-        }
+        seen.insert(name.as_str());
         if let Err(reason) = validate_entry_name(name) {
             return Err(format!("{name:?}: {reason}"));
         }
     }
-
-    // Every name is confirmed unique, so `ZipArchive`'s name-keyed view now
-    // faithfully matches the raw entry table — safe to use it for the
-    // per-entry symlink/size checks and, further down, the actual content
-    // reads.
-    let file = fs::File::open(path).map_err(|e| format!("cannot open ({e})"))?;
-    let mut archive =
-        ZipArchive::new(file).map_err(|e| format!("not a valid zip archive ({e})"))?;
 
     let mut total_bytes: u64 = 0;
     for name in &names {
