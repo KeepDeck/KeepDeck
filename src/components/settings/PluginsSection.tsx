@@ -17,6 +17,10 @@ import { useInstalledPlugins } from "../../plugins";
  * folder. Rescan re-reads the plugins folder (KeepDeck doesn't watch it);
  * Restart reloads an active plugin.
  */
+/** One rescan-spinner turn, in ms — mirrors the 0.7s CSS animation period so
+ * the JS hold lands on a full rotation. */
+const SPIN_MS = 700;
+
 export function PluginsSection() {
   const installed = useInstalledPlugins(pluginHost);
   const [scanning, setScanning] = useState(false);
@@ -24,13 +28,16 @@ export function PluginsSection() {
   const rescan = () => {
     if (scanning) return;
     setScanning(true);
-    // Hold the spin for at least one full turn (matches the 0.7s animation),
-    // so a near-instant scan still gives visible feedback and stops cleanly
-    // at 0° rather than flickering off mid-frame.
-    const oneTurn = new Promise((r) => setTimeout(r, 700));
-    void Promise.all([rescanPlugins(), oneTurn]).finally(() =>
-      setScanning(false),
-    );
+    // The spin tracks the scan as a process: it runs for however long the
+    // scan takes, but never less than one turn, and is rounded UP to a whole
+    // turn so it always covers the work AND stops cleanly at 0° (no mid-turn
+    // snap-back). SPIN_MS mirrors the 0.7s CSS animation period.
+    const start = Date.now();
+    void rescanPlugins().finally(() => {
+      const elapsed = Date.now() - start;
+      const hold = Math.max(SPIN_MS, Math.ceil(elapsed / SPIN_MS) * SPIN_MS);
+      setTimeout(() => setScanning(false), hold - elapsed);
+    });
   };
 
   return (
