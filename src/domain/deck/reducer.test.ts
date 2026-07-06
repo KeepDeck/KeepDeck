@@ -477,3 +477,43 @@ describe("deckReducer provisioning actions", () => {
     expect(retrying.workspaces[0].panes[0].provisioning?.error).toBeUndefined();
   });
 });
+
+describe("deckReducer setWorkspacePluginSlot", () => {
+  it("sets a plugin's slot and returns a NEW state (re-render)", () => {
+    const start = state({ workspaces: [ws("a", [])], activeId: "a" });
+    const next = deckReducer(start, {
+      type: "setWorkspacePluginSlot",
+      wsId: "a",
+      pluginId: "git",
+      value: { remote: "origin" },
+    });
+    expect(next.workspaces[0].plugins).toEqual({ git: { remote: "origin" } });
+    expect(next).not.toBe(start);
+  });
+
+  it("clears a slot via undefined, dropping the bag when it was the last one", () => {
+    const seeded = deckReducer(
+      state({ workspaces: [ws("a", [])], activeId: "a" }),
+      { type: "setWorkspacePluginSlot", wsId: "a", pluginId: "git", value: { v: 1 } },
+    );
+    const cleared = deckReducer(seeded, {
+      type: "setWorkspacePluginSlot",
+      wsId: "a",
+      pluginId: "git",
+      value: undefined,
+    });
+    expect("plugins" in cleared.workspaces[0]).toBe(false);
+  });
+
+  it("is a no-op (same state ref) when nothing actually changes", () => {
+    const start = state({ workspaces: [ws("a", [])], activeId: "a" });
+    expect(
+      deckReducer(start, {
+        type: "setWorkspacePluginSlot",
+        wsId: "a",
+        pluginId: "git",
+        value: undefined,
+      }),
+    ).toBe(start);
+  });
+});

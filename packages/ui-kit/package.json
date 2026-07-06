@@ -1,0 +1,20 @@
+{
+  "name": "@keepdeck/ui-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared in-app UI primitives (Dropdown, stroke icons, input props) — bundled into the host and into built-in plugins alike.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./icons": "./src/icons.tsx",
+    "./Dropdown": "./src/Dropdown.tsx",
+    "./inputProps": "./src/inputProps.ts"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "typescript": "~5.8.3"
+  }
+}

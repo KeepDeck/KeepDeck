@@ -20,9 +20,14 @@ import { paneSpawnSpec } from "./app/spawnSpecs";
 import type { SpawnPlan } from "./domain/agents";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
-import { dockPanel, dockToggle } from "./domain/run";
 import { useCloseFlow } from "./app/useCloseFlow";
-import { DockPanel } from "./components/dock/DockPanel";
+import { bootstrapPlugins, pluginRegistries } from "./app/pluginManager";
+import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
+import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
+import { useContributions } from "./plugins";
+import { ErrorBoundary } from "./ui/ErrorBoundary";
+import { externalPluginUrl } from "./plugins/external/url";
+import { DockPanel, type DockTabItem } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import {
@@ -91,27 +96,69 @@ function App() {
   const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, setError);
+  // The plugin system: the bridge wires deck accessors + deck events; the
+  // built-ins boot once settings settle (enabled flags live there); the
+  // contribution registries drive the dock and the top bar below.
+  usePluginDeckBridge(deck);
+  useEffect(() => {
+    if (settings) void bootstrapPlugins();
+  }, [settings]);
+  const pluginDockTabs = useContributions(pluginRegistries.dockTabs);
+  const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
 
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
   // ([F4]).
   useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
 
   const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
-  // The dock (Run panel, experimental) — a persistent side panel like the
-  // rail, not a modal. Open/closed is PER workspace (deck.dockByWs), so
-  // switching workspaces switches to that workspace's own dock state.
+  // The dock — a persistent side panel like the rail, not a modal. Open or
+  // closed is PER workspace (deck.dockByWs), so switching workspaces switches
+  // to that workspace's own dock state.
   const dockOpen = deck.dockByWs[deck.activeId] ?? false;
-  // The dock's render condition — one named criterion, declared in
-  // domain/run; the narrowing to a workspace happens here.
-  const dockWs = dockPanel.satisfiedBy({
-    settings,
-    dockOpen,
-    activeWorkspace: active,
-  })
-    ? active
-    : null;
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
+  // The dock's tab list: every tab is a plugin contribution, rendered from
+  // SNAPSHOTS inside its own error boundary (a crashing plugin tab must not
+  // take the deck down). The dock itself is contribution-driven chrome: it
+  // exists only while this list is non-empty.
+  const dockTabs: DockTabItem[] = [
+    ...(dockOpen && active
+      ? pluginDockTabs.map((c) => ({
+          id: `${c.pluginId}:${c.entry.id}`,
+          label: c.entry.label,
+          element:
+            "Component" in c.entry ? (
+              // Built-in tier: a trusted React component in the host tree.
+              <ErrorBoundary
+                label={c.entry.label}
+                onError={(e) =>
+                  log.error(
+                    `web:plugin:${c.pluginId}`,
+                    `dock tab "${c.entry.id}" crashed: ${describeError(e)}`,
+                  )
+                }
+              >
+                <c.entry.Component
+                  workspace={toWorkspaceSnapshot(active)}
+                  selectedPaneId={selectedPaneId}
+                />
+              </ErrorBoundary>
+            ) : (
+              // External tier: the plugin's own document at its own
+              // kdplugin://<id> origin. allow-same-origin lets it load its own
+              // scripts/assets under that origin (per-plugin CSP still bounds
+              // its network); the origin — cross-origin to the host — is the
+              // isolation boundary, so it can't reach the host or other plugins.
+              <iframe
+                className="dock__plugin-frame"
+                title={c.entry.label}
+                sandbox="allow-scripts allow-same-origin"
+                src={externalPluginUrl(c.pluginId, c.entry.iframe)}
+              />
+            ),
+        }))
+      : []),
+  ];
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
   // Transactional dialogs — while one is up, nothing else may open over it.
@@ -247,15 +294,29 @@ function App() {
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
           </span>
-          {dockToggle.satisfiedBy({ settings }) && (
-            // Every run-preset surface asks domain/run — conditions
-            // change there, in one place; live runs keep working regardless.
+          {pluginTopBarActions.map((c) => (
+            // Plugin top-bar actions, in contribution order, before the
+            // built-in cluster.
+            <button
+              key={`${c.pluginId}:${c.entry.id}`}
+              type="button"
+              className="bar__icon"
+              onClick={() => c.entry.run()}
+              title={c.entry.title}
+              aria-label={c.entry.title}
+            >
+              {c.entry.Icon ? <c.entry.Icon /> : c.entry.title.slice(0, 1)}
+            </button>
+          ))}
+          {pluginDockTabs.length > 0 && (
+            // The dock toggle exists only while some plugin contributes a
+            // dock tab — the dock is contribution-driven chrome.
             <button
               type="button"
               className="bar__icon"
               onClick={() => active && deck.toggleDock(active.id)}
-              title={dockOpen ? "Hide the Run panel" : "Show the Run panel"}
-              aria-label="Toggle run panel"
+              title={dockOpen ? "Hide the dock" : "Show the dock"}
+              aria-label="Toggle dock panel"
             >
               <DockIcon />
             </button>
@@ -428,15 +489,10 @@ function App() {
             </ConfirmDialog>
           )}
         </div>
-        {dockWs && (
+        {dockTabs.length > 0 && active && (
           // Keyed by workspace: switching resets the tab-local state (run
-          // target, drafts) to the new workspace's context.
-          <DockPanel
-            key={dockWs.id}
-            ws={dockWs}
-            selectedPaneId={selectedPaneId}
-            onSetRun={(run) => deck.setWorkspaceRun(dockWs.id, run)}
-          />
+          // target, drafts, the picked tab) to the new workspace's context.
+          <DockPanel key={active.id} tabs={dockTabs} />
         )}
       </div>
     </div>

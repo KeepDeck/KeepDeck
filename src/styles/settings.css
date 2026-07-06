@@ -121,3 +121,97 @@
 .settings__toggle-text .settings__hint {
   margin: 0;
 }
+
+/* Installed-plugins list (its own settings section): the toggles reuse the
+   experiment idiom. */
+.settings__plugins {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* One host-rendered plugin settings control (label over input). */
+.settings__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+/* Plugins section: a quiet header (folder caption + an icon-only rescan that
+   reuses the top bar's ghost-icon idiom), per-plugin rows with an optional
+   dev badge and a Restart affordance. */
+.settings__plugins-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #1f242e;
+}
+
+.settings__plugins-head .settings__hint {
+  margin: 0;
+}
+
+/* Fixed square so the button never resizes between scan states. */
+.settings__rescan {
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+
+/* Always inline-flex (stable box); the spin only adds the animation. */
+.settings__spin {
+  display: inline-flex;
+}
+
+.settings__spin--on {
+  animation: settings-spin 0.7s linear infinite;
+}
+
+@keyframes settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings__spin--on {
+    animation: none;
+  }
+}
+
+.settings__plugin {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings__plugin .settings__toggle {
+  flex: 1;
+}
+
+.settings__plugin-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings__badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #2a2f3a;
+  color: #9aa3b2;
+}
+
+.settings__plugin-restart {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 12px;
+}

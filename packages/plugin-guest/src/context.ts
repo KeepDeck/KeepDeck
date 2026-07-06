@@ -1,0 +1,309 @@
+import type {
+  Disposable,
+  PluginContext,
+  PluginManifest,
+  PluginSessionEvent,
+} from "@keepdeck/plugin-api";
+import type { GuestRpc } from "./rpc";
+import type { WireSessionEvent } from "./protocol";
+
+/** A guest context wired to a bridge, plus the sink the connection pumps
+ * host-initiated `event` pushes into. */
+export interface GuestContextBundle {
+  ctx: PluginContext;
+  /** Route one host push to whichever local subscribers registered for it. */
+  dispatchEvent(channel: string, payload: unknown): void;
+}
+
+/**
+ * Build the `PluginContext` an external plugin's `activate` runs against — the
+ * mirror image of the host's `buildPluginContext`, but every member is a proxy
+ * that speaks the RPC bridge instead of touching a live backend.
+ *
+ * Three shapes need local state on this side, all of it torn down by the
+ * `Disposable` the plugin holds:
+ *
+ * - **Subscriptions** (deck events, settings changes) fan OUT locally: many
+ *   plugin callbacks share ONE host subscription per channel, attached on the
+ *   first listener and detached on the last, so the wire carries the minimum.
+ * - **Sessions** keep the caller's `onEvent` here, keyed by the id the host
+ *   returns, and re-hydrate each `output`'s `number[]` back into a `Uint8Array`
+ *   before the plugin sees it — the typed array never crossed the wire.
+ * - **Actions** keep the `run` callback here (a function can't cross the wire);
+ *   the host fires an `action:<kind>:<id>` push and we fan it back to `run`.
+ *
+ * Every registration is minted a `regId` the host retains its `Disposable`
+ * under; disposing on this side both cleans up locally and asks the host to
+ * retire that `regId`.
+ */
+export function buildGuestContext(
+  rpc: GuestRpc,
+  manifest: PluginManifest,
+): GuestContextBundle {
+  const noop = (): void => {};
+
+  // ---- local fan-out registries, all keyed so dispatchEvent can find them ----
+  // `channelListeners` holds the plain broadcast channels (deck events AND the
+  // settings-change feed): each fans one host subscription out to many local
+  // callbacks. Sessions and actions need per-id routing, so they get their own.
+  const channelListeners = new Map<string, Set<(payload: unknown) => void>>();
+  const sessionListeners = new Map<string, (event: PluginSessionEvent) => void>();
+  // Session output can arrive before the `spawn` result installs the handle's
+  // listener (the backend emits early; the host addresses it by the real id).
+  // Hold such events per id and flush them the instant the listener registers,
+  // so a program's opening output is never dropped in that window.
+  const sessionBuffers = new Map<string, PluginSessionEvent[]>();
+  const actionCallbacks = new Map<string, (target?: unknown) => void>();
+  let nextRegId = 1;
+
+  /** Attach a broadcast-channel listener with a ref-counted host subscription:
+   * subscribe on the wire only when a channel gains its FIRST local listener,
+   * unsubscribe only when it loses its LAST. */
+  function subscribeChannel(
+    channel: string,
+    cb: (payload: unknown) => void,
+    subscribe: () => void,
+    unsubscribe: () => void,
+  ): Disposable {
+    let set = channelListeners.get(channel);
+    if (!set) {
+      set = new Set();
+      channelListeners.set(channel, set);
+      subscribe();
+    }
+    set.add(cb);
+    let live = true;
+    return {
+      dispose() {
+        if (!live) return;
+        live = false;
+        const current = channelListeners.get(channel);
+        if (!current) return;
+        current.delete(cb);
+        if (current.size === 0) {
+          channelListeners.delete(channel);
+          unsubscribe();
+        }
+      },
+    };
+  }
+
+  /** Register a contribution over the wire and hand back a `Disposable` that
+   * both runs local cleanup and asks the host to retire the registration. */
+  function registerRemote(
+    path: string,
+    entry: unknown,
+    localCleanup: () => void,
+  ): Disposable {
+    const regId = nextRegId++;
+    void rpc.call(path, [regId, entry]).catch(noop);
+    let live = true;
+    return {
+      dispose() {
+        if (!live) return;
+        live = false;
+        localCleanup();
+        void rpc.call("registrations.dispose", [regId]).catch(noop);
+      },
+    };
+  }
+
+  const ctx: PluginContext = {
+    manifest,
+
+    ui: {
+      registerDockTab: (tab) => {
+        // An external dock tab is an iframe document path, never a component:
+        // the host renders it in a sandboxed frame under the plugin's origin. A
+        // React component cannot be serialized across the realm boundary, so we
+        // reject it HERE, synchronously, with a message that names the fix.
+        if ("Component" in tab) {
+          throw new Error(
+            "external dock tabs must use the `iframe` variant: a React Component cannot cross the plugin sandbox boundary",
+          );
+        }
+        return registerRemote(
+          "ui.registerDockTab",
+          { id: tab.id, label: tab.label, iframe: tab.iframe },
+          noop,
+        );
+      },
+      registerTopBarAction: (action) => {
+        const key = actionKey("topBar", action.id);
+        actionCallbacks.set(key, () => action.run());
+        return registerRemote(
+          "ui.registerTopBarAction",
+          { id: action.id, title: action.title },
+          () => actionCallbacks.delete(key),
+        );
+      },
+      registerPaneAction: (action) => {
+        const key = actionKey("pane", action.id);
+        actionCallbacks.set(key, (target) =>
+          action.run(target as { wsId: string; paneId: string }),
+        );
+        return registerRemote(
+          "ui.registerPaneAction",
+          { id: action.id, title: action.title },
+          () => actionCallbacks.delete(key),
+        );
+      },
+    },
+
+    settings: {
+      registerSection: (section) =>
+        registerRemote("settings.registerSection", section, noop),
+      read: () =>
+        rpc.call("settings.read", []) as Promise<Record<string, unknown>>,
+      // The settings-change feed is just another broadcast channel — ref-counted
+      // and fanned out exactly like a deck event, over its own subscribe path.
+      onChange: (cb) =>
+        subscribeChannel(
+          "settingsChanged",
+          (payload) => cb(payload as Record<string, unknown>),
+          () => void rpc.call("settings.onChange", []).catch(noop),
+          () => void rpc.call("settings.offChange", []).catch(noop),
+        ),
+    },
+
+    agents: {
+      // Identity crosses; hooks are functions and are not modelled at this tier.
+      register: (agent) =>
+        registerRemote(
+          "agents.register",
+          { id: agent.id, label: agent.label, detect: agent.detect },
+          noop,
+        ),
+    },
+
+    storage: {
+      workspace: (wsId) => ({
+        get: <T>(key: string): Promise<T | undefined> =>
+          rpc.call("storage.workspace.get", [wsId, key]) as Promise<T | undefined>,
+        set: (key, value) =>
+          rpc.call("storage.workspace.set", [wsId, key, value]).then(noop),
+        delete: (key) =>
+          rpc.call("storage.workspace.delete", [wsId, key]).then(noop),
+      }),
+      global: {
+        get: <T>(key: string): Promise<T | undefined> =>
+          rpc.call("storage.global.get", [key]) as Promise<T | undefined>,
+        set: (key, value) => rpc.call("storage.global.set", [key, value]).then(noop),
+        delete: (key) => rpc.call("storage.global.delete", [key]).then(noop),
+      },
+    },
+
+    events: {
+      onWorkspaceClosed: (cb) =>
+        subscribeChannel(
+          "workspaceClosed",
+          (payload) => cb(payload as { wsId: string }),
+          () => void rpc.call("events.subscribe", ["workspaceClosed"]).catch(noop),
+          () => void rpc.call("events.unsubscribe", ["workspaceClosed"]).catch(noop),
+        ),
+      onPaneSelected: (cb) =>
+        subscribeChannel(
+          "paneSelected",
+          (payload) => cb(payload as { wsId: string; paneId: string | null }),
+          () => void rpc.call("events.subscribe", ["paneSelected"]).catch(noop),
+          () => void rpc.call("events.unsubscribe", ["paneSelected"]).catch(noop),
+        ),
+      onDeckChanged: (cb) =>
+        subscribeChannel(
+          "deckChanged",
+          () => cb(),
+          () => void rpc.call("events.subscribe", ["deckChanged"]).catch(noop),
+          () => void rpc.call("events.unsubscribe", ["deckChanged"]).catch(noop),
+        ),
+    },
+
+    services: {
+      sessions: {
+        spawn: (opts, onEvent) =>
+          (rpc.call("services.sessions.spawn", [opts]) as Promise<{ id: string }>).then(
+            ({ id }) => {
+              sessionListeners.set(id, onEvent);
+              // Flush anything that arrived before this listener existed.
+              const buffered = sessionBuffers.get(id);
+              if (buffered) {
+                sessionBuffers.delete(id);
+                for (const event of buffered) onEvent(event);
+              }
+              return {
+                id,
+                write: (data) =>
+                  rpc.call("services.sessions.write", [id, data]).then(noop),
+                resize: (cols, rows) =>
+                  rpc.call("services.sessions.resize", [id, cols, rows]).then(noop),
+                close: () => {
+                  sessionListeners.delete(id);
+                  return rpc.call("services.sessions.close", [id]).then(noop);
+                },
+              };
+            },
+          ),
+      },
+      ports: {
+        allocate: (key) =>
+          rpc.call("services.ports.allocate", [key]) as Promise<number>,
+      },
+      opener: {
+        openUrl: (url) => rpc.call("services.opener.openUrl", [url]).then(noop),
+        openPath: (path) => rpc.call("services.opener.openPath", [path]).then(noop),
+      },
+    },
+
+    host: {
+      settings: () =>
+        rpc.call("host.settings", []) as ReturnType<PluginContext["host"]["settings"]>,
+    },
+
+    log: {
+      info: (message) => void rpc.call("log.info", [message]).catch(noop),
+      warn: (message) => void rpc.call("log.warn", [message]).catch(noop),
+      error: (message) => void rpc.call("log.error", [message]).catch(noop),
+    },
+  };
+
+  function dispatchEvent(channel: string, payload: unknown): void {
+    if (channel.startsWith("session:")) {
+      const id = channel.slice("session:".length);
+      const event = rehydrateSessionEvent(payload);
+      const onEvent = sessionListeners.get(id);
+      if (onEvent) {
+        onEvent(event);
+      } else {
+        // The handle isn't registered yet — buffer until spawn's result does.
+        const buffer = sessionBuffers.get(id) ?? [];
+        buffer.push(event);
+        sessionBuffers.set(id, buffer);
+      }
+      return;
+    }
+    if (channel.startsWith("action:")) {
+      const run = actionCallbacks.get(channel.slice("action:".length));
+      if (run) run(payload);
+      return;
+    }
+    // Deck events and the settings-change feed alike land in `channelListeners`.
+    const set = channelListeners.get(channel);
+    if (set) for (const cb of [...set]) cb(payload);
+  }
+
+  return { ctx, dispatchEvent };
+}
+
+/** The key an action's `run` is filed under locally — the SAME suffix the host
+ * puts after `action:` when it pushes the firing. */
+function actionKey(kind: "topBar" | "pane", id: string): string {
+  return `${kind}:${id}`;
+}
+
+/** Turn a wire session event back into a `PluginSessionEvent`, rebuilding the
+ * `Uint8Array` the plugin's `onEvent` expects from the `number[]` on the wire. */
+function rehydrateSessionEvent(payload: unknown): PluginSessionEvent {
+  const wire = payload as WireSessionEvent;
+  return wire.type === "output"
+    ? { type: "output", bytes: new Uint8Array(wire.bytes) }
+    : { type: "exit", code: wire.code };
+}

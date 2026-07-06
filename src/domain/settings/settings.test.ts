@@ -31,23 +31,48 @@ describe("hydrateSettings", () => {
         version: 1,
         defaultAgent: "codex",
         scrollback: 50_000,
-        experimentRunPresets: true,
+        plugins: {
+          enabled: { git: true },
+          values: { git: { remote: "origin" } },
+        },
       }),
     );
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
-      experimentRunPresets: true,
+      plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
     });
   });
 
-  it("a non-boolean experiment flag degrades to off", () => {
-    // Experiments must be opted into explicitly — truthy garbage ("yes", 1)
-    // from a hand edit stays off rather than enabling one by accident.
-    for (const junk of ["yes", 1, null, {}]) {
-      const doc = hydrateSettings(JSON.stringify({ experimentRunPresets: junk }));
-      expect(doc?.settings.experimentRunPresets).toBe(false);
-    }
+  it("v5 graduation: an explicit experimentRunPresets=false disables the Run plugin", () => {
+    const doc = hydrateSettings(JSON.stringify({ experimentRunPresets: false }));
+    expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBe(false);
+    // Consumed, not an extra: the retired key must not be rewritten forever.
+    expect(doc?.extras).toEqual({});
+    // And not re-emitted on save.
+    expect(serializeSettings(doc!)).not.toContain("experimentRunPresets");
+  });
+
+  it("v5 graduation: a stored true enables the Run plugin (preserves prior state)", () => {
+    // Plugins default OFF, so an experiment-ON user's Run must be carried
+    // over explicitly or it would vanish.
+    const doc = hydrateSettings(JSON.stringify({ experimentRunPresets: true }));
+    expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBe(true);
+  });
+
+  it("v5 graduation: an absent flag leaves the Run plugin unset (default off)", () => {
+    const doc = hydrateSettings(JSON.stringify({}));
+    expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBeUndefined();
+  });
+
+  it("v5 graduation: an explicit plugins.enabled entry outranks the retired flag", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({
+        experimentRunPresets: false,
+        plugins: { enabled: { "keepdeck.run": true } },
+      }),
+    );
+    expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBe(true);
   });
 
   it("a malformed value degrades ONLY its own key", () => {
@@ -75,6 +100,64 @@ describe("hydrateSettings", () => {
   it("a null defaultAgent (older document) degrades to the default", () => {
     const doc = hydrateSettings(JSON.stringify({ defaultAgent: null }));
     expect(doc?.settings.defaultAgent).toBe(DEFAULT_SETTINGS.defaultAgent);
+  });
+
+});
+
+describe("hydrateSettings — plugins bag", () => {
+  it("defaults to empty enabled/values maps when the field is absent", () => {
+    const doc = hydrateSettings("{}");
+    expect(doc?.settings.plugins).toEqual({ enabled: {}, values: {}, consented: {} });
+  });
+
+  it("reads enabled flags and per-plugin values verbatim", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({
+        plugins: {
+          enabled: { git: true, notes: false },
+          values: { git: { remote: "origin", depth: 3 } },
+        },
+      }),
+    );
+    expect(doc?.settings.plugins).toEqual({
+      enabled: { git: true, notes: false },
+      values: { git: { remote: "origin", depth: 3 } },
+      consented: {},
+    });
+  });
+
+  it("a malformed entry degrades on its own, keeping its siblings", () => {
+    // The file is hand-editable: one bad plugin id must not wipe the rest.
+    const doc = hydrateSettings(
+      JSON.stringify({
+        plugins: {
+          enabled: { git: true, bad: "not a bool" },
+          values: { git: { x: 1 }, bad: "not an object" },
+        },
+      }),
+    );
+    expect(doc?.settings.plugins).toEqual({
+      enabled: { git: true },
+      values: { git: { x: 1 } },
+      consented: {},
+    });
+  });
+
+  it("a non-object plugins field degrades to defaults instead of rejecting the document", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({ plugins: "not an object", scrollback: 20_000 }),
+    );
+    expect(doc?.settings.plugins).toEqual({ enabled: {}, values: {}, consented: {} });
+    expect(doc?.settings.scrollback).toBe(20_000); // rest of the doc survives
+  });
+
+  it("an all-malformed plugins bag round-trips sparsely (no synthesized key)", () => {
+    // Degrading to an EMPTY bag must not itself count as "the user set this" —
+    // otherwise every load-then-save would inject a fresh, pointless key.
+    const doc = hydrateSettings(
+      JSON.stringify({ plugins: { enabled: { x: "nope" } } }),
+    )!;
+    expect(serializeSettings(doc)).not.toContain('"plugins"');
   });
 });
 
@@ -121,7 +204,6 @@ describe("serializeSettings", () => {
     const doc = defaultSettingsDocument();
     doc.settings.defaultAgent = "opencode";
     doc.settings.scrollback = 42_000;
-    doc.settings.experimentRunPresets = true;
     expect(hydrateSettings(serializeSettings(doc))).toEqual(doc);
   });
 });
@@ -138,5 +220,15 @@ describe("schema revisions", () => {
     const out = JSON.parse(serializeSettings(doc));
     expect(out.version).toBe(SETTINGS_VERSION);
     expect(out.scrollback).toBe(20_000);
+  });
+
+  it("a v3 file (pre plugin system) reads cleanly and upgrades without inventing a plugins key", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({ version: 3, minVersion: 1, scrollback: 20_000 }),
+    )!;
+    expect(doc.settings.plugins).toEqual({ enabled: {}, values: {}, consented: {} });
+    const out = JSON.parse(serializeSettings(doc));
+    expect(out.version).toBe(SETTINGS_VERSION);
+    expect(out).not.toHaveProperty("plugins");
   });
 });

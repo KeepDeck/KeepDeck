@@ -6,7 +6,6 @@ import {
   type PaneProvisioning,
   type WorktreeTarget,
 } from "../domain/deck";
-import { runEnv } from "../domain/run";
 import { describeError, log } from "../ipc/log";
 import { createWorktree, inspectRepo, removeWorktree } from "../ipc/worktree";
 import { acquirePane, attachPane, closePane } from "./ptyManager";
@@ -201,7 +200,7 @@ function runSetup(
     acquirePane(paneId, {
       command: null, // the user's shell
       args: ["-c", command],
-      env: runEnv({ worktree, branch }),
+      env: setupEnv(worktree, branch),
       cwd: worktree,
       cols: 80,
       rows: 24,
@@ -242,4 +241,15 @@ export async function discardWorktrees(
     }
   }
   return failures;
+}
+
+/** The workspace env contract for the one-time setup command: the same
+ * KEEPDECK_* variables every run surface provides (the Run plugin implements
+ * the identical contract for its presets — two independent implementers of
+ * one stable convention). Setup runs at create time, before any port
+ * allocation, so KEEPDECK_PORT is deliberately absent here. */
+function setupEnv(worktree: string, branch?: string): [string, string][] {
+  const env: [string, string][] = [["KEEPDECK_WORKTREE", worktree]];
+  if (branch) env.push(["KEEPDECK_BRANCH", branch]);
+  return env;
 }

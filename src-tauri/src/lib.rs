@@ -8,6 +8,7 @@ mod logging;
 mod menu;
 mod migration;
 mod paths;
+mod plugins_fs;
 mod ports;
 mod session;
 mod sessions;
@@ -51,6 +52,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // Serves installed EXTERNAL plugins' own files under their own host —
+        // `kdplugin://<plugin-id>/<path>` — so each plugin is its own origin.
+        // Logic lives in `plugins_fs`; this closure only supplies the real
+        // plugins root and the requesting webview's origin.
+        .register_uri_scheme_protocol(plugins_fs::EXTERNAL_PLUGIN_SCHEME, |ctx, request| {
+            let origin = plugins_fs::window_origin(ctx.app_handle(), ctx.webview_label());
+            plugins_fs::handle_request(plugins_fs::plugins_root().as_deref(), &origin, &request)
+        })
         .menu(menu::build)
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(session::SessionRegistry::default())
@@ -95,6 +104,8 @@ pub fn run() {
             history::history_latest,
             history::history_presence,
             ports::ports_allocate,
+            plugins_fs::plugins_scan,
+            plugins_fs::plugins_resolve_dir,
             sessions::session_spawn_context,
             worktree::worktree_inspect,
             worktree::worktree_suggest,

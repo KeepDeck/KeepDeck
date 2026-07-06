@@ -21,8 +21,12 @@ import {
   normalizeSelection,
   osc52Text,
 } from "../../domain/terminal";
-import { useTransient } from "../../ui/useTransient";
-import { HINT_MS, PaneHintView, type PaneHint } from "./PaneHint";
+import {
+  HINT_MS,
+  PaneHintView,
+  useTransient,
+  type PaneHint,
+} from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
 
 interface TerminalPaneProps {

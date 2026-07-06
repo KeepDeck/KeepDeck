@@ -32,4 +32,20 @@ tauri-plugin-opener = "2.5.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 tauri-plugin-log = "2"
+# `.kdplugin` containers are read-only, STORED-only zips (see
+# docs/plugin-container.md / scripts/pack-plugin.mjs — the packer never
+# writes a compressed entry). So every optional codec the crate ships by
+# default (deflate, deflate64, bzip2, lzma, ppmd, zstd, xz) is dead weight;
+# so is `aes-crypto` (containers carry no encryption) and `time` (only
+# needed for a `DateTime` conversion API we never call — timestamps are
+# pinned/ignored, same as the packer). `default-features = false` with an
+# empty feature list keeps just the mandatory core: central-directory
+# parsing, STORED read/write, and `unix_mode()`/`is_symlink()` for the
+# symlink-entry guard — everything `plugins_fs.rs`'s container validation
+# needs. A bonus of the trim: an entry using a codec we didn't compile in
+# simply fails to read (metadata like name/size is still always available
+# from the central directory, no codec needed) rather than silently
+# decoding — one less way a malicious archive could smuggle a codec-
+# specific bomb past the size caps `plugins_fs.rs` checks on the way in.
+zip = { version = "8.6", default-features = false }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FALLBACK_AGENTS } from "../agents";
 import type { DeckState } from "./reducer";
 import {
+  DECK_STATE_VERSION,
   PROVISIONING_INTERRUPTED,
   hydrateDeck,
   serializeDeck,
@@ -290,8 +291,86 @@ describe("provisioning panes across a restart", () => {
   });
 });
 
-describe("run presets round-trip", () => {
-  const runState: DeckState = {
+describe("workspace plugin slots round-trip", () => {
+  const pluginState: DeckState = {
+    workspaces: [
+      {
+        id: "ws-1",
+        name: "app",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        // An arbitrary, deeply nested value — the slot's content is the
+        // owning plugin's business, never validated by this layer.
+        plugins: {
+          git: {
+            remote: "origin",
+            nested: { branches: ["main", "dev"], count: 2 },
+          },
+        },
+        panes: [{ id: "pane-1" }],
+      },
+    ],
+    activeId: "ws-1",
+    focusByWs: {},
+    selectByWs: {},
+    dockByWs: {},
+  };
+
+  it("persists and restores an arbitrary nested slot value verbatim", () => {
+    const restored = okDeck(serializeDeck(pluginState));
+    expect(restored.state.workspaces[0].plugins).toEqual(
+      pluginState.workspaces[0].plugins,
+    );
+  });
+
+  it("a workspace without any plugin state stays without the field (sparse)", () => {
+    const bare: DeckState = {
+      ...pluginState,
+      workspaces: [{ ...pluginState.workspaces[0], plugins: undefined }],
+    };
+    expect(serializeDeck(bare)).not.toContain('"plugins"');
+    expect(
+      okDeck(serializeDeck(bare)).state.workspaces[0].plugins,
+    ).toBeUndefined();
+  });
+
+  it("drops a non-object plugins bag while the rest of the workspace survives", () => {
+    const doc = JSON.parse(serializeDeck(pluginState));
+    doc.workspaces[0].plugins = "not an object";
+    const restored = okDeck(JSON.stringify(doc));
+    expect(restored.state.workspaces[0].plugins).toBeUndefined();
+    expect(restored.state.workspaces[0].panes[0].id).toBe("pane-1");
+  });
+
+  it("a v3 deck (pre plugin slots) loads cleanly through the ladder", () => {
+    const v3 = {
+      version: 3,
+      minVersion: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "x",
+          cwd: "/x",
+          worktreeBaseDir: null,
+          panes: [{ id: "pane-1" }],
+        },
+      ],
+    };
+    const restored = okDeck(JSON.stringify(v3));
+    expect(restored.state.workspaces[0].plugins).toBeUndefined();
+  });
+});
+
+describe("deck v5 — Workspace.run retirement", () => {
+  const v4WithRun = {
+    version: 4,
+    minVersion: 1,
+    activeId: "ws-1",
+    focusByWs: {},
+    selectByWs: {},
     workspaces: [
       {
         id: "ws-1",
@@ -302,36 +381,191 @@ describe("run presets round-trip", () => {
           setup: "pnpm i",
           presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }],
         },
-        panes: [{ id: "pane-1", cwd: "/repo/wt-1", branch: "kd/app/1" }],
+        panes: [{ id: "pane-1" }],
       },
     ],
-    activeId: "ws-1",
-    focusByWs: {},
-    selectByWs: {},
-    dockByWs: {},
   };
 
-  it("persists and restores the workspace config", () => {
-    // Flag-agnostic by design: a deck saved with the experiment on must
-    // survive a load-and-save with it off, so hydration always parses run.
-    const restored = okDeck(serializeDeck(runState));
-    expect(restored.state.workspaces[0].run).toEqual(runState.workspaces[0].run);
+  it("migrates run.setup onto the workspace and run.presets into the run plugin's slot, dropping run", () => {
+    const restored = okDeck(JSON.stringify(v4WithRun));
+    const ws = restored.state.workspaces[0];
+    expect(ws.setup).toBe("pnpm i");
+    expect(ws.plugins).toEqual({
+      "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+    });
+    expect("run" in ws).toBe(false);
   });
 
-  it("a workspace without run config stays without one (sparse)", () => {
-    const bare: DeckState = {
-      ...runState,
-      workspaces: [{ ...runState.workspaces[0], run: undefined, panes: [] }],
+  it("run stays gone after a save round-trip", () => {
+    const restored = okDeck(JSON.stringify(v4WithRun));
+    const saved = serializeDeck(restored.state, restored.docExtras);
+    expect(saved).not.toContain('"run"');
+    const again = okDeck(saved);
+    expect(again.state.workspaces[0].setup).toBe("pnpm i");
+    expect(again.state.workspaces[0].plugins).toEqual({
+      "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+    });
+  });
+
+  it("a v4 doc with only setup migrates setup alone, no plugin slot created", () => {
+    const doc = {
+      ...v4WithRun,
+      workspaces: [
+        { ...v4WithRun.workspaces[0], run: { setup: "pnpm i", presets: [] } },
+      ],
     };
-    expect(serializeDeck(bare)).not.toContain('"run"');
-    expect(okDeck(serializeDeck(bare)).state.workspaces[0].run).toBeUndefined();
+    const restored = okDeck(JSON.stringify(doc));
+    expect(restored.state.workspaces[0].setup).toBe("pnpm i");
+    expect(restored.state.workspaces[0].plugins).toBeUndefined();
+    expect("run" in restored.state.workspaces[0]).toBe(false);
   });
 
-  it("degrades a malformed run value without rejecting the deck", () => {
-    const doc = JSON.parse(serializeDeck(runState));
-    doc.workspaces[0].run = { presets: "not a list" };
+  it("a v4 doc with only presets migrates the plugin slot alone, no setup set", () => {
+    const doc = {
+      ...v4WithRun,
+      workspaces: [
+        {
+          ...v4WithRun.workspaces[0],
+          run: { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+        },
+      ],
+    };
     const restored = okDeck(JSON.stringify(doc));
-    expect(restored.state.workspaces[0].run).toBeUndefined();
+    expect(restored.state.workspaces[0].setup).toBeUndefined();
+    expect(restored.state.workspaces[0].plugins).toEqual({
+      "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+    });
+  });
+
+  it("a v4 doc without a run object passes through untouched", () => {
+    const doc = {
+      ...v4WithRun,
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "app",
+          cwd: "/repo",
+          worktreeBaseDir: null,
+          panes: [{ id: "pane-1" }],
+        },
+      ],
+    };
+    const restored = okDeck(JSON.stringify(doc));
+    expect(restored.state.workspaces[0].setup).toBeUndefined();
+    expect("run" in restored.state.workspaces[0]).toBe(false);
+    expect(restored.state.workspaces[0].plugins).toBeUndefined();
+  });
+
+  it("a v2-era doc (pre-plugins) climbs the whole ladder to v5 cleanly", () => {
+    const v2 = {
+      version: 2,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "app",
+          cwd: "/repo",
+          worktreeBaseDir: null,
+          run: {
+            setup: "pnpm i",
+            presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }],
+          },
+          panes: [{ id: "pane-1" }],
+        },
+      ],
+    };
+    const restored = okDeck(JSON.stringify(v2));
+    expect(restored.state.workspaces[0].setup).toBe("pnpm i");
+    expect(restored.state.workspaces[0].plugins).toEqual({
+      "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+    });
+    expect("run" in restored.state.workspaces[0]).toBe(false);
+  });
+
+  it("setup round-trips through serializeDeck/hydrateDeck", () => {
+    const setupState: DeckState = {
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "app",
+          cwd: "/repo",
+          worktreeBaseDir: null,
+          setup: "pnpm i",
+          panes: [],
+        },
+      ],
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      dockByWs: {},
+    };
+    const restored = okDeck(serializeDeck(setupState));
+    expect(restored.state.workspaces[0].setup).toBe("pnpm i");
+  });
+
+  it("a workspace without setup stays without the field (sparse)", () => {
+    const bareState: DeckState = {
+      workspaces: [
+        { id: "ws-1", name: "app", cwd: "/repo", worktreeBaseDir: null, panes: [] },
+      ],
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      dockByWs: {},
+    };
+    expect(serializeDeck(bareState)).not.toContain('"setup"');
+  });
+
+  it("a malformed setup degrades to absent without dropping the workspace", () => {
+    const blank = {
+      version: DECK_STATE_VERSION,
+      minVersion: 1,
+      activeId: "ws-1",
+      focusByWs: {},
+      selectByWs: {},
+      workspaces: [
+        {
+          id: "ws-1",
+          name: "app",
+          cwd: "/repo",
+          worktreeBaseDir: null,
+          setup: "   ",
+          panes: [{ id: "pane-1" }],
+        },
+      ],
+    };
+    const restoredBlank = okDeck(JSON.stringify(blank));
+    expect(restoredBlank.state.workspaces[0].setup).toBeUndefined();
+    expect(restoredBlank.state.workspaces[0].panes[0].id).toBe("pane-1");
+
+    const nonString = {
+      ...blank,
+      workspaces: [{ ...blank.workspaces[0], setup: 42 }],
+    };
+    const restoredNonString = okDeck(JSON.stringify(nonString));
+    expect(restoredNonString.state.workspaces[0].setup).toBeUndefined();
+  });
+
+  it("an existing v4 plugins['keepdeck.run'] slot loses to the migrated run.presets", () => {
+    const doc = {
+      ...v4WithRun,
+      workspaces: [
+        {
+          ...v4WithRun.workspaces[0],
+          plugins: {
+            "keepdeck.run": { presets: [{ id: "old", name: "Old", command: "old cmd" }] },
+            other: { kept: true },
+          },
+        },
+      ],
+    };
+    const restored = okDeck(JSON.stringify(doc));
+    expect(restored.state.workspaces[0].plugins).toEqual({
+      other: { kept: true },
+      "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+    });
   });
 });
 
@@ -374,7 +608,7 @@ describe("provisioning phase is runtime-only", () => {
 describe("schema revisions and the compatibility floor", () => {
   it("writes the current revision and its floor", () => {
     const out = JSON.parse(serializeDeck(state));
-    expect(out.version).toBe(3);
+    expect(out.version).toBe(DECK_STATE_VERSION);
     expect(out.minVersion).toBe(1);
   });
 
@@ -396,7 +630,7 @@ describe("schema revisions and the compatibility floor", () => {
     };
     const restored = okDeck(JSON.stringify(v1));
     expect(restored.state.workspaces[0].panes[0].dormant).toBe(true);
-    expect(restored.state.workspaces[0].run).toBeUndefined();
+    expect("run" in restored.state.workspaces[0]).toBe(false);
   });
 
   it("round-trips a NEWER revision's unknown fields at every level", () => {
@@ -423,7 +657,7 @@ describe("schema revisions and the compatibility floor", () => {
       serializeDeck(restored.state, restored.docExtras),
     );
     // Saved by THIS build (its revision), with the future's fields intact.
-    expect(saved.version).toBe(3);
+    expect(saved.version).toBe(DECK_STATE_VERSION);
     expect(saved.futureDocField).toEqual([1, 2]);
     expect(saved.workspaces[0].futureWsField).toEqual({ a: 1 });
     expect(saved.workspaces[0].panes[0].futurePaneField).toBe("keep me");

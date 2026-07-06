@@ -39,9 +39,18 @@ export type MigrationOutcome =
  *   1 — workspaces, panes, session bindings, provisioning intents.
  *   2 — + `Workspace.run` (launch presets & setup command).
  *   3 — + `minVersion` compatibility floor, unknown keys preserved.
+ *   4 — + `Workspace.plugins` (per-plugin persisted state bag).
+ *   5 — `Workspace.run` retired: its `setup` moves to the core
+ *       `Workspace.setup` field (provisioning owns it, not a plugin), its
+ *       `presets` move to `plugins["keepdeck.run"]`; `run` itself is dropped.
  */
-export const DECK_STATE_VERSION = 3;
-/** Every revision so far is additive over v1 — any reader fits. */
+export const DECK_STATE_VERSION = 5;
+/** The oldest reader that can still make sense of a current document. Held at
+ * 1 deliberately: v1→v4 were additive, and v5's `run` retirement moves data
+ * an old reader wouldn't understand INTO keys it preserves as extras — so an
+ * old build reading a v5 deck loses the Run panel's state (recoverable, not
+ * corrupt) rather than misreading anything. The floor rises only when a
+ * change would make an old reader misinterpret data it still consumes. */
 export const DECK_MIN_READER = 1;
 
 /** v1 → v2: `Workspace.run` added — additive, nothing to transform. */
@@ -54,9 +63,55 @@ function migrateDeckFromV2toV3(doc: RawDoc): RawDoc {
   return doc;
 }
 
+/** v3 → v4: `Workspace.plugins` added — additive, nothing to transform. */
+function migrateDeckFromV3toV4(doc: RawDoc): RawDoc {
+  return doc;
+}
+
+/** The Run plugin's storage id — the destination for a migrated `run.presets`. */
+const RUN_PLUGIN_ID = "keepdeck.run";
+
+/**
+ * v4 → v5: `Workspace.run` is retired. Its two parts move to where they now
+ * belong — `setup` onto the workspace itself (core provisioning runs it
+ * whether or not the Run plugin is installed), `presets` into the Run
+ * plugin's own slot — and `run` is deleted. A workspace without a `run`
+ * object passes through untouched. A `plugins["keepdeck.run"]` slot already
+ * present (not expected before this hop) loses to the migrated data: the
+ * migrated presets are the source of truth and the old slot's content is not
+ * preserved anywhere.
+ */
+function migrateDeckFromV4toV5(doc: RawDoc): RawDoc {
+  const workspaces = doc.workspaces;
+  if (!Array.isArray(workspaces)) return doc;
+  return { ...doc, workspaces: workspaces.map(migrateWorkspaceRunToV5) };
+}
+
+function migrateWorkspaceRunToV5(value: unknown): unknown {
+  if (!isRawRecord(value)) return value;
+  const { run, ...rest } = value;
+  if (!isRawRecord(run)) return value; // no run object: untouched
+
+  const next: RawDoc = { ...rest };
+  if (typeof run.setup === "string" && run.setup.trim() !== "") {
+    next.setup = run.setup;
+  }
+  if (Array.isArray(run.presets) && run.presets.length > 0) {
+    const plugins = isRawRecord(rest.plugins) ? { ...rest.plugins } : {};
+    next.plugins = { ...plugins, [RUN_PLUGIN_ID]: { presets: run.presets } };
+  }
+  return next;
+}
+
+function isRawRecord(value: unknown): value is RawDoc {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
+  3: migrateDeckFromV3toV4,
+  4: migrateDeckFromV4toV5,
 };
 
 /**
@@ -64,6 +119,11 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *   1 — defaultAgent, scrollback.
  *   2 — + experimentRunPresets.
  *   3 — + `minVersion` compatibility floor.
+ *   4 — + plugins (per-plugin enabled flags & values).
+ *   5 — experimentRunPresets retired: an explicit stored `false` maps to
+ *       plugins.enabled["keepdeck.run"]=false at read (the Run panel is the
+ *       run plugin now); the key itself is consumed, never re-written.
+ *   6 — + plugins.consented (per-external-plugin capability fingerprints).
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -71,7 +131,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 6;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

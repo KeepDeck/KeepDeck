@@ -8,6 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@keepdeck/plugin-api':
+        specifier: workspace:*
+        version: link:packages/plugin-api
+      '@keepdeck/terminal-kit':
+        specifier: workspace:*
+        version: link:packages/terminal-kit
+      '@keepdeck/ui-kit':
+        specifier: workspace:*
+        version: link:packages/ui-kit
       '@tauri-apps/api':
         specifier: ^2
         version: 2.11.1
@@ -63,6 +72,86 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.6(@types/node@26.0.1)(happy-dom@20.10.6)
+
+  packages/plugin-api:
+    dependencies:
+      react:
+        specifier: ^19.1.0
+        version: 19.2.7
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.17
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+
+  packages/plugin-guest:
+    dependencies:
+      '@keepdeck/plugin-api':
+        specifier: workspace:*
+        version: link:../plugin-api
+    devDependencies:
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+
+  packages/terminal-kit:
+    dependencies:
+      '@xterm/xterm':
+        specifier: ^5.5.0
+        version: 5.5.0
+      react:
+        specifier: ^19.1.0
+        version: 19.2.7
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.17
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+
+  packages/ui-kit:
+    dependencies:
+      react:
+        specifier: ^19.1.0
+        version: 19.2.7
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.17
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+
+  plugins/run:
+    dependencies:
+      '@keepdeck/plugin-api':
+        specifier: workspace:*
+        version: link:../../packages/plugin-api
+      '@keepdeck/terminal-kit':
+        specifier: workspace:*
+        version: link:../../packages/terminal-kit
+      '@keepdeck/ui-kit':
+        specifier: workspace:*
+        version: link:../../packages/ui-kit
+      '@xterm/addon-fit':
+        specifier: ^0.10.0
+        version: 0.10.0(@xterm/xterm@5.5.0)
+      '@xterm/xterm':
+        specifier: ^5.5.0
+        version: 5.5.0
+      react:
+        specifier: ^19.1.0
+        version: 19.2.7
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.17
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
 
 packages:
 

@@ -1,0 +1,16 @@
+{
+  "name": "@keepdeck/plugin-guest",
+  "version": "0.0.1",
+  "private": true,
+  "description": "The runtime an external KeepDeck plugin's logic bundle calls to speak the PluginContext contract over the sandbox's postMessage RPC bridge.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@keepdeck/plugin-api": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3"
+  }
+}

@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/build-plugins.mjs",
+    "build:plugins": "node scripts/build-plugins.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -15,6 +16,8 @@
     "build:macos": "./build-macos.sh"
   },
   "dependencies": {
+    "@keepdeck/plugin-api": "workspace:*",
+    "@keepdeck/terminal-kit": "workspace:*",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-dialog": "^2.7.1",
@@ -24,7 +27,8 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "@keepdeck/ui-kit": "workspace:*"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

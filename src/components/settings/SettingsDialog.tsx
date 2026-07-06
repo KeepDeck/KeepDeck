@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { pluginRegistries } from "../../app/pluginManager";
+import { useContributions } from "../../plugins";
 import { CloseIcon } from "../../ui/icons";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
+import { PluginSettingsSection } from "./PluginSettingsSection";
 import { SETTINGS_SECTIONS } from "./sections";
 
 interface SettingsDialogProps {
@@ -11,13 +14,27 @@ interface SettingsDialogProps {
 /**
  * Global settings ([F6]) — an in-app modal (no system windows): a left nav of
  * sections over a panel area. Sections talk to the settings store themselves;
- * controls apply instantly, Done/Esc only dismiss.
+ * controls apply instantly, Done/Esc only dismiss. Static sections come from
+ * the `SETTINGS_SECTIONS` registry; plugin-contributed sections (rendered by
+ * the host from their declared schema) follow.
  */
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
   useEscape(onClose);
-  const [activeId, setActiveId] = useState(SETTINGS_SECTIONS[0].id);
-  const active =
-    SETTINGS_SECTIONS.find((s) => s.id === activeId) ?? SETTINGS_SECTIONS[0];
+  const contributed = useContributions(pluginRegistries.settingsSections);
+  const sections: { id: string; label: string; body: ReactNode }[] = [
+    ...SETTINGS_SECTIONS.map((s) => ({
+      id: s.id,
+      label: s.label,
+      body: <s.Component />,
+    })),
+    ...contributed.map((c) => ({
+      id: `plugin:${c.pluginId}`,
+      label: c.entry.label,
+      body: <PluginSettingsSection pluginId={c.pluginId} section={c.entry} />,
+    })),
+  ];
+  const [activeId, setActiveId] = useState(sections[0].id);
+  const active = sections.find((s) => s.id === activeId) ?? sections[0];
 
   return (
     <ModalOverlay>
@@ -42,7 +59,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
         <div className="settings__body">
           <nav className="settings__nav" aria-label="Settings sections">
-            {SETTINGS_SECTIONS.map((s) => (
+            {sections.map((s) => (
               <button
                 key={s.id}
                 type="button"
@@ -54,7 +71,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               </button>
             ))}
           </nav>
-          {SETTINGS_SECTIONS.map((s) => (
+          {sections.map((s) => (
             // Every section stays mounted and inactive ones hide (the
             // DeckStage pattern): switching must not remount a panel — a
             // remount refetches the agent catalog and flashes the panel
@@ -64,7 +81,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               className="settings__section"
               hidden={s.id !== active.id}
             >
-              <s.Component />
+              {s.body}
             </div>
           ))}
         </div>

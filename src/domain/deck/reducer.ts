@@ -1,5 +1,4 @@
 import { resolveFocus, type Pane, type PaneSession } from "./panes";
-import type { WorkspaceRun } from "./workspaceRun";
 import {
   addAgentPane,
   closeAgent,
@@ -16,7 +15,7 @@ import {
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setPaneSession,
-  setWorkspaceRun,
+  setWorkspacePluginSlot,
   type PaneHead,
   type Workspace,
 } from "./workspaces";
@@ -35,7 +34,7 @@ export interface DeckState {
   focusByWs: Record<string, string>;
   /** Highlighted (selected) pane per workspace id. */
   selectByWs: Record<string, string>;
-  /** Run-panel dock open per workspace id (absent = closed). Session-only by
+  /** Dock open per workspace id (absent = closed). Session-only by
    * decision — the codec never writes it, so every launch starts closed. */
   dockByWs: Record<string, boolean>;
 }
@@ -54,9 +53,9 @@ export type DeckAction =
   | { type: "closeWorkspace"; id: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
   | { type: "selectPane"; wsId: string; paneId: string }
-  /** Flip a workspace's Run-panel dock (the top bar's dock button). */
+  /** Flip a workspace's dock (the top bar's dock button). */
   | { type: "toggleDock"; wsId: string }
-  /** Reveal a workspace's Run-panel dock (the pane-header ▶ shortcut). */
+  /** Reveal a workspace's dock programmatically. */
   | { type: "openDock"; wsId: string }
   /** Manual pane rename ([F11]); empty name reverts to auto/derived. */
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
@@ -98,9 +97,15 @@ export type DeckAction =
     }
   /** The provisioning card's step: the worktree exists, setup is running. */
   | { type: "setPaneProvisioningPhase"; wsId: string; paneId: string; phase: "setup" }
-  /** Replace a workspace's run presets / setup command (the Run panel's save
-   * and delete paths). */
-  | { type: "setWorkspaceRun"; id: string; run: WorkspaceRun };
+  /** Set (or, via `undefined`, clear) one plugin's opaque persisted slot for
+   * a workspace — the write path behind a plugin's workspace-scoped storage
+   * (`ctx.storage.workspace(wsId)`). */
+  | {
+      type: "setWorkspacePluginSlot";
+      wsId: string;
+      pluginId: string;
+      value: unknown;
+    };
 
 export const initialDeckState: DeckState = {
   workspaces: [],
@@ -352,10 +357,15 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       if (workspaces === state.workspaces) return state;
       return { ...state, workspaces };
     }
-    case "setWorkspaceRun":
-      return {
-        ...state,
-        workspaces: setWorkspaceRun(state.workspaces, action.id, action.run),
-      };
+    case "setWorkspacePluginSlot": {
+      const workspaces = setWorkspacePluginSlot(
+        state.workspaces,
+        action.wsId,
+        action.pluginId,
+        action.value,
+      );
+      if (workspaces === state.workspaces) return state;
+      return { ...state, workspaces };
+    }
   }
 }
