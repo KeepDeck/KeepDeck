@@ -155,8 +155,19 @@
   margin: 0;
 }
 
+/* Fixed square so the button never resizes between scan states. */
+.settings__rescan {
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+
+/* Always inline-flex (stable box); the spin only adds the animation. */
 .settings__spin {
   display: inline-flex;
+}
+
+.settings__spin--on {
   animation: settings-spin 0.7s linear infinite;
 }
 
@@ -167,7 +178,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settings__spin {
+  .settings__spin--on {
     animation: none;
   }
 }

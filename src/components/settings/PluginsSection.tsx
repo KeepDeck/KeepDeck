@@ -35,13 +35,16 @@ export function PluginsSection() {
         </span>
         <button
           type="button"
-          className="bar__icon"
+          className="bar__icon settings__rescan"
           onClick={rescan}
           disabled={scanning}
           title="Rescan the plugins folder"
           aria-label="Rescan plugins"
         >
-          <span className={scanning ? "settings__spin" : undefined}>
+          {/* The wrapper is ALWAYS inline-flex; only the animation toggles, so
+              switching scan state never changes the icon's box (which would
+              nudge the whole row). */}
+          <span className={`settings__spin${scanning ? " settings__spin--on" : ""}`}>
             <RefreshIcon />
           </span>
         </button>
