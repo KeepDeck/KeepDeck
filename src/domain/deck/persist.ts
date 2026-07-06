@@ -1,8 +1,6 @@
 import type { DeckState } from "./reducer";
 import type { Pane, PaneProvisioning, PaneSession } from "./panes";
 import { resolveFocus } from "./panes";
-import type { WorkspaceRun } from "./workspaceRun";
-import { readWorkspaceRun } from "./workspaceRun";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "../agents";
@@ -53,7 +51,6 @@ interface PersistedWorkspace {
   cwd: string;
   worktreeBaseDir: string | null;
   setup?: string;
-  run?: WorkspaceRun;
   plugins?: Record<string, unknown>;
   panes: PersistedPane[];
 }
@@ -111,7 +108,6 @@ export function serializeDeck(
       worktreeBaseDir: ws.worktreeBaseDir,
       // Core field, sparse like plugins: an empty command never hits disk.
       ...(ws.setup !== undefined && ws.setup !== "" && { setup: ws.setup }),
-      ...(ws.run !== undefined && { run: ws.run }),
       // Sparse: an empty bag (the last slot just got deleted) never hits disk.
       ...(ws.plugins !== undefined &&
         Object.keys(ws.plugins).length > 0 && { plugins: ws.plugins }),
@@ -231,7 +227,6 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "cwd",
   "worktreeBaseDir",
   "setup",
-  "run",
   "plugins",
   "panes",
 ]);
@@ -290,11 +285,6 @@ function readWorkspace(value: unknown): Workspace | null {
   if (typeof value.setup === "string" && value.setup.trim() !== "") {
     ws.setup = value.setup;
   }
-  // Parsed unconditionally — the run-presets experiment flag gates UI entry
-  // points, never stored data: a deck saved with the flag on must survive a
-  // load-and-save with it off. Malformed → the workspace just has no config.
-  const run = readWorkspaceRun(value.run);
-  if (run) ws.run = run;
   // Parsed unconditionally too, like `run` — a plugin's slot must survive a
   // load-and-save even while the plugin system experiment is off.
   const plugins = readWorkspacePlugins(value.plugins);

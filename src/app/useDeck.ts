@@ -7,7 +7,6 @@ import {
   type PaneHead,
   type PaneSession,
   type Workspace,
-  type WorkspaceRun,
 } from "../domain/deck";
 
 /** The deck surface the application hooks drive (state + bound actions). */
@@ -71,8 +70,6 @@ export function useDeck() {
       dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
     setPaneProvisioningPhase: (wsId: string, paneId: string, phase: "setup") =>
       dispatch({ type: "setPaneProvisioningPhase", wsId, paneId, phase }),
-    setWorkspaceRun: (id: string, run: WorkspaceRun) =>
-      dispatch({ type: "setWorkspaceRun", id, run }),
     setWorkspacePluginSlot: (wsId: string, pluginId: string, value: unknown) =>
       dispatch({ type: "setWorkspacePluginSlot", wsId, pluginId, value }),
   };

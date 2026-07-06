@@ -291,51 +291,6 @@ describe("provisioning panes across a restart", () => {
   });
 });
 
-describe("run presets round-trip", () => {
-  const runState: DeckState = {
-    workspaces: [
-      {
-        id: "ws-1",
-        name: "app",
-        cwd: "/repo",
-        worktreeBaseDir: null,
-        run: {
-          setup: "pnpm i",
-          presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }],
-        },
-        panes: [{ id: "pane-1", cwd: "/repo/wt-1", branch: "kd/app/1" }],
-      },
-    ],
-    activeId: "ws-1",
-    focusByWs: {},
-    selectByWs: {},
-    dockByWs: {},
-  };
-
-  it("persists and restores the workspace config", () => {
-    // Flag-agnostic by design: a deck saved with the experiment on must
-    // survive a load-and-save with it off, so hydration always parses run.
-    const restored = okDeck(serializeDeck(runState));
-    expect(restored.state.workspaces[0].run).toEqual(runState.workspaces[0].run);
-  });
-
-  it("a workspace without run config stays without one (sparse)", () => {
-    const bare: DeckState = {
-      ...runState,
-      workspaces: [{ ...runState.workspaces[0], run: undefined, panes: [] }],
-    };
-    expect(serializeDeck(bare)).not.toContain('"run"');
-    expect(okDeck(serializeDeck(bare)).state.workspaces[0].run).toBeUndefined();
-  });
-
-  it("degrades a malformed run value without rejecting the deck", () => {
-    const doc = JSON.parse(serializeDeck(runState));
-    doc.workspaces[0].run = { presets: "not a list" };
-    const restored = okDeck(JSON.stringify(doc));
-    expect(restored.state.workspaces[0].run).toBeUndefined();
-  });
-});
-
 describe("workspace plugin slots round-trip", () => {
   const pluginState: DeckState = {
     workspaces: [
@@ -438,7 +393,7 @@ describe("deck v5 — Workspace.run retirement", () => {
     expect(ws.plugins).toEqual({
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
     });
-    expect(ws.run).toBeUndefined();
+    expect("run" in ws).toBe(false);
   });
 
   it("run stays gone after a save round-trip", () => {
@@ -462,7 +417,7 @@ describe("deck v5 — Workspace.run retirement", () => {
     const restored = okDeck(JSON.stringify(doc));
     expect(restored.state.workspaces[0].setup).toBe("pnpm i");
     expect(restored.state.workspaces[0].plugins).toBeUndefined();
-    expect(restored.state.workspaces[0].run).toBeUndefined();
+    expect("run" in restored.state.workspaces[0]).toBe(false);
   });
 
   it("a v4 doc with only presets migrates the plugin slot alone, no setup set", () => {
@@ -497,7 +452,7 @@ describe("deck v5 — Workspace.run retirement", () => {
     };
     const restored = okDeck(JSON.stringify(doc));
     expect(restored.state.workspaces[0].setup).toBeUndefined();
-    expect(restored.state.workspaces[0].run).toBeUndefined();
+    expect("run" in restored.state.workspaces[0]).toBe(false);
     expect(restored.state.workspaces[0].plugins).toBeUndefined();
   });
 
@@ -526,7 +481,7 @@ describe("deck v5 — Workspace.run retirement", () => {
     expect(restored.state.workspaces[0].plugins).toEqual({
       "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
     });
-    expect(restored.state.workspaces[0].run).toBeUndefined();
+    expect("run" in restored.state.workspaces[0]).toBe(false);
   });
 
   it("setup round-trips through serializeDeck/hydrateDeck", () => {
@@ -675,7 +630,7 @@ describe("schema revisions and the compatibility floor", () => {
     };
     const restored = okDeck(JSON.stringify(v1));
     expect(restored.state.workspaces[0].panes[0].dormant).toBe(true);
-    expect(restored.state.workspaces[0].run).toBeUndefined();
+    expect("run" in restored.state.workspaces[0]).toBe(false);
   });
 
   it("round-trips a NEWER revision's unknown fields at every level", () => {

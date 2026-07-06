@@ -18,7 +18,6 @@ import {
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setWorkspacePluginSlot,
-  setWorkspaceRun,
   worktreeCwds,
   worktreeTargets,
   type Workspace,
@@ -503,31 +502,6 @@ describe("parentDir", () => {
     expect(parentDir("kd-a-2")).toBe("");
     expect(parentDir("/kd-a-2")).toBe("");
     expect(parentDir("/")).toBe("");
-  });
-});
-
-describe("setWorkspaceRun", () => {
-  it("replaces only the target workspace's config", () => {
-    const run = { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] };
-    const after = setWorkspaceRun([ws("a", []), ws("b", [])], "a", run);
-    expect(after[0].run).toEqual(run);
-    expect(after[1].run).toBeUndefined();
-  });
-
-  it("drops the field entirely when the config empties (sparse persist)", () => {
-    const seeded = setWorkspaceRun([ws("a", [])], "a", {
-      presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }],
-    });
-    const cleared = setWorkspaceRun(seeded, "a", { presets: [] });
-    expect("run" in cleared[0]).toBe(false);
-  });
-
-  it("keeps the field while a setup command remains", () => {
-    const after = setWorkspaceRun([ws("a", [])], "a", {
-      presets: [],
-      setup: "pnpm i",
-    });
-    expect(after[0].run).toEqual({ presets: [], setup: "pnpm i" });
   });
 });
 

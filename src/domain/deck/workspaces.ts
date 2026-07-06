@@ -4,7 +4,6 @@ import {
   type Occupancy,
   type PathProbe,
 } from "../agents";
-import type { WorkspaceRun } from "./workspaceRun";
 import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
@@ -40,10 +39,6 @@ export interface Workspace {
    * whether that plugin is installed. Failure surfaces on the provisioning
    * card like any other create-time failure. */
   setup?: string;
-  /** Launch presets + the one-time worktree setup command (experimental).
-   * Lives here — not in its own document — so deleting the workspace deletes
-   * its run config structurally, like the panes. */
-  run?: WorkspaceRun;
   /** Per-plugin persisted state, one opaque slot per plugin id. The slot's
    * CONTENT is the owning plugin's business — never inspected here, like an
    * unknown `agentType` below the persistence boundary — only the bag SHAPE
@@ -129,29 +124,10 @@ export function worktreeTargets(ws: Workspace, paneId?: string): WorktreeTarget[
   );
 }
 
-/** Replace one workspace's run configuration (preset saved/removed, setup
- * edited); an empty config (no presets, no setup) drops the field so the
- * persisted document stays sparse. */
-export function setWorkspaceRun(
-  workspaces: Workspace[],
-  id: string,
-  run: WorkspaceRun,
-): Workspace[] {
-  const empty = run.presets.length === 0 && run.setup === undefined;
-  return workspaces.map((ws) => {
-    if (ws.id !== id) return ws;
-    if (empty) {
-      const { run: _gone, ...rest } = ws;
-      return rest;
-    }
-    return { ...ws, run };
-  });
-}
-
 /** Set (or, via `undefined`, delete) one plugin's opaque persisted slot in a
  * workspace's plugin bag. The slot's CONTENT is never inspected here — only
- * the bag shape is ours (mirrors `setWorkspaceRun`'s treatment of its own
- * sub-schema). Deleting the last slot drops the whole bag so the persisted
+ * the bag shape is ours (the slot content is opaque, only the
+ * bag shape is ours). Deleting the last slot drops the whole bag so the persisted
  * document stays sparse, like an emptied `run`. Returns the SAME array when
  * nothing actually changes — deleting an already-absent slot, or setting a
  * slot to the value it already holds — so a resubmit from the host-rendered
