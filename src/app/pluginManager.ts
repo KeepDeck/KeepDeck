@@ -176,18 +176,20 @@ export const pluginHost = new PluginHost(
       }),
     },
     isEnabled: (pluginId) => {
+      // Every plugin is OFF until the user turns it on — nothing activates on
+      // its own (user decision). Enabling is stored in settings; a plugin is
+      // active only for an explicit stored `true`.
       const stored = getSettings()?.plugins.enabled[pluginId];
+      if (stored !== true) return false;
       const external = externalPlugins.get(pluginId);
       if (external) {
-        // External plugins are OFF until the user explicitly enables them
-        // (consent), and stay off if the consented capabilities no longer
-        // match the installed ones (an update escalated its access).
-        if (stored !== true) return false;
+        // External plugins additionally need CURRENT consent: an update that
+        // escalated capabilities no longer matches the recorded fingerprint,
+        // so it drops back to off until the user consents again.
         const consented = getSettings()?.plugins.consented[pluginId];
         return consented === capabilityFingerprint(external.manifest);
       }
-      // A built-in defaults ON — it ships with the app, already trusted.
-      return stored ?? true;
+      return true;
     },
     onEnabledChanged: (pluginId, enabled) => {
       const plugins = getSettings()?.plugins ?? {
@@ -226,7 +228,7 @@ export const pluginHost = new PluginHost(
  * in lockstep with what's installed as external. */
 const externalPlugins = new Map<
   string,
-  { manifest: PluginManifest; dev: boolean }
+  { manifest: PluginManifest; dev: boolean; sig: string }
 >();
 
 /** External-plugin facts the settings UI needs: whether an id is external
@@ -283,14 +285,13 @@ export function bootstrapPlugins(): Promise<void> {
  * what's on disk — the manual "Rescan" (KeepDeck does not watch the folder,
  * by decision). A container that appeared installs (disabled until consent, or
  * activating if already consented); one that vanished is uninstalled (its
- * realms and sessions die, its stored data survives); a container still
- * present is reinstalled so its bytes reload (a replaced/updated plugin picks
- * up its new code — and its new capabilities re-gate consent). Built-ins are
- * untouched. Returns after the reconcile has settled.
+ * realms and sessions die, its stored data survives); one whose manifest
+ * changed reloads (new code, and new capabilities re-gate consent). A plugin
+ * that DIDN'T change is left completely alone — a no-op rescan touches
+ * nothing, so it never churns the UI. Built-ins are untouched.
  */
 export async function rescanPlugins(): Promise<void> {
-  await syncExternalPlugins();
-  await pluginHost.activateAll();
+  if (await syncExternalPlugins()) await pluginHost.activateAll();
 }
 
 /** Restart one installed plugin (Settings → Plugins). External plugins reload
@@ -299,41 +300,65 @@ export async function restartPlugin(pluginId: string): Promise<void> {
   await pluginHost.restart(pluginId);
 }
 
-/** Reconcile installed external plugins to the scan: uninstall the gone,
- * (re)install every scanned one so replaced containers reload. Idempotent —
- * both boot and Rescan call it. Does NOT activate; the caller does. */
-async function syncExternalPlugins(): Promise<void> {
+/**
+ * Reconcile installed external plugins to the scan by DIFF — uninstall the
+ * gone, install the new, reload only those whose manifest changed, and touch
+ * nothing else. Returns whether anything changed (so the caller can skip a
+ * needless `activateAll`). Idempotent; both boot and Rescan call it.
+ *
+ * A dev plugin whose CODE changed but whose manifest didn't is deliberately
+ * not reloaded here (the signature is the manifest) — use its Restart for
+ * that; a folder rescan shouldn't restart every dev plugin on every click.
+ */
+async function syncExternalPlugins(): Promise<boolean> {
   let records: Awaited<ReturnType<typeof scanPlugins>>;
   try {
     records = await scanPlugins();
   } catch (e) {
     log.warn("web:plugins", `plugin scan failed: ${describeError(e)}`);
-    return;
+    return false;
   }
 
-  // Forget every currently-installed external plugin — the scan is the whole
-  // truth. Stored enabled/consent state lives in settings, so a reinstall of
-  // an unchanged plugin lands in exactly the same state.
-  for (const id of [...externalPlugins.keys()]) {
-    externalPlugins.delete(id);
-    await pluginHost.uninstall(id);
-  }
-
+  // What's on disk now, first-id-wins (dev over archive is the scan's order).
+  const scanned = new Map<
+    string,
+    { manifest: PluginManifest; dev: boolean; sig: string }
+  >();
   for (const record of records) {
     const manifest = validate(record.dirName, safeJson(record.manifestJson));
-    if (!manifest) continue;
-    // First id wins (dev over archive is already the scan's order); a later
-    // duplicate is dropped by the host, so keep the map in sync with that.
-    if (externalPlugins.has(manifest.id)) continue;
-    externalPlugins.set(manifest.id, {
+    if (!manifest || scanned.has(manifest.id)) continue;
+    scanned.set(manifest.id, {
       manifest,
       dev: record.source === "dev",
+      sig: JSON.stringify(manifest),
     });
+  }
+
+  let changed = false;
+
+  // Gone: installed external ids no longer on disk.
+  for (const id of [...externalPlugins.keys()]) {
+    if (!scanned.has(id)) {
+      externalPlugins.delete(id);
+      await pluginHost.uninstall(id);
+      changed = true;
+    }
+  }
+
+  // New or changed: install fresh, reload on a manifest change, skip unchanged.
+  for (const [id, next] of scanned) {
+    const current = externalPlugins.get(id);
+    if (current && current.sig === next.sig) continue; // unchanged — leave it
+    if (current) await pluginHost.uninstall(id); // changed — reload its code
+    externalPlugins.set(id, next);
     pluginHost.install(
-      { manifest, load: async () => makeExternalPlugin(manifest) },
+      { manifest: next.manifest, load: async () => makeExternalPlugin(next.manifest) },
       "external",
     );
+    changed = true;
   }
+
+  return changed;
 }
 
 function safeJson(text: string): unknown {

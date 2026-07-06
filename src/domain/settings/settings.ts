@@ -181,17 +181,22 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   // default check correctly treat an all-empty bag as sparse (unwritten).
   if (plugins) settings.plugins = plugins;
   // Settings v5 graduation: the retired run-presets experiment flag maps onto
-  // the Run plugin's enabled toggle — but only an EXPLICIT "off" carries over,
-  // and only while the plugins bag has no say of its own. The key is consumed
-  // (KNOWN_RETIRED), never an extra: rewriting it forever would re-apply the
-  // mapping after the user re-enables the plugin.
+  // the Run plugin's enabled toggle so a user's prior state carries across the
+  // transition — someone who had the experiment ON keeps Run on (plugins now
+  // default OFF, so without this they'd lose it), and an explicit OFF stays
+  // off. Only applied while the plugins bag has no say of its own, and the key
+  // is consumed (KNOWN_KEYS), never re-written — rewriting it forever would
+  // re-apply the mapping after the user later toggles the plugin.
   if (
-    doc.experimentRunPresets === false &&
+    typeof doc.experimentRunPresets === "boolean" &&
     settings.plugins.enabled["keepdeck.run"] === undefined
   ) {
     settings.plugins = {
       ...settings.plugins,
-      enabled: { ...settings.plugins.enabled, "keepdeck.run": false },
+      enabled: {
+        ...settings.plugins.enabled,
+        "keepdeck.run": doc.experimentRunPresets,
+      },
     };
   }
 

@@ -53,11 +53,16 @@ describe("hydrateSettings", () => {
     expect(serializeSettings(doc!)).not.toContain("experimentRunPresets");
   });
 
-  it("v5 graduation: a stored true (or an absent flag) leaves the plugin default-on", () => {
-    for (const stored of [{ experimentRunPresets: true }, {}]) {
-      const doc = hydrateSettings(JSON.stringify(stored));
-      expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBeUndefined();
-    }
+  it("v5 graduation: a stored true enables the Run plugin (preserves prior state)", () => {
+    // Plugins default OFF, so an experiment-ON user's Run must be carried
+    // over explicitly or it would vanish.
+    const doc = hydrateSettings(JSON.stringify({ experimentRunPresets: true }));
+    expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBe(true);
+  });
+
+  it("v5 graduation: an absent flag leaves the Run plugin unset (default off)", () => {
+    const doc = hydrateSettings(JSON.stringify({}));
+    expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBeUndefined();
   });
 
   it("v5 graduation: an explicit plugins.enabled entry outranks the retired flag", () => {
