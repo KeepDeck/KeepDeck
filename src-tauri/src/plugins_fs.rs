@@ -82,10 +82,6 @@ pub struct InstalledPluginRecord {
     /// how every lookup here turns a record back into a real path.
     pub dir_name: String,
     pub manifest_json: String,
-    /// Whether the plugin ships a `main.js` entry (the fixed convention name).
-    /// The webview can't stat the plugin's files, so the scan reports it:
-    /// present -> the host boots a logic realm; absent -> pure UI, no realm.
-    pub has_main: bool,
     /// Which of the two shapes this plugin is. Dev folders are always
     /// `Dev` by definition (see module docs); a `.kdplugin` file is
     /// `Archive` — it only appears here once it has passed
@@ -497,7 +493,6 @@ fn scan_archives(root: &Path) -> Vec<InstalledPluginRecord> {
                 Ok(manifest_json) => Some(InstalledPluginRecord {
                     dir_name: file_name,
                     manifest_json,
-                    has_main: main_bundle_exists(&PluginSource::Archive(path.clone())),
                     source: PluginSourceKind::Archive,
                 }),
                 Err(e) => {
@@ -535,7 +530,6 @@ fn scan_dev_folders(root: &Path) -> Vec<InstalledPluginRecord> {
             Some(InstalledPluginRecord {
                 dir_name,
                 manifest_json: raw,
-                has_main: main_bundle_exists(&PluginSource::Dir(dir)),
                 source: PluginSourceKind::Dev,
             })
         })
@@ -578,7 +572,6 @@ fn resolve(root: &Path, id: &str) -> Option<InstalledPluginRecord> {
                 return Some(InstalledPluginRecord {
                     dir_name: name,
                     manifest_json: raw,
-                    has_main: main_bundle_exists(&PluginSource::Dir(path)),
                     source: PluginSourceKind::Dev,
                 });
             }
@@ -594,8 +587,7 @@ fn resolve(root: &Path, id: &str) -> Option<InstalledPluginRecord> {
                         return Some(InstalledPluginRecord {
                             dir_name: name,
                             manifest_json,
-                            has_main: main_bundle_exists(&PluginSource::Archive(path.clone())),
-                            source: PluginSourceKind::Archive,
+                                    source: PluginSourceKind::Archive,
                         });
                     }
                     Err(reason) => {
@@ -719,15 +711,12 @@ pub fn handle_request(
     let relative = request.uri().path().trim_start_matches('/');
 
     let body = if relative == MAIN_HTML_PATH {
-        // Reserved name (see `MAIN_HTML_PATH`): synthesized when the plugin
-        // actually ships `main.js`, 404 otherwise. The wrapper is a fixed
-        // literal (no plugin input in its markup); only the existence of the
-        // entry is consulted, through the same guarded read every asset uses.
-        if main_bundle_exists(&source) {
-            MAIN_HTML_BODY.to_vec()
-        } else {
-            return respond(window_origin, StatusCode::NOT_FOUND, None, None, Vec::new());
-        }
+        // Reserved name (see `MAIN_HTML_PATH`): the fixed wrapper that loads
+        // the plugin's `main.js`. Every plugin ships one (code is the point of
+        // a plugin), so this is unconditional; the markup is a literal with no
+        // plugin input. A plugin missing its `main.js` fails when the module
+        // 404s inside the realm, not here.
+        MAIN_HTML_BODY.to_vec()
     } else {
         match read_relative(&source, host, relative) {
             Ok(bytes) => bytes,
@@ -745,21 +734,6 @@ pub fn handle_request(
         Some(&content_type),
         body,
     )
-}
-
-/// Whether the plugin ships its `main.js` entry — a guarded, content-free
-/// existence check (never a full read) of the FIXED entry name. For a `Dir`
-/// it runs through [`safe_lookup`], so a symlink escaping the folder counts
-/// as absent; for an `Archive` it's a zip name lookup, which can't escape the
-/// file. Decides whether the plugin has a logic realm at all.
-fn main_bundle_exists(source: &PluginSource) -> bool {
-    match source {
-        PluginSource::Dir(dir) => matches!(safe_lookup(dir, MAIN_JS), Lookup::Found(_)),
-        PluginSource::Archive(path) => fs::File::open(path)
-            .ok()
-            .and_then(|f| ZipArchive::new(f).ok())
-            .is_some_and(|mut a| a.by_name(MAIN_JS).is_ok()),
-    }
 }
 
 /// Bytes at `relative` inside `source`, or the status to fail the request
@@ -1123,21 +1097,6 @@ mod tests {
         assert_eq!(found.len(), 2);
         assert_eq!(found[0].dir_name, "alpha");
         assert_eq!(found[1].dir_name, "zeta");
-    }
-
-    #[test]
-    fn scan_reports_has_main_by_the_presence_of_main_js() {
-        let root = temp_root();
-        write(&root.join("withlogic/manifest.json"), &manifest("a.withlogic"));
-        write(&root.join("withlogic/main.js"), "export default 1;");
-        write(&root.join("pureui/manifest.json"), &manifest("b.pureui"));
-
-        let found = scan(&root);
-
-        let with = found.iter().find(|r| r.dir_name == "withlogic").unwrap();
-        let pure = found.iter().find(|r| r.dir_name == "pureui").unwrap();
-        assert!(with.has_main, "a plugin shipping main.js has a logic realm");
-        assert!(!pure.has_main, "a plugin without main.js is pure UI");
     }
 
     #[test]
@@ -1743,21 +1702,6 @@ mod tests {
     }
 
     #[test]
-    fn main_html_404s_when_no_main_js() {
-        let root = temp_root();
-        write(&root.join("demo/manifest.json"), &manifest("demo.plugin"));
-        // No main.js -> pure UI, no realm.
-
-        let resp = handle_request(
-            Some(&root),
-            "tauri://localhost",
-            &get("kdplugin://demo.plugin/__main__.html"),
-        );
-
-        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-    }
-
-    #[test]
     fn main_html_shadows_a_shipped_one() {
         let root = temp_root();
         write(&root.join("demo/manifest.json"), &manifest("demo.plugin"));
@@ -1773,27 +1717,6 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(resp.body(), MAIN_HTML_BODY);
-    }
-
-    #[test]
-    fn main_js_via_a_symlink_out_of_a_dev_folder_is_not_treated_as_present() {
-        let root = temp_root();
-        write(&root.join("secret.js"), "SECRET");
-        write(&root.join("demo/manifest.json"), &manifest("demo.plugin"));
-        // A symlinked main.js escaping the folder must count as ABSENT
-        // (main_bundle_exists routes Dir through safe_lookup) -> 404, no realm.
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(root.join("secret.js"), root.join("demo/main.js"))
-            .unwrap();
-        #[cfg(unix)]
-        {
-            let resp = handle_request(
-                Some(&root),
-                "tauri://localhost",
-                &get("kdplugin://demo.plugin/__main__.html"),
-            );
-            assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-        }
     }
 
     // ---- Cache-Control ----

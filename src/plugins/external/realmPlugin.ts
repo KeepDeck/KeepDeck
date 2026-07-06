@@ -49,7 +49,6 @@ const ACTIVATION_TIMEOUT_MS = 15_000;
  */
 export function makeExternalPlugin(
   manifest: PluginManifest,
-  hasMain: boolean,
   dom: RealmDom = domRealm,
   activationTimeoutMs = ACTIVATION_TIMEOUT_MS,
 ): KeepDeckPlugin {
@@ -64,8 +63,6 @@ export function makeExternalPlugin(
           iframe: `${tab.id}.html`,
         });
       }
-      if (!hasMain) return;
-
       const channel = new MessageChannel();
       const bridge = createHostBridge(channel.port1, ctx);
       // The whole boot is bounded, not just the post-load handshake: a

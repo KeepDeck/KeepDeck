@@ -33,20 +33,7 @@ const withTabs = (id: string) =>
   });
 
 describe("makeExternalPlugin", () => {
-  it("pure-UI: registers the manifest's iframe tabs and opens no realm", async () => {
-    const host = createFakeHost();
-    const { dom, opened } = fakeRealm();
-    const plugin = makeExternalPlugin(withTabs("dev.pure"), false, dom);
-
-    await plugin.activate(host.ctx);
-
-    expect(opened).toEqual([]);
-    expect(host.dockTabs).toEqual([
-      { id: "panel", label: "Panel", iframe: "panel.html" },
-    ]);
-  });
-
-  it("with a main bundle: boots the realm, the guest activates over RPC", async () => {
+  it("boots the realm, registers declarative tabs, and the guest activates over RPC", async () => {
     const host = createFakeHost();
     const guest: KeepDeckPlugin = {
       activate(ctx) {
@@ -54,12 +41,14 @@ describe("makeExternalPlugin", () => {
       },
     };
     const { dom, close, opened } = fakeRealm(guest);
-    const plugin = makeExternalPlugin(withTabs("dev.logic"), true, dom);
+    const plugin = makeExternalPlugin(withTabs("dev.logic"), dom);
 
     await plugin.activate(host.ctx);
 
     expect(opened).toEqual(["kdplugin://dev.logic/__main__.html"]);
-    expect(host.dockTabs).toHaveLength(1); // declarative, host-side
+    expect(host.dockTabs).toEqual([
+      { id: "panel", label: "Panel", iframe: "panel.html" }, // declarative
+    ]);
     expect(host.topBarActions.map((a) => a.id)).toEqual(["go"]); // via RPC
     expect(close).not.toHaveBeenCalled();
 
@@ -75,7 +64,7 @@ describe("makeExternalPlugin", () => {
       },
     };
     const { dom, close } = fakeRealm(guest);
-    const plugin = makeExternalPlugin(fakeManifest("dev.bad"), true, dom);
+    const plugin = makeExternalPlugin(fakeManifest("dev.bad"), dom);
 
     await expect(plugin.activate(host.ctx)).rejects.toThrow("guest exploded");
     expect(close).toHaveBeenCalledTimes(1);
@@ -85,12 +74,7 @@ describe("makeExternalPlugin", () => {
     const host = createFakeHost();
     // openRealm never resolves — a wedged kdplugin:// read / a swallowed nav.
     const dom: RealmDom = { openRealm: () => new Promise(() => {}) };
-    const plugin = makeExternalPlugin(
-      fakeManifest("dev.wedged"),
-      true,
-      dom,
-      30,
-    );
+    const plugin = makeExternalPlugin(fakeManifest("dev.wedged"), dom, 30);
     await expect(plugin.activate(host.ctx)).rejects.toThrow(
       "document did not load within 30ms",
     );
@@ -99,7 +83,7 @@ describe("makeExternalPlugin", () => {
   it("a realm that never connects fails by timeout and closes", async () => {
     const host = createFakeHost();
     const { dom, close } = fakeRealm(); // no guest: the port dangles
-    const plugin = makeExternalPlugin(fakeManifest("dev.hung"), true, dom, 30);
+    const plugin = makeExternalPlugin(fakeManifest("dev.hung"), dom, 30);
 
     await expect(plugin.activate(host.ctx)).rejects.toThrow(
       "did not activate within 30ms",

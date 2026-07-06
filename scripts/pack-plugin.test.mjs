@@ -30,6 +30,7 @@ let dir;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "kdplugin-src-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify(MANIFEST));
+  writeFileSync(join(dir, "main.js"), "export default 1;");
   writeFileSync(join(dir, "demo.html"), "<!doctype html><p>demo</p>");
   mkdirSync(join(dir, "assets"));
   writeFileSync(join(dir, "assets", "a.css"), "p{}");
@@ -56,6 +57,7 @@ describe("validatePluginDir", () => {
     expect(files.map((f) => f.rel)).toEqual([
       "assets/a.css",
       "demo.html",
+      "main.js",
       "manifest.json",
     ]);
   });
@@ -73,10 +75,9 @@ describe("validatePluginDir", () => {
     expect(message).toContain("container.json: reserved");
   });
 
-  it("packs a main.js entry like any other file — no field to declare", () => {
-    writeFileSync(join(dir, "main.js"), "export default 1;");
-    const { files } = validatePluginDir(dir);
-    expect(files.some((f) => f.rel === "main.js")).toBe(true);
+  it("requires main.js — a plugin is code", () => {
+    rmSync(join(dir, "main.js"));
+    expect(() => validatePluginDir(dir)).toThrow(/main.js: required/);
   });
 
   it("rejects a manifest the strict validator refuses", () => {

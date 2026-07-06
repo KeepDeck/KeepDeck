@@ -66,9 +66,12 @@ export function validatePluginDir(dir) {
       problems.push(`contributes.dockTabs["${tab.id}"]: missing ${tab.id}.html`);
     }
   }
-  // The entry bundle needs no validation: `main.js` at the root is the fixed
-  // convention (no manifest field), packed like any other file when present;
-  // a tree without one is simply a pure-UI plugin.
+  // Every plugin is code: its entry is `main.js` at the root (fixed
+  // convention, no manifest field). A tree without one would install but
+  // never activate — the realm's module 404s — so catch it here.
+  if (manifest && !files.some((f) => f.rel === "main.js")) {
+    problems.push("main.js: required at the plugin root (the entry the realm runs)");
+  }
 
   for (const f of files) {
     if (RESERVED.has(f.rel)) {
