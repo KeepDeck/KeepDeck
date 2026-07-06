@@ -31,7 +31,6 @@ describe("hydrateSettings", () => {
         version: 1,
         defaultAgent: "codex",
         scrollback: 50_000,
-        experimentRunPresets: true,
         plugins: {
           enabled: { git: true },
           values: { git: { remote: "origin" } },
@@ -41,18 +40,34 @@ describe("hydrateSettings", () => {
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
-      experimentRunPresets: true,
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } } },
     });
   });
 
-  it("a non-boolean experiment flag degrades to off", () => {
-    // Experiments must be opted into explicitly — truthy garbage ("yes", 1)
-    // from a hand edit stays off rather than enabling one by accident.
-    for (const junk of ["yes", 1, null, {}]) {
-      const doc = hydrateSettings(JSON.stringify({ experimentRunPresets: junk }));
-      expect(doc?.settings.experimentRunPresets).toBe(false);
+  it("v5 graduation: an explicit experimentRunPresets=false disables the Run plugin", () => {
+    const doc = hydrateSettings(JSON.stringify({ experimentRunPresets: false }));
+    expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBe(false);
+    // Consumed, not an extra: the retired key must not be rewritten forever.
+    expect(doc?.extras).toEqual({});
+    // And not re-emitted on save.
+    expect(serializeSettings(doc!)).not.toContain("experimentRunPresets");
+  });
+
+  it("v5 graduation: a stored true (or an absent flag) leaves the plugin default-on", () => {
+    for (const stored of [{ experimentRunPresets: true }, {}]) {
+      const doc = hydrateSettings(JSON.stringify(stored));
+      expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBeUndefined();
     }
+  });
+
+  it("v5 graduation: an explicit plugins.enabled entry outranks the retired flag", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({
+        experimentRunPresets: false,
+        plugins: { enabled: { "keepdeck.run": true } },
+      }),
+    );
+    expect(doc?.settings.plugins.enabled["keepdeck.run"]).toBe(true);
   });
 
   it("a malformed value degrades ONLY its own key", () => {
@@ -182,7 +197,6 @@ describe("serializeSettings", () => {
     const doc = defaultSettingsDocument();
     doc.settings.defaultAgent = "opencode";
     doc.settings.scrollback = 42_000;
-    doc.settings.experimentRunPresets = true;
     expect(hydrateSettings(serializeSettings(doc))).toEqual(doc);
   });
 });

@@ -36,12 +36,6 @@ export interface Settings {
   defaultAgent: AgentType;
   /** Scrollback lines kept per terminal pane. */
   scrollback: number;
-  /** Experiment: run presets — launch the app under development in a pane.
-   * A flat boolean (not a nested experiments object) so it rides the per-key
-   * hydration and sparse serialization unchanged; generalize into a registry
-   * only when a few more experiments exist. Read at the UI entry points
-   * only — the layers beneath are flag-agnostic. */
-  experimentRunPresets: boolean;
   /** Per-plugin persisted settings, keyed by plugin id. The plugin system
    * itself is not a flag — it simply exists (user decision); `enabled` is
    * each plugin's own on/off switch, `values` is what a plugin's
@@ -57,7 +51,6 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
   scrollback: 10_000,
-  experimentRunPresets: false,
   plugins: { enabled: {}, values: {} },
 };
 
@@ -78,10 +71,12 @@ export function defaultSettingsDocument(): SettingsDocument {
   return { settings: { ...DEFAULT_SETTINGS }, extras: {} };
 }
 
-/** `version` plus every key `Settings` owns — everything else is an extra. */
+/** `version` plus every key `Settings` owns, plus retired keys we still
+ * consume (a retired key riding extras would be rewritten forever). */
 const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "version",
   "minVersion",
+  "experimentRunPresets",
   ...Object.keys(DEFAULT_SETTINGS),
 ]);
 
@@ -163,15 +158,26 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   if (typeof doc.scrollback === "number" && Number.isFinite(doc.scrollback)) {
     settings.scrollback = clampScrollback(doc.scrollback);
   }
-  if (typeof doc.experimentRunPresets === "boolean") {
-    settings.experimentRunPresets = doc.experimentRunPresets;
-  }
   const plugins = readPlugins(doc.plugins);
   // Only replace the default's object reference when there's genuinely
   // something to keep — otherwise `settings.plugins` stays pointing at
   // `DEFAULT_SETTINGS.plugins`, which is what lets serialization's `!==`
   // default check correctly treat an all-empty bag as sparse (unwritten).
   if (plugins) settings.plugins = plugins;
+  // Settings v5 graduation: the retired run-presets experiment flag maps onto
+  // the Run plugin's enabled toggle — but only an EXPLICIT "off" carries over,
+  // and only while the plugins bag has no say of its own. The key is consumed
+  // (KNOWN_RETIRED), never an extra: rewriting it forever would re-apply the
+  // mapping after the user re-enables the plugin.
+  if (
+    doc.experimentRunPresets === false &&
+    settings.plugins.enabled["keepdeck.run"] === undefined
+  ) {
+    settings.plugins = {
+      ...settings.plugins,
+      enabled: { ...settings.plugins.enabled, "keepdeck.run": false },
+    };
+  }
 
   const extras: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(doc)) {
