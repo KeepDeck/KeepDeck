@@ -1,5 +1,5 @@
 import type { AgentType } from "../agents";
-import { FALLBACK_AGENTS } from "../agents";
+import { AGENT_TYPES } from "../agents";
 
 /**
  * Global app settings ([F6]) — schema, serialization and hydration.
@@ -85,11 +85,6 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   "experimentRunPresets",
   ...Object.keys(DEFAULT_SETTINGS),
 ]);
-
-/** The settable agent ids, derived from the one TS catalog (mirrors the
- * derivation in persist.ts — a hand-kept list would silently miss a newly
- * added agent). */
-const AGENT_TYPES: readonly AgentType[] = FALLBACK_AGENTS.map((a) => a.id);
 
 /** Clamp a raw scrollback to a sane whole number of lines. */
 export function clampScrollback(value: number): number {

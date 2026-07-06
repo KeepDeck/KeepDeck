@@ -4,7 +4,7 @@ import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "../agents";
-import { FALLBACK_AGENTS } from "../agents";
+import { AGENT_TYPES } from "../agents";
 import { MAX_PANES } from "./layout";
 
 /**
@@ -224,11 +224,6 @@ function collectExtras(
   }
   return extras;
 }
-
-/** The restorable agent ids, derived from the one TS catalog — a hand-kept
- * copy here compiled clean while missing a newly added agent, silently
- * degrading its restored panes to the default. */
-const AGENT_TYPES: readonly AgentType[] = FALLBACK_AGENTS.map((a) => a.id);
 
 function readWorkspace(value: unknown): Workspace | null {
   if (!isRecord(value)) return null;

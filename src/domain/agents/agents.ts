@@ -29,6 +29,12 @@ export const FALLBACK_AGENTS: AgentInfo[] = [
   { id: "codex", label: "Codex", command: "codex", installed: true, path: null, resumePrefix: ["resume"] },
 ];
 
+/** The persistable agent ids, derived from the one catalog. Persistence codecs
+ *  validate a stored `agentType`/`defaultAgent` against this allow-list; keeping
+ *  it derived means a hand-kept copy can't compile clean while silently missing
+ *  a newly added agent (which would degrade its restored panes to the default). */
+export const AGENT_TYPES: readonly AgentType[] = FALLBACK_AGENTS.map((a) => a.id);
+
 /** Normalize a catalog response: a non-empty list passes through; anything empty
  *  falls back to the static catalog so the UI always has something to offer. */
 export function normalizeAgents(raw: AgentInfo[] | null | undefined): AgentInfo[] {
