@@ -40,17 +40,28 @@ export function createHostSessions(
 
   return {
     async spawn(opts) {
-      // `onEvent` reads `sessionId` lazily. The contract makes `spawn` async
-      // precisely so the id exists before events flow: the backend only calls
-      // `onEvent` after it has resolved the handle (and the result has crossed
-      // back to the guest), so the empty-string seed is never observed on the
-      // wire.
-      let sessionId = "";
-      const onEvent = (event: PluginSessionEvent) =>
-        push(sessionChannel(sessionId), toWire(event));
+      // The backend can emit `output` BEFORE `spawn` resolves the id — the
+      // Rust side holds the event channel from t0 (see ipc/session.ts), so a
+      // PTY that echoes immediately fires `onEvent` while the id is still
+      // unknown. Those early events are BUFFERED here and flushed, in order,
+      // once the id exists; addressing them to `session:""` (or dropping them)
+      // would silently lose a program's opening output. postMessage is FIFO,
+      // so flushing after the `{id}` result has been queued means the guest
+      // has registered its listener before the buffered events arrive.
+      let sessionId: string | null = null;
+      const buffer: PluginSessionEvent[] = [];
+      const onEvent = (event: PluginSessionEvent) => {
+        // Before the id is known, hold events; once known, address them to the
+        // real `session:<id>` channel (never `session:""`). The GUEST buffers
+        // per id until its handle registers, so wire ordering vs the `{id}`
+        // result is irrelevant — no early output is ever dropped.
+        if (sessionId === null) buffer.push(event);
+        else push(sessionChannel(sessionId), toWire(event));
+      };
       const handle = await ctx.services.sessions.spawn(opts, onEvent);
       sessionId = handle.id;
       handles.set(sessionId, handle);
+      for (const event of buffer) push(sessionChannel(sessionId), toWire(event));
       return { id: sessionId };
     },
     write(id, data) {

@@ -82,6 +82,20 @@ describe("makeExternalPlugin", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it("a realm whose document never loads fails by the open timeout", async () => {
+    const host = createFakeHost();
+    // openRealm never resolves — a wedged kdplugin:// read / a swallowed nav.
+    const dom: RealmDom = { openRealm: () => new Promise(() => {}) };
+    const plugin = makeExternalPlugin(
+      fakeManifest("dev.wedged", { logic: "logic.js" }),
+      dom,
+      30,
+    );
+    await expect(plugin.activate(host.ctx)).rejects.toThrow(
+      "document did not load within 30ms",
+    );
+  });
+
   it("a realm that never connects fails by timeout and closes", async () => {
     const host = createFakeHost();
     const { dom, close } = fakeRealm(); // no guest: the port dangles

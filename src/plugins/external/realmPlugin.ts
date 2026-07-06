@@ -67,8 +67,15 @@ export function makeExternalPlugin(
 
       const channel = new MessageChannel();
       const bridge = createHostBridge(channel.port1, ctx);
-      const realm = await dom.openRealm(
-        externalPluginUrl(manifest.id, "__logic__.html"),
+      // The whole boot is bounded, not just the post-load handshake: a
+      // `kdplugin://` document that never fires load/error (a wedged read, a
+      // navigation the sandbox swallows) would otherwise leave `openRealm`
+      // pending forever, wedging the plugin's `activating` flag with no
+      // escape but disable. One deadline covers open + activate.
+      const realm = await withTimeout(
+        dom.openRealm(externalPluginUrl(manifest.id, "__logic__.html")),
+        activationTimeoutMs,
+        `logic realm document did not load within ${activationTimeoutMs}ms`,
       );
       try {
         realm.post(channel.port2);

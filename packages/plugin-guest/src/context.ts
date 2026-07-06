@@ -48,6 +48,11 @@ export function buildGuestContext(
   // callbacks. Sessions and actions need per-id routing, so they get their own.
   const channelListeners = new Map<string, Set<(payload: unknown) => void>>();
   const sessionListeners = new Map<string, (event: PluginSessionEvent) => void>();
+  // Session output can arrive before the `spawn` result installs the handle's
+  // listener (the backend emits early; the host addresses it by the real id).
+  // Hold such events per id and flush them the instant the listener registers,
+  // so a program's opening output is never dropped in that window.
+  const sessionBuffers = new Map<string, PluginSessionEvent[]>();
   const actionCallbacks = new Map<string, (target?: unknown) => void>();
   let nextRegId = 1;
 
@@ -218,6 +223,12 @@ export function buildGuestContext(
           (rpc.call("services.sessions.spawn", [opts]) as Promise<{ id: string }>).then(
             ({ id }) => {
               sessionListeners.set(id, onEvent);
+              // Flush anything that arrived before this listener existed.
+              const buffered = sessionBuffers.get(id);
+              if (buffered) {
+                sessionBuffers.delete(id);
+                for (const event of buffered) onEvent(event);
+              }
               return {
                 id,
                 write: (data) =>
@@ -256,8 +267,17 @@ export function buildGuestContext(
 
   function dispatchEvent(channel: string, payload: unknown): void {
     if (channel.startsWith("session:")) {
-      const onEvent = sessionListeners.get(channel.slice("session:".length));
-      if (onEvent) onEvent(rehydrateSessionEvent(payload));
+      const id = channel.slice("session:".length);
+      const event = rehydrateSessionEvent(payload);
+      const onEvent = sessionListeners.get(id);
+      if (onEvent) {
+        onEvent(event);
+      } else {
+        // The handle isn't registered yet — buffer until spawn's result does.
+        const buffer = sessionBuffers.get(id) ?? [];
+        buffer.push(event);
+        sessionBuffers.set(id, buffer);
+      }
       return;
     }
     if (channel.startsWith("action:")) {

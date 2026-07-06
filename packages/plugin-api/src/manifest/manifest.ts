@@ -61,6 +61,10 @@ const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
  * header. Deliberately excludes schemes, paths, and any separator/whitespace. */
 const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/i;
 
+/** A contribution id — a plain token safe as both a URL path component and a
+ * registry key. No dots/slashes/whitespace. */
+const CONTRIB_ID = /^[a-zA-Z0-9_-]+$/;
+
 /**
  * Validate an untrusted manifest value. Collects EVERY problem instead of
  * stopping at the first — a plugin author fixes the whole list in one round.
@@ -236,6 +240,16 @@ function readSummaries(
       !entry.label.trim()
     ) {
       errors.push(`contributes.${key}[${i}]: needs string "id" and "label"`);
+      return;
+    }
+    // A contribution id is used as a URL path component (an external dock
+    // tab's `<id>.html` document) and as a registry key, so it must be a
+    // plain token — no slashes, dots, or whitespace that could address a
+    // different path under the plugin's origin.
+    if (!CONTRIB_ID.test(entry.id)) {
+      errors.push(
+        `contributes.${key}[${i}]: id "${entry.id}" must be alphanumerics, "-" or "_" only`,
+      );
       return;
     }
     read.push({ id: entry.id, label: entry.label });

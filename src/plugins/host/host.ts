@@ -146,10 +146,8 @@ export class PluginHost {
       await plugin.activate(ctx);
       if (wasDisabledMidFlight(entry) || this.entries.get(id) !== entry) {
         // Disabled OR uninstalled while load()/activate were in flight —
-        // committing would resurrect what the user just removed.
-        // The user disabled the plugin while `load()`/`activate` were in
-        // flight — committing would silently overrule that. Unwind the fresh
-        // activation and leave the disable in force.
+        // committing would resurrect what the user just removed. Unwind the
+        // fresh activation and leave the removal in force.
         if (plugin.deactivate) {
           try {
             await plugin.deactivate();
@@ -160,17 +158,27 @@ export class PluginHost {
           }
         }
         disposeAll();
-        return;
+      } else {
+        entry.plugin = plugin;
+        entry.disposeAll = disposeAll;
+        entry.status = { kind: "active" };
+        this.notify();
       }
-      entry.plugin = plugin;
-      entry.disposeAll = disposeAll;
-      entry.status = { kind: "active" };
-      this.notify();
     } catch (error) {
       disposeAll();
       this.fail(entry, describeError(error));
     } finally {
       entry.activating = false;
+    }
+
+    // A re-enable that landed DURING the unwind above (its `activate` no-op'd
+    // on the `activating` guard) leaves the entry `registered` (enabled) but
+    // inactive. Now that the guard is clear, honor it — the plugin the user
+    // last asked to be on gets activated. Terminal either way (active/failed),
+    // so this settles, it doesn't loop.
+    const settled = this.entries.get(id);
+    if (settled === entry && settled.status.kind === "registered") {
+      await this.activate(id);
     }
   }
 

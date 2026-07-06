@@ -110,6 +110,25 @@ describe("createHostBridge", () => {
     expect(inbox).toEqual([{ kind: "init", manifest }]);
   });
 
+  it("answers a second `ready` with nothing — init happens once", async () => {
+    const { inbox, send } = driver(makeStub().ctx);
+    send({ kind: "ready" });
+    send({ kind: "ready" });
+    await flush();
+    // Exactly one init: a re-driven guest can't multiply its registrations.
+    expect(inbox.filter((m) => m.kind === "init")).toHaveLength(1);
+  });
+
+  it("rejects an Object.prototype path — the unknown-method guard holds", async () => {
+    const { ctx } = makeStub();
+    const { send, results } = driver(ctx);
+    for (const path of ["constructor", "__proto__", "toString"]) {
+      send({ kind: "call", id: 1, path, args: [] });
+    }
+    await flush();
+    expect(results().every((r) => r.ok === false)).toBe(true);
+  });
+
   it("answers an unknown path with ok:false and keeps serving", async () => {
     const { ctx, infos } = makeStub();
     const { send, results } = driver(ctx);

@@ -43,6 +43,10 @@ export function createHostBridge(
   // them (a disposed bridge will never post their real result).
   const inFlight = new Set<number>();
   let disposed = false;
+  // A guest gets exactly one `init` — a second `ready` (a buggy or hostile
+  // realm re-driving its own activation) is ignored, so it can't build N
+  // contexts and inflate the host's registries with duplicate contributions.
+  let inited = false;
 
   let settleActivated: (result: PromiseSettledResult<void>) => void = () => {};
   const activated = new Promise<void>((resolve, reject) => {
@@ -67,7 +71,9 @@ export function createHostBridge(
     const message = event.data as GuestToHostMessage;
     switch (message.kind) {
       case "ready":
-        // The guest is up; hand it the manifest it activates against.
+        // The guest is up; hand it the manifest it activates against — once.
+        if (inited) return;
+        inited = true;
         port.postMessage({ kind: "init", manifest: ctx.manifest });
         return;
       case "call":

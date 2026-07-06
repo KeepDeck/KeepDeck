@@ -111,6 +111,23 @@ describe("readManifest", () => {
     }
   });
 
+  it("rejects a contribution id that isn't a path-safe token", () => {
+    // A dock-tab id becomes `<id>.html` in the iframe URL — slashes, dots,
+    // and whitespace could address a different path under the plugin origin.
+    for (const bad of ["../foo", "a/b", "a.b", "a b", "tab!"]) {
+      const result = readManifest({
+        ...GOLDEN,
+        contributes: { dockTabs: [{ id: bad, label: "X" }] },
+      });
+      expect(result.ok, bad).toBe(false);
+    }
+    const ok = readManifest({
+      ...GOLDEN,
+      contributes: { dockTabs: [{ id: "my-tab_2", label: "X" }] },
+    });
+    expect(ok.ok).toBe(true);
+  });
+
   it("rejects contribution entries without id or label", () => {
     const result = readManifest({
       ...GOLDEN,

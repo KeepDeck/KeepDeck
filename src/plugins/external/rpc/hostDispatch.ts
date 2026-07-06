@@ -160,8 +160,13 @@ export function createHostDispatch(
 
   return {
     async call(path, args) {
+      // `hasOwn`, not a truthiness test on `handlers[path]`: a bare object's
+      // inherited members (`constructor`, `__proto__`, `toString`) are truthy
+      // and callable, so a guest calling path `"constructor"` would otherwise
+      // slip past the unknown-method guard.
+      if (!Object.prototype.hasOwnProperty.call(handlers, path))
+        throw new Error(`unknown method: ${path}`);
       const handler = handlers[path];
-      if (!handler) throw new Error(`unknown method: ${path}`);
       // `await` lets a promise-returning member resolve while a synchronous one
       // (a registration) has already run its side effect by this point.
       return await handler(args);

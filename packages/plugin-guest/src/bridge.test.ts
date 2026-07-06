@@ -201,6 +201,30 @@ describe("external plugin bridge", () => {
     expect(host.sessions[0].closed).toBe(1);
   });
 
+  it("delivers output the backend emits before spawn resolves — no early loss", async () => {
+    // A host whose spawn fires onEvent BEFORE it returns the handle — exactly
+    // the Rust PTY that echoes immediately, before the id crosses back.
+    const host = createFakeHost();
+    const base = host.ctx.services.sessions.spawn;
+    host.ctx.services.sessions.spawn = (opts, onEvent) => {
+      onEvent({ type: "output", bytes: new Uint8Array([9, 9]) }); // pre-id
+      return base(opts, onEvent);
+    };
+    const { ctxReady } = wireCapturingCtx(host);
+    const ctx = await ctxReady;
+
+    const events: PluginSessionEvent[] = [];
+    await ctx.services.sessions.spawn({ cols: 80, rows: 24 }, (e) =>
+      events.push(e),
+    );
+    await flush();
+
+    // The pre-id event survived host-side and guest-side buffering.
+    const first = events[0];
+    expect(first?.type).toBe("output");
+    if (first?.type === "output") expect(Array.from(first.bytes)).toEqual([9, 9]);
+  });
+
   it("closes still-open session handles when the bridge is disposed", async () => {
     const { host, bridge, ctxReady } = wireCapturingCtx();
     const ctx = await ctxReady;

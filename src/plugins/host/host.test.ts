@@ -304,6 +304,40 @@ describe("PluginHost", () => {
     expect(deps.onEnabledChanged).toHaveBeenCalledWith("p", false);
   });
 
+  it("a re-enable during the unwind reactivates, not left enabled-but-dead", async () => {
+    const { registries, host } = hostWithRegistries();
+    let releaseLoad!: (p: KeepDeckPlugin) => void;
+    const loadGate = new Promise<KeepDeckPlugin>((r) => {
+      releaseLoad = r;
+    });
+    // deactivate parks the unwind so a re-enable can land mid-teardown.
+    let releaseDeact!: () => void;
+    let deactEntered!: () => void;
+    const entered = new Promise<void>((r) => {
+      deactEntered = r;
+    });
+    const deactGate = new Promise<void>((r) => {
+      releaseDeact = r;
+    });
+    const deactivate = vi.fn(() => {
+      deactEntered();
+      return deactGate;
+    });
+
+    host.install({ manifest: manifest("p"), load: () => loadGate }, "builtin");
+    const activation = host.activate("p");
+    await host.setEnabled("p", false); // disable while load() is in flight
+    releaseLoad(registrar(deactivate)); // flight resumes → unwind → awaits deactivate
+    await entered; // the unwind is now parked inside deactivate()
+    await host.setEnabled("p", true); // re-enable DURING the unwind
+    releaseDeact(); // let the unwind finish
+    await activation;
+
+    // The reconcile after the flight settles must honor the re-enable.
+    expect(statusOf(host, "p")).toEqual({ kind: "active" });
+    expect(tabOwners(registries)).toEqual(["p"]);
+  });
+
   it("concurrent activations load once and register once", async () => {
     const { registries, host } = hostWithRegistries();
     let release!: (plugin: KeepDeckPlugin) => void;
