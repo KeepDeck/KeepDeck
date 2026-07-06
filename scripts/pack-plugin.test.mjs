@@ -73,6 +73,16 @@ describe("validatePluginDir", () => {
     expect(message).toContain("container.json: reserved");
   });
 
+  it("rejects a declared logic bundle that is not in the tree", () => {
+    writeFileSync(
+      join(dir, "manifest.json"),
+      JSON.stringify({ ...MANIFEST, logic: "logic.js" }),
+    );
+    expect(() => validatePluginDir(dir)).toThrow(/logic: declared bundle/);
+    writeFileSync(join(dir, "logic.js"), "export default 1;");
+    expect(validatePluginDir(dir).manifest.logic).toBe("logic.js");
+  });
+
   it("rejects a manifest the strict validator refuses", () => {
     writeFileSync(
       join(dir, "manifest.json"),

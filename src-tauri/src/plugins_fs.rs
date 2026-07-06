@@ -82,10 +82,6 @@ pub struct InstalledPluginRecord {
     /// how every lookup here turns a record back into a real path.
     pub dir_name: String,
     pub manifest_json: String,
-    /// Whether the plugin ships a `logic.js` — the TS host only boots a
-    /// logic realm (hidden iframe + RPC bridge) when there is logic to run;
-    /// a pure-UI plugin renders its declared tabs and nothing else.
-    pub has_logic: bool,
     /// Which of the two shapes this plugin is. Dev folders are always
     /// `Dev` by definition (see module docs); a `.kdplugin` file is
     /// `Archive` — it only appears here once it has passed
@@ -455,16 +451,11 @@ fn scan_archives(root: &Path) -> Vec<InstalledPluginRecord> {
         .into_iter()
         .filter_map(|(file_name, path)| match validate_archive(&path) {
             Ok(manifest_bytes) => match String::from_utf8(manifest_bytes) {
-                Ok(manifest_json) => {
-                    let has_logic =
-                        PluginSource::Archive(path.clone()).read("logic.js").is_some();
-                    Some(InstalledPluginRecord {
-                        dir_name: file_name,
-                        manifest_json,
-                        has_logic,
-                        source: PluginSourceKind::Archive,
-                    })
-                }
+                Ok(manifest_json) => Some(InstalledPluginRecord {
+                    dir_name: file_name,
+                    manifest_json,
+                    source: PluginSourceKind::Archive,
+                }),
                 Err(e) => {
                     log::warn!("plugins scan: {file_name}: manifest.json is not valid UTF-8 ({e})");
                     None
@@ -511,7 +502,6 @@ fn scan_dev_folders(root: &Path) -> Vec<InstalledPluginRecord> {
             Some(InstalledPluginRecord {
                 dir_name,
                 manifest_json: raw,
-                has_logic: dir.join("logic.js").is_file(),
                 source: PluginSourceKind::Dev,
             })
         })
@@ -585,23 +575,56 @@ fn safe_lookup(root: &Path, relative: &str) -> Lookup {
 }
 
 /// The reserved document path a plugin's logic realm boots from — see
-/// [`LOGIC_HTML_BODY`]. NEVER read from the plugin's own source, even if it
+/// [`logic_html_body`]. NEVER read from the plugin's own source, even if it
 /// ships an entry at this exact name: [`handle_request`] intercepts it
 /// before either `PluginSource` variant is consulted, so a shipped
 /// `__logic__.html` is silently shadowed. Reserving one path name is a far
 /// smaller surface than teaching every plugin author to avoid a magic file.
 const LOGIC_HTML_PATH: &str = "__logic__.html";
 
-/// The synthesized `__logic__.html` body. A plugin ships only `logic.js`
-/// (its self-contained ESM bundle for the logic realm, per
-/// `docs/plugin-container.md`) — this is the minimal same-origin HTML
-/// document the host needs in order to load that script as a module and
-/// boot the logic realm inside it, so plugin authors never have to hand-
-/// write a boilerplate wrapper. `/logic.js` is root-relative so it resolves
-/// under the plugin's own `kdplugin://<id>` origin regardless of request
-/// path depth.
-const LOGIC_HTML_BODY: &[u8] =
-    b"<!doctype html><meta charset=\"utf-8\"><script type=\"module\" src=\"/logic.js\"></script>";
+/// The synthesized `__logic__.html` body for a plugin whose manifest
+/// declares a `logic` bundle — the minimal same-origin HTML document the
+/// host needs in order to load that bundle as a module and boot the logic
+/// realm inside it, so plugin authors never hand-write a boilerplate
+/// wrapper. The src is root-relative so it resolves under the plugin's own
+/// `kdplugin://<id>` origin regardless of request path depth.
+///
+/// The path is embedded into markup, so it is re-checked against the same
+/// plain-segment grammar the TS validator enforces (`readManifest`) — a dev
+/// folder's manifest reaches this handler WITHOUT having passed TS
+/// validation, and an attribute-breaking path must die here, not render.
+fn logic_html_body(logic_path: &str) -> Option<Vec<u8>> {
+    let plain = !logic_path.is_empty()
+        && !logic_path.starts_with('/')
+        && !logic_path.contains('\\')
+        && logic_path
+            .split('/')
+            .all(|seg| {
+                !seg.is_empty()
+                    && seg != "."
+                    && seg != ".."
+                    && seg
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+            });
+    if !plain {
+        return None;
+    }
+    Some(
+        format!(
+            "<!doctype html><meta charset=\"utf-8\"><script type=\"module\" src=\"/{logic_path}\"></script>"
+        )
+        .into_bytes(),
+    )
+}
+
+/// The manifest's declared logic bundle path, if any — the field that
+/// decides whether a logic realm exists at all (see
+/// `packages/plugin-api/src/manifest/manifest.ts`, the schema's owner).
+fn manifest_logic(manifest_json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(manifest_json).ok()?;
+    value.get("logic")?.as_str().map(str::to_owned)
+}
 
 /// Handle one `kdplugin://<plugin-id>/<path>` request. Pure and synchronous
 /// so it's unit-testable without a running Tauri app; `lib.rs`'s
@@ -643,11 +666,15 @@ pub fn handle_request(
     let relative = request.uri().path().trim_start_matches('/');
 
     let body = if relative == LOGIC_HTML_PATH {
-        // Reserved name (see `LOGIC_HTML_PATH`): synthesized whenever the
-        // plugin ships `logic.js`, 404 otherwise — never read from the
-        // plugin itself, so a shipped `__logic__.html` never surfaces.
-        match source.read("logic.js") {
-            Some(_) => LOGIC_HTML_BODY.to_vec(),
+        // Reserved name (see `LOGIC_HTML_PATH`): synthesized when the
+        // manifest declares a logic bundle that actually exists, 404
+        // otherwise — never read from the plugin itself, so a shipped
+        // `__logic__.html` never surfaces.
+        let synthesized = manifest_logic(&record.manifest_json)
+            .filter(|logic| source.read(logic).is_some())
+            .and_then(|logic| logic_html_body(&logic));
+        match synthesized {
+            Some(bytes) => bytes,
             None => {
                 return respond(window_origin, StatusCode::NOT_FOUND, None, None, Vec::new())
             }
@@ -818,6 +845,12 @@ mod tests {
 
     fn manifest(id: &str) -> String {
         format!(r#"{{"id":"{id}","name":"n","version":"0.0.1","minApiVersion":"0.0.1","capabilities":[]}}"#)
+    }
+
+    fn manifest_with_logic(id: &str, logic: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","name":"n","version":"0.0.1","minApiVersion":"0.0.1","capabilities":[],"logic":"{logic}"}}"#
+        )
     }
 
     /// Build a `.kdplugin` at `path` from `(name, content)` entries, STORED
@@ -1527,7 +1560,10 @@ mod tests {
     #[test]
     fn logic_html_is_synthesized_when_logic_js_exists_dev() {
         let root = temp_root();
-        write(&root.join("demo/manifest.json"), &manifest("demo.plugin"));
+        write(
+            &root.join("demo/manifest.json"),
+            &manifest_with_logic("demo.plugin", "logic.js"),
+        );
         write(&root.join("demo/logic.js"), "export default 1;");
 
         let resp = handle_request(
@@ -1538,13 +1574,19 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(resp.headers().get(header::CONTENT_TYPE).unwrap(), "text/html");
-        assert_eq!(resp.body(), LOGIC_HTML_BODY);
+        assert_eq!(resp.body(), &logic_html_body("logic.js").unwrap());
     }
 
     #[test]
     fn logic_html_is_synthesized_when_logic_js_exists_archive() {
         let root = temp_root();
         let mut entries = valid_container_entries("demo.archive");
+        // Replace the manifest with one declaring the bundle, add the bundle.
+        entries.retain(|(name, _)| name != "manifest.json");
+        entries.push((
+            "manifest.json".to_string(),
+            manifest_with_logic("demo.archive", "logic.js").into_bytes(),
+        ));
         entries.push(("logic.js".to_string(), b"export default 1;".to_vec()));
         write_container(&root.join("demo.kdplugin"), &entries);
 
@@ -1555,13 +1597,15 @@ mod tests {
         );
 
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(resp.body(), LOGIC_HTML_BODY);
+        assert_eq!(resp.body(), &logic_html_body("logic.js").unwrap());
     }
 
     #[test]
-    fn logic_html_404s_when_there_is_no_logic_js() {
+    fn logic_html_404s_when_the_manifest_declares_no_logic() {
         let root = temp_root();
         write(&root.join("demo/manifest.json"), &manifest("demo.plugin"));
+        // Even a present file doesn't count — the manifest is the contract.
+        write(&root.join("demo/logic.js"), "export default 1;");
 
         let resp = handle_request(
             Some(&root),
@@ -1575,7 +1619,10 @@ mod tests {
     #[test]
     fn logic_html_shadows_a_shipped_one() {
         let root = temp_root();
-        write(&root.join("demo/manifest.json"), &manifest("demo.plugin"));
+        write(
+            &root.join("demo/manifest.json"),
+            &manifest_with_logic("demo.plugin", "logic.js"),
+        );
         write(&root.join("demo/logic.js"), "export default 1;");
         write(&root.join("demo/__logic__.html"), "<html>REAL, SHIPPED</html>");
 
@@ -1586,7 +1633,36 @@ mod tests {
         );
 
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(resp.body(), LOGIC_HTML_BODY);
+        assert_eq!(resp.body(), &logic_html_body("logic.js").unwrap());
+    }
+
+    #[test]
+    fn logic_html_404s_when_the_declared_bundle_is_missing_or_hostile() {
+        let root = temp_root();
+        // Declared but absent file.
+        write(
+            &root.join("gone/manifest.json"),
+            &manifest_with_logic("demo.gone", "logic.js"),
+        );
+        let resp = handle_request(
+            Some(&root),
+            "tauri://localhost",
+            &get("kdplugin://demo.gone/__logic__.html"),
+        );
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // An attribute-breaking path must die at the grammar check, not
+        // render into markup (dev manifests bypass TS validation).
+        write(
+            &root.join("evil/manifest.json"),
+            r#"{"id":"demo.evil","logic":"a\"><script>x</script>.js"}"#,
+        );
+        let resp = handle_request(
+            Some(&root),
+            "tauri://localhost",
+            &get("kdplugin://demo.evil/__logic__.html"),
+        );
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     // ---- Cache-Control ----

@@ -66,6 +66,11 @@ export function validatePluginDir(dir) {
       problems.push(`contributes.dockTabs["${tab.id}"]: missing ${tab.id}.html`);
     }
   }
+  // Same for the declared logic bundle — the manifest is the contract, the
+  // reader synthesizes the realm's document from this exact path.
+  if (manifest?.logic && !files.some((f) => f.rel === manifest.logic)) {
+    problems.push(`logic: declared bundle "${manifest.logic}" is not in the tree`);
+  }
 
   for (const f of files) {
     if (RESERVED.has(f.rel)) {

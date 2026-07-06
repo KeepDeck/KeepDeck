@@ -60,7 +60,10 @@ export interface FakeSession {
   emit(event: PluginSessionEvent): void;
 }
 
-export function fakeManifest(id = "dev.example"): PluginManifest {
+export function fakeManifest(
+  id = "dev.example",
+  overrides: Partial<PluginManifest> = {},
+): PluginManifest {
   return {
     id,
     name: id,
@@ -68,6 +71,7 @@ export function fakeManifest(id = "dev.example"): PluginManifest {
     minApiVersion: "0.0.1",
     capabilities: [],
     contributes: {},
+    ...overrides,
   };
 }
 
