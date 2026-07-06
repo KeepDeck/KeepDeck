@@ -1,5 +1,6 @@
 import type { PluginKV } from "@keepdeck/plugin-api";
 import type { Workspace } from "../domain/deck";
+import { isRecord } from "../domain/json";
 
 /**
  * The deck-backed workspace KV behind `ctx.storage.workspace(wsId)`. A
@@ -70,8 +71,4 @@ export function makeGlobalKvStub(
       throw new Error("plugin global storage is not implemented yet");
     },
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

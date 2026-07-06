@@ -23,6 +23,8 @@
  * shape-changing step slots in beside them.
  */
 
+import { isRecord } from "../json";
+
 type RawDoc = Record<string, unknown>;
 type Migration = (doc: RawDoc) => RawDoc;
 
@@ -88,23 +90,19 @@ function migrateDeckFromV4toV5(doc: RawDoc): RawDoc {
 }
 
 function migrateWorkspaceRunToV5(value: unknown): unknown {
-  if (!isRawRecord(value)) return value;
+  if (!isRecord(value)) return value;
   const { run, ...rest } = value;
-  if (!isRawRecord(run)) return value; // no run object: untouched
+  if (!isRecord(run)) return value; // no run object: untouched
 
   const next: RawDoc = { ...rest };
   if (typeof run.setup === "string" && run.setup.trim() !== "") {
     next.setup = run.setup;
   }
   if (Array.isArray(run.presets) && run.presets.length > 0) {
-    const plugins = isRawRecord(rest.plugins) ? { ...rest.plugins } : {};
+    const plugins = isRecord(rest.plugins) ? { ...rest.plugins } : {};
     next.plugins = { ...plugins, [RUN_PLUGIN_ID]: { presets: run.presets } };
   }
   return next;
-}
-
-function isRawRecord(value: unknown): value is RawDoc {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const DECK_MIGRATIONS: Record<number, Migration> = {

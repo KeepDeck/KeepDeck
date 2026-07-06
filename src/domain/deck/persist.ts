@@ -5,6 +5,7 @@ import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "../agents";
 import { AGENT_TYPES } from "../agents";
+import { isRecord } from "../json";
 import { MAX_PANES } from "./layout";
 
 /**
@@ -346,8 +347,4 @@ function maxSeq(ids: string[], prefix: string): number {
     if (m) max = Math.max(max, Number(m[1]));
   }
   return max;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

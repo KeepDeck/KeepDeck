@@ -1,5 +1,6 @@
 import type { AgentType } from "../agents";
 import { AGENT_TYPES } from "../agents";
+import { isRecord } from "../json";
 
 /**
  * Global app settings ([F6]) — schema, serialization and hydration.
@@ -135,9 +136,6 @@ function readPlugins(value: unknown): Settings["plugins"] | null {
   return { enabled, values, consented };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * Restore settings from stored JSON. Returns `null` only for a document that
