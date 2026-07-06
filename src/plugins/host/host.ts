@@ -144,7 +144,9 @@ export class PluginHost {
     try {
       const plugin = await entry.load();
       await plugin.activate(ctx);
-      if (wasDisabledMidFlight(entry)) {
+      if (wasDisabledMidFlight(entry) || this.entries.get(id) !== entry) {
+        // Disabled OR uninstalled while load()/activate were in flight —
+        // committing would resurrect what the user just removed.
         // The user disabled the plugin while `load()`/`activate` were in
         // flight — committing would silently overrule that. Unwind the fresh
         // activation and leave the disable in force.
@@ -206,6 +208,35 @@ export class PluginHost {
       this.deps.onEnabledChanged?.(id, false);
       this.notify();
     }
+  }
+
+  /**
+   * Forget a plugin entirely — the runtime unload behind a rescan that found
+   * its file gone, or an explicit uninstall. Tears an active instance down
+   * first; the entry leaves the map, so a later install of the same id is a
+   * fresh registration. Persisted data (workspace slots, settings values)
+   * deliberately survives — reinstalling must not start from amnesia.
+   */
+  async uninstall(id: string): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry) return;
+    if (entry.status.kind === "active") await this.teardown(entry);
+    this.entries.delete(id);
+    this.notify();
+  }
+
+  /**
+   * Deactivate and activate again — the runtime restart. For external
+   * plugins the loader hands out realm-backed instances, so a restart is a
+   * full code reload; a BUILT-IN restarts its state only (its code ships
+   * with the app bundle — new built-in code arrives with an app update).
+   * No-op unless currently active.
+   */
+  async restart(id: string): Promise<void> {
+    const entry = this.entries.get(id);
+    if (!entry || entry.status.kind !== "active") return;
+    await this.deactivate(id);
+    await this.activate(id);
   }
 
   /** The installed-plugins snapshot for the Experiments UI — stable between

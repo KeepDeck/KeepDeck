@@ -322,7 +322,59 @@ describe("PluginHost", () => {
     expect(tabOwners(registries)).toEqual(["p"]);
     expect(statusOf(host, "p")).toEqual({ kind: "active" });
   });
+  it("uninstall tears an active plugin down and forgets it", async () => {
+    const { registries, host } = hostWithRegistries();
+    const deactivate = vi.fn();
+    host.install(
+      { manifest: manifest("p"), load: async () => registrar(deactivate) },
+      "external",
+    );
+    await host.activate("p");
+
+    await host.uninstall("p");
+
+    expect(deactivate).toHaveBeenCalledTimes(1);
+    expect(allEmpty(registries)).toBe(true);
+    expect(statusOf(host, "p")).toBeUndefined();
+    // A later install of the same id is a fresh registration, not a dup.
+    host.install({ manifest: manifest("p"), load: async () => registrar() }, "external");
+    await host.activate("p");
+    expect(statusOf(host, "p")).toEqual({ kind: "active" });
+  });
+
+  it("a mid-flight uninstall wins over the activation — zero residue", async () => {
+    const { registries, host } = hostWithRegistries();
+    let release!: (plugin: KeepDeckPlugin) => void;
+    const gate = new Promise<KeepDeckPlugin>((r) => {
+      release = r;
+    });
+    host.install({ manifest: manifest("p"), load: () => gate }, "external");
+
+    const activation = host.activate("p");
+    await host.uninstall("p");
+    release(registrar());
+    await activation;
+
+    expect(statusOf(host, "p")).toBeUndefined();
+    expect(allEmpty(registries)).toBe(true);
+  });
+
+  it("restart reloads: teardown, then a fresh load and re-registration", async () => {
+    const { registries, host } = hostWithRegistries();
+    const deactivate = vi.fn();
+    const load = vi.fn(async () => registrar(deactivate));
+    host.install({ manifest: manifest("p"), load }, "builtin");
+    await host.activate("p");
+
+    await host.restart("p");
+
+    expect(deactivate).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(tabOwners(registries)).toEqual(["p"]);
+    expect(statusOf(host, "p")).toEqual({ kind: "active" });
+  });
 });
+
 
 /** Host + its registries + deps in one line, for tests that inspect all. */
 function hostWithRegistries() {
