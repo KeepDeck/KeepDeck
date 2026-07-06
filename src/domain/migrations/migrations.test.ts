@@ -58,6 +58,117 @@ describe("migrateDeck — revision ladder + compatibility floor", () => {
   });
 });
 
+describe("migrateDeck — v4 → v5: Workspace.run retirement", () => {
+  it("moves run.setup and run.presets to Workspace.setup and the run plugin's slot, dropping run", () => {
+    const out = migrateDeck({
+      version: 4,
+      workspaces: [
+        {
+          id: "ws-1",
+          run: {
+            setup: "pnpm i",
+            presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }],
+          },
+        },
+      ],
+    });
+    expect(out.kind).toBe("ok");
+    if (out.kind !== "ok") return;
+    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    expect(ws.setup).toBe("pnpm i");
+    expect(ws.plugins).toEqual({
+      "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+    });
+    expect(ws.run).toBeUndefined();
+  });
+
+  it("moves only setup when presets are empty, still dropping run", () => {
+    const out = migrateDeck({
+      version: 4,
+      workspaces: [{ id: "ws-1", run: { setup: "pnpm i", presets: [] } }],
+    });
+    if (out.kind !== "ok") throw new Error("expected ok");
+    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    expect(ws.setup).toBe("pnpm i");
+    expect(ws.plugins).toBeUndefined();
+    expect(ws.run).toBeUndefined();
+  });
+
+  it("moves only presets when setup is absent, still dropping run", () => {
+    const out = migrateDeck({
+      version: 4,
+      workspaces: [
+        {
+          id: "ws-1",
+          run: { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+        },
+      ],
+    });
+    if (out.kind !== "ok") throw new Error("expected ok");
+    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    expect(ws.setup).toBeUndefined();
+    expect(ws.plugins).toEqual({
+      "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+    });
+    expect(ws.run).toBeUndefined();
+  });
+
+  it("leaves a workspace without a run object untouched", () => {
+    const out = migrateDeck({
+      version: 4,
+      workspaces: [{ id: "ws-1", name: "x" }],
+    });
+    if (out.kind !== "ok") throw new Error("expected ok");
+    expect(out.doc.workspaces).toEqual([{ id: "ws-1", name: "x" }]);
+  });
+
+  it("overwrites a pre-existing keepdeck.run plugin slot with the migrated presets", () => {
+    const out = migrateDeck({
+      version: 4,
+      workspaces: [
+        {
+          id: "ws-1",
+          plugins: {
+            "keepdeck.run": { presets: [{ id: "old", name: "Old", command: "old cmd" }] },
+            other: { kept: true },
+          },
+          run: { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+        },
+      ],
+    });
+    if (out.kind !== "ok") throw new Error("expected ok");
+    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    expect(ws.plugins).toEqual({
+      other: { kept: true },
+      "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+    });
+  });
+
+  it("a v2-era document (pre-plugins) climbs the whole ladder to v5, migrating run along the way", () => {
+    const out = migrateDeck({
+      version: 2,
+      workspaces: [
+        {
+          id: "ws-1",
+          run: {
+            setup: "pnpm i",
+            presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }],
+          },
+        },
+      ],
+    });
+    expect(out.kind).toBe("ok");
+    if (out.kind !== "ok") return;
+    expect(out.doc.version).toBe(DECK_STATE_VERSION);
+    const ws = (out.doc.workspaces as Record<string, unknown>[])[0];
+    expect(ws.setup).toBe("pnpm i");
+    expect(ws.plugins).toEqual({
+      "keepdeck.run": { presets: [{ id: "run-1", name: "Dev", command: "pnpm dev" }] },
+    });
+    expect(ws.run).toBeUndefined();
+  });
+});
+
 describe("settingsFloorBreach", () => {
   it("admits anything at or below this build, and unmarked documents", () => {
     expect(settingsFloorBreach({ version: 1 })).toBeNull();

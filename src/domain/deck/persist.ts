@@ -52,6 +52,7 @@ interface PersistedWorkspace {
   name: string;
   cwd: string;
   worktreeBaseDir: string | null;
+  setup?: string;
   run?: WorkspaceRun;
   plugins?: Record<string, unknown>;
   panes: PersistedPane[];
@@ -108,6 +109,8 @@ export function serializeDeck(
       name: ws.name,
       cwd: ws.cwd,
       worktreeBaseDir: ws.worktreeBaseDir,
+      // Core field, sparse like plugins: an empty command never hits disk.
+      ...(ws.setup !== undefined && ws.setup !== "" && { setup: ws.setup }),
       ...(ws.run !== undefined && { run: ws.run }),
       // Sparse: an empty bag (the last slot just got deleted) never hits disk.
       ...(ws.plugins !== undefined &&
@@ -227,6 +230,7 @@ const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "name",
   "cwd",
   "worktreeBaseDir",
+  "setup",
   "run",
   "plugins",
   "panes",
@@ -281,6 +285,11 @@ function readWorkspace(value: unknown): Workspace | null {
     panes.push(pane);
   }
   const ws: Workspace = { id, name, cwd, worktreeBaseDir, panes };
+  // Tolerant like `run`'s own setup: a non-string or blank value degrades to
+  // absent rather than rejecting the workspace.
+  if (typeof value.setup === "string" && value.setup.trim() !== "") {
+    ws.setup = value.setup;
+  }
   // Parsed unconditionally — the run-presets experiment flag gates UI entry
   // points, never stored data: a deck saved with the flag on must survive a
   // load-and-save with it off. Malformed → the workspace just has no config.

@@ -34,6 +34,12 @@ export interface Workspace {
   /** Base folder holding this workspace's per-agent git worktrees; `null` when
    * agents run directly in `cwd` (no isolation). */
   worktreeBaseDir: string | null;
+  /** One-time worktree-preparation command (deps, .env copies), run once by
+   * core provisioning after `worktree_create`. A core field, not part of the
+   * Run plugin's config — the workspace needs it prepared regardless of
+   * whether that plugin is installed. Failure surfaces on the provisioning
+   * card like any other create-time failure. */
+  setup?: string;
   /** Launch presets + the one-time worktree setup command (experimental).
    * Lives here — not in its own document — so deleting the workspace deletes
    * its run config structurally, like the panes. */
