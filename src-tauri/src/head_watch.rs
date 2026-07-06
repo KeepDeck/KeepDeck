@@ -101,7 +101,11 @@ fn spawn_watcher(
 
 /// Watch one worktree's HEAD, emitting its current state right away.
 /// Idempotent per path: re-registering replaces (and stops) the old watcher.
-#[tauri::command]
+///
+/// `(async)` so the `git rev-parse` in `head::git_dir` runs on Tauri's worker
+/// pool — a deck with N worktree panes registers N watches on boot, and those
+/// serial subprocesses must not stall the main IPC thread.
+#[tauri::command(async)]
 pub fn worktree_watch(
     app: AppHandle,
     watchers: State<HeadWatchers>,
