@@ -46,8 +46,8 @@ describe("resolveDistRoot", () => {
 });
 
 describe("findPluginDirs", () => {
-  it("finds the real sample plugin under plugins/", () => {
-    expect(findPluginDirs("plugins")).toContain(join("plugins", "sample"));
+  it("finds the real run plugin under plugins/", () => {
+    expect(findPluginDirs("plugins")).toContain(join("plugins", "run"));
   });
 
   it("returns an empty list when the plugins root does not exist", () => {
@@ -56,9 +56,9 @@ describe("findPluginDirs", () => {
 });
 
 describe("findEntry", () => {
-  it("finds the sample plugin's src/index.tsx", () => {
-    expect(findEntry(join("plugins", "sample"))).toBe(
-      join("plugins", "sample", "src", "index.tsx"),
+  it("finds the run plugin's src/index.tsx", () => {
+    expect(findEntry(join("plugins", "run"))).toBe(
+      join("plugins", "run", "src", "index.tsx"),
     );
   });
 
@@ -74,10 +74,10 @@ describe("findEntry", () => {
 });
 
 describe("validateManifest", () => {
-  it("validates the real sample manifest", () => {
-    const manifest = validateManifest(join("plugins", "sample"));
-    expect(manifest.id).toBe("keepdeck.sample");
-    expect(manifest.contributes.dockTabs).toEqual([{ id: "sample", label: "Sample" }]);
+  it("validates the real run manifest", () => {
+    const manifest = validateManifest(join("plugins", "run"));
+    expect(manifest.id).toBe("keepdeck.run");
+    expect(manifest.contributes.dockTabs).toEqual([{ id: "run", label: "Run" }]);
   });
 
   it("fails loudly, listing every problem, for a malformed manifest", () => {
@@ -103,7 +103,7 @@ describe("validateManifest", () => {
   });
 });
 
-describe("build pipeline (e2e against the real plugins/sample)", () => {
+describe("build pipeline (e2e against the real plugins/run)", () => {
   let distRoot;
 
   beforeEach(() => {
@@ -114,15 +114,14 @@ describe("build pipeline (e2e against the real plugins/sample)", () => {
     rmSync(distRoot, { recursive: true, force: true });
   });
 
-  it("builds keepdeck.sample with externals kept bare, manifest copied, index.json deterministic", () => {
+  it("builds keepdeck.run with externals kept bare, manifest copied, index.json deterministic", () => {
     const out = execFileSync(process.execPath, [SCRIPT, "--out-dir", distRoot], {
       cwd: REPO_ROOT,
       encoding: "utf8",
     });
-    expect(out).toContain("built keepdeck.sample");
     expect(out).toContain("built keepdeck.run");
 
-    const bundlePath = join(distRoot, "plugins", "keepdeck.sample", "index.js");
+    const bundlePath = join(distRoot, "plugins", "keepdeck.run", "index.js");
     const bundle = readFileSync(bundlePath, "utf8");
 
     // The externals stayed bare specifiers — react and react/jsx-runtime were
@@ -137,25 +136,22 @@ describe("build pipeline (e2e against the real plugins/sample)", () => {
 
     // manifest.json copied byte-for-byte.
     const copiedManifest = readFileSync(
-      join(distRoot, "plugins", "keepdeck.sample", "manifest.json"),
+      join(distRoot, "plugins", "keepdeck.run", "manifest.json"),
       "utf8",
     );
     const sourceManifest = readFileSync(
-      join(REPO_ROOT, "plugins", "sample", "manifest.json"),
+      join(REPO_ROOT, "plugins", "run", "manifest.json"),
       "utf8",
     );
     expect(copiedManifest).toBe(sourceManifest);
 
     // index.json lists every built-in plugin, sorted by id, in the documented
-    // shape (keepdeck.run sorts before keepdeck.sample).
+    // shape.
     const index = JSON.parse(
       readFileSync(join(distRoot, "plugins", "index.json"), "utf8"),
     );
     expect(index).toEqual({
-      plugins: [
-        { id: "keepdeck.run", dir: "plugins/keepdeck.run" },
-        { id: "keepdeck.sample", dir: "plugins/keepdeck.sample" },
-      ],
+      plugins: [{ id: "keepdeck.run", dir: "plugins/keepdeck.run" }],
     });
   });
 
