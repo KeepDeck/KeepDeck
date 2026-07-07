@@ -209,7 +209,13 @@ impl SessionProvider for CodexProvider {
 
     fn latest(&self, dir: &Path, since: Option<SystemTime>) -> Option<SessionRef> {
         let wanted = cwd_candidates(dir);
-        // Newest-first day walk: the first cwd match is the most recent session.
+        // Track the highest-mtime cwd match across day dirs rather than returning
+        // on the first — a rollout's mtime can spill past midnight into a day
+        // AFTER the date dir it's filed under, so the most recent session isn't
+        // always in the newest day dir. The mtime break below keeps the extra
+        // day dirs cheap: once a match is found, an older day dir only pays for
+        // the files whose mtime still beats it (a straggler or two).
+        let mut best: Option<SessionRef> = None;
         for day in day_dirs_newest_first(&self.sessions)
             .into_iter()
             .take(CODEX_DAY_DIRS_LIMIT)
@@ -231,12 +237,18 @@ impl SessionProvider for CodexProvider {
                 .collect();
             files.sort_by(|a, b| b.0.cmp(&a.0));
             for (modified, path) in files {
+                // Files are newest-first; once they drop to/below the best match
+                // found so far, neither this day nor an older one can improve it.
+                if best.as_ref().map_or(false, |b| modified <= b.modified) {
+                    break;
+                }
                 if let Some(id) = codex_meta_id(&path, &wanted) {
-                    return Some(SessionRef { id, modified });
+                    best = Some(SessionRef { id, modified });
+                    break; // the newest match in this day dir
                 }
             }
         }
-        None
+        best
     }
 
     /// The id is embedded in the filename, so existence = "any rollout file
@@ -600,6 +612,33 @@ mod tests {
         assert_eq!(provider.exists("zzz", Path::new("/anywhere")), Presence::Present);
         assert_eq!(provider.exists("nope", Path::new("/anywhere")), Presence::Absent);
         assert_eq!(provider.exists("", Path::new("/anywhere")), Presence::Absent);
+    }
+
+    #[test]
+    fn codex_latest_prefers_higher_mtime_across_a_midnight_boundary() {
+        // A session filed under an OLDER date dir but still active past midnight
+        // carries a LATER mtime than a fresh session in the NEWER date dir. The
+        // newest by mtime must win, not the one in the newest day dir.
+        let sessions = temp_dir("codex-midnight");
+        let provider = CodexProvider {
+            sessions: sessions.clone(),
+        };
+        // Newer date dir, earlier mtime.
+        touch(
+            &sessions.join("2026/07/06/rollout-1-newday.jsonl"),
+            &codex_meta("newday", "/repo"),
+            at(1_000),
+        );
+        // Older date dir, LATER mtime — spilled past midnight.
+        touch(
+            &sessions.join("2026/07/05/rollout-2-straggler.jsonl"),
+            &codex_meta("straggler", "/repo"),
+            at(2_000),
+        );
+        assert_eq!(
+            provider.latest(Path::new("/repo"), None).unwrap().id,
+            "straggler",
+        );
     }
 
     #[cfg(unix)]
