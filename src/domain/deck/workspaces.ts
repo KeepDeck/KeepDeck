@@ -179,7 +179,10 @@ export function renamePane(
   );
 }
 
-/** Set a pane's auto title from the terminal (OSC title); empty clears it ([F11]). */
+/** Set a pane's auto title from the terminal (OSC title); empty clears it ([F11]).
+ * The terminal can emit the same title repeatedly, so an unchanged (or absent)
+ * pane returns the SAME array (no-op → no re-render), like the sibling pane
+ * transforms — the guard lives here, not in the reducer. */
 export function setPaneAutoTitle(
   workspaces: Workspace[],
   workspaceId: string,
@@ -187,6 +190,8 @@ export function setPaneAutoTitle(
   title: string,
 ): Workspace[] {
   const next = title.trim() || undefined;
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane || pane.autoTitle === next) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => (p.id === paneId ? { ...p, autoTitle: next } : p)),
   );

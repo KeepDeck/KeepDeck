@@ -197,6 +197,16 @@ describe("setPaneAutoTitle", () => {
       id: "a-p1",
     });
   });
+
+  it("returns the SAME array when the (trimmed) title is unchanged", () => {
+    const set = setPaneAutoTitle([ws("a", [1])], "a", "a-p1", "t");
+    expect(setPaneAutoTitle(set, "a", "a-p1", "  t  ")).toBe(set);
+  });
+
+  it("returns the SAME array for an absent pane", () => {
+    const base = [ws("a", [1])];
+    expect(setPaneAutoTitle(base, "a", "a-p9", "x")).toBe(base);
+  });
 });
 
 describe("setPaneHead", () => {

@@ -261,22 +261,15 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ),
       };
     case "setPaneAutoTitle": {
-      // No-op (same state ref → no re-render) when the title is unchanged; the
-      // terminal can emit the same OSC title repeatedly.
-      const next = action.title.trim() || undefined;
-      const pane = state.workspaces
-        .find((w) => w.id === action.wsId)
-        ?.panes.find((p) => p.id === action.paneId);
-      if (!pane || pane.autoTitle === next) return state;
-      return {
-        ...state,
-        workspaces: setPaneAutoTitle(
-          state.workspaces,
-          action.wsId,
-          action.paneId,
-          action.title,
-        ),
-      };
+      // The helper is a no-op (same array ref) for an unchanged/absent pane.
+      const workspaces = setPaneAutoTitle(
+        state.workspaces,
+        action.wsId,
+        action.paneId,
+        action.title,
+      );
+      if (workspaces === state.workspaces) return state;
+      return { ...state, workspaces };
     }
     case "hydrate":
       return action.state;
