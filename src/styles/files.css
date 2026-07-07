@@ -137,9 +137,9 @@
   inset: 0;
   z-index: 100;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  /* A slim uniform frame — the panel fills the window, the dim edge just marks
+     it as a dismissible overlay (backdrop click / Esc). */
+  padding: 10px;
   background-color: rgba(7, 9, 13, 0.66);
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
@@ -147,13 +147,13 @@
 }
 
 .files__peekpanel {
-  width: min(920px, 92vw);
-  height: min(82vh, 900px);
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background-color: #0e121a;
   border: 1px solid #1c2230;
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   box-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.85);
   animation: files-peek-pop 140ms ease-out;
