@@ -47,6 +47,9 @@
   min-height: 0;
   overflow: auto;
   overscroll-behavior: none;
+  /* Focus lives on this container (keyboard nav); the active row's highlight is
+     the visible focus indicator, so the container's own ring is suppressed. */
+  outline: none;
 }
 
 .files__list {

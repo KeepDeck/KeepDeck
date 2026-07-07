@@ -83,6 +83,18 @@ const rowByName = (name: string) =>
     (row) => row.querySelector(".files__name")?.textContent === name,
   );
 
+/** The keyboard-focused row's name (the `--sel` highlight follows the cursor). */
+const activeName = () =>
+  document.querySelector(".files__row--sel .files__name")?.textContent ?? null;
+
+/** Fire an arrow key on the focusable tree container. */
+const press = (key: string) =>
+  act(() => {
+    document
+      .querySelector(".files__tree")!
+      .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  });
+
 describe("FilesTab", () => {
   let fs: ReturnType<typeof makeFs>;
   let host: HTMLElement;
@@ -145,5 +157,46 @@ describe("FilesTab", () => {
     await act(async () => {});
     // A file click drives readFile, never readDir on that path.
     expect(fs.readDir).not.toHaveBeenCalledWith("/repo/readme.md");
+  });
+
+  it("moves the cursor down and up with the arrow keys", async () => {
+    await mount();
+    press("ArrowDown"); // no cursor yet → first row
+    expect(activeName()).toBe("src");
+    press("ArrowDown");
+    expect(activeName()).toBe("readme.md");
+    press("ArrowUp");
+    expect(activeName()).toBe("src");
+    await act(async () => {}); // settle the auto-preview readFile
+  });
+
+  it("expands with Right, descends into the child, and returns to the parent with Left", async () => {
+    await mount();
+    press("ArrowDown"); // src
+    press("ArrowRight"); // expand src
+    await act(async () => {});
+    expect(fs.readDir).toHaveBeenCalledWith("/repo/src");
+    expect(activeName()).toBe("src"); // expand keeps the cursor put
+
+    press("ArrowRight"); // step into main.ts
+    expect(activeName()).toBe("main.ts");
+
+    press("ArrowLeft"); // back to the parent
+    expect(activeName()).toBe("src");
+
+    press("ArrowLeft"); // collapse src
+    expect(document.querySelector(".files__row[aria-expanded='false']")).not.toBeNull();
+    await act(async () => {}); // settle the auto-preview readFile from main.ts
+  });
+
+  it("previews a file the cursor lands on via the keyboard", async () => {
+    await mount();
+    press("ArrowDown"); // src
+    press("ArrowDown"); // readme.md (a file)
+    await act(async () => {});
+    expect(fs.readFile).toHaveBeenCalledWith("/repo/readme.md");
+    expect(document.querySelector(".files__vname")?.textContent).toBe(
+      "readme.md",
+    );
   });
 });

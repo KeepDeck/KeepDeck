@@ -6,27 +6,29 @@ import { FileIcon, FolderIcon, SymlinkIcon } from "../icons";
  * The tree body: the flat list of visible rows (`visibleRows(state)`), each
  * indented by its depth. A directory row toggles; a file/symlink row selects.
  * Rendering from the pre-flattened rows keeps this component free of tree
- * recursion — the model already resolved what is visible.
+ * recursion — the model already resolved what is visible. The `role="tree"`
+ * and keyboard focus live on the parent container (`FilesTab`); rows are the
+ * `treeitem`s. `cursorPath` is the keyboard-focused row.
  */
 export function TreeView({
   rows,
-  selectedPath,
+  cursorPath,
   onToggle,
   onSelect,
 }: {
   rows: TreeRow[];
-  selectedPath: string | null;
+  cursorPath: string | null;
   onToggle: (path: string) => void;
   onSelect: (node: TreeNode) => void;
 }) {
   return (
-    <ul className="files__list" role="tree" aria-label="Project files">
+    <ul className="files__list" role="presentation">
       {rows.map(({ node, depth }) => (
         <TreeRowItem
           key={node.path}
           node={node}
           depth={depth}
-          selected={node.path === selectedPath}
+          active={node.path === cursorPath}
           onToggle={onToggle}
           onSelect={onSelect}
         />
@@ -38,13 +40,13 @@ export function TreeView({
 function TreeRowItem({
   node,
   depth,
-  selected,
+  active,
   onToggle,
   onSelect,
 }: {
   node: TreeNode;
   depth: number;
-  selected: boolean;
+  active: boolean;
   onToggle: (path: string) => void;
   onSelect: (node: TreeNode) => void;
 }) {
@@ -52,11 +54,13 @@ function TreeRowItem({
   return (
     <li role="none">
       <div
-        className={`files__row${selected ? " files__row--sel" : ""}`}
+        className={`files__row${active ? " files__row--sel" : ""}`}
         style={{ paddingLeft: `${6 + depth * 14}px` }}
         role="treeitem"
+        aria-level={depth + 1}
         aria-expanded={isDir ? node.expanded : undefined}
-        aria-selected={selected}
+        aria-selected={active}
+        data-cursor={active ? "true" : undefined}
         title={node.path}
         onClick={() => (isDir ? onToggle(node.path) : onSelect(node))}
       >

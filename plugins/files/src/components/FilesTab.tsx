@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import { useFileTree } from "./useFileTree";
-import { visibleRows } from "../domain/tree";
+import { visibleRows, type TreeNode } from "../domain/tree";
+import { navigate, type ArrowKey } from "../domain/navigate";
 import { TreeView } from "./TreeView";
 import { FileViewer } from "./FileViewer";
 
@@ -14,6 +15,10 @@ import { FileViewer } from "./FileViewer";
  * — and following the highlight, exactly like the Run tab's target; a manual
  * pick holds only until the next pane click. Everything reads through the fs
  * capability's scope, so only the workspace and its worktrees are reachable.
+ *
+ * Two cursors: `cursor` is the keyboard-focused row (arrow navigation);
+ * `preview` is the file shown below. Clicking or arrowing onto a file previews
+ * it, so the tree is fully drivable from the keyboard once it has focus.
  */
 export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   const [target, setTarget] = useState(
@@ -32,7 +37,23 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   }
 
   const { state, toggle, refresh } = useFileTree(target);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
+
+  // A new root starts fresh — drop the keyboard cursor and any open preview.
+  useEffect(() => {
+    setCursor(null);
+    setPreview(null);
+  }, [target]);
+
+  // Keep the focused row in view as the cursor moves.
+  useEffect(() => {
+    if (!cursor) return;
+    treeRef.current
+      ?.querySelector('[data-cursor="true"]')
+      ?.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
 
   // Distinct roots: each pane worktree once, the workspace folder last (a
   // pane attached to the main repo can't duplicate it).
@@ -48,6 +69,32 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   ];
 
   const rows = visibleRows(state);
+
+  const focusTree = () => treeRef.current?.focus();
+  const openDir = (path: string) => {
+    setCursor(path);
+    focusTree();
+    toggle(path);
+  };
+  const openFile = (node: TreeNode) => {
+    setCursor(node.path);
+    setPreview(node.path);
+    focusTree();
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const key = ARROW_KEYS[event.key];
+    if (!key) return;
+    event.preventDefault();
+    const action = navigate(state, cursor, key);
+    if (action.expand) toggle(action.expand);
+    if (action.collapse) toggle(action.collapse);
+    if (action.cursor === cursor) return;
+    setCursor(action.cursor);
+    const node = action.cursor ? state.nodes[action.cursor] : null;
+    // Arrow-to-view: landing on a file previews it, like clicking it.
+    if (node && node.kind !== "dir") setPreview(node.path);
+  };
 
   return (
     <div className="files">
@@ -70,7 +117,14 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
         </button>
       </div>
 
-      <div className="files__tree">
+      <div
+        className="files__tree"
+        ref={treeRef}
+        role="tree"
+        aria-label="Project files"
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+      >
         {rows.length === 0 ? (
           <div className="files__empty">
             {state.nodes[target]?.error ? (
@@ -86,23 +140,31 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
         ) : (
           <TreeView
             rows={rows}
-            selectedPath={selected}
-            onToggle={toggle}
-            onSelect={(node) => setSelected(node.path)}
+            cursorPath={cursor}
+            onToggle={openDir}
+            onSelect={openFile}
           />
         )}
       </div>
 
-      {selected && (
+      {preview && (
         <FileViewer
-          key={selected}
-          path={selected}
-          onClose={() => setSelected(null)}
+          key={preview}
+          path={preview}
+          onClose={() => setPreview(null)}
         />
       )}
     </div>
   );
 }
+
+/** Arrow keys the tree consumes, mapped to the pure navigator's vocabulary. */
+const ARROW_KEYS: Record<string, ArrowKey | undefined> = {
+  ArrowUp: "up",
+  ArrowDown: "down",
+  ArrowLeft: "left",
+  ArrowRight: "right",
+};
 
 /** Last two path segments — enough to tell worktrees apart in the dropdown. */
 function shortPath(path: string): string {
