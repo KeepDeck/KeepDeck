@@ -16,12 +16,10 @@ import { useRevive, type ReviveApi } from "./useRevive";
 const ipc = vi.hoisted(() => ({
   probeWorktree: vi.fn(),
   sessionPresence: vi.fn(),
-  latestSession: vi.fn(),
 }));
 vi.mock("../ipc/worktree", () => ({ probeWorktree: ipc.probeWorktree }));
 vi.mock("../ipc/history", () => ({
   sessionPresence: ipc.sessionPresence,
-  latestSession: ipc.latestSession,
 }));
 
 let deck: Deck;
@@ -68,7 +66,6 @@ describe("useRevive — session policy", () => {
       branch: null,
     });
     ipc.sessionPresence.mockReset();
-    ipc.latestSession.mockReset().mockResolvedValue(null);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -87,7 +84,6 @@ describe("useRevive — session policy", () => {
 
     expect(pane().dormant).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "old"]);
-    expect(ipc.latestSession).not.toHaveBeenCalled();
   });
 
   it("a recorded session that's ABSENT starts fresh — NEVER someone else's", async () => {
@@ -100,7 +96,6 @@ describe("useRevive — session policy", () => {
 
     expect(pane().dormant).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
-    expect(ipc.latestSession).not.toHaveBeenCalled(); // no directory theft
     // The dead binding is DROPPED — otherwise the fresh spawn's identity can
     // never be recorded (the binding hook refuses to overwrite an existing
     // session) and the pane keeps resurrecting fresh forever.
@@ -118,16 +113,20 @@ describe("useRevive — session policy", () => {
     expect(pane().dormant).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "old"]);
     expect(pane().session).toEqual({ id: "old", boundAt: "t" }); // kept
-    expect(ipc.latestSession).not.toHaveBeenCalled();
   });
 
-  it("a never-bound pane falls back to the directory's newest session", async () => {
-    ipc.latestSession.mockResolvedValue({ id: "found", modifiedMs: 1 });
-    act(() => deck.hydrate(restored({})));
+  it("an unbound codex pane starts FRESH — hooks-only, never matched by directory", async () => {
+    // codex/opencode report their id post-hoc, so an unbound pane is normal
+    // (never messaged — the session is created lazily with the first message —
+    // a mid-TUI /new, or a reporter that couldn't arm). Matching the newest
+    // session in the pane's cwd would resume a FOREIGN conversation whenever
+    // panes share a cwd (the default — a worktree is optional). Hooks-only:
+    // unbound wakes fresh, with no resume spec and without touching any store.
+    act(() => deck.hydrate(restored({ agentType: "codex", cwd: "/repo" })));
     await settle();
 
     expect(pane().dormant).toBeUndefined();
-    expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "found"]);
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
     expect(ipc.sessionPresence).not.toHaveBeenCalled();
   });
 
