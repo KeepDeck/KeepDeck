@@ -195,6 +195,23 @@ describe("deckReducer selection", () => {
     expect(next.selectByWs).toEqual({ a: "a-2" });
   });
 
+  it("addAgentPane exits a pre-existing maximize so the new pane is visible", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1"])],
+        activeId: "a",
+        focusByWs: { a: "a-1" },
+      }),
+      {
+        type: "addAgentPane",
+        id: "a",
+        pane: { id: "a-2", cwd: "/wt", branch: "kd/a/2" },
+      },
+    );
+    expect(next.focusByWs).toEqual({});
+    expect(next.selectByWs).toEqual({ a: "a-2" });
+  });
+
   it("addAgentPane at the cap appends nothing and selects nothing", () => {
     const full = Array.from({ length: 16 }, (_, i) => `a-${i}`);
     const next = deckReducer(

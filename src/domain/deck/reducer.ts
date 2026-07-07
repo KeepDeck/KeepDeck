@@ -175,12 +175,15 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       const appended = workspaces
         .find((w) => w.id === action.id)
         ?.panes.some((p) => p.id === action.pane.id);
+      if (!appended) return { ...state, workspaces };
       return {
         ...state,
         workspaces,
-        selectByWs: appended
-          ? { ...state.selectByWs, [action.id]: action.pane.id }
-          : state.selectByWs,
+        selectByWs: { ...state.selectByWs, [action.id]: action.pane.id },
+        // A pre-existing maximize would leave the appended pane collapsed and
+        // invisible (resolveFocus still points at the old pane). Exit fullscreen
+        // on append so the new pane shows — the mirror of closeAgent's guard.
+        focusByWs: dropKey(state.focusByWs, action.id),
       };
     }
     case "renameWorkspace":
