@@ -30,39 +30,11 @@ body {
   overscroll-behavior: none;
 }
 
-/* Scrollbars, dark and self-hiding. Styling `::-webkit-scrollbar` at all turns
-   off WKWebView's overlay auto-hide, so we recreate the hide in CSS: the thumb
-   is transparent at rest and only appears — muted, never the bright default —
-   while the scroll area is hovered, lifting a shade more when the thumb itself
-   is grabbed. `background-color` (not the `background` shorthand) on the hover
-   states so they keep the padding-box clip that insets the thumb. */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: transparent;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  border-radius: 8px;
-}
-
-:hover::-webkit-scrollbar-thumb {
-  background-color: #2a3343;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: #3a4658;
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
+/* Scrollbars are left UNSTYLED on purpose: styling `::-webkit-scrollbar` at all
+   turns off WKWebView's overlay auto-hide (the bars go always-on), and the
+   CSS-only re-hide (hover-reveal) behaves worse than the native overlay. So the
+   native self-hiding scrollbar stays — its color is system-controlled and can't
+   be darkened without losing the auto-hide. */
 
 /* WKWebView draws native macOS stepper arrows inside number inputs — the one
    native-looking control in an otherwise fully custom UI. Keyboard ↑/↓ and
