@@ -41,12 +41,11 @@
   color: #c5c8c6;
 }
 
-/* The tree: scrolls on its own; yields the lower half to the viewer. */
+/* The tree: fills the panel and scrolls on its own. */
 .files__tree {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  overscroll-behavior: none;
   /* Focus lives on this container (keyboard nav); the active row's highlight is
      the visible focus indicator, so the container's own ring is suppressed. */
   outline: none;
