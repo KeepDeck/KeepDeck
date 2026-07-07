@@ -2,7 +2,14 @@ import { useState } from "react";
 import type { PaneProvisioning } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
-import { CloseIcon, MaximizeIcon, RestoreIcon } from "../../ui/icons";
+import {
+  CloseIcon,
+  FolderOpenIcon,
+  GitBranchIcon,
+  MaximizeIcon,
+  RestoreIcon,
+} from "../../ui/icons";
+import type { GitBadge } from "../../ui/gitBadge";
 
 interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
@@ -16,11 +23,8 @@ interface AgentPaneProps {
   env?: [string, string][];
   /** Working directory for the session. */
   cwd?: string | null;
-  /** Badge label for the agent's git position — its worktree branch, or a
-   * short commit id when detached. Kept live by the HEAD watcher. */
-  branch?: string | null;
-  /** Full form for the badge tooltip (full branch name / full commit SHA). */
-  branchTitle?: string | null;
+  /** Runtime git badge derived from this pane's effective cwd. */
+  gitBadge?: GitBadge | null;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -70,8 +74,7 @@ export function AgentPane({
   args,
   env,
   cwd,
-  branch,
-  branchTitle,
+  gitBadge,
   visible,
   focused,
   collapsed,
@@ -108,51 +111,56 @@ export function AgentPane({
       onFocus={onSelect}
     >
       <header className="pane__bar">
-        {editing ? (
-          <input
-            {...noAutoCorrect}
-            className="pane__rename"
-            value={draft}
-            autoFocus
-            aria-label="Rename agent"
-            onMouseDown={(e) => e.stopPropagation()}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitRename}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitRename();
-              else if (e.key === "Escape") setEditing(false);
-            }}
-          />
-        ) : (
-          <span
-            className="pane__title"
-            title="Double-click to rename"
-            onDoubleClick={() => {
-              setDraft(title);
-              setEditing(true);
-            }}
-          >
-            {title}
-          </span>
-        )}
-        {cwd && !provisioning && (
-          // Hidden while provisioning: the pane has no directory of its own
-          // yet, and the fallback cwd would open the wrong folder.
-          <button
-            type="button"
-            className="pane__open"
-            onClick={onOpenInEditor}
-            title="Open this agent's working directory in VS Code"
-          >
-            Open in VSCode
-          </button>
-        )}
-        {branch && (
-          <span className="pane__branch" title={branchTitle ?? branch}>
-            {branch}
-          </span>
-        )}
+        <div className="pane__identity">
+          <span className="pane__dot" aria-hidden />
+          {editing ? (
+            <input
+              {...noAutoCorrect}
+              className="pane__rename"
+              value={draft}
+              autoFocus
+              aria-label="Rename agent"
+              onMouseDown={(e) => e.stopPropagation()}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                else if (e.key === "Escape") setEditing(false);
+              }}
+            />
+          ) : (
+            <span
+              className="pane__title"
+              title="Double-click to rename"
+              onDoubleClick={() => {
+                setDraft(title);
+                setEditing(true);
+              }}
+            >
+              {title}
+            </span>
+          )}
+        </div>
         <div className="pane__actions">
+          {gitBadge && (
+            <span className="pane__branch" title={gitBadge.title}>
+              <GitBranchIcon />
+              <span className="pane__branch-label">{gitBadge.label}</span>
+            </span>
+          )}
+          {cwd && !provisioning && (
+            // Hidden while provisioning: the pane has no directory of its own
+            // yet, and the fallback cwd would open the wrong folder.
+            <button
+              type="button"
+              className="pane__action pane__open"
+              onClick={onOpenInEditor}
+              title="Open this agent's working directory in VS Code"
+              aria-label={`Open ${title} in VS Code`}
+            >
+              <FolderOpenIcon />
+            </button>
+          )}
           {!solo && (
             <button
               type="button"
@@ -284,4 +292,3 @@ function ProvisionLocation({
     </span>
   );
 }
-

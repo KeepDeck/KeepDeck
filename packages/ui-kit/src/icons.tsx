@@ -48,6 +48,29 @@ export function CloseIcon() {
   );
 }
 
+/** Git branch — identifies the currently observed branch in pane chrome
+ * (Lucide `git-branch`, ISC). */
+export function GitBranchIcon() {
+  return (
+    <svg {...iconProps}>
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1 -9 9" />
+    </svg>
+  );
+}
+
+/** Open folder — opens the pane's working directory in the configured editor
+ * (Lucide `folder-open`, ISC). */
+export function FolderOpenIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M6 14l1.5 -2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.46 20H4a2 2 0 0 1 -2 -2V5a2 2 0 0 1 2 -2h3.9a2 2 0 0 1 1.69.93L11 6h7a2 2 0 0 1 2 2v2" />
+    </svg>
+  );
+}
+
 /** Collapse-direction chevron (dropdown state). */
 export function ChevronDownIcon() {
   return (

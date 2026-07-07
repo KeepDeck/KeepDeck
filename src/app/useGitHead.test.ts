@@ -2,11 +2,11 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DeckState } from "../domain/deck";
+import type { DeckState, GitPosition } from "../domain/deck";
 import type { WorktreeHead } from "../ipc/worktree";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
-import { useWorktreeHead } from "./useWorktreeHead";
+import { useGitHead } from "./useGitHead";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -24,14 +24,15 @@ vi.mock("../ipc/worktree", () => ({
 }));
 
 let deck: Deck;
+let heads: ReadonlyMap<string, GitPosition>;
 
 function Probe() {
   deck = useDeck();
-  useWorktreeHead(deck);
+  heads = useGitHead(deck);
   return null;
 }
 
-/** A deck with one worktree pane and one workspace-cwd pane. */
+/** A deck with one owned worktree pane and one workspace-cwd pane. */
 const restored = (): DeckState => ({
   workspaces: [
     {
@@ -56,12 +57,12 @@ const settle = async () => {
   for (let i = 0; i < 4; i++) await act(async () => {});
 };
 
-describe("useWorktreeHead — live branch badge", () => {
+describe("useGitHead", () => {
   let root: Root;
   // The subscribed event handler, captured from the hook's onWorktreeHead call.
   let emit: (head: WorktreeHead) => void;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     ipc.onWorktreeHead.mockReset().mockImplementation((handler) => {
       emit = handler;
       return Promise.resolve(() => {});
@@ -71,6 +72,7 @@ describe("useWorktreeHead — live branch badge", () => {
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
+    await act(async () => {});
   });
 
   afterEach(() => {
@@ -79,31 +81,31 @@ describe("useWorktreeHead — live branch badge", () => {
 
   const pane = () => deck.workspaces[0].panes[0];
 
-  it("watches each worktree pane's cwd once, and not workspace-cwd panes", async () => {
+  it("watches each effective pane cwd once, including workspace-cwd panes", async () => {
     act(() => deck.hydrate(restored()));
     await settle();
 
-    expect(ipc.watchWorktree).toHaveBeenCalledTimes(1);
+    expect(ipc.watchWorktree).toHaveBeenCalledTimes(2);
     expect(ipc.watchWorktree).toHaveBeenCalledWith("/wt/one");
+    expect(ipc.watchWorktree).toHaveBeenCalledWith("/repo");
 
-    // Unrelated deck churn must not re-register the same path.
+    // Unrelated deck churn must not re-register the same paths.
     act(() => deck.renamePane("ws-1", "pane-1", "renamed"));
     await settle();
-    expect(ipc.watchWorktree).toHaveBeenCalledTimes(1);
+    expect(ipc.watchWorktree).toHaveBeenCalledTimes(2);
   });
 
-  it("records a checkout on the pane at that path", async () => {
+  it("records runtime git positions without mutating pane domain branch", async () => {
     act(() => deck.hydrate(restored()));
     await settle();
 
     act(() => emit({ path: "/wt/one", branch: "feature/x", head: null }));
-    expect(pane().branch).toBe("feature/x");
+    expect(heads.get("/wt/one")).toEqual({ branch: "feature/x" });
+    expect(pane().branch).toBe("kd/ws/1");
 
-    // Detach: the branch gives way to the commit id.
     const sha = "a".repeat(40);
-    act(() => emit({ path: "/wt/one", branch: null, head: sha }));
-    expect(pane().branch).toBeUndefined();
-    expect(pane().head).toBe(sha);
+    act(() => emit({ path: "/repo", branch: null, head: sha }));
+    expect(heads.get("/repo")).toEqual({ head: sha });
   });
 
   it("ignores an event for a path no pane runs at (raced a close)", async () => {
@@ -111,28 +113,31 @@ describe("useWorktreeHead — live branch badge", () => {
     await settle();
 
     act(() => emit({ path: "/wt/gone", branch: "x", head: null }));
-    expect(pane().branch).toBe("kd/ws/1");
+    expect(heads.has("/wt/gone")).toBe(false);
   });
 
-  it("unwatches when the pane closes", async () => {
+  it("unwatches and clears runtime state when the path leaves the deck", async () => {
     act(() => deck.hydrate(restored()));
     await settle();
+    act(() => emit({ path: "/wt/one", branch: "feature/x", head: null }));
+    expect(heads.has("/wt/one")).toBe(true);
 
     act(() => deck.closeAgent("ws-1", "pane-1"));
     await settle();
     expect(ipc.unwatchWorktree).toHaveBeenCalledWith("/wt/one");
+    expect(heads.has("/wt/one")).toBe(false);
   });
 
   it("retries a failed registration on the next deck change (dir restored)", async () => {
     ipc.watchWorktree.mockRejectedValueOnce(new Error("gone"));
     act(() => deck.hydrate(restored()));
     await settle();
-    expect(ipc.watchWorktree).toHaveBeenCalledTimes(1);
+    expect(ipc.watchWorktree).toHaveBeenCalledTimes(2);
 
     ipc.watchWorktree.mockResolvedValue(undefined);
     act(() => deck.renamePane("ws-1", "pane-1", "kick"));
     await settle();
-    expect(ipc.watchWorktree).toHaveBeenCalledTimes(2);
+    expect(ipc.watchWorktree).toHaveBeenCalledTimes(3);
     expect(ipc.watchWorktree).toHaveBeenLastCalledWith("/wt/one");
   });
 });

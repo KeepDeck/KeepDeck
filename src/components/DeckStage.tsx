@@ -1,14 +1,16 @@
 import type { AgentInfo, SpawnPlan } from "../domain/agents";
 import {
   gridTracks,
-  paneBranchBadge,
   paneColumnSpan,
   paneDisplayTitle,
+  paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
   resolveFocus,
+  type GitPosition,
   type Workspace,
 } from "../domain/deck";
+import { gitBadge } from "../ui/gitBadge";
 import { AgentPane } from "./agent/AgentPane";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 
@@ -21,6 +23,8 @@ interface DeckStageProps {
   selectedPaneId: string | null;
   /** Agent catalog, for pane commands and derived titles. */
   agents: AgentInfo[];
+  /** Runtime git HEAD observations, keyed by pane execution cwd. */
+  gitHeads: ReadonlyMap<string, GitPosition>;
   /** The empty-workspace count picker chose `count` agents. */
   onStartWorkspace(wsId: string, count: number): void;
   onSelectPane(wsId: string, paneId: string): void;
@@ -56,6 +60,7 @@ export function DeckStage({
   focusByWs,
   selectedPaneId,
   agents,
+  gitHeads,
   onStartWorkspace,
   onSelectPane,
   onToggleFocus,
@@ -120,7 +125,10 @@ export function DeckStage({
               const agentInfo = agents.find((a) => a.id === agentType);
               const command = agentInfo?.command ?? agentType;
               const displayTitle = paneDisplayTitle(pane, index, agents);
-              const badge = paneBranchBadge(pane);
+              const executionCwd = paneExecutionCwd(ws, pane);
+              const badge = gitBadge(
+                executionCwd ? gitHeads.get(executionCwd) : undefined,
+              );
               return (
                 <AgentPane
                   key={pane.id}
@@ -129,9 +137,8 @@ export function DeckStage({
                   command={command}
                   args={specByPane[pane.id]?.args}
                   env={specByPane[pane.id]?.env}
-                  cwd={pane.cwd ?? ws.cwd}
-                  branch={badge?.label}
-                  branchTitle={badge?.full}
+                  cwd={executionCwd}
+                  gitBadge={badge}
                   visible={isActive && !isCollapsed}
                   focused={isFocused}
                   collapsed={isCollapsed}
@@ -143,7 +150,9 @@ export function DeckStage({
                   colSpan={colSpan}
                   onSelect={() => onSelectPane(ws.id, pane.id)}
                   onToggleFocus={() => onToggleFocus(ws.id, pane.id)}
-                  onOpenInEditor={() => onOpenInEditor(pane.cwd ?? ws.cwd)}
+                  onOpenInEditor={() => {
+                    if (executionCwd) onOpenInEditor(executionCwd);
+                  }}
                   onClose={() => onCloseAgent(ws.id, pane.id, displayTitle)}
                   onRename={(name) => onRenamePane(ws.id, pane.id, name)}
                   onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   worktreeTargets,
+  type GitPosition,
   type WorktreeTarget,
 } from "../domain/deck";
 import { discardWorktrees } from "./provisioning";
@@ -24,7 +25,11 @@ export type ClosingTarget = { targets: WorktreeTarget[] } & (
  * kills a process), then optionally tears the worktrees down per the delete
  * checkbox — after the closes settle, so no worktree dir is a live cwd.
  */
-export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
+export function useCloseFlow(
+  deck: Deck,
+  onError: (message: string) => void,
+  gitPositions?: ReadonlyMap<string, GitPosition>,
+) {
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
   // Opt-in: also delete the closing target's worktree(s) + branch(es). Reset
   // each time the dialog opens so the destructive choice is never sticky.
@@ -38,7 +43,7 @@ export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
       wsId,
       paneId,
       label,
-      targets: ws ? worktreeTargets(ws, paneId) : [],
+      targets: ws ? worktreeTargets(ws, paneId, gitPositions) : [],
     });
   };
 
@@ -51,7 +56,7 @@ export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
       id,
       name: ws.name,
       count: ws.panes.length,
-      targets: worktreeTargets(ws),
+      targets: worktreeTargets(ws, undefined, gitPositions),
     });
   };
 

@@ -23,8 +23,6 @@ const baseProps = {
   title: "Claude 1",
   command: null,
   cwd: "/repo/work" as string | null,
-  scrollback: 10_000,
-  branch: null,
   visible: true,
   focused: false,
   collapsed: false,
@@ -54,15 +52,17 @@ describe("AgentPane — open in VS Code", () => {
     act(() => root.unmount());
   });
 
-  it("renders the text button and fires onOpenInEditor on click when a cwd is known", () => {
+  it("renders the icon button and fires onOpenInEditor on click when a cwd is known", () => {
     const onOpenInEditor = vi.fn();
     act(() =>
       root.render(createElement(AgentPane, { ...baseProps, onOpenInEditor })),
     );
 
-    const btn = document.querySelector<HTMLButtonElement>(".pane__open");
+    const btn = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open Claude 1 in VS Code"]',
+    );
     expect(btn).not.toBeNull();
-    expect(btn!.textContent).toBe("Open in VSCode");
+    expect(btn!.textContent).toBe("");
 
     act(() => btn!.click());
     expect(onOpenInEditor).toHaveBeenCalledTimes(1);
@@ -72,6 +72,22 @@ describe("AgentPane — open in VS Code", () => {
     act(() => root.render(createElement(AgentPane, { ...baseProps, cwd: null })));
 
     expect(document.querySelector(".pane__open")).toBeNull();
+  });
+
+  it("renders a runtime git badge when provided", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          gitBadge: { label: "main", title: "main" },
+        }),
+      ),
+    );
+
+    const badge = document.querySelector<HTMLElement>(".pane__branch");
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toBe("main");
+    expect(badge!.title).toBe("main");
   });
 });
 

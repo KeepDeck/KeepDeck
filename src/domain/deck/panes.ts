@@ -44,14 +44,11 @@ export interface Pane {
   /** Per-agent working directory (its own git worktree) when the workspace runs
    * in worktree mode; falls back to the workspace cwd when undefined. */
   cwd?: string;
-  /** The agent's git branch, when it runs in a worktree. Kept LIVE: the HEAD
-   * watcher updates it on every checkout inside the worktree, and clears it
-   * when the worktree goes detached. */
+  /** The owned git worktree branch created/attached for this pane. This is
+   * durable domain state used for worktree ownership and cleanup fallback; the
+   * header's current branch badge is runtime UI state derived from the pane's
+   * effective cwd, not stored here. */
   branch?: string;
-  /** The checked-out commit when the worktree is detached (no branch).
-   * Runtime-only, like `dormant`: never persisted — the watcher re-emits the
-   * current state at registration on every boot. */
-  head?: string;
   /** User-set display name; overrides everything ([F11] manual rename). */
   name?: string;
   /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
@@ -116,17 +113,6 @@ export function paneDisplayTitle(
   const agentType = pane.agentType ?? "claude";
   const label = agents.find((a) => a.id === agentType)?.label ?? agentType;
   return pane.name ?? pane.autoTitle ?? `${label} ${index + 1}`;
-}
-
-/** What the pane-header badge shows for a pane's git position: the branch, or
- * a shortened commit id when the worktree is detached (`full` feeds the
- * tooltip). `null` for a pane outside any worktree — no badge. */
-export function paneBranchBadge(
-  pane: Pane,
-): { label: string; full: string } | null {
-  if (pane.branch) return { label: pane.branch, full: pane.branch };
-  if (pane.head) return { label: pane.head.slice(0, 7), full: pane.head };
-  return null;
 }
 
 /** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES), all
