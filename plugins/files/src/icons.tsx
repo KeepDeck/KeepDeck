@@ -47,6 +47,15 @@ export function SymlinkIcon() {
   );
 }
 
+/** Back out of the file preview to the tree — a left chevron. */
+export function BackIcon() {
+  return (
+    <svg {...iconProps}>
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
 /** Open in the default app — an arrow leaving a frame (Lucide
  * `external-link`, ISC). */
 export function OpenExternalIcon() {

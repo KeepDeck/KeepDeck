@@ -145,7 +145,7 @@ describe("FilesTab", () => {
     await act(async () => {});
 
     expect(fs.readFile).toHaveBeenCalledWith("/repo/readme.md");
-    expect(document.querySelector(".files__vname")?.textContent).toBe(
+    expect(document.querySelector(".files__dname")?.textContent).toBe(
       "readme.md",
     );
     expect(document.body.textContent).toContain("second line");
@@ -167,7 +167,8 @@ describe("FilesTab", () => {
     expect(activeName()).toBe("readme.md");
     press("ArrowUp");
     expect(activeName()).toBe("src");
-    await act(async () => {}); // settle the auto-preview readFile
+    // Arrows only move the cursor now — they never open a file.
+    expect(fs.readFile).not.toHaveBeenCalled();
   });
 
   it("expands with Right, descends into the child, and returns to the parent with Left", async () => {
@@ -186,17 +187,36 @@ describe("FilesTab", () => {
 
     press("ArrowLeft"); // collapse src
     expect(document.querySelector(".files__row[aria-expanded='false']")).not.toBeNull();
-    await act(async () => {}); // settle the auto-preview readFile from main.ts
   });
 
-  it("previews a file the cursor lands on via the keyboard", async () => {
+  it("opens the focused file with Enter and closes the preview with Escape", async () => {
     await mount();
     press("ArrowDown"); // src
     press("ArrowDown"); // readme.md (a file)
+    press("Enter"); // open it
     await act(async () => {});
     expect(fs.readFile).toHaveBeenCalledWith("/repo/readme.md");
-    expect(document.querySelector(".files__vname")?.textContent).toBe(
+    expect(document.querySelector(".files__dname")?.textContent).toBe(
       "readme.md",
     );
+
+    // Escape from the detail drills back out to the tree.
+    await act(async () => {
+      document
+        .querySelector(".files__detail")!
+        .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(document.querySelector(".files__detail")).toBeNull();
+    expect(document.querySelector(".files__list")).not.toBeNull();
+  });
+
+  it("Enter on a directory toggles it instead of opening a preview", async () => {
+    await mount();
+    press("ArrowDown"); // src (a directory)
+    press("Enter"); // expand
+    await act(async () => {});
+    expect(fs.readDir).toHaveBeenCalledWith("/repo/src");
+    expect(fs.readFile).not.toHaveBeenCalled();
+    expect(document.querySelector(".files__detail")).toBeNull();
   });
 });

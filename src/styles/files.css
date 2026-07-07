@@ -3,6 +3,7 @@
    the Run tab so the plugin reads as native chrome. */
 
 .files {
+  position: relative; /* the file preview drills in as an absolute overlay */
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -129,20 +130,35 @@
   font-size: 12px;
 }
 
-/* The preview box: mirrors the Run log box. */
-.files__viewer {
-  flex: 1 1 45%;
-  min-height: 0;
+/* The file preview: a full-panel drill-in OVER the tree, not a split — the
+   narrow rail can't afford to halve itself. Slides in from the right. */
+.files__detail {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  margin-top: 8px;
-  border: 1px solid #1c2230;
-  border-radius: 6px;
-  background-color: #0b0e14;
-  overflow: hidden;
+  background-color: #0e121a;
+  animation: files-detail-in 140ms ease-out;
 }
 
-.files__vhead {
+@keyframes files-detail-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .files__detail {
+    animation: none;
+  }
+}
+
+.files__dhead {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -151,27 +167,49 @@
   background-color: #11151d;
 }
 
-.files__vname {
+.files__dback {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #9aa3af;
+  cursor: pointer;
+}
+
+.files__dback:hover {
+  background-color: #243044;
   color: #c5c8c6;
-  font-size: 12px;
+}
+
+.files__dname {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #c5c8c6;
+  font-size: 12.5px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.files__vmeta {
+.files__dsize {
+  flex: none;
   color: #6b7280;
   font-size: 11px;
 }
 
-.files__vact {
+.files__dact {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -179,31 +217,40 @@
   cursor: pointer;
 }
 
-.files__vact:last-child {
-  margin-left: 0;
-}
-
-.files__vact:first-of-type {
-  margin-left: auto;
-}
-
-.files__vact:hover {
+.files__dact:hover {
   background-color: #243044;
   color: #c5c8c6;
 }
 
-.files__vbody {
+/* Breadcrumb: where the file sits under the root — mono, muted, one line. */
+.files__dpath {
+  padding: 4px 10px;
+  border-bottom: 1px solid #1c2230;
+  color: #6b7280;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files__dbody {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 8px 0;
+  background-color: #0b0e14;
+  outline: none;
 }
 
-/* Line-numbered text. Each row is its own line so the gutter stays aligned. */
+/* Line-numbered code. The block sizes to its widest line so long lines scroll
+   horizontally; the number gutter stays pinned left through the scroll. */
 .files__code {
+  width: max-content;
+  min-width: 100%;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.5;
+  padding: 8px 0;
 }
 
 .files__coderow {
@@ -211,11 +258,15 @@
 }
 
 .files__lineno {
+  position: sticky;
+  left: 0;
+  z-index: 1;
   flex: none;
-  width: 44px;
+  width: 48px;
   padding-right: 12px;
   text-align: right;
   color: #3b4658;
+  background-color: #0b0e14;
   user-select: none;
 }
 
@@ -223,7 +274,7 @@
   flex: 1 1 auto;
   color: #c5c8c6;
   white-space: pre;
-  padding-right: 12px;
+  padding-right: 16px;
 }
 
 .files__note {

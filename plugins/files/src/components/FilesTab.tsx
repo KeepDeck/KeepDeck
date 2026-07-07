@@ -9,16 +9,18 @@ import { TreeView } from "./TreeView";
 import { FileViewer } from "./FileViewer";
 
 /**
- * The Files tab: a lazy tree of the chosen root, plus a read-only viewer for
- * the selected file. The root is a pane's worktree or the workspace folder,
- * defaulting to the highlighted pane's worktree — "browse what I'm looking at"
- * — and following the highlight, exactly like the Run tab's target; a manual
- * pick holds only until the next pane click. Everything reads through the fs
- * capability's scope, so only the workspace and its worktrees are reachable.
+ * The Files tab: a lazy tree of the chosen root, and — when a file is opened —
+ * a full-panel preview that drills in OVER the tree (a narrow rail can't afford
+ * a split, so the preview takes the whole panel and a back affordance returns).
+ * The root is a pane's worktree or the workspace folder, defaulting to the
+ * highlighted pane's worktree — "browse what I'm looking at" — and following the
+ * highlight like the Run tab's target; a manual pick holds until the next pane
+ * click. Everything reads through the fs capability's scope, so only the
+ * workspace and its worktrees are reachable.
  *
- * Two cursors: `cursor` is the keyboard-focused row (arrow navigation);
- * `preview` is the file shown below. Clicking or arrowing onto a file previews
- * it, so the tree is fully drivable from the keyboard once it has focus.
+ * `cursor` is the keyboard-focused row; arrows move it (and expand/collapse).
+ * Enter or a click opens the focused file into the preview; the tree stays
+ * mounted underneath so its cursor and scroll survive the round trip.
  */
 export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   const [target, setTarget] = useState(
@@ -83,17 +85,22 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    // Enter / Space activate the focused row: open a file, toggle a directory.
+    if (event.key === "Enter" || event.key === " ") {
+      const node = cursor ? state.nodes[cursor] : null;
+      if (!node) return;
+      event.preventDefault();
+      if (node.kind === "dir") toggle(node.path);
+      else openFile(node);
+      return;
+    }
     const key = ARROW_KEYS[event.key];
     if (!key) return;
     event.preventDefault();
     const action = navigate(state, cursor, key);
     if (action.expand) toggle(action.expand);
     if (action.collapse) toggle(action.collapse);
-    if (action.cursor === cursor) return;
-    setCursor(action.cursor);
-    const node = action.cursor ? state.nodes[action.cursor] : null;
-    // Arrow-to-view: landing on a file previews it, like clicking it.
-    if (node && node.kind !== "dir") setPreview(node.path);
+    if (action.cursor !== cursor) setCursor(action.cursor);
   };
 
   return (
@@ -149,9 +156,12 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
 
       {preview && (
         <FileViewer
-          key={preview}
           path={preview}
-          onClose={() => setPreview(null)}
+          root={target}
+          onClose={() => {
+            setPreview(null);
+            focusTree();
+          }}
         />
       )}
     </div>
