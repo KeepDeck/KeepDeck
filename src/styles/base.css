@@ -30,11 +30,12 @@ body {
   overscroll-behavior: none;
 }
 
-/* Scrollbars, dark and quiet everywhere. The default WKWebView bars render
-   bright on the dark UI and go near-white on hover; here the track blends into
-   the ground and the thumb is a muted fill that only lifts a shade on hover.
-   `background-color` (not the `background` shorthand) on :hover so it keeps the
-   padding-box clip that insets the thumb. */
+/* Scrollbars, dark and self-hiding. Styling `::-webkit-scrollbar` at all turns
+   off WKWebView's overlay auto-hide, so we recreate the hide in CSS: the thumb
+   is transparent at rest and only appears — muted, never the bright default —
+   while the scroll area is hovered, lifting a shade more when the thumb itself
+   is grabbed. `background-color` (not the `background` shorthand) on the hover
+   states so they keep the padding-box clip that insets the thumb. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -45,10 +46,14 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #2a3343;
+  background-color: transparent;
   border: 2px solid transparent;
   background-clip: padding-box;
   border-radius: 8px;
+}
+
+:hover::-webkit-scrollbar-thumb {
+  background-color: #2a3343;
 }
 
 ::-webkit-scrollbar-thumb:hover {
