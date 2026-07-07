@@ -12,7 +12,7 @@ const manifest = (id: string): PluginManifest => ({
   id,
   name: id,
   version: "1.0.0",
-  minApiVersion: "0.0.1",
+  minApiVersion: 1,
   capabilities: [],
   contributes: {},
 });

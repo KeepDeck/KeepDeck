@@ -1,5 +1,5 @@
 import { CAPABILITY_KINDS, type Capability } from "./capabilities.ts";
-import { parseVersion } from "./version.ts";
+import { isApiVersion, parseVersion } from "./version.ts";
 
 /**
  * The plugin manifest — the static half of a plugin, read BEFORE any of its
@@ -20,8 +20,9 @@ export interface PluginManifest {
   name: string;
   /** The plugin's own semver — display and update bookkeeping only. */
   version: string;
-  /** Minimum plugin-API version this plugin needs (see `API_VERSION`). */
-  minApiVersion: string;
+  /** Minimum plugin-API REVISION this plugin needs — a plain integer floor
+   * (see `API_VERSION`), not semver. */
+  minApiVersion: number;
   description?: string;
   /** Platform access the plugin may use; empty = pure UI. */
   capabilities: Capability[];
@@ -85,10 +86,13 @@ export function readManifest(value: unknown): ManifestResult {
   if (!parseVersion(version))
     errors.push(`version: "${version}" is not major.minor.patch`);
 
-  const minApiVersion =
-    typeof value.minApiVersion === "string" ? value.minApiVersion : "";
-  if (!parseVersion(minApiVersion))
-    errors.push(`minApiVersion: "${minApiVersion}" is not major.minor.patch`);
+  const minApiVersion = isApiVersion(value.minApiVersion)
+    ? value.minApiVersion
+    : null;
+  if (minApiVersion === null)
+    errors.push(
+      `minApiVersion: ${JSON.stringify(value.minApiVersion)} must be a non-negative integer`,
+    );
 
   const capabilities = readCapabilities(value.capabilities, errors);
   const contributes = readContributes(value.contributes, errors);
@@ -100,7 +104,7 @@ export function readManifest(value: unknown): ManifestResult {
       id: id!,
       name,
       version,
-      minApiVersion,
+      minApiVersion: minApiVersion!,
       ...(typeof value.description === "string" && value.description.trim()
         ? { description: value.description.trim() }
         : {}),

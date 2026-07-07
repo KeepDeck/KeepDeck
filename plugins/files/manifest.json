@@ -2,7 +2,7 @@
   "id": "keepdeck.files",
   "name": "Files",
   "version": "0.1.0",
-  "minApiVersion": "0.0.7",
+  "minApiVersion": 7,
   "description": "Browse the workspace file tree and preview file contents, scoped to the workspace folder and its worktrees.",
   "capabilities": [
     { "kind": "fs", "scope": "workspace" },

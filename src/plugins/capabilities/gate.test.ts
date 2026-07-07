@@ -11,7 +11,7 @@ const manifest = (capabilities: Capability[]): PluginManifest => ({
   id: "p",
   name: "p",
   version: "1.0.0",
-  minApiVersion: "0.0.1",
+  minApiVersion: 1,
   capabilities,
   contributes: {},
 });

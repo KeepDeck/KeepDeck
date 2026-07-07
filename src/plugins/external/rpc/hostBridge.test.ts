@@ -19,7 +19,7 @@ const manifest: PluginManifest = {
   id: "dev.example",
   name: "Example",
   version: "1.0.0",
-  minApiVersion: "0.0.1",
+  minApiVersion: 1,
   capabilities: [],
   contributes: {},
 };
