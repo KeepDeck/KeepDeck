@@ -6,7 +6,7 @@ const GOLDEN = {
   id: "dev.example-preview",
   name: "Preview",
   version: "1.0.0",
-  minApiVersion: "0.0.1",
+  minApiVersion: 1,
   description: "Preview localhost in a dock tab",
   capabilities: [
     { kind: "exec", commands: ["pnpm", "npm"] },
@@ -31,7 +31,7 @@ describe("readManifest", () => {
         id: "dev.example-preview",
         name: "Preview",
         version: "1.0.0",
-        minApiVersion: "0.0.1",
+        minApiVersion: 1,
         description: "Preview localhost in a dock tab",
         capabilities: GOLDEN.capabilities,
         contributes: GOLDEN.contributes,
@@ -44,7 +44,7 @@ describe("readManifest", () => {
       id: "keepdeck.run",
       name: "Run",
       version: "0.1.0",
-      minApiVersion: "0.0.1",
+      minApiVersion: 1,
     });
     expect(result).toEqual({
       ok: true,
@@ -52,7 +52,7 @@ describe("readManifest", () => {
         id: "keepdeck.run",
         name: "Run",
         version: "0.1.0",
-        minApiVersion: "0.0.1",
+        minApiVersion: 1,
         capabilities: [],
         contributes: {},
       },

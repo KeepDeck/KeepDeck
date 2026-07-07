@@ -21,7 +21,7 @@ const MANIFEST = {
   id: "dev.example.demo",
   name: "Demo",
   version: "1.0.0",
-  minApiVersion: "0.0.3",
+  minApiVersion: 3,
   capabilities: [],
   contributes: { dockTabs: [{ id: "demo", label: "Demo" }] },
 };

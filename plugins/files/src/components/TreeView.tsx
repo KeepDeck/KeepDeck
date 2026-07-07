@@ -62,6 +62,10 @@ function TreeRowItem({
         aria-selected={active}
         data-cursor={active ? "true" : undefined}
         title={node.path}
+        // Drag a row onto a pane's terminal to drop its path in. The host owns
+        // the pointer drag and reads this attribute (src/app/usePaneDrag); a
+        // click still opens/toggles, since a click without movement isn't a drag.
+        data-kd-drag-path={node.path}
         onClick={() => (isDir ? onToggle(node.path) : onSelect(node))}
       >
         <span

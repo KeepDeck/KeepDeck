@@ -22,7 +22,7 @@ const manifest = (
   id,
   name: id,
   version: "1.0.0",
-  minApiVersion: "0.0.1",
+  minApiVersion: 1,
   capabilities: [],
   contributes: {},
   ...overrides,
@@ -40,7 +40,7 @@ function fakeDeps() {
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn() },
-    fs: { readDir: vi.fn(), readFile: vi.fn() },
+    fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ dispose: vi.fn() })) },
   };
   const events = {
     onWorkspaceClosed: vi.fn(spyDisposable),
@@ -145,7 +145,7 @@ describe("PluginHost", () => {
     const host = new PluginHost(deps, createContributionRegistries());
     const load = vi.fn(async () => registrar());
     host.install(
-      { manifest: manifest("p", { minApiVersion: "9.9.9" }), load },
+      { manifest: manifest("p", { minApiVersion: 99 }), load },
       "external",
     );
 
@@ -154,8 +154,8 @@ describe("PluginHost", () => {
     const status = statusOf(host, "p");
     expect(status?.kind).toBe("failed");
     if (status?.kind === "failed") {
-      expect(status.reason).toContain("9.9.9");
-      expect(status.reason).toContain(API_VERSION);
+      expect(status.reason).toContain("99");
+      expect(status.reason).toContain(String(API_VERSION));
     }
     expect(load).not.toHaveBeenCalled();
   });

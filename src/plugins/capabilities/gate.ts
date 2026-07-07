@@ -1,5 +1,6 @@
 import type {
   Capability,
+  Disposable,
   FsEntry,
   FsFile,
   FsReadFileOptions,
@@ -28,6 +29,7 @@ export interface FsBackend {
     scope: FsScope,
     opts?: FsReadFileOptions,
   ): Promise<FsFile>;
+  watch(path: string, scope: FsScope, onChange: () => void): Disposable;
 }
 
 /** The ungated platform backends the gate decorates. Identical to
@@ -140,6 +142,13 @@ export function createCapabilityGate(
           `fs.readFile: "${path}" requires an "fs" capability, which the manifest does not declare`,
         );
         return backend.fs.readFile(path, fsScope(manifest.capabilities), opts);
+      },
+      watch(path, onChange) {
+        admit(
+          hasFsCapability(manifest.capabilities),
+          `fs.watch: "${path}" requires an "fs" capability, which the manifest does not declare`,
+        );
+        return backend.fs.watch(path, fsScope(manifest.capabilities), onChange);
       },
     },
   };

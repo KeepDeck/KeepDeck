@@ -12,7 +12,7 @@ const manifest = (id: string): PluginManifest => ({
   id,
   name: id,
   version: "1.0.0",
-  minApiVersion: "0.0.1",
+  minApiVersion: 1,
   capabilities: [],
   contributes: {},
 });
@@ -35,7 +35,7 @@ function fakeDeps() {
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn() },
-    fs: { readDir: vi.fn(), readFile: vi.fn() },
+    fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ dispose: vi.fn() })) },
   };
   const events = {
     onWorkspaceClosed: vi.fn(spyDisposable),

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { FsEntry, FsFile } from "@keepdeck/plugin-api";
 
 /**
@@ -34,4 +35,33 @@ export function projectFsReadFile(
     everywhere,
     maxBytes: maxBytes ?? null,
   });
+}
+
+/** The Tauri event a directory watcher emits when its listing changes. Mirrors
+ * PROJECT_FS_CHANGE_EVENT in src-tauri/src/project_fs.rs. */
+export const PROJECT_FS_CHANGE_EVENT = "deck://project-fs/change";
+
+/** Start watching one directory for entry changes (scoped by `roots` unless
+ * `everywhere`). Idempotent per path; changes arrive via {@link onProjectFsChange}. */
+export function projectFsWatch(
+  path: string,
+  roots: string[],
+  everywhere: boolean,
+): Promise<void> {
+  return invoke("project_fs_watch", { path, roots, everywhere });
+}
+
+/** Stop watching a directory. */
+export function projectFsUnwatch(path: string): Promise<void> {
+  return invoke("project_fs_unwatch", { path });
+}
+
+/** Subscribe to directory-change events; the handler receives the watched path
+ * exactly as registered. Resolves to the unlisten function. */
+export function onProjectFsChange(
+  handler: (path: string) => void,
+): Promise<() => void> {
+  return listen<{ path: string }>(PROJECT_FS_CHANGE_EVENT, (event) =>
+    handler(event.payload.path),
+  );
 }

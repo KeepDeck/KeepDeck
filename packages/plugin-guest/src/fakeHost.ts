@@ -68,7 +68,7 @@ export function fakeManifest(
     id,
     name: id,
     version: "1.0.0",
-    minApiVersion: "0.0.1",
+    minApiVersion: 1,
     capabilities: [],
     contributes: {},
     ...overrides,
@@ -213,6 +213,7 @@ export function createFakeHost(
           size: 0,
           truncated: false,
         }),
+        watch: () => ({ dispose() {} }),
       },
     },
     host: {

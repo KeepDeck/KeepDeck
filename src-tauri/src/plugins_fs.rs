@@ -960,7 +960,7 @@ mod tests {
     }
 
     fn manifest(id: &str) -> String {
-        format!(r#"{{"id":"{id}","name":"n","version":"0.0.1","minApiVersion":"0.0.1","capabilities":[]}}"#)
+        format!(r#"{{"id":"{id}","name":"n","version":"0.0.1","minApiVersion":1,"capabilities":[]}}"#)
     }
 
     /// Build a `.kdplugin` at `path` from `(name, content)` entries, STORED
@@ -1516,7 +1516,7 @@ mod tests {
         let root = temp_root();
         write(
             &root.join("demo/manifest.json"),
-            r#"{"id":"demo.plugin","name":"n","version":"0.0.1","minApiVersion":"0.0.1",
+            r#"{"id":"demo.plugin","name":"n","version":"0.0.1","minApiVersion":1,
                 "capabilities":[{"kind":"net","domains":["api.example.com"]}]}"#,
         );
         write(&root.join("demo/index.html"), "<html></html>");
@@ -1609,7 +1609,7 @@ mod tests {
     #[test]
     fn handle_request_serves_bytes_mime_and_csp_from_an_archive() {
         let root = temp_root();
-        let manifest_json = r#"{"id":"demo.archive","name":"n","version":"0.0.1","minApiVersion":"0.0.1",
+        let manifest_json = r#"{"id":"demo.archive","name":"n","version":"0.0.1","minApiVersion":1,
             "capabilities":[{"kind":"net","domains":["api.example.com"]}]}"#;
         write_container(
             &root.join("demo.kdplugin"),

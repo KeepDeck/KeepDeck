@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { API_VERSION, parseVersion, satisfiesApiFloor } from "./version.ts";
+import {
+  API_VERSION,
+  isApiVersion,
+  parseVersion,
+  satisfiesApiFloor,
+} from "./version.ts";
 
 describe("parseVersion", () => {
   it("parses plain major.minor.patch", () => {
@@ -14,21 +19,31 @@ describe("parseVersion", () => {
   });
 });
 
+describe("isApiVersion", () => {
+  it("accepts a non-negative integer", () => {
+    expect(isApiVersion(0)).toBe(true);
+    expect(isApiVersion(7)).toBe(true);
+  });
+
+  it("rejects negatives, non-integers, and non-numbers", () => {
+    for (const bad of [-1, 1.5, NaN, "7", "0.0.7", null, undefined]) {
+      expect(isApiVersion(bad)).toBe(false);
+    }
+  });
+});
+
 describe("satisfiesApiFloor", () => {
-  it("accepts an equal floor", () => {
-    expect(satisfiesApiFloor("1.2.3", "1.2.3")).toBe(true);
+  it("accepts an equal or lower floor, rejects a higher one", () => {
+    expect(satisfiesApiFloor(3, 3)).toBe(true);
+    expect(satisfiesApiFloor(2, 3)).toBe(true);
+    expect(satisfiesApiFloor(4, 3)).toBe(false);
   });
 
-  it("accepts a lower floor and rejects a higher one, per segment", () => {
-    expect(satisfiesApiFloor("1.1.9", "1.2.0")).toBe(true);
-    expect(satisfiesApiFloor("1.2.1", "1.2.0")).toBe(false);
-    expect(satisfiesApiFloor("2.0.0", "1.9.9")).toBe(false);
-    expect(satisfiesApiFloor("0.9.0", "1.0.0")).toBe(true);
-  });
-
-  it("fails closed on malformed versions", () => {
-    expect(satisfiesApiFloor("not-a-version", "1.0.0")).toBe(false);
-    expect(satisfiesApiFloor("1.0.0", "garbage")).toBe(false);
+  it("fails closed on non-integer versions", () => {
+    expect(satisfiesApiFloor(1.5, 3)).toBe(false);
+    expect(satisfiesApiFloor(3, -1)).toBe(false);
+    // A stray old-format string can never pass.
+    expect(satisfiesApiFloor("0.0.1" as unknown as number, 3)).toBe(false);
   });
 
   it("defaults to the current API_VERSION", () => {

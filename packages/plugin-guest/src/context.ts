@@ -56,6 +56,8 @@ export function buildGuestContext(
   // so a program's opening output is never dropped in that window.
   const sessionBuffers = new Map<string, PluginSessionEvent[]>();
   const actionCallbacks = new Map<string, (target?: unknown) => void>();
+  // One `fswatch:<id>` change callback per open directory watch.
+  const watchCallbacks = new Map<string, () => void>();
   let nextRegId = 1;
 
   /** Attach a broadcast-channel listener with a ref-counted host subscription:
@@ -258,6 +260,21 @@ export function buildGuestContext(
           rpc.call("services.fs.readDir", [path]) as Promise<FsEntry[]>,
         readFile: (path, opts) =>
           rpc.call("services.fs.readFile", [path, opts]) as Promise<FsFile>,
+        watch: (path, onChange) => {
+          const id = nextRegId++;
+          const channel = `fswatch:${id}`;
+          watchCallbacks.set(channel, onChange);
+          void rpc.call("services.fs.watch", [id, path]).catch(noop);
+          let live = true;
+          return {
+            dispose() {
+              if (!live) return;
+              live = false;
+              watchCallbacks.delete(channel);
+              void rpc.call("services.fs.unwatch", [id]).catch(noop);
+            },
+          };
+        },
       },
     },
 
@@ -291,6 +308,10 @@ export function buildGuestContext(
     if (channel.startsWith("action:")) {
       const run = actionCallbacks.get(channel.slice("action:".length));
       if (run) run(payload);
+      return;
+    }
+    if (channel.startsWith("fswatch:")) {
+      watchCallbacks.get(channel)?.();
       return;
     }
     // Deck events and the settings-change feed alike land in `channelListeners`.

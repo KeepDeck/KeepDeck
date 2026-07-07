@@ -57,6 +57,24 @@ describe("setChildren", () => {
     expect(state.nodes["/repo/a.txt"].size).toBe(42);
     expect(setChildren(state, "/nope", [file("/nope/x")])).toBe(state);
   });
+
+  it("returns the SAME state when a re-read finds an unchanged listing", () => {
+    let state = initTree("/repo");
+    state = setChildren(state, "/repo", [dir("/repo/src"), file("/repo/a.txt", 1)]);
+    const again = setChildren(state, "/repo", [dir("/repo/src"), file("/repo/a.txt", 1)]);
+    expect(again).toBe(state); // reference-equal → no re-render on noise
+  });
+
+  it("returns a NEW state when a re-read finds a changed listing", () => {
+    let state = initTree("/repo");
+    state = setChildren(state, "/repo", [file("/repo/a.txt")]);
+    const changed = setChildren(state, "/repo", [
+      file("/repo/a.txt"),
+      file("/repo/b.txt"),
+    ]);
+    expect(changed).not.toBe(state);
+    expect(changed.nodes["/repo/b.txt"]).toBeDefined();
+  });
 });
 
 describe("toggleExpanded + lazy visibility", () => {

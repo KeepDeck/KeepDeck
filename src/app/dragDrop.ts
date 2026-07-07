@@ -1,4 +1,4 @@
-import { type PaneRect } from "../domain/deck";
+import { paneAtPoint, type PaneRect } from "../domain/deck";
 import { formatDroppedPaths } from "../domain/terminal";
 import { writeToPane } from "./paneInput";
 
@@ -32,4 +32,28 @@ export function deliverDrop(
 ): boolean {
   if (!paneId || paths.length === 0) return false;
   return writeToPane(paneId, formatDroppedPaths(paths, isImage));
+}
+
+/**
+ * Deliver a dragged file `path` released at `point`: hit-test the pane under the
+ * point against `rects`, decide image-vs-text, and write the path into that
+ * pane's PTY. Returns the target pane id on delivery, else null. The SAME core
+ * as the OS file drop (`paneAtPoint` + `deliverDrop`), reached from the plugin
+ * tree's POINTER drag (see `usePaneDrag`) — a Finder drop and a dragged tree
+ * row land in the terminal identically. Pointer-based, not HTML5 drag-and-drop:
+ * Tauri's native OS drag-drop (needed for Finder file drops) disables HTML5 DnD
+ * inside the webview. `isImageOf` is injected (the `paths_are_images` IPC in the
+ * app, a fake in tests).
+ */
+export async function deliverPathToPoint(
+  path: string,
+  point: { x: number; y: number },
+  rects: PaneRect[],
+  isImageOf: (paths: string[]) => Promise<boolean[]>,
+): Promise<string | null> {
+  if (!path) return null;
+  const id = paneAtPoint(point.x, point.y, rects);
+  if (!id) return null;
+  const isImage = await isImageOf([path]).catch(() => [false]);
+  return deliverDrop(id, [path], isImage) ? id : null;
 }

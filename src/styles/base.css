@@ -44,3 +44,23 @@ input[type="number"]::-webkit-outer-spin-button {
   appearance: none;
   margin: 0;
 }
+
+/* The floating label that follows the cursor while dragging a file (from the
+   Files plugin tree) toward a pane's terminal — see src/app/usePaneDrag.ts.
+   Positioned via `transform`; pointer-events: none so it never blocks the drop
+   hit-test or the cursor. */
+.pane-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  pointer-events: none;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background-color: #1b2230;
+  border: 1px solid #2a3343;
+  color: #c5c8c6;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}

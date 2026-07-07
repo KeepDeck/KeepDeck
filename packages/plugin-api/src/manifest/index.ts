@@ -7,4 +7,9 @@ export {
   type ManifestResult,
   type PluginManifest,
 } from "./manifest.ts";
-export { API_VERSION, parseVersion, satisfiesApiFloor } from "./version.ts";
+export {
+  API_VERSION,
+  isApiVersion,
+  parseVersion,
+  satisfiesApiFloor,
+} from "./version.ts";

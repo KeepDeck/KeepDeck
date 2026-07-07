@@ -100,7 +100,8 @@ export type EventChannel =
   | "deckChanged"
   | "settingsChanged"
   | `session:${string}`
-  | `action:${string}`;
+  | `action:${string}`
+  | `fswatch:${string}`;
 
 /** The three deck-lifecycle channels a guest may subscribe to by name via
  * `events.subscribe`. Kept as a value so the host can validate an incoming
@@ -129,6 +130,12 @@ export function actionChannel(
   id: string,
 ): `action:${string}` {
   return `action:${kind}:${id}`;
+}
+
+/** The push channel for one directory watch's change signal. The guest mints
+ * the id, the host pushes this channel (empty payload) on each change. */
+export function fswatchChannel(id: number): `fswatch:${string}` {
+  return `fswatch:${id}`;
 }
 
 // ------------------------------------------------------------- session bodies

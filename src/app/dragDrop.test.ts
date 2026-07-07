@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
-import { collectPaneRects, deliverDrop } from "./dragDrop";
+import {
+  collectPaneRects,
+  deliverDrop,
+  deliverPathToPoint,
+} from "./dragDrop";
 import { registerPaneInput } from "./paneInput";
 
 describe("collectPaneRects (real DOM)", () => {
@@ -30,6 +34,54 @@ describe("deliverDrop", () => {
     expect(deliverDrop(null, ["/a"], [false])).toBe(false);
     const off = registerPaneInput("pane-10", () => {});
     expect(deliverDrop("pane-10", [], [])).toBe(false);
+    off();
+  });
+});
+
+describe("deliverPathToPoint (in-app pointer path drag)", () => {
+  const rects = [{ id: "pane-1", rect: { left: 0, top: 0, right: 100, bottom: 100 } }];
+
+  it("writes a dragged path into the pane under the drop point, returning its id", async () => {
+    const write = vi.fn();
+    const off = registerPaneInput("pane-1", write);
+    const id = await deliverPathToPoint(
+      "/repo/main.ts",
+      { x: 50, y: 50 },
+      rects,
+      async () => [false],
+    );
+    expect(id).toBe("pane-1");
+    expect(write).toHaveBeenCalledWith("/repo/main.ts");
+    off();
+  });
+
+  it("bracket-pastes an image path so the agent attaches it", async () => {
+    const write = vi.fn();
+    const off = registerPaneInput("pane-1", write);
+    await deliverPathToPoint("/repo/logo.png", { x: 10, y: 10 }, rects, async () => [true]);
+    expect(write).toHaveBeenCalledWith("\x1b[200~/repo/logo.png\x1b[201~");
+    off();
+  });
+
+  it("ignores an empty path", async () => {
+    const result = await deliverPathToPoint("", { x: 50, y: 50 }, rects, async () => []);
+    expect(result).toBeNull();
+  });
+
+  it("ignores a drop that misses every pane", async () => {
+    const off = registerPaneInput("pane-1", vi.fn());
+    const result = await deliverPathToPoint("/a", { x: 500, y: 500 }, rects, async () => [false]);
+    expect(result).toBeNull();
+    off();
+  });
+
+  it("treats an image-sniff failure as plain text, not a dropped file", async () => {
+    const write = vi.fn();
+    const off = registerPaneInput("pane-1", write);
+    await deliverPathToPoint("/a/f", { x: 1, y: 1 }, rects, async () => {
+      throw new Error("sniff failed");
+    });
+    expect(write).toHaveBeenCalledWith("/a/f");
     off();
   });
 });

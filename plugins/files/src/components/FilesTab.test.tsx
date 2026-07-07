@@ -49,7 +49,9 @@ function makeFs() {
       truncated: false,
     },
   };
+  const watchers = new Map<string, Set<() => void>>();
   return {
+    dirs, // exposed so a test can mutate a listing, then fireChange
     readDir: vi.fn(async (path: string) => dirs[path] ?? []),
     readFile: vi.fn(
       async (path: string): Promise<FsFile> =>
@@ -61,6 +63,17 @@ function makeFs() {
           truncated: false,
         },
     ),
+    watch: vi.fn((path: string, onChange: () => void) => {
+      let set = watchers.get(path);
+      if (!set) {
+        set = new Set();
+        watchers.set(path, set);
+      }
+      set.add(onChange);
+      return { dispose: () => void set!.delete(onChange) };
+    }),
+    /** Simulate an OS change event for a watched directory. */
+    fireChange: (path: string) => watchers.get(path)?.forEach((cb) => cb()),
     opener: { openUrl: vi.fn(async () => {}), openPath: vi.fn(async () => {}) },
   };
 }
@@ -68,7 +81,7 @@ function makeFs() {
 function makeCtx(fs: ReturnType<typeof makeFs>): PluginContext {
   return {
     services: {
-      fs: { readDir: fs.readDir, readFile: fs.readFile },
+      fs: { readDir: fs.readDir, readFile: fs.readFile, watch: fs.watch },
       opener: fs.opener,
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -138,6 +151,23 @@ describe("FilesTab", () => {
     expect(treeNames()).toEqual(["src", "main.ts", "readme.md"]);
   });
 
+  it("auto-refreshes a watched directory when it changes on disk", async () => {
+    await mount();
+    expect(treeNames()).toEqual(["src", "readme.md"]);
+    // The root is watched from the first load.
+    expect(fs.watch).toHaveBeenCalledWith("/repo", expect.any(Function));
+
+    // A new file lands on disk; the OS watcher fires for that directory.
+    fs.dirs["/repo"] = [file("readme.md"), dir("src"), file("new.ts")];
+    fs.fireChange("/repo");
+    // Wait out the debounce (250ms), then let the re-read settle.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    });
+
+    expect(treeNames()).toEqual(["src", "new.ts", "readme.md"]);
+  });
+
   it("previews a file's text when it is selected", async () => {
     await mount();
 
@@ -172,6 +202,14 @@ describe("FilesTab", () => {
       document.querySelector<HTMLElement>(".files__peek")!.click(),
     );
     expect(document.querySelector(".files__peek")).toBeNull();
+  });
+
+  it("tags tree rows with their path for dragging into a pane", async () => {
+    await mount();
+    expect(rowByName("readme.md")!.getAttribute("data-kd-drag-path")).toBe(
+      "/repo/readme.md",
+    );
+    expect(rowByName("src")!.getAttribute("data-kd-drag-path")).toBe("/repo/src");
   });
 
   it("selecting a file does not read it as a directory", async () => {
