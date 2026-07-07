@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GitPosition } from "../domain/deck";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { useCloseFlow } from "./useCloseFlow";
@@ -28,10 +29,11 @@ vi.mock("./provisioning", () => ({
 
 let deck: Deck;
 let flow: ReturnType<typeof useCloseFlow>;
+let runtimeHeads: Map<string, GitPosition>;
 
 function Probe() {
   deck = useDeck();
-  flow = useCloseFlow(deck, () => {});
+  flow = useCloseFlow(deck, () => {}, runtimeHeads);
   return null;
 }
 
@@ -59,6 +61,7 @@ describe("useCloseFlow + ptyManager", () => {
     pty.closePanes.mockClear();
     worktrees.discardWorktrees.mockClear();
     worktrees.order.length = 0;
+    runtimeHeads = new Map();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -106,6 +109,19 @@ describe("useCloseFlow + ptyManager", () => {
     await act(async () => {});
     expect(worktrees.order).toEqual(["closed", "discard"]);
     expect(worktrees.discardWorktrees).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the observed current branch when discarding an owned worktree", async () => {
+    runtimeHeads.set("/wt/2", { branch: "feature/current" });
+    const wsId = seed();
+    act(() => flow.requestCloseWorkspace(wsId));
+    act(() => flow.setDeleteWorktree(true));
+    act(() => flow.confirmClose());
+    await act(async () => {});
+
+    expect(worktrees.discardWorktrees).toHaveBeenCalledWith([
+      { repo: "/repo", path: "/wt/2", branch: "feature/current" },
+    ]);
   });
 
   it("cancel closes nothing", () => {

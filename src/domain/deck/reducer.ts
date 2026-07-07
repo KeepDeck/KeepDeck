@@ -11,12 +11,10 @@ import {
   resolvePaneProvisioning,
   revivePane,
   setPaneAutoTitle,
-  setPaneHead,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setPaneSession,
   setWorkspacePluginSlot,
-  type PaneHead,
   type Workspace,
 } from "./workspaces";
 
@@ -76,8 +74,6 @@ export type DeckAction =
       paneId: string;
       session: PaneSession | null;
     }
-  /** The pane's worktree moved (a checkout inside it) — live branch badge. */
-  | { type: "setPaneHead"; wsId: string; paneId: string; head: PaneHead }
   /** A background worktree create landed: pin the pane to it and mount its
    * terminal. */
   | {
@@ -310,17 +306,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         action.wsId,
         action.paneId,
         action.session,
-      );
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
-    case "setPaneHead": {
-      // Same-position re-emits (a checkout touches HEAD repeatedly) are no-ops.
-      const workspaces = setPaneHead(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
-        action.head,
       );
       if (workspaces === state.workspaces) return state;
       return { ...state, workspaces };

@@ -25,19 +25,45 @@
 .pane__bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 26px;
+  gap: 10px;
+  height: 30px;
   flex: none;
-  padding: 0 6px 0 10px;
-  border-bottom: 1px solid #161b26;
-  background-color: #0e121a;
+  padding: 0 7px 0 11px;
+  border-bottom: 1px solid #242a37;
+  background-color: #151923;
   user-select: none;
 }
 
-/* Text button on the left of the header: open the agent's cwd in VS Code. */
+.pane__identity {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pane__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.pane__title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #d6d9df;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Text button in the header: open the agent's cwd in VS Code. */
 .pane__open {
   flex: none;
-  margin-left: 8px;
   padding: 0 8px;
   height: 18px;
   border: 1px solid #2a3446;
@@ -57,19 +83,9 @@
   border-color: #3a4658;
 }
 
-.pane__title {
-  font-size: 12px;
-  color: #9aa3af;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
 /* Inline rename of the pane title ([F11]). */
 .pane__rename {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   padding: 1px 4px;
   border: 1px solid #3a4658;
@@ -84,31 +100,38 @@
 }
 
 .pane__branch {
-  margin-left: 8px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #7fb88a;
-  background-color: #12211a;
-  border: 1px solid #1d3a2a;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #e5e7eb;
+  background-color: rgba(255, 255, 255, 0.035);
+  border: 1px solid #3b4250;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 45%;
+  max-width: min(180px, 44vw);
   flex: 0 1 auto;
   min-width: 0;
 }
 
-.pane__actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
+.pane__branch svg {
+  flex: none;
+  color: #c3c8d4;
+}
+
+.pane__branch-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .pane__action,
 .pane__close {
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -116,7 +139,9 @@
   background: transparent;
   color: #6b7280;
   line-height: 1;
-  padding: 3px;
+  width: 23px;
+  height: 23px;
+  padding: 0;
   border-radius: 4px;
   cursor: pointer;
 }

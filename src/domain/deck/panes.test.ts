@@ -4,7 +4,6 @@ import {
   appendPane,
   makePanes,
   makeProvisioningPanes,
-  paneBranchBadge,
   paneDisplayTitle,
   removePane,
   resolveFocus,
@@ -133,6 +132,15 @@ describe("paneDisplayTitle", () => {
     expect(paneDisplayTitle(pane, 2, agents)).toBe("Claude Code 3");
   });
 
+  it("strips decorative Claude title glyphs without changing the stored auto title", () => {
+    expect(
+      paneDisplayTitle({ id: "pane-1", agentType: "claude", autoTitle: "✶ Claude Code" }, 0, agents),
+    ).toBe("Claude Code");
+    expect(
+      paneDisplayTitle({ id: "pane-1", agentType: "claude", autoTitle: "✳ thinking" }, 0, agents),
+    ).toBe("thinking");
+  });
+
   it("falls back to the raw agent id while the catalog has no entry", () => {
     expect(
       paneDisplayTitle({ id: "pane-1", agentType: "codex" }, 0, agents),
@@ -141,25 +149,5 @@ describe("paneDisplayTitle", () => {
 
   it("defaults a type-less pane to claude", () => {
     expect(paneDisplayTitle({ id: "pane-1" }, 1, agents)).toBe("Claude Code 2");
-  });
-});
-
-describe("paneBranchBadge", () => {
-  it("shows the branch when the worktree is on one", () => {
-    const pane: Pane = { id: "pane-1", cwd: "/wt", branch: "kd/KeepDeck/2" };
-    expect(paneBranchBadge(pane)).toEqual({
-      label: "kd/KeepDeck/2",
-      full: "kd/KeepDeck/2",
-    });
-  });
-
-  it("shows a short commit id when detached, keeping the full SHA for the tooltip", () => {
-    const sha = "0123456789abcdef0123456789abcdef01234567";
-    const pane: Pane = { id: "pane-1", cwd: "/wt", head: sha };
-    expect(paneBranchBadge(pane)).toEqual({ label: "0123456", full: sha });
-  });
-
-  it("renders no badge for a pane outside any worktree", () => {
-    expect(paneBranchBadge({ id: "pane-1" })).toBeNull();
   });
 });
