@@ -10,21 +10,14 @@ export interface HistoryHit {
 }
 
 /**
- * The most recent session of `agent` recorded for working directory `dir`,
- * optionally only when written after `sinceMs` (the [F7]/[F8] spawn-diff
- * binding window). Resolves `null` when nothing is found — a missing store is
- * not an error.
+ * The most recent session of `agent` recorded for working directory `dir`.
+ * Resolves `null` when nothing is found — a missing store is not an error.
  */
 export function latestSession(
   agent: AgentType,
   dir: string,
-  sinceMs?: number,
 ): Promise<HistoryHit | null> {
-  return invoke<HistoryHit | null>("history_latest", {
-    agent,
-    dir,
-    sinceMs: sinceMs ?? null,
-  });
+  return invoke<HistoryHit | null>("history_latest", { agent, dir });
 }
 
 /** Tri-state pre-resume validation (mirrors the Rust `PresenceDto`): only a

@@ -50,9 +50,8 @@ pub enum Presence {
 pub trait SessionProvider: Send + Sync {
     /// The catalog agent id this provider serves (`"claude"`).
     fn agent_id(&self) -> &'static str;
-    /// The most recent session recorded for working directory `dir`,
-    /// optionally only when written after `since`.
-    fn latest(&self, dir: &Path, since: Option<SystemTime>) -> Option<SessionRef>;
+    /// The most recent session recorded for working directory `dir`.
+    fn latest(&self, dir: &Path) -> Option<SessionRef>;
     /// Whether session `id` is still in the store for `dir` — pre-resume
     /// validation (agents GC/rotate their stores; a stale id must degrade,
     /// not crash).
@@ -95,13 +94,8 @@ impl SessionProviders {
     }
 
     /// [`SessionProvider::latest`] dispatched by agent id.
-    pub fn latest_session(
-        &self,
-        agent: &str,
-        dir: &Path,
-        since: Option<SystemTime>,
-    ) -> Option<SessionRef> {
-        self.get(agent)?.latest(dir, since)
+    pub fn latest_session(&self, agent: &str, dir: &Path) -> Option<SessionRef> {
+        self.get(agent)?.latest(dir)
     }
 
     /// [`SessionProvider::exists`] dispatched by agent id. An agent the
@@ -146,7 +140,7 @@ impl SessionProvider for ClaudeProvider {
         "claude"
     }
 
-    fn latest(&self, dir: &Path, since: Option<SystemTime>) -> Option<SessionRef> {
+    fn latest(&self, dir: &Path) -> Option<SessionRef> {
         let mut best: Option<SessionRef> = None;
         for entry in fs::read_dir(self.slug_dir(dir)).ok()? {
             let Ok(entry) = entry else { continue };
@@ -157,9 +151,6 @@ impl SessionProvider for ClaudeProvider {
             let Some(modified) = entry.metadata().ok().and_then(|m| m.modified().ok()) else {
                 continue;
             };
-            if !after(modified, since) {
-                continue;
-            }
             let Some(id) = path.file_stem().and_then(|s| s.to_str()) else {
                 continue;
             };
@@ -207,7 +198,7 @@ impl SessionProvider for CodexProvider {
         "codex"
     }
 
-    fn latest(&self, dir: &Path, since: Option<SystemTime>) -> Option<SessionRef> {
+    fn latest(&self, dir: &Path) -> Option<SessionRef> {
         let wanted = cwd_candidates(dir);
         // Track the highest-mtime cwd match across day dirs rather than returning
         // on the first — a rollout's mtime can spill past midnight into a day
@@ -232,7 +223,7 @@ impl SessionProvider for CodexProvider {
                         return None;
                     }
                     let modified = e.metadata().ok()?.modified().ok()?;
-                    after(modified, since).then_some((modified, path))
+                    Some((modified, path))
                 })
                 .collect();
             files.sort_by(|a, b| b.0.cmp(&a.0));
@@ -390,7 +381,7 @@ impl SessionProvider for OpencodeProvider {
         "opencode"
     }
 
-    fn latest(&self, dir: &Path, since: Option<SystemTime>) -> Option<SessionRef> {
+    fn latest(&self, dir: &Path) -> Option<SessionRef> {
         let conn = self.open()?;
         let dirs = cwd_candidates(dir);
         if dirs.is_empty() {
@@ -413,7 +404,7 @@ impl SessionProvider for OpencodeProvider {
             })
             .ok()?;
         let modified = epoch_time(time_updated)?;
-        after(modified, since).then_some(SessionRef { id, modified })
+        Some(SessionRef { id, modified })
     }
 
     fn exists(&self, id: &str, _dir: &Path) -> Presence {
@@ -473,10 +464,6 @@ fn epoch_time(value: i64) -> Option<SystemTime> {
         Duration::from_secs(value)
     };
     Some(UNIX_EPOCH + duration)
-}
-
-fn after(modified: SystemTime, since: Option<SystemTime>) -> bool {
-    since.map_or(true, |s| modified > s)
 }
 
 #[cfg(test)]
@@ -539,14 +526,14 @@ mod tests {
         touch(&slug.join("new-uuid.jsonl"), "{}", at(2_000));
         touch(&slug.join("notes.txt"), "x", at(3_000)); // ignored: not .jsonl
 
-        let hit = provider.latest(&cwd, None).unwrap();
+        let hit = provider.latest(&cwd).unwrap();
         assert_eq!(hit.id, "new-uuid");
         assert_eq!(hit.modified, at(2_000));
     }
 
     #[test]
-    fn claude_respects_the_since_window_missing_slug_and_exists() {
-        let base = temp_dir("claude-since");
+    fn claude_missing_slug_and_exists() {
+        let base = temp_dir("claude-missing");
         let cwd = base.join("repo");
         fs::create_dir_all(&cwd).unwrap();
         let provider = ClaudeProvider {
@@ -555,8 +542,7 @@ mod tests {
         let slug = provider.projects.join(slug_of(&cwd));
         touch(&slug.join("uuid.jsonl"), "{}", at(1_000));
 
-        assert!(provider.latest(&cwd, Some(at(1_500))).is_none());
-        assert!(provider.latest(Path::new("/elsewhere"), None).is_none());
+        assert!(provider.latest(Path::new("/elsewhere")).is_none());
 
         assert_eq!(provider.exists("uuid", &cwd), Presence::Present);
         assert_eq!(provider.exists("gone", &cwd), Presence::Absent);
@@ -589,12 +575,12 @@ mod tests {
             at(3_000),
         );
 
-        let hit = provider.latest(Path::new("/repo"), None).unwrap();
+        let hit = provider.latest(Path::new("/repo")).unwrap();
         assert_eq!(hit.id, "bbb"); // newest FOR THIS cwd, not newest overall
     }
 
     #[test]
-    fn codex_skips_malformed_meta_respects_since_and_finds_by_id() {
+    fn codex_skips_malformed_meta_and_finds_by_id() {
         let sessions = temp_dir("codex-edge");
         let provider = CodexProvider {
             sessions: sessions.clone(),
@@ -615,8 +601,7 @@ mod tests {
             at(500),
         );
 
-        assert_eq!(provider.latest(Path::new("/repo"), None).unwrap().id, "ok");
-        assert!(provider.latest(Path::new("/repo"), Some(at(1_500))).is_none());
+        assert_eq!(provider.latest(Path::new("/repo")).unwrap().id, "ok");
 
         // exists() is filename-based and dir-independent; .zst counts too.
         assert_eq!(provider.exists("ok", Path::new("/anywhere")), Presence::Present);
@@ -647,7 +632,7 @@ mod tests {
             at(2_000),
         );
         assert_eq!(
-            provider.latest(Path::new("/repo"), None).unwrap().id,
+            provider.latest(Path::new("/repo")).unwrap().id,
             "straggler",
         );
     }
@@ -675,7 +660,7 @@ mod tests {
             at(1_000),
         );
         // Queried by the SYMLINK, recorded resolved — the canonical candidate.
-        assert_eq!(provider.latest(&link, None).unwrap().id, "aaa");
+        assert_eq!(provider.latest(&link).unwrap().id, "aaa");
 
         touch(
             &sessions.join("2026/07/03/rollout-2-bbb.jsonl"),
@@ -683,7 +668,7 @@ mod tests {
             at(2_000),
         );
         // A raw-path recording still matches too; the newest wins.
-        assert_eq!(provider.latest(&link, None).unwrap().id, "bbb");
+        assert_eq!(provider.latest(&link).unwrap().id, "bbb");
     }
 
     #[test]
@@ -743,7 +728,7 @@ mod tests {
             ("new", "/repo", 2_000_000_000_000),
             ("other", "/other", 3_000_000_000_000),
         ]);
-        let hit = provider.latest(Path::new("/repo"), None).unwrap();
+        let hit = provider.latest(Path::new("/repo")).unwrap();
         assert_eq!(hit.id, "new");
         assert_eq!(
             hit.modified,
@@ -752,22 +737,16 @@ mod tests {
     }
 
     #[test]
-    fn opencode_handles_missing_db_no_match_since_and_exists() {
+    fn opencode_handles_missing_db_no_match_and_exists() {
         let missing = OpencodeProvider {
             db: PathBuf::from("/no/such.db"),
         };
-        assert!(missing.latest(Path::new("/x"), None).is_none());
+        assert!(missing.latest(Path::new("/x")).is_none());
         // A store that was never created is a DEFINITIVE absence.
         assert_eq!(missing.exists("s", Path::new("/x")), Presence::Absent);
 
         let provider = opencode_fixture(&[("s", "/repo", 1_000_000_000_000)]);
-        assert!(provider.latest(Path::new("/other"), None).is_none());
-        assert!(provider
-            .latest(
-                Path::new("/repo"),
-                Some(UNIX_EPOCH + Duration::from_millis(1_500_000_000_000)),
-            )
-            .is_none());
+        assert!(provider.latest(Path::new("/other")).is_none());
         assert_eq!(provider.exists("s", Path::new("/anywhere")), Presence::Present);
         assert_eq!(provider.exists("nope", Path::new("/anywhere")), Presence::Absent);
     }
@@ -785,7 +764,7 @@ mod tests {
 
         let provider = opencode_fixture(&[("linked", resolved.as_ref(), 1_000_000_000_000)]);
         // Queried by the SYMLINK, recorded resolved — must still be found.
-        assert_eq!(provider.latest(&link, None).unwrap().id, "linked");
+        assert_eq!(provider.latest(&link).unwrap().id, "linked");
     }
 
     #[test]
@@ -801,7 +780,7 @@ mod tests {
             provider.exists("s", Path::new("/anywhere")),
             Presence::Unknown
         );
-        assert!(provider.latest(Path::new("/repo"), None).is_none()); // still best-effort
+        assert!(provider.latest(Path::new("/repo")).is_none()); // still best-effort
     }
 
     #[test]
@@ -820,14 +799,14 @@ mod tests {
         let providers = SessionProviders::with(vec![Box::new(claude)]);
 
         assert_eq!(
-            providers.latest_session("claude", &cwd, None).unwrap().id,
+            providers.latest_session("claude", &cwd).unwrap().id,
             "uuid-1"
         );
         assert_eq!(
             providers.session_presence("claude", "uuid-1", &cwd),
             Presence::Present
         );
-        assert!(providers.latest_session("unknown", &cwd, None).is_none());
+        assert!(providers.latest_session("unknown", &cwd).is_none());
         // An agent outside the catalog can't be resumed — definitive absence.
         assert_eq!(
             providers.session_presence("unknown", "x", &cwd),
