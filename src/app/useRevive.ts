@@ -5,7 +5,7 @@ import {
   type SpawnPlanContext,
 } from "../domain/agents";
 import { findWorkspace, type Pane } from "../domain/deck";
-import { latestSession, sessionPresence } from "../ipc/history";
+import { sessionPresence } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
 import { mintSessionId } from "./ids";
@@ -15,9 +15,10 @@ import type { Deck } from "./useDeck";
 /**
  * Lazy revival of restored panes ([F7]): when a workspace with dormant panes
  * is (or becomes) active, wake each one so its terminal mounts and spawns —
- * RESUMING its recorded agent session where one is known (the persisted
- * binding, else the newest session for the pane's directory), falling back to
- * a fresh spawn ([F8] strategy: native resume by default). A resume plan is
+ * RESUMING its recorded agent session where one is known (the persisted,
+ * hook-reported binding) and starting FRESH otherwise — an unbound pane is
+ * never matched to a session by its directory, which would resume a FOREIGN
+ * conversation whenever panes share a cwd. A resume plan is
  * pre-registered in the spawn-spec cache; a fresh wake takes the default plan
  * the render pass builds (which assigns/arms session identity, v2).
  *
@@ -95,10 +96,16 @@ export function useRevive(
           deckRef.current.setPaneSession(active.id, pane.id, null);
         }
       } else {
-        // Never bound (pre-v2 deck, reporter never fired): best-effort —
-        // the newest session recorded for this directory.
-        sessionId =
-          (await latestSession(agentType, dir).catch(() => null))?.id ?? null;
+        // Never bound: the hook/plugin reporter never posted this pane's
+        // session id — a pane nobody messaged (codex/opencode create the
+        // session lazily with the first message), a mid-TUI `/new`, a pre-v2
+        // deck, or a reporter that couldn't arm. Start FRESH: matching the
+        // newest session in the directory would resume a FOREIGN conversation
+        // whenever panes share a cwd (the default — a worktree is optional),
+        // the same directory-theft the recorded-but-absent branch above
+        // already refuses. claude never reaches here — its id is assigned at
+        // spawn, so it is always bound.
+        sessionId = null;
       }
       log.info(
         "web:revive",
