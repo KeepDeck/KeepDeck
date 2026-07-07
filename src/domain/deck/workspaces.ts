@@ -100,27 +100,32 @@ export function closeWorkspace(workspaces: Workspace[], id: string): Workspace[]
   return workspaces.filter((ws) => ws.id !== id);
 }
 
-/** A git worktree + branch to tear down when an agent or workspace closes. */
+/** A git worktree (and its branch, when one is known) to tear down when an
+ * agent or workspace closes. */
 export interface WorktreeTarget {
   /** The repository (the workspace cwd) the git ops run against. */
   repo: string;
   /** The worktree directory to remove. */
   path: string;
-  /** The branch to delete once the worktree is gone. */
-  branch: string;
+  /** The branch to delete once the worktree is gone, when the pane still tracks
+   * one. Absent for a detached-HEAD worktree — the dir is still removed, the
+   * (now-unknown) branch is left intact rather than skipping the whole target. */
+  branch?: string;
 }
 
 /**
  * The worktrees owned by a workspace's panes — just the one pane when `paneId`
- * is given (agent close), else every pane (workspace close). Only panes that
- * actually run in a worktree (both a `cwd` and a `branch`) are returned; a
- * cwd-fallback pane, or a non-worktree workspace, owns nothing to delete, so an
- * empty result is the signal that there's nothing to offer deleting.
+ * is given (agent close), else every pane (workspace close). A pane keyed on
+ * `cwd` alone counts: a detached-HEAD worktree has a `cwd` but no `branch`, and
+ * keying on both used to make it undeletable in-app (its dir stranded on disk).
+ * A cwd-fallback pane (the main repo) has no worktree of its own, and a
+ * non-worktree workspace owns nothing — an empty result is the signal that
+ * there's nothing to offer deleting.
  */
 export function worktreeTargets(ws: Workspace, paneId?: string): WorktreeTarget[] {
   const panes = paneId ? ws.panes.filter((p) => p.id === paneId) : ws.panes;
   return panes.flatMap((p) =>
-    p.cwd && p.branch ? [{ repo: ws.cwd, path: p.cwd, branch: p.branch }] : [],
+    p.cwd ? [{ repo: ws.cwd, path: p.cwd, branch: p.branch }] : [],
   );
 }
 

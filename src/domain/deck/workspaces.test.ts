@@ -171,6 +171,20 @@ describe("worktreeTargets", () => {
     expect(worktreeTargets(wtWs, "a-p3")).toEqual([]);
   });
 
+  it("collects a detached-HEAD worktree pane (cwd, no branch)", () => {
+    const detached: Workspace = {
+      id: "a",
+      name: "a",
+      cwd: "/repo",
+      worktreeBaseDir: "/wt",
+      panes: [{ id: "a-p1", cwd: "/wt/kd-a-1", head: "abc123" } as Pane],
+    };
+    const targets = worktreeTargets(detached, "a-p1");
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toMatchObject({ repo: "/repo", path: "/wt/kd-a-1" });
+    expect(targets[0].branch).toBeUndefined();
+  });
+
   it("returns nothing for a non-worktree workspace", () => {
     const plain: Workspace = {
       id: "b",
