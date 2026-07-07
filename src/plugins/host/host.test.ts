@@ -40,6 +40,7 @@ function fakeDeps() {
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn() },
+    fs: { readDir: vi.fn(), readFile: vi.fn() },
   };
   const events = {
     onWorkspaceClosed: vi.fn(spyDisposable),

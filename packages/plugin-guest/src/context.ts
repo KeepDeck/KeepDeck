@@ -1,5 +1,7 @@
 import type {
   Disposable,
+  FsEntry,
+  FsFile,
   PluginContext,
   PluginManifest,
   PluginSessionEvent,
@@ -250,6 +252,12 @@ export function buildGuestContext(
       opener: {
         openUrl: (url) => rpc.call("services.opener.openUrl", [url]).then(noop),
         openPath: (path) => rpc.call("services.opener.openPath", [path]).then(noop),
+      },
+      fs: {
+        readDir: (path) =>
+          rpc.call("services.fs.readDir", [path]) as Promise<FsEntry[]>,
+        readFile: (path, opts) =>
+          rpc.call("services.fs.readFile", [path, opts]) as Promise<FsFile>,
       },
     },
 

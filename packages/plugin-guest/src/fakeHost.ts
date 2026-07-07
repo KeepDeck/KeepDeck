@@ -204,6 +204,16 @@ export function createFakeHost(
       },
       ports: { allocate: async () => 3000 },
       opener: { openUrl: async () => {}, openPath: async () => {} },
+      fs: {
+        readDir: async () => [],
+        readFile: async (path) => ({
+          path,
+          text: "",
+          isBinary: false,
+          size: 0,
+          truncated: false,
+        }),
+      },
     },
     host: {
       settings: async () => options.hostSettings ?? { terminalScrollback: 10_000 },

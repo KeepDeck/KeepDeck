@@ -237,6 +237,35 @@ describe("external plugin bridge", () => {
     expect(host.sessions[0].closed).toBe(1);
   });
 
+  it("round-trips fs.readDir / fs.readFile with args and results intact", async () => {
+    const host = createFakeHost();
+    const readDirCalls: string[] = [];
+    const readFileCalls: [string, unknown][] = [];
+    host.ctx.services.fs.readDir = async (path) => {
+      readDirCalls.push(path);
+      return [{ name: "main.rs", path: `${path}/main.rs`, kind: "file", size: 12 }];
+    };
+    host.ctx.services.fs.readFile = async (path, opts) => {
+      readFileCalls.push([path, opts]);
+      return { path, text: "fn main() {}", isBinary: false, size: 12, truncated: false };
+    };
+    const { ctxReady } = wireCapturingCtx(host);
+    const ctx = await ctxReady;
+
+    const entries = await ctx.services.fs.readDir("/repo/src");
+    expect(readDirCalls).toEqual(["/repo/src"]);
+    expect(entries).toEqual([
+      { name: "main.rs", path: "/repo/src/main.rs", kind: "file", size: 12 },
+    ]);
+
+    const file = await ctx.services.fs.readFile("/repo/src/main.rs", {
+      maxBytes: 500,
+    });
+    expect(readFileCalls).toEqual([["/repo/src/main.rs", { maxBytes: 500 }]]);
+    expect(file.text).toBe("fn main() {}");
+    expect(file.isBinary).toBe(false);
+  });
+
   it("fans a top-bar action's host-side run back to the plugin's callback", async () => {
     const host = createFakeHost();
     let runs = 0;

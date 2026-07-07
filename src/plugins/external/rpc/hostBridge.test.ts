@@ -70,6 +70,16 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       },
       ports: { allocate: async () => 0 },
       opener: { openUrl: async () => {}, openPath: async () => {} },
+      fs: {
+        readDir: async () => [],
+        readFile: async (path: string) => ({
+          path,
+          text: "",
+          isBinary: false,
+          size: 0,
+          truncated: false,
+        }),
+      },
     },
     host: { settings: async () => ({ terminalScrollback: 1000 }) },
     log: {

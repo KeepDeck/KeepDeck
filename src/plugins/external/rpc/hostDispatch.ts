@@ -2,6 +2,7 @@ import type {
   AgentContribution,
   Disposable,
   DockTabContribution,
+  FsReadFileOptions,
   PluginContext,
   PluginSpawnOptions,
   SettingsSectionContribution,
@@ -148,6 +149,12 @@ export function createHostDispatch(
     "services.sessions.resize": ([id, cols, rows]) =>
       sessions.resize(id as string, cols as number, rows as number),
     "services.sessions.close": ([id]) => sessions.close(id as string),
+    "services.fs.readDir": ([path]) => ctx.services.fs.readDir(path as string),
+    "services.fs.readFile": ([path, opts]) =>
+      ctx.services.fs.readFile(
+        path as string,
+        opts as FsReadFileOptions | undefined,
+      ),
 
     // ---- host facts ----
     "host.settings": () => ctx.host.settings(),

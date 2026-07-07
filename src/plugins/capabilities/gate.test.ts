@@ -2,11 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   Capability,
   PluginManifest,
-  PluginServices,
   PluginSessionHandle,
   PluginSpawnOptions,
 } from "@keepdeck/plugin-api";
-import { createCapabilityGate } from "./gate";
+import { createCapabilityGate, type ServiceBackends } from "./gate";
 
 const manifest = (capabilities: Capability[]): PluginManifest => ({
   id: "p",
@@ -30,10 +29,20 @@ function fakeBackend() {
     resize: vi.fn(),
     close: vi.fn(),
   };
-  const backend: PluginServices = {
+  const backend: ServiceBackends = {
     sessions: { spawn: vi.fn(async () => handle) },
     opener: { openUrl: vi.fn(async () => {}), openPath: vi.fn(async () => {}) },
     ports: { allocate: vi.fn(async () => 4000) },
+    fs: {
+      readDir: vi.fn(async () => []),
+      readFile: vi.fn(async (path: string) => ({
+        path,
+        text: "",
+        isBinary: false,
+        size: 0,
+        truncated: false,
+      })),
+    },
   };
   return { backend, handle };
 }
@@ -284,5 +293,66 @@ describe("createCapabilityGate — zero capabilities", () => {
       '"open" capability',
     );
     expect(hard.backend.opener.openPath).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCapabilityGate — fs", () => {
+  it("forwards a declared call and passes the derived scope, defaulting to workspace", async () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "fs", scope: "workspace" }]),
+      backend,
+      { mode: "enforce", log },
+    );
+
+    await gate.fs.readDir("/repo/src");
+    await gate.fs.readFile("/repo/src/main.rs", { maxBytes: 100 });
+
+    // The plugin never supplies the scope — the gate injects it from the
+    // manifest as the backend's second argument.
+    expect(backend.fs.readDir).toHaveBeenCalledWith("/repo/src", "workspace");
+    expect(backend.fs.readFile).toHaveBeenCalledWith(
+      "/repo/src/main.rs",
+      "workspace",
+      { maxBytes: 100 },
+    );
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("passes the everywhere scope through when the manifest declares it", async () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "fs", scope: "everywhere" }]),
+      backend,
+      { mode: "enforce", log },
+    );
+
+    await gate.fs.readDir("/anywhere");
+
+    expect(backend.fs.readDir).toHaveBeenCalledWith("/anywhere", "everywhere");
+  });
+
+  it("missing fs capability warns-and-forwards in warn mode, throws in enforce", async () => {
+    const warn = { ...fakeBackend(), log: fakeLog() };
+    const warnGate = createCapabilityGate(manifest([]), warn.backend, {
+      mode: "warn",
+      log: warn.log,
+    });
+    // A warn-mode call with no fs capability still proceeds, but is contained
+    // to the safe default scope — never silently promoted to everywhere.
+    await warnGate.fs.readDir("/repo");
+    expect(warn.log.warn).toHaveBeenCalledTimes(1);
+    expect(warn.log.warn.mock.calls[0][0]).toContain('"fs" capability');
+    expect(warn.backend.fs.readDir).toHaveBeenCalledWith("/repo", "workspace");
+
+    const hard = { ...fakeBackend(), log: fakeLog() };
+    const hardGate = createCapabilityGate(manifest([]), hard.backend, {
+      mode: "enforce",
+      log: hard.log,
+    });
+    expect(() => hardGate.fs.readFile("/etc/passwd")).toThrow('"fs" capability');
+    expect(hard.backend.fs.readFile).not.toHaveBeenCalled();
   });
 });
