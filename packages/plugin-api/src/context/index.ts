@@ -15,6 +15,11 @@ export type { HostSettingsSnapshot, PluginHostFacts } from "./hostFacts.ts";
 export type { PluginLogger } from "./log.ts";
 export type { KeepDeckPlugin } from "./plugin.ts";
 export type {
+  FsEntry,
+  FsEntryKind,
+  FsFile,
+  FsReadFileOptions,
+  PluginFs,
   PluginOpener,
   PluginPorts,
   PluginServices,

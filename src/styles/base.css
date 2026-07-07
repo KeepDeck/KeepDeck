@@ -15,21 +15,26 @@ body,
 }
 
 /* Kill macOS WKWebView's rubber-band overscroll. The app is a fixed
-   viewport-sized shell, so the root never scrolls (overflow: hidden), and the
-   inner scrollers — workspaces rail, overlays, xterm viewports — must not
-   bounce at their edges or chain the scroll up and drag the whole window. */
+   viewport-sized shell, so the root never scrolls (overflow: hidden). */
 html,
 body {
   overflow: hidden;
+}
+
+/* Every element carries no-overscroll, so a new scroll area never has to opt in
+   by hand and none of them bounce at their edges or chain the scroll up to a
+   parent or the window. Inert on anything that doesn't scroll. Project-wide, so
+   individual scrollers (tree, code preview, rail, overlays, xterm…) don't each
+   re-declare it. */
+* {
   overscroll-behavior: none;
 }
 
-.rail__list,
-.deck__overlay,
-.modal-overlay,
-.xterm-viewport {
-  overscroll-behavior: none;
-}
+/* Scrollbars are left UNSTYLED on purpose: styling `::-webkit-scrollbar` at all
+   turns off WKWebView's overlay auto-hide (the bars go always-on), and the
+   CSS-only re-hide (hover-reveal) behaves worse than the native overlay. So the
+   native self-hiding scrollbar stays — its color is system-controlled and can't
+   be darkened without losing the auto-hide. */
 
 /* WKWebView draws native macOS stepper arrows inside number inputs — the one
    native-looking control in an otherwise fully custom UI. Keyboard ↑/↓ and

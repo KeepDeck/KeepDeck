@@ -3,14 +3,18 @@ import {
   type Disposable,
   type KeepDeckPlugin,
   type PluginManifest,
-  type PluginServices,
 } from "@keepdeck/plugin-api";
 import {
   createContributionRegistries,
   PluginHost,
   type PluginInstall,
 } from "../plugins";
-import { createCapabilityGate } from "../plugins/capabilities";
+import {
+  createCapabilityGate,
+  type FsScope,
+  type ServiceBackends,
+} from "../plugins/capabilities";
+import { projectFsReadDir, projectFsReadFile } from "../ipc/projectFs";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openUrl } from "../ipc/app";
@@ -101,8 +105,27 @@ function loggerFor(pluginId: string) {
   };
 }
 
-/** The ungated platform services — what the capability gate decorates. */
-const serviceBackend: PluginServices = {
+/** The folders a `workspace`-scoped `fs` call may reach: every open
+ * workspace's cwd plus each of its panes' worktree cwds — the live "workspace
+ * folder and its panes' worktrees" the capability's scope names, read fresh
+ * per call so a just-opened workspace is reachable at once. `everywhere` needs
+ * none (the Rust side skips containment). */
+function fsRoots(scope: FsScope): string[] {
+  if (scope === "everywhere") return [];
+  const roots = new Set<string>();
+  for (const ws of liveDeckAccess.workspaces()) {
+    if (ws.cwd) roots.add(ws.cwd);
+    for (const pane of ws.panes) {
+      if (pane.cwd) roots.add(pane.cwd);
+    }
+  }
+  return [...roots];
+}
+
+/** The ungated platform services — what the capability gate decorates. `fs`
+ * is scope-aware here (the gate injects the scope it derived from the
+ * manifest); this backend turns that scope into concrete roots. */
+const serviceBackend: ServiceBackends = {
   sessions: {
     async spawn(opts, onEvent) {
       return spawnSession(
@@ -128,6 +151,12 @@ const serviceBackend: PluginServices = {
   opener: {
     openUrl: (url) => openUrl(url),
     openPath: (path) => openPath(path),
+  },
+  fs: {
+    readDir: (path, scope) =>
+      projectFsReadDir(path, fsRoots(scope), scope === "everywhere"),
+    readFile: (path, scope, opts) =>
+      projectFsReadFile(path, fsRoots(scope), scope === "everywhere", opts?.maxBytes),
   },
 };
 

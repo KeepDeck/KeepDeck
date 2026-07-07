@@ -7,6 +7,7 @@ export interface PluginServices {
   readonly sessions: PluginSessions;
   readonly ports: PluginPorts;
   readonly opener: PluginOpener;
+  readonly fs: PluginFs;
 }
 
 export interface PluginSessions {
@@ -48,4 +49,53 @@ export interface PluginPorts {
 export interface PluginOpener {
   openUrl(url: string): Promise<void>;
   openPath(path: string): Promise<void>;
+}
+
+/** Read-only access to the user's PROJECT files, gated by the `fs` capability —
+ * its scope (`workspace` / `everywhere`) decides which folders are reachable,
+ * enforced host-side by path containment the plugin cannot see or bypass.
+ *
+ * Lazy by design: `readDir` returns ONE directory's immediate children, so a
+ * file-tree UI expands a node on demand instead of walking the whole tree (a
+ * giant `node_modules` never loads until someone opens it). Read-only: there is
+ * no create/write/delete surface here — that would be its own capability. */
+export interface PluginFs {
+  /** One directory's immediate children (not recursive). Order is unspecified;
+   * callers sort for display. Rejects a path outside the capability's scope. */
+  readDir(path: string): Promise<FsEntry[]>;
+  /** One file's contents, decoded as UTF-8 text. A binary file comes back with
+   * `text: null` / `isBinary: true`; a file past the read cap with
+   * `truncated: true` — the plugin decides how to present either. */
+  readFile(path: string, opts?: FsReadFileOptions): Promise<FsFile>;
+}
+
+export interface FsReadFileOptions {
+  /** Preferred read cap in bytes; the host clamps it to its own ceiling.
+   * Reading stops there and `truncated` is set. */
+  maxBytes?: number;
+}
+
+/** One directory child. `path` is absolute — pass it straight back into
+ * `readDir` / `readFile` to descend (containment is re-checked every call). */
+export interface FsEntry {
+  name: string;
+  path: string;
+  kind: FsEntryKind;
+  /** Byte size of a regular file; absent for a directory or symlink. */
+  size?: number;
+}
+
+/** What a child is, WITHOUT following symlinks — a symlink is reported as such,
+ * never silently resolved to its target. */
+export type FsEntryKind = "file" | "dir" | "symlink";
+
+/** One file's contents. `text` is null when the file is binary (a NUL byte or
+ * invalid UTF-8); `truncated` says the text stops at the read cap; `size` is
+ * the file's full byte length regardless of the cap. */
+export interface FsFile {
+  path: string;
+  text: string | null;
+  isBinary: boolean;
+  size: number;
+  truncated: boolean;
 }

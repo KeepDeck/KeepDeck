@@ -9,7 +9,7 @@
  * This is the load-bearing version; keep package.json's `version` in lockstep
  * with it (that one exists only so the workspace resolves the package).
  */
-export const API_VERSION = "0.0.5";
+export const API_VERSION = "0.0.6";
 
 /**
  * Whether an API at `apiVersion` satisfies a manifest's `minApiVersion`

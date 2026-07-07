@@ -1,10 +1,45 @@
 import type {
   Capability,
+  FsEntry,
+  FsFile,
+  FsReadFileOptions,
   PluginLogger,
   PluginManifest,
+  PluginOpener,
+  PluginPorts,
   PluginServices,
+  PluginSessions,
 } from "@keepdeck/plugin-api";
 import { execCovers } from "./execCovers";
+
+/** The two scopes the `fs` capability may declare, as the backend consumes
+ * them: the gate DERIVES this from the manifest and passes it down; the backend
+ * resolves it to concrete roots (the deck's folders, or none). */
+export type FsScope = "workspace" | "everywhere";
+
+/** The scope-aware fs backend the gate wraps. Wider than the public `PluginFs`
+ * a plugin sees: it carries the scope the gate derived from the manifest, so
+ * the host can turn scope into the roots it enforces containment against. The
+ * plugin never supplies the scope — the manifest is the only source. */
+export interface FsBackend {
+  readDir(path: string, scope: FsScope): Promise<FsEntry[]>;
+  readFile(
+    path: string,
+    scope: FsScope,
+    opts?: FsReadFileOptions,
+  ): Promise<FsFile>;
+}
+
+/** The ungated platform backends the gate decorates. Identical to
+ * `PluginServices` except `fs`: the backend's fs is scope-aware (the gate
+ * injects the scope), while the `PluginServices.fs` the gate RETURNS matches
+ * the public, scope-free `PluginFs` the plugin calls. */
+export interface ServiceBackends {
+  sessions: PluginSessions;
+  ports: PluginPorts;
+  opener: PluginOpener;
+  fs: FsBackend;
+}
 
 /**
  * CapabilityGate v0 — decorates an ungated `PluginServices` backend so every
@@ -27,18 +62,18 @@ import { execCovers } from "./execCovers";
  * no re-wrapping of the session handle — so a caller cannot tell a `"warn"`
  * pass-through from a call that was never gated at all.
  *
- * `fs` and `net` capabilities have no service to gate here: `PluginServices`
- * carries no `fs`/`net` member (v0 is `sessions` + `ports` only). `fs` is
- * validated by the manifest reader today and will be enforced wherever file
- * access actually lands; `net` is enforced later via the plugin realm's CSP.
- * Do not invent stand-in branches for either — an unused enforcement path
- * would claim a guarantee this module doesn't provide.
+ * `fs` IS gated here now (a file-reading plugin gave it a service to guard):
+ * the gate admits the call only if the manifest declares an `fs` capability and
+ * passes the DECLARED SCOPE to the backend, which resolves scope into the roots
+ * it enforces containment against — the plugin never supplies the scope. `net`
+ * still has no service to gate: it is enforced by the plugin realm's CSP, not a
+ * call here, so there is deliberately no `net` branch.
  */
 export type GateMode = "warn" | "enforce";
 
 export function createCapabilityGate(
   manifest: PluginManifest,
-  backend: PluginServices,
+  backend: ServiceBackends,
   opts: { mode: GateMode; log: PluginLogger },
 ): PluginServices {
   const { mode, log } = opts;
@@ -91,6 +126,22 @@ export function createCapabilityGate(
         return backend.opener.openPath(path);
       },
     },
+    fs: {
+      readDir(path) {
+        admit(
+          hasFsCapability(manifest.capabilities),
+          `fs.readDir: "${path}" requires an "fs" capability, which the manifest does not declare`,
+        );
+        return backend.fs.readDir(path, fsScope(manifest.capabilities));
+      },
+      readFile(path, opts) {
+        admit(
+          hasFsCapability(manifest.capabilities),
+          `fs.readFile: "${path}" requires an "fs" capability, which the manifest does not declare`,
+        );
+        return backend.fs.readFile(path, fsScope(manifest.capabilities), opts);
+      },
+    },
   };
 }
 
@@ -100,4 +151,20 @@ function hasPortsCapability(capabilities: Capability[]): boolean {
 
 function hasOpenCapability(capabilities: Capability[]): boolean {
   return capabilities.some((capability) => capability.kind === "open");
+}
+
+function hasFsCapability(capabilities: Capability[]): boolean {
+  return capabilities.some((capability) => capability.kind === "fs");
+}
+
+/** The scope the fs backend should enforce: the declared scope, defaulting to
+ * the SAFEST (`workspace`) when none is declared. `everywhere` is never assumed
+ * — a warn-mode built-in that calls `fs` without declaring it is contained to
+ * the workspace, not silently handed the whole filesystem. */
+function fsScope(capabilities: Capability[]): FsScope {
+  const fs = capabilities.find(
+    (capability): capability is Extract<Capability, { kind: "fs" }> =>
+      capability.kind === "fs",
+  );
+  return fs?.scope === "everywhere" ? "everywhere" : "workspace";
 }

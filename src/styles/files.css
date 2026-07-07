@@ -1,0 +1,343 @@
+/* The Files tab (keepdeck.files plugin): a lazy file tree over the fs
+   capability, with a read-only preview below it. Palette mirrors the dock and
+   the Run tab so the plugin reads as native chrome. */
+
+.files {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* Root selector + refresh. */
+.files__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.files__root {
+  flex: 1;
+  min-width: 0;
+}
+
+.files__refresh {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.files__refresh:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+/* The tree: fills the panel and scrolls on its own. */
+.files__tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  /* Focus lives on this container (keyboard nav); the active row's highlight is
+     the visible focus indicator, so the container's own ring is suppressed. */
+  outline: none;
+}
+
+.files__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.files__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 0;
+  border-radius: 5px;
+  color: #c5c8c6;
+  font-size: 12.5px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.files__row:hover {
+  background-color: #151a24;
+}
+
+.files__row--sel {
+  background-color: #1b2230;
+}
+
+/* Chevron: points down when open, rotates to point right when collapsed. A
+   leaf reserves the same width so names stay aligned. */
+.files__chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: #6b7280;
+  transition: transform 0.1s ease;
+}
+
+.files__chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+.files__ficon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: #8b93a3;
+}
+
+.files__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files__hint {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.files__hint--bad {
+  color: #e5736f;
+}
+
+.files__empty {
+  padding: 16px 8px;
+}
+
+.files__empty-sub {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* The file preview: a wide "peek" over the whole window — a 340px rail can't
+   read code. A fixed backdrop (matching the host's .modal-overlay) dims the
+   deck; the panel centers a comfortable reading width. */
+.files__peek {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  /* A slim uniform frame — the panel fills the window, the dim edge just marks
+     it as a dismissible overlay (backdrop click / Esc). */
+  padding: 10px;
+  background-color: rgba(7, 9, 13, 0.66);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: files-peek-fade 120ms ease-out;
+}
+
+.files__peekpanel {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #0e121a;
+  border: 1px solid #1c2230;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.85);
+  animation: files-peek-pop 140ms ease-out;
+}
+
+@keyframes files-peek-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes files-peek-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .files__peek,
+  .files__peekpanel {
+    animation: none;
+  }
+}
+
+.files__dhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1c2230;
+  background-color: #11151d;
+}
+
+.files__dback {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #9aa3af;
+  cursor: pointer;
+}
+
+.files__dback:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+.files__dname {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #c5c8c6;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files__dsize {
+  flex: none;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.files__dact {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.files__dact:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+/* Wrap toggle, active. */
+.files__dact--on {
+  color: #58b368;
+}
+
+.files__dact--on:hover {
+  color: #6fd07f;
+}
+
+/* Breadcrumb: where the file sits under the root — mono, muted, one line. */
+.files__dpath {
+  padding: 6px 14px;
+  border-bottom: 1px solid #1c2230;
+  color: #6b7280;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files__dbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background-color: #0b0e14;
+  outline: none;
+}
+
+/* Line-numbered code. The block sizes to its widest line so long lines scroll
+   horizontally; the number gutter stays pinned left through the scroll. */
+.files__code {
+  width: max-content;
+  min-width: 100%;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 0;
+}
+
+.files__coderow {
+  display: flex;
+}
+
+.files__lineno {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  width: 48px;
+  padding-right: 12px;
+  text-align: right;
+  color: #3b4658;
+  background-color: #0b0e14;
+  user-select: none;
+}
+
+.files__linetext {
+  flex: 1 1 auto;
+  color: #c5c8c6;
+  white-space: pre;
+  padding-right: 16px;
+}
+
+/* Wrapped mode: lines fold to the panel width instead of scrolling sideways. */
+.files__code--wrap {
+  width: auto;
+}
+
+.files__code--wrap .files__linetext {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.files__note {
+  margin: 0;
+  padding: 8px 12px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.files__note--bad {
+  color: #e5736f;
+}
+
+.files__binary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+}

@@ -150,8 +150,13 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     const index = JSON.parse(
       readFileSync(join(distRoot, "plugins", "index.json"), "utf8"),
     );
+    // Every built-in plugin, sorted by id (files before run) — this exact-match
+    // is the deterministic-shape tripwire: a new built-in updates it on purpose.
     expect(index).toEqual({
-      plugins: [{ id: "keepdeck.run", dir: "plugins/keepdeck.run" }],
+      plugins: [
+        { id: "keepdeck.files", dir: "plugins/keepdeck.files" },
+        { id: "keepdeck.run", dir: "plugins/keepdeck.run" },
+      ],
     });
   });
 
