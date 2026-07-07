@@ -393,13 +393,24 @@ impl SessionProvider for OpencodeProvider {
     fn latest(&self, dir: &Path, since: Option<SystemTime>) -> Option<SessionRef> {
         let conn = self.open()?;
         let dirs = cwd_candidates(dir);
+        if dirs.is_empty() {
+            return None;
+        }
+        // One placeholder per cwd spelling, bound from the whole list — a fixed
+        // two (`dirs[0]`, `dirs[last]`) would silently drop a third candidate
+        // should cwd_candidates ever return more than two.
+        let placeholders = (1..=dirs.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT id, time_updated FROM session WHERE directory IN ({placeholders}) \
+             ORDER BY time_updated DESC LIMIT 1"
+        );
         let (id, time_updated): (String, i64) = conn
-            .query_row(
-                "SELECT id, time_updated FROM session WHERE directory IN (?1, ?2) \
-                 ORDER BY time_updated DESC LIMIT 1",
-                rusqlite::params![dirs[0], dirs[dirs.len() - 1]],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
+            .query_row(&sql, rusqlite::params_from_iter(dirs.iter()), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .ok()?;
         let modified = epoch_time(time_updated)?;
         after(modified, since).then_some(SessionRef { id, modified })
