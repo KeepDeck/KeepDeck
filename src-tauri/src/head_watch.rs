@@ -17,14 +17,14 @@
 //! Watching is passive (FSEvents/inotify subscriptions hold no handle on the
 //! file), so git, agents and the user are never blocked or slowed.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use keepdeck_git::head::{self, Head};
-use notify::{Event, EventKind, RecursiveMode, Watcher};
+use notify::{Event, EventKind};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
+
+use crate::fswatch::{self, WatchRegistry};
 
 /// Event delivering one worktree's current HEAD (see `src/ipc/worktree.ts`).
 pub const WORKTREE_HEAD_EVENT: &str = "deck://worktree/head";
@@ -42,12 +42,10 @@ pub struct HeadEvent {
     pub head: Option<String>,
 }
 
-/// The live watchers, keyed by registered worktree path. Tauri managed state;
-/// dropping an entry stops its watcher.
+/// The live worktree HEAD watchers — a shared [`WatchRegistry`] keyed by
+/// registered worktree path. Tauri managed state; dropping an entry stops it.
 #[derive(Default)]
-pub struct HeadWatchers {
-    inner: Mutex<HashMap<String, notify::RecommendedWatcher>>,
-}
+pub struct HeadWatchers(WatchRegistry);
 
 /// Read the worktree's current HEAD into an event. `None` means a transient
 /// mid-checkout state (lockfile swap) — skipped, the rename's own fs event
@@ -83,20 +81,14 @@ fn spawn_watcher(
     deliver: impl Fn(HeadEvent) + Send + 'static,
 ) -> Result<notify::RecommendedWatcher, String> {
     let watched = gitdir.clone();
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-        let Ok(event) = event else { return };
-        if !is_head_event(&event) {
+    fswatch::watch_dir(&gitdir, move |event| {
+        if !is_head_event(event) {
             return;
         }
         if let Some(payload) = head_event(&path, &watched) {
             deliver(payload);
         }
     })
-    .map_err(|e| e.to_string())?;
-    watcher
-        .watch(&gitdir, RecursiveMode::NonRecursive)
-        .map_err(|e| e.to_string())?;
-    Ok(watcher)
 }
 
 /// Watch one worktree's HEAD, emitting its current state right away.
@@ -122,11 +114,7 @@ pub fn worktree_watch(
         let _ = emitter.emit(WORKTREE_HEAD_EVENT, &payload);
     })?;
 
-    watchers
-        .inner
-        .lock()
-        .expect("head watchers poisoned")
-        .insert(path, watcher);
+    watchers.0.insert(path, watcher);
     Ok(())
 }
 
@@ -134,11 +122,7 @@ pub fn worktree_watch(
 /// a no-op — the close flow may race a failed registration.
 #[tauri::command]
 pub fn worktree_unwatch(watchers: State<HeadWatchers>, path: String) {
-    watchers
-        .inner
-        .lock()
-        .expect("head watchers poisoned")
-        .remove(&path);
+    watchers.0.remove(&path);
 }
 
 #[cfg(test)]
