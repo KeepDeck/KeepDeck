@@ -166,9 +166,17 @@ export function migrateDeck(raw: RawDoc): MigrationOutcome {
 }
 
 /** The settings floor check — the per-key tolerant reader handles the rest.
- * `null` = fine to read; a number = the floor that shuts this build out. */
+ * `null` = fine to read; a number = the floor that shuts this build out.
+ *
+ * Reads `minVersion` DIRECTLY, with no fall back to `version` (unlike the deck's
+ * `floorOf`): settings hydration is per-key tolerant — unknown keys are
+ * preserved and a bad value degrades to just its own default — so a file that
+ * merely bumped its revision, including a hand-edited `version`, must read
+ * tolerantly rather than quarantine every setting to defaults. Only an EXPLICIT
+ * floor above our revision shuts us out; the deck, which can't read a newer
+ * shape key-by-key, parks such a file instead. */
 export function settingsFloorBreach(raw: RawDoc): number | null {
-  const minVersion = floorOf(raw);
-  if (minVersion === null) return null; // no markers: read tolerantly
+  const minVersion = raw.minVersion;
+  if (typeof minVersion !== "number") return null; // no explicit floor: read tolerantly
   return minVersion > SETTINGS_VERSION ? minVersion : null;
 }
