@@ -3,7 +3,16 @@ import type {
   PluginServices,
   PluginSessionHandle,
 } from "@keepdeck/plugin-api";
-import { runSpawnOptions, type RunRequest, type RunSession } from "./domain";
+import {
+  commandBanner,
+  exitNote,
+  runSpawnOptions,
+  spawnFailedNote,
+  type RunRequest,
+  type RunSession,
+} from "./domain";
+
+const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
 
 /**
  * The owner of every run session — created PER plugin activation
@@ -109,12 +118,8 @@ export function createRunManager(
   /** Spawn (or respawn, for restart) the entry's command. */
   function spawn(entry: Entry): void {
     const id = entry.session.id;
-    // Echo the command line first, the way a shell shows what it's about to
-    // run. The Commands list only ever shows a preset's NAME; the log is where
-    // the actual command becomes visible. Newlines are normalized so a
-    // multi-line script doesn't stair-step across the terminal grid.
-    const echo = entry.session.command.replace(/\r?\n/g, "\r\n");
-    const banner = new TextEncoder().encode(`\x1b[90m[run] ${echo}\x1b[0m\r\n`);
+    // Echo the command line first (see commandBanner), then stream the process.
+    const banner = encode(commandBanner(entry.session.command));
     entry.sink?.onOutput(banner);
     remember(entry, banner);
     void services.sessions
@@ -127,15 +132,12 @@ export function createRunManager(
         } else {
           entry.handle = null;
           log.info(`${id}: exited (code ${event.code ?? "?"})`);
-          // The run's end belongs in its own log, like agent panes do — the
-          // status chip alone leaves the log ending mid-stream. A `stopping`
-          // session died because the user pulled the plug: say that instead of
-          // the kill signal's exit code.
-          const note =
-            entry.session.status.kind === "stopping"
-              ? "[stopped]"
-              : `[process exited${event.code != null ? ` (${event.code})` : ""}]`;
-          const bytes = new TextEncoder().encode(`\r\n\x1b[90m${note}\x1b[0m\r\n`);
+          const bytes = encode(
+            exitNote({
+              stopped: entry.session.status.kind === "stopping",
+              code: event.code,
+            }),
+          );
           entry.sink?.onOutput(bytes);
           remember(entry, bytes);
           update(id, { status: { kind: "exited", code: event.code } });
@@ -164,12 +166,7 @@ export function createRunManager(
         if (entry.removed) return;
         const message = describeError(e);
         log.error(`${id}: spawn failed: ${message}`);
-        // The failure belongs in the session's own log, like any other output —
-        // a status note alone ("spawn failed") hides the WHY (e.g. the worktree
-        // was deleted: the OS error names the missing directory).
-        const bytes = new TextEncoder().encode(
-          `\x1b[31mspawn failed: ${message}\x1b[0m\r\n`,
-        );
+        const bytes = encode(spawnFailedNote(message));
         entry.sink?.onOutput(bytes);
         remember(entry, bytes);
         update(id, { status: { kind: "failed", message } });
