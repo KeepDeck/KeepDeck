@@ -47,6 +47,10 @@ export interface RunManager {
 /** Replay budget per session; oldest chunks fall off first. */
 const MAX_BUFFER_BYTES = 1024 * 1024;
 
+/** Clear an attached live terminal's viewport + scrollback (ED 2 / ED 3 / home)
+ * so it matches the emptied replay buffer on restart. */
+const CLEAR_TERMINAL = new TextEncoder().encode("\x1b[2J\x1b[3J\x1b[H");
+
 interface Entry {
   session: RunSession;
   handle: PluginSessionHandle | null;
@@ -173,6 +177,10 @@ export function createRunManager(
       .catch(() => undefined);
     entry.chunks = [];
     entry.buffered = 0;
+    // Clear the attached live terminal too, so it matches the emptied buffer.
+    // Otherwise the live log shows the previous run's output above the new one,
+    // while a fresh re-attach (buffer only) would show just the new run.
+    entry.sink?.onOutput(CLEAR_TERMINAL);
     entry.session = {
       ...entry.session,
       port,

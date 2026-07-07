@@ -190,6 +190,25 @@ describe("stop / restart / remove", () => {
     expect(seen).toContain("[run] pnpm dev");
   });
 
+  it("restartRun clears the attached live terminal, not just the buffer", async () => {
+    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    let seen = "";
+    manager.attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+    pty.spawned[0].emit(out(111, 108, 100)); // "old"
+    pty.spawned[0].emit({ type: "exit", code: 0 });
+    seen = ""; // ignore everything up to the restart
+
+    await manager.restartRun(id);
+    // The live terminal is cleared (ANSI ED) before the fresh run's banner.
+    expect(seen).toContain("\x1b[2J");
+    expect(seen).toContain("[run] pnpm dev");
+  });
+
   it("removeRun kills a live session and drops it from the snapshot", async () => {
     const id = await manager.launchRun("ws-1", TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
