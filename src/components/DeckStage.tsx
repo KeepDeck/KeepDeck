@@ -29,8 +29,8 @@ interface DeckStageProps {
   onStartWorkspace(wsId: string, count: number): void;
   onSelectPane(wsId: string, paneId: string): void;
   onToggleFocus(wsId: string, paneId: string): void;
-  /** Open an agent's working directory in the editor. */
-  onOpenInEditor(path: string): void;
+  /** Launch an agent's working directory in the configured external target. */
+  onLaunchCwd(path: string): void;
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
@@ -64,7 +64,7 @@ export function DeckStage({
   onStartWorkspace,
   onSelectPane,
   onToggleFocus,
-  onOpenInEditor,
+  onLaunchCwd,
   onCloseAgent,
   onRenamePane,
   onPaneTitle,
@@ -150,8 +150,8 @@ export function DeckStage({
                   colSpan={colSpan}
                   onSelect={() => onSelectPane(ws.id, pane.id)}
                   onToggleFocus={() => onToggleFocus(ws.id, pane.id)}
-                  onOpenInEditor={() => {
-                    if (executionCwd) onOpenInEditor(executionCwd);
+                  onLaunchCwd={() => {
+                    if (executionCwd) onLaunchCwd(executionCwd);
                   }}
                   onClose={() => onCloseAgent(ws.id, pane.id, displayTitle)}
                   onRename={(name) => onRenamePane(ws.id, pane.id, name)}

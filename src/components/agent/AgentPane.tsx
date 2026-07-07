@@ -4,8 +4,8 @@ import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 import {
   CloseIcon,
-  FolderOpenIcon,
   GitBranchIcon,
+  LaunchIcon,
   MaximizeIcon,
   RestoreIcon,
 } from "../../ui/icons";
@@ -53,8 +53,8 @@ interface AgentPaneProps {
   colSpan: number;
   onSelect(): void;
   onToggleFocus(): void;
-  /** Open the agent's working dir in VS Code; shown only when a `cwd` is known. */
-  onOpenInEditor(): void;
+  /** Launch the agent's working directory in the configured external target. */
+  onLaunchCwd(): void;
   onClose(): void;
   /** Set a manual name ([F11]); an empty name reverts to auto/derived. */
   onRename(name: string): void;
@@ -86,7 +86,7 @@ export function AgentPane({
   colSpan,
   onSelect,
   onToggleFocus,
-  onOpenInEditor,
+  onLaunchCwd,
   onClose,
   onRename,
   onTitle,
@@ -153,12 +153,12 @@ export function AgentPane({
             // yet, and the fallback cwd would open the wrong folder.
             <button
               type="button"
-              className="pane__action pane__open"
-              onClick={onOpenInEditor}
-              title="Open this agent's working directory in VS Code"
-              aria-label={`Open ${title} in VS Code`}
+              className="pane__action pane__launch"
+              onClick={onLaunchCwd}
+              title="Open this agent's working directory"
+              aria-label={`Open ${title} working directory`}
             >
-              <FolderOpenIcon />
+              <LaunchIcon />
             </button>
           )}
           {!solo && (

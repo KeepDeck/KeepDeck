@@ -51,11 +51,11 @@
   box-shadow: 0 0 0 1px rgba(139, 220, 246, 0.2);
 }
 
-.pane__open {
+.pane__launch {
   color: #8b93a3;
 }
 
-.pane__open:hover {
+.pane__launch:hover {
   color: #cbd5e1;
 }
 

@@ -31,13 +31,13 @@ const baseProps = {
   colSpan: 1,
   onSelect: () => {},
   onToggleFocus: () => {},
-  onOpenInEditor: () => {},
+  onLaunchCwd: () => {},
   onClose: () => {},
   onRename: () => {},
   onTitle: () => {},
 };
 
-describe("AgentPane — open in VS Code", () => {
+describe("AgentPane — launch cwd", () => {
   let host: HTMLElement;
   let root: Root;
 
@@ -52,26 +52,26 @@ describe("AgentPane — open in VS Code", () => {
     act(() => root.unmount());
   });
 
-  it("renders the icon button and fires onOpenInEditor on click when a cwd is known", () => {
-    const onOpenInEditor = vi.fn();
+  it("renders the icon button and fires onLaunchCwd on click when a cwd is known", () => {
+    const onLaunchCwd = vi.fn();
     act(() =>
-      root.render(createElement(AgentPane, { ...baseProps, onOpenInEditor })),
+      root.render(createElement(AgentPane, { ...baseProps, onLaunchCwd })),
     );
 
     const btn = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open Claude 1 in VS Code"]',
+      'button[aria-label="Open Claude 1 working directory"]',
     );
     expect(btn).not.toBeNull();
     expect(btn!.textContent).toBe("");
 
     act(() => btn!.click());
-    expect(onOpenInEditor).toHaveBeenCalledTimes(1);
+    expect(onLaunchCwd).toHaveBeenCalledTimes(1);
   });
 
   it("hides the button when there is no cwd — nothing to open", () => {
     act(() => root.render(createElement(AgentPane, { ...baseProps, cwd: null })));
 
-    expect(document.querySelector(".pane__open")).toBeNull();
+    expect(document.querySelector(".pane__launch")).toBeNull();
   });
 
   it("renders a runtime git badge when provided", () => {
@@ -158,13 +158,13 @@ describe("AgentPane — provisioning cards", () => {
     expect(onRetryProvision).toHaveBeenCalledTimes(1);
   });
 
-  it("hides Open in VSCode while provisioning — the fallback cwd is not this pane's folder", () => {
+  it("hides the cwd launch action while provisioning — the fallback cwd is not this pane's folder", () => {
     act(() =>
       root.render(
         createElement(AgentPane, { ...baseProps, provisioning: intent }),
       ),
     );
 
-    expect(document.querySelector(".pane__open")).toBeNull();
+    expect(document.querySelector(".pane__launch")).toBeNull();
   });
 });

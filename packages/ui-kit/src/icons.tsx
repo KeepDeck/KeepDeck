@@ -61,12 +61,14 @@ export function GitBranchIcon() {
   );
 }
 
-/** Open folder — opens the pane's working directory in the configured editor
- * (Lucide `folder-open`, ISC). */
-export function FolderOpenIcon() {
+/** Launch/open target — generic "open outside this pane" action, independent
+ * of which app handles the target (Lucide `square-arrow-out-up-right`, ISC). */
+export function LaunchIcon() {
   return (
     <svg {...iconProps}>
-      <path d="M6 14l1.5 -2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6A2 2 0 0 1 18.46 20H4a2 2 0 0 1 -2 -2V5a2 2 0 0 1 2 -2h3.9a2 2 0 0 1 1.69.93L11 6h7a2 2 0 0 1 2 2v2" />
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1 -2 2H5a2 2 0 0 1 -2 -2V8a2 2 0 0 1 2 -2h6" />
     </svg>
   );
 }

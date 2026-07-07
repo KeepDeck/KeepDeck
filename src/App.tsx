@@ -361,9 +361,9 @@ function App() {
             }
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
-            onOpenInEditor={(path) =>
+            onLaunchCwd={(path) =>
               void openInEditor(path).catch((e) =>
-                log.warn("web:links", `open in editor failed for ${path}: ${describeError(e)}`),
+                log.warn("web:links", `launch cwd failed for ${path}: ${describeError(e)}`),
               )
             }
             onCloseAgent={closeFlow.requestCloseAgent}
