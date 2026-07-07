@@ -42,7 +42,7 @@ export function registerTerminalLinks(
 ): { dispose(): void } {
   return term.registerLinkProvider({
     provideLinks(lineNumber, callback) {
-      const logical = logicalLineAt(term.buffer.active, lineNumber - 1);
+      const logical = logicalLineAt(term.buffer.active, lineNumber - 1, term.cols);
       const found = logical ? detectLinks(logical.rows.join("")) : [];
       callback(
         found.length === 0 || !logical

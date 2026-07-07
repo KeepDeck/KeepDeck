@@ -15,10 +15,11 @@ const opener = {
 type Row = { text: string; wrapped?: boolean };
 
 /** The slice of Terminal the linker touches: provider registry + buffer. */
-function stubTerm(rows: Row[]) {
+function stubTerm(rows: Row[], opts: { cols?: number } = {}) {
   let provider: ILinkProvider | undefined;
   const dispose = vi.fn();
   const term = {
+    cols: opts.cols,
     registerLinkProvider(p: ILinkProvider) {
       provider = p;
       return { dispose };
@@ -110,6 +111,31 @@ describe("registerTerminalLinks", () => {
       expect(links![0].range).toEqual({
         start: { x: 10, y: 1 },
         end: { x: 3, y: 2 },
+      });
+    }
+  });
+
+  it("joins an application hard-wrapped path into one link, from any of its rows", () => {
+    // The child app wrapped the path to cols=10 itself: real newlines, a
+    // 2-space hanging indent, full non-final rows (no `wrapped` flag).
+    const { term, provider } = stubTerm(
+      [
+        { text: "/aa/bb/ccc" },
+        { text: "  dd/ee/ff" },
+        { text: "  gg.ts" },
+      ],
+      { cols: 10 },
+    );
+    registerTerminalLinks(term, host, target("/wt"));
+
+    for (const lineNumber of [1, 2, 3]) {
+      const links = linksAt(provider(), lineNumber);
+      expect(links).toHaveLength(1);
+      expect(links![0].text).toBe("/aa/bb/cccdd/ee/ffgg.ts");
+      // Range spans the head row's "/" to the tail row's ".ts", indent undone.
+      expect(links![0].range).toEqual({
+        start: { x: 1, y: 1 },
+        end: { x: 7, y: 3 },
       });
     }
   });
