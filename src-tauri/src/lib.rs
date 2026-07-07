@@ -104,7 +104,6 @@ pub fn run() {
             state::settings_load,
             state::settings_save,
             state::settings_quarantine,
-            history::history_latest,
             history::history_presence,
             ports::ports_allocate,
             plugins_fs::plugins_scan,

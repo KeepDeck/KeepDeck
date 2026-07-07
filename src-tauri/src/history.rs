@@ -7,45 +7,10 @@
 use keepdeck_history::{Presence, SessionProviders};
 use serde::Serialize;
 use std::path::Path;
-use std::time::UNIX_EPOCH;
-
-/// A discovered session (mirrors the TS `HistoryHit`, camelCase).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HistoryHitDto {
-    /// The agent's own session id — what its resume flag accepts.
-    pub id: String,
-    /// Store mtime of the session, epoch milliseconds.
-    pub modified_ms: u64,
-}
 
 fn providers() -> Option<SessionProviders> {
     let home = std::env::var_os("HOME")?;
     Some(SessionProviders::from_home(Path::new(&home)))
-}
-
-/// The most recent session of `agent` recorded for the working directory
-/// `dir`. `None` means "nothing found" — missing stores and unknown agents
-/// are not errors.
-///
-/// Runs on the blocking pool: store discovery walks transcript directories
-/// (arbitrarily large) and opens SQLite — not main-thread work.
-#[tauri::command]
-pub async fn history_latest(agent: String, dir: String) -> Option<HistoryHitDto> {
-    tauri::async_runtime::spawn_blocking(move || {
-        providers()?
-            .latest_session(&agent, Path::new(&dir))
-            .map(|s| HistoryHitDto {
-                id: s.id,
-                modified_ms: s
-                    .modified
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64,
-            })
-    })
-    .await
-    .unwrap_or(None)
 }
 
 /// Tri-state pre-resume validation (mirrors the TS `SessionPresence`): only
@@ -72,7 +37,8 @@ impl From<Presence> for PresenceDto {
 /// Whether `agent`'s session `id` is still in its store for `dir` —
 /// pre-resume validation, so a stale binding degrades instead of resuming
 /// into an error. No HOME = no store to ask = `unknown`. On the blocking
-/// pool like [`history_latest`], and a lost task degrades to `unknown` too.
+/// pool (store discovery reads files/SQLite — not main-thread work), and a
+/// lost task degrades to `unknown` too.
 #[tauri::command]
 pub async fn history_presence(agent: String, id: String, dir: String) -> PresenceDto {
     tauri::async_runtime::spawn_blocking(move || {
@@ -86,18 +52,7 @@ pub async fn history_presence(agent: String, id: String, dir: String) -> Presenc
 
 #[cfg(test)]
 mod tests {
-    use super::{HistoryHitDto, PresenceDto};
-
-    // The webview narrows on this exact JSON shape (src/ipc/history.ts) — pin it.
-    #[test]
-    fn dto_serializes_camel_case() {
-        let json = serde_json::to_value(HistoryHitDto {
-            id: "uuid-1".into(),
-            modified_ms: 1_234,
-        })
-        .unwrap();
-        assert_eq!(json, serde_json::json!({ "id": "uuid-1", "modifiedMs": 1_234 }));
-    }
+    use super::PresenceDto;
 
     // The webview narrows on these exact strings (SessionPresence) — pin them.
     #[test]
