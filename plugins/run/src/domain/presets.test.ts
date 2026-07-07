@@ -39,6 +39,14 @@ describe("addPreset / removePreset", () => {
     expect(presets.map((p) => p.id)).toEqual(["run-2", "run-3"]);
   });
 
+  it("mints above ids still held by live sessions", () => {
+    // run-2's preset row was deleted while its session kept running (orphan);
+    // reusing run-2 would rebind that live command to the new, unrelated row.
+    const presets = [{ id: "run-1", name: "a", command: "cmd-a" }];
+    const next = addPreset(presets, "b", "cmd-b", ["run-2"]);
+    expect(next[next.length - 1].id).toBe("run-3");
+  });
+
   it("falls back to the (truncated) command when the name is blank", () => {
     const presets = addPreset([], "  ", "x".repeat(64));
     expect(presets[0].name).toHaveLength(32);
