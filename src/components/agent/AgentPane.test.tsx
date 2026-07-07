@@ -87,6 +87,21 @@ describe("AgentPane — open in VS Code", () => {
     expect(badge!.textContent).toBe("main");
     expect(badge!.title).toBe("main");
   });
+
+  it("places the VS Code button before the git branch badge", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          gitBadge: { label: "main", title: "main" },
+        }),
+      ),
+    );
+
+    const actions = document.querySelector(".pane__actions");
+    expect(actions?.children[0]?.className).toBe("pane__open");
+    expect(actions?.children[1]?.className).toBe("pane__branch");
+  });
 });
 
 describe("AgentPane — provisioning cards", () => {

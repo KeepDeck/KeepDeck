@@ -140,12 +140,6 @@ export function AgentPane({
           )}
         </div>
         <div className="pane__actions">
-          {gitBadge && (
-            <span className="pane__branch" title={gitBadge.title}>
-              <GitBranchIcon />
-              <span className="pane__branch-label">{gitBadge.label}</span>
-            </span>
-          )}
           {cwd && !provisioning && (
             // Hidden while provisioning: the pane has no directory of its own
             // yet, and the fallback cwd would open the wrong folder.
@@ -157,6 +151,12 @@ export function AgentPane({
             >
               Open in VSCode
             </button>
+          )}
+          {gitBadge && (
+            <span className="pane__branch" title={gitBadge.title}>
+              <GitBranchIcon />
+              <span className="pane__branch-label">{gitBadge.label}</span>
+            </span>
           )}
           {!solo && (
             <button
