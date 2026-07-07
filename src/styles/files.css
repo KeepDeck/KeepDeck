@@ -156,6 +156,11 @@
   overflow: hidden;
   box-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.85);
   animation: files-peek-pop 140ms ease-out;
+  /* The dock is user-select: none; re-enable it here so the previewed file
+     (code, path, name) can be selected and copied. The line-number gutter opts
+     back out below, so a copied selection is clean code without the numbers. */
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 @keyframes files-peek-fade {
@@ -304,6 +309,7 @@
   color: #3b4658;
   background-color: #0b0e14;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .files__linetext {
