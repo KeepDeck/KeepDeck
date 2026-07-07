@@ -2,20 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import type { FsFile } from "@keepdeck/plugin-api";
 import { getRuntime } from "../runtime";
 import { baseName } from "../domain/tree";
-import { BackIcon, OpenExternalIcon } from "../icons";
+import { BackIcon, OpenExternalIcon, WrapIcon } from "../icons";
 
 /**
- * The full-panel file preview — a drill-in over the tree, not a cramped bottom
- * strip: in a narrow dock the only way a code view earns its keep is to take
- * the whole panel. Header carries a back affordance, the name, its size, and an
- * "open in the default app" escape hatch; a breadcrumb shows where the file
- * sits in the tree; the body is the file itself.
+ * The file preview — a wide "peek" overlay, not a strip inside the dock. A code
+ * view can't be read in a 340px rail, so opening a file lifts it OUT of the
+ * panel into a centered surface over the whole window (a `position: fixed`
+ * backdrop — no ancestor establishes a transform/stacking trap, so it reaches
+ * the viewport without a portal; matches the host's own `.modal-overlay`).
+ * Dismiss with Esc, the back button, or a click on the dimmed backdrop.
  *
  * Reads through `services.fs` (capped, binary-aware). Text renders
- * line-numbered with a sticky gutter and horizontal scroll for long lines; a
- * binary or oversized file shows a notice and defers to the external app. A
- * stale in-flight read is ignored, so stepping between files never flashes the
- * wrong one. `Esc` (or the back button) returns to the tree.
+ * line-numbered — soft-wrapped or horizontally scrolled per the wrap toggle;
+ * binary or oversized files defer to the external app. A stale in-flight read
+ * is ignored so a fast reopen never flashes the wrong file.
  */
 export function FileViewer({
   path,
@@ -29,6 +29,7 @@ export function FileViewer({
   const [file, setFile] = useState<FsFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [wrap, setWrap] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -57,7 +58,7 @@ export function FileViewer({
   }, [path]);
 
   // Focus the scroll body so arrow keys scroll the code; Esc closes from
-  // anywhere inside via the container handler below.
+  // anywhere inside via the backdrop handler below.
   useEffect(() => {
     bodyRef.current?.focus();
   }, []);
@@ -67,9 +68,8 @@ export function FileViewer({
 
   return (
     <div
-      className="files__detail"
-      role="group"
-      aria-label={`Preview of ${baseName(path)}`}
+      className="files__peek"
+      onClick={onClose}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -77,74 +77,104 @@ export function FileViewer({
         }
       }}
     >
-      <div className="files__dhead">
-        <button
-          type="button"
-          className="files__dback"
-          onClick={onClose}
-          title="Back to the tree"
-          aria-label="Back to the tree"
-        >
-          <BackIcon />
-        </button>
-        <span className="files__dname" title={path}>
-          {baseName(path)}
-        </span>
-        {file && <span className="files__dsize">{formatBytes(file.size)}</span>}
-        <button
-          type="button"
-          className="files__dact"
-          onClick={openExternally}
-          title="Open in the default app"
-          aria-label={`Open ${baseName(path)} in the default app`}
-        >
-          <OpenExternalIcon />
-        </button>
-      </div>
-      {trail && (
-        <div className="files__dpath" title={path}>
-          {trail}
-        </div>
-      )}
-      <div className="files__dbody" ref={bodyRef} tabIndex={0}>
-        {loading && <p className="files__note">Loading…</p>}
-        {error && <p className="files__note files__note--bad">{error}</p>}
-        {file && file.isBinary && (
-          <div className="files__binary">
-            <p className="files__note">Binary file · {formatBytes(file.size)}</p>
+      <div
+        className="files__peekpanel"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Preview of ${baseName(path)}`}
+        // A click inside the panel must not fall through to the backdrop.
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="files__dhead">
+          <button
+            type="button"
+            className="files__dback"
+            onClick={onClose}
+            title="Back to the tree (Esc)"
+            aria-label="Back to the tree"
+          >
+            <BackIcon />
+          </button>
+          <span className="files__dname" title={path}>
+            {baseName(path)}
+          </span>
+          {file && <span className="files__dsize">{formatBytes(file.size)}</span>}
+          {file && !file.isBinary && file.text !== null && (
             <button
               type="button"
-              className="form__create"
-              onClick={openExternally}
+              className={`files__dact${wrap ? " files__dact--on" : ""}`}
+              onClick={() => setWrap((w) => !w)}
+              title={wrap ? "Don't wrap lines" : "Wrap lines"}
+              aria-label="Toggle line wrapping"
+              aria-pressed={wrap}
             >
-              Open in the default app
+              <WrapIcon />
             </button>
+          )}
+          <button
+            type="button"
+            className="files__dact"
+            onClick={openExternally}
+            title="Open in the default app"
+            aria-label={`Open ${baseName(path)} in the default app`}
+          >
+            <OpenExternalIcon />
+          </button>
+        </div>
+        {trail && (
+          <div className="files__dpath" title={path}>
+            {trail}
           </div>
         )}
-        {file && !file.isBinary && file.text !== null && (
-          <TextView text={file.text} truncated={file.truncated} size={file.size} />
-        )}
+        <div className="files__dbody" ref={bodyRef} tabIndex={0}>
+          {loading && <p className="files__note">Loading…</p>}
+          {error && <p className="files__note files__note--bad">{error}</p>}
+          {file && file.isBinary && (
+            <div className="files__binary">
+              <p className="files__note">
+                Binary file · {formatBytes(file.size)}
+              </p>
+              <button
+                type="button"
+                className="form__create"
+                onClick={openExternally}
+              >
+                Open in the default app
+              </button>
+            </div>
+          )}
+          {file && !file.isBinary && file.text !== null && (
+            <TextView
+              text={file.text}
+              wrap={wrap}
+              truncated={file.truncated}
+              size={file.size}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 /** Monospace text with a sticky line-number gutter. Each line is its own row so
- * the gutter and code stay aligned; long lines scroll horizontally under the
- * gutter, which stays pinned left. */
+ * the gutter and code stay aligned; long lines soft-wrap or scroll horizontally
+ * under the gutter, which stays pinned left. */
 function TextView({
   text,
+  wrap,
   truncated,
   size,
 }: {
   text: string;
+  wrap: boolean;
   truncated: boolean;
   size: number;
 }) {
   const lines = text.split("\n");
   return (
     <>
-      <div className="files__code">
+      <div className={`files__code${wrap ? " files__code--wrap" : ""}`}>
         {lines.map((line, index) => (
           // Lines are positional and never reordered — index is a stable key.
           <div className="files__coderow" key={index}>
@@ -168,8 +198,7 @@ function TextView({
 
 /** The file's path relative to the tree root — best effort. Falls back to the
  * tail from the root folder's name (canonicalization can make the two disagree)
- * and finally the absolute path. Empty when the file IS the root (never, for a
- * file). */
+ * and finally the absolute path. */
 function breadcrumb(root: string, path: string): string {
   const base = root.replace(/[/\\]+$/, "");
   if (path === base) return "";

@@ -9,18 +9,18 @@ import { TreeView } from "./TreeView";
 import { FileViewer } from "./FileViewer";
 
 /**
- * The Files tab: a lazy tree of the chosen root, and — when a file is opened —
- * a full-panel preview that drills in OVER the tree (a narrow rail can't afford
- * a split, so the preview takes the whole panel and a back affordance returns).
- * The root is a pane's worktree or the workspace folder, defaulting to the
- * highlighted pane's worktree — "browse what I'm looking at" — and following the
- * highlight like the Run tab's target; a manual pick holds until the next pane
- * click. Everything reads through the fs capability's scope, so only the
- * workspace and its worktrees are reachable.
+ * The Files tab: a lazy tree of the chosen root. Opening a file lifts it into a
+ * wide "peek" over the whole window (a 340px rail can't read code — see
+ * FileViewer); the tree stays here as the navigator. The root is a pane's
+ * worktree or the workspace folder, defaulting to the highlighted pane's
+ * worktree — "browse what I'm looking at" — and following the highlight like the
+ * Run tab's target; a manual pick holds until the next pane click. Everything
+ * reads through the fs capability's scope, so only the workspace and its
+ * worktrees are reachable.
  *
  * `cursor` is the keyboard-focused row; arrows move it (and expand/collapse).
- * Enter or a click opens the focused file into the preview; the tree stays
- * mounted underneath so its cursor and scroll survive the round trip.
+ * Enter or a click opens the focused file into the peek; the tree stays mounted
+ * so its cursor and scroll survive the round trip.
  */
 export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   const [target, setTarget] = useState(

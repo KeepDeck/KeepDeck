@@ -151,6 +151,29 @@ describe("FilesTab", () => {
     expect(document.body.textContent).toContain("second line");
   });
 
+  it("toggles line wrapping in the peek", async () => {
+    await mount();
+    await act(async () => rowByName("readme.md")!.click());
+    await act(async () => {});
+    const wrapBtn = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Toggle line wrapping"]',
+    )!;
+    expect(document.querySelector(".files__code--wrap")).toBeNull();
+    await act(async () => wrapBtn.click());
+    expect(document.querySelector(".files__code--wrap")).not.toBeNull();
+  });
+
+  it("closes the peek on a backdrop click", async () => {
+    await mount();
+    await act(async () => rowByName("readme.md")!.click());
+    await act(async () => {});
+    expect(document.querySelector(".files__peek")).not.toBeNull();
+    await act(async () =>
+      document.querySelector<HTMLElement>(".files__peek")!.click(),
+    );
+    expect(document.querySelector(".files__peek")).toBeNull();
+  });
+
   it("selecting a file does not read it as a directory", async () => {
     await mount();
     await act(async () => rowByName("readme.md")!.click());
@@ -203,10 +226,10 @@ describe("FilesTab", () => {
     // Escape from the detail drills back out to the tree.
     await act(async () => {
       document
-        .querySelector(".files__detail")!
+        .querySelector(".files__peek")!
         .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
-    expect(document.querySelector(".files__detail")).toBeNull();
+    expect(document.querySelector(".files__peek")).toBeNull();
     expect(document.querySelector(".files__list")).not.toBeNull();
   });
 
@@ -217,6 +240,6 @@ describe("FilesTab", () => {
     await act(async () => {});
     expect(fs.readDir).toHaveBeenCalledWith("/repo/src");
     expect(fs.readFile).not.toHaveBeenCalled();
-    expect(document.querySelector(".files__detail")).toBeNull();
+    expect(document.querySelector(".files__peek")).toBeNull();
   });
 });
