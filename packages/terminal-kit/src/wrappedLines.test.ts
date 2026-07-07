@@ -26,7 +26,11 @@ const buffer = (rows: { text: string; wrapped?: boolean }[]): WrappedBufferLike 
 describe("logicalLineAt", () => {
   it("returns a plain unwrapped row as its own logical line", () => {
     const buf = buffer([{ text: "hello  " }]);
-    expect(logicalLineAt(buf, 0)).toEqual({ startRow: 0, rows: ["hello"] });
+    expect(logicalLineAt(buf, 0)).toEqual({
+      startRow: 0,
+      rows: ["hello"],
+      indents: [0],
+    });
   });
 
   it("is null outside the buffer", () => {
@@ -41,7 +45,11 @@ describe("logicalLineAt", () => {
       { text: "cc", wrapped: true },
       { text: "after" },
     ]);
-    const expected = { startRow: 1, rows: ["aaaa", "bbbb", "cc"] };
+    const expected = {
+      startRow: 1,
+      rows: ["aaaa", "bbbb", "cc"],
+      indents: [0, 0, 0],
+    };
     expect(logicalLineAt(buf, 1)).toEqual(expected);
     expect(logicalLineAt(buf, 2)).toEqual(expected);
     expect(logicalLineAt(buf, 3)).toEqual(expected);
@@ -90,7 +98,11 @@ describe("logicalLineAt", () => {
 });
 
 describe("mapRange", () => {
-  const logical = { startRow: 4, rows: ["0123456789", "abcdefghij", "kl"] };
+  const logical = {
+    startRow: 4,
+    rows: ["0123456789", "abcdefghij", "kl"],
+    indents: [0, 0, 0],
+  };
 
   it("maps a match inside a single later row", () => {
     // "cdef" = joined offsets 12..16 → row 1, string cols 2..5.
@@ -145,5 +157,81 @@ describe("link detection over a joined logical line", () => {
     expect(detectLinks(logical.rows.join("")).map((l) => l.text)).toEqual([
       "/Users/artem/Projects/KeepDeck/src/domain/links.ts:42",
     ]);
+  });
+});
+
+describe("logicalLineAt — application hard wrap", () => {
+  // A path the child app itself wrapped to width 10 with a 2-space hanging
+  // indent — real newlines (no `wrapped` flag), full non-final rows. Mirrors the
+  // Claude Code tree output in the bug report, shrunk.
+  const cols = 10;
+  const hardWrapped = () =>
+    buffer([
+      { text: "before it" },
+      { text: "/aa/bb/ccc" }, // full to cols, ends mid-token
+      { text: "  dd/ee/ff" }, // indent 2, resumes the token
+      { text: "  gg.ts" }, // tail
+      { text: "after all" },
+    ]);
+  const joined = "/aa/bb/cccdd/ee/ffgg.ts";
+
+  it("stitches the same logical line from its head, middle and tail rows", () => {
+    const expected = {
+      startRow: 1,
+      rows: ["/aa/bb/ccc", "dd/ee/ff", "gg.ts"],
+      indents: [0, 2, 2],
+    };
+    for (const row of [1, 2, 3]) {
+      expect(logicalLineAt(hardWrapped(), row, cols)).toEqual(expected);
+    }
+  });
+
+  it("detects the whole path over the stitched line where per-row scans saw fragments", () => {
+    const logical = logicalLineAt(hardWrapped(), 2, cols)!;
+    expect(detectLinks(logical.rows.join("")).map((l) => l.text)).toEqual([
+      joined,
+    ]);
+  });
+
+  it("maps the link range back across the stripped indents", () => {
+    const logical = logicalLineAt(hardWrapped(), 1, cols)!;
+    const [link] = detectLinks(logical.rows.join(""));
+    const range = mapRange(logical, link.start, link.end);
+    // Starts on the leading "/" of the head row; the +2 columns undo the tail
+    // row's stripped hanging indent so the end lands on the real ".ts" cell.
+    expect(range.start).toEqual({ x: 1, y: 2 });
+    expect(range.end).toEqual({ x: 7, y: 4 });
+  });
+
+  it("does NOT stitch hard wraps without cols (soft-wrap-only legacy path)", () => {
+    expect(logicalLineAt(hardWrapped(), 2)).toEqual({
+      startRow: 2,
+      rows: ["  dd/ee/ff"],
+      indents: [0],
+    });
+  });
+
+  it("does NOT stitch a word wrap (upper row not full to cols)", () => {
+    const buf = buffer([
+      { text: "see /a/b" }, // trimmed length 8 < cols 10 — a natural break
+      { text: "  /c/d.ts" },
+    ]);
+    expect(logicalLineAt(buf, 0, cols)).toEqual({
+      startRow: 0,
+      rows: ["see /a/b"],
+      indents: [0],
+    });
+  });
+
+  it("does NOT stitch when the next row resumes with a non-link glyph (a new tree item)", () => {
+    const buf = buffer([
+      { text: "/aa/bb/ccc" }, // full, ends mid-token
+      { text: "  └ next.ts" }, // indented, but a tree glyph — not a continuation
+    ]);
+    expect(logicalLineAt(buf, 0, cols)).toEqual({
+      startRow: 0,
+      rows: ["/aa/bb/ccc"],
+      indents: [0],
+    });
   });
 });
