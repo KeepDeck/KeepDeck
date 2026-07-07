@@ -1,6 +1,6 @@
 import type { AgentType } from "../agents";
 import { AGENT_TYPES } from "../agents";
-import { isRecord } from "../json";
+import { collectExtras, isRecord } from "../json";
 
 /**
  * Global app settings ([F6]) — schema, serialization and hydration.
@@ -193,11 +193,7 @@ export function hydrateSettings(json: string): SettingsDocument | null {
     };
   }
 
-  const extras: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(doc)) {
-    if (!KNOWN_KEYS.has(key)) extras[key] = value;
-  }
-  return { settings, extras };
+  return { settings, extras: collectExtras(doc, KNOWN_KEYS) };
 }
 
 /** Serialize for storage: version, preserved extras, then only the settings

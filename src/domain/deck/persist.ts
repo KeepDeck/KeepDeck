@@ -5,7 +5,7 @@ import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "../agents";
 import { AGENT_TYPES } from "../agents";
-import { isRecord } from "../json";
+import { collectExtras, isRecord } from "../json";
 import { MAX_PANES } from "./layout";
 
 /**
@@ -215,17 +215,6 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
 
 /** The object's keys outside `known` — a newer revision's fields, preserved
  * verbatim across our save round-trips. */
-function collectExtras(
-  value: Record<string, unknown>,
-  known: ReadonlySet<string>,
-): Record<string, unknown> {
-  const extras: Record<string, unknown> = {};
-  for (const [key, v] of Object.entries(value)) {
-    if (!known.has(key)) extras[key] = v;
-  }
-  return extras;
-}
-
 function readWorkspace(value: unknown): Workspace | null {
   if (!isRecord(value)) return null;
   const { id, name, cwd, worktreeBaseDir } = value;
