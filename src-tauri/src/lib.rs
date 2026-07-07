@@ -10,6 +10,7 @@ mod migration;
 mod paths;
 mod plugins_fs;
 mod ports;
+mod project_fs;
 mod session;
 mod sessions;
 mod state;
@@ -106,6 +107,8 @@ pub fn run() {
             ports::ports_allocate,
             plugins_fs::plugins_scan,
             plugins_fs::plugins_resolve_dir,
+            project_fs::project_fs_read_dir,
+            project_fs::project_fs_read_file,
             sessions::session_spawn_context,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
