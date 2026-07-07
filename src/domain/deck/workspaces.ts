@@ -409,8 +409,11 @@ function normalizePath(path: string): string {
  * workspace's panes: a pane's worktree can live anywhere — `worktreeBaseDir`
  * is only a suggestion source, so workspace-level paths predict nothing.
  * Dormant panes count (they revive right back into their directory), and so
- * does a provisioning intent: a pane whose worktree create is still in flight
- * (or failed, awaiting Retry) has no `cwd` yet but holds its target path.
+ * does a provisioning pane from the "+ Agent" flow: it has no `cwd` yet but
+ * holds its explicit target `path`. A BATCH provisioning pane is the exception
+ * — its exact worktree dir is assigned by the backend (with collision suffixes)
+ * and isn't known here, so it only starts occupying a path once its create
+ * resolves and it gains a `cwd`.
  * This is what blocks the "+ Agent" dialog from attaching a second agent to a
  * worktree one pane already runs in (two agents in one dir stomp each other's
  * files and git state).

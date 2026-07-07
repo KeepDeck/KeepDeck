@@ -417,6 +417,24 @@ describe("paneOccupyingPath", () => {
     expect(paneOccupyingPath(provisioning, "/wt/pending/")?.pane.id).toBe("c-p1");
   });
 
+  it("does not claim a path for a batch pane (its dir is backend-assigned)", () => {
+    const batch: Workspace[] = [
+      {
+        ...ws("c", []),
+        panes: [
+          {
+            id: "c-p1",
+            // Batch flow: baseDir only, no explicit path yet — the exact dir is
+            // assigned on the Rust side, so nothing here occupies it.
+            provisioning: { repo: "/repo", baseDir: "/wt", workspace: "c", index: 1 },
+          },
+        ],
+      },
+    ];
+    expect(paneOccupyingPath(batch, "/wt")).toBeNull();
+    expect(paneOccupyingPath(batch, "/wt/kd-c-1")).toBeNull();
+  });
+
   it("reports a free path (and an empty one) as unoccupied", () => {
     expect(paneOccupyingPath(deck, "/wt/free")).toBeNull();
     expect(paneOccupyingPath(deck, "   ")).toBeNull();
