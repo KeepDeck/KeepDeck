@@ -62,6 +62,11 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
 
   const sessions = useRunSessions().filter((s) => s.wsId === workspace.id);
   const rows = commandRows(presets, sessions, target);
+  // Ids still held by live (possibly orphaned) sessions — a new preset must not
+  // reuse one, or the running command rebinds to the fresh, unrelated row.
+  const liveSessionPresetIds = sessions
+    .map((s) => s.presetId)
+    .filter((id): id is string => id !== undefined);
   const shown = logOpen
     ? (sessions.find((s) => s.id === picked) ?? sessions[sessions.length - 1])
     : undefined;
@@ -135,7 +140,7 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
     savePresets(
       draft.presetId
         ? updatePreset(presets, draft.presetId, name, line)
-        : addPreset(presets, name, line),
+        : addPreset(presets, name, line, liveSessionPresetIds),
     );
     closeDraft();
   };

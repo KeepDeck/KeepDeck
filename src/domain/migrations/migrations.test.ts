@@ -176,6 +176,12 @@ describe("settingsFloorBreach", () => {
     expect(settingsFloorBreach({})).toBeNull(); // hand-made file, no markers
   });
 
+  it("admits a bare high version with no declared floor (reads tolerantly)", () => {
+    // A hand-edited `version` bump must not nuke every setting to defaults —
+    // only an explicit minVersion above this build shuts us out.
+    expect(settingsFloorBreach({ version: 99, scrollback: 42 })).toBeNull();
+  });
+
   it("reports a floor above this build", () => {
     expect(
       settingsFloorBreach({ version: 99, minVersion: SETTINGS_VERSION + 1 }),

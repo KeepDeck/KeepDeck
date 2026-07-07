@@ -41,14 +41,21 @@ export function runEnv(location: {
 
 /** Append a preset named `name` running `command`, minting the next `run-N`
  * id. Blank name falls back to the command itself (truncated) — the picker's
- * save path allows skipping the name field. */
+ * save path allows skipping the name field.
+ *
+ * `reservedIds` are ids still held by live sessions whose preset row may
+ * already be gone (delete-while-running leaves an orphan session): minting must
+ * clear those too, or a re-minted id would rebind a running command to the new,
+ * unrelated preset row. */
 export function addPreset(
   presets: readonly RunPreset[],
   name: string,
   command: string,
+  reservedIds: readonly string[] = [],
 ): RunPreset[] {
+  const taken = [...presets.map((p) => p.id), ...reservedIds];
   const preset: RunPreset = {
-    id: `run-${maxRunSeq(presets) + 1}`,
+    id: `run-${maxRunSeq(taken) + 1}`,
     name: name.trim() || truncate(command.trim(), 32),
     command: command.trim(),
   };
@@ -82,11 +89,11 @@ export function updatePreset(
   );
 }
 
-/** Highest `run-N` among the presets (0 when none — ids start at `run-1`). */
-function maxRunSeq(presets: readonly RunPreset[]): number {
+/** Highest `run-N` among a set of ids (0 when none — ids start at `run-1`). */
+function maxRunSeq(ids: readonly string[]): number {
   let max = 0;
-  for (const p of presets) {
-    const m = /^run-(\d+)$/.exec(p.id);
+  for (const id of ids) {
+    const m = /^run-(\d+)$/.exec(id);
     if (m) max = Math.max(max, Number(m[1]));
   }
   return max;

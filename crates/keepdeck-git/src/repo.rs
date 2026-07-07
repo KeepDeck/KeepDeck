@@ -54,8 +54,9 @@ pub fn branch_exists(repo: &Path, name: &str) -> Result<bool, GitError> {
 /// in any worktree — remove that worktree first, or git refuses the delete.
 ///
 /// The name is expected pre-sanitized (KeepDeck branches never start with `-`);
-/// a bare `git branch -D <name>` is therefore safe from flag-injection.
+/// the `--` end-of-options guard makes that belt-and-suspenders, matching the
+/// `worktree add`/`remove` siblings so no positional name can be read as a flag.
 pub fn delete_branch(repo: &Path, name: &str, force: bool) -> Result<(), GitError> {
     let flag = if force { "-D" } else { "-d" };
-    run_git(repo, ["branch", flag, name]).map(drop)
+    run_git(repo, ["branch", flag, "--", name]).map(drop)
 }

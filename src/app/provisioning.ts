@@ -237,7 +237,7 @@ export async function discardWorktrees(
       await removeWorktree(t.repo, t.path, { force: true, branch: t.branch });
     } catch (e) {
       log.warn("web:provisioning", `worktree discard failed for ${t.path}: ${describeError(e)}`);
-      failures.push(`${t.branch}: ${e}`);
+      failures.push(`${t.branch ?? t.path}: ${e}`);
     }
   }
   return failures;

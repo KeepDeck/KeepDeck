@@ -7,6 +7,7 @@ import {
 } from "../domain/agents";
 import {
   baseName,
+  findWorkspace,
   firstFreeWorktree,
   paneId,
   parentDir,
@@ -110,7 +111,7 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
     const dlg = dialog;
     if (!dlg) return;
     setDialog(null);
-    const ws = deck.workspaces.find((w) => w.id === dlg.wsId);
+    const ws = findWorkspace(deck.workspaces, dlg.wsId);
     if (!ws) return;
     const paneName = name.trim() || undefined;
     // Main repo: a bare pane that runs in the workspace cwd.
@@ -162,7 +163,7 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
   const nextFree = async (currentPath: string) => {
     const dlg = dialog;
     if (!dlg) return null;
-    const ws = deck.workspaces.find((w) => w.id === dlg.wsId);
+    const ws = findWorkspace(deck.workspaces, dlg.wsId);
     if (!ws) return null;
     const base = ws.worktreeBaseDir ?? parentDir(currentPath);
     if (!base) return null;
@@ -187,7 +188,7 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
   const branchFor = async (path: string): Promise<string | null> => {
     const dlg = dialog;
     if (!dlg) return null;
-    const ws = deck.workspaces.find((w) => w.id === dlg.wsId);
+    const ws = findWorkspace(deck.workspaces, dlg.wsId);
     if (!ws) return null;
     const folder = baseName(path);
     if (!folder) return null;

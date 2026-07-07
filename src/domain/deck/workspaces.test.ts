@@ -4,6 +4,8 @@ import {
   addAgentPane,
   closeAgent,
   closeWorkspace,
+  findWorkspace,
+  findWorkspaceOfPane,
   firstFreeWorktree,
   gitWatchPaths,
   moveWorkspace,
@@ -171,6 +173,20 @@ describe("worktreeTargets", () => {
     expect(worktreeTargets(wtWs, "a-p3")).toEqual([]);
   });
 
+  it("collects a detached-HEAD worktree pane (cwd, no branch)", () => {
+    const detached: Workspace = {
+      id: "a",
+      name: "a",
+      cwd: "/repo",
+      worktreeBaseDir: "/wt",
+      panes: [{ id: "a-p1", cwd: "/wt/kd-a-1" }],
+    };
+    const targets = worktreeTargets(detached, "a-p1");
+    expect(targets).toHaveLength(1);
+    expect(targets[0]).toMatchObject({ repo: "/repo", path: "/wt/kd-a-1" });
+    expect(targets[0].branch).toBeUndefined();
+  });
+
   it("returns nothing for a non-worktree workspace", () => {
     const plain: Workspace = {
       id: "b",
@@ -208,6 +224,21 @@ describe("worktreeTargets", () => {
   });
 });
 
+describe("findWorkspace / findWorkspaceOfPane", () => {
+  const deck = [ws("a", [1, 2]), ws("b", [1])];
+
+  it("findWorkspace returns the workspace by id, or undefined", () => {
+    expect(findWorkspace(deck, "b")).toBe(deck[1]);
+    expect(findWorkspace(deck, "nope")).toBeUndefined();
+  });
+
+  it("findWorkspaceOfPane returns the workspace owning the pane, or undefined", () => {
+    expect(findWorkspaceOfPane(deck, "b-p1")).toBe(deck[1]);
+    expect(findWorkspaceOfPane(deck, "a-p2")).toBe(deck[0]);
+    expect(findWorkspaceOfPane(deck, "ghost")).toBeUndefined();
+  });
+});
+
 describe("setPaneAutoTitle", () => {
   it("sets the (trimmed) auto title in the target pane only", () => {
     const after = setPaneAutoTitle([ws("a", [1, 2])], "a", "a-p1", "  ~/proj  ");
@@ -220,6 +251,16 @@ describe("setPaneAutoTitle", () => {
     expect(setPaneAutoTitle(set, "a", "a-p1", "")[0].panes[0]).toEqual({
       id: "a-p1",
     });
+  });
+
+  it("returns the SAME array when the (trimmed) title is unchanged", () => {
+    const set = setPaneAutoTitle([ws("a", [1])], "a", "a-p1", "t");
+    expect(setPaneAutoTitle(set, "a", "a-p1", "  t  ")).toBe(set);
+  });
+
+  it("returns the SAME array for an absent pane", () => {
+    const base = [ws("a", [1])];
+    expect(setPaneAutoTitle(base, "a", "a-p9", "x")).toBe(base);
   });
 });
 
@@ -396,6 +437,24 @@ describe("paneOccupyingPath", () => {
       },
     ];
     expect(paneOccupyingPath(provisioning, "/wt/pending/")?.pane.id).toBe("c-p1");
+  });
+
+  it("does not claim a path for a batch pane (its dir is backend-assigned)", () => {
+    const batch: Workspace[] = [
+      {
+        ...ws("c", []),
+        panes: [
+          {
+            id: "c-p1",
+            // Batch flow: baseDir only, no explicit path yet — the exact dir is
+            // assigned on the Rust side, so nothing here occupies it.
+            provisioning: { repo: "/repo", baseDir: "/wt", workspace: "c", index: 1 },
+          },
+        ],
+      },
+    ];
+    expect(paneOccupyingPath(batch, "/wt")).toBeNull();
+    expect(paneOccupyingPath(batch, "/wt/kd-c-1")).toBeNull();
   });
 
   it("reports a free path (and an empty one) as unoccupied", () => {

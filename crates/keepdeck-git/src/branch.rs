@@ -66,6 +66,22 @@ pub fn default_branch(prefix: &str, workspace: &str, n: usize) -> String {
     )
 }
 
+/// The cap on KeepDeck's collision-avoidance suffix: base, base-2, … base-999.
+pub const WORKTREE_SUFFIX_MAX: u32 = 999;
+
+/// The `n`th collision-avoidance variant of `base` under KeepDeck's scheme:
+/// `1` → `base`, `2` → `base-2`, `3` → `base-3`, … A worktree's branch and its
+/// directory share this scheme so they stay in step (`kd/x/1` ↔ `kd-x-1`, then
+/// `kd/x/1-2` ↔ `kd-x-1-2`). The single source for both the exact-path
+/// `free_branch` and the batch create loop.
+pub fn suffixed_name(base: &str, n: u32) -> String {
+    if n <= 1 {
+        base.to_string()
+    } else {
+        format!("{base}-{n}")
+    }
+}
+
 /// Sanitize a full, possibly slash-separated branch name (e.g. a user-typed
 /// `feat/login`) component by component, dropping empty segments. Never empty.
 pub fn sanitize_branch(input: &str) -> String {
@@ -135,5 +151,14 @@ mod tests {
     fn sanitize_branch_never_empty() {
         assert_eq!(sanitize_branch(""), "agent");
         assert_eq!(sanitize_branch("///"), "agent");
+    }
+
+    #[test]
+    fn suffixed_name_leaves_the_base_bare_then_appends() {
+        // 1 is the base itself; 2+ append the collision suffix — the scheme the
+        // branch and its dir share so they stay in step.
+        assert_eq!(suffixed_name("kd/x/1", 1), "kd/x/1");
+        assert_eq!(suffixed_name("kd/x/1", 2), "kd/x/1-2");
+        assert_eq!(suffixed_name("kd-x-1", 3), "kd-x-1-3");
     }
 }

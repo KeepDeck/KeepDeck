@@ -33,6 +33,7 @@ import { useDragDrop } from "./app/useDragDrop";
 import {
   closeHotkeyTarget,
   DECK_STATE_VERSION,
+  findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
   pathOccupancy,
@@ -110,7 +111,7 @@ function App() {
   // ([F4]).
   useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
 
-  const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
+  const active = findWorkspace(deck.workspaces, deck.activeId) ?? null;
   // The dock — a persistent side panel like the rail, not a modal. Open or
   // closed is PER workspace (deck.dockByWs), so switching workspaces switches
   // to that workspace's own dock state.
@@ -171,6 +172,10 @@ function App() {
   ];
   const dialogOpen = transactions.some((t) => t !== null);
   const modalOpen = showForm || dialogOpen || settingsOpen;
+  // The single "can add an agent" rule — a workspace is active, room under the
+  // cap, and nothing modal is up. Both the ⌘T hotkey and the + Agent button
+  // gate on this so they can't diverge (the button used to ignore modals).
+  const canAddAgent = !!active && !atCap && !modalOpen;
 
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
   // ⌘W asks to close the selected pane (an empty workspace: the workspace
@@ -183,7 +188,7 @@ function App() {
       setCreating(true);
     },
     newAgent: () => {
-      if (!active || atCap || modalOpen) return;
+      if (!canAddAgent) return;
       void agentFlow.openFor(active);
     },
     closeAgent: () => {
@@ -283,9 +288,9 @@ function App() {
             type="button"
             className="bar__action"
             onClick={() => {
-              if (active) void agentFlow.openFor(active);
+              if (canAddAgent) void agentFlow.openFor(active);
             }}
-            disabled={!active || atCap || showForm}
+            disabled={!canAddAgent}
             title={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
           >
             + Agent

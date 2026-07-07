@@ -3,7 +3,16 @@ import type {
   PluginServices,
   PluginSessionHandle,
 } from "@keepdeck/plugin-api";
-import { runSpawnOptions, type RunRequest, type RunSession } from "./domain";
+import {
+  commandBanner,
+  exitNote,
+  runSpawnOptions,
+  spawnFailedNote,
+  type RunRequest,
+  type RunSession,
+} from "./domain";
+
+const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
 
 /**
  * The owner of every run session — created PER plugin activation
@@ -47,6 +56,10 @@ export interface RunManager {
 /** Replay budget per session; oldest chunks fall off first. */
 const MAX_BUFFER_BYTES = 1024 * 1024;
 
+/** Clear an attached live terminal's viewport + scrollback (ED 2 / ED 3 / home)
+ * so it matches the emptied replay buffer on restart. */
+const CLEAR_TERMINAL = new TextEncoder().encode("\x1b[2J\x1b[3J\x1b[H");
+
 interface Entry {
   session: RunSession;
   handle: PluginSessionHandle | null;
@@ -55,6 +68,10 @@ interface Entry {
   buffered: number;
   /** Guards against events landing after an explicit remove. */
   removed: boolean;
+  /** Last requested terminal size, re-applied when a (re)spawned handle
+   * arrives — a resize before the handle exists would otherwise be dropped,
+   * stranding the PTY at the spawn placeholder until an unrelated resize. */
+  size: { cols: number; rows: number } | null;
 }
 
 function describeError(e: unknown): string {
@@ -101,12 +118,8 @@ export function createRunManager(
   /** Spawn (or respawn, for restart) the entry's command. */
   function spawn(entry: Entry): void {
     const id = entry.session.id;
-    // Echo the command line first, the way a shell shows what it's about to
-    // run. The Commands list only ever shows a preset's NAME; the log is where
-    // the actual command becomes visible. Newlines are normalized so a
-    // multi-line script doesn't stair-step across the terminal grid.
-    const echo = entry.session.command.replace(/\r?\n/g, "\r\n");
-    const banner = new TextEncoder().encode(`\x1b[90m[run] ${echo}\x1b[0m\r\n`);
+    // Echo the command line first (see commandBanner), then stream the process.
+    const banner = encode(commandBanner(entry.session.command));
     entry.sink?.onOutput(banner);
     remember(entry, banner);
     void services.sessions
@@ -119,15 +132,12 @@ export function createRunManager(
         } else {
           entry.handle = null;
           log.info(`${id}: exited (code ${event.code ?? "?"})`);
-          // The run's end belongs in its own log, like agent panes do — the
-          // status chip alone leaves the log ending mid-stream. A `stopping`
-          // session died because the user pulled the plug: say that instead of
-          // the kill signal's exit code.
-          const note =
-            entry.session.status.kind === "stopping"
-              ? "[stopped]"
-              : `[process exited${event.code != null ? ` (${event.code})` : ""}]`;
-          const bytes = new TextEncoder().encode(`\r\n\x1b[90m${note}\x1b[0m\r\n`);
+          const bytes = encode(
+            exitNote({
+              stopped: entry.session.status.kind === "stopping",
+              code: event.code,
+            }),
+          );
           entry.sink?.onOutput(bytes);
           remember(entry, bytes);
           update(id, { status: { kind: "exited", code: event.code } });
@@ -140,17 +150,23 @@ export function createRunManager(
           return;
         }
         entry.handle = handle;
+        // Apply the size the view already requested before the handle existed,
+        // so the PTY doesn't stay at the spawn placeholder (RunLog resizes on
+        // mount, typically before this resolves).
+        if (entry.size) {
+          void handle.resize(entry.size.cols, entry.size.rows).catch(() => {});
+        }
+        // A Stop landed during the launch→spawn window, while the handle was
+        // still null — honor it now that the process actually exists.
+        if (entry.session.status.kind === "stopping") {
+          void handle.close().catch(() => {});
+        }
       })
       .catch((e: unknown) => {
         if (entry.removed) return;
         const message = describeError(e);
         log.error(`${id}: spawn failed: ${message}`);
-        // The failure belongs in the session's own log, like any other output —
-        // a status note alone ("spawn failed") hides the WHY (e.g. the worktree
-        // was deleted: the OS error names the missing directory).
-        const bytes = new TextEncoder().encode(
-          `\x1b[31mspawn failed: ${message}\x1b[0m\r\n`,
-        );
+        const bytes = encode(spawnFailedNote(message));
         entry.sink?.onOutput(bytes);
         remember(entry, bytes);
         update(id, { status: { kind: "failed", message } });
@@ -168,6 +184,10 @@ export function createRunManager(
       .catch(() => undefined);
     entry.chunks = [];
     entry.buffered = 0;
+    // Clear the attached live terminal too, so it matches the emptied buffer.
+    // Otherwise the live log shows the previous run's output above the new one,
+    // while a fresh re-attach (buffer only) would show just the new run.
+    entry.sink?.onOutput(CLEAR_TERMINAL);
     entry.session = {
       ...entry.session,
       port,
@@ -228,6 +248,7 @@ export function createRunManager(
       chunks: [],
       buffered: 0,
       removed: false,
+      size: null,
     };
     entries.set(id, entry);
     log.info(
@@ -240,10 +261,14 @@ export function createRunManager(
 
   function stopRun(id: string): void {
     const entry = entries.get(id);
-    if (!entry?.handle) return;
+    // Guard on the STATUS, not the handle: a Stop clicked in the launch→spawn
+    // window (handle still null, row already "running") must not be swallowed.
+    if (!entry || entry.session.status.kind !== "running") return;
     log.info(`${id}: stop`);
     update(id, { status: { kind: "stopping" } });
-    void entry.handle.close().catch(() => {});
+    // Close now if the process exists; otherwise the spawn .then sees the
+    // stopping status and closes the handle the moment it arrives.
+    if (entry.handle) void entry.handle.close().catch(() => {});
   }
 
   function removeRun(id: string): void {
@@ -299,10 +324,12 @@ export function createRunManager(
   }
 
   function resizeRun(id: string, cols: number, rows: number): void {
-    void entries
-      .get(id)
-      ?.handle?.resize(cols, rows)
-      .catch(() => {});
+    const entry = entries.get(id);
+    if (!entry) return;
+    // Remember it even when the handle isn't up yet — the spawn .then applies
+    // the latest size once it arrives.
+    entry.size = { cols, rows };
+    void entry.handle?.resize(cols, rows).catch(() => {});
   }
 
   return {

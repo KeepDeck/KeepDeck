@@ -142,6 +142,29 @@ describe("stop / restart / remove", () => {
     expect(manager.getSessions()[0].status).toEqual({ kind: "exited", code: null });
   });
 
+  it("honors a Stop clicked before the handle arrives (launch→spawn window)", async () => {
+    let resolveSpawn!: () => void;
+    const close = vi.fn(async () => {});
+    pty.spawn.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveSpawn = () =>
+            res({ id: "s1", write: async () => {}, resize: vi.fn(), close });
+        }),
+    );
+
+    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    // The handle hasn't resolved yet, but the row already shows running.
+    expect(manager.getSessions()[0].status.kind).toBe("running");
+
+    manager.stopRun(id);
+    expect(manager.getSessions()[0].status.kind).toBe("stopping");
+    expect(close).not.toHaveBeenCalled(); // no handle to close yet
+
+    resolveSpawn(); // the process finally exists
+    await vi.waitFor(() => expect(close).toHaveBeenCalled());
+  });
+
   it("restartRun respawns with a fresh port and a clean buffer", async () => {
     ports.allocate.mockResolvedValueOnce(17_040).mockResolvedValueOnce(17_050);
     const id = await manager.launchRun("ws-1", TARGET, DEV);
@@ -165,6 +188,43 @@ describe("stop / restart / remove", () => {
     });
     expect(seen).not.toContain("old");
     expect(seen).toContain("[run] pnpm dev");
+  });
+
+  it("restartRun clears the attached live terminal, not just the buffer", async () => {
+    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    let seen = "";
+    manager.attachRun(id, {
+      onOutput: (b) => {
+        seen += new TextDecoder().decode(b);
+      },
+    });
+    pty.spawned[0].emit(out(111, 108, 100)); // "old"
+    pty.spawned[0].emit({ type: "exit", code: 0 });
+    seen = ""; // ignore everything up to the restart
+
+    await manager.restartRun(id);
+    // The live terminal is cleared (ANSI ED) before the fresh run's banner.
+    expect(seen).toContain("\x1b[2J");
+    expect(seen).toContain("[run] pnpm dev");
+  });
+
+  it("applies a resize requested before the handle arrived", async () => {
+    let resolveSpawn!: () => void;
+    const resize = vi.fn(async () => {});
+    pty.spawn.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveSpawn = () =>
+            res({ id: "s1", write: async () => {}, resize, close: vi.fn(async () => {}) });
+        }),
+    );
+    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    manager.resizeRun(id, 100, 40); // handle not up yet — remembered, not lost
+    expect(resize).not.toHaveBeenCalled();
+
+    resolveSpawn();
+    await vi.waitFor(() => expect(resize).toHaveBeenCalledWith(100, 40));
   });
 
   it("removeRun kills a live session and drops it from the snapshot", async () => {

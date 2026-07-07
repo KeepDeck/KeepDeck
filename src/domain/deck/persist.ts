@@ -1,10 +1,11 @@
 import type { DeckState } from "./reducer";
-import type { Pane, PaneProvisioning, PaneSession } from "./panes";
+import type { Pane, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import type { AgentType } from "../agents";
-import { FALLBACK_AGENTS } from "../agents";
+import { AGENT_TYPES } from "../agents";
+import { collectExtras, isRecord } from "../json";
 import { MAX_PANES } from "./layout";
 
 /**
@@ -32,36 +33,6 @@ export { DECK_STATE_VERSION } from "../migrations";
 /** What the app closed in the middle of creating: hydration stamps this onto
  * a restored in-flight provisioning so it surfaces as the failed card. */
 export const PROVISIONING_INTERRUPTED = "Worktree creation was interrupted";
-
-interface PersistedPane {
-  id: string;
-  agentType?: AgentType;
-  cwd?: string;
-  branch?: string;
-  name?: string;
-  autoTitle?: string;
-  session?: PaneSession;
-  /** The worktree-create intent, without the runtime `error`/`phase`. */
-  provisioning?: Omit<PaneProvisioning, "error" | "phase">;
-}
-
-interface PersistedWorkspace {
-  id: string;
-  name: string;
-  cwd: string;
-  worktreeBaseDir: string | null;
-  setup?: string;
-  plugins?: Record<string, unknown>;
-  panes: PersistedPane[];
-}
-
-export interface PersistedDeck {
-  version: number;
-  activeId: string;
-  focusByWs: Record<string, string>;
-  selectByWs: Record<string, string>;
-  workspaces: PersistedWorkspace[];
-}
 
 /** What hydration yields: the restored state plus the id-mint floors derived
  * from the highest persisted `pane-N` / `ws-N` (never stored separately — one
@@ -244,22 +215,6 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
 
 /** The object's keys outside `known` — a newer revision's fields, preserved
  * verbatim across our save round-trips. */
-function collectExtras(
-  value: Record<string, unknown>,
-  known: ReadonlySet<string>,
-): Record<string, unknown> {
-  const extras: Record<string, unknown> = {};
-  for (const [key, v] of Object.entries(value)) {
-    if (!known.has(key)) extras[key] = v;
-  }
-  return extras;
-}
-
-/** The restorable agent ids, derived from the one TS catalog — a hand-kept
- * copy here compiled clean while missing a newly added agent, silently
- * degrading its restored panes to the default. */
-const AGENT_TYPES: readonly AgentType[] = FALLBACK_AGENTS.map((a) => a.id);
-
 function readWorkspace(value: unknown): Workspace | null {
   if (!isRecord(value)) return null;
   const { id, name, cwd, worktreeBaseDir } = value;
@@ -381,8 +336,4 @@ function maxSeq(ids: string[], prefix: string): number {
     if (m) max = Math.max(max, Number(m[1]));
   }
   return max;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

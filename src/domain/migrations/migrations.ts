@@ -23,6 +23,8 @@
  * shape-changing step slots in beside them.
  */
 
+import { isRecord } from "../json";
+
 type RawDoc = Record<string, unknown>;
 type Migration = (doc: RawDoc) => RawDoc;
 
@@ -88,23 +90,19 @@ function migrateDeckFromV4toV5(doc: RawDoc): RawDoc {
 }
 
 function migrateWorkspaceRunToV5(value: unknown): unknown {
-  if (!isRawRecord(value)) return value;
+  if (!isRecord(value)) return value;
   const { run, ...rest } = value;
-  if (!isRawRecord(run)) return value; // no run object: untouched
+  if (!isRecord(run)) return value; // no run object: untouched
 
   const next: RawDoc = { ...rest };
   if (typeof run.setup === "string" && run.setup.trim() !== "") {
     next.setup = run.setup;
   }
   if (Array.isArray(run.presets) && run.presets.length > 0) {
-    const plugins = isRawRecord(rest.plugins) ? { ...rest.plugins } : {};
+    const plugins = isRecord(rest.plugins) ? { ...rest.plugins } : {};
     next.plugins = { ...plugins, [RUN_PLUGIN_ID]: { presets: run.presets } };
   }
   return next;
-}
-
-function isRawRecord(value: unknown): value is RawDoc {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const DECK_MIGRATIONS: Record<number, Migration> = {
@@ -168,9 +166,17 @@ export function migrateDeck(raw: RawDoc): MigrationOutcome {
 }
 
 /** The settings floor check — the per-key tolerant reader handles the rest.
- * `null` = fine to read; a number = the floor that shuts this build out. */
+ * `null` = fine to read; a number = the floor that shuts this build out.
+ *
+ * Reads `minVersion` DIRECTLY, with no fall back to `version` (unlike the deck's
+ * `floorOf`): settings hydration is per-key tolerant — unknown keys are
+ * preserved and a bad value degrades to just its own default — so a file that
+ * merely bumped its revision, including a hand-edited `version`, must read
+ * tolerantly rather than quarantine every setting to defaults. Only an EXPLICIT
+ * floor above our revision shuts us out; the deck, which can't read a newer
+ * shape key-by-key, parks such a file instead. */
 export function settingsFloorBreach(raw: RawDoc): number | null {
-  const minVersion = floorOf(raw);
-  if (minVersion === null) return null; // no markers: read tolerantly
+  const minVersion = raw.minVersion;
+  if (typeof minVersion !== "number") return null; // no explicit floor: read tolerantly
   return minVersion > SETTINGS_VERSION ? minVersion : null;
 }

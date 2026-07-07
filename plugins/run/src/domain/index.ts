@@ -6,4 +6,5 @@
  * to `ctx.services` and `ctx.storage`.
  */
 export * from "./presets";
+export * from "./presentation";
 export * from "./sessions";

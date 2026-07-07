@@ -63,15 +63,30 @@ function mapWorkspace(
   );
 }
 
+/** The workspace `id`, if present — the deck's by-id selector, so app hooks
+ * don't each re-implement `workspaces.find((w) => w.id === …)`. */
+export function findWorkspace(
+  workspaces: Workspace[],
+  id: string,
+): Workspace | undefined {
+  return workspaces.find((w) => w.id === id);
+}
+
+/** The workspace that owns pane `paneId`, if any. */
+export function findWorkspaceOfPane(
+  workspaces: Workspace[],
+  paneId: string,
+): Workspace | undefined {
+  return workspaces.find((w) => w.panes.some((p) => p.id === paneId));
+}
+
 /** The pane `paneId` of workspace `workspaceId`, if both exist. */
 function findPane(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
 ): Pane | undefined {
-  return workspaces
-    .find((w) => w.id === workspaceId)
-    ?.panes.find((p) => p.id === paneId);
+  return findWorkspace(workspaces, workspaceId)?.panes.find((p) => p.id === paneId);
 }
 
 /** Append an already-formed agent pane (e.g. with a provisioned worktree) to one
@@ -100,14 +115,17 @@ export function closeWorkspace(workspaces: Workspace[], id: string): Workspace[]
   return workspaces.filter((ws) => ws.id !== id);
 }
 
-/** A git worktree + branch to tear down when an agent or workspace closes. */
+/** A git worktree (and its branch, when one is known) to tear down when an
+ * agent or workspace closes. */
 export interface WorktreeTarget {
   /** The repository (the workspace cwd) the git ops run against. */
   repo: string;
   /** The worktree directory to remove. */
   path: string;
-  /** The branch to delete once the worktree is gone. */
-  branch: string;
+  /** The branch to delete once the worktree is gone, when the pane still tracks
+   * one. Absent for a detached-HEAD worktree — the dir is still removed, the
+   * (now-unknown) branch is left intact rather than skipping the whole target. */
+  branch?: string;
 }
 
 /** Runtime git position for a path, supplied by the app layer when available.
@@ -120,11 +138,17 @@ export interface GitPosition {
 
 /**
  * The worktrees owned by a workspace's panes — just the one pane when `paneId`
- * is given (agent close), else every pane (workspace close). Only panes that
- * actually run in an owned worktree (`cwd`) are eligible; a cwd-fallback pane,
- * or a non-worktree workspace, owns nothing to delete. When runtime HEAD is
- * known it chooses the currently checked-out branch; otherwise it falls back to
- * the pane's durable owned branch.
+ * is given (agent close), else every pane (workspace close). A cwd-fallback pane
+ * (the main repo) has no worktree of its own, and a non-worktree workspace owns
+ * nothing — an empty result is the signal that there's nothing to offer deleting.
+ *
+ * The branch to delete depends on what's known about the worktree's HEAD:
+ * - runtime HEAD observed on a branch → target that currently checked-out branch;
+ * - runtime HEAD observed but DETACHED → not a delete target (you're on a bare
+ *   commit, not a branch — deleting is ambiguous, so leave it alone);
+ * - HEAD not observed → fall back to the pane's durable owned branch, and still
+ *   offer the worktree dir even when that's absent (a detached worktree whose
+ *   branch is unknown here) so its directory isn't stranded on disk undeletable.
  */
 export function worktreeTargets(
   ws: Workspace,
@@ -135,8 +159,12 @@ export function worktreeTargets(
   return panes.flatMap((p) => {
     if (!p.cwd) return [];
     const observed = gitPositions?.get(p.cwd);
-    const branch = observed ? observed.branch : p.branch;
-    return branch ? [{ repo: ws.cwd, path: p.cwd, branch }] : [];
+    if (observed) {
+      return observed.branch
+        ? [{ repo: ws.cwd, path: p.cwd, branch: observed.branch }]
+        : [];
+    }
+    return [{ repo: ws.cwd, path: p.cwd, branch: p.branch }];
   });
 }
 
@@ -195,7 +223,10 @@ export function renamePane(
   );
 }
 
-/** Set a pane's auto title from the terminal (OSC title); empty clears it ([F11]). */
+/** Set a pane's auto title from the terminal (OSC title); empty clears it ([F11]).
+ * The terminal can emit the same title repeatedly, so an unchanged (or absent)
+ * pane returns the SAME array (no-op → no re-render), like the sibling pane
+ * transforms — the guard lives here, not in the reducer. */
 export function setPaneAutoTitle(
   workspaces: Workspace[],
   workspaceId: string,
@@ -203,6 +234,8 @@ export function setPaneAutoTitle(
   title: string,
 ): Workspace[] {
   const next = title.trim() || undefined;
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane || pane.autoTitle === next) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => (p.id === paneId ? { ...p, autoTitle: next } : p)),
   );
@@ -368,8 +401,11 @@ function normalizePath(path: string): string {
  * workspace's panes: a pane's worktree can live anywhere — `worktreeBaseDir`
  * is only a suggestion source, so workspace-level paths predict nothing.
  * Dormant panes count (they revive right back into their directory), and so
- * does a provisioning intent: a pane whose worktree create is still in flight
- * (or failed, awaiting Retry) has no `cwd` yet but holds its target path.
+ * does a provisioning pane from the "+ Agent" flow: it has no `cwd` yet but
+ * holds its explicit target `path`. A BATCH provisioning pane is the exception
+ * — its exact worktree dir is assigned by the backend (with collision suffixes)
+ * and isn't known here, so it only starts occupying a path once its create
+ * resolves and it gains a `cwd`.
  * This is what blocks the "+ Agent" dialog from attaching a second agent to a
  * worktree one pane already runs in (two agents in one dir stomp each other's
  * files and git state).

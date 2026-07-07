@@ -139,14 +139,6 @@ describe("deckReducer dock (Run panel per workspace)", () => {
     );
     expect(next.dockByWs).toEqual({ b: true });
   });
-
-  it("openDock reveals the dock and is a no-op (same ref) when already open", () => {
-    const closed = state({ workspaces: [ws("a", ["a-1"])], activeId: "a" });
-    const opened = deckReducer(closed, { type: "openDock", wsId: "a" });
-    expect(opened.dockByWs).toEqual({ a: true });
-    // A repeated ▶ shortcut must not cause a re-render.
-    expect(deckReducer(opened, { type: "openDock", wsId: "a" })).toBe(opened);
-  });
 });
 
 describe("deckReducer moveWorkspace", () => {
@@ -200,6 +192,23 @@ describe("deckReducer selection", () => {
       },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-2"]);
+    expect(next.selectByWs).toEqual({ a: "a-2" });
+  });
+
+  it("addAgentPane exits a pre-existing maximize so the new pane is visible", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1"])],
+        activeId: "a",
+        focusByWs: { a: "a-1" },
+      }),
+      {
+        type: "addAgentPane",
+        id: "a",
+        pane: { id: "a-2", cwd: "/wt", branch: "kd/a/2" },
+      },
+    );
+    expect(next.focusByWs).toEqual({});
     expect(next.selectByWs).toEqual({ a: "a-2" });
   });
 

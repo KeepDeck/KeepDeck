@@ -1,5 +1,6 @@
 import type { AgentType } from "../agents";
-import { FALLBACK_AGENTS } from "../agents";
+import { AGENT_TYPES } from "../agents";
+import { collectExtras, isRecord } from "../json";
 
 /**
  * Global app settings ([F6]) — schema, serialization and hydration.
@@ -86,11 +87,6 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   ...Object.keys(DEFAULT_SETTINGS),
 ]);
 
-/** The settable agent ids, derived from the one TS catalog (mirrors the
- * derivation in persist.ts — a hand-kept list would silently miss a newly
- * added agent). */
-const AGENT_TYPES: readonly AgentType[] = FALLBACK_AGENTS.map((a) => a.id);
-
 /** Clamp a raw scrollback to a sane whole number of lines. */
 export function clampScrollback(value: number): number {
   return Math.min(SCROLLBACK_MAX, Math.max(SCROLLBACK_MIN, Math.round(value)));
@@ -140,9 +136,6 @@ function readPlugins(value: unknown): Settings["plugins"] | null {
   return { enabled, values, consented };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * Restore settings from stored JSON. Returns `null` only for a document that
@@ -200,11 +193,7 @@ export function hydrateSettings(json: string): SettingsDocument | null {
     };
   }
 
-  const extras: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(doc)) {
-    if (!KNOWN_KEYS.has(key)) extras[key] = value;
-  }
-  return { settings, extras };
+  return { settings, extras: collectExtras(doc, KNOWN_KEYS) };
 }
 
 /** Serialize for storage: version, preserved extras, then only the settings

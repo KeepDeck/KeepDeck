@@ -134,7 +134,10 @@ fn nonblank(value: Option<String>) -> Option<String> {
 
 /// Spawn a new PTY session, forwarding its events to `on_event`, and return its
 /// id. The session removes itself from the registry once it exits.
-#[tauri::command]
+///
+/// `(async)` so the blocking fork/exec runs on Tauri's worker pool, not the
+/// main event-loop thread — a slow spawn must never freeze the UI.
+#[tauri::command(async)]
 pub fn session_spawn(
     app: AppHandle,
     registry: State<SessionRegistry>,
@@ -190,7 +193,11 @@ pub fn session_spawn(
 }
 
 /// Write input bytes (keystrokes, paste) to a session's PTY.
-#[tauri::command]
+///
+/// `(async)` so a `write_all` that blocks on a stalled agent's stdin (e.g. a
+/// large paste) runs on Tauri's worker pool instead of freezing every pane and
+/// window on the main thread.
+#[tauri::command(async)]
 pub fn session_write(
     registry: State<SessionRegistry>,
     id: String,

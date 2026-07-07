@@ -69,6 +69,10 @@ export function buildSpawnPlan(
         ["KEEPDECK_SPOOL", ctx.spoolDir],
       ]
     : [];
+  // The reporter env is inert unless a hook is actually installed to post it
+  // back — arm it only for a hook-carrying spawn (claude/codex both do this).
+  const armReporter = (hook: readonly string[]): [string, string][] =>
+    hook.length > 0 ? reporterEnv : [];
   const info =
     opts.agents?.find((a) => a.id === agentType) ??
     FALLBACK_AGENTS.find((a) => a.id === agentType);
@@ -81,7 +85,7 @@ export function buildSpawnPlan(
       // the reporter for mid-life session swaps — /clear and compaction
       // change the session id underneath an otherwise-silent pane.
       const hook = ctx.claudeHookArgs ?? [];
-      const env = hook.length > 0 ? reporterEnv : [];
+      const env = armReporter(hook);
       if (resume) return { args: [...hook, ...resume], env };
       const id = opts.mintId();
       return { args: [...hook, "--session-id", id], env, sessionId: id };
@@ -92,7 +96,7 @@ export function buildSpawnPlan(
       const hook = ctx.codexHookArgs ?? [];
       return {
         args: [...hook, ...(resume ?? [])],
-        env: hook.length > 0 ? reporterEnv : [],
+        env: armReporter(hook),
       };
     }
     case "opencode": {

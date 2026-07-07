@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  findWorkspace,
   worktreeTargets,
   type GitPosition,
   type WorktreeTarget,
@@ -36,7 +37,7 @@ export function useCloseFlow(
   const [deleteWorktree, setDeleteWorktree] = useState(false);
 
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
-    const ws = deck.workspaces.find((w) => w.id === wsId);
+    const ws = findWorkspace(deck.workspaces, wsId);
     setDeleteWorktree(false);
     setClosing({
       kind: "agent",
@@ -48,7 +49,7 @@ export function useCloseFlow(
   };
 
   const requestCloseWorkspace = (id: string) => {
-    const ws = deck.workspaces.find((w) => w.id === id);
+    const ws = findWorkspace(deck.workspaces, id);
     if (!ws) return;
     setDeleteWorktree(false);
     setClosing({

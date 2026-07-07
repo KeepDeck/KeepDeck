@@ -7,7 +7,7 @@
 use keepdeck_history::{Presence, SessionProviders};
 use serde::Serialize;
 use std::path::Path;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 /// A discovered session (mirrors the TS `HistoryHit`, camelCase).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -25,21 +25,16 @@ fn providers() -> Option<SessionProviders> {
 }
 
 /// The most recent session of `agent` recorded for the working directory
-/// `dir`, optionally only when written after `since_ms`. `None` means
-/// "nothing found" — missing stores and unknown agents are not errors.
+/// `dir`. `None` means "nothing found" — missing stores and unknown agents
+/// are not errors.
 ///
 /// Runs on the blocking pool: store discovery walks transcript directories
 /// (arbitrarily large) and opens SQLite — not main-thread work.
 #[tauri::command]
-pub async fn history_latest(
-    agent: String,
-    dir: String,
-    since_ms: Option<u64>,
-) -> Option<HistoryHitDto> {
+pub async fn history_latest(agent: String, dir: String) -> Option<HistoryHitDto> {
     tauri::async_runtime::spawn_blocking(move || {
-        let since = since_ms.map(|ms| UNIX_EPOCH + Duration::from_millis(ms));
         providers()?
-            .latest_session(&agent, Path::new(&dir), since)
+            .latest_session(&agent, Path::new(&dir))
             .map(|s| HistoryHitDto {
                 id: s.id,
                 modified_ms: s

@@ -4,7 +4,7 @@ import {
   type AgentInfo,
   type SpawnPlanContext,
 } from "../domain/agents";
-import type { Pane } from "../domain/deck";
+import { findWorkspace, type Pane } from "../domain/deck";
 import { latestSession, sessionPresence } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
@@ -48,7 +48,7 @@ export function useRevive(
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
 
-  const active = deck.workspaces.find((w) => w.id === deck.activeId);
+  const active = findWorkspace(deck.workspaces, deck.activeId);
 
   // Reap entries whose pane is gone (closed directly, or with its workspace):
   // ids are never reused, so without this the map only ever grows.
