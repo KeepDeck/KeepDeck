@@ -209,6 +209,24 @@ describe("stop / restart / remove", () => {
     expect(seen).toContain("[run] pnpm dev");
   });
 
+  it("applies a resize requested before the handle arrived", async () => {
+    let resolveSpawn!: () => void;
+    const resize = vi.fn(async () => {});
+    pty.spawn.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveSpawn = () =>
+            res({ id: "s1", write: async () => {}, resize, close: vi.fn(async () => {}) });
+        }),
+    );
+    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    manager.resizeRun(id, 100, 40); // handle not up yet — remembered, not lost
+    expect(resize).not.toHaveBeenCalled();
+
+    resolveSpawn();
+    await vi.waitFor(() => expect(resize).toHaveBeenCalledWith(100, 40));
+  });
+
   it("removeRun kills a live session and drops it from the snapshot", async () => {
     const id = await manager.launchRun("ws-1", TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));

@@ -59,6 +59,10 @@ interface Entry {
   buffered: number;
   /** Guards against events landing after an explicit remove. */
   removed: boolean;
+  /** Last requested terminal size, re-applied when a (re)spawned handle
+   * arrives — a resize before the handle exists would otherwise be dropped,
+   * stranding the PTY at the spawn placeholder until an unrelated resize. */
+  size: { cols: number; rows: number } | null;
 }
 
 function describeError(e: unknown): string {
@@ -144,6 +148,12 @@ export function createRunManager(
           return;
         }
         entry.handle = handle;
+        // Apply the size the view already requested before the handle existed,
+        // so the PTY doesn't stay at the spawn placeholder (RunLog resizes on
+        // mount, typically before this resolves).
+        if (entry.size) {
+          void handle.resize(entry.size.cols, entry.size.rows).catch(() => {});
+        }
         // A Stop landed during the launch→spawn window, while the handle was
         // still null — honor it now that the process actually exists.
         if (entry.session.status.kind === "stopping") {
@@ -241,6 +251,7 @@ export function createRunManager(
       chunks: [],
       buffered: 0,
       removed: false,
+      size: null,
     };
     entries.set(id, entry);
     log.info(
@@ -316,10 +327,12 @@ export function createRunManager(
   }
 
   function resizeRun(id: string, cols: number, rows: number): void {
-    void entries
-      .get(id)
-      ?.handle?.resize(cols, rows)
-      .catch(() => {});
+    const entry = entries.get(id);
+    if (!entry) return;
+    // Remember it even when the handle isn't up yet — the spawn .then applies
+    // the latest size once it arrives.
+    entry.size = { cols, rows };
+    void entry.handle?.resize(cols, rows).catch(() => {});
   }
 
   return {
