@@ -1,6 +1,5 @@
 import { ChevronDownIcon } from "@keepdeck/ui-kit/icons";
 import type { TreeNode, TreeRow } from "../domain/tree";
-import { PANE_PATH_DROP_TYPE } from "../dnd";
 import { FileIcon, FolderIcon, SymlinkIcon } from "../icons";
 
 /**
@@ -63,14 +62,10 @@ function TreeRowItem({
         aria-selected={active}
         data-cursor={active ? "true" : undefined}
         title={node.path}
-        // Drag a row onto a pane to drop its path into that terminal. The host
-        // reads this type and delivers it (src/app/usePaneDrop); a click still
-        // opens/toggles, since a click without movement isn't a drag.
-        draggable
-        onDragStart={(event) => {
-          event.dataTransfer.setData(PANE_PATH_DROP_TYPE, node.path);
-          event.dataTransfer.effectAllowed = "copy";
-        }}
+        // Drag a row onto a pane's terminal to drop its path in. The host owns
+        // the pointer drag and reads this attribute (src/app/usePaneDrag); a
+        // click still opens/toggles, since a click without movement isn't a drag.
+        data-kd-drag-path={node.path}
         onClick={() => (isDir ? onToggle(node.path) : onSelect(node))}
       >
         <span

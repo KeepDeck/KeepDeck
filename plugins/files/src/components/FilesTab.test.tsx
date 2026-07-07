@@ -174,10 +174,12 @@ describe("FilesTab", () => {
     expect(document.querySelector(".files__peek")).toBeNull();
   });
 
-  it("makes tree rows draggable so a path can be dropped into a pane", async () => {
+  it("tags tree rows with their path for dragging into a pane", async () => {
     await mount();
-    expect(rowByName("readme.md")!.getAttribute("draggable")).toBe("true");
-    expect(rowByName("src")!.getAttribute("draggable")).toBe("true");
+    expect(rowByName("readme.md")!.getAttribute("data-kd-drag-path")).toBe(
+      "/repo/readme.md",
+    );
+    expect(rowByName("src")!.getAttribute("data-kd-drag-path")).toBe("/repo/src");
   });
 
   it("selecting a file does not read it as a directory", async () => {
