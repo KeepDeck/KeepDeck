@@ -63,15 +63,30 @@ function mapWorkspace(
   );
 }
 
+/** The workspace `id`, if present — the deck's by-id selector, so app hooks
+ * don't each re-implement `workspaces.find((w) => w.id === …)`. */
+export function findWorkspace(
+  workspaces: Workspace[],
+  id: string,
+): Workspace | undefined {
+  return workspaces.find((w) => w.id === id);
+}
+
+/** The workspace that owns pane `paneId`, if any. */
+export function findWorkspaceOfPane(
+  workspaces: Workspace[],
+  paneId: string,
+): Workspace | undefined {
+  return workspaces.find((w) => w.panes.some((p) => p.id === paneId));
+}
+
 /** The pane `paneId` of workspace `workspaceId`, if both exist. */
 function findPane(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
 ): Pane | undefined {
-  return workspaces
-    .find((w) => w.id === workspaceId)
-    ?.panes.find((p) => p.id === paneId);
+  return findWorkspace(workspaces, workspaceId)?.panes.find((p) => p.id === paneId);
 }
 
 /** Append an already-formed agent pane (e.g. with a provisioned worktree) to one

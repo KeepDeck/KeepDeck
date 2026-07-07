@@ -4,6 +4,8 @@ import {
   addAgentPane,
   closeAgent,
   closeWorkspace,
+  findWorkspace,
+  findWorkspaceOfPane,
   firstFreeWorktree,
   moveWorkspace,
   parentDir,
@@ -195,6 +197,21 @@ describe("worktreeTargets", () => {
     };
     expect(worktreeTargets(plain)).toEqual([]);
     expect(worktreeTargets(plain, "b-p1")).toEqual([]);
+  });
+});
+
+describe("findWorkspace / findWorkspaceOfPane", () => {
+  const deck = [ws("a", [1, 2]), ws("b", [1])];
+
+  it("findWorkspace returns the workspace by id, or undefined", () => {
+    expect(findWorkspace(deck, "b")).toBe(deck[1]);
+    expect(findWorkspace(deck, "nope")).toBeUndefined();
+  });
+
+  it("findWorkspaceOfPane returns the workspace owning the pane, or undefined", () => {
+    expect(findWorkspaceOfPane(deck, "b-p1")).toBe(deck[1]);
+    expect(findWorkspaceOfPane(deck, "a-p2")).toBe(deck[0]);
+    expect(findWorkspaceOfPane(deck, "ghost")).toBeUndefined();
   });
 });
 

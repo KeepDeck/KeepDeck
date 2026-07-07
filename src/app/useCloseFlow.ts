@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  findWorkspace,
   worktreeTargets,
   type WorktreeTarget,
 } from "../domain/deck";
@@ -31,7 +32,7 @@ export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
   const [deleteWorktree, setDeleteWorktree] = useState(false);
 
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
-    const ws = deck.workspaces.find((w) => w.id === wsId);
+    const ws = findWorkspace(deck.workspaces, wsId);
     setDeleteWorktree(false);
     setClosing({
       kind: "agent",
@@ -43,7 +44,7 @@ export function useCloseFlow(deck: Deck, onError: (message: string) => void) {
   };
 
   const requestCloseWorkspace = (id: string) => {
-    const ws = deck.workspaces.find((w) => w.id === id);
+    const ws = findWorkspace(deck.workspaces, id);
     if (!ws) return;
     setDeleteWorktree(false);
     setClosing({

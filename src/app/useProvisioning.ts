@@ -1,5 +1,5 @@
 import { defaultAgentType, type AgentInfo } from "../domain/agents";
-import type { SpawnConfig, Workspace } from "../domain/deck";
+import { findWorkspace, type SpawnConfig, type Workspace } from "../domain/deck";
 import { mintAgentSeqs, mintWorkspaceSeq } from "./ids";
 import { planPanes, provisionInto, runProvisioning } from "./provisioning";
 import type { Deck } from "./useDeck";
@@ -15,7 +15,7 @@ import type { Deck } from "./useDeck";
 export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
   /** Add `count` agents to an existing (empty) workspace. */
   const startWorkspace = (workspaceId: string, count: number) => {
-    const ws = deck.workspaces.find((w) => w.id === workspaceId);
+    const ws = findWorkspace(deck.workspaces, workspaceId);
     if (!ws) return;
     const startSeq = mintAgentSeqs(count);
     const panes = planPanes(ws, startSeq, count, defaultAgentType(agents));
@@ -58,7 +58,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
 
   /** Re-issue a failed pane's worktree create from its stored intent. */
   const retryPane = (wsId: string, paneId: string) => {
-    const ws = deck.workspaces.find((w) => w.id === wsId);
+    const ws = findWorkspace(deck.workspaces, wsId);
     const pane = ws?.panes.find((p) => p.id === paneId);
     if (!ws || !pane?.provisioning) return;
     // Back to the creating card first, then re-run the same intent.

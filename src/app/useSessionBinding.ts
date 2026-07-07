@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { findWorkspaceOfPane } from "../domain/deck";
 import { onSessionBound } from "../ipc/sessions";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
@@ -43,7 +44,7 @@ export function useSessionBinding(deck: Deck): void {
       const d = deckRef.current;
       // The postback may outlive its pane (agent reported just as the pane
       // closed) — no workspace match means there's nothing to bind.
-      const ws = d.workspaces.find((w) => w.panes.some((p) => p.id === paneId));
+      const ws = findWorkspaceOfPane(d.workspaces, paneId);
       if (ws) {
         d.setPaneSession(ws.id, paneId, {
           id: sessionId,

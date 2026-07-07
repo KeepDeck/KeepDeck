@@ -33,6 +33,7 @@ import { useDragDrop } from "./app/useDragDrop";
 import {
   closeHotkeyTarget,
   DECK_STATE_VERSION,
+  findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
   pathOccupancy,
@@ -110,7 +111,7 @@ function App() {
   // ([F4]).
   useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
 
-  const active = deck.workspaces.find((w) => w.id === deck.activeId) ?? null;
+  const active = findWorkspace(deck.workspaces, deck.activeId) ?? null;
   // The dock — a persistent side panel like the rail, not a modal. Open or
   // closed is PER workspace (deck.dockByWs), so switching workspaces switches
   // to that workspace's own dock state.
