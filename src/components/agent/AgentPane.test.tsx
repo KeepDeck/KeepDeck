@@ -31,13 +31,13 @@ const baseProps = {
   colSpan: 1,
   onSelect: () => {},
   onToggleFocus: () => {},
-  onLaunchCwd: () => {},
+  onOpenInEditor: () => {},
   onClose: () => {},
   onRename: () => {},
   onTitle: () => {},
 };
 
-describe("AgentPane — launch cwd", () => {
+describe("AgentPane — open in VS Code", () => {
   let host: HTMLElement;
   let root: Root;
 
@@ -52,26 +52,24 @@ describe("AgentPane — launch cwd", () => {
     act(() => root.unmount());
   });
 
-  it("renders the icon button and fires onLaunchCwd on click when a cwd is known", () => {
-    const onLaunchCwd = vi.fn();
+  it("renders the text button and fires onOpenInEditor on click when a cwd is known", () => {
+    const onOpenInEditor = vi.fn();
     act(() =>
-      root.render(createElement(AgentPane, { ...baseProps, onLaunchCwd })),
+      root.render(createElement(AgentPane, { ...baseProps, onOpenInEditor })),
     );
 
-    const btn = document.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open Claude 1 working directory"]',
-    );
+    const btn = document.querySelector<HTMLButtonElement>(".pane__open");
     expect(btn).not.toBeNull();
-    expect(btn!.textContent).toBe("");
+    expect(btn!.textContent).toBe("Open in VSCode");
 
     act(() => btn!.click());
-    expect(onLaunchCwd).toHaveBeenCalledTimes(1);
+    expect(onOpenInEditor).toHaveBeenCalledTimes(1);
   });
 
   it("hides the button when there is no cwd — nothing to open", () => {
     act(() => root.render(createElement(AgentPane, { ...baseProps, cwd: null })));
 
-    expect(document.querySelector(".pane__launch")).toBeNull();
+    expect(document.querySelector(".pane__open")).toBeNull();
   });
 
   it("renders a runtime git badge when provided", () => {
@@ -165,6 +163,6 @@ describe("AgentPane — provisioning cards", () => {
       ),
     );
 
-    expect(document.querySelector(".pane__launch")).toBeNull();
+    expect(document.querySelector(".pane__open")).toBeNull();
   });
 });

@@ -61,18 +61,6 @@ export function GitBranchIcon() {
   );
 }
 
-/** Launch/open target — generic "open outside this pane" action, independent
- * of which app handles the target (Lucide `square-arrow-out-up-right`, ISC). */
-export function LaunchIcon() {
-  return (
-    <svg {...iconProps}>
-      <path d="M15 3h6v6" />
-      <path d="M10 14 21 3" />
-      <path d="M18 13v6a2 2 0 0 1 -2 2H5a2 2 0 0 1 -2 -2V8a2 2 0 0 1 2 -2h6" />
-    </svg>
-  );
-}
-
 /** Collapse-direction chevron (dropdown state). */
 export function ChevronDownIcon() {
   return (

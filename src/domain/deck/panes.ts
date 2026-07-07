@@ -112,7 +112,15 @@ export function paneDisplayTitle(
 ): string {
   const agentType = pane.agentType ?? "claude";
   const label = agents.find((a) => a.id === agentType)?.label ?? agentType;
-  return pane.name ?? pane.autoTitle ?? `${label} ${index + 1}`;
+  return pane.name ?? cleanPaneAutoTitle(pane.autoTitle) ?? `${label} ${index + 1}`;
+}
+
+/** Claude Code prefixes some OSC titles with a decorative/status glyph. Keep the
+ * raw autoTitle for persistence, but do not make one agent family look like it
+ * has a bespoke pane-header icon. */
+function cleanPaneAutoTitle(title: string | undefined): string | undefined {
+  const cleaned = title?.replace(/^[✦✧✶✳✱✲✷✸✹✺✻✼✽]\s+/, "").trim();
+  return cleaned || undefined;
 }
 
 /** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES), all

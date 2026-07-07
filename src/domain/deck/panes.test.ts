@@ -132,6 +132,15 @@ describe("paneDisplayTitle", () => {
     expect(paneDisplayTitle(pane, 2, agents)).toBe("Claude Code 3");
   });
 
+  it("strips decorative Claude title glyphs without changing the stored auto title", () => {
+    expect(
+      paneDisplayTitle({ id: "pane-1", agentType: "claude", autoTitle: "✶ Claude Code" }, 0, agents),
+    ).toBe("Claude Code");
+    expect(
+      paneDisplayTitle({ id: "pane-1", agentType: "claude", autoTitle: "✳ thinking" }, 0, agents),
+    ).toBe("thinking");
+  });
+
   it("falls back to the raw agent id while the catalog has no entry", () => {
     expect(
       paneDisplayTitle({ id: "pane-1", agentType: "codex" }, 0, agents),
