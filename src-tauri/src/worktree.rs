@@ -131,11 +131,8 @@ fn choose_branch(explicit: Option<&str>, workspace: &str, index: u64) -> String 
 /// `git worktree add -b` (the batch flow suffixes the same way, jointly with
 /// its dir).
 fn free_branch(repo_path: &Path, wanted: &str) -> Result<String, String> {
-    if !repo::branch_exists(repo_path, wanted).map_err(|e| e.to_string())? {
-        return Ok(wanted.to_string());
-    }
-    for suffix in 2..=999u32 {
-        let candidate = format!("{wanted}-{suffix}");
+    for n in 1..=branch::WORKTREE_SUFFIX_MAX {
+        let candidate = branch::suffixed_name(wanted, n);
         if !repo::branch_exists(repo_path, &candidate).map_err(|e| e.to_string())? {
             return Ok(candidate);
         }
@@ -293,21 +290,23 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
     };
 
     // Pick a free branch + dir under the lock. Clean worktrees aren't removed on
-    // close, so an earlier agent's branch/folder may still exist; append -2, -3,
-    // … (to both, kept in step) until the dir is free and the branch is unused.
-    let mut branch = chosen_branch.clone();
-    let mut dir = chosen_dir.clone();
-    let mut path = base_dir.join(&dir);
-    let mut suffix = 1u32;
-    while path.exists() || repo::branch_exists(&repo_path, &branch).map_err(|e| e.to_string())? {
-        suffix += 1;
-        if suffix > 999 {
-            return Err("could not find a free worktree branch/dir".to_string());
+    // close, so an earlier agent's branch/folder may still exist; the shared
+    // suffix scheme steps branch and dir together (base, base-2, …) until the
+    // dir is free and the branch is unused.
+    let mut chosen: Option<(String, PathBuf)> = None;
+    for n in 1..=branch::WORKTREE_SUFFIX_MAX {
+        let branch = branch::suffixed_name(&chosen_branch, n);
+        let dir = branch::suffixed_name(&chosen_dir, n);
+        let path = base_dir.join(&dir);
+        if !path.exists()
+            && !repo::branch_exists(&repo_path, &branch).map_err(|e| e.to_string())?
+        {
+            chosen = Some((branch, path));
+            break;
         }
-        branch = format!("{chosen_branch}-{suffix}");
-        dir = format!("{chosen_dir}-{suffix}");
-        path = base_dir.join(&dir);
     }
+    let (branch, path) =
+        chosen.ok_or_else(|| "could not find a free worktree branch/dir".to_string())?;
 
     worktree::add(&repo_path, &path, &branch, &base).map_err(|e| e.to_string())?;
 
