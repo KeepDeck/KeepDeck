@@ -54,6 +54,13 @@ interface TerminalPaneProps {
   onTitle?: (title: string) => void;
 }
 
+/** Whether the host has real layout size. A grid re-tile can pass through a
+ * 0-sized layout; fitting xterm then clamps it to ~2 cols and rewraps the whole
+ * scrollback — every refit path must skip that frame. */
+function hasSize(host: HTMLElement): boolean {
+  return host.clientWidth > 0 && host.clientHeight > 0;
+}
+
 /**
  * A single terminal pane — a VIEW over a PTY session the `ptyManager` owns.
  * On mount it acquires the pane's session (idempotent — an existing one is
@@ -264,9 +271,7 @@ export function TerminalPane({
     // land on re-wrapped rows and shred the scrollback (see refitPump.ts).
     const pump = createRefitPump({
       fit: () => {
-        // A grid re-tile can pass through a 0-sized layout; fitting then
-        // would clamp the pane to 2x1 and rewrap the whole scrollback.
-        if (host.clientWidth === 0 || host.clientHeight === 0) return;
+        if (!hasSize(host)) return;
         const buf = term.buffer.active;
         const atBottom = buf.viewportY === buf.baseY;
         fit.fit();
@@ -330,7 +335,11 @@ export function TerminalPane({
   useEffect(() => {
     if (!visible) return;
     const term = termRef.current;
-    fitRef.current?.fit();
+    const host = hostRef.current;
+    // Route through the same zero-size guard as the pump — a pane coming back
+    // on screen can be measured mid-re-tile at 0px, and a raw fit() there would
+    // clamp it to ~2 cols and rewrap the scrollback.
+    if (host && hasSize(host)) fitRef.current?.fit();
     term?.refresh(0, term.rows - 1);
     // Move keyboard focus to the highlighted pane when it comes on screen (e.g.
     // after a workspace switch), so you can type without clicking first ([B2]).
