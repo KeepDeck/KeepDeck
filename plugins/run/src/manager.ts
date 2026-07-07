@@ -140,6 +140,11 @@ export function createRunManager(
           return;
         }
         entry.handle = handle;
+        // A Stop landed during the launch→spawn window, while the handle was
+        // still null — honor it now that the process actually exists.
+        if (entry.session.status.kind === "stopping") {
+          void handle.close().catch(() => {});
+        }
       })
       .catch((e: unknown) => {
         if (entry.removed) return;
@@ -240,10 +245,14 @@ export function createRunManager(
 
   function stopRun(id: string): void {
     const entry = entries.get(id);
-    if (!entry?.handle) return;
+    // Guard on the STATUS, not the handle: a Stop clicked in the launch→spawn
+    // window (handle still null, row already "running") must not be swallowed.
+    if (!entry || entry.session.status.kind !== "running") return;
     log.info(`${id}: stop`);
     update(id, { status: { kind: "stopping" } });
-    void entry.handle.close().catch(() => {});
+    // Close now if the process exists; otherwise the spawn .then sees the
+    // stopping status and closes the handle the moment it arrives.
+    if (entry.handle) void entry.handle.close().catch(() => {});
   }
 
   function removeRun(id: string): void {

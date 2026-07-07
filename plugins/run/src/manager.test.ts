@@ -142,6 +142,29 @@ describe("stop / restart / remove", () => {
     expect(manager.getSessions()[0].status).toEqual({ kind: "exited", code: null });
   });
 
+  it("honors a Stop clicked before the handle arrives (launch→spawn window)", async () => {
+    let resolveSpawn!: () => void;
+    const close = vi.fn(async () => {});
+    pty.spawn.mockImplementationOnce(
+      () =>
+        new Promise((res) => {
+          resolveSpawn = () =>
+            res({ id: "s1", write: async () => {}, resize: vi.fn(), close });
+        }),
+    );
+
+    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    // The handle hasn't resolved yet, but the row already shows running.
+    expect(manager.getSessions()[0].status.kind).toBe("running");
+
+    manager.stopRun(id);
+    expect(manager.getSessions()[0].status.kind).toBe("stopping");
+    expect(close).not.toHaveBeenCalled(); // no handle to close yet
+
+    resolveSpawn(); // the process finally exists
+    await vi.waitFor(() => expect(close).toHaveBeenCalled());
+  });
+
   it("restartRun respawns with a fresh port and a clean buffer", async () => {
     ports.allocate.mockResolvedValueOnce(17_040).mockResolvedValueOnce(17_050);
     const id = await manager.launchRun("ws-1", TARGET, DEV);
