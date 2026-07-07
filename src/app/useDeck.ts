@@ -4,7 +4,6 @@ import {
   initialDeckState,
   type DeckState,
   type Pane,
-  type PaneHead,
   type PaneSession,
   type Workspace,
 } from "../domain/deck";
@@ -51,8 +50,6 @@ export function useDeck() {
       dispatch({ type: "resetPaneLocation", wsId, paneId }),
     setPaneSession: (wsId: string, paneId: string, session: PaneSession | null) =>
       dispatch({ type: "setPaneSession", wsId, paneId, session }),
-    setPaneHead: (wsId: string, paneId: string, head: PaneHead) =>
-      dispatch({ type: "setPaneHead", wsId, paneId, head }),
     resolvePaneProvisioning: (
       wsId: string,
       paneId: string,

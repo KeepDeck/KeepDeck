@@ -15,7 +15,7 @@ import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useSettings } from "./app/useSettings";
 import { useSpawnContext } from "./app/useSpawnContext";
-import { useWorktreeHead } from "./app/useWorktreeHead";
+import { useGitHead } from "./app/useGitHead";
 import { paneSpawnSpec } from "./app/spawnSpecs";
 import type { SpawnPlan } from "./domain/agents";
 import { useProvisioning } from "./app/useProvisioning";
@@ -81,8 +81,8 @@ function App() {
   const revive = useRevive(deck, agents, spawnCtx);
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
   useSessionBinding(deck);
-  // Keep each worktree pane's branch badge live (checkouts inside a worktree).
-  useWorktreeHead(deck);
+  // Runtime git HEAD observations for pane badges and worktree close cleanup.
+  const gitHeads = useGitHead(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
@@ -96,7 +96,7 @@ function App() {
   // per-agent worktree location, [F2]).
   const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
-  const closeFlow = useCloseFlow(deck, setError);
+  const closeFlow = useCloseFlow(deck, setError, gitHeads);
   // The plugin system: the bridge wires deck accessors + deck events; the
   // built-ins boot once settings settle (enabled flags live there); the
   // contribution registries drive the dock and the top bar below.
@@ -360,6 +360,7 @@ function App() {
             focusByWs={deck.focusByWs}
             selectedPaneId={selectedPaneId}
             agents={agents}
+            gitHeads={gitHeads}
             onStartWorkspace={(wsId, count) =>
               void provisioning.startWorkspace(wsId, count)
             }

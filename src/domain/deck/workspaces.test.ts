@@ -7,8 +7,10 @@ import {
   findWorkspace,
   findWorkspaceOfPane,
   firstFreeWorktree,
+  gitWatchPaths,
   moveWorkspace,
   parentDir,
+  paneExecutionCwd,
   renamePane,
   renameWorkspace,
   resolveActiveId,
@@ -16,11 +18,9 @@ import {
   setPaneAutoTitle,
   paneOccupyingPath,
   pathOccupancy,
-  setPaneHead,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setWorkspacePluginSlot,
-  worktreeCwds,
   worktreeTargets,
   type Workspace,
 } from "./workspaces";
@@ -179,7 +179,7 @@ describe("worktreeTargets", () => {
       name: "a",
       cwd: "/repo",
       worktreeBaseDir: "/wt",
-      panes: [{ id: "a-p1", cwd: "/wt/kd-a-1", head: "abc123" } as Pane],
+      panes: [{ id: "a-p1", cwd: "/wt/kd-a-1" }],
     };
     const targets = worktreeTargets(detached, "a-p1");
     expect(targets).toHaveLength(1);
@@ -197,6 +197,30 @@ describe("worktreeTargets", () => {
     };
     expect(worktreeTargets(plain)).toEqual([]);
     expect(worktreeTargets(plain, "b-p1")).toEqual([]);
+  });
+
+  it("uses runtime current branch for owned worktrees, without targeting detached heads", () => {
+    const heads = new Map([
+      ["/wt/kd-a-1", { branch: "feature/x" }],
+      ["/wt/kd-a-2", { head: "a".repeat(40) }],
+    ]);
+
+    expect(worktreeTargets(wtWs, undefined, heads)).toEqual([
+      { repo: "/repo", path: "/wt/kd-a-1", branch: "feature/x" },
+    ]);
+  });
+
+  it("does not target cwd-fallback panes even when their repo branch is observed", () => {
+    const plain: Workspace = {
+      id: "b",
+      name: "b",
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [{ id: "b-p1" }],
+    };
+    expect(
+      worktreeTargets(plain, undefined, new Map([["/repo", { branch: "main" }]])),
+    ).toEqual([]);
   });
 });
 
@@ -240,53 +264,34 @@ describe("setPaneAutoTitle", () => {
   });
 });
 
-describe("setPaneHead", () => {
-  const deck = (): Workspace[] => [
-    {
-      ...ws("a", []),
-      panes: [
-        { id: "a-p1", cwd: "/wt/a-p1", branch: "kd/a/1" },
-        { id: "a-p2", cwd: "/wt/a-p2", branch: "kd/a/2" },
-      ],
-    },
-  ];
-
-  it("moves the target pane to its new branch, leaving others alone", () => {
-    const after = setPaneHead(deck(), "a", "a-p1", { branch: "feature/x" });
-    expect(after[0].panes[0].branch).toBe("feature/x");
-    expect(after[0].panes[1].branch).toBe("kd/a/2");
+describe("paneExecutionCwd", () => {
+  it("uses pane cwd when present, otherwise workspace cwd", () => {
+    const workspace = ws("a", [1]);
+    expect(paneExecutionCwd(workspace, { id: "a-p1", cwd: "/wt/one" })).toBe(
+      "/wt/one",
+    );
+    expect(paneExecutionCwd(workspace, { id: "a-p1" })).toBe("/tmp");
   });
 
-  it("swaps branch for head on a detach, and back on a re-attach", () => {
-    const sha = "a".repeat(40);
-    const detached = setPaneHead(deck(), "a", "a-p1", { head: sha });
-    expect(detached[0].panes[0].branch).toBeUndefined();
-    expect(detached[0].panes[0].head).toBe(sha);
-
-    const back = setPaneHead(detached, "a", "a-p1", { branch: "kd/a/1" });
-    expect(back[0].panes[0].branch).toBe("kd/a/1");
-    expect(back[0].panes[0].head).toBeUndefined();
-  });
-
-  it("returns the SAME array for a same-position event (no re-render)", () => {
-    const before = deck();
-    expect(setPaneHead(before, "a", "a-p1", { branch: "kd/a/1" })).toBe(before);
-  });
-
-  it("returns the SAME array when the pane is gone (event raced a close)", () => {
-    const before = deck();
-    expect(setPaneHead(before, "a", "gone", { branch: "x" })).toBe(before);
+  it("returns null for unresolved provisioning panes", () => {
+    const workspace = ws("a", []);
+    expect(
+      paneExecutionCwd(workspace, {
+        id: "a-p1",
+        provisioning: { repo: "/repo", baseDir: "/wt", workspace: "a", index: 1 },
+      }),
+    ).toBeNull();
   });
 });
 
-describe("worktreeCwds", () => {
-  it("collects distinct pane cwds across workspaces, skipping cwd-fallback panes", () => {
+describe("gitWatchPaths", () => {
+  it("collects distinct effective pane cwds across workspaces", () => {
     const deck: Workspace[] = [
       {
         ...ws("a", []),
         panes: [
           { id: "a-p1", cwd: "/wt/one", branch: "kd/a/1" },
-          { id: "a-p2" }, // runs in the workspace folder — nothing to watch
+          { id: "a-p2" }, // runs in the workspace folder
         ],
       },
       {
@@ -294,11 +299,28 @@ describe("worktreeCwds", () => {
         panes: [{ id: "b-p1", cwd: "/wt/two", branch: "kd/b/1" }],
       },
     ];
-    expect(worktreeCwds(deck)).toEqual(new Set(["/wt/one", "/wt/two"]));
+    expect(gitWatchPaths(deck)).toEqual(new Set(["/wt/one", "/tmp", "/wt/two"]));
   });
 
-  it("is empty for a deck with no worktree panes", () => {
-    expect(worktreeCwds([ws("a", [1, 2])])).toEqual(new Set());
+  it("skips unresolved provisioning panes", () => {
+    expect(
+      gitWatchPaths([
+        {
+          ...ws("a", []),
+          panes: [
+            {
+              id: "a-p1",
+              provisioning: {
+                repo: "/repo",
+                baseDir: "/wt",
+                workspace: "a",
+                index: 1,
+              },
+            },
+          ],
+        },
+      ]),
+    ).toEqual(new Set());
   });
 });
 

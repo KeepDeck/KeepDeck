@@ -128,20 +128,44 @@ export interface WorktreeTarget {
   branch?: string;
 }
 
+/** Runtime git position for a path, supplied by the app layer when available.
+ * This is intentionally not pane domain state: panes own durable worktree
+ * intent/branch, while current HEAD is observed at runtime. */
+export interface GitPosition {
+  branch?: string;
+  head?: string;
+}
+
 /**
  * The worktrees owned by a workspace's panes — just the one pane when `paneId`
- * is given (agent close), else every pane (workspace close). A pane keyed on
- * `cwd` alone counts: a detached-HEAD worktree has a `cwd` but no `branch`, and
- * keying on both used to make it undeletable in-app (its dir stranded on disk).
- * A cwd-fallback pane (the main repo) has no worktree of its own, and a
- * non-worktree workspace owns nothing — an empty result is the signal that
- * there's nothing to offer deleting.
+ * is given (agent close), else every pane (workspace close). A cwd-fallback pane
+ * (the main repo) has no worktree of its own, and a non-worktree workspace owns
+ * nothing — an empty result is the signal that there's nothing to offer deleting.
+ *
+ * The branch to delete depends on what's known about the worktree's HEAD:
+ * - runtime HEAD observed on a branch → target that currently checked-out branch;
+ * - runtime HEAD observed but DETACHED → not a delete target (you're on a bare
+ *   commit, not a branch — deleting is ambiguous, so leave it alone);
+ * - HEAD not observed → fall back to the pane's durable owned branch, and still
+ *   offer the worktree dir even when that's absent (a detached worktree whose
+ *   branch is unknown here) so its directory isn't stranded on disk undeletable.
  */
-export function worktreeTargets(ws: Workspace, paneId?: string): WorktreeTarget[] {
+export function worktreeTargets(
+  ws: Workspace,
+  paneId?: string,
+  gitPositions?: ReadonlyMap<string, GitPosition>,
+): WorktreeTarget[] {
   const panes = paneId ? ws.panes.filter((p) => p.id === paneId) : ws.panes;
-  return panes.flatMap((p) =>
-    p.cwd ? [{ repo: ws.cwd, path: p.cwd, branch: p.branch }] : [],
-  );
+  return panes.flatMap((p) => {
+    if (!p.cwd) return [];
+    const observed = gitPositions?.get(p.cwd);
+    if (observed) {
+      return observed.branch
+        ? [{ repo: ws.cwd, path: p.cwd, branch: observed.branch }]
+        : [];
+    }
+    return [{ repo: ws.cwd, path: p.cwd, branch: p.branch }];
+  });
 }
 
 /** Set (or, via `undefined`, delete) one plugin's opaque persisted slot in a
@@ -261,7 +285,7 @@ export function setPaneSession(
 }
 
 /** Detach a pane from its (gone) worktree so it can start fresh in the
- * workspace cwd ([F7] restore reconcile): drops `cwd`/`branch`/`head` AND the
+ * workspace cwd ([F7] restore reconcile): drops `cwd`/`branch` AND the
  * recorded session — a directory-bound session can't resume somewhere else.
  * Returns the SAME array when there's nothing to drop. */
 export function resetPaneLocation(
@@ -270,45 +294,13 @@ export function resetPaneLocation(
   paneId: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane || (!pane.cwd && !pane.branch && !pane.head && !pane.session))
+  if (!pane || (!pane.cwd && !pane.branch && !pane.session))
     return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId) return p;
-      const { cwd: _cwd, branch: _branch, head: _head, session: _session, ...rest } = p;
+      const { cwd: _cwd, branch: _branch, session: _session, ...rest } = p;
       return rest;
-    }),
-  );
-}
-
-/** A worktree's current git position, as delivered by the HEAD watcher:
- * on a branch, or detached at a commit. */
-export interface PaneHead {
-  branch?: string;
-  head?: string;
-}
-
-/** Record where a pane's worktree currently is — the live-branch-badge update.
- * Sets `branch` on a checkout, swaps it for `head` on a detach. Same-position
- * events (checkout touches HEAD more than once) return the SAME array. */
-export function setPaneHead(
-  workspaces: Workspace[],
-  workspaceId: string,
-  paneId: string,
-  next: PaneHead,
-): Workspace[] {
-  const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane || (pane.branch === next.branch && pane.head === next.head))
-    return workspaces;
-  return mapWorkspace(workspaces, workspaceId, (panes) =>
-    panes.map((p) => {
-      if (p.id !== paneId) return p;
-      const { branch: _branch, head: _head, ...rest } = p;
-      return {
-        ...rest,
-        ...(next.branch !== undefined && { branch: next.branch }),
-        ...(next.head !== undefined && { head: next.head }),
-      };
     }),
   );
 }
@@ -508,17 +500,25 @@ export function baseName(path: string): string {
   return norm.slice(norm.lastIndexOf("/") + 1);
 }
 
-/** The distinct worktree directories the deck's panes run in — the set the
- * HEAD-watch lifecycle keeps registered (a pane without `cwd` runs in the
- * workspace folder and owns no worktree to watch). */
-export function worktreeCwds(workspaces: Workspace[]): Set<string> {
-  const cwds = new Set<string>();
+/** The directory a pane would run in right now. Provisioning panes without a
+ * resolved `cwd` deliberately have none yet: falling back to the workspace cwd
+ * would describe the wrong process location. */
+export function paneExecutionCwd(ws: Workspace, pane: Pane): string | null {
+  if (pane.provisioning && !pane.cwd) return null;
+  return pane.cwd ?? ws.cwd;
+}
+
+/** The distinct effective directories whose git HEAD the app may observe for
+ * pane-header branch badges and worktree cleanup decisions. */
+export function gitWatchPaths(workspaces: Workspace[]): Set<string> {
+  const paths = new Set<string>();
   for (const ws of workspaces) {
     for (const pane of ws.panes) {
-      if (pane.cwd) cwds.add(pane.cwd);
+      const path = paneExecutionCwd(ws, pane);
+      if (path) paths.add(path);
     }
   }
-  return cwds;
+  return paths;
 }
 
 /** Move the workspace with `id` to `toIndex` (clamped to the list), preserving

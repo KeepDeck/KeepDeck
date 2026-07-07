@@ -23,8 +23,6 @@ const baseProps = {
   title: "Claude 1",
   command: null,
   cwd: "/repo/work" as string | null,
-  scrollback: 10_000,
-  branch: null,
   visible: true,
   focused: false,
   collapsed: false,
@@ -72,6 +70,37 @@ describe("AgentPane — open in VS Code", () => {
     act(() => root.render(createElement(AgentPane, { ...baseProps, cwd: null })));
 
     expect(document.querySelector(".pane__open")).toBeNull();
+  });
+
+  it("renders a runtime git badge when provided", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          gitBadge: { label: "main", title: "main" },
+        }),
+      ),
+    );
+
+    const badge = document.querySelector<HTMLElement>(".pane__branch");
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toBe("main");
+    expect(badge!.title).toBe("main");
+  });
+
+  it("places the VS Code button before the git branch badge", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          gitBadge: { label: "main", title: "main" },
+        }),
+      ),
+    );
+
+    const actions = document.querySelector(".pane__actions");
+    expect(actions?.children[0]?.className).toBe("pane__open");
+    expect(actions?.children[1]?.className).toBe("pane__branch");
   });
 });
 
@@ -142,7 +171,7 @@ describe("AgentPane — provisioning cards", () => {
     expect(onRetryProvision).toHaveBeenCalledTimes(1);
   });
 
-  it("hides Open in VSCode while provisioning — the fallback cwd is not this pane's folder", () => {
+  it("hides the cwd launch action while provisioning — the fallback cwd is not this pane's folder", () => {
     act(() =>
       root.render(
         createElement(AgentPane, { ...baseProps, provisioning: intent }),

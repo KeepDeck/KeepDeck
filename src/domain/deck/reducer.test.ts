@@ -379,41 +379,25 @@ describe("deckReducer restore actions ([F7])", () => {
   });
 });
 
-describe("setPaneHead (live branch badge)", () => {
+describe("resetPaneLocation", () => {
   const wtWs: Workspace = {
     id: "ws-1",
     name: "ws-1",
     cwd: "/repo",
     worktreeBaseDir: null,
-    panes: [{ id: "pane-1", cwd: "/repo/wt", branch: "kd/ws/1" }],
+    panes: [
+      {
+        id: "pane-1",
+        dormant: true,
+        cwd: "/repo/wt",
+        branch: "kd/ws/1",
+        session: { id: "s1", boundAt: "2026-07-07T00:00:00Z" },
+      },
+    ],
   };
 
-  it("records a checkout and no-ops on a same-position re-emit", () => {
+  it("drops durable location and session state so the pane can start fresh", () => {
     const start = state({ workspaces: [wtWs], activeId: "ws-1" });
-    const moved = deckReducer(start, {
-      type: "setPaneHead",
-      wsId: "ws-1",
-      paneId: "pane-1",
-      head: { branch: "feature/x" },
-    });
-    expect(moved.workspaces[0].panes[0].branch).toBe("feature/x");
-    expect(
-      deckReducer(moved, {
-        type: "setPaneHead",
-        wsId: "ws-1",
-        paneId: "pane-1",
-        head: { branch: "feature/x" },
-      }),
-    ).toBe(moved);
-  });
-
-  it("resetPaneLocation also drops a detached pane's head", () => {
-    const sha = "f".repeat(40);
-    const detachedWs: Workspace = {
-      ...wtWs,
-      panes: [{ id: "pane-1", dormant: true, cwd: "/repo/wt", head: sha }],
-    };
-    const start = state({ workspaces: [detachedWs], activeId: "ws-1" });
     const next = deckReducer(start, {
       type: "resetPaneLocation",
       wsId: "ws-1",
