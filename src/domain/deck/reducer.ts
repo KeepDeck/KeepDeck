@@ -135,6 +135,14 @@ function dropKey<T>(
   return next;
 }
 
+/** Rebuild deck state around a workspaces transform, but only when it actually
+ * changed the array: a transform that returns the same ref (a no-op — a
+ * same-value rebind, a repeated OSC title, a closed pane's late result) yields
+ * the same state ref, so a re-fired effect causes no re-render. */
+function withWorkspaces(state: DeckState, workspaces: Workspace[]): DeckState {
+  return workspaces === state.workspaces ? state : { ...state, workspaces };
+}
+
 export function deckReducer(state: DeckState, action: DeckAction): DeckState {
   switch (action.type) {
     case "selectWorkspace": {
@@ -191,12 +199,12 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ...state,
         workspaces: renameWorkspace(state.workspaces, action.id, action.name),
       };
-    case "moveWorkspace": {
+    case "moveWorkspace":
       // moveWorkspace returns the same ref on a no-op move → skip the re-render.
-      const workspaces = moveWorkspace(state.workspaces, action.id, action.toIndex);
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
+      return withWorkspaces(
+        state,
+        moveWorkspace(state.workspaces, action.id, action.toIndex),
+      );
     case "closeAgent": {
       const { wsId, paneId } = action;
       const remaining =
@@ -263,98 +271,77 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           action.name,
         ),
       };
-    case "setPaneAutoTitle": {
+    case "setPaneAutoTitle":
       // The helper is a no-op (same array ref) for an unchanged/absent pane.
-      const workspaces = setPaneAutoTitle(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
-        action.title,
+      return withWorkspaces(
+        state,
+        setPaneAutoTitle(state.workspaces, action.wsId, action.paneId, action.title),
       );
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
     case "hydrate":
       return action.state;
-    case "revivePane": {
+    case "revivePane":
       // revivePane returns the same ref for an absent/already-live pane, so a
       // re-fired revive effect causes no re-render.
-      const workspaces = revivePane(state.workspaces, action.wsId, action.paneId);
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
-    case "resetPaneLocation": {
-      const workspaces = resetPaneLocation(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
+      return withWorkspaces(
+        state,
+        revivePane(state.workspaces, action.wsId, action.paneId),
       );
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
-    case "setPaneSession": {
+    case "resetPaneLocation":
+      return withWorkspaces(
+        state,
+        resetPaneLocation(state.workspaces, action.wsId, action.paneId),
+      );
+    case "setPaneSession":
       // Same-id rebinds return the same ref — binding refreshes are no-ops.
-      const workspaces = setPaneSession(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
-        action.session,
+      return withWorkspaces(
+        state,
+        setPaneSession(state.workspaces, action.wsId, action.paneId, action.session),
       );
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
-    case "setPaneHead": {
+    case "setPaneHead":
       // Same-position re-emits (a checkout touches HEAD repeatedly) are no-ops.
-      const workspaces = setPaneHead(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
-        action.head,
+      return withWorkspaces(
+        state,
+        setPaneHead(state.workspaces, action.wsId, action.paneId, action.head),
       );
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
-    case "resolvePaneProvisioning": {
+    case "resolvePaneProvisioning":
       // Same ref when the pane was closed mid-create — the late result of a
       // background create must not resurrect anything.
-      const workspaces = resolvePaneProvisioning(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
-        { cwd: action.cwd, branch: action.branch },
+      return withWorkspaces(
+        state,
+        resolvePaneProvisioning(state.workspaces, action.wsId, action.paneId, {
+          cwd: action.cwd,
+          branch: action.branch,
+        }),
       );
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
-    case "setPaneProvisioningError": {
-      const workspaces = setPaneProvisioningError(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
-        action.error,
+    case "setPaneProvisioningError":
+      return withWorkspaces(
+        state,
+        setPaneProvisioningError(
+          state.workspaces,
+          action.wsId,
+          action.paneId,
+          action.error,
+        ),
       );
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
-    case "setPaneProvisioningPhase": {
-      const workspaces = setPaneProvisioningPhase(
-        state.workspaces,
-        action.wsId,
-        action.paneId,
-        action.phase,
+    case "setPaneProvisioningPhase":
+      return withWorkspaces(
+        state,
+        setPaneProvisioningPhase(
+          state.workspaces,
+          action.wsId,
+          action.paneId,
+          action.phase,
+        ),
       );
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
-    case "setWorkspacePluginSlot": {
-      const workspaces = setWorkspacePluginSlot(
-        state.workspaces,
-        action.wsId,
-        action.pluginId,
-        action.value,
+    case "setWorkspacePluginSlot":
+      return withWorkspaces(
+        state,
+        setWorkspacePluginSlot(
+          state.workspaces,
+          action.wsId,
+          action.pluginId,
+          action.value,
+        ),
       );
-      if (workspaces === state.workspaces) return state;
-      return { ...state, workspaces };
-    }
   }
 }
