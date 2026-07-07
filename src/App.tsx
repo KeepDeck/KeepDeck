@@ -172,6 +172,10 @@ function App() {
   ];
   const dialogOpen = transactions.some((t) => t !== null);
   const modalOpen = showForm || dialogOpen || settingsOpen;
+  // The single "can add an agent" rule — a workspace is active, room under the
+  // cap, and nothing modal is up. Both the ⌘T hotkey and the + Agent button
+  // gate on this so they can't diverge (the button used to ignore modals).
+  const canAddAgent = !!active && !atCap && !modalOpen;
 
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
   // ⌘W asks to close the selected pane (an empty workspace: the workspace
@@ -184,7 +188,7 @@ function App() {
       setCreating(true);
     },
     newAgent: () => {
-      if (!active || atCap || modalOpen) return;
+      if (!canAddAgent) return;
       void agentFlow.openFor(active);
     },
     closeAgent: () => {
@@ -284,9 +288,9 @@ function App() {
             type="button"
             className="bar__action"
             onClick={() => {
-              if (active) void agentFlow.openFor(active);
+              if (canAddAgent) void agentFlow.openFor(active);
             }}
-            disabled={!active || atCap || showForm}
+            disabled={!canAddAgent}
             title={atCap ? `Max ${MAX_PANES} agents` : "Add agent"}
           >
             + Agent
