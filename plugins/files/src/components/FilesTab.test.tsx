@@ -174,6 +174,12 @@ describe("FilesTab", () => {
     expect(document.querySelector(".files__peek")).toBeNull();
   });
 
+  it("makes tree rows draggable so a path can be dropped into a pane", async () => {
+    await mount();
+    expect(rowByName("readme.md")!.getAttribute("draggable")).toBe("true");
+    expect(rowByName("src")!.getAttribute("draggable")).toBe("true");
+  });
+
   it("selecting a file does not read it as a directory", async () => {
     await mount();
     await act(async () => rowByName("readme.md")!.click());

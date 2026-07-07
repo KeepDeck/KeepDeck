@@ -30,6 +30,7 @@ import { externalPluginUrl } from "./plugins/external/url";
 import { DockPanel, type DockTabItem } from "./components/dock/DockPanel";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
+import { usePaneDrop } from "./app/usePaneDrop";
 import {
   closeHotkeyTarget,
   DECK_STATE_VERSION,
@@ -108,8 +109,10 @@ function App() {
   const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
 
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
-  // ([F4]).
+  // ([F4]). Two sources, one delivery: an OS file drop from Finder, and an
+  // in-app drag of a Files-plugin tree row.
   useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
+  usePaneDrop((paneId) => deck.selectPane(deck.activeId, paneId));
 
   const active = findWorkspace(deck.workspaces, deck.activeId) ?? null;
   // The dock — a persistent side panel like the rail, not a modal. Open or
