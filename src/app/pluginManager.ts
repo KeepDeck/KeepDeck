@@ -14,7 +14,13 @@ import {
   type FsScope,
   type ServiceBackends,
 } from "../plugins/capabilities";
-import { projectFsReadDir, projectFsReadFile } from "../ipc/projectFs";
+import {
+  onProjectFsChange,
+  projectFsReadDir,
+  projectFsReadFile,
+  projectFsUnwatch,
+  projectFsWatch,
+} from "../ipc/projectFs";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openUrl } from "../ipc/app";
@@ -122,6 +128,55 @@ function fsRoots(scope: FsScope): string[] {
   return [...roots];
 }
 
+// ---- fs directory watching (one OS listener, fanned out by path) ----
+
+/** Live watch callbacks per registered directory path. One Rust watcher per
+ * path (started on the first subscriber, stopped after the last), fanned out
+ * here to every callback watching it — so two panes browsing the same folder
+ * share one OS watcher. */
+const fsWatchCbs = new Map<string, Set<() => void>>();
+/** The single subscription to the backend's change event, attached lazily. */
+let fsChangeListener: Promise<() => void> | null = null;
+
+function watchProjectDir(
+  path: string,
+  scope: FsScope,
+  onChange: () => void,
+): Disposable {
+  fsChangeListener ??= onProjectFsChange((changed) => {
+    const cbs = fsWatchCbs.get(changed);
+    if (cbs) for (const cb of [...cbs]) cb();
+  }).catch((e) => {
+    log.warn("web:plugins", `fs change listener failed: ${describeError(e)}`);
+    return () => {};
+  });
+
+  let set = fsWatchCbs.get(path);
+  if (!set) {
+    set = new Set();
+    fsWatchCbs.set(path, set);
+    void projectFsWatch(path, fsRoots(scope), scope === "everywhere").catch((e) =>
+      log.warn("web:plugins", `fs watch ${path} failed: ${describeError(e)}`),
+    );
+  }
+  set.add(onChange);
+
+  let live = true;
+  return {
+    dispose() {
+      if (!live) return;
+      live = false;
+      const current = fsWatchCbs.get(path);
+      if (!current) return;
+      current.delete(onChange);
+      if (current.size === 0) {
+        fsWatchCbs.delete(path);
+        void projectFsUnwatch(path).catch(() => {});
+      }
+    },
+  };
+}
+
 /** The ungated platform services — what the capability gate decorates. `fs`
  * is scope-aware here (the gate injects the scope it derived from the
  * manifest); this backend turns that scope into concrete roots. */
@@ -157,6 +212,7 @@ const serviceBackend: ServiceBackends = {
       projectFsReadDir(path, fsRoots(scope), scope === "everywhere"),
     readFile: (path, scope, opts) =>
       projectFsReadFile(path, fsRoots(scope), scope === "everywhere", opts?.maxBytes),
+    watch: (path, scope, onChange) => watchProjectDir(path, scope, onChange),
   },
 };
 

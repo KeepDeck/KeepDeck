@@ -213,6 +213,7 @@ export function createFakeHost(
           size: 0,
           truncated: false,
         }),
+        watch: () => ({ dispose() {} }),
       },
     },
     host: {

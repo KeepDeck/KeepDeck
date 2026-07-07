@@ -7,7 +7,7 @@ import type {
   PluginSpawnOptions,
   SettingsSectionContribution,
 } from "@keepdeck/plugin-api";
-import { actionChannel, DECK_EVENT_CHANNELS } from "./protocol";
+import { actionChannel, DECK_EVENT_CHANNELS, fswatchChannel } from "./protocol";
 import { createHostSessions } from "./hostSessions";
 import { createHostSubscriptions } from "./hostSubscriptions";
 
@@ -51,6 +51,8 @@ export function createHostDispatch(
 
   // Registrations retained by the guest-minted id that will later dispose them.
   const registrations = new Map<number, Disposable>();
+  // Directory watches, retained by the guest-minted id that will unwatch them.
+  const watches = new Map<number, Disposable>();
   function retain(regId: number, disposable: Disposable): void {
     registrations.set(regId, disposable);
   }
@@ -155,6 +157,23 @@ export function createHostDispatch(
         path as string,
         opts as FsReadFileOptions | undefined,
       ),
+    // A watch is a subscription: the guest mints the id, the host holds the
+    // Disposable under it and pushes `fswatch:<id>` on each change.
+    "services.fs.watch": ([id, path]) => {
+      const key = id as number;
+      watches.get(key)?.dispose();
+      watches.set(
+        key,
+        ctx.services.fs.watch(path as string, () =>
+          push(fswatchChannel(key), undefined),
+        ),
+      );
+    },
+    "services.fs.unwatch": ([id]) => {
+      const key = id as number;
+      watches.get(key)?.dispose();
+      watches.delete(key);
+    },
 
     // ---- host facts ----
     "host.settings": () => ctx.host.settings(),
@@ -183,6 +202,8 @@ export function createHostDispatch(
       sessions.disposeAll();
       for (const disposable of registrations.values()) disposable.dispose();
       registrations.clear();
+      for (const watcher of watches.values()) watcher.dispose();
+      watches.clear();
     },
   };
 }

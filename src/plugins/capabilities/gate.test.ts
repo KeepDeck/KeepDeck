@@ -42,6 +42,7 @@ function fakeBackend() {
         size: 0,
         truncated: false,
       })),
+      watch: vi.fn(() => ({ dispose: vi.fn() })),
     },
   };
   return { backend, handle };
@@ -354,5 +355,36 @@ describe("createCapabilityGate — fs", () => {
     });
     expect(() => hardGate.fs.readFile("/etc/passwd")).toThrow('"fs" capability');
     expect(hard.backend.fs.readFile).not.toHaveBeenCalled();
+  });
+
+  it("forwards fs.watch with the derived scope and hands back the backend's disposable", () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "fs", scope: "workspace" }]),
+      backend,
+      { mode: "enforce", log },
+    );
+    const onChange = vi.fn();
+
+    gate.fs.watch("/repo/src", onChange);
+
+    expect(backend.fs.watch).toHaveBeenCalledWith(
+      "/repo/src",
+      "workspace",
+      onChange,
+    );
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("refuses fs.watch without the fs capability in enforce mode", () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(manifest([]), backend, {
+      mode: "enforce",
+      log,
+    });
+    expect(() => gate.fs.watch("/repo", vi.fn())).toThrow('"fs" capability');
+    expect(backend.fs.watch).not.toHaveBeenCalled();
   });
 });

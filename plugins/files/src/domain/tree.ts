@@ -83,6 +83,10 @@ export function setChildren(
   if (!parent) return state;
 
   const sorted = sortEntries(entries);
+  // No-op guard: a watch-driven re-read of an UNCHANGED directory returns the
+  // SAME state, so nothing re-renders. This keeps auto-refresh quiet when a
+  // coarse fs event fires but the listing didn't actually change.
+  if (parent.loaded && sameListing(parent, sorted, state.nodes)) return state;
   const nextChildren = sorted.map((entry) => entry.path);
   const nextSet = new Set(nextChildren);
   const nodes = { ...state.nodes };
@@ -198,6 +202,27 @@ function patch(
   const node = state.nodes[path];
   if (!node) return state;
   return { ...state, nodes: { ...state.nodes, [path]: { ...node, ...changes } } };
+}
+
+/** Whether `parent`'s currently-loaded children already match the freshly-read,
+ * sorted `entries` exactly — same paths in the same order, each with the same
+ * name, kind and size. If so, a re-read changed nothing. */
+function sameListing(
+  parent: TreeNode,
+  sorted: FsEntry[],
+  nodes: Record<string, TreeNode>,
+): boolean {
+  if (parent.children.length !== sorted.length) return false;
+  return sorted.every((entry, index) => {
+    if (parent.children[index] !== entry.path) return false;
+    const node = nodes[entry.path];
+    return (
+      !!node &&
+      node.name === entry.name &&
+      node.kind === entry.kind &&
+      node.size === entry.size
+    );
+  });
 }
 
 /** Delete a node and every descendant from `nodes` (mutating the given copy). */

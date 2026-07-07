@@ -1,3 +1,5 @@
+import type { Disposable } from "./disposable.ts";
+
 /**
  * Platform services. Every call is checked against the manifest's
  * capabilities before it runs (the CapabilityGate): `sessions.spawn` needs
@@ -67,6 +69,12 @@ export interface PluginFs {
    * `text: null` / `isBinary: true`; a file past the read cap with
    * `truncated: true` — the plugin decides how to present either. */
   readFile(path: string, opts?: FsReadFileOptions): Promise<FsFile>;
+  /** Watch a directory for changes to its LISTING — a child added, removed, or
+   * renamed, NOT a content edit. `onChange` fires (coalesced) when the entries
+   * change; re-`readDir` to get the new listing. Passive OS notification, so
+   * the tree stays live without polling. Returns a Disposable that stops
+   * watching; scoped by the `fs` capability like reads. */
+  watch(path: string, onChange: () => void): Disposable;
 }
 
 export interface FsReadFileOptions {

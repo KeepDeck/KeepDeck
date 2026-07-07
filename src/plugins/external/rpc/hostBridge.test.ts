@@ -79,6 +79,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
           size: 0,
           truncated: false,
         }),
+        watch: () => ({ dispose() {} }),
       },
     },
     host: { settings: async () => ({ terminalScrollback: 1000 }) },

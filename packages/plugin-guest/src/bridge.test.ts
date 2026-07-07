@@ -266,6 +266,38 @@ describe("external plugin bridge", () => {
     expect(file.isBinary).toBe(false);
   });
 
+  it("round-trips an fs.watch subscription: change fans in, dispose unwatches", async () => {
+    const host = createFakeHost();
+    const unwatched: string[] = [];
+    let fireHostChange: (() => void) | undefined;
+    host.ctx.services.fs.watch = (path, onChange) => {
+      fireHostChange = onChange;
+      return { dispose: () => void unwatched.push(path) };
+    };
+    const { ctxReady } = wireCapturingCtx(host);
+    const ctx = await ctxReady;
+
+    let changes = 0;
+    const sub = ctx.services.fs.watch("/repo", () => {
+      changes += 1;
+    });
+    await flush();
+    expect(typeof fireHostChange).toBe("function");
+
+    fireHostChange!();
+    await flush();
+    expect(changes).toBe(1);
+
+    sub.dispose();
+    await flush();
+    expect(unwatched).toEqual(["/repo"]);
+
+    // A host change after dispose is not delivered to the plugin.
+    fireHostChange!();
+    await flush();
+    expect(changes).toBe(1);
+  });
+
   it("fans a top-bar action's host-side run back to the plugin's callback", async () => {
     const host = createFakeHost();
     let runs = 0;
