@@ -1,0 +1,14 @@
+{
+  "id": "keepdeck.files",
+  "name": "Files",
+  "version": "0.1.0",
+  "minApiVersion": "0.0.6",
+  "description": "Browse the workspace file tree and preview file contents, scoped to the workspace folder and its worktrees.",
+  "capabilities": [
+    { "kind": "fs", "scope": "workspace" },
+    { "kind": "open" }
+  ],
+  "contributes": {
+    "dockTabs": [{ "id": "files", "label": "Files" }]
+  }
+}

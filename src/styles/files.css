@@ -1,0 +1,243 @@
+/* The Files tab (keepdeck.files plugin): a lazy file tree over the fs
+   capability, with a read-only preview below it. Palette mirrors the dock and
+   the Run tab so the plugin reads as native chrome. */
+
+.files {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* Root selector + refresh. */
+.files__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.files__root {
+  flex: 1;
+  min-width: 0;
+}
+
+.files__refresh {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.files__refresh:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+/* The tree: scrolls on its own; yields the lower half to the viewer. */
+.files__tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: none;
+}
+
+.files__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.files__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 0;
+  border-radius: 5px;
+  color: #c5c8c6;
+  font-size: 12.5px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.files__row:hover {
+  background-color: #151a24;
+}
+
+.files__row--sel {
+  background-color: #1b2230;
+}
+
+/* Chevron: points down when open, rotates to point right when collapsed. A
+   leaf reserves the same width so names stay aligned. */
+.files__chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: #6b7280;
+  transition: transform 0.1s ease;
+}
+
+.files__chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+.files__ficon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: #8b93a3;
+}
+
+.files__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files__hint {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.files__hint--bad {
+  color: #e5736f;
+}
+
+.files__empty {
+  padding: 16px 8px;
+}
+
+.files__empty-sub {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+/* The preview box: mirrors the Run log box. */
+.files__viewer {
+  flex: 1 1 45%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  border: 1px solid #1c2230;
+  border-radius: 6px;
+  background-color: #0b0e14;
+  overflow: hidden;
+}
+
+.files__vhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #1c2230;
+  background-color: #11151d;
+}
+
+.files__vname {
+  color: #c5c8c6;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files__vmeta {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.files__vact {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.files__vact:last-child {
+  margin-left: 0;
+}
+
+.files__vact:first-of-type {
+  margin-left: auto;
+}
+
+.files__vact:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+.files__vbody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0;
+}
+
+/* Line-numbered text. Each row is its own line so the gutter stays aligned. */
+.files__code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.files__coderow {
+  display: flex;
+}
+
+.files__lineno {
+  flex: none;
+  width: 44px;
+  padding-right: 12px;
+  text-align: right;
+  color: #3b4658;
+  user-select: none;
+}
+
+.files__linetext {
+  flex: 1 1 auto;
+  color: #c5c8c6;
+  white-space: pre;
+  padding-right: 12px;
+}
+
+.files__note {
+  margin: 0;
+  padding: 8px 12px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.files__note--bad {
+  color: #e5736f;
+}
+
+.files__binary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+}

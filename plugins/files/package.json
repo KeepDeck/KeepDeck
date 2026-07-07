@@ -1,0 +1,18 @@
+{
+  "name": "@keepdeck-plugins/files",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Files built-in plugin: browse the workspace file tree and preview file contents on the plugin API's fs service.",
+  "type": "module",
+  "peerDependencies": {
+    "react": "^19.1.0"
+  },
+  "dependencies": {
+    "@keepdeck/plugin-api": "workspace:*",
+    "@keepdeck/ui-kit": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "typescript": "~5.8.3"
+  }
+}
