@@ -14,6 +14,7 @@ const pty = (() => {
     emit: (e: PluginSessionEvent) => void;
     close: ReturnType<typeof vi.fn>;
     resize: ReturnType<typeof vi.fn>;
+    write: ReturnType<typeof vi.fn>;
   }> = [];
   const spawn = vi.fn(
     async (
@@ -27,11 +28,12 @@ const pty = (() => {
           onEvent({ type: "exit", code: null });
         }),
         resize: vi.fn(async () => {}),
+        write: vi.fn(async () => {}),
       };
       spawned.push(record);
       return {
         id: `s${spawned.length}`,
-        write: async () => {},
+        write: record.write,
         resize: record.resize,
         close: record.close,
       };
@@ -131,6 +133,27 @@ describe("launchRun", () => {
   });
 });
 
+describe("writeRun", () => {
+  it("forwards input to the live PTY handle", async () => {
+    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    manager.writeRun(id, "y\r");
+    expect(pty.spawned[0].write).toHaveBeenCalledWith("y\r");
+  });
+
+  it("drops input once the session has exited (no live handle)", async () => {
+    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
+    pty.spawned[0].emit({ type: "exit", code: 0 });
+    manager.writeRun(id, "y");
+    expect(pty.spawned[0].write).not.toHaveBeenCalled();
+  });
+
+  it("ignores an unknown session id", () => {
+    expect(() => manager.writeRun("nope", "x")).not.toThrow();
+  });
+});
+
 describe("stop / restart / remove", () => {
   it("stopRun closes the handle (group kill behind it) and reports stopping → exited", async () => {
     const id = await manager.launchRun("ws-1", TARGET, DEV);
@@ -149,7 +172,7 @@ describe("stop / restart / remove", () => {
       () =>
         new Promise((res) => {
           resolveSpawn = () =>
-            res({ id: "s1", write: async () => {}, resize: vi.fn(), close });
+            res({ id: "s1", write: vi.fn(), resize: vi.fn(), close });
         }),
     );
 
@@ -216,7 +239,7 @@ describe("stop / restart / remove", () => {
       () =>
         new Promise((res) => {
           resolveSpawn = () =>
-            res({ id: "s1", write: async () => {}, resize, close: vi.fn(async () => {}) });
+            res({ id: "s1", write: vi.fn(), resize, close: vi.fn(async () => {}) });
         }),
     );
     const id = await manager.launchRun("ws-1", TARGET, DEV);
