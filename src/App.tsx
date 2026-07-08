@@ -501,9 +501,17 @@ function App() {
           )}
         </div>
         {dockTabs.length > 0 && active && (
-          // Keyed by workspace: switching resets the tab-local state (run
-          // target, drafts, the picked tab) to the new workspace's context.
-          <DockPanel key={active.id} tabs={dockTabs} />
+          // The picked tab is remembered per workspace (activeView.dockTab),
+          // so switching workspaces and back returns to that workspace's tab.
+          // Still keyed by workspace: the remount resets plugin-internal
+          // tab state (run target, drafts) to the new workspace's context —
+          // the selected tab survives it because it lives in the deck.
+          <DockPanel
+            key={active.id}
+            tabs={dockTabs}
+            activeTab={activeView.dockTab ?? null}
+            onSelectTab={(id) => deck.setDockTab(active.id, id)}
+          />
         )}
       </div>
     </div>

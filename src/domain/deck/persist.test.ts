@@ -84,6 +84,26 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     expect(restored.state.viewByWs["ws-2"].dockTab).toBeUndefined();
   });
 
+  it("opening the dock or switching tabs produces the SAME bytes (no save)", () => {
+    // The load-bearing guarantee behind remembering the tab in memory only:
+    // dock/dockTab don't reach disk, so serializeDeck is byte-identical with
+    // or without them — usePersistence's identity guard then skips the write.
+    const base: DeckState = {
+      workspaces: [
+        { id: "ws-1", name: "a", cwd: "/r", worktreeBaseDir: null, panes: [{ id: "pane-1" }] },
+      ],
+      activeId: "ws-1",
+      viewByWs: { "ws-1": { select: "pane-1" } },
+    };
+    const withDockTab: DeckState = {
+      ...base,
+      viewByWs: {
+        "ws-1": { select: "pane-1", dock: true, dockTab: "keepdeck.files:tree" },
+      },
+    };
+    expect(serializeDeck(withDockTab)).toBe(serializeDeck(base));
+  });
+
   it("does not persist the runtime dormant flag", () => {
     const dormantState: DeckState = {
       ...state,
