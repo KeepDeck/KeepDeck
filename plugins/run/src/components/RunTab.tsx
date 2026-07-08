@@ -15,6 +15,7 @@ import { noAutoCorrect } from "@keepdeck/ui-kit/inputProps";
 import {
   CloseIcon,
   EditIcon,
+  KeyboardIcon,
   PlayFillIcon,
   PlayIcon,
   StopFillIcon,
@@ -55,6 +56,10 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
   const [picked, setPicked] = useState<string | null>(null);
   // The caption's ✕ hides the log; picking a row (or launching) re-opens it.
   const [logOpen, setLogOpen] = useState(true);
+  // The session the input toggle has ARMED. Kept as an id (not a boolean) so
+  // interactivity derives from "is this the shown, still-running session" —
+  // switching sessions or the process exiting disarms with no extra bookkeeping.
+  const [armedId, setArmedId] = useState<string | null>(null);
   // The command form is collapsed behind the header's "+" (`null`); open, it
   // either adds a new command (`presetId: null`) or — via a row's ✎ — rewrites
   // an existing one.
@@ -70,6 +75,10 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
   const shown = logOpen
     ? (sessions.find((s) => s.id === picked) ?? sessions[sessions.length - 1])
     : undefined;
+  // Input is armed only for the shown session while it runs. Deriving it means
+  // a switch or an exit disarms automatically — the toggle only ever pins an id.
+  const interactive =
+    !!shown && armedId === shown.id && shown.status.kind === "running";
 
   const pick = (id: string) => {
     setPicked(id);
@@ -437,12 +446,34 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
       </div>
 
       {shown && (
-        <div className="run__logbox">
+        <div
+          className={`run__logbox${interactive ? " run__logbox--interactive" : ""}`}
+        >
           <div className="run__logcap" title={`${shown.command} · ${shown.worktree}`}>
             <span className="run__logcap-text">
               <b>{shown.name}</b> · {targetLabel(shown)}
               {sessionNote(shown) && <> · {sessionNote(shown)}</>}
             </span>
+            {shown.status.kind === "running" && (
+              <button
+                type="button"
+                className={`run__logcap-act${interactive ? " run__logcap-act--on" : ""}`}
+                aria-pressed={interactive}
+                onClick={() => setArmedId(interactive ? null : shown.id)}
+                title={
+                  interactive
+                    ? `Read-only — stop sending input to "${shown.name}"`
+                    : `Send input to "${shown.name}" (answer prompts)`
+                }
+                aria-label={
+                  interactive
+                    ? `Disable input for ${shown.name}`
+                    : `Enable input for ${shown.name}`
+                }
+              >
+                <KeyboardIcon />
+              </button>
+            )}
             {shown.status.kind === "running" && (
               <button
                 type="button"
@@ -457,14 +488,24 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
             <button
               type="button"
               className="run__logcap-act"
-              onClick={() => setLogOpen(false)}
+              onClick={() => {
+                setLogOpen(false);
+                // Hiding the log revokes input consent — reopening the same
+                // running session comes back read-only, not still armed.
+                setArmedId(null);
+              }}
               title="Hide the log"
               aria-label="Hide the log"
             >
               <CloseIcon />
             </button>
           </div>
-          <RunLog key={shown.id} sessionId={shown.id} cwd={shown.worktree} />
+          <RunLog
+            key={shown.id}
+            sessionId={shown.id}
+            cwd={shown.worktree}
+            interactive={interactive}
+          />
         </div>
       )}
     </div>

@@ -13,17 +13,34 @@ import { setRuntime } from "../runtime";
 // xterm can't mount under happy-dom — stub the renderer surface. The log's
 // output contract is the manager's attach/replay, covered in manager.test.ts;
 // here only the wiring around the terminal is under test.
-const xterm = vi.hoisted(() => ({ instances: [] as object[] }));
+interface FakeTerm {
+  options: Record<string, unknown>;
+  focus: ReturnType<typeof vi.fn>;
+  emitData: (data: string) => void;
+}
+const xterm = vi.hoisted(() => ({ instances: [] as FakeTerm[] }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
+    options: Record<string, unknown>;
     open = vi.fn();
     loadAddon = vi.fn();
     write = vi.fn();
+    focus = vi.fn();
     dispose = vi.fn();
-    constructor() {
-      xterm.instances.push(this);
+    // Capture the onData listener so a test can drive a keystroke through it.
+    private dataCb: ((data: string) => void) | null = null;
+    onData = vi.fn((cb: (data: string) => void) => {
+      this.dataCb = cb;
+      return { dispose: vi.fn() };
+    });
+    emitData(data: string) {
+      this.dataCb?.(data);
+    }
+    constructor(opts: Record<string, unknown>) {
+      this.options = { ...opts };
+      xterm.instances.push(this as unknown as FakeTerm);
     }
   },
 }));
@@ -54,6 +71,7 @@ function makeManager() {
   return {
     attachRun: vi.fn(() => vi.fn()),
     resizeRun: vi.fn(),
+    writeRun: vi.fn(),
   } as unknown as RunManager;
 }
 
@@ -65,13 +83,24 @@ const ctx = {
 describe("RunLog", () => {
   let host: HTMLDivElement;
   let root: Root;
+  let manager: RunManager;
 
-  const mount = async (sessionId: string, cwd: string) => {
+  const mount = async (sessionId: string, cwd: string, interactive = false) => {
     await act(async () => {
-      root.render(createElement(RunLog, { sessionId, cwd }));
+      root.render(createElement(RunLog, { sessionId, cwd, interactive }));
     });
     // Flush the awaited host.settings() before the Terminal constructs.
     await act(async () => {});
+  };
+
+  const rerender = async (
+    sessionId: string,
+    cwd: string,
+    interactive: boolean,
+  ) => {
+    await act(async () => {
+      root.render(createElement(RunLog, { sessionId, cwd, interactive }));
+    });
   };
 
   beforeEach(() => {
@@ -80,7 +109,8 @@ describe("RunLog", () => {
       unobserve() {}
       disconnect() {}
     };
-    setRuntime({ manager: makeManager(), ctx });
+    manager = makeManager();
+    setRuntime({ manager, ctx });
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -111,5 +141,44 @@ describe("RunLog", () => {
 
     act(() => root.unmount());
     expect(registration.dispose).toHaveBeenCalled();
+  });
+
+  it("is read-only by default — stdin off and no keystroke forwarded", async () => {
+    await mount("s1", "/wt/b");
+    const term = xterm.instances[0];
+    expect(term.options.disableStdin).toBe(true);
+
+    act(() => term.emitData("y"));
+    expect(manager.writeRun).not.toHaveBeenCalled();
+  });
+
+  it("forwards keystrokes to the PTY when armed for input", async () => {
+    await mount("s1", "/wt/b", true);
+    const term = xterm.instances[0];
+    expect(term.options.disableStdin).toBe(false);
+    expect(term.focus).toHaveBeenCalled();
+
+    act(() => term.emitData("y\r"));
+    expect(manager.writeRun).toHaveBeenCalledWith("s1", "y\r");
+  });
+
+  it("arms and disarms the LIVE terminal without rebuilding it", async () => {
+    await mount("s1", "/wt/b", false);
+    const term = xterm.instances[0];
+    expect(term.options.disableStdin).toBe(true);
+
+    await rerender("s1", "/wt/b", true);
+    // Same terminal instance — no rebuild (would drop scrollback).
+    expect(xterm.instances).toHaveLength(1);
+    expect(term.options.disableStdin).toBe(false);
+    expect(term.focus).toHaveBeenCalled();
+    act(() => term.emitData("n"));
+    expect(manager.writeRun).toHaveBeenCalledWith("s1", "n");
+
+    await rerender("s1", "/wt/b", false);
+    expect(term.options.disableStdin).toBe(true);
+    manager.writeRun = vi.fn();
+    act(() => term.emitData("x"));
+    expect(manager.writeRun).not.toHaveBeenCalled();
   });
 });

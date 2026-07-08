@@ -133,6 +133,18 @@ export function AttachIcon() {
   );
 }
 
+/** Keyboard — the "send input to this process" toggle on the run log
+ * (Lucide `keyboard`, ISC), simplified to stay legible at 13px. */
+export function KeyboardIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01" />
+      <path d="M8 14h8" />
+    </svg>
+  );
+}
+
 /** Two curved arrows chasing each other — the universal refresh/rescan glyph
  * (Feather `refresh-cw`, MIT). */
 export function RefreshIcon() {

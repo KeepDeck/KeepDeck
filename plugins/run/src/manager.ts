@@ -48,6 +48,10 @@ export interface RunManager {
    * manager, which lived for the app's whole lifetime). */
   stopAll(): void;
   attachRun(id: string, sink: RunSink): () => void;
+  /** Send input to a running session's PTY (stdin) — the interactive log
+   * forwards keystrokes here. A no-op when the session has no live handle (the
+   * launch→spawn window, or after it exits). */
+  writeRun(id: string, data: string): void;
   resizeRun(id: string, cols: number, rows: number): void;
   getSessions(): RunSession[];
   subscribe(listener: () => void): () => void;
@@ -323,6 +327,16 @@ export function createRunManager(
     };
   }
 
+  function writeRun(id: string, data: string): void {
+    const entry = entries.get(id);
+    // Guard on the live handle: no handle means the process doesn't exist yet
+    // (launch→spawn window) or has exited. Drop the keystroke rather than queue
+    // it — the log arms input only while the session runs, so this is a narrow
+    // race, not a lost message.
+    if (!entry || !entry.handle) return;
+    void entry.handle.write(data).catch(() => {});
+  }
+
   function resizeRun(id: string, cols: number, rows: number): void {
     const entry = entries.get(id);
     if (!entry) return;
@@ -341,6 +355,7 @@ export function createRunManager(
     stopWorkspaceRuns,
     stopAll,
     attachRun,
+    writeRun,
     resizeRun,
     getSessions: () => snapshot,
     subscribe: (listener: () => void) => {
