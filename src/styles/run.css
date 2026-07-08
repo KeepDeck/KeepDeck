@@ -389,3 +389,17 @@
   background-color: #243044;
   color: #c5c8c6;
 }
+
+/* Armed for input: keystrokes go into the PTY. A lit blue border + toggle
+   tell the interactive log apart from the read-only one at a glance — blue,
+   not the running dot's green, so "live process" and "typing into it" read
+   as different states. */
+.run__logbox--interactive {
+  border-color: #3d6fb0;
+  box-shadow: inset 0 0 0 1px rgba(90, 162, 240, 0.25);
+}
+
+.run__logcap-act--on,
+.run__logcap-act--on:hover {
+  color: #5aa2f0;
+}

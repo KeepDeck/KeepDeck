@@ -248,6 +248,50 @@ describe("RunTab — the merged Commands list", () => {
     expect(button("Hide the log")).not.toBeNull();
   });
 
+  it("the input toggle arms interactive input for a running session, and disarms on toggle-off", async () => {
+    manager.sessions = [running()];
+    await mount(PRESETS);
+
+    // Read-only until armed — no lit border, toggle not pressed.
+    const toggle = button("Enable input for Dev")!;
+    expect(toggle).not.toBeNull();
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(document.querySelector(".run__logbox--interactive")).toBeNull();
+
+    act(() => toggle.click());
+    expect(button("Disable input for Dev")).not.toBeNull();
+    expect(button("Enable input for Dev")).toBeNull();
+    expect(document.querySelector(".run__logbox--interactive")).not.toBeNull();
+
+    act(() => button("Disable input for Dev")!.click());
+    expect(button("Enable input for Dev")).not.toBeNull();
+    expect(document.querySelector(".run__logbox--interactive")).toBeNull();
+  });
+
+  it("offers no input toggle for a session that is not running", async () => {
+    manager.sessions = [running({ status: { kind: "exited", code: 0 } })];
+    await mount(PRESETS);
+    expect(button("Enable input for Dev")).toBeNull();
+    // The log is still there, just read-only.
+    expect(document.querySelector(".run__logbox")).not.toBeNull();
+    expect(button("Hide the log")).not.toBeNull();
+  });
+
+  it("hiding the log disarms input — reopening the same run is read-only again", async () => {
+    manager.sessions = [running()];
+    await mount(PRESETS);
+    act(() => button("Enable input for Dev")!.click());
+    expect(document.querySelector(".run__logbox--interactive")).not.toBeNull();
+
+    act(() => button("Hide the log")!.click());
+    expect(document.querySelector(".run__logbox")).toBeNull();
+
+    act(() => document.querySelector<HTMLElement>(".run__cmd")!.click());
+    expect(document.querySelector(".run__logbox")).not.toBeNull();
+    expect(button("Enable input for Dev")).not.toBeNull();
+    expect(document.querySelector(".run__logbox--interactive")).toBeNull();
+  });
+
   it("the header + opens the form ABOVE the list; Add saves without launching", async () => {
     await mount(PRESETS);
     expect(document.querySelector(".run__form")).toBeNull();
