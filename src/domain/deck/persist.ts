@@ -1,4 +1,4 @@
-import type { DeckState } from "./reducer";
+import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
@@ -57,11 +57,20 @@ export type HydrateDeckResult =
   | { kind: "incompatible"; version: number; minVersion: number };
 
 /** Serialize the deck for storage. Runtime-only pane state (`dormant`) is
- * stripped; the session binding is kept — it's the resume key. */
+ * stripped; the session binding is kept — it's the resume key. The unified
+ * `viewByWs` persists only its durable half — the `focusByWs`/`selectByWs`
+ * maps the on-disk schema has always had; `dock`/`dockTab` are session-only
+ * and never written, so every launch starts with the dock closed. */
 export function serializeDeck(
   state: DeckState,
   docExtras: Record<string, unknown> = {},
 ): string {
+  const focusByWs: Record<string, string> = {};
+  const selectByWs: Record<string, string> = {};
+  for (const [wsId, view] of Object.entries(state.viewByWs)) {
+    if (view.focus !== undefined) focusByWs[wsId] = view.focus;
+    if (view.select !== undefined) selectByWs[wsId] = view.select;
+  }
   // Extras spread FIRST at every level, so the keys this build owns always
   // win — a newer revision's fields ride along, never override.
   const persisted: Record<string, unknown> = {
@@ -69,8 +78,8 @@ export function serializeDeck(
     minVersion: DECK_MIN_READER,
     ...docExtras,
     activeId: state.activeId,
-    focusByWs: state.focusByWs,
-    selectByWs: state.selectByWs,
+    focusByWs,
+    selectByWs,
     workspaces: state.workspaces.map((ws) => ({
       ...ws.extras,
       id: ws.id,
@@ -163,16 +172,24 @@ export function hydrateDeck(json: string): HydrateDeckResult {
     typeof raw.activeId === "string" ? raw.activeId : "",
   );
 
+  // Reassemble the unified per-workspace view from the two flat on-disk maps.
+  // `dock`/`dockTab` are session-only by decision — never stored, so every
+  // launch starts with the dock closed on its default tab.
+  const viewByWs: Record<string, WorkspaceView> = {};
+  for (const [wsId, paneId] of Object.entries(readSelection(raw.selectByWs))) {
+    viewByWs[wsId] = { ...viewByWs[wsId], select: paneId };
+  }
+  for (const [wsId, paneId] of Object.entries(readFocus(raw.focusByWs))) {
+    viewByWs[wsId] = { ...viewByWs[wsId], focus: paneId };
+  }
+
   return {
     kind: "ok",
     deck: {
       state: {
         workspaces,
         activeId,
-        focusByWs: readFocus(raw.focusByWs),
-        selectByWs: readSelection(raw.selectByWs),
-        // Session-only by decision: never stored, every launch starts closed.
-        dockByWs: {},
+        viewByWs,
       },
       nextAgentSeq:
         maxSeq(workspaces.flatMap((w) => w.panes.map((p) => p.id)), "pane") + 1,

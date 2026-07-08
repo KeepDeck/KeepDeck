@@ -19,22 +19,40 @@ import {
 } from "./workspaces";
 
 /**
+ * One workspace's runtime view state, in a SINGLE object per workspace so a
+ * workspace's UI state has one home instead of being smeared across parallel
+ * `*ByWs` maps. Sparse: an absent field means its default — no maximize, no
+ * selection, dock closed, no tab picked. `focus`/`select` persist with the
+ * deck; `dock`/`dockTab` are session-only (the codec never writes them, so
+ * every launch starts with the dock closed on its default tab).
+ */
+export interface WorkspaceView {
+  /** Maximized pane id, when one is maximized. Persisted. */
+  focus?: string;
+  /** Highlighted (selected) pane id. Persisted. */
+  select?: string;
+  /** Whether this workspace's dock is open. Session-only. */
+  dock?: boolean;
+  /** The selected dock tab id (`pluginId:entryId`). Session-only. */
+  dockTab?: string;
+}
+
+/**
  * The deck's interdependent state: the workspaces, which one is active, and the
- * maximized / highlighted pane PER workspace. Kept in one reducer so the close
- * transitions clean focus + selection atomically — the App's old hand-rolled
- * "three setStates per close" was the thing that, if one was missed, left the
- * border or maximize pointing at a removed pane ([S1]).
+ * per-workspace view state. Kept in one reducer so the close transitions clean
+ * focus + selection atomically — the App's old hand-rolled "three setStates per
+ * close" was the thing that, if one was missed, left the border or maximize
+ * pointing at a removed pane ([S1]).
  */
 export interface DeckState {
   workspaces: Workspace[];
   activeId: string;
-  /** Maximized pane per workspace id. */
-  focusByWs: Record<string, string>;
-  /** Highlighted (selected) pane per workspace id. */
-  selectByWs: Record<string, string>;
-  /** Dock open per workspace id (absent = closed). Session-only by
-   * decision — the codec never writes it, so every launch starts closed. */
-  dockByWs: Record<string, boolean>;
+  /** Per-workspace view state (maximize, selection, dock open, dock tab), one
+   * entry per workspace (absent = all defaults). Replaces the old parallel
+   * focusByWs/selectByWs/dockByWs maps: closing a workspace drops ONE entry,
+   * and a new per-workspace concern is a field on `WorkspaceView`, not a new
+   * top-level map. */
+  viewByWs: Record<string, WorkspaceView>;
 }
 
 export type DeckAction =
@@ -53,6 +71,8 @@ export type DeckAction =
   | { type: "selectPane"; wsId: string; paneId: string }
   /** Flip a workspace's dock (the top bar's dock button). */
   | { type: "toggleDock"; wsId: string }
+  /** Pick a workspace's dock tab — remembered per workspace, session-only. */
+  | { type: "setDockTab"; wsId: string; tabId: string }
   /** Manual pane rename ([F11]); empty name reverts to auto/derived. */
   | { type: "renamePane"; wsId: string; paneId: string; name: string }
   /** Auto title from the terminal (OSC) for a pane ([F11]). */
@@ -104,31 +124,52 @@ export type DeckAction =
 export const initialDeckState: DeckState = {
   workspaces: [],
   activeId: "",
-  focusByWs: {},
-  selectByWs: {},
-  dockByWs: {},
+  viewByWs: {},
 };
+
+/** A workspace view with no set field is dropped from the map so `viewByWs`
+ * stays sparse (an absent entry = all defaults), like the maps it replaced. */
+function isEmptyView(view: WorkspaceView): boolean {
+  return (
+    view.focus === undefined &&
+    view.select === undefined &&
+    view.dock === undefined &&
+    view.dockTab === undefined
+  );
+}
+
+/** Set (or, via `undefined`, clear) ONE field of a workspace's view. Prunes an
+ * emptied view out of the map, and returns the SAME map reference when the
+ * value is unchanged — so a no-op dispatch causes no re-render, exactly like
+ * the old per-map dropKey/spread guards. Generic over a single key so the
+ * assignment is type-checked (a `keyof` union would not be). */
+function setViewField<K extends keyof WorkspaceView>(
+  viewByWs: Record<string, WorkspaceView>,
+  wsId: string,
+  field: K,
+  value: WorkspaceView[K] | undefined,
+): Record<string, WorkspaceView> {
+  const current = viewByWs[wsId];
+  if ((current?.[field] ?? undefined) === value) return viewByWs;
+  const next: WorkspaceView = { ...current };
+  if (value === undefined) delete next[field];
+  else next[field] = value;
+  if (isEmptyView(next)) {
+    const { [wsId]: _emptied, ...rest } = viewByWs;
+    return rest;
+  }
+  return { ...viewByWs, [wsId]: next };
+}
 
 /** Default a workspace's selection to its first pane, only if it has none yet. */
 function withDefaultSelection(
-  selectByWs: Record<string, string>,
+  viewByWs: Record<string, WorkspaceView>,
   wsId: string,
   ws: Workspace | undefined,
-): Record<string, string> {
+): Record<string, WorkspaceView> {
   const first = ws?.panes[0]?.id;
-  if (selectByWs[wsId] || !first) return selectByWs;
-  return { ...selectByWs, [wsId]: first };
-}
-
-/** Drop `key` from a map, returning the same reference when it's absent. */
-function dropKey<T>(
-  map: Record<string, T>,
-  key: string,
-): Record<string, T> {
-  if (!(key in map)) return map;
-  const next = { ...map };
-  delete next[key];
-  return next;
+  if (viewByWs[wsId]?.select || !first) return viewByWs;
+  return setViewField(viewByWs, wsId, "select", first);
 }
 
 /** Rebuild deck state around a workspaces transform, but only when it actually
@@ -139,6 +180,16 @@ function withWorkspaces(state: DeckState, workspaces: Workspace[]): DeckState {
   return workspaces === state.workspaces ? state : { ...state, workspaces };
 }
 
+/** The view-map counterpart of [`withWorkspaces`]: a `setViewField` that
+ * changed nothing (re-picking the current tab, re-selecting the current pane)
+ * returns the same map ref → the same state ref → no re-render. */
+function withView(
+  state: DeckState,
+  viewByWs: Record<string, WorkspaceView>,
+): DeckState {
+  return viewByWs === state.viewByWs ? state : { ...state, viewByWs };
+}
+
 export function deckReducer(state: DeckState, action: DeckAction): DeckState {
   switch (action.type) {
     case "selectWorkspace": {
@@ -146,7 +197,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return {
         ...state,
         activeId: action.id,
-        selectByWs: withDefaultSelection(state.selectByWs, action.id, ws),
+        viewByWs: withDefaultSelection(state.viewByWs, action.id, ws),
       };
     }
     case "createWorkspace": {
@@ -155,11 +206,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ...state,
         workspaces: [...state.workspaces, workspace],
         activeId: workspace.id,
-        selectByWs: withDefaultSelection(
-          state.selectByWs,
-          workspace.id,
-          workspace,
-        ),
+        viewByWs: withDefaultSelection(state.viewByWs, workspace.id, workspace),
       };
     }
     case "setPanes": {
@@ -170,7 +217,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return {
         ...state,
         workspaces,
-        selectByWs: withDefaultSelection(state.selectByWs, action.id, ws),
+        viewByWs: withDefaultSelection(state.viewByWs, action.id, ws),
       };
     }
     case "addAgentPane": {
@@ -180,15 +227,12 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         .find((w) => w.id === action.id)
         ?.panes.some((p) => p.id === action.pane.id);
       if (!appended) return { ...state, workspaces };
-      return {
-        ...state,
-        workspaces,
-        selectByWs: { ...state.selectByWs, [action.id]: action.pane.id },
-        // A pre-existing maximize would leave the appended pane collapsed and
-        // invisible (resolveFocus still points at the old pane). Exit fullscreen
-        // on append so the new pane shows — the mirror of closeAgent's guard.
-        focusByWs: dropKey(state.focusByWs, action.id),
-      };
+      // Select the appended pane, and exit any maximize so it isn't left
+      // collapsed and invisible behind the old maximized pane (resolveFocus
+      // still points at the old pane) — the mirror of closeAgent's guard.
+      let viewByWs = setViewField(state.viewByWs, action.id, "select", action.pane.id);
+      viewByWs = setViewField(viewByWs, action.id, "focus", undefined);
+      return { ...state, workspaces, viewByWs };
     }
     case "renameWorkspace":
       return {
@@ -208,55 +252,57 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           .find((w) => w.id === wsId)
           ?.panes.filter((p) => p.id !== paneId) ?? [];
       const workspaces = closeAgent(state.workspaces, wsId, paneId);
-      // Drop the maximize key unless it still RESOLVES over the survivors —
-      // not only when the maximized pane itself was closed. A key left on a
+      const view = state.viewByWs[wsId];
+      let viewByWs = state.viewByWs;
+      // Drop the maximize unless it still RESOLVES over the survivors — not
+      // only when the maximized pane itself was closed. A key left on a
       // now-solo workspace is masked (solo never maximizes) but springs back
       // on the NEXT added pane, rendering it collapsed and invisible.
-      const focused = state.focusByWs[wsId];
-      const focusByWs =
-        focused !== undefined && resolveFocus(remaining, focused) === null
-          ? dropKey(state.focusByWs, wsId)
-          : state.focusByWs;
-      let selectByWs = state.selectByWs;
-      if (selectByWs[wsId] === paneId) {
-        selectByWs = remaining[0]
-          ? { ...selectByWs, [wsId]: remaining[0].id }
-          : dropKey(selectByWs, wsId);
+      if (view?.focus !== undefined && resolveFocus(remaining, view.focus) === null) {
+        viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
       }
-      return { ...state, workspaces, focusByWs, selectByWs };
+      // Move the highlight off the closed pane — to the first survivor, or
+      // clear it when none remain.
+      if (view?.select === paneId) {
+        viewByWs = setViewField(viewByWs, wsId, "select", remaining[0]?.id);
+      }
+      return { ...state, workspaces, viewByWs };
     }
     case "closeWorkspace": {
       const workspaces = closeWorkspace(state.workspaces, action.id);
       const activeId = resolveActiveId(workspaces, state.activeId);
-      const focusByWs = dropKey(state.focusByWs, action.id);
-      const dockByWs = dropKey(state.dockByWs, action.id);
+      // The whole view entry — focus, selection, dock, dock tab — goes with
+      // the workspace in one drop.
+      const { [action.id]: _closed, ...remainingViews } = state.viewByWs;
       const newActive = workspaces.find((w) => w.id === activeId);
-      const selectByWs = withDefaultSelection(
-        dropKey(state.selectByWs, action.id),
-        activeId,
-        newActive,
-      );
-      return { workspaces, activeId, focusByWs, selectByWs, dockByWs };
+      const viewByWs = withDefaultSelection(remainingViews, activeId, newActive);
+      return { workspaces, activeId, viewByWs };
     }
     case "toggleFocus": {
       const { wsId, paneId } = action;
-      const focusByWs =
-        state.focusByWs[wsId] === paneId
-          ? dropKey(state.focusByWs, wsId)
-          : { ...state.focusByWs, [wsId]: paneId };
-      return { ...state, focusByWs };
+      const current = state.viewByWs[wsId]?.focus;
+      return withView(
+        state,
+        setViewField(state.viewByWs, wsId, "focus", current === paneId ? undefined : paneId),
+      );
     }
     case "selectPane":
-      return {
-        ...state,
-        selectByWs: { ...state.selectByWs, [action.wsId]: action.paneId },
-      };
+      return withView(
+        state,
+        setViewField(state.viewByWs, action.wsId, "select", action.paneId),
+      );
     case "toggleDock": {
-      const dockByWs = state.dockByWs[action.wsId]
-        ? dropKey(state.dockByWs, action.wsId)
-        : { ...state.dockByWs, [action.wsId]: true };
-      return { ...state, dockByWs };
+      const open = state.viewByWs[action.wsId]?.dock ?? false;
+      return withView(
+        state,
+        setViewField(state.viewByWs, action.wsId, "dock", open ? undefined : true),
+      );
     }
+    case "setDockTab":
+      return withView(
+        state,
+        setViewField(state.viewByWs, action.wsId, "dockTab", action.tabId),
+      );
     case "renamePane":
       return {
         ...state,

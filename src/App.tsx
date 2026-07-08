@@ -115,12 +115,15 @@ function App() {
   usePaneDrag((paneId) => deck.selectPane(deck.activeId, paneId));
 
   const active = findWorkspace(deck.workspaces, deck.activeId) ?? null;
+  // The active workspace's view — dock open/tab and pane selection all live in
+  // one per-workspace object, so switching workspaces switches to that
+  // workspace's own dock + selection state.
+  const activeView = deck.viewOf(deck.activeId);
   // The dock — a persistent side panel like the rail, not a modal. Open or
-  // closed is PER workspace (deck.dockByWs), so switching workspaces switches
-  // to that workspace's own dock state.
-  const dockOpen = deck.dockByWs[deck.activeId] ?? false;
+  // closed is PER workspace, session-only.
+  const dockOpen = activeView.dock ?? false;
   const showForm = creating || deck.workspaces.length === 0;
-  const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
+  const selectedPaneId = activeView.select ?? null;
   // The dock's tab list: every tab is a plugin contribution, rendered from
   // SNAPSHOTS inside its own error boundary (a crashing plugin tab must not
   // take the deck down). The dock itself is contribution-driven chrome: it
@@ -199,7 +202,7 @@ function App() {
       const target = closeHotkeyTarget(
         deck.workspaces,
         deck.activeId,
-        deck.selectByWs,
+        deck.viewByWs,
         agents,
       );
       if (!target) return;
@@ -213,8 +216,7 @@ function App() {
       const target = maximizeHotkeyTarget(
         deck.workspaces,
         deck.activeId,
-        deck.focusByWs,
-        deck.selectByWs,
+        deck.viewByWs,
       );
       if (target) deck.toggleFocus(target.wsId, target.paneId);
     },
@@ -360,7 +362,7 @@ function App() {
           <DeckStage
             workspaces={deck.workspaces}
             activeId={deck.activeId}
-            focusByWs={deck.focusByWs}
+            viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
             agents={agents}
             gitHeads={gitHeads}

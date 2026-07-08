@@ -9,6 +9,7 @@ import {
   resolveFocus,
   type GitPosition,
   type Workspace,
+  type WorkspaceView,
 } from "../domain/deck";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane } from "./agent/AgentPane";
@@ -17,8 +18,8 @@ import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 interface DeckStageProps {
   workspaces: Workspace[];
   activeId: string;
-  /** Maximized pane per workspace id. */
-  focusByWs: Record<string, string>;
+  /** Per-workspace view state — read for each workspace's maximized pane. */
+  viewByWs: Record<string, WorkspaceView>;
   /** The active workspace's highlighted pane (pane ids are app-unique). */
   selectedPaneId: string | null;
   /** Agent catalog, for pane commands and derived titles. */
@@ -57,7 +58,7 @@ interface DeckStageProps {
 export function DeckStage({
   workspaces,
   activeId,
-  focusByWs,
+  viewByWs,
   selectedPaneId,
   agents,
   gitHeads,
@@ -96,7 +97,7 @@ export function DeckStage({
           );
         }
 
-        const focusedHere = resolveFocus(ws.panes, focusByWs[ws.id]);
+        const focusedHere = resolveFocus(ws.panes, viewByWs[ws.id]?.focus);
         const solo = ws.panes.length === 1;
         const trackColumns = focusedHere
           ? 1

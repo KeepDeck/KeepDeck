@@ -1,5 +1,6 @@
 import type { AgentInfo } from "../agents";
 import { paneDisplayTitle, resolveFocus } from "./panes";
+import type { WorkspaceView } from "./reducer";
 import type { Workspace } from "./workspaces";
 
 /** What the close hotkey should close: an agent pane (with its confirm-dialog
@@ -19,13 +20,13 @@ export type CloseTarget =
 export function closeHotkeyTarget(
   workspaces: Workspace[],
   activeId: string,
-  selectByWs: Record<string, string>,
+  viewByWs: Record<string, WorkspaceView>,
   agents: AgentInfo[],
 ): CloseTarget | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   if (ws.panes.length === 0) return { kind: "workspace", wsId: ws.id };
-  let index = ws.panes.findIndex((p) => p.id === selectByWs[ws.id]);
+  let index = ws.panes.findIndex((p) => p.id === viewByWs[ws.id]?.select);
   if (index < 0 && ws.panes.length === 1) index = 0;
   if (index < 0) return null;
   const pane = ws.panes[index];
@@ -48,13 +49,13 @@ export function closeHotkeyTarget(
 export function maximizeHotkeyTarget(
   workspaces: Workspace[],
   activeId: string,
-  focusByWs: Record<string, string>,
-  selectByWs: Record<string, string>,
+  viewByWs: Record<string, WorkspaceView>,
 ): { wsId: string; paneId: string } | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws || ws.panes.length <= 1) return null;
-  const focused = resolveFocus(ws.panes, focusByWs[ws.id]);
+  const view = viewByWs[ws.id];
+  const focused = resolveFocus(ws.panes, view?.focus);
   if (focused) return { wsId: ws.id, paneId: focused };
-  const selected = ws.panes.find((p) => p.id === selectByWs[ws.id]);
+  const selected = ws.panes.find((p) => p.id === view?.select);
   return selected ? { wsId: ws.id, paneId: selected.id } : null;
 }

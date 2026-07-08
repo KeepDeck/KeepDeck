@@ -100,10 +100,10 @@ export function usePersistence(deck: Deck): {
     {
       workspaces: deck.workspaces,
       activeId: deck.activeId,
-      focusByWs: deck.focusByWs,
-      selectByWs: deck.selectByWs,
-      // Session-only (never serialized) — present to satisfy the state shape.
-      dockByWs: deck.dockByWs,
+      // serializeDeck writes only the durable half of each view
+      // (focus/select); the session-only dock/dockTab never reach disk, so a
+      // dock toggle or tab switch produces an identical string → no save.
+      viewByWs: deck.viewByWs,
     },
     docExtrasRef.current,
   );
