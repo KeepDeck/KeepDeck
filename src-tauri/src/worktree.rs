@@ -365,9 +365,31 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
         log::warn!("worktree: prune after remove failed in {}: {e}", repo_path.display());
     }
     // Branch removal is separate: a branch can't be deleted while its worktree
-    // is checked out, so it only runs now that the worktree is gone.
+    // is checked out, so it only runs now that the worktree is gone. If the
+    // branch is already gone (e.g. the user deleted it manually), we treat that
+    // as already-cleaned rather than a failure.
     if let Some(branch) = spec.branch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        repo::delete_branch(&repo_path, branch, spec.force).map_err(|e| e.to_string())?;
+        match repo::branch_exists(&repo_path, branch) {
+            Ok(true) => {
+                repo::delete_branch(&repo_path, branch, spec.force).map_err(|e| {
+                    format!(
+                        "Couldn’t delete branch '{branch}' after removing the worktree. \
+                         You may need to delete it manually. Reason: {e}"
+                    )
+                })?;
+            }
+            Ok(false) => {
+                log::warn!(
+                    "worktree: branch '{branch}' was already gone in {}; skipping branch delete",
+                    repo_path.display()
+                );
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Couldn’t check whether branch '{branch}' exists: {e}"
+                ));
+            }
+        }
     }
     Ok(())
 }
@@ -579,6 +601,60 @@ mod tests {
         let branches = git_out(&repo, &["branch", "--list", &branch]);
         assert!(branches.trim().is_empty(), "branch leaked: {branches}");
         let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn remove_succeeds_when_the_branch_is_already_gone() {
+        // If the user switched to another branch and deleted ours, the worktree
+        // folder is still removed and the cleanup is considered successful.
+        let (repo, wt, branch) = repo_with_worktree("branch-gone");
+        git(&wt, &["checkout", "-b", "tmp"]); // move the worktree off our branch
+        git(&repo, &["branch", "-D", &branch]); // now the branch can be deleted
+
+        remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: true,
+                branch: Some(branch.clone()),
+            },
+        )
+        .expect("removal must succeed when the branch is already gone");
+
+        assert!(!wt.exists(), "worktree dir must be removed");
+        let list = git_out(&repo, &["worktree", "list", "--porcelain"]);
+        assert!(!list.contains("-wt"), "registration leaked:\n{list}");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn remove_reports_a_user_friendly_error_when_branch_delete_fails() {
+        // An unmerged branch with force=false makes `git branch -d` fail. The
+        // error must explain what happened instead of showing raw git output.
+        let (repo, wt, branch) = repo_with_worktree("unmerged-branch");
+        std::fs::write(wt.join("feature.txt"), "work").unwrap();
+        git(&wt, &["add", "."]);
+        git(&wt, &["commit", "-q", "-m", "unmerged"]);
+
+        let result = remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: false,
+                branch: Some(branch),
+            },
+        );
+
+        let err = result.expect_err("unmerged branch must fail to delete");
+        assert!(
+            err.contains("Couldn’t delete branch"),
+            "error should be user-friendly: {err}"
+        );
+        assert!(!wt.exists(), "worktree dir must still be removed");
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&wt);
     }
 
     #[test]
