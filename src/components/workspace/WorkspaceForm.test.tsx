@@ -201,7 +201,6 @@ describe("WorkspaceForm default agent ([F6])", () => {
 });
 
 describe("WorkspaceForm setup command", () => {
-  let host: HTMLElement;
   let root: Root;
   let created: SpawnConfig[];
 
@@ -209,8 +208,7 @@ describe("WorkspaceForm setup command", () => {
     resetAgentsCache();
     catalog.list = TWO_AGENTS;
     document.body.innerHTML = "";
-    host = document.body.appendChild(document.createElement("div"));
-    root = createRoot(host);
+    root = createRoot(document.body.appendChild(document.createElement("div")));
     created = [];
   });
   afterEach(() => act(() => root.unmount()));
@@ -235,25 +233,15 @@ describe("WorkspaceForm setup command", () => {
     await act(async () => {});
   };
 
-  it("appears once a worktree dir is set and submits trimmed", async () => {
+  it("does not expose a setup command field for new workspaces", async () => {
     await mount();
-    // Setup prepares worktrees — without a worktree dir there's no field.
     expect(setupInput()).toBeNull();
-    type(worktreeInput(), "/wt");
-    type(setupInput()!, "  pnpm install  ");
-    submit();
-    expect(created[0].setup).toBe("pnpm install");
-    expect(created[0].worktreeBaseDir).toBe("/wt");
-  });
 
-  it("clearing the worktree dir drops a typed setup from the config", async () => {
-    await mount();
     type(worktreeInput(), "/wt");
-    type(setupInput()!, "pnpm install");
-    type(worktreeInput(), "");
     expect(setupInput()).toBeNull();
+
     submit();
     expect(created[0].setup).toBeUndefined();
-    expect(created[0].worktreeBaseDir).toBeNull();
+    expect(created[0].worktreeBaseDir).toBe("/wt");
   });
 });
