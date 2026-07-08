@@ -44,19 +44,19 @@ const state: DeckState = {
     },
   ],
   activeId: "ws-5",
-  focusByWs: { "ws-2": "pane-3" },
-  selectByWs: { "ws-2": "pane-3" },
-  // Open on purpose: the round-trip must NOT carry it (session-only).
-  dockByWs: { "ws-2": true },
+  // Dock open on purpose: the round-trip must NOT carry it (session-only).
+  viewByWs: { "ws-2": { focus: "pane-3", select: "pane-3", dock: true } },
 };
 
 describe("serializeDeck → hydrateDeck round-trip", () => {
   const restored = okDeck(serializeDeck(state));
 
-  it("restores workspaces, selection maps and the active id", () => {
+  it("restores workspaces, view state and the active id", () => {
     expect(restored.state.activeId).toBe("ws-5");
-    expect(restored.state.focusByWs).toEqual({ "ws-2": "pane-3" });
-    expect(restored.state.selectByWs).toEqual({ "ws-2": "pane-3" });
+    // Only the durable half (focus/select) comes back; dock is session-only.
+    expect(restored.state.viewByWs).toEqual({
+      "ws-2": { focus: "pane-3", select: "pane-3" },
+    });
     expect(restored.state.workspaces.map((w) => w.id)).toEqual(["ws-2", "ws-5"]);
     const pane = restored.state.workspaces[0].panes[0];
     expect(pane.cwd).toBe("/repo/wt-3");
@@ -77,8 +77,31 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
   });
 
   it("never persists the dock state — every launch starts closed", () => {
-    expect(serializeDeck(state)).not.toContain("dockByWs");
-    expect(restored.state.dockByWs).toEqual({});
+    const json = serializeDeck(state);
+    expect(json).not.toContain("dockByWs");
+    expect(json).not.toContain("dockTab");
+    expect(restored.state.viewByWs["ws-2"].dock).toBeUndefined();
+    expect(restored.state.viewByWs["ws-2"].dockTab).toBeUndefined();
+  });
+
+  it("opening the dock or switching tabs produces the SAME bytes (no save)", () => {
+    // The load-bearing guarantee behind remembering the tab in memory only:
+    // dock/dockTab don't reach disk, so serializeDeck is byte-identical with
+    // or without them — usePersistence's identity guard then skips the write.
+    const base: DeckState = {
+      workspaces: [
+        { id: "ws-1", name: "a", cwd: "/r", worktreeBaseDir: null, panes: [{ id: "pane-1" }] },
+      ],
+      activeId: "ws-1",
+      viewByWs: { "ws-1": { select: "pane-1" } },
+    };
+    const withDockTab: DeckState = {
+      ...base,
+      viewByWs: {
+        "ws-1": { select: "pane-1", dock: true, dockTab: "keepdeck.files:tree" },
+      },
+    };
+    expect(serializeDeck(withDockTab)).toBe(serializeDeck(base));
   });
 
   it("does not persist the runtime dormant flag", () => {
@@ -188,8 +211,9 @@ describe("hydrateDeck — tolerated degradations", () => {
   });
 
   it("drops focus/selection entries pointing at unknown ids", () => {
-    expect(restored.state.focusByWs).toEqual({});
-    expect(restored.state.selectByWs).toEqual({ "ws-1": "pane-1" });
+    // Both focus entries point at unknown ids and vanish; the valid selection
+    // remains, so ws-1's view is select-only.
+    expect(restored.state.viewByWs).toEqual({ "ws-1": { select: "pane-1" } });
   });
 
   it("degrades an unknown agentType to the default instead of rejecting", () => {
@@ -217,7 +241,7 @@ describe("hydrateDeck — tolerated degradations", () => {
         ],
       }),
     );
-    expect(stale.state.focusByWs).toEqual({});
+    expect(stale.state.viewByWs).toEqual({});
   });
 
   it("seeds mints at 1 when no ids match the minted format", () => {
@@ -261,9 +285,7 @@ describe("provisioning panes across a restart", () => {
       },
     ],
     activeId: "ws-1",
-    focusByWs: {},
-    selectByWs: {},
-    dockByWs: {},
+    viewByWs: {},
   };
 
   it("persists the intent, never the runtime error, and restores an interrupted failed card", () => {
@@ -311,9 +333,7 @@ describe("workspace plugin slots round-trip", () => {
       },
     ],
     activeId: "ws-1",
-    focusByWs: {},
-    selectByWs: {},
-    dockByWs: {},
+    viewByWs: {},
   };
 
   it("persists and restores an arbitrary nested slot value verbatim", () => {
@@ -497,9 +517,7 @@ describe("deck v5 — Workspace.run retirement", () => {
         },
       ],
       activeId: "ws-1",
-      focusByWs: {},
-      selectByWs: {},
-      dockByWs: {},
+      viewByWs: {},
     };
     const restored = okDeck(serializeDeck(setupState));
     expect(restored.state.workspaces[0].setup).toBe("pnpm i");
@@ -511,9 +529,7 @@ describe("deck v5 — Workspace.run retirement", () => {
         { id: "ws-1", name: "app", cwd: "/repo", worktreeBaseDir: null, panes: [] },
       ],
       activeId: "ws-1",
-      focusByWs: {},
-      selectByWs: {},
-      dockByWs: {},
+      viewByWs: {},
     };
     expect(serializeDeck(bareState)).not.toContain('"setup"');
   });
@@ -592,9 +608,7 @@ describe("provisioning phase is runtime-only", () => {
         },
       ],
       activeId: "ws-1",
-      focusByWs: {},
-      selectByWs: {},
-      dockByWs: {},
+      viewByWs: {},
     };
     const json = serializeDeck(state);
     expect(json).not.toContain("setup");

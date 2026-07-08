@@ -6,7 +6,12 @@ import {
   type Pane,
   type PaneSession,
   type Workspace,
+  type WorkspaceView,
 } from "../domain/deck";
+
+/** An empty view — the defaults for a workspace with no view entry yet. Shared
+ * so `viewOf` returns a stable reference for absent workspaces. */
+const EMPTY_VIEW: WorkspaceView = {};
 
 /** The deck surface the application hooks drive (state + bound actions). */
 export type Deck = ReturnType<typeof useDeck>;
@@ -20,6 +25,10 @@ export function useDeck() {
   const [state, dispatch] = useReducer(deckReducer, initialDeckState);
   return {
     ...state,
+    /** The workspace's view state (maximize, selection, dock, dock tab), or the
+     * shared empty view when it has none yet — read through here so consumers
+     * touch one selector, not the raw map shape. */
+    viewOf: (wsId: string): WorkspaceView => state.viewByWs[wsId] ?? EMPTY_VIEW,
     selectWorkspace: (id: string) => dispatch({ type: "selectWorkspace", id }),
     createWorkspace: (workspace: Workspace) =>
       dispatch({ type: "createWorkspace", workspace }),
@@ -39,6 +48,8 @@ export function useDeck() {
     selectPane: (wsId: string, paneId: string) =>
       dispatch({ type: "selectPane", wsId, paneId }),
     toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),
+    setDockTab: (wsId: string, tabId: string) =>
+      dispatch({ type: "setDockTab", wsId, tabId }),
     renamePane: (wsId: string, paneId: string, name: string) =>
       dispatch({ type: "renamePane", wsId, paneId, name }),
     setPaneAutoTitle: (wsId: string, paneId: string, title: string) =>

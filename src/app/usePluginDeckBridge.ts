@@ -32,7 +32,7 @@ export function usePluginDeckBridge(deck: Deck): void {
     pluginDeckEvents.emitDeckChanged();
   }, [deck.workspaces]);
 
-  const selectedPaneId = deck.selectByWs[deck.activeId] ?? null;
+  const selectedPaneId = deck.viewOf(deck.activeId).select ?? null;
   useEffect(() => {
     if (!deck.activeId) return;
     pluginDeckEvents.emitPaneSelected({

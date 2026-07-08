@@ -21,14 +21,13 @@ describe("deckReducer closeAgent", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2"])],
         activeId: "a",
-        focusByWs: { a: "a-1" },
-        selectByWs: { a: "a-1" },
+        viewByWs: { a: { focus: "a-1", select: "a-1" } },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-1" },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-2"]);
-    expect(next.selectByWs).toEqual({ a: "a-2" });
-    expect(next.focusByWs).toEqual({});
+    // Selection moves to the survivor; the maximize (a-1) is gone.
+    expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
   });
 
   it("clears selection when the last pane is closed", () => {
@@ -36,12 +35,13 @@ describe("deckReducer closeAgent", () => {
       state({
         workspaces: [ws("a", ["a-1"])],
         activeId: "a",
-        selectByWs: { a: "a-1" },
+        viewByWs: { a: { select: "a-1" } },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-1" },
     );
     expect(next.workspaces[0].panes).toEqual([]);
-    expect(next.selectByWs).toEqual({});
+    // The view empties out and is pruned from the map.
+    expect(next.viewByWs).toEqual({});
   });
 
   it("keeps selection but clears a maximize that no longer resolves (solo survivor)", () => {
@@ -52,13 +52,12 @@ describe("deckReducer closeAgent", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2"])],
         activeId: "a",
-        focusByWs: { a: "a-2" },
-        selectByWs: { a: "a-2" },
+        viewByWs: { a: { focus: "a-2", select: "a-2" } },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-1" },
     );
-    expect(next.selectByWs).toEqual({ a: "a-2" });
-    expect(next.focusByWs).toEqual({});
+    // Selection kept; the now-unresolvable maximize is dropped.
+    expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
   });
 
   it("keeps a maximize that still resolves over the survivors", () => {
@@ -66,12 +65,11 @@ describe("deckReducer closeAgent", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
-        focusByWs: { a: "a-2" },
-        selectByWs: { a: "a-2" },
+        viewByWs: { a: { focus: "a-2", select: "a-2" } },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-3" },
     );
-    expect(next.focusByWs).toEqual({ a: "a-2" });
+    expect(next.viewByWs).toEqual({ a: { focus: "a-2", select: "a-2" } });
   });
 });
 
@@ -81,15 +79,15 @@ describe("deckReducer closeWorkspace", () => {
       state({
         workspaces: [ws("a", ["a-1"]), ws("b", ["b-1", "b-2"])],
         activeId: "a",
-        focusByWs: { a: "a-1" },
-        selectByWs: { a: "a-1" },
+        viewByWs: { a: { focus: "a-1", select: "a-1" } },
       }),
       { type: "closeWorkspace", id: "a" },
     );
     expect(next.workspaces.map((w) => w.id)).toEqual(["b"]);
     expect(next.activeId).toBe("b");
-    expect(next.focusByWs).toEqual({});
-    expect(next.selectByWs).toEqual({ b: "b-1" });
+    // The closed workspace's whole view goes; the new active gets a default
+    // selection.
+    expect(next.viewByWs).toEqual({ b: { select: "b-1" } });
   });
 
   it("empties everything when the last workspace closes", () => {
@@ -97,35 +95,37 @@ describe("deckReducer closeWorkspace", () => {
       state({
         workspaces: [ws("a", ["a-1"])],
         activeId: "a",
-        selectByWs: { a: "a-1" },
+        viewByWs: { a: { select: "a-1" } },
       }),
       { type: "closeWorkspace", id: "a" },
     );
     expect(next.workspaces).toEqual([]);
     expect(next.activeId).toBe("");
-    expect(next.selectByWs).toEqual({});
+    expect(next.viewByWs).toEqual({});
   });
 
-  it("drops the closed workspace's dock entry", () => {
+  it("drops the closed workspace's whole view (dock included) in one go", () => {
     const next = deckReducer(
       state({
         workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])],
         activeId: "a",
-        dockByWs: { a: true, b: true },
+        viewByWs: { a: { dock: true, dockTab: "p:t" }, b: { dock: true } },
       }),
       { type: "closeWorkspace", id: "a" },
     );
-    expect(next.dockByWs).toEqual({ b: true });
+    // a — dock AND dock tab — is gone; b keeps its dock and gains a default
+    // selection as the new active workspace.
+    expect(next.viewByWs).toEqual({ b: { dock: true, select: "b-1" } });
   });
 });
 
-describe("deckReducer dock (Run panel per workspace)", () => {
+describe("deckReducer dock (per workspace)", () => {
   it("toggleDock opens one workspace's dock without touching the others", () => {
     const next = deckReducer(
       state({ workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])], activeId: "a" }),
       { type: "toggleDock", wsId: "a" },
     );
-    expect(next.dockByWs).toEqual({ a: true });
+    expect(next.viewByWs).toEqual({ a: { dock: true } });
   });
 
   it("toggleDock on an open dock removes the entry (absent = closed)", () => {
@@ -133,11 +133,59 @@ describe("deckReducer dock (Run panel per workspace)", () => {
       state({
         workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])],
         activeId: "a",
-        dockByWs: { a: true, b: true },
+        viewByWs: { a: { dock: true }, b: { dock: true } },
       }),
       { type: "toggleDock", wsId: "a" },
     );
-    expect(next.dockByWs).toEqual({ b: true });
+    // a's view empties (dock was its only field) → pruned; b untouched.
+    expect(next.viewByWs).toEqual({ b: { dock: true } });
+  });
+
+  it("toggleDock leaves the picked dock tab intact when only closing", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1"])],
+        activeId: "a",
+        viewByWs: { a: { dock: true, dockTab: "keepdeck.files:tree" } },
+      }),
+      { type: "toggleDock", wsId: "a" },
+    );
+    // The tab a workspace last looked at survives closing the dock, so
+    // reopening returns to it.
+    expect(next.viewByWs).toEqual({ a: { dockTab: "keepdeck.files:tree" } });
+  });
+});
+
+describe("deckReducer setDockTab (remembered per workspace)", () => {
+  it("records the picked tab on the workspace's view", () => {
+    const next = deckReducer(
+      state({ workspaces: [ws("a", ["a-1"])], activeId: "a" }),
+      { type: "setDockTab", wsId: "a", tabId: "keepdeck.run:presets" },
+    );
+    expect(next.viewByWs).toEqual({ a: { dockTab: "keepdeck.run:presets" } });
+  });
+
+  it("keeps each workspace's tab independent", () => {
+    let next = deckReducer(
+      state({ workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"])], activeId: "a" }),
+      { type: "setDockTab", wsId: "a", tabId: "p:one" },
+    );
+    next = deckReducer(next, { type: "setDockTab", wsId: "b", tabId: "p:two" });
+    expect(next.viewByWs).toEqual({
+      a: { dockTab: "p:one" },
+      b: { dockTab: "p:two" },
+    });
+  });
+
+  it("is a no-op (same state ref) when the tab is unchanged", () => {
+    const start = state({
+      workspaces: [ws("a", ["a-1"])],
+      activeId: "a",
+      viewByWs: { a: { dockTab: "p:one" } },
+    });
+    expect(
+      deckReducer(start, { type: "setDockTab", wsId: "a", tabId: "p:one" }),
+    ).toBe(start);
   });
 });
 
@@ -147,13 +195,13 @@ describe("deckReducer moveWorkspace", () => {
       state({
         workspaces: [ws("a", ["a-1"]), ws("b", ["b-1"]), ws("c", ["c-1"])],
         activeId: "a",
-        selectByWs: { a: "a-1" },
+        viewByWs: { a: { select: "a-1" } },
       }),
       { type: "moveWorkspace", id: "a", toIndex: 2 },
     );
     expect(next.workspaces.map((w) => w.id)).toEqual(["b", "c", "a"]);
     expect(next.activeId).toBe("a");
-    expect(next.selectByWs).toEqual({ a: "a-1" });
+    expect(next.viewByWs).toEqual({ a: { select: "a-1" } });
   });
 
   it("returns the SAME state ref on a no-op move", () => {
@@ -173,13 +221,16 @@ describe("deckReducer selection", () => {
       type: "selectWorkspace",
       id: "a",
     });
-    expect(fresh.selectByWs).toEqual({ a: "a-1" });
+    expect(fresh.viewByWs).toEqual({ a: { select: "a-1" } });
 
     const kept = deckReducer(
-      state({ workspaces: [ws("a", ["a-1", "a-2"])], selectByWs: { a: "a-2" } }),
+      state({
+        workspaces: [ws("a", ["a-1", "a-2"])],
+        viewByWs: { a: { select: "a-2" } },
+      }),
       { type: "selectWorkspace", id: "a" },
     );
-    expect(kept.selectByWs).toEqual({ a: "a-2" });
+    expect(kept.viewByWs).toEqual({ a: { select: "a-2" } });
   });
 
   it("addAgentPane appends and selects it", () => {
@@ -192,7 +243,7 @@ describe("deckReducer selection", () => {
       },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-2"]);
-    expect(next.selectByWs).toEqual({ a: "a-2" });
+    expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
   });
 
   it("addAgentPane exits a pre-existing maximize so the new pane is visible", () => {
@@ -200,7 +251,7 @@ describe("deckReducer selection", () => {
       state({
         workspaces: [ws("a", ["a-1"])],
         activeId: "a",
-        focusByWs: { a: "a-1" },
+        viewByWs: { a: { focus: "a-1" } },
       }),
       {
         type: "addAgentPane",
@@ -208,8 +259,8 @@ describe("deckReducer selection", () => {
         pane: { id: "a-2", cwd: "/wt", branch: "kd/a/2" },
       },
     );
-    expect(next.focusByWs).toEqual({});
-    expect(next.selectByWs).toEqual({ a: "a-2" });
+    // Maximize dropped so the appended pane isn't left collapsed; it's selected.
+    expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
   });
 
   it("addAgentPane at the cap appends nothing and selects nothing", () => {
@@ -219,7 +270,7 @@ describe("deckReducer selection", () => {
       { type: "addAgentPane", id: "a", pane: { id: "overflow" } },
     );
     expect(next.workspaces[0].panes).toHaveLength(16);
-    expect(next.selectByWs).toEqual({});
+    expect(next.viewByWs).toEqual({});
   });
 });
 

@@ -47,9 +47,7 @@ const restored = (): DeckState => ({
     },
   ],
   activeId: "ws-1",
-  focusByWs: {},
-  selectByWs: {},
-  dockByWs: {},
+  viewByWs: {},
 });
 
 /** Let the listen→ready→watch effect chain settle. */
