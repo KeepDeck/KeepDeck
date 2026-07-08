@@ -197,6 +197,8 @@ export interface ElementRect {
 
 export type ElementRectSnapshot = Map<string, ElementRect>;
 
+const activeElementAnimations = new WeakMap<HTMLElement, () => void>();
+
 export function snapshotElementRects(
   elements: Iterable<HTMLElement>,
   idOf: (element: HTMLElement) => string,
@@ -229,6 +231,7 @@ export function animateElementReorder(
     const id = idOf(element);
     const previous = before.get(id);
     if (!previous) continue;
+    activeElementAnimations.get(element)?.();
     const next = element.getBoundingClientRect();
     const dx = previous.left - next.left;
     const dy = previous.top - next.top;
@@ -236,20 +239,36 @@ export function animateElementReorder(
     const oldTransition = element.style.transition;
     const oldTransform = element.style.transform;
     const oldWillChange = element.style.willChange;
+    let frame = 0;
+    let timeout = 0;
+    const cleanup = () => {
+      if (activeElementAnimations.get(element) !== cancel) return;
+      activeElementAnimations.delete(element);
+      element.removeEventListener("transitionend", cleanup);
+      window.clearTimeout(timeout);
+      element.style.transition = oldTransition;
+      element.style.willChange = oldWillChange;
+    };
+    const cancel = () => {
+      if (activeElementAnimations.get(element) !== cancel) return;
+      activeElementAnimations.delete(element);
+      if (frame) cancelFrame(frame);
+      element.removeEventListener("transitionend", cleanup);
+      window.clearTimeout(timeout);
+      element.style.transition = oldTransition;
+      element.style.transform = oldTransform;
+      element.style.willChange = oldWillChange;
+    };
+    activeElementAnimations.set(element, cancel);
     element.style.transition = "none";
     element.style.transform = `translate(${dx}px, ${dy}px)`;
     element.style.willChange = "transform";
     void element.offsetWidth;
-    requestFrame(() => {
+    frame = requestFrame(() => {
+      if (activeElementAnimations.get(element) !== cancel) return;
       element.style.transition = `transform ${durationMs}ms ${easing}`;
       element.style.transform = oldTransform;
-      const cleanup = () => {
-        element.removeEventListener("transitionend", cleanup);
-        window.clearTimeout(timeout);
-        element.style.transition = oldTransition;
-        element.style.willChange = oldWillChange;
-      };
-      const timeout = window.setTimeout(cleanup, durationMs + 80);
+      timeout = window.setTimeout(cleanup, durationMs + 80);
       element.addEventListener("transitionend", cleanup);
     });
   }

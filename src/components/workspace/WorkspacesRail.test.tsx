@@ -74,10 +74,30 @@ describe("WorkspacesRail drag reorder", () => {
   let host: HTMLDivElement;
   let root: Root;
   let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
+  let originalOffsetTop: PropertyDescriptor | undefined;
+  let originalOffsetLeft: PropertyDescriptor | undefined;
+  let originalOffsetWidth: PropertyDescriptor | undefined;
+  let originalOffsetHeight: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.useFakeTimers();
     originalRect = HTMLElement.prototype.getBoundingClientRect;
+    originalOffsetTop = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "offsetTop",
+    );
+    originalOffsetLeft = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "offsetLeft",
+    );
+    originalOffsetWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "offsetWidth",
+    );
+    originalOffsetHeight = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "offsetHeight",
+    );
     HTMLElement.prototype.getBoundingClientRect = function () {
       const element = this as HTMLElement;
       if (element.dataset.wsId && element.parentElement) {
@@ -88,6 +108,33 @@ describe("WorkspacesRail drag reorder", () => {
       }
       return rect(0);
     };
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get() {
+        const element = this as HTMLElement;
+        if (!element.dataset.wsId || !element.parentElement) return 0;
+        const items = [
+          ...element.parentElement.querySelectorAll<HTMLElement>("[data-ws-id]"),
+        ];
+        return items.indexOf(element) * 30;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetLeft", {
+      configurable: true,
+      get: () => 0,
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get() {
+        return (this as HTMLElement).dataset.wsId ? 200 : 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        return (this as HTMLElement).dataset.wsId ? 30 : 0;
+      },
+    });
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
   });
@@ -97,6 +144,10 @@ describe("WorkspacesRail drag reorder", () => {
     act(() => vi.runOnlyPendingTimers());
     vi.useRealTimers();
     HTMLElement.prototype.getBoundingClientRect = originalRect;
+    restorePrototypeProperty("offsetTop", originalOffsetTop);
+    restorePrototypeProperty("offsetLeft", originalOffsetLeft);
+    restorePrototypeProperty("offsetWidth", originalOffsetWidth);
+    restorePrototypeProperty("offsetHeight", originalOffsetHeight);
     document.body.innerHTML = "";
   });
 
@@ -130,3 +181,11 @@ describe("WorkspacesRail drag reorder", () => {
     act(() => window.dispatchEvent(pointerEvent("pointerup", { clientY: 35 })));
   });
 });
+
+function restorePrototypeProperty(
+  name: "offsetTop" | "offsetLeft" | "offsetWidth" | "offsetHeight",
+  descriptor: PropertyDescriptor | undefined,
+) {
+  if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
+  else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
+}

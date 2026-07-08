@@ -119,7 +119,7 @@ export function WorkspacesRail({
       setGhost(null);
       return;
     }
-    const rect = slot.getBoundingClientRect();
+    const rect = railItemLayoutRect(listRef.current, slot);
     cancelSettle.current = animateFixedElementToRect(
       ghostEl,
       { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
@@ -282,4 +282,14 @@ function railItemElements(list: HTMLElement | null): HTMLElement[] {
 
 function railItemId(element: HTMLElement): string {
   return element.dataset.wsId ?? "";
+}
+
+function railItemLayoutRect(list: HTMLElement | null, item: HTMLElement) {
+  const listRect = list?.getBoundingClientRect();
+  return {
+    left: (listRect?.left ?? 0) + item.offsetLeft - (list?.scrollLeft ?? 0),
+    top: (listRect?.top ?? 0) + item.offsetTop - (list?.scrollTop ?? 0),
+    width: item.offsetWidth,
+    height: item.offsetHeight,
+  };
 }

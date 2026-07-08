@@ -43,6 +43,7 @@
 }
 
 .rail__list {
+  position: relative;
   list-style: none;
   margin: 0;
   padding: 4px;
