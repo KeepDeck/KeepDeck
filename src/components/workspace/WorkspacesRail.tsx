@@ -2,6 +2,13 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { collectRailItemRects } from "../../app/railDnd";
+import {
+  animateElementReorder,
+  animateFixedElementToRect,
+  snapshotElementRects,
+  usePointerDrag,
+  type ElementRectSnapshot,
+} from "../../app/dragManager";
 import { railItemAtY } from "../../domain/deck";
 
 /** View model for the rail (the domain `Workspace` lives in `../workspaces`). */
@@ -23,23 +30,17 @@ interface WorkspacesRailProps {
 }
 
 /** Hold this long before a press turns into a reorder drag (vs. a select click). */
-const LONG_PRESS_MS = 350;
+const LONG_PRESS_MS = 300;
 /** Moving more than this before the hold arms cancels it — it wasn't a hold. */
 const MOVE_CANCEL_PX = 10;
+const REORDER_ANIMATION_MS = 140;
 
-interface PressSession {
+interface DragSource {
   id: string;
-  pointerId: number;
-  startY: number;
-  timer: number;
-  dragging: boolean;
-  /** Cursor offset from the item's top edge, so the ghost tracks where grabbed. */
+  name: string;
+  active: boolean;
   grabOffsetY: number;
-  /** The item's on-screen box at press time (the ghost copies it). */
   rect: { left: number; top: number; width: number; height: number };
-  /** Window listeners for this press, kept so they can be removed on release. */
-  onMove: (e: PointerEvent) => void;
-  onUp: (e: PointerEvent) => void;
 }
 
 /** Snapshot of the item being dragged, used to render the floating ghost. */
@@ -71,10 +72,8 @@ export function WorkspacesRail({
 
   const listRef = useRef<HTMLUListElement>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
-  const press = useRef<PressSession | null>(null);
-  // A drop fires a synthesized click on release; swallow that one so the drag
-  // doesn't also select. Reset whenever a fresh press starts or a click is used.
-  const justDragged = useRef(false);
+  const flipBefore = useRef<ElementRectSnapshot | null>(null);
+  const cancelSettle = useRef<(() => void) | null>(null);
 
   // Position the ghost once when a drag begins (ghost identity is stable for the
   // whole drag); thereafter pointermove moves it directly via the ref, and since
@@ -83,19 +82,23 @@ export function WorkspacesRail({
     if (ghost && ghostRef.current) ghostRef.current.style.top = `${ghost.top}px`;
   }, [ghost]);
 
-  /** Tear down the active press: stop the hold timer and detach its listeners. */
-  const endPress = () => {
-    const s = press.current;
-    if (!s) return;
-    clearTimeout(s.timer);
-    window.removeEventListener("pointermove", s.onMove);
-    window.removeEventListener("pointerup", s.onUp);
-    window.removeEventListener("pointercancel", s.onUp);
-    press.current = null;
-  };
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || !flipBefore.current) return;
+    const before = flipBefore.current;
+    flipBefore.current = null;
+    animateElementReorder(railItemElements(list), railItemId, before, {
+      durationMs: REORDER_ANIMATION_MS,
+    });
+  }, [workspaces]);
 
-  // Safety net: never leave window listeners (or a ghost) behind on unmount.
-  useEffect(() => endPress, []);
+  useEffect(
+    () => () => {
+      cancelSettle.current?.();
+      cancelSettle.current = null;
+    },
+    [],
+  );
 
   const startEdit = (item: WorkspaceItem) => {
     setEditingId(item.id);
@@ -109,6 +112,63 @@ export function WorkspacesRail({
     setEditingId(null);
   };
 
+  const settleGhost = (id: string) => {
+    const ghostEl = ghostRef.current;
+    const slot = railItemElements(listRef.current).find((el) => railItemId(el) === id);
+    if (!ghostEl || !slot) {
+      setGhost(null);
+      return;
+    }
+    const rect = railItemLayoutRect(listRef.current, slot);
+    cancelSettle.current = animateFixedElementToRect(
+      ghostEl,
+      { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      {
+        durationMs: REORDER_ANIMATION_MS,
+        opacity: 0.65,
+        transform: "scale(1)",
+        onDone: () => {
+          cancelSettle.current = null;
+          setGhost(null);
+        },
+      },
+    );
+  };
+
+  const drag = usePointerDrag<DragSource>({
+    holdMs: LONG_PRESS_MS,
+    cancelBeforeStartPx: MOVE_CANCEL_PX,
+    onStart: ({ source }) => {
+      cancelSettle.current?.();
+      cancelSettle.current = null;
+      setGhost({
+        id: source.id,
+        name: source.name,
+        active: source.active,
+        left: source.rect.left,
+        width: source.rect.width,
+        height: source.rect.height,
+        top: source.rect.top,
+      });
+    },
+    onMove: ({ source, current }) => {
+      if (ghostRef.current) {
+        ghostRef.current.style.top = `${current.y - source.grabOffsetY}px`;
+      }
+      const list = listRef.current;
+      if (!list) return;
+      const rects = collectRailItemRects(list);
+      const overId = railItemAtY(current.y, rects);
+      if (!overId || overId === source.id) return;
+      const toIndex = rects.findIndex((r) => r.id === overId);
+      if (toIndex < 0) return;
+      flipBefore.current = snapshotElementRects(railItemElements(list), railItemId);
+      onReorder(source.id, toIndex);
+    },
+    onDrop: ({ source }) => settleGhost(source.id),
+    onCancel: () => setGhost(null),
+  });
+
   const onItemPointerDown = (
     e: React.PointerEvent<HTMLLIElement>,
     ws: WorkspaceItem,
@@ -116,73 +176,14 @@ export function WorkspacesRail({
     // Primary button only; never start a drag from the × or while renaming.
     if (e.button !== 0 || editingId) return;
     if ((e.target as HTMLElement).closest(".rail__close")) return;
-    justDragged.current = false;
-    endPress(); // belt-and-braces: clear any stale prior session
     const r = e.currentTarget.getBoundingClientRect();
-    const rect = { left: r.left, top: r.top, width: r.width, height: r.height };
-
-    // Move/up are bound to the window (not the item) so a live DOM reorder can't
-    // strip the listeners mid-drag — that was leaving the ghost stuck on release.
-    const onMove = (ev: PointerEvent) => {
-      const s = press.current;
-      if (!s || s.pointerId !== ev.pointerId) return;
-      if (!s.dragging) {
-        // Drifted before the hold armed → it's a click, not a drag.
-        if (Math.abs(ev.clientY - s.startY) > MOVE_CANCEL_PX) endPress();
-        return;
-      }
-      ev.preventDefault();
-      if (ghostRef.current) {
-        ghostRef.current.style.top = `${ev.clientY - s.grabOffsetY}px`;
-      }
-      const list = listRef.current;
-      if (!list) return;
-      const overId = railItemAtY(ev.clientY, collectRailItemRects(list));
-      if (overId && overId !== s.id) {
-        const toIndex = workspaces.findIndex((w) => w.id === overId);
-        if (toIndex >= 0) onReorder(s.id, toIndex);
-      }
-    };
-    const onUp = (ev: PointerEvent) => {
-      const s = press.current;
-      if (!s || s.pointerId !== ev.pointerId) return;
-      if (s.dragging) {
-        justDragged.current = true; // swallow the post-drop click
-        setGhost(null);
-      }
-      endPress();
-    };
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-
-    const timer = window.setTimeout(() => {
-      const s = press.current;
-      if (s?.id !== ws.id) return;
-      s.dragging = true;
-      setGhost({
-        id: ws.id,
-        name: ws.name,
-        active: ws.id === activeId,
-        left: s.rect.left,
-        width: s.rect.width,
-        height: s.rect.height,
-        top: s.rect.top,
-      });
-    }, LONG_PRESS_MS);
-
-    press.current = {
+    drag.startPointerDrag(e.nativeEvent, {
       id: ws.id,
-      pointerId: e.pointerId,
-      startY: e.clientY,
-      timer,
-      dragging: false,
+      name: ws.name,
+      active: ws.id === activeId,
       grabOffsetY: e.clientY - r.top,
-      rect,
-      onMove,
-      onUp,
-    };
+      rect: { left: r.left, top: r.top, width: r.width, height: r.height },
+    });
   };
 
   return (
@@ -236,13 +237,7 @@ export function WorkspacesRail({
               <button
                 type="button"
                 className="rail__select"
-                onClick={() => {
-                  if (justDragged.current) {
-                    justDragged.current = false;
-                    return;
-                  }
-                  onSelect(ws.id);
-                }}
+                onClick={() => onSelect(ws.id)}
                 onDoubleClick={() => startEdit(ws)}
                 aria-current={active}
               >
@@ -278,4 +273,23 @@ export function WorkspacesRail({
         )}
     </nav>
   );
+}
+
+function railItemElements(list: HTMLElement | null): HTMLElement[] {
+  if (!list) return [];
+  return [...list.querySelectorAll<HTMLElement>("[data-ws-id]")];
+}
+
+function railItemId(element: HTMLElement): string {
+  return element.dataset.wsId ?? "";
+}
+
+function railItemLayoutRect(list: HTMLElement | null, item: HTMLElement) {
+  const listRect = list?.getBoundingClientRect();
+  return {
+    left: (listRect?.left ?? 0) + item.offsetLeft - (list?.scrollLeft ?? 0),
+    top: (listRect?.top ?? 0) + item.offsetTop - (list?.scrollTop ?? 0),
+    width: item.offsetWidth,
+    height: item.offsetHeight,
+  };
 }
