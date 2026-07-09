@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   canCreateAgent,
   classifyLocation,
+  isKnownBaseBranch,
   type PathProbe,
 } from "./agentLocation";
 
@@ -68,7 +69,35 @@ describe("canCreateAgent", () => {
     expect(canCreateAgent("checking", "kd/ws/1")).toBe(false);
     expect(canCreateAgent("blocked", "kd/ws/1")).toBe(false);
   });
-});
+
+  it("an unusable base blocks only a NEW worktree — main/existing never fork", () => {
+    expect(canCreateAgent("new", "kd/ws/1", false)).toBe(false);
+    expect(canCreateAgent("new", "kd/ws/1", true)).toBe(true);
+    // A stale base left in dialog state must not veto locations without one.
+    expect(canCreateAgent("main", "", false)).toBe(true);
+    expect(canCreateAgent("existing", "", false)).toBe(true);
+  });
+})
+
+describe("isKnownBaseBranch", () => {
+  const branches = ["develop", "main"];
+
+  it("empty input defers to HEAD — always fine", () => {
+    expect(isKnownBaseBranch("", branches)).toBe(true);
+    expect(isKnownBaseBranch("   ", branches)).toBe(true);
+  });
+
+  it("accepts exactly a listed local branch, trimmed", () => {
+    expect(isKnownBaseBranch("develop", branches)).toBe(true);
+    expect(isKnownBaseBranch(" develop ", branches)).toBe(true);
+    expect(isKnownBaseBranch("dev", branches)).toBe(false);
+    expect(isKnownBaseBranch("origin/main", branches)).toBe(false);
+  });
+
+  it("a missing list validates everything — degrade, don't block the dialog", () => {
+    expect(isKnownBaseBranch("anything", null)).toBe(true);
+  });
+});;
 
 describe("occupied locations", () => {
   it("an occupied path outranks every probe outcome, even mid-probe", () => {

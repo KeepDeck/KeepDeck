@@ -333,6 +333,7 @@ function readProvisioning(
   if (typeof value.baseDir === "string") intent.baseDir = value.baseDir;
   if (typeof value.path === "string") intent.path = value.path;
   if (typeof value.branch === "string") intent.branch = value.branch;
+  if (typeof value.base === "string") intent.base = value.base;
   return intent;
 }
 
