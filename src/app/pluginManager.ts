@@ -273,13 +273,13 @@ export const pluginHost = new PluginHost(
             relative,
           }).catch(() => null);
         }
-        // Built-in: in dev the bundle IS the source tree; in prod the built
-        // plugin dirs ship as real files under the app's Resource dir.
-        const candidate = import.meta.env.DEV
-          ? `../plugins/${devDirs.get(manifest.id) ?? "?"}/resources/${relative}`
-          : `plugins/${manifest.id}/resources/${relative}`;
+        // Built-in: the built plugin dirs ship as real files under the
+        // app's Resource dir — in a bundle AND in dev (tauri copies the
+        // configured resources next to the debug binary at dev start, so
+        // this path resolves identically in both modes; a dev copy is a
+        // snapshot of dist/, refreshed by `pnpm build`).
         return invoke<string | null>("plugin_resource_path", {
-          path: candidate,
+          path: `plugins/${manifest.id}/resources/${relative}`,
         }).catch(() => null);
       },
     }),
@@ -489,10 +489,6 @@ function safeJson(text: string): unknown {
 /** Dev: every `plugins/<dir>/manifest.json` in the workspace, entries loaded
  * from source through Vite. Both globs are dev-only dead code in the built
  * bundle (`bootstrapPlugins` never reaches them there). */
-/** Dev mode: manifest id -> source dir name under plugins/ (a folder name
- * need not match its id; resources resolve through the SOURCE tree). */
-const devDirs = new Map<string, string>();
-
 function discoverDevPlugins(): PluginInstall[] {
   const manifests = import.meta.glob("/plugins/*/manifest.json", {
     eager: true,
@@ -504,7 +500,6 @@ function discoverDevPlugins(): PluginInstall[] {
     const manifest = validate(path, raw);
     if (!manifest) continue;
     const dir = path.slice(0, -"/manifest.json".length);
-    devDirs.set(manifest.id, dir.slice("/plugins/".length));
     const entryKey = Object.keys(entries).find((key) =>
       key.startsWith(`${dir}/src/index.`),
     );
