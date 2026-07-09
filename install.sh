@@ -1,63 +1,65 @@
-#!/usr/bin/env bash
+#!/bin/sh
 #
-# Build KeepDeck and install it straight into /Applications — no dmg, no manual
-# drag. One command: `./install.sh`.
+# KeepDeck installer. Downloads the latest build and installs it to
+# /Applications. Run it directly:
 #
-# It builds the release .app (the same build as build-macos.sh, minus the dmg),
-# swaps it into the destination, and clears the quarantine xattr so Gatekeeper
-# lets the unsigned local build launch.
+#   curl -fsSL https://raw.githubusercontent.com/KeepDeck/KeepDeck/main/install.sh | sh
 #
-# If KeepDeck is already running it is NOT touched: the new bundle is installed
-# underneath the running one, and you're told to restart the app to load it.
+# The app is unsigned, so this strips the download's quarantine attribute; it
+# then opens without a Gatekeeper prompt. macOS only for now.
 #
-# Usage:
-#   ./install.sh                                  # build + install to /Applications
-#   ./install.sh --dest ~/Applications            # install for the current user only
-#   ./install.sh --target universal-apple-darwin  # extra args pass through to tauri
-#
-# Code signing: export APPLE_SIGNING_IDENTITY (plus APPLE_ID / APPLE_PASSWORD /
-# APPLE_TEAM_ID to notarize) before running; they flow straight through Tauri.
-set -euo pipefail
+# Env overrides:
+#   KEEPDECK_DEST  install directory (default /Applications)
+#   KEEPDECK_URL   a specific .zip to install instead of the latest release
+set -eu
 
-# Run from the repo root regardless of where the script is invoked from.
-cd "$(dirname "$0")"
-# shellcheck source=scripts/macos-app.sh
-source "scripts/macos-app.sh"
+REPO="KeepDeck/KeepDeck"
+ASSET="KeepDeck-macos-universal.zip"
+URL="${KEEPDECK_URL:-https://github.com/$REPO/releases/download/latest/$ASSET}"
+DEST="${KEEPDECK_DEST:-/Applications}"
 
-dest="/Applications"
-passthrough=()
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --dest) dest="${2:?--dest needs a directory}"; shift 2 ;;
-    --dest=*) dest="${1#*=}"; shift ;;
-    *) passthrough+=("$1"); shift ;;
-  esac
-done
+if [ "$(uname -s)" != "Darwin" ]; then
+  echo "KeepDeck currently supports macOS only." >&2
+  exit 1
+fi
 
-# Expand a leading ~ the shell didn't (e.g. --dest=~/Applications).
-dest="${dest/#\~/$HOME}"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 
-# ${arr[@]+"${arr[@]}"} expands to nothing on an empty array — required because
-# macOS ships bash 3.2, where "${arr[@]}" on an empty array trips `set -u`.
-build_keepdeck_app ${passthrough[@]+"${passthrough[@]}"}
-app_path="$(locate_keepdeck_app)"
-app_name="$(basename "$app_path" .app)"
+echo "Downloading KeepDeck..."
+curl -fL --progress-bar "$URL" -o "$tmp/keepdeck.zip"
 
-# Note whether a copy is already running *before* we swap the bundle in.
-running=0
-if keepdeck_app_running "$app_name"; then
+echo "Unpacking..."
+ditto -x -k "$tmp/keepdeck.zip" "$tmp/app"
+src="$(find "$tmp/app" -maxdepth 2 -type d -name '*.app' | head -n1)"
+if [ -z "$src" ]; then
+  echo "error: no .app found in the download." >&2
+  exit 1
+fi
+name="$(basename "$src")"
+
+# Fall back to ~/Applications only when the default system folder isn't writable
+# (avoids a sudo prompt inside curl | sh). An explicit KEEPDECK_DEST is honored.
+if [ "$DEST" = "/Applications" ] && [ ! -w "$DEST" ]; then
+  DEST="$HOME/Applications"
+  echo "note: /Applications isn't writable; installing to $DEST instead."
+fi
+mkdir -p "$DEST"
+target="$DEST/$name"
+
+running=""
+if pgrep -x "$(basename "$name" .app)" >/dev/null 2>&1; then
   running=1
 fi
 
-echo "==> Installing ${app_name}.app to ${dest%/}"
-installed="$(install_keepdeck_app "$app_path" "$dest")"
+echo "Installing to $target..."
+rm -rf "$target"
+ditto "$src" "$target"
+# Unsigned build: strip quarantine so Gatekeeper doesn't block the first launch.
+xattr -dr com.apple.quarantine "$target" 2>/dev/null || true
 
-echo "==> Done"
-echo "    installed: $installed"
-if [[ "$running" -eq 1 ]]; then
-  echo
-  echo "    $app_name is still running the previous version."
-  echo "    Quit and reopen it to load this build."
+if [ -n "$running" ]; then
+  echo "Done. KeepDeck was running. Quit and reopen it to load this build."
 else
-  echo "    Open it from Launchpad / Spotlight, or: open -a \"$app_name\""
+  echo "Done. Open KeepDeck from Launchpad or Spotlight."
 fi
