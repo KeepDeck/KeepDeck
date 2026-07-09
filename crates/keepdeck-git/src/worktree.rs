@@ -96,6 +96,11 @@ fn short_branch(reference: &str) -> String {
 /// caller is responsible for serializing concurrent adds on one repo (git takes
 /// `.git` locks that race) and for choosing a unique `branch`/`path`.
 pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<(), GitError> {
+    // `--no-track`: when `base_commit` names a remote-tracking branch (a
+    // user-typed `origin/main`), `-b` would otherwise set it as the new
+    // branch's upstream — wrong for a local working branch, whose status/pull
+    // must never compare against a remote base. A plain commit-ish base gets
+    // no upstream either way, so this only guards the remote-base case.
     // `--` ends option parsing (the dir is user-editable, so a leaf starting
     // with `-` must not be read by git as a flag); the path passes as an OsStr
     // so a non-UTF-8 path isn't corrupted.
@@ -104,6 +109,7 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<
         [
             OsStr::new("worktree"),
             OsStr::new("add"),
+            OsStr::new("--no-track"),
             OsStr::new("-b"),
             OsStr::new(branch),
             OsStr::new("--"),

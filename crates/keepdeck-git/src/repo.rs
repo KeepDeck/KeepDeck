@@ -35,6 +35,26 @@ pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
     })
 }
 
+/// The repository's local branch names, in git's default alphabetical
+/// (refname) order.
+///
+/// Local heads only — remote-tracking refs are deliberately excluded: this
+/// feeds the "+ Agent" dialog's base-branch picker, and basing a worktree on a
+/// possibly-stale `origin/*` ref is rejected by design (create a local branch
+/// to use it). Detached HEAD contributes nothing (it isn't a ref under
+/// `refs/heads`), so the list can be empty in a repo with no branches yet.
+pub fn list_branches(repo: &Path) -> Result<Vec<String>, GitError> {
+    let out = run_git(
+        repo,
+        &["for-each-ref", "refs/heads", "--format=%(refname:short)"],
+    )?;
+    Ok(out
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
 /// Whether a local branch named `name` already exists in `repo`.
 pub fn branch_exists(repo: &Path, name: &str) -> Result<bool, GitError> {
     let reference = format!("refs/heads/{name}");
