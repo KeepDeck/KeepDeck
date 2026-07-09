@@ -180,6 +180,10 @@ export function buildGuestContext(
         ),
     },
 
+    resources: {
+      path: (relative) =>
+        rpc.call("resources.path", [relative]) as Promise<string | null>,
+    },
     storage: {
       workspace: (wsId) => ({
         get: <T>(key: string): Promise<T | undefined> =>

@@ -116,6 +116,7 @@ export function buildPluginContext(
       },
     },
     storage: deps.storage(pluginId),
+    resources: deps.resources(manifest, source),
     events: {
       onWorkspaceClosed: (cb) => track(deps.events.onWorkspaceClosed(cb)),
       onPaneSelected: (cb) => track(deps.events.onPaneSelected(cb)),

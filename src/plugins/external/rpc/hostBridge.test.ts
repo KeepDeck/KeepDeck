@@ -43,6 +43,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       onChange: () => disposable,
     },
     agents: { register: () => disposable },
+    resources: { path: async () => null },
     storage: {
       workspace: () => ({
         get: async () => undefined,

@@ -125,6 +125,12 @@ async function buildOne(pluginDir, distRoot) {
   }
 
   cpSync(join(pluginDir, "manifest.json"), join(outDir, "manifest.json"));
+  // Bundle resources (reporter scripts a spawned CLI must open from disk) —
+  // shipped verbatim under <out>/resources/, resolved via ctx.resources.path.
+  const resources = join(pluginDir, "resources");
+  if (existsSync(resources)) {
+    cpSync(resources, join(outDir, "resources"), { recursive: true });
+  }
   console.log(`  built ${manifest.id}  (${pluginDir} -> ${join(distRoot, "plugins", manifest.id)})`);
   return manifest.id;
 }

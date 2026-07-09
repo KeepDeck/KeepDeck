@@ -449,6 +449,26 @@ pub fn plugins_resolve_dir(id: String) -> Option<String> {
     resolve(&root, &id).map(|record| record.dir_name)
 }
 
+/// Resolve a Resource-dir-relative path to an absolute file path, `None`
+/// when absent. Backs `ctx.resources.path` for BUILT-IN plugins: in a
+/// bundle their built dirs ship as real files under `Resources/plugins/`;
+/// in dev the Resource base is `src-tauri/`, so the caller points into the
+/// source tree (`../plugins/<dir>/resources/...`). Resolution only — no
+/// contents cross this boundary, and the webview is the same trust domain
+/// that could read these files through its own asset scope anyway.
+#[tauri::command]
+pub fn plugin_resource_path(app: tauri::AppHandle, path: String) -> Option<String> {
+    use tauri::Manager as _;
+    let resolved = app
+        .path()
+        .resolve(path, tauri::path::BaseDirectory::Resource)
+        .ok()?;
+    let canonical = resolved.canonicalize().ok()?;
+    canonical
+        .is_file()
+        .then(|| canonical.to_string_lossy().into_owned())
+}
+
 /// Every archive, sorted by file name, then every dev folder, sorted by
 /// folder name — see [`plugins_scan`] for why the two tiers are kept in
 /// this fixed relative order rather than merged by name across both.

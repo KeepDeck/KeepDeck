@@ -2,6 +2,7 @@ import type {
   PluginEvents,
   PluginHostFacts,
   PluginLogger,
+  PluginResources,
   PluginManifest,
   PluginServices,
   PluginSettings,
@@ -39,6 +40,10 @@ export interface PluginHostDeps {
    * plugin never declared; `source` picks the gate's TIER — a trusted
    * built-in warns on a violation, an untrusted external throws (enforce). */
   services(manifest: PluginManifest, source: PluginSource): PluginServices;
+  /** This plugin's bundle resources (absolute on-disk paths). `source`
+   * picks the backing: built-ins resolve inside the app bundle, externals
+   * inside their install folder. */
+  resources(manifest: PluginManifest, source: PluginSource): PluginResources;
   /** This plugin's logger — lines land in the shared log namespaced by id. */
   log(pluginId: string): PluginLogger;
   /** Read-only whitelisted host facts, shared by every plugin. */

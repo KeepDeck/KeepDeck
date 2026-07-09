@@ -111,6 +111,7 @@ pub fn run() {
             ports::ports_allocate,
             plugins_fs::plugins_scan,
             plugins_fs::plugins_resolve_dir,
+            plugins_fs::plugin_resource_path,
             project_fs::project_fs_read_dir,
             project_fs::project_fs_read_file,
             project_fs::project_fs_watch,

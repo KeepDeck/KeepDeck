@@ -5,6 +5,7 @@ import type { PluginLogger } from "./log.ts";
 import type { PluginManifest } from "../manifest/manifest.ts";
 import type { PluginServices } from "./services.ts";
 import type { PluginSettings } from "./settings.ts";
+import type { PluginResources } from "./resources.ts";
 import type { PluginStorage } from "./storage.ts";
 import type { PluginUi } from "./ui.ts";
 
@@ -29,6 +30,7 @@ export interface PluginContext {
   readonly settings: PluginSettings;
   readonly agents: PluginAgents;
   readonly storage: PluginStorage;
+  readonly resources: PluginResources;
   readonly events: PluginEvents;
   readonly services: PluginServices;
   readonly host: PluginHostFacts;

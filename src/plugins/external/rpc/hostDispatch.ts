@@ -89,6 +89,8 @@ export function createHostDispatch(
       ctx.storage.global.delete(key as string),
 
     // ---- settings: read is a plain call; onChange is a subscription ----
+    "resources.path": ([relative]) =>
+      ctx.resources.path(relative as string),
     "settings.read": () => ctx.settings.read(),
     "settings.onChange": () => subscriptions.subscribe("settingsChanged"),
     "settings.offChange": () => subscriptions.unsubscribe("settingsChanged"),

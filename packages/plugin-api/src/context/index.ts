@@ -34,6 +34,7 @@ export type {
   SettingsSectionContribution,
 } from "./settings.ts";
 export type { PaneSnapshot, WorkspaceSnapshot } from "./snapshots.ts";
+export type { PluginResources } from "./resources.ts";
 export type { PluginKV, PluginStorage } from "./storage.ts";
 export type {
   DockTabContribution,

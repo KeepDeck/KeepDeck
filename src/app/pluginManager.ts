@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import {
   readManifest,
   type Disposable,
@@ -251,6 +252,34 @@ export const pluginHost = new PluginHost(
         mode: source === "external" ? "enforce" : "warn",
         log: loggerFor(manifest.id),
       }),
+    resources: (manifest, source) => ({
+      async path(relative: string) {
+        // Plain /-separated segments only — a resource name, not a path
+        // expression. (The dev candidate's own ../ prefix is OURS, below.)
+        const segments = relative.split("/");
+        if (
+          segments.some((seg) => seg === "" || seg === "." || seg === "..") ||
+          relative.startsWith("/")
+        ) {
+          loggerFor(manifest.id).warn(`resources.path: rejected "${relative}"`);
+          return null;
+        }
+        if (source === "external") {
+          // Lands with the external agents tier (RPC hooks): resolved inside
+          // the plugin's install folder with the same containment as its
+          // file serving. Until then: absent, callers degrade.
+          return null;
+        }
+        // Built-in: in dev the bundle IS the source tree; in prod the built
+        // plugin dirs ship as real files under the app's Resource dir.
+        const candidate = import.meta.env.DEV
+          ? `../plugins/${devDirs.get(manifest.id) ?? "?"}/resources/${relative}`
+          : `plugins/${manifest.id}/resources/${relative}`;
+        return invoke<string | null>("plugin_resource_path", {
+          path: candidate,
+        }).catch(() => null);
+      },
+    }),
     log: loggerFor,
     hostFacts: {
       // The whitelisted read-only host facts (see PluginHostFacts): grown a
@@ -457,6 +486,10 @@ function safeJson(text: string): unknown {
 /** Dev: every `plugins/<dir>/manifest.json` in the workspace, entries loaded
  * from source through Vite. Both globs are dev-only dead code in the built
  * bundle (`bootstrapPlugins` never reaches them there). */
+/** Dev mode: manifest id -> source dir name under plugins/ (a folder name
+ * need not match its id; resources resolve through the SOURCE tree). */
+const devDirs = new Map<string, string>();
+
 function discoverDevPlugins(): PluginInstall[] {
   const manifests = import.meta.glob("/plugins/*/manifest.json", {
     eager: true,
@@ -468,6 +501,7 @@ function discoverDevPlugins(): PluginInstall[] {
     const manifest = validate(path, raw);
     if (!manifest) continue;
     const dir = path.slice(0, -"/manifest.json".length);
+    devDirs.set(manifest.id, dir.slice("/plugins/".length));
     const entryKey = Object.keys(entries).find((key) =>
       key.startsWith(`${dir}/src/index.`),
     );

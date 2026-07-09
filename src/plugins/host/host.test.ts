@@ -59,6 +59,7 @@ function fakeDeps() {
     })),
     events,
     services: vi.fn(() => services),
+    resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
     log: vi.fn(() => logger),
     hostFacts: { settings: vi.fn(async () => ({ terminalScrollback: 10_000 })) },
     isEnabled,
