@@ -135,6 +135,18 @@ describe("end-to-end against a real git repo", () => {
       env: { ...process.env, GITHUB_OUTPUT: "" },
     });
 
+  // Run with a real GITHUB_OUTPUT file and return what the script appended.
+  const runScriptCapturingOutput = (...args) => {
+    const outFile = join(repo, "gh-output.txt");
+    writeFileSync(outFile, "");
+    execFileSync(process.execPath, [SCRIPT, ...args], {
+      cwd: repo,
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_OUTPUT: outFile },
+    });
+    return readFileSync(outFile, "utf8");
+  };
+
   const readVersions = () => ({
     cargo: parseCargoVersion(readFileSync(join(repo, "src-tauri/Cargo.toml"), "utf8")),
     pkg: JSON.parse(readFileSync(join(repo, "package.json"), "utf8")).version,
@@ -231,5 +243,19 @@ describe("end-to-end against a real git repo", () => {
 
   it("rejects an invalid --bump argument", () => {
     expect(() => runScript("--bump", "major")).toThrow();
+  });
+
+  it("emits minor=true to GITHUB_OUTPUT when the batch includes a (minor) merge", () => {
+    mergeFeature("feat/a", "Merge: stream done (minor)");
+    const out = runScriptCapturingOutput();
+    expect(out).toContain("version=0.2.0");
+    expect(out).toContain("minor=true");
+  });
+
+  it("emits minor=false to GITHUB_OUTPUT for a patch-only batch", () => {
+    mergeFeature("feat/a", "Merge: feature a");
+    const out = runScriptCapturingOutput();
+    expect(out).toContain("version=0.1.1");
+    expect(out).toContain("minor=false");
   });
 });
