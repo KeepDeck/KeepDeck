@@ -29,9 +29,6 @@ export interface SpawnPlan {
   command?: string | null;
   args: string[];
   env: [string, string][];
-  /** The session id this spawn is KNOWN to run under (the hook adopted the
-   * assigned id) — bind immediately, no discovery. */
-  sessionId?: string;
   /** The per-spawn bridge secret. A reporter must echo it in its postback;
    * the binding hook refuses postbacks whose token doesn't match — writing a
    * file into the inbox is not enough to bind a pane. */

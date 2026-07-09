@@ -10,9 +10,10 @@ import type { Deck } from "./useDeck";
  * Session identity v2 ([F7]/[F8]): bindings arrive as `deck://session/bound`
  * events — the pane's own agent process reported its session id through the
  * CLI bridge (hook/plugin armed at spawn, correlated by the env-injected
- * pane id). This hook is a thin subscriber: find the pane's workspace, verify
- * the postback's token, record the binding. No discovery, no timers — the id
- * comes from the source.
+ * pane id). EVERY agent's identity is reporter-based — claude included; its
+ * SessionStart hook posts the self-minted id at startup. This hook is a thin
+ * subscriber: find the pane's workspace, verify the postback's token, record
+ * the binding. No discovery, no timers — the id comes from the source.
  *
  * Rebinds are welcome: a pane's session can legitimately change mid-life
  * (opencode `/new`), and same-id rebinds are reducer no-ops.
@@ -27,34 +28,9 @@ export function postbackAccepted(
 ): boolean {
   return !!spec?.token && spec.token === token;
 }
-export function useSessionBinding(
-  deck: Deck,
-  /** The live spawn-plan snapshot — plans land ASYNC (plugin hooks), so the
-   * assigned-id effect must re-run when one arrives, not only on deck
-   * changes. */
-  specByPane: Record<string, SpawnPlan>,
-): void {
+export function useSessionBinding(deck: Deck): void {
   const deckRef = useRef(deck);
   deckRef.current = deck;
-
-  // Assigned identities (claude): the spawn plan minted the id, so bind the
-  // moment the pane is live — nothing to wait for. Never overrides an
-  // existing binding (a reporter's word wins over the assignment).
-  useEffect(() => {
-    const d = deckRef.current;
-    for (const ws of deck.workspaces) {
-      for (const pane of ws.panes) {
-        if (pane.dormant || pane.session) continue;
-        const spec = specByPane[pane.id];
-        if (spec?.sessionId) {
-          d.setPaneSession(ws.id, pane.id, {
-            id: spec.sessionId,
-            boundAt: new Date().toISOString(),
-          });
-        }
-      }
-    }
-  }, [deck.workspaces, specByPane]);
 
   useEffect(() => {
     let disposed = false;

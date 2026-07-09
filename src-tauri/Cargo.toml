@@ -25,7 +25,6 @@ serde_json = "1"
 keepdeck-pty = { path = "../crates/keepdeck-pty" }
 keepdeck-git = { path = "../crates/keepdeck-git" }
 keepdeck-env = { path = "../crates/keepdeck-env" }
-keepdeck-history = { path = "../crates/keepdeck-history" }
 notify = "6"
 infer = "0.19.0"
 tauri-plugin-opener = "2.5.4"

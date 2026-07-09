@@ -43,12 +43,6 @@ export interface SpawnPlanInput {
   wsId: string;
   cwd: string;
   branch?: string;
-  /** Pre-minted session identity. A CLI that can ADOPT an assigned id spawns
-   * with it and echoes it in `SpawnPlanOutput.sessionId`; a CLI that mints
-   * its own ignores it (its reporter posts the real id back later). The
-   * bridge transport itself is host business — the host arms the reporter
-   * env on every agent spawn; plugins never see the inbox. */
-  sessionId: string;
 }
 
 export interface ResumePlanInput {
@@ -66,9 +60,4 @@ export interface SpawnPlanOutput {
   command: string | null;
   args: string[];
   env: [string, string][];
-  /** The id this spawn is KNOWN to run under — set it only when the CLI
-   * adopted the assigned id (or resumes a recorded one); the host binds it
-   * immediately, no discovery. `null` = the session id arrives later via
-   * the reporter. */
-  sessionId: string | null;
 }

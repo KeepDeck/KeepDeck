@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentInfo, SpawnPlanContext } from "../domain/agents";
 import { findWorkspace, type Pane } from "../domain/deck";
-import { sessionPresence } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
 import { buildResumeSpec } from "./spawnSpecs";
@@ -78,43 +77,18 @@ export function useRevive(
     /** Resolve the resume session and wake one pane. */
     const wake = async (pane: Pane, dir: string) => {
       const agentType = pane.agentType ?? "claude";
-      const recorded = pane.session?.id ?? null;
-      let sessionId: string | null = null;
-      if (recorded) {
-        // Validate before resuming — an assigned id whose session was never
-        // written (a pane the user never spoke to), or one the agent GC'd.
-        // Either way the pane starts FRESH: falling back to
-        // newest-in-directory here would resurrect someone else's
-        // conversation (the empty-claude-pane bug). Only a DEFINITIVE
-        // absence counts: an unanswerable store ("unknown" — locked DB, IO
-        // error) or a failed check trusts the binding (worst case: the
-        // resume exits visibly), never wipes a resumable conversation.
-        const presence = await sessionPresence(agentType, recorded, dir).catch(
-          () => "unknown" as const,
-        );
-        sessionId = presence === "absent" ? null : recorded;
-        // Drop the dead binding — a pane must not keep pointing at a ghost:
-        // the binding hook refuses to overwrite an existing session, so a
-        // stale one would block the fresh spawn's identity from ever being
-        // recorded (the lost-"test"-conversation bug).
-        if (presence === "absent") {
-          deckRef.current.setPaneSession(active.id, pane.id, null);
-        }
-      } else {
-        // Never bound: the hook/plugin reporter never posted this pane's
-        // session id — a pane nobody messaged (codex/opencode create the
-        // session lazily with the first message), a mid-TUI `/new`, a pre-v2
-        // deck, or a reporter that couldn't arm. Start FRESH: matching the
-        // newest session in the directory would resume a FOREIGN conversation
-        // whenever panes share a cwd (the default — a worktree is optional),
-        // the same directory-theft the recorded-but-absent branch above
-        // already refuses. claude never reaches here — its id is assigned at
-        // spawn, so it is always bound.
-        sessionId = null;
-      }
+      // A recorded binding is TRUSTED: it came from the pane's own process
+      // (the reporter posts at session creation), so it existed. If it was
+      // deleted out from under us since, the resume fails VISIBLY in the
+      // terminal — accepted, rare, and uniform across agents; the app never
+      // reads an agent's session store. An unbound pane starts FRESH:
+      // matching the newest session in the directory would resume a FOREIGN
+      // conversation whenever panes share a cwd (the default — a worktree
+      // is optional).
+      const sessionId = pane.session?.id ?? null;
       log.info(
         "web:revive",
-        `${pane.id} (${agentType}): recorded=${recorded ?? "-"} → ` +
+        `${pane.id} (${agentType}): ` +
           (sessionId ? `resume ${sessionId}` : "fresh"),
       );
       if (sessionId && ctxRef.current) {

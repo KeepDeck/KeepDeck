@@ -21,10 +21,9 @@ const output = (): SpawnPlanOutput => ({
   command: "codex",
   args: [],
   env: [],
-  sessionId: null,
 });
 
-const input = { paneId: "pane-2", wsId: "ws-1", cwd: "/repo", sessionId: "minted" };
+const input = { paneId: "pane-2", wsId: "ws-1", cwd: "/repo" };
 
 describe("codex plugin hooks", () => {
   it("arms the SessionStart hook via -c overrides, id NOT adopted", async () => {
@@ -38,8 +37,6 @@ describe("codex plugin hooks", () => {
       `command="/bin/sh '/App/resources/kd-session-hook.sh'"`,
     );
     expect(out.args[3]).toContain("trusted_hash");
-    // codex mints its own id lazily — the reporter posts it back later.
-    expect(out.sessionId).toBeNull();
   });
 
   it("puts the global -c flags BEFORE the resume subcommand", async () => {

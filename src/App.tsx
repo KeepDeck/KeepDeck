@@ -84,7 +84,7 @@ function App() {
   // spawns). Dormant panes get theirs at revive time.
   const specByPane = usePaneSpawnSpecs(deck.workspaces, spawnCtx, !agentsLoading);
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
-  useSessionBinding(deck, specByPane);
+  useSessionBinding(deck);
   // Runtime git HEAD observations for pane badges and worktree close cleanup.
   const gitHeads = useGitHead(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).

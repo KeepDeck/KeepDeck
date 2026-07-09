@@ -21,10 +21,9 @@ const output = (): SpawnPlanOutput => ({
   command: "opencode",
   args: [],
   env: [],
-  sessionId: null,
 });
 
-const input = { paneId: "pane-3", wsId: "ws-1", cwd: "/repo", sessionId: "minted" };
+const input = { paneId: "pane-3", wsId: "ws-1", cwd: "/repo" };
 
 describe("opencode plugin hooks", () => {
   it("injects the reporter via a MERGING per-invocation config", async () => {
@@ -37,7 +36,6 @@ describe("opencode plugin hooks", () => {
     expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT)).toEqual({
       plugin: ["/App/resources/session-reporter.js"],
     });
-    expect(out.sessionId).toBeNull();
   });
 
   it("resumes with -s and still arms the reporter (catches /new)", async () => {

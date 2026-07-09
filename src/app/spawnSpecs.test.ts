@@ -29,15 +29,14 @@ vi.mock("./pluginManager", async () => {
 
 const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
-/** An adopting agent (claude-shaped): echoes the pre-minted id. */
+/** A claude-shaped agent: reporter args on spawn, --resume on resume. */
 const adopting: AgentContribution = {
   id: "claude",
   label: "Claude Code",
   detect: { bin: "claude" },
   hooks: {
-    "spawn.plan": (input, output) => {
-      output.args = ["--session-id", input.sessionId];
-      output.sessionId = input.sessionId;
+    "spawn.plan": (_input, output) => {
+      output.args = ["--settings", "{hook}"];
     },
     "resume.plan": (input, output) => {
       output.args = ["--resume", input.sessionId];
@@ -90,9 +89,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
 
     const plan = seen["pane-1"];
     expect(plan.command).toBe("claude");
-    expect(plan.args.slice(0, 1)).toEqual(["--session-id"]);
-    // The hook adopted the minted id — bind immediately.
-    expect(plan.sessionId).toBe(plan.args[1]);
+    expect(plan.args).toEqual(["--settings", "{hook}"]);
     // Host-owned arming: the ONE bridge var, token echoed in the plan.
     const env = Object.fromEntries(plan.env);
     const bridge = JSON.parse(env.KEEPDECK_BRIDGE);
@@ -148,8 +145,6 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     register(adopting);
     await buildResumeSpec("claude", "pane-9", "ws-1", "/repo", undefined, ctx, "old-id");
     expect(peekPaneSpawnSpec("pane-9")?.args).toEqual(["--resume", "old-id"]);
-    // Resume never adopts — the binding is already recorded.
-    expect(peekPaneSpawnSpec("pane-9")?.sessionId).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-9")?.token).toBeDefined();
   });
 });

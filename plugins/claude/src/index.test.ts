@@ -21,18 +21,12 @@ const output = (): SpawnPlanOutput => ({
   command: "claude",
   args: [],
   env: [],
-  sessionId: null,
 });
 
-const input = {
-  paneId: "pane-1",
-  wsId: "ws-1",
-  cwd: "/repo",
-  sessionId: "11111111-2222-3333-4444-555555555555",
-};
+const input = { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" };
 
 describe("claude plugin hooks", () => {
-  it("assigns the pre-minted id and arms the /clear reporter", async () => {
+  it("arms the SessionStart reporter — identity is reporter-based", async () => {
     const agent = activate("/App/resources/kd-session-hook.sh");
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
@@ -42,9 +36,8 @@ describe("claude plugin hooks", () => {
     expect(settings.hooks.SessionStart[0].hooks[0].command).toBe(
       "/bin/sh '/App/resources/kd-session-hook.sh'",
     );
-    expect(out.args.slice(2)).toEqual(["--session-id", input.sessionId]);
-    // Adopted: the host binds immediately, no discovery.
-    expect(out.sessionId).toBe(input.sessionId);
+    // No --session-id: claude mints its own id; the hook posts it back.
+    expect(out.args).toHaveLength(2);
   });
 
   it("resume reuses the recorded id and keeps the reporter armed", async () => {
@@ -54,15 +47,13 @@ describe("claude plugin hooks", () => {
 
     expect(out.args[0]).toBe("--settings");
     expect(out.args.slice(2)).toEqual(["--resume", "old-id"]);
-    expect(out.sessionId).toBeNull(); // the binding is already recorded
   });
 
-  it("degrades to assignment-only when the reporter script is missing", async () => {
+  it("degrades to a bare spawn when the reporter script is missing", async () => {
     const agent = activate(null);
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
 
-    expect(out.args).toEqual(["--session-id", input.sessionId]);
-    expect(out.sessionId).toBe(input.sessionId);
+    expect(out.args).toEqual([]);
   });
 });

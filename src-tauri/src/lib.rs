@@ -4,7 +4,6 @@ mod clipboard;
 mod dnd;
 mod fswatch;
 mod head_watch;
-mod history;
 mod links;
 mod logging;
 mod menu;
@@ -106,7 +105,6 @@ pub fn run() {
             state::settings_load,
             state::settings_save,
             state::settings_quarantine,
-            history::history_presence,
             ports::ports_allocate,
             plugins_fs::plugins_scan,
             plugins_fs::plugins_resolve_dir,

@@ -7,7 +7,7 @@ import {
 } from "../domain/agents";
 import type { Workspace } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
-import { mintBridgeToken, mintSessionId } from "./ids";
+import { mintBridgeToken } from "./ids";
 import { pluginRegistries } from "./pluginManager";
 import { useContributions } from "../plugins/react";
 
@@ -21,17 +21,17 @@ import { useContributions } from "../plugins/react";
  * plugins don't see the bridge.
  *
  * One plan per pane id, stable for the pane's life — module scope like the
- * id mints. Stability matters: a claude plan ADOPTS a session id minted at
- * build, and building again on a later render would hand the terminal a
- * different id than the one recorded. Hooks are async, so plans land in the
- * cache a beat after the pane appears; the pane's terminal waits for its
- * plan (mounting is what spawns).
+ * id mints. Stability matters: the plan carries the pane's bridge token,
+ * and re-building on a later render would orphan the token its reporter is
+ * about to echo. Hooks are async, so plans land in the cache a beat after
+ * the pane appears; the pane's terminal waits for its plan (mounting is
+ * what spawns).
  */
 const specs = new Map<string, SpawnPlan>();
 
-/** Panes whose build is in flight — a StrictMode re-run must not mint and
- * build a second time. Never cleared on unmount: the build completes and
- * caches regardless, which is exactly the stability we want. */
+/** Panes whose build is in flight — a StrictMode re-run must not build a
+ * second time. Never cleared on unmount: the build completes and caches
+ * regardless, which is exactly the stability we want. */
 const pending = new Set<string>();
 
 /** Build one plan through the agent's hook; a throwing hook degrades to a
@@ -51,17 +51,13 @@ async function buildPlan(
     command: agent.detect.bin,
     args: [],
     env: [],
-    sessionId: null,
   };
   const base = { paneId, wsId, cwd, ...(branch ? { branch } : {}) };
   try {
     if (resumeId) {
       await agent.hooks["resume.plan"]?.({ ...base, sessionId: resumeId }, output);
     } else {
-      await agent.hooks["spawn.plan"]?.(
-        { ...base, sessionId: mintSessionId() },
-        output,
-      );
+      await agent.hooks["spawn.plan"]?.(base, output);
     }
   } catch (e) {
     log.warn(
@@ -91,7 +87,6 @@ async function buildPlan(
     command: output.command,
     args: output.args,
     env,
-    ...(output.sessionId ? { sessionId: output.sessionId } : {}),
     ...(token ? { token } : {}),
   };
 }

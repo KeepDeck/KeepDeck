@@ -1,10 +1,11 @@
 /**
  * The Claude Code CLI plugin: identity, detection, and the spawn/resume
- * hooks. claude's session id is ASSIGNED — a fresh spawn adopts the host's
- * pre-minted id via `--session-id` (no discovery, ever) and resume REUSES
- * the recorded one (forking is opt-in upstream). The SessionStart hook
- * rides along as the reporter for mid-life session swaps — `/clear` and
- * compaction change the session id underneath an otherwise-silent pane.
+ * hooks. Identity is reporter-based, same scheme as every agent: claude
+ * mints its own session id and the SessionStart hook posts it back at
+ * startup — and again on `/clear`/compaction, which swap the id underneath
+ * an otherwise-silent pane (probe-verified on 2.1.205: the startup event
+ * carries the self-minted id). Resume REUSES the recorded id (forking is
+ * opt-in upstream).
  */
 import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
 
@@ -40,14 +41,8 @@ const plugin: KeepDeckPlugin = {
       label: "Claude Code",
       detect: { bin: "claude" },
       hooks: {
-        "spawn.plan": async (input, output) => {
-          output.args = [
-            ...(await hookArgs(ctx.resources)),
-            "--session-id",
-            input.sessionId,
-          ];
-          // Adopted — the host binds it immediately, no discovery.
-          output.sessionId = input.sessionId;
+        "spawn.plan": async (_input, output) => {
+          output.args = await hookArgs(ctx.resources);
         },
         "resume.plan": async (input, output) => {
           output.args = [
