@@ -64,4 +64,10 @@ describe("capabilityFingerprint", () => {
       capabilityFingerprint(manifest([])),
     );
   });
+  it("the category is part of what was consented to", () => {
+    const deck = capabilityFingerprint(manifest([]));
+    const cli = capabilityFingerprint({ ...manifest([]), category: "cli" });
+    expect(cli).not.toBe(deck);
+  });
+
 });
