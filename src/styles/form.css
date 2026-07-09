@@ -259,6 +259,43 @@
   cursor: default;
 }
 
+/* Combobox (ui/Combobox.tsx): the editable sibling of .dropdown — a text
+   field plus a chevron toggle, whose menu (the dropdown classes below)
+   filters as the user types. The wrapper anchors the list, like .dropdown. */
+.combobox {
+  position: relative;
+}
+
+.combobox__input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 0; /* field rhythm belongs to the wrapper, like .dropdown */
+  padding-right: 28px; /* reserved chevron slot, matching .form__field-input */
+}
+
+.combobox__toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.combobox__toggle:hover {
+  color: #c5c8c6;
+  background-color: #1b2230;
+}
+
 /* In-app dropdown (ui/Dropdown.tsx): a form field that opens our own menu —
    never the OS popup. The wrapper anchors the absolutely-positioned list. */
 .dropdown {

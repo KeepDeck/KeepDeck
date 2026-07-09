@@ -7,5 +7,6 @@
  * plugin's UI is styled by the app it ships with).
  */
 export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
+export { Combobox, fuzzyFilter } from "./Combobox.tsx";
 export { noAutoCorrect } from "./inputProps.ts";
 export * from "./icons.tsx";
