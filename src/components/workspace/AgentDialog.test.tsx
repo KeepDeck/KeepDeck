@@ -300,4 +300,39 @@ describe("AgentDialog worktree location flow", () => {
     expect(errorText()).toBeUndefined();
     expect(createBtn().disabled).toBe(false);
   });
+
+  it("opens at full height: a prefilled path shows the fields before any probe", async () => {
+    await mount({ probeOf: {}, occupancyOf: {} });
+    // No settleProbe — the layout must not wait for the first probe.
+    expect(branchInput()).not.toBeNull();
+    expect(baseInput()).not.toBeNull();
+    // …while Create still does: mid-probe nothing can be submitted.
+    expect(createBtn().disabled).toBe(true);
+    submit();
+    expect(confirmed).toEqual([]);
+  });
+
+  it("editing the path keeps the fields mounted through the re-probe — no layout jump", async () => {
+    await mount({ probeOf: {}, occupancyOf: {} });
+    await settleProbe();
+    expect(branchInput()).not.toBeNull();
+    type(pathInput(), "/base/kd-ws-9");
+    // Probe in flight ("Checking path…"): the fields hold their ground.
+    expect(branchInput()).not.toBeNull();
+    expect(baseInput()).not.toBeNull();
+    expect(createBtn().disabled).toBe(true);
+    await settleProbe();
+    expect(branchInput()).not.toBeNull();
+    expect(createBtn().disabled).toBe(false);
+  });
+
+  it("a path that settles as an existing worktree still drops the fields", async () => {
+    await mount({ probeOf: { "/wt/other": WORKTREE }, occupancyOf: {} });
+    await settleProbe();
+    type(pathInput(), "/wt/other");
+    expect(branchInput()).not.toBeNull(); // sticky while checking…
+    await settleProbe();
+    expect(branchInput()).toBeNull(); // …but the settled truth wins
+    expect(baseInput()).toBeNull();
+  });
 });

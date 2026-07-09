@@ -8,6 +8,7 @@ import {
   type AgentDialogResult,
   type AgentLocation,
   type AgentType,
+  type LocationKind,
   type Occupancy,
   type PathProbe,
 } from "../../domain/agents";
@@ -195,6 +196,18 @@ export function AgentDialog({
   const kind = repo
     ? classifyLocation(path, probe, occupancy, attachAnyway)
     : "main";
+  // What the LAYOUT renders while a probe is in flight: "checking" is the
+  // only transient kind, and every keystroke in the path field passes through
+  // it — unmounting the Branch/Base fields on each one made the whole dialog
+  // jump. The last settled kind holds the layout still; `kind` itself keeps
+  // gating Create, so nothing can be submitted against a stale read. Seeded
+  // optimistically: a prefilled path was already probed free by the opener,
+  // so the dialog opens at its full height instead of growing a beat later.
+  const settledKindRef = useRef<LocationKind>(
+    suggestedPath.trim() ? "new" : "main",
+  );
+  if (kind !== "checking") settledKindRef.current = kind;
+  const layoutKind = settledKindRef.current;
   const baseOk = isKnownBaseBranch(baseBranch, branches);
   const valid = canCreateAgent(kind, branch, baseOk);
 
@@ -278,7 +291,7 @@ export function AgentDialog({
               onAttachAnyway={() => setAttachAnyway(true)}
             />
 
-            {kind === "new" && (
+            {layoutKind === "new" && (
               <>
                 <span className="form__label">Branch</span>
                 <SuggestedInput
