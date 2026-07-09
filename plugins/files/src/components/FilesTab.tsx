@@ -19,8 +19,9 @@ import { FileViewer } from "./FileViewer";
  * worktrees are reachable.
  *
  * `cursor` is the keyboard-focused row; arrows move it (and expand/collapse).
- * Enter or a click opens the focused file into the peek; the tree stays mounted
- * so its cursor and scroll survive the round trip.
+ * Enter or a DOUBLE click opens the focused file into the peek — a single
+ * click only selects the row (aim, drag, keyboard handoff); the tree stays
+ * mounted so its cursor and scroll survive the round trip.
  */
 export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   const [target, setTarget] = useState(
@@ -77,6 +78,12 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
     setCursor(path);
     focusTree();
     toggle(path);
+  };
+  // Single click: take the cursor (and keyboard focus) without opening — the
+  // peek covers the window, too disruptive for a mere aim-or-drag click.
+  const focusFile = (node: TreeNode) => {
+    setCursor(node.path);
+    focusTree();
   };
   const openFile = (node: TreeNode) => {
     setCursor(node.path);
@@ -149,7 +156,8 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
             rows={rows}
             cursorPath={cursor}
             onToggle={openDir}
-            onSelect={openFile}
+            onSelect={focusFile}
+            onOpen={openFile}
           />
         )}
       </div>

@@ -100,6 +100,11 @@ const rowByName = (name: string) =>
 const activeName = () =>
   document.querySelector(".files__row--sel .files__name")?.textContent ?? null;
 
+/** Double-click a row — opening a file is a double-click gesture; a single
+ * click only selects. */
+const dblclick = (el: HTMLElement) =>
+  el.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
 /** Fire an arrow key on the focusable tree container. */
 const press = (key: string) =>
   act(() => {
@@ -168,10 +173,20 @@ describe("FilesTab", () => {
     expect(treeNames()).toEqual(["src", "new.ts", "readme.md"]);
   });
 
-  it("previews a file's text when it is selected", async () => {
+  it("a single click only selects a file — no peek, no read", async () => {
+    await mount();
+    await act(async () => rowByName("readme.md")!.click());
+    await act(async () => {});
+    expect(document.querySelector(".files__peek")).toBeNull();
+    expect(fs.readFile).not.toHaveBeenCalled();
+    // The click did take the cursor, so keyboard flow continues from here.
+    expect(activeName()).toBe("readme.md");
+  });
+
+  it("previews a file's text when it is opened", async () => {
     await mount();
 
-    await act(async () => rowByName("readme.md")!.click());
+    await act(async () => dblclick(rowByName("readme.md")!));
     await act(async () => {});
 
     expect(fs.readFile).toHaveBeenCalledWith("/repo/readme.md");
@@ -183,7 +198,7 @@ describe("FilesTab", () => {
 
   it("toggles line wrapping in the peek", async () => {
     await mount();
-    await act(async () => rowByName("readme.md")!.click());
+    await act(async () => dblclick(rowByName("readme.md")!));
     await act(async () => {});
     const wrapBtn = document.querySelector<HTMLButtonElement>(
       'button[aria-label="Toggle line wrapping"]',
@@ -195,7 +210,7 @@ describe("FilesTab", () => {
 
   it("closes the peek on a backdrop click", async () => {
     await mount();
-    await act(async () => rowByName("readme.md")!.click());
+    await act(async () => dblclick(rowByName("readme.md")!));
     await act(async () => {});
     expect(document.querySelector(".files__peek")).not.toBeNull();
     await act(async () =>
@@ -212,11 +227,12 @@ describe("FilesTab", () => {
     expect(rowByName("src")!.getAttribute("data-kd-drag-path")).toBe("/repo/src");
   });
 
-  it("selecting a file does not read it as a directory", async () => {
+  it("opening a file does not read it as a directory", async () => {
     await mount();
-    await act(async () => rowByName("readme.md")!.click());
+    await act(async () => dblclick(rowByName("readme.md")!));
     await act(async () => {});
-    // A file click drives readFile, never readDir on that path.
+    // Opening a file drives readFile, never readDir on that path.
+    expect(fs.readFile).toHaveBeenCalledWith("/repo/readme.md");
     expect(fs.readDir).not.toHaveBeenCalledWith("/repo/readme.md");
   });
 
