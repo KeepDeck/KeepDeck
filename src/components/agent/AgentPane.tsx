@@ -9,6 +9,7 @@ import {
   RestoreIcon,
 } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
+import { LaunchSpinner } from "../../ui/LaunchSpinner";
 
 interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
@@ -206,12 +207,7 @@ export function AgentPane({
             </div>
           ) : (
             <div className="pane__dormant" role="status">
-              <span className="pane__provision-bar" aria-hidden />
-              <span className="pane__provision-pulse" aria-hidden>
-                <span />
-                <span />
-                <span />
-              </span>
+              <LaunchSpinner />
               <span className="pane__exit-title">
                 {provisioning.phase === "setup"
                   ? "Running setup…"

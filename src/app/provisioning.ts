@@ -219,6 +219,9 @@ function runSetup(
           : settle(false, tail || `exit code ${code ?? "?"}`),
       onSpawnError: (message) => settle(false, message),
       onReady: () => {},
+      // The setup command runs behind the provisioning card, not a terminal —
+      // its first output drives no launch overlay.
+      onLaunched: () => {},
     });
   });
 }

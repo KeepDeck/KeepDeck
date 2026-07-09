@@ -32,6 +32,9 @@
   border-bottom: 1px solid #242a37;
   background-color: #151923;
   user-select: none;
+  /* Query container for the header controls: a narrow pane collapses the branch
+     badge to an icon-only chip (see the @container rule below). */
+  container-type: inline-size;
 }
 
 .pane__identity {
@@ -114,7 +117,8 @@
   overflow: hidden;
   max-width: min(180px, 44vw);
   flex: 0 1 auto;
-  min-width: 0;
+  /* No min-width:0 — the chip must never shrink below its icon. The label
+     ellipsizes; the icon stays whole (see .pane__branch-label min-width:0). */
 }
 
 .pane__branch svg {
@@ -127,6 +131,23 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+/* Narrow pane: drop the branch label and center the chip on its icon alone, so
+   in a crowded header it reads as a clean icon dot instead of a clipped, shifted
+   badge. `display:none` (not ellipsis-to-nothing) takes the label out of the
+   flex flow entirely, so no leftover gap/padding pushes the icon off-center. */
+@container (max-width: 280px) {
+  .pane__branch {
+    flex: none;
+    width: 22px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .pane__branch-label {
+    display: none;
+  }
 }
 
 .pane__action,
