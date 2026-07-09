@@ -30,6 +30,8 @@ set -euo pipefail
 
 # Run from the repo root regardless of where the script is invoked from.
 cd "$(dirname "$0")"
+# shellcheck source=scripts/macos-app.sh
+source "scripts/macos-app.sh"
 
 styled=0
 passthrough=()
@@ -47,17 +49,10 @@ if [[ "$styled" -eq 1 ]]; then
   exec pnpm tauri build --bundles dmg ${passthrough[@]+"${passthrough[@]}"}
 fi
 
-echo "==> Building KeepDeck.app (Tauri release bundle)"
-pnpm tauri build --bundles app ${passthrough[@]+"${passthrough[@]}"}
-
-# Locate the freshly built .app (also matches --target subdirs like
-# target/universal-apple-darwin/release/bundle/macos/). `|| true` guards the
-# pipeline so an early-closing `head` under `set -o pipefail` doesn't abort us.
-app_path="$(find target -type d -path '*/release/bundle/macos/*.app' -prune 2>/dev/null | head -n1 || true)"
-if [[ -z "$app_path" ]]; then
-  echo "error: no .app bundle found under target/**/release/bundle/macos/" >&2
-  exit 1
-fi
+# ${arr[@]+"${arr[@]}"} expands to nothing on an empty array — required because
+# macOS ships bash 3.2, where "${arr[@]}" on an empty array trips `set -u`.
+build_keepdeck_app ${passthrough[@]+"${passthrough[@]}"}
+app_path="$(locate_keepdeck_app)"
 app_name="$(basename "$app_path" .app)"
 bundle_dir="$(dirname "$(dirname "$app_path")")"   # …/release/bundle
 
