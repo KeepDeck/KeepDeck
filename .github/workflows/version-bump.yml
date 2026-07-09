@@ -76,7 +76,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 24 (matches local dev): the frontend build runs
+          # `node scripts/build-plugins.mjs`, which imports the workspace's
+          # TypeScript entry (@keepdeck/plugin-api → src/index.ts). Node < 22.18
+          # can't load .ts and fails with ERR_UNKNOWN_FILE_EXTENSION.
+          node-version: 24
           cache: pnpm
 
       - name: Install Rust targets
