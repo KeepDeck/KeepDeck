@@ -31,6 +31,9 @@ export function connectPluginGuest(port: MessagePort, plugin: KeepDeckPlugin): v
       const built = buildGuestContext(rpc, manifest);
       dispatchEvent = built.dispatchEvent;
       await plugin.activate(built.ctx);
+      // A refused registration (undeclared contribution, gate violation)
+      // fails the activation — same fail-loud semantics as the built-in tier.
+      await built.registrationsSettled();
       port.postMessage({ kind: "activated" });
     } catch (error) {
       port.postMessage({ kind: "failed", error: describeError(error) });

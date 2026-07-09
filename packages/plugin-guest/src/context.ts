@@ -15,6 +15,11 @@ export interface GuestContextBundle {
   ctx: PluginContext;
   /** Route one host push to whichever local subscribers registered for it. */
   dispatchEvent(channel: string, payload: unknown): void;
+  /** Resolves when every registration fired so far has been ACCEPTED by the
+   * host; rejects with the first refusal (an undeclared contribution, a gate
+   * violation). `activate` awaits this before reporting success — a plugin
+   * must not show "active" with a contribution silently missing. */
+  registrationsSettled(): Promise<void>;
 }
 
 /**
@@ -92,6 +97,10 @@ export function buildGuestContext(
     };
   }
 
+  // Registration outcomes, awaited by `registrationsSettled` — a refused
+  // contribution FAILS activation instead of vanishing silently.
+  const registrations: Promise<unknown>[] = [];
+
   /** Register a contribution over the wire and hand back a `Disposable` that
    * both runs local cleanup and asks the host to retire the registration. */
   function registerRemote(
@@ -100,7 +109,7 @@ export function buildGuestContext(
     localCleanup: () => void,
   ): Disposable {
     const regId = nextRegId++;
-    void rpc.call(path, [regId, entry]).catch(noop);
+    registrations.push(rpc.call(path, [regId, entry]));
     let live = true;
     return {
       dispose() {
@@ -323,7 +332,11 @@ export function buildGuestContext(
     if (set) for (const cb of [...set]) cb(payload);
   }
 
-  return { ctx, dispatchEvent };
+  return {
+    ctx,
+    dispatchEvent,
+    registrationsSettled: () => Promise.all(registrations).then(noop),
+  };
 }
 
 /** The key an action's `run` is filed under locally — the SAME suffix the host
