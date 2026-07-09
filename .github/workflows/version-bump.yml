@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.bump.outputs.version }}
+      minor: ${{ steps.bump.outputs.minor }}
     # Belt and braces for pushes made with credentials other than GITHUB_TOKEN.
     if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'Bump version to ')
     steps:
@@ -56,19 +57,28 @@ jobs:
           git commit -am "Bump version to ${{ steps.bump.outputs.version }}"
           git push origin main
 
-  # Build the newly bumped version and publish it as the rolling "latest"
-  # GitHub Release (one fixed tag, force-updated each version; the installer
-  # always pulls it). This hangs off the same run via `needs`: the bot's
-  # GITHUB_TOKEN bump push cannot trigger a fresh workflow, so a standalone
-  # push-triggered release job would never fire.
-  release:
+  # Build the newly bumped version for each macOS arch, natively and in
+  # parallel (arm64 on Apple Silicon, x86_64 on an Intel runner — no fragile
+  # cross-compile), and hand the zips to the publish job. Runs ONLY for minor
+  # (or larger) bumps; patch merges skip the expensive macOS build. Hangs off
+  # the same run via `needs` because the bot's GITHUB_TOKEN bump push cannot
+  # trigger a fresh workflow.
+  build:
     needs: bump
-    if: needs.bump.outputs.version != ''
-    runs-on: macos-latest
+    if: needs.bump.outputs.minor == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest # Apple Silicon (arm64)
+            asset: KeepDeck-macos-arm64.zip
+          - runner: macos-13 # Intel (x86_64)
+            asset: KeepDeck-macos-x64.zip
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main # includes the bump commit pushed by the job above
+          ref: main # includes the bump commit pushed by the bump job
 
       - uses: pnpm/action-setup@v4
         with:
@@ -83,32 +93,51 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      - name: Install Rust targets
-        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      # Cache compiled Rust deps so repeat builds only recompile our own crates.
+      - uses: Swatinem/rust-cache@v2
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build and package the universal app
+      - name: Build and package the app (native to this runner's arch)
         run: |
           source scripts/macos-app.sh
-          build_keepdeck_app --target universal-apple-darwin
+          build_keepdeck_app
           app="$(locate_keepdeck_app)"
-          ditto -c -k --sequesterRsrc --keepParent "$app" KeepDeck-macos-universal.zip
+          ditto -c -k --sequesterRsrc --keepParent "$app" "${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+  # Attach both arch zips to the rolling "latest" GitHub Release (one fixed tag,
+  # force-updated each release; the installer always pulls it).
+  publish:
+    needs: [bump, build]
+    if: needs.bump.outputs.minor == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      VERSION: ${{ needs.bump.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
 
       - name: Publish the rolling "latest" release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.bump.outputs.version }}
         run: |
           notes="KeepDeck $VERSION (latest build).
 
           Install:
           curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh"
           if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest KeepDeck-macos-universal.zip --clobber
+            gh release upload latest assets/*.zip --clobber
             gh release edit latest --title "KeepDeck $VERSION" --notes "$notes"
           else
-            gh release create latest KeepDeck-macos-universal.zip \
+            gh release create latest assets/*.zip \
               --title "KeepDeck $VERSION" --notes "$notes" --latest
           fi

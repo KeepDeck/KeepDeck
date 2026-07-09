@@ -17,7 +17,8 @@
 //
 // Writes src-tauri/Cargo.toml (the declared source of truth), package.json
 // and the keepdeck entry in Cargo.lock. Prints the new version and, when
-// GITHUB_OUTPUT is set, appends version=<new> for the workflow.
+// GITHUB_OUTPUT is set, appends version=<new> and minor=<bool> (whether the
+// batch included a minor bump) for the workflow.
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
@@ -155,7 +156,12 @@ export function main(argv = process.argv.slice(2)) {
   );
   console.log(`Bump version to ${next} (${current} + ${kinds.join(", ")})`);
   if (process.env.GITHUB_OUTPUT) {
-    appendFileSync(process.env.GITHUB_OUTPUT, `version=${next}\n`);
+    // `minor` gates the release build, which runs only for minor (or larger)
+    // bumps — patch merges skip the expensive macOS build.
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `version=${next}\nminor=${kinds.includes("minor")}\n`,
+    );
   }
   return next;
 }

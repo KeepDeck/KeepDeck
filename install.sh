@@ -14,14 +14,20 @@
 set -eu
 
 REPO="KeepDeck/KeepDeck"
-ASSET="KeepDeck-macos-universal.zip"
-URL="${KEEPDECK_URL:-https://github.com/$REPO/releases/download/latest/$ASSET}"
 DEST="${KEEPDECK_DEST:-/Applications}"
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "KeepDeck currently supports macOS only." >&2
   exit 1
 fi
+
+case "$(uname -m)" in
+  arm64) asset="KeepDeck-macos-arm64.zip" ;;  # Apple Silicon
+  x86_64) asset="KeepDeck-macos-x64.zip" ;;   # Intel
+  *) echo "unsupported CPU architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+
+URL="${KEEPDECK_URL:-https://github.com/$REPO/releases/download/latest/$asset}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
