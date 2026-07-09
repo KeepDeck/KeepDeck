@@ -21,7 +21,7 @@ it) with this layout:
 | Entry            | Required | Meaning |
 |------------------|----------|---------|
 | `container.json` | yes      | Written by the packer: `{ "format": 1 }` — the container-format revision. A reader refuses a higher format ("created by a newer KeepDeck"). |
-| `manifest.json`  | yes      | The plugin: id, name, version, `minApiVersion`, capabilities, contributions. Validated strictly on load. |
+| `manifest.json`  | yes      | The plugin: id, name, version, `minApiVersion`, `category` (`"cli"` teaches KeepDeck a coding agent, agents contributions only; `"deck"` — the default — extends deck chrome: dock tabs, actions, settings), capabilities, contributions. Validated strictly on load; only DECLARED contributions may register. |
 | `main.js`        | yes      | The plugin's entry: a self-contained ESM module run in its logic realm (hooks, storage, events over RPC). Fixed name, no declaration — a plugin is code, so it always ships one. No externals — bundle everything, including `@keepdeck/plugin-guest`. |
 | `<tabId>.html`   | per dock tab | The document for each `contributes.dockTabs` entry, shown in a sandboxed iframe under the plugin's own origin. Bring your own JS/CSS/framework — the iframe is isolated. |
 | `SIGNATURE`      | reserved | Future integrity block. Absent today; readers ignore it. |

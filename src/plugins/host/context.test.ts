@@ -65,7 +65,7 @@ function fakeDeps() {
 }
 
 describe("buildPluginContext", () => {
-  it("routes UI/settings/agent registrations into the matching registries, tagged by plugin", () => {
+  it("routes UI and settings registrations into the matching registries, tagged by plugin", () => {
     const registries = createContributionRegistries();
     const { deps } = fakeDeps();
     const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
