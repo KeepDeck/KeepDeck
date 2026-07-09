@@ -1,4 +1,5 @@
 import type {
+  AgentHooks,
   Disposable,
   FsEntry,
   FsFile,
@@ -6,8 +7,9 @@ import type {
   PluginManifest,
   PluginSessionEvent,
 } from "@keepdeck/plugin-api";
+import { describeError } from "./errors";
 import type { GuestRpc } from "./rpc";
-import type { WireSessionEvent } from "./protocol";
+import type { WireHookCall, WireSessionEvent } from "./protocol";
 
 /** A guest context wired to a bridge, plus the sink the connection pumps
  * host-initiated `event` pushes into. */
@@ -61,6 +63,9 @@ export function buildGuestContext(
   // so a program's opening output is never dropped in that window.
   const sessionBuffers = new Map<string, PluginSessionEvent[]>();
   const actionCallbacks = new Map<string, (target?: unknown) => void>();
+  // Agent hooks stay HERE (functions can't cross the wire); the host pushes
+  // `hook:<id>` per invocation and we answer with `agents.hookResult`.
+  const agentHooks = new Map<string, AgentHooks>();
   // One `fswatch:<id>` change callback per open directory watch.
   const watchCallbacks = new Map<string, () => void>();
   let nextRegId = 1;
@@ -180,13 +185,21 @@ export function buildGuestContext(
     },
 
     agents: {
-      // Identity crosses; hooks are functions and are not modelled at this tier.
-      register: (agent) =>
-        registerRemote(
+      // Identity crosses as data; the hooks stay in this realm and the host
+      // invokes them per spawn through `hook:<id>` pushes.
+      register: (agent) => {
+        agentHooks.set(agent.id, agent.hooks);
+        return registerRemote(
           "agents.register",
-          { id: agent.id, label: agent.label, detect: agent.detect },
-          noop,
-        ),
+          {
+            id: agent.id,
+            label: agent.label,
+            detect: agent.detect,
+            hookNames: Object.keys(agent.hooks),
+          },
+          () => agentHooks.delete(agent.id),
+        );
+      },
     },
 
     resources: {
@@ -303,7 +316,29 @@ export function buildGuestContext(
     },
   };
 
+  /** Run one host-requested agent hook and post the mutated output back. */
+  async function runHook(callId: number, payload: unknown): Promise<void> {
+    const { agentId, hook, input, output } = payload as WireHookCall;
+    try {
+      const fn = agentHooks.get(agentId)?.[hook as keyof AgentHooks];
+      if (!fn) throw new Error(`no ${hook} hook for agent "${agentId}"`);
+      await fn(input as never, output as never);
+      void rpc.call("agents.hookResult", [callId, { ok: true, output }]).catch(noop);
+    } catch (error) {
+      void rpc
+        .call("agents.hookResult", [
+          callId,
+          { ok: false, error: describeError(error) },
+        ])
+        .catch(noop);
+    }
+  }
+
   function dispatchEvent(channel: string, payload: unknown): void {
+    if (channel.startsWith("hook:")) {
+      void runHook(Number(channel.slice("hook:".length)), payload);
+      return;
+    }
     if (channel.startsWith("session:")) {
       const id = channel.slice("session:".length);
       const event = rehydrateSessionEvent(payload);

@@ -8,7 +8,8 @@ import {
 import type { Workspace } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { mintBridgeToken } from "./ids";
-import { pluginRegistries } from "./pluginManager";
+import { pluginHost, pluginRegistries } from "./pluginManager";
+import { execCovers } from "../plugins/capabilities/execCovers";
 import { useContributions } from "../plugins/react";
 
 /**
@@ -37,7 +38,7 @@ const pending = new Set<string>();
 /** Build one plan through the agent's hook; a throwing hook degrades to a
  * bare spawn (no identity) rather than a dead pane. */
 async function buildPlan(
-  agent: AgentContribution,
+  agent: { entry: AgentContribution; pluginId: string },
   paneId: string,
   wsId: string,
   cwd: string,
@@ -45,26 +46,45 @@ async function buildPlan(
   ctx: SpawnPlanContext,
   resumeId?: string | null,
 ): Promise<SpawnPlan> {
+  const { entry, pluginId } = agent;
   const output: SpawnPlanOutput = {
     // Prefilled with the detected command; a hook may override (null = the
     // user's shell).
-    command: agent.detect.bin,
+    command: entry.detect.bin,
     args: [],
     env: [],
   };
   const base = { paneId, wsId, cwd, ...(branch ? { branch } : {}) };
   try {
     if (resumeId) {
-      await agent.hooks["resume.plan"]?.({ ...base, sessionId: resumeId }, output);
+      await entry.hooks["resume.plan"]?.({ ...base, sessionId: resumeId }, output);
     } else {
-      await agent.hooks["spawn.plan"]?.(base, output);
+      await entry.hooks["spawn.plan"]?.(base, output);
     }
   } catch (e) {
     log.warn(
       "web:agents",
-      `${agent.id} ${resumeId ? "resume" : "spawn"}.plan failed — bare spawn: ${describeError(e)}`,
+      `${entry.id} ${resumeId ? "resume" : "spawn"}.plan failed — bare spawn: ${describeError(e)}`,
     );
-    return { command: agent.detect.bin, args: [], env: [] };
+    return { command: entry.detect.bin, args: [], env: [] };
+  }
+  // The hook's command must be covered by its plugin's exec capability —
+  // warn for a trusted built-in (a bug to fix), CLAMP for an external
+  // (falling back to the agent's own binary, which the registration gate
+  // proved covered): a sandboxed plugin must not pick the program.
+  const owner = pluginHost
+    .getInstalled()
+    .find((installed) => installed.manifest.id === pluginId);
+  if (owner && !execCovers(owner.manifest.capabilities, output.command ?? "$SHELL")) {
+    log.warn(
+      "web:agents",
+      `${entry.id}: plan command "${output.command}" is not exec-covered by ${pluginId}`,
+    );
+    if (owner.source === "external") {
+      output.command = entry.detect.bin;
+      output.args = [];
+      output.env = [];
+    }
   }
   // Bridge arming is host business: reporters read this var; hooks only
   // make the CLI load a reporter. Armed whenever the bridge exists.
@@ -181,8 +201,8 @@ export function resetPaneSpawnSpecs(): void {
   pending.clear();
 }
 
-function findAgent(agentType: string): AgentContribution | undefined {
-  return pluginRegistries.agents
-    .list()
-    .find((c) => c.entry.id === agentType)?.entry;
+function findAgent(
+  agentType: string,
+): { entry: AgentContribution; pluginId: string } | undefined {
+  return pluginRegistries.agents.list().find((c) => c.entry.id === agentType);
 }

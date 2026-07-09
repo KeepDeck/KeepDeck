@@ -114,6 +114,7 @@ describe("buildPluginContext", () => {
     const { ctx } = buildPluginContext(
       manifest("cli", {
         category: "cli",
+        capabilities: [{ kind: "exec", commands: ["claude", "codex"] }],
         contributes: { agents: [{ id: "claude", label: "Claude Code" }] },
       }),
       "builtin",
@@ -210,5 +211,30 @@ describe("buildPluginContext", () => {
     expect(boom.dispose).toHaveBeenCalledTimes(1);
     expect(ok.dispose).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the agent-binary exec gate", () => {
+  it("refuses an agent whose binary no exec capability covers", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(
+      manifest("cli", {
+        category: "cli",
+        contributes: { agents: [{ id: "gemini", label: "Gemini" }] },
+      }),
+      "builtin",
+      registries,
+      deps,
+    );
+    expect(() =>
+      ctx.agents.register({
+        id: "gemini",
+        label: "Gemini",
+        detect: { bin: "gemini" },
+        hooks: {},
+      }),
+    ).toThrow("exec capability");
+    expect(registries.agents.list()).toEqual([]);
   });
 });

@@ -1,13 +1,22 @@
 import type {
   AgentContribution,
+  AgentHooks,
   Disposable,
   DockTabContribution,
   FsReadFileOptions,
   PluginContext,
   PluginSpawnOptions,
   SettingsSectionContribution,
+  SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
-import { actionChannel, DECK_EVENT_CHANNELS, fswatchChannel } from "./protocol";
+import {
+  actionChannel,
+  DECK_EVENT_CHANNELS,
+  fswatchChannel,
+  hookChannel,
+  type WireHookCall,
+  type WireSpawnPlanOutput,
+} from "./protocol";
 import { createHostSessions } from "./hostSessions";
 import { createHostSubscriptions } from "./hostSubscriptions";
 
@@ -48,6 +57,46 @@ export function createHostDispatch(
 ): HostDispatch {
   const subscriptions = createHostSubscriptions(ctx, push);
   const sessions = createHostSessions(ctx, push);
+
+  // Agent-hook invocations awaiting their `agents.hookResult` reply. A hung
+  // or dead realm must not freeze the spawn pipeline: each call carries a
+  // timeout, and `dispose` fails whatever is still pending.
+  const HOOK_TIMEOUT_MS = 10_000;
+  let nextHookId = 1;
+  const pendingHooks = new Map<
+    number,
+    (result: { ok: true; output: unknown } | { ok: false; error: string }) => void
+  >();
+
+  /** Run ONE hook in the realm: push the call, await the correlated result,
+   * copy the sanitized mutated output back into the caller's object — the
+   * in-process mutate-in-place contract, preserved across the wire. */
+  function callHook(
+    agentId: string,
+    hook: string,
+    input: unknown,
+    output: SpawnPlanOutput,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const id = nextHookId++;
+      const timer = setTimeout(() => {
+        if (pendingHooks.delete(id))
+          reject(new Error(`${hook} timed out after ${HOOK_TIMEOUT_MS}ms`));
+      }, HOOK_TIMEOUT_MS);
+      pendingHooks.set(id, (result) => {
+        clearTimeout(timer);
+        if (!result.ok) return reject(new Error(result.error));
+        // The realm's word shapes a SPAWN — nothing but plain strings may
+        // come back, whatever a hostile realm actually sent.
+        const mutated = sanitizePlanOutput(result.output);
+        if (!mutated) return reject(new Error(`${hook} returned a malformed plan`));
+        Object.assign(output, mutated);
+        resolve();
+      });
+      const call: WireHookCall = { agentId, hook, input, output };
+      push(hookChannel(id), call);
+    });
+  }
 
   // Registrations retained by the guest-minted id that will later dispose them.
   const registrations = new Map<number, Disposable>();
@@ -132,10 +181,26 @@ export function createHostDispatch(
       );
     },
 
-    // ---- agents: identity only — hooks are functions and don't cross yet ----
+    // ---- agents: identity as data; hooks as host→realm proxies ----
     "agents.register": ([regId, entry]) => {
-      const { id, label, detect } = entry as Omit<AgentContribution, "hooks">;
-      retain(regId as number, ctx.agents.register({ id, label, detect, hooks: {} }));
+      const { id, label, detect, hookNames } = entry as Omit<
+        AgentContribution,
+        "hooks"
+      > & { hookNames?: string[] };
+      const hooks: AgentHooks = {};
+      for (const name of hookNames ?? []) {
+        // Only the contract's hook names become proxies — a made-up name
+        // from a hostile realm never lands on the host object.
+        if (name !== "spawn.plan" && name !== "resume.plan") continue;
+        hooks[name] = (input, output) => callHook(id, name, input, output);
+      }
+      retain(regId as number, ctx.agents.register({ id, label, detect, hooks }));
+    },
+    "agents.hookResult": ([id, result]) => {
+      const settle = pendingHooks.get(id as number);
+      if (!settle) return; // timed out, disposed, or never ours
+      pendingHooks.delete(id as number);
+      settle(result as { ok: true; output: unknown } | { ok: false; error: string });
     },
 
     // ---- the one teardown path shared by every registration kind ----
@@ -200,6 +265,10 @@ export function createHostDispatch(
       return await handler(args);
     },
     dispose() {
+      for (const settle of pendingHooks.values()) {
+        settle({ ok: false, error: "plugin bridge disposed" });
+      }
+      pendingHooks.clear();
       subscriptions.disposeAll();
       sessions.disposeAll();
       for (const disposable of registrations.values()) disposable.dispose();
@@ -207,5 +276,30 @@ export function createHostDispatch(
       for (const watcher of watches.values()) watcher.dispose();
       watches.clear();
     },
+  };
+}
+
+/** Validate a realm-returned plan output down to plain strings; `null` when
+ * anything is off-shape. */
+function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (v.command !== null && typeof v.command !== "string") return null;
+  if (!Array.isArray(v.args) || !v.args.every((a) => typeof a === "string"))
+    return null;
+  if (
+    !Array.isArray(v.env) ||
+    !v.env.every(
+      (pair) =>
+        Array.isArray(pair) &&
+        pair.length === 2 &&
+        pair.every((x) => typeof x === "string"),
+    )
+  )
+    return null;
+  return {
+    command: v.command as string | null,
+    args: v.args as string[],
+    env: v.env as [string, string][],
   };
 }

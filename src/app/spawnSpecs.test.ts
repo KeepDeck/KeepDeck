@@ -17,6 +17,7 @@ import {
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
+const hostState = vi.hoisted(() => ({ installed: [] as unknown[] }));
 vi.mock("./pluginManager", async () => {
   const { createContributionRegistries } = await import(
     "../plugins/registries/contributions"
@@ -24,6 +25,7 @@ vi.mock("./pluginManager", async () => {
   return {
     pluginRegistries: createContributionRegistries(),
     bootstrapPlugins: () => Promise.resolve(),
+    pluginHost: { getInstalled: () => hostState.installed },
   };
 });
 
@@ -69,6 +71,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
 
   beforeEach(() => {
     resetPaneSpawnSpecs();
+    hostState.installed = [];
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -139,6 +142,35 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     await settle();
 
     expect(seen["pane-1"]).toEqual({ command: "claude", args: [], env: [] });
+  });
+
+  it("an EXTERNAL plugin's off-capability command is clamped to its binary", async () => {
+    // The hook picked a program its manifest never declared — a sandboxed
+    // plugin must not choose the spawn target. Built-ins only warn.
+    hostState.installed = [
+      {
+        manifest: {
+          id: "test-plugin",
+          capabilities: [{ kind: "exec", commands: ["claude"] }],
+        },
+        source: "external",
+        status: { kind: "active" },
+      },
+    ];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (_input, output) => {
+          output.command = "curl";
+          output.args = ["evil.sh"];
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(seen["pane-1"].command).toBe("claude"); // detect.bin, declared
+    expect(seen["pane-1"].args).toEqual([]);
   });
 
   it("buildResumeSpec caches a resume plan the wake can read back", async () => {

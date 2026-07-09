@@ -181,6 +181,7 @@ describe("PluginHost", () => {
         // Every kind declared — all registrations must land BEFORE the
         // plugin's own throw, so the sweep has real residue to clear.
         manifest: manifest("p", {
+          capabilities: [{ kind: "exec", commands: ["x"] }],
           contributes: {
             dockTabs: [{ id: "d", label: "d" }],
             topBarActions: [{ id: "tb", label: "tb" }],

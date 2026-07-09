@@ -3,6 +3,7 @@ import type {
   PluginContext,
   PluginManifest,
 } from "@keepdeck/plugin-api";
+import { execCovers } from "../capabilities/execCovers";
 import type { ContributionRegistries } from "../registries/contributions";
 import type { PluginSource } from "../model/installed";
 import type { PluginHostDeps } from "./deps";
@@ -112,6 +113,13 @@ export function buildPluginContext(
     agents: {
       register: (agent) => {
         declared("agents", agent.id);
+        // The agent's binary is what spawn plans fall back to — it must be
+        // legitimate by declaration, both tiers, no exceptions.
+        if (!execCovers(manifest.capabilities, agent.detect.bin)) {
+          throw new Error(
+            `agent "${agent.id}": detect.bin "${agent.detect.bin}" is not covered by an exec capability`,
+          );
+        }
         return track(registries.agents.add(pluginId, agent));
       },
     },
