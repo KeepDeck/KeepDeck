@@ -176,6 +176,25 @@ fn lists_local_branches_alphabetically_excluding_remotes() {
 }
 
 #[test]
+fn resolves_the_default_branch_from_the_remote_head() {
+    let repo_dir = init_repo();
+    // No remote at all → no default branch (an answer, not an error).
+    assert_eq!(repo::default_branch(&repo_dir).unwrap(), None);
+
+    git(&repo_dir, &["update-ref", "refs/remotes/origin/trunk", "HEAD"]);
+    git(
+        &repo_dir,
+        &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"],
+    );
+    assert_eq!(
+        repo::default_branch(&repo_dir).unwrap(),
+        Some("trunk".to_string())
+    );
+
+    fs::remove_dir_all(&repo_dir).ok();
+}
+
+#[test]
 fn add_from_remote_tracking_base_sets_no_upstream() {
     let repo_dir = init_repo();
     // A remote-tracking base branch: without `--no-track`, `worktree add -b`

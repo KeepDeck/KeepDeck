@@ -24,6 +24,19 @@ pub fn resolve_commit(repo: &Path, rev: &str) -> Result<String, GitError> {
     Ok(out.trim().to_string())
 }
 
+/// The repository's default branch — the remote HEAD's short name (`origin/HEAD`
+/// → `main`), which is what "the default branch" means for a clone. `None` when
+/// no `origin` remote declares one (no remote, unfetched HEAD, or a remote under
+/// another name) — callers fall back to the current branch.
+pub fn default_branch(repo: &Path) -> Result<Option<String>, GitError> {
+    match run_git(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
+        Ok(out) => Ok(out.trim().strip_prefix("origin/").map(str::to_string)),
+        // Non-zero = the symbolic ref isn't set; that's an answer, not an error.
+        Err(GitError::Command { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
 /// The current branch name, or `None` when `HEAD` is detached.
 pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
     let out = run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])?;
