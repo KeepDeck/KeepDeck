@@ -8,6 +8,7 @@ import {
 import type { Workspace } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { mintBridgeToken } from "./ids";
+import { postbackCount } from "./postbacks";
 import { pluginHost, pluginRegistries } from "./pluginManager";
 import { execCovers } from "../plugins/capabilities/execCovers";
 import { useContributions } from "../plugins/react";
@@ -108,7 +109,30 @@ async function buildPlan(
     args: output.args,
     env,
     ...(token ? { token } : {}),
+    ...(resumeId
+      ? { resumeOf: resumeId, postbackMark: postbackCount(paneId) }
+      : {}),
   };
+}
+
+/** Whether a pane's exit means its RESUME died before ever becoming a
+ * session: the plan was a resume, and not one accepted postback has arrived
+ * since it was built — a working resume always reports first (every agent's
+ * startup hook posts through the bridge). Such an exit is the CLI refusing
+ * the recorded id (deleted, GC'd, never materialized): the binding is dead
+ * and the pane deserves a fresh start instead of a corpse. */
+export function resumeDiedSilently(
+  spec: SpawnPlan | undefined,
+  currentPostbacks: number,
+): boolean {
+  return !!spec?.resumeOf && spec.postbackMark === currentPostbacks;
+}
+
+/** Forget a pane's plan so the next build starts clean (the respawn-fresh
+ * path after a dead resume). */
+export function dropPaneSpawnSpec(paneId: string): void {
+  specs.delete(paneId);
+  pending.delete(paneId);
 }
 
 /** Build and cache a RESUME plan for a dormant pane about to wake — replaces
@@ -140,6 +164,9 @@ export function usePaneSpawnSpecs(
   workspaces: Workspace[],
   ctx: SpawnPlanContext | null,
   agentsReady: boolean,
+  /** Any value whose change must re-run the build sweep — the respawn
+   * path drops a plan from the module cache, which no other dep observes. */
+  rebuildKey?: unknown,
 ): Record<string, SpawnPlan> {
   const contributions = useContributions(pluginRegistries.agents);
   // The cache version: bumped when a build lands, so the snapshot below
@@ -174,7 +201,7 @@ export function usePaneSpawnSpecs(
     return () => {
       alive = false;
     };
-  }, [workspaces, ctx, agentsReady, contributions]);
+  }, [workspaces, ctx, agentsReady, contributions, rebuildKey]);
 
   // A fresh snapshot object per cache change — cheap (small maps), and lets
   // consumers stay referentially honest.
@@ -187,7 +214,7 @@ export function usePaneSpawnSpecs(
       }
     }
     return snapshot;
-  }, [workspaces, tick]);
+  }, [workspaces, tick, rebuildKey]);
 }
 
 /** The cached plan, if any (no building) — for the binding effect. */

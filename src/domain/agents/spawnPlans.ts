@@ -33,4 +33,11 @@ export interface SpawnPlan {
    * the binding hook refuses postbacks whose token doesn't match — writing a
    * file into the inbox is not enough to bind a pane. */
   token?: string;
+  /** Host bookkeeping: the recorded session this plan tries to RESUME. Set
+   * only on resume plans — the resume-failure detector keys off it. */
+  resumeOf?: string;
+  /** Host bookkeeping: the pane's accepted-postback count when this plan
+   * was built. An exit with the count still here means the resume never
+   * became a session (see `resumeDiedSilently`). */
+  postbackMark?: number;
 }

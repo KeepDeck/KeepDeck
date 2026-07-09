@@ -50,6 +50,11 @@ interface DeckStageProps {
   onStartFresh(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
   onRetryProvision(wsId: string, paneId: string): void;
+  /** A pane's PTY exited (the resume-failure detector lives upstream). */
+  onAgentExited(wsId: string, paneId: string, code: number | null): void;
+  /** Bumped to force a pane's full remount — the respawn-fresh path after a
+   * dead resume (an exited session is never silently respawned in place). */
+  respawnEpochs: ReadonlyMap<string, number>;
 }
 
 /**
@@ -77,6 +82,8 @@ export function DeckStage({
   specByPane,
   onStartFresh,
   onRetryProvision,
+  onAgentExited,
+  respawnEpochs,
 }: DeckStageProps) {
   return (
     <>
@@ -154,7 +161,7 @@ export function DeckStage({
               );
               return (
                 <AgentPane
-                  key={pane.id}
+                  key={`${pane.id}#${respawnEpochs.get(pane.id) ?? 0}`}
                   paneId={pane.id}
                   title={displayTitle}
                   command={command}
@@ -183,6 +190,7 @@ export function DeckStage({
                   onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
                   onStartFresh={() => onStartFresh(ws.id, pane.id)}
                   onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
+                  onExited={(code) => onAgentExited(ws.id, pane.id, code)}
                 />
               );
             })}

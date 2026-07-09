@@ -68,6 +68,8 @@ interface AgentPaneProps {
   onRename(name: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onTitle(title: string): void;
+  /** The PTY process ended — the resume-failure detector listens upstream. */
+  onExited?(code: number | null): void;
 }
 
 /**
@@ -100,6 +102,7 @@ export function AgentPane({
   onClose,
   onRename,
   onTitle,
+  onExited,
   onStartFresh,
   onRetryProvision,
 }: AgentPaneProps) {
@@ -280,7 +283,10 @@ export function AgentPane({
             cwd={cwd}
             visible={visible}
             selected={selected}
-            onExit={(code) => setExit({ code })}
+            onExit={(code) => {
+              setExit({ code });
+              onExited?.(code);
+            }}
             onTitle={onTitle}
           />
         )}

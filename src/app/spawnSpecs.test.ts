@@ -10,6 +10,7 @@ import {
   buildResumeSpec,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
+  resumeDiedSilently,
   usePaneSpawnSpecs,
 } from "./spawnSpecs";
 
@@ -178,5 +179,19 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     await buildResumeSpec("claude", "pane-9", "ws-1", "/repo", undefined, ctx, "old-id");
     expect(peekPaneSpawnSpec("pane-9")?.args).toEqual(["--resume", "old-id"]);
     expect(peekPaneSpawnSpec("pane-9")?.token).toBeDefined();
+    // The failure detector's bookkeeping rides the plan.
+    expect(peekPaneSpawnSpec("pane-9")?.resumeOf).toBe("old-id");
+    expect(peekPaneSpawnSpec("pane-9")?.postbackMark).toBe(0);
+  });
+
+  it("resumeDiedSilently: only a resume with ZERO new postbacks retries", () => {
+    const resume = { args: [], env: [], resumeOf: "old", postbackMark: 2 };
+    // Exited with the count unmoved — the CLI refused the id: retry fresh.
+    expect(resumeDiedSilently(resume, 2)).toBe(true);
+    // A postback arrived — the session really started; a later exit is real.
+    expect(resumeDiedSilently(resume, 3)).toBe(false);
+    // Fresh plans and unknown panes never retry.
+    expect(resumeDiedSilently({ args: [], env: [] }, 0)).toBe(false);
+    expect(resumeDiedSilently(undefined, 0)).toBe(false);
   });
 });

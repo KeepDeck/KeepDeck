@@ -3,6 +3,7 @@ import type { SpawnPlan } from "../domain/agents";
 import { findWorkspaceOfPane } from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
+import { bumpPostback } from "./postbacks";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 
@@ -41,6 +42,9 @@ export function useSessionBinding(deck: Deck): void {
         log.warn("web:bridge", `postback for ${paneId} with a wrong token — ignored`);
         return;
       }
+      // Counted even when the pane's workspace is already gone — the count
+      // answers "did this spawn's process ever report?", nothing else.
+      bumpPostback(paneId);
       // The postback may outlive its pane (agent reported just as the pane
       // closed) — no workspace match means there's nothing to bind.
       const ws = findWorkspaceOfPane(d.workspaces, paneId);
