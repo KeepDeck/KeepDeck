@@ -449,6 +449,64 @@ pub fn plugins_resolve_dir(id: String) -> Option<String> {
     resolve(&root, &id).map(|record| record.dir_name)
 }
 
+/// Absolute on-disk path of `resources/<relative>` inside an EXTERNAL
+/// plugin — the `ctx.resources.path` backing for that tier. A dev folder's
+/// file is served in place (containment-guarded); an archive's entry is
+/// MATERIALIZED under `<keepdeck_home>/plugin-resources/<id>/…` (tmp +
+/// rename, overwritten per call — a spawned CLI cannot open bytes inside a
+/// zip). `None` when the plugin, the entry, or the disk backing is missing.
+#[tauri::command(async)]
+pub fn plugin_external_resource_path(id: String, relative: String) -> Option<String> {
+    let plugins = plugins_root()?;
+    let home = crate::paths::keepdeck_home()?;
+    external_resource_path_in(&plugins, &home.join("plugin-resources"), &id, &relative)
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+fn external_resource_path_in(
+    plugins_root: &Path,
+    materialize_root: &Path,
+    id: &str,
+    relative: &str,
+) -> Option<PathBuf> {
+    // Plain segments only, for BOTH webview-supplied strings: `relative` is
+    // a resource name, not a path expression, and `id` feeds the
+    // materialization path (an archive manifest could declare a hostile id —
+    // Rust never validates manifest schemas, so guard here).
+    if !plain_segments(relative) || !plain_segments(id) {
+        return None;
+    }
+    let record = resolve(plugins_root, id)?;
+    let path = plugins_root.join(&record.dir_name);
+    let entry = format!("resources/{relative}");
+    match record.source {
+        PluginSourceKind::Dev => match safe_lookup(&path, &entry) {
+            Lookup::Found(found) => found.is_file().then_some(found),
+            _ => None,
+        },
+        PluginSourceKind::Archive => {
+            let bytes = PluginSource::Archive(path).read(&entry)?;
+            let dest = materialize_root.join(id).join(relative);
+            let parent = dest.parent()?;
+            fs::create_dir_all(parent).ok()?;
+            let tmp = parent.join(format!(".{}.tmp", dest.file_name()?.to_string_lossy()));
+            fs::write(&tmp, bytes).ok()?;
+            fs::rename(&tmp, &dest).ok()?;
+            Some(dest)
+        }
+    }
+}
+
+/// `/`-separated plain path segments: no empties, no `.`/`..`, no
+/// backslashes — the grammar both webview-supplied inputs above must fit.
+fn plain_segments(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains('\\')
+        && value
+            .split('/')
+            .all(|seg| !seg.is_empty() && seg != "." && seg != "..")
+}
+
 /// Resolve a Resource-dir-relative path to an absolute file path, `None`
 /// when absent. Backs `ctx.resources.path` for BUILT-IN plugins: in a
 /// bundle their built dirs ship as real files under `Resources/plugins/`;
@@ -1882,5 +1940,46 @@ mod tests {
         let url = Url::parse("https://tauri.localhost/a/b").unwrap();
         assert_eq!(origin_of(&url).as_deref(), Some("https://tauri.localhost"));
     }
+    #[test]
+    fn external_resource_path_serves_a_dev_folder_file_in_place() {
+        let root = temp_root();
+        write(&root.join("myplug/manifest.json"), r#"{"id":"dev.x"}"#);
+        write(&root.join("myplug/resources/hook.sh"), "#!/bin/sh\n");
+        let out = temp_root();
+
+        let found = external_resource_path_in(&root, &out, "dev.x", "hook.sh").unwrap();
+        assert_eq!(fs::read_to_string(&found).unwrap(), "#!/bin/sh\n");
+        assert!(found.starts_with(fs::canonicalize(&root).unwrap()));
+
+        // Traversal and hostile ids never resolve.
+        assert!(external_resource_path_in(&root, &out, "dev.x", "../manifest.json").is_none());
+        assert!(external_resource_path_in(&root, &out, "../dev.x", "hook.sh").is_none());
+        assert!(external_resource_path_in(&root, &out, "dev.x", "missing.sh").is_none());
+    }
+
+    #[test]
+    fn external_resource_path_materializes_an_archive_entry() {
+        let root = temp_root();
+        write_container(
+            &root.join("plug.kdplugin"),
+            &[
+                ("container.json".into(), br#"{"format":1}"#.to_vec()),
+                ("manifest.json".into(), br#"{"id":"dev.zip"}"#.to_vec()),
+                ("main.js".into(), b"export default {}".to_vec()),
+                ("resources/hook.sh".into(), b"#!/bin/sh\nzip\n".to_vec()),
+            ],
+        );
+        let out = temp_root();
+
+        let found =
+            external_resource_path_in(&root, &out, "dev.zip", "hook.sh").unwrap();
+        // A REAL file on disk, under the materialization root — a spawned
+        // CLI can open it.
+        assert!(found.starts_with(&out));
+        assert_eq!(fs::read_to_string(&found).unwrap(), "#!/bin/sh\nzip\n");
+        // Absent entries stay absent.
+        assert!(external_resource_path_in(&root, &out, "dev.zip", "nope.sh").is_none());
+    }
+
 }
 

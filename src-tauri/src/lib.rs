@@ -109,6 +109,7 @@ pub fn run() {
             plugins_fs::plugins_scan,
             plugins_fs::plugins_resolve_dir,
             plugins_fs::plugin_resource_path,
+            plugins_fs::plugin_external_resource_path,
             project_fs::project_fs_read_dir,
             project_fs::project_fs_read_file,
             project_fs::project_fs_watch,

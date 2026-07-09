@@ -265,10 +265,13 @@ export const pluginHost = new PluginHost(
           return null;
         }
         if (source === "external") {
-          // Lands with the external agents tier (RPC hooks): resolved inside
-          // the plugin's install folder with the same containment as its
-          // file serving. Until then: absent, callers degrade.
-          return null;
+          // Resolved inside the plugin's install folder (dev folders in
+          // place; archive entries materialized to disk) with the same
+          // source resolution as its file serving.
+          return invoke<string | null>("plugin_external_resource_path", {
+            id: manifest.id,
+            relative,
+          }).catch(() => null);
         }
         // Built-in: in dev the bundle IS the source tree; in prod the built
         // plugin dirs ship as real files under the app's Resource dir.
