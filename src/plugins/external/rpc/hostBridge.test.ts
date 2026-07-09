@@ -20,6 +20,7 @@ const manifest: PluginManifest = {
   name: "Example",
   version: "1.0.0",
   minApiVersion: 1,
+  category: "deck",
   capabilities: [],
   contributes: {},
 };

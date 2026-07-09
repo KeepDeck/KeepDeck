@@ -69,6 +69,7 @@ export function fakeManifest(
     name: id,
     version: "1.0.0",
     minApiVersion: 1,
+    category: "deck",
     capabilities: [],
     contributes: {},
     ...overrides,

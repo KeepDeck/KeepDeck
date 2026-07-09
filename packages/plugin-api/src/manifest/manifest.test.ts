@@ -32,10 +32,58 @@ describe("readManifest", () => {
         name: "Preview",
         version: "1.0.0",
         minApiVersion: 1,
+        category: "deck",
         description: "Preview localhost in a dock tab",
         capabilities: GOLDEN.capabilities,
         contributes: GOLDEN.contributes,
       },
+    });
+  });
+
+  describe("category", () => {
+    it("accepts explicit values (the golden default is pinned above)", () => {
+      const cli = readManifest({
+        ...GOLDEN,
+        category: "cli",
+        contributes: { agents: [{ id: "claude", label: "Claude Code" }] },
+      });
+      expect(cli.ok && cli.manifest.category).toBe("cli");
+      const deck = readManifest({ ...GOLDEN, category: "deck" });
+      expect(deck.ok && deck.manifest.category).toBe("deck");
+    });
+
+    it("rejects unknown categories", () => {
+      const result = readManifest({ ...GOLDEN, category: "theme" });
+      expect(result.ok).toBe(false);
+      if (!result.ok)
+        expect(result.errors.some((e) => e.startsWith("category:"))).toBe(true);
+    });
+
+    it("bounds the contribution surface by category", () => {
+      // A cli plugin may not contribute deck chrome…
+      const cli = readManifest({ ...GOLDEN, category: "cli" });
+      expect(cli.ok).toBe(false);
+      if (!cli.ok) {
+        expect(cli.errors).toContain(
+          'contributes.dockTabs: a "cli" plugin contributes agents, not deck chrome',
+        );
+        expect(cli.errors).toContain(
+          'contributes.topBarActions: a "cli" plugin contributes agents, not deck chrome',
+        );
+      }
+      // …and a deck plugin may not sneak in an agent.
+      const deck = readManifest({
+        ...GOLDEN,
+        contributes: {
+          ...GOLDEN.contributes,
+          agents: [{ id: "claude", label: "Claude Code" }],
+        },
+      });
+      expect(deck.ok).toBe(false);
+      if (!deck.ok)
+        expect(deck.errors).toContain(
+          'contributes.agents: requires category "cli"',
+        );
     });
   });
 
@@ -53,6 +101,7 @@ describe("readManifest", () => {
         name: "Run",
         version: "0.1.0",
         minApiVersion: 1,
+        category: "deck",
         capabilities: [],
         contributes: {},
       },

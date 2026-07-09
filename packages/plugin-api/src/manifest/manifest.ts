@@ -23,6 +23,11 @@ export interface PluginManifest {
   /** Minimum plugin-API REVISION this plugin needs — a plain integer floor
    * (see `API_VERSION`), not semver. */
   minApiVersion: number;
+  /** What KIND of plugin this is (absent in the source manifest = `deck`).
+   * The category scopes the contribution surface — validated here, enforced
+   * again at registration — so a deck plugin can never sneak in an agent and
+   * vice versa. */
+  category: PluginCategory;
   description?: string;
   /** Platform access the plugin may use; empty = pure UI. */
   capabilities: Capability[];
@@ -46,6 +51,15 @@ export interface ContributionSummary {
   id: string;
   label: string;
 }
+
+/** Plugin categories. `cli` teaches KeepDeck a coding agent — it may
+ * contribute `agents` (plus a settings section) and nothing visual; `deck`
+ * extends the deck's own chrome (dock tabs, actions, settings) and may not
+ * contribute agents. Grouping in the Plugins UI follows this field. */
+export type PluginCategory = "cli" | "deck";
+
+/** Contribution kinds a `cli` plugin may NOT declare (they're deck chrome). */
+const DECK_ONLY_KINDS = ["dockTabs", "topBarActions", "paneActions"] as const;
 
 export type ManifestResult =
   | { ok: true; manifest: PluginManifest }
@@ -96,6 +110,18 @@ export function readManifest(value: unknown): ManifestResult {
 
   const capabilities = readCapabilities(value.capabilities, errors);
   const contributes = readContributes(value.contributes, errors);
+  const category = readCategory(value.category, errors);
+
+  // The category bounds the contribution surface — a manifest crossing the
+  // line is invalid, not silently trimmed.
+  if (category === "cli") {
+    for (const kind of DECK_ONLY_KINDS) {
+      if (contributes[kind])
+        errors.push(`contributes.${kind}: a "cli" plugin contributes agents, not deck chrome`);
+    }
+  } else if (contributes.agents) {
+    errors.push(`contributes.agents: requires category "cli"`);
+  }
 
   if (errors.length > 0) return { ok: false, errors };
   return {
@@ -105,6 +131,7 @@ export function readManifest(value: unknown): ManifestResult {
       name,
       version,
       minApiVersion: minApiVersion!,
+      category,
       ...(typeof value.description === "string" && value.description.trim()
         ? { description: value.description.trim() }
         : {}),
@@ -166,6 +193,15 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
     }
   });
   return out;
+}
+
+/** `category` is optional in the source manifest — absent means `deck`, the
+ * common case — but always resolved in the parsed result. */
+function readCategory(value: unknown, errors: string[]): PluginCategory {
+  if (value === undefined) return "deck";
+  if (value === "cli" || value === "deck") return value;
+  errors.push(`category: ${JSON.stringify(value)} must be "cli" or "deck"`);
+  return "deck";
 }
 
 function readContributes(

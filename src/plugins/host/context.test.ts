@@ -8,14 +8,25 @@ import { createContributionRegistries } from "../registries/contributions";
 import { buildPluginContext } from "./context";
 import type { PluginHostDeps } from "./deps";
 
-const manifest = (id: string): PluginManifest => ({
+const manifest = (
+  id: string,
+  overrides: Partial<PluginManifest> = {},
+): PluginManifest => ({
   id,
   name: id,
   version: "1.0.0",
   minApiVersion: 1,
+  category: "deck",
   capabilities: [],
   contributes: {},
+  ...overrides,
 });
+
+/** A manifest declaring the contributions the happy-path tests register. */
+const declaring = (id: string): PluginManifest =>
+  manifest(id, {
+    contributes: { dockTabs: [{ id: "t", label: "T" }], settings: true },
+  });
 
 /** A disposable whose `dispose` is a spy — lets a test assert exactly how many
  * times an event subscription was torn down. */
@@ -57,7 +68,7 @@ describe("buildPluginContext", () => {
   it("routes UI/settings/agent registrations into the matching registries, tagged by plugin", () => {
     const registries = createContributionRegistries();
     const { deps } = fakeDeps();
-    const { ctx } = buildPluginContext(manifest("p"), "builtin", registries, deps);
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
 
     const tab = { id: "t", label: "T", Component: () => null };
     ctx.ui.registerDockTab(tab);
@@ -67,6 +78,61 @@ describe("buildPluginContext", () => {
     expect(registries.settingsSections.list()).toEqual([
       { pluginId: "p", entry: { label: "S", fields: [] } },
     ]);
+  });
+
+  it("refuses any contribution the manifest does not declare", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    // Declares tab "t" + settings — registering anything else must throw.
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    expect(() =>
+      ctx.ui.registerDockTab({ id: "other", label: "O", Component: () => null }),
+    ).toThrow('dockTabs "other"');
+    expect(() =>
+      ctx.ui.registerTopBarAction({ id: "a", title: "A", run() {} }),
+    ).toThrow('topBarActions "a"');
+    expect(registries.dockTabs.list()).toEqual([]);
+    expect(registries.topBarActions.list()).toEqual([]);
+
+    // And settings is gated by its boolean flag.
+    const bare = buildPluginContext(
+      manifest("q"),
+      "builtin",
+      registries,
+      deps,
+    );
+    expect(() =>
+      bare.ctx.settings.registerSection({ label: "S", fields: [] }),
+    ).toThrow("settings");
+  });
+
+  it("agent registration passes the same declaration gate", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(
+      manifest("cli", {
+        category: "cli",
+        contributes: { agents: [{ id: "claude", label: "Claude Code" }] },
+      }),
+      "builtin",
+      registries,
+      deps,
+    );
+
+    const agent = {
+      id: "claude",
+      label: "Claude Code",
+      detect: { bin: "claude" },
+      hooks: {},
+    };
+    ctx.agents.register(agent);
+    expect(registries.agents.list()).toEqual([
+      { pluginId: "cli", entry: agent },
+    ]);
+    expect(() =>
+      ctx.agents.register({ ...agent, id: "codex" }),
+    ).toThrow('agents "codex"');
   });
 
   it("threads storage/services/settings through the ports, namespaced by id", async () => {
