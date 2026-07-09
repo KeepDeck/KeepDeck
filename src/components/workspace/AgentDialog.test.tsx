@@ -148,7 +148,13 @@ describe("AgentDialog worktree location flow", () => {
       {
         agentType: "claude",
         name: "",
-        location: { kind: "new", path: "/base/kd-ws-3", branch: "kd/ws/3" },
+        location: {
+          kind: "new",
+          path: "/base/kd-ws-3",
+          branch: "kd/ws/3",
+          // The untouched base field carries the prefilled current branch.
+          baseBranch: "main",
+        },
       },
     ]);
   });
@@ -270,15 +276,20 @@ describe("AgentDialog worktree location flow", () => {
     expect(createBtn().disabled).toBe(false);
   });
 
-  it("the picked base rides the result; empty means the default (no baseBranch)", async () => {
+  it("prefills the repo's current branch; a pick rides the result, cleared means HEAD", async () => {
     await mount({ probeOf: {}, occupancyOf: {} });
     await settleProbe();
+    // The field names its default outright — no placeholder to decode.
+    expect(baseInput()!.value).toBe("main");
     submit();
     type(baseInput()!, "develop");
     submit();
+    type(baseInput()!, ""); // cleared = fork from the repo HEAD
+    submit();
     expect(confirmed.map((r) => r.location)).toEqual([
-      { kind: "new", path: "/base/kd-ws-2", branch: "kd/ws/2", baseBranch: undefined },
+      { kind: "new", path: "/base/kd-ws-2", branch: "kd/ws/2", baseBranch: "main" },
       { kind: "new", path: "/base/kd-ws-2", branch: "kd/ws/2", baseBranch: "develop" },
+      { kind: "new", path: "/base/kd-ws-2", branch: "kd/ws/2", baseBranch: undefined },
     ]);
   });
 

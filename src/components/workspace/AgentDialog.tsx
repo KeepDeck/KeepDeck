@@ -92,9 +92,11 @@ export function AgentDialog({
   const [name, setName] = useState("");
   const [path, setPath] = useState(suggestedPath);
   const [branch, setBranch] = useState(suggestedBranch);
-  // The base the new worktree branch forks from; empty = the repo HEAD, the
-  // default since before the picker existed.
-  const [baseBranch, setBaseBranch] = useState("");
+  // The base the new worktree branch forks from. Prefilled with the repo's
+  // current branch, so the field always NAMES its base instead of implying
+  // one through a placeholder. Cleared — or opened on a detached HEAD — it
+  // falls back to the repo HEAD, the default since before the picker existed.
+  const [baseBranch, setBaseBranch] = useState(repo?.branch ?? "");
   // Null until (unless) the listing lands: validation is off without a list,
   // so a dead IPC degrades the picker to free text instead of blocking.
   const [branches, setBranches] = useState<string[] | null>(null);
@@ -298,7 +300,6 @@ export function AgentDialog({
                   onChange={setBaseBranch}
                   className="form__field--gap"
                   ariaLabel="Base branch"
-                  placeholder={`Default · ${repo.branch ?? "repo HEAD"}`}
                 />
                 {!baseOk && (
                   <span className="form__error">No such local branch</span>
