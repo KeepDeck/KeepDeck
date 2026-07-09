@@ -8,26 +8,16 @@ reliability over the fleet, not the renderer.
 
 ## Install (macOS)
 
-`./install.sh` builds KeepDeck and installs it to `/Applications`.
-
 ```sh
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/KeepDeck/KeepDeck/main/install.sh | sh
 ```
 
-It needs the dev toolchain (see [Develop](#develop)); run `pnpm install` first.
-The script builds the release `.app`, copies it to `/Applications`, and removes
-the quarantine attribute so the unsigned build opens without a Gatekeeper
-warning.
+This downloads the latest universal build (Apple Silicon and Intel) and installs
+KeepDeck to `/Applications`. The build is unsigned, so the installer removes the
+download's quarantine attribute; the app then opens without a Gatekeeper prompt.
 
-Flags:
-
-- `--dest ~/Applications` installs for the current user instead of system-wide.
-- `--target universal-apple-darwin` and any other arguments are passed to
-  `tauri build`.
-
-If KeepDeck is running, the script replaces the app but does not restart it.
-Quit and reopen KeepDeck to load the new version. To build a `.dmg` instead, see
-[Package (macOS)](#package-macos).
+Set `KEEPDECK_DEST=~/Applications` to install for the current user only. To build
+from source instead, see [Package (macOS)](#package-macos).
 
 ## What it does
 
