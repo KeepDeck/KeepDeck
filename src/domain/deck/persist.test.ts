@@ -276,6 +276,7 @@ describe("provisioning panes across a restart", () => {
             provisioning: {
               repo: "/repo",
               baseDir: "/wt",
+              base: "develop",
               workspace: "deck",
               index: 1,
               error: "fatal: mid-create failure",
@@ -295,6 +296,9 @@ describe("provisioning panes across a restart", () => {
     expect(pane.provisioning).toEqual({
       repo: "/repo",
       baseDir: "/wt",
+      // The picked base survives the restart, so Retry recreates the worktree
+      // from the same fork point instead of whatever HEAD moved to.
+      base: "develop",
       workspace: "deck",
       index: 1,
       error: PROVISIONING_INTERRUPTED,

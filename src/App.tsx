@@ -7,7 +7,7 @@ import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { fetchAppInfo, openInEditor, type AppInfo } from "./ipc/app";
 import { pickFolder } from "./ipc/dialogs";
 import { describeError, log } from "./ipc/log";
-import { inspectRepo, probeWorktree } from "./ipc/worktree";
+import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
 import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
@@ -418,6 +418,7 @@ function App() {
               suggestedPath={agentFlow.dialog.suggestedPath}
               suggestedBranch={agentFlow.dialog.suggestedBranch}
               probePath={probeWorktree}
+              listBranches={listBranches}
               branchForPath={agentFlow.branchFor}
               occupancyAt={(path) => pathOccupancy(deck.workspaces, path)}
               nextFreeLocation={agentFlow.nextFree}

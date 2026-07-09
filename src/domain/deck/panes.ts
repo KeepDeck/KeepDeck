@@ -24,6 +24,10 @@ export interface PaneProvisioning {
   path?: string;
   /** Explicit branch to create; the batch flow auto-names on the Rust side. */
   branch?: string;
+  /** The picked base branch the new branch forks from; absent = the repo HEAD
+   * at create time. Part of the intent so Retry — and an interrupted create
+   * restored after a restart — recreates from the same base, not a moved HEAD. */
+  base?: string;
   /** Workspace name and agent index — the auto branch-name inputs. */
   workspace: string;
   index: number;

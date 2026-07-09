@@ -24,6 +24,19 @@ pub fn resolve_commit(repo: &Path, rev: &str) -> Result<String, GitError> {
     Ok(out.trim().to_string())
 }
 
+/// The repository's default branch — the remote HEAD's short name (`origin/HEAD`
+/// → `main`), which is what "the default branch" means for a clone. `None` when
+/// no `origin` remote declares one (no remote, unfetched HEAD, or a remote under
+/// another name) — callers fall back to the current branch.
+pub fn default_branch(repo: &Path) -> Result<Option<String>, GitError> {
+    match run_git(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
+        Ok(out) => Ok(out.trim().strip_prefix("origin/").map(str::to_string)),
+        // Non-zero = the symbolic ref isn't set; that's an answer, not an error.
+        Err(GitError::Command { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
 /// The current branch name, or `None` when `HEAD` is detached.
 pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
     let out = run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])?;
@@ -33,6 +46,26 @@ pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
     } else {
         Some(name.to_string())
     })
+}
+
+/// The repository's local branch names, in git's default alphabetical
+/// (refname) order.
+///
+/// Local heads only — remote-tracking refs are deliberately excluded: this
+/// feeds the "+ Agent" dialog's base-branch picker, and basing a worktree on a
+/// possibly-stale `origin/*` ref is rejected by design (create a local branch
+/// to use it). Detached HEAD contributes nothing (it isn't a ref under
+/// `refs/heads`), so the list can be empty in a repo with no branches yet.
+pub fn list_branches(repo: &Path) -> Result<Vec<String>, GitError> {
+    let out = run_git(
+        repo,
+        &["for-each-ref", "refs/heads", "--format=%(refname:short)"],
+    )?;
+    Ok(out
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 /// Whether a local branch named `name` already exists in `repo`.

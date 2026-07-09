@@ -45,12 +45,14 @@ export type MigrationOutcome =
  *   5 — `Workspace.run` retired: its `setup` moves to the core
  *       `Workspace.setup` field (provisioning owns it, not a plugin), its
  *       `presets` move to `plugins["keepdeck.run"]`; `run` itself is dropped.
+ *   6 — + `PaneProvisioning.base` (the picked base branch a Retry recreates
+ *       the worktree from).
  */
-export const DECK_STATE_VERSION = 5;
+export const DECK_STATE_VERSION = 6;
 /** The oldest reader that can still make sense of a current document. Held at
- * 1 deliberately: v1→v4 were additive, and v5's `run` retirement moves data
- * an old reader wouldn't understand INTO keys it preserves as extras — so an
- * old build reading a v5 deck loses the Run panel's state (recoverable, not
+ * 1 deliberately: v1→v4 and v6 were additive, and v5's `run` retirement moves
+ * data an old reader wouldn't understand INTO keys it preserves as extras — so
+ * an old build reading a v5 deck loses the Run panel's state (recoverable, not
  * corrupt) rather than misreading anything. The floor rises only when a
  * change would make an old reader misinterpret data it still consumes. */
 export const DECK_MIN_READER = 1;
@@ -105,11 +107,17 @@ function migrateWorkspaceRunToV5(value: unknown): unknown {
   return next;
 }
 
+/** v5 → v6: `PaneProvisioning.base` added — additive, nothing to transform. */
+function migrateDeckFromV5toV6(doc: RawDoc): RawDoc {
+  return doc;
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
   3: migrateDeckFromV3toV4,
   4: migrateDeckFromV4toV5,
+  5: migrateDeckFromV5toV6,
 };
 
 /**

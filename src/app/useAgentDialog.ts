@@ -145,6 +145,7 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
         repo: ws.cwd,
         path: location.path,
         branch: location.branch || undefined,
+        base: location.baseBranch,
         workspace: ws.name,
         index: dlg.index,
       },

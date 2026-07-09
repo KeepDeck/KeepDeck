@@ -55,16 +55,35 @@ export function classifyLocation(
   return probe.empty ? "new" : "blocked";
 }
 
+/** Whether the base-branch input can seed a new worktree: empty defers to the
+ * repo HEAD (today's default), a known local branch is picked verbatim, and
+ * anything else is a typo to catch IN the dialog — not a failed card after it
+ * closed. A `null` list (branch listing unavailable) validates everything:
+ * degrading to free text beats blocking the dialog on a dead IPC. Pure. */
+export function isKnownBaseBranch(
+  input: string,
+  branches: string[] | null,
+): boolean {
+  const name = input.trim();
+  if (!name || branches === null) return true;
+  return branches.includes(name);
+}
+
 /** Whether Create is allowed for a classified location + current branch input.
- * A new worktree needs a branch name; a still-probing, occupied or blocked
- * path can't be created. Pure. */
-export function canCreateAgent(kind: LocationKind, branch: string): boolean {
+ * A new worktree needs a branch name and a usable base ([`isKnownBaseBranch`]
+ * — only "new" creates a branch, so only it consults `baseOk`); a
+ * still-probing, occupied or blocked path can't be created. Pure. */
+export function canCreateAgent(
+  kind: LocationKind,
+  branch: string,
+  baseOk = true,
+): boolean {
   switch (kind) {
     case "main":
     case "existing":
       return true;
     case "new":
-      return branch.trim().length > 0;
+      return branch.trim().length > 0 && baseOk;
     case "checking":
     case "occupied":
     case "blocked":
@@ -75,7 +94,14 @@ export function canCreateAgent(kind: LocationKind, branch: string): boolean {
 /** The resolved location for a new agent, chosen in the "+ Agent" dialog. */
 export type AgentLocation =
   | { kind: "main" }
-  | { kind: "new"; path: string; branch: string }
+  | {
+      kind: "new";
+      path: string;
+      branch: string;
+      /** The local branch the worktree's new branch forks from; absent/empty
+       * = the repo HEAD at create time (the default since before the picker). */
+      baseBranch?: string;
+    }
   | { kind: "existing"; path: string; branch: string };
 
 /** What the "+ Agent" dialog returns for one new agent. */

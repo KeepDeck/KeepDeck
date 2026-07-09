@@ -204,6 +204,35 @@ pub fn worktree_probe(path: String) -> PathProbe {
     }
 }
 
+/// The repo's local branch names — the options behind the "+ Agent" dialog's
+/// base-branch picker. The most likely base leads: the repo's default branch
+/// (the remote HEAD) when it exists locally, else the checked-out branch;
+/// the rest stay alphabetical. Errors (not a repo, git failure) surface to
+/// the caller, which flattens them to "no list" and degrades the picker to a
+/// plain input. `(async)`: it shells out to git — off the main thread.
+#[tauri::command(async)]
+pub fn worktree_branches(repo: String) -> Result<Vec<String>, String> {
+    let path = Path::new(&repo);
+    if !repo::is_git_repo(path) {
+        return Err(format!("not a git repository: {repo}"));
+    }
+    base_branch_options(path)
+}
+
+/// [`worktree_branches`] body: the alphabetical local list with the best base
+/// candidate pinned first — the default branch if it names a local branch
+/// (you can't base a worktree on a ref that only exists on the remote), else
+/// the current one. No candidate (detached HEAD, no remote) = plain list.
+fn base_branch_options(path: &Path) -> Result<Vec<String>, String> {
+    let list = repo::list_branches(path).map_err(|e| e.to_string())?;
+    let pin = repo::default_branch(path)
+        .ok()
+        .flatten()
+        .filter(|name| list.iter().any(|b| b == name))
+        .or_else(|| repo::current_branch(path).ok().flatten());
+    Ok(branch::pin_first(list, pin.as_deref()))
+}
+
 /// Inspect a working directory: is it a git repo, and if so its `HEAD`/branch.
 /// Never errors — a non-repo simply reports `is_repo: false`. `(async)`: it
 /// shells out to git — off the main thread.
@@ -474,6 +503,42 @@ mod tests {
         git(&dir, &["add", "."]);
         git(&dir, &["commit", "-q", "-m", "init"]);
         dir
+    }
+
+    #[test]
+    fn base_branch_options_pin_the_default_else_the_current_branch() {
+        let repo = init_repo("branch-order");
+        let current = git_out(&repo, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .trim()
+            .to_string();
+        git(&repo, &["branch", "alpha"]);
+        git(&repo, &["branch", "zeta"]);
+
+        // No remote HEAD → the checked-out branch leads, the rest alphabetical.
+        let opts = base_branch_options(&repo).unwrap();
+        assert_eq!(opts, [current.clone(), "alpha".to_string(), "zeta".to_string()]);
+
+        // A remote HEAD naming a LOCAL branch outranks the checked-out one…
+        git(&repo, &["update-ref", "refs/remotes/origin/zeta", "HEAD"]);
+        git(
+            &repo,
+            &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/zeta"],
+        );
+        assert_eq!(base_branch_options(&repo).unwrap()[0], "zeta");
+
+        // …but a default with no local branch falls back to the current one.
+        git(&repo, &["update-ref", "refs/remotes/origin/ghost", "HEAD"]);
+        git(
+            &repo,
+            &[
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/ghost",
+            ],
+        );
+        assert_eq!(base_branch_options(&repo).unwrap()[0], current);
+
+        let _ = std::fs::remove_dir_all(&repo);
     }
 
     #[test]

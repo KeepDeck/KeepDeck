@@ -62,6 +62,15 @@ export function probeWorktree(path: string): Promise<PathProbe> {
   return invoke<PathProbe>("worktree_probe", { path });
 }
 
+/** The repo's local branch names — the options behind the "+ Agent" dialog's
+ *  base-branch picker. The likeliest base leads (the repo's default branch,
+ *  else the checked-out one), the rest alphabetical. Rejects when `repo` isn't
+ *  a git repo or git fails; callers flatten that to "no list", which relaxes
+ *  base validation instead of blocking the dialog. */
+export function listBranches(repo: string): Promise<string[]> {
+  return invoke<string[]>("worktree_branches", { repo });
+}
+
 /** Provision one agent's git worktree; returns its path + branch. */
 export function createWorktree(spec: CreateWorktreeArgs): Promise<WorktreeRecord> {
   return invoke<WorktreeRecord>("worktree_create", { spec });

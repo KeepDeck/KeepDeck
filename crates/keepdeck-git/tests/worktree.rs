@@ -157,6 +157,72 @@ fn safe_delete_refuses_unmerged_branch_but_force_removes_it() {
 }
 
 #[test]
+fn lists_local_branches_alphabetically_excluding_remotes() {
+    let repo_dir = init_repo();
+    let initial = repo::current_branch(&repo_dir).unwrap().expect("on a branch");
+
+    // Created out of order; the listing must come back sorted by refname.
+    git(&repo_dir, &["branch", "zeta"]);
+    git(&repo_dir, &["branch", "alpha"]);
+    git(&repo_dir, &["branch", "kd/mid/1"]);
+    // A remote-tracking ref (no real remote needed) — must NOT be listed.
+    git(&repo_dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+
+    let mut expected = vec!["alpha".to_string(), "kd/mid/1".to_string(), initial, "zeta".to_string()];
+    expected.sort();
+    assert_eq!(repo::list_branches(&repo_dir).expect("list branches"), expected);
+
+    fs::remove_dir_all(&repo_dir).ok();
+}
+
+#[test]
+fn resolves_the_default_branch_from_the_remote_head() {
+    let repo_dir = init_repo();
+    // No remote at all → no default branch (an answer, not an error).
+    assert_eq!(repo::default_branch(&repo_dir).unwrap(), None);
+
+    git(&repo_dir, &["update-ref", "refs/remotes/origin/trunk", "HEAD"]);
+    git(
+        &repo_dir,
+        &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"],
+    );
+    assert_eq!(
+        repo::default_branch(&repo_dir).unwrap(),
+        Some("trunk".to_string())
+    );
+
+    fs::remove_dir_all(&repo_dir).ok();
+}
+
+#[test]
+fn add_from_remote_tracking_base_sets_no_upstream() {
+    let repo_dir = init_repo();
+    // A remote-tracking base branch: without `--no-track`, `worktree add -b`
+    // would adopt it as the new branch's upstream.
+    git(&repo_dir, &["update-ref", "refs/remotes/origin/base", "HEAD"]);
+
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("kd-notrack-1");
+    worktree::add(&repo_dir, &wt, "kd/notrack/1", "origin/base").expect("add worktree");
+
+    // An upstream materializes as branch.<name>.merge; --get exits non-zero
+    // when the key is absent — which is exactly what we require.
+    let merge_key = Command::new("git")
+        .arg("-C")
+        .arg(&repo_dir)
+        .args(["config", "--get", "branch.kd/notrack/1.merge"])
+        .status()
+        .expect("run git config");
+    assert!(
+        !merge_key.success(),
+        "a branch based on a remote-tracking ref must not track it as upstream"
+    );
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
+#[test]
 fn head_tracks_checkouts_inside_a_worktree() {
     let repo_dir = init_repo();
     let base = repo::resolve_commit(&repo_dir, "HEAD").expect("resolve base");

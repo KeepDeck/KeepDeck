@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./icons": "./src/icons.tsx",
     "./Dropdown": "./src/Dropdown.tsx",
+    "./Combobox": "./src/Combobox.tsx",
     "./inputProps": "./src/inputProps.ts"
   },
   "peerDependencies": {
