@@ -104,6 +104,30 @@ describe("runProvisioning", () => {
     }
   });
 
+  it("a pane's picked base outranks the batch-pinned HEAD", async () => {
+    worktree.inspectRepo.mockResolvedValue({
+      isRepo: true,
+      head: "abc123",
+      branch: "main",
+    });
+    worktree.createWorktree.mockImplementation(
+      async ({ agentId }: { agentId: string }) => ({
+        agentId,
+        path: `/wt/${agentId}`,
+        branch: `kd/ws/${agentId}`,
+      }),
+    );
+    const panes = cards();
+    panes[0].provisioning!.base = "develop";
+
+    await runProvisioning(panes, { onResolved: vi.fn(), onFailed: vi.fn() });
+
+    expect(worktree.createWorktree.mock.calls.map((c: any[]) => c[0].base)).toEqual([
+      "develop", // its intent's own fork point
+      "abc123", // the batch default
+    ]);
+  });
+
   it("a failed create lands on ITS pane's card; the rest still resolve — no cwd fallback", async () => {
     worktree.inspectRepo.mockRejectedValue(new Error("no repo"));
     worktree.createWorktree

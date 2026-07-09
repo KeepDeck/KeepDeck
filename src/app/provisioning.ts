@@ -77,8 +77,9 @@ export function planPanes(
  * result as it lands (completion order is whatever the per-repo lock hands
  * out — the deck shows panes coming alive as they're ready). One base commit
  * is pinned for the whole batch so concurrent creates don't straddle a moving
- * HEAD. Panes without an intent are ignored, so a retry can pass one pane and
- * the batch flows can pass them all. Never throws: a failure lands on its
+ * HEAD; a pane whose intent carries its own picked `base` forks from that
+ * instead. Panes without an intent are ignored, so a retry can pass one pane
+ * and the batch flows can pass them all. Never throws: a failure lands on its
  * pane's card via `onFailed`.
  *
  * `setup` is the workspace's one-time preparation command: it runs in each
@@ -121,7 +122,8 @@ async function provisionPane(
       baseDir: intent.baseDir ?? "",
       agentId: paneId,
       branch: intent.branch,
-      base,
+      // The user's picked base branch outranks the batch-pinned HEAD.
+      base: intent.base ?? base,
       workspace: intent.workspace,
       index: intent.index,
       path: intent.path,

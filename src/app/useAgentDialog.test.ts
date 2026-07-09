@@ -142,4 +142,41 @@ describe("useAgentDialog suggestions", () => {
       branch: "kd/KeepDeck/3",
     });
   });
+
+  it("a picked base branch rides the pane's provisioning intent", async () => {
+    const ws = workspace({});
+    // The full provisioning sink: confirm fires runProvisioning in the
+    // background, and its (here-failing, createWorktree is pinned to throw)
+    // result must land in a real callback, not crash the test.
+    const deck = {
+      workspaces: [ws],
+      addAgentPane: vi.fn(),
+      resolvePaneProvisioning: vi.fn(),
+      setPaneProvisioningError: vi.fn(),
+      setPaneProvisioningPhase: vi.fn(),
+    } as unknown as Deck;
+    await act(async () => root.render(createElement(Host, { deck })));
+    await act(async () => flow.openFor(ws));
+
+    await act(async () => {
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: {
+          kind: "new",
+          path: "/base/kd-KeepDeck-1",
+          branch: "kd/KeepDeck/1",
+          baseBranch: "develop",
+        },
+      });
+    });
+
+    const addAgentPane = deck.addAgentPane as ReturnType<typeof vi.fn>;
+    expect(addAgentPane).toHaveBeenCalledTimes(1);
+    expect(addAgentPane.mock.calls[0][1].provisioning).toMatchObject({
+      path: "/base/kd-KeepDeck-1",
+      branch: "kd/KeepDeck/1",
+      base: "develop",
+    });
+  });
 });

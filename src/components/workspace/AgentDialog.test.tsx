@@ -83,15 +83,19 @@ describe("AgentDialog worktree location flow", () => {
     });
 
   /** Mount prefilled with `/base/kd-ws-2`, held by an open pane running in a
-   * live worktree unless overridden; other paths probe as new/missing. */
+   * live worktree unless overridden; other paths probe as new/missing. The
+   * base-branch options default to a small local list; `branches: null`
+   * simulates an unavailable listing (the IPC rejected). */
   const mount = async (
     opts: {
       probeOf?: Record<string, PathProbe>;
       occupancyOf?: Record<string, Occupancy>;
+      branches?: string[] | null;
     } = {},
   ) => {
     const probeOf = opts.probeOf ?? { "/base/kd-ws-2": WORKTREE };
     const occupancyOf = opts.occupancyOf ?? { "/base/kd-ws-2": "worktree" as const };
+    const branches = opts.branches === undefined ? ["develop", "main"] : opts.branches;
     return act(async () =>
       root.render(
         createElement(AgentDialog, {
@@ -100,6 +104,10 @@ describe("AgentDialog worktree location flow", () => {
           suggestedPath: "/base/kd-ws-2",
           suggestedBranch: "kd/ws/2",
           probePath: async (p: string) => probeOf[p] ?? MISSING,
+          listBranches: async () => {
+            if (branches === null) throw new Error("git unavailable");
+            return branches;
+          },
           // The real derivation lives in useAgentDialog (tested there); this
           // fake mirrors its contract: canonical kd-ws-<n> folders map to
           // kd/ws/<n>, anything else implies its own folder name.
@@ -234,5 +242,51 @@ describe("AgentDialog worktree location flow", () => {
     type(pathInput(), "/base/kd-ws-6");
     await settleProbe();
     expect(branchInput()?.value).toBe("kd/ws/6");
+  });
+
+  const baseInput = () =>
+    document.querySelector<HTMLInputElement>('input[aria-label="Base branch"]');
+
+  it("the base-branch picker exists only where a branch is CREATED", async () => {
+    // Attaching to an existing worktree forks nothing — no base to pick.
+    await mount({ probeOf: { "/base/kd-ws-2": WORKTREE }, occupancyOf: {} });
+    await settleProbe();
+    expect(baseInput()).toBeNull();
+    // A free path creates a branch — the picker appears.
+    type(pathInput(), "/base/kd-ws-9");
+    await settleProbe();
+    expect(baseInput()).not.toBeNull();
+  });
+
+  it("an unknown base blocks Create with its own error; a listed one passes", async () => {
+    await mount({ probeOf: {}, occupancyOf: {} });
+    await settleProbe();
+    expect(createBtn().disabled).toBe(false);
+    type(baseInput()!, "dev");
+    expect(errorText()).toBe("No such local branch");
+    expect(createBtn().disabled).toBe(true);
+    type(baseInput()!, "develop");
+    expect(errorText()).toBeUndefined();
+    expect(createBtn().disabled).toBe(false);
+  });
+
+  it("the picked base rides the result; empty means the default (no baseBranch)", async () => {
+    await mount({ probeOf: {}, occupancyOf: {} });
+    await settleProbe();
+    submit();
+    type(baseInput()!, "develop");
+    submit();
+    expect(confirmed.map((r) => r.location)).toEqual([
+      { kind: "new", path: "/base/kd-ws-2", branch: "kd/ws/2", baseBranch: undefined },
+      { kind: "new", path: "/base/kd-ws-2", branch: "kd/ws/2", baseBranch: "develop" },
+    ]);
+  });
+
+  it("an unavailable branch list degrades to free text — never blocks the dialog", async () => {
+    await mount({ probeOf: {}, occupancyOf: {}, branches: null });
+    await settleProbe();
+    type(baseInput()!, "anything-goes");
+    expect(errorText()).toBeUndefined();
+    expect(createBtn().disabled).toBe(false);
   });
 });

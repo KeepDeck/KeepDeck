@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   canCreateAgent,
   classifyLocation,
+  isKnownBaseBranch,
   selectableAgents,
   defaultAgentType as pickDefaultAgentType,
   type AgentDialogResult,
@@ -15,6 +16,7 @@ import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
+import { Combobox } from "../../ui/Combobox";
 import { AttachIcon, NextIcon } from "../../ui/icons";
 
 export type { AgentDialogResult } from "../../domain/agents";
@@ -36,6 +38,10 @@ interface AgentDialogProps {
   /** Probe a candidate worktree path for the live hint (injected — the dialog
    * itself stays free of IPC). */
   probePath(path: string): Promise<PathProbe>;
+  /** The repo's local branches — the base-branch picker's options (injected).
+   * A rejection degrades the picker to a free-text field: base validation
+   * needs the list, so without one everything passes. */
+  listBranches(repo: string): Promise<string[]>;
   /** The branch the current path implies — keeps the branch following the
    * worktree name while the user hasn't edited it. Null = no usable name
    * (the previous suggestion stays). */
@@ -74,6 +80,7 @@ export function AgentDialog({
   suggestedPath,
   suggestedBranch,
   probePath,
+  listBranches,
   branchForPath,
   occupancyAt,
   nextFreeLocation,
@@ -85,6 +92,12 @@ export function AgentDialog({
   const [name, setName] = useState("");
   const [path, setPath] = useState(suggestedPath);
   const [branch, setBranch] = useState(suggestedBranch);
+  // The base the new worktree branch forks from; empty = the repo HEAD, the
+  // default since before the picker existed.
+  const [baseBranch, setBaseBranch] = useState("");
+  // Null until (unless) the listing lands: validation is off without a list,
+  // so a dead IPC degrades the picker to free text instead of blocking.
+  const [branches, setBranches] = useState<string[] | null>(null);
   // The live branch suggestion, following the path's folder name. Equality is
   // the whole edit-tracking: while `branch === derivedBranch` the branch is
   // untouched and keeps following; an edit detaches it; the ↺ reset restores
@@ -136,6 +149,22 @@ export function AgentDialog({
 
   useEffect(() => setAttachAnyway(false), [path]);
 
+  // Load the base-branch options once per dialog: the workspace repo is fixed
+  // for its lifetime. A failure just leaves `branches` null (see above).
+  useEffect(() => {
+    if (!repo) return;
+    let cancelled = false;
+    listBranches(repo.cwd)
+      .then((list) => {
+        if (!cancelled) setBranches(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repo]);
+
   // Follow the path with the branch (debounced like the probe): an untouched
   // branch — one still equal to the suggestion it came from — moves to the new
   // path's implied branch; an edited one stays the user's.
@@ -164,7 +193,8 @@ export function AgentDialog({
   const kind = repo
     ? classifyLocation(path, probe, occupancy, attachAnyway)
     : "main";
-  const valid = canCreateAgent(kind, branch);
+  const baseOk = isKnownBaseBranch(baseBranch, branches);
+  const valid = canCreateAgent(kind, branch, baseOk);
 
   // "Use next available": swap the occupied path (and its branch) for the
   // next free suggestion. A null result (no base, IPC down) leaves the field
@@ -178,7 +208,13 @@ export function AgentDialog({
   };
 
   const buildLocation = (): AgentLocation => {
-    if (kind === "new") return { kind: "new", path: path.trim(), branch: branch.trim() };
+    if (kind === "new")
+      return {
+        kind: "new",
+        path: path.trim(),
+        branch: branch.trim(),
+        baseBranch: baseBranch.trim() || undefined,
+      };
     if (kind === "existing")
       return { kind: "existing", path: path.trim(), branch: (probe?.branch ?? "").trim() };
     return { kind: "main" };
@@ -253,6 +289,19 @@ export function AgentDialog({
                 />
                 {!branch.trim() && (
                   <span className="form__error">Branch is required</span>
+                )}
+
+                <span className="form__label">Base branch</span>
+                <Combobox
+                  options={branches ?? []}
+                  value={baseBranch}
+                  onChange={setBaseBranch}
+                  className="form__field--gap"
+                  ariaLabel="Base branch"
+                  placeholder={`Default · ${repo.branch ?? "repo HEAD"}`}
+                />
+                {!baseOk && (
+                  <span className="form__error">No such local branch</span>
                 )}
               </>
             )}
