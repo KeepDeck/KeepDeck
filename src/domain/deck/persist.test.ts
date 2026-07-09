@@ -162,9 +162,8 @@ describe("hydrateDeck — unusable input", () => {
   });
 
   it("restores a pane of EVERY cataloged agent type", () => {
-    // AGENT_TYPES is derived from the TS catalog: a 4th agent added there is
-    // restorable automatically, with no separate hand-kept id list to forget
-    // (forgetting silently degraded restored panes to the default agent).
+    // The id set is open (any string restores) — this pins the three
+    // built-in ids' round-trip explicitly all the same.
     for (const agent of FALLBACK_AGENTS) {
       const restored = okDeck(
         JSON.stringify({
@@ -216,8 +215,13 @@ describe("hydrateDeck — tolerated degradations", () => {
     expect(restored.state.viewByWs).toEqual({ "ws-1": { select: "pane-1" } });
   });
 
-  it("degrades an unknown agentType to the default instead of rejecting", () => {
-    expect(restored.state.workspaces[0].panes[0].agentType).toBeUndefined();
+  it("keeps an unknown agentType verbatim — the id set is open", () => {
+    // Hydration runs before plugin bootstrap, so it cannot know the catalog.
+    // The id survives; a pane whose plugin is absent explains itself at
+    // render time instead of silently resuming a default agent.
+    expect(restored.state.workspaces[0].panes[0].agentType).toBe(
+      "some-future-agent",
+    );
   });
 
   it("drops a persisted maximize that no longer resolves (solo workspace)", () => {

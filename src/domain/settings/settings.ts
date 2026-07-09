@@ -1,5 +1,4 @@
 import type { AgentType } from "../agents";
-import { AGENT_TYPES } from "../agents";
 import { collectExtras, isRecord } from "../json";
 
 /**
@@ -161,8 +160,12 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   if (settingsFloorBreach(doc) !== null) return null;
 
   const settings: Settings = { ...DEFAULT_SETTINGS };
-  if (AGENT_TYPES.includes(doc.defaultAgent as AgentType)) {
-    settings.defaultAgent = doc.defaultAgent as AgentType;
+  // Any non-empty string id is kept: the id set is open (agents come from
+  // plugins, hydration runs before their bootstrap). A preference whose
+  // plugin is gone simply loses the picker vote — `defaultAgentType` snaps
+  // to the first selectable agent.
+  if (typeof doc.defaultAgent === "string" && doc.defaultAgent) {
+    settings.defaultAgent = doc.defaultAgent;
   }
   if (typeof doc.scrollback === "number" && Number.isFinite(doc.scrollback)) {
     settings.scrollback = clampScrollback(doc.scrollback);

@@ -3,8 +3,6 @@ import type { Pane, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
-import type { AgentType } from "../agents";
-import { AGENT_TYPES } from "../agents";
 import { collectExtras, isRecord } from "../json";
 import { MAX_PANES } from "./layout";
 
@@ -270,10 +268,13 @@ function readPane(value: unknown): Pane | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string") return null;
   const pane: Pane = { id: value.id, dormant: true };
-  // An unknown agentType (a future agent, a hand-edited file) degrades to the
-  // default rather than rejecting the whole deck.
-  if (AGENT_TYPES.includes(value.agentType as AgentType)) {
-    pane.agentType = value.agentType as AgentType;
+  // Any non-empty string id is kept verbatim: the id set is OPEN (agents
+  // come from plugins) and hydration runs BEFORE plugin bootstrap, so a
+  // catalog check here would misfire on every boot. A pane whose plugin is
+  // absent surfaces "agent unavailable" at render time — silently degrading
+  // it to a default agent would resume the wrong CLI in its directory.
+  if (typeof value.agentType === "string" && value.agentType) {
+    pane.agentType = value.agentType;
   }
   if (typeof value.cwd === "string") pane.cwd = value.cwd;
   if (typeof value.branch === "string") pane.branch = value.branch;
