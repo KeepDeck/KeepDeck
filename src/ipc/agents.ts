@@ -1,18 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
-import {
-  FALLBACK_AGENTS,
-  normalizeAgents,
-  type AgentInfo,
-} from "../domain/agents";
 import { describeError, log } from "./log";
 
-/** Fetch the agent catalog with install status. Falls back to the static list
- *  (all treated installed) if the backend command errors. */
-export async function listAgents(): Promise<AgentInfo[]> {
+/** Install status of one binary name (mirrors the Rust `BinStatusDto`). */
+export interface BinStatus {
+  bin: string;
+  installed: boolean;
+  path: string | null;
+}
+
+/** Detect which of the requested binaries resolve on the spawn PATH — the
+ *  generic detection agent plugins' declared `detect.bin` goes through.
+ *  Degrades to "all installed" if the backend errors: better to offer an
+ *  agent that may fail to spawn than to hide one that works. */
+export async function detectBins(bins: string[]): Promise<BinStatus[]> {
+  if (bins.length === 0) return [];
   try {
-    return normalizeAgents(await invoke<AgentInfo[]>("agents_list"));
+    return await invoke<BinStatus[]>("agents_detect", { bins });
   } catch (e) {
-    log.warn("web:agents", `agents_list failed; using fallback catalog: ${describeError(e)}`);
-    return FALLBACK_AGENTS;
+    log.warn("web:agents", `agents_detect failed; assuming installed: ${describeError(e)}`);
+    return bins.map((bin) => ({ bin, installed: true, path: null }));
   }
 }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  normalizeAgents,
   resumeArgs,
   selectableAgents,
   defaultAgentType,
@@ -16,20 +15,6 @@ function agent(
 ): AgentInfo {
   return { id, label: id, command: id, installed, path: null, ...extra };
 }
-
-describe("normalizeAgents", () => {
-  it("passes a non-empty catalog through unchanged", () => {
-    const list = [agent("claude", true)];
-    expect(normalizeAgents(list)).toBe(list);
-  });
-
-  it("falls back to the static catalog for empty / missing input", () => {
-    for (const empty of [[], null, undefined]) {
-      const out = normalizeAgents(empty as AgentInfo[] | null | undefined);
-      expect(out.map((a) => a.id)).toEqual(["claude", "opencode", "codex"]);
-    }
-  });
-});
 
 describe("resumeArgs ([F8])", () => {
   it("builds prefix + session id per agent (the verified recipes)", () => {

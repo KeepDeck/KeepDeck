@@ -1,0 +1,13 @@
+{
+  "name": "@keepdeck-plugins/opencode",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The OpenCode CLI built-in plugin: agent identity and detection on the plugin API's agents surface.",
+  "type": "module",
+  "dependencies": {
+    "@keepdeck/plugin-api": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3"
+  }
+}

@@ -96,10 +96,14 @@ export function buildSpawnPlan(
     : [];
   const armed = (env: [string, string][]) =>
     env.length > 0 && token ? { env, token } : { env: [] as [string, string][] };
-  const info =
-    opts.agents?.find((a) => a.id === agentType) ??
-    FALLBACK_AGENTS.find((a) => a.id === agentType);
-  const resume = opts.resumeId ? resumeArgs(info, opts.resumeId) : null;
+  // The resume recipe: prefer the catalog's, but a catalog entry WITHOUT one
+  // (plugin contributions don't carry resume flags yet) falls through to the
+  // static recipe — a known agent must never lose resume to a sparse entry.
+  const info = opts.agents?.find((a) => a.id === agentType);
+  const recipe = info?.resumePrefix?.length
+    ? info
+    : FALLBACK_AGENTS.find((a) => a.id === agentType);
+  const resume = opts.resumeId ? resumeArgs(recipe, opts.resumeId) : null;
 
   switch (agentType) {
     case "claude": {
@@ -139,5 +143,10 @@ export function buildSpawnPlan(
         ]),
       };
     }
+    default:
+      // An agent this builder doesn't know (the id set is open): a bare
+      // spawn, no identity mechanism — the spawn/resume hooks take over
+      // per-agent planning in a later stage.
+      return { args: resume ?? [], env: [] };
   }
 }

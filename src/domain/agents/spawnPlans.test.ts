@@ -105,3 +105,30 @@ describe("buildSpawnPlan — opencode (plugin reporter)", () => {
     expect(noBridge.token).toBeUndefined();
   });
 });
+
+describe("buildSpawnPlan — the open id set", () => {
+  it("a catalog entry without a resume recipe still resumes via the static one", () => {
+    // Plugin-contributed catalog entries carry no resumePrefix yet — resume
+    // must fall through to the built-in recipe, not silently spawn fresh.
+    const sparse = [
+      { id: "codex", label: "Codex", command: "codex", installed: true, path: null },
+    ];
+    const plan = buildSpawnPlan("codex", "pane-2", ctx, {
+      resumeId: "uuid-9",
+      agents: sparse,
+      ...mints,
+    });
+    expect(plan.args).toEqual([...ctx.codexHookArgs!, "resume", "uuid-9"]);
+  });
+
+  it("an unknown agent id gets a bare plan, no identity mechanism", () => {
+    const plan = buildSpawnPlan("gemini", "pane-4", ctx, mints);
+    expect(plan).toEqual({ args: [], env: [] });
+    const resume = buildSpawnPlan("gemini", "pane-4", ctx, {
+      resumeId: "x",
+      ...mints,
+    });
+    // No recipe for an unknown agent → fresh spawn, never guessed flags.
+    expect(resume.args).toEqual([]);
+  });
+});

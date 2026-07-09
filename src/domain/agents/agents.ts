@@ -1,10 +1,12 @@
-/** Coding-agent kind a pane runs. Mirrors the Rust catalog ids
- *  (`keepdeck-agents::AGENTS`) — the id set is the only thing duplicated in TS;
- *  labels/commands/detection are single-sourced in Rust and fetched. */
-export type AgentType = "claude" | "opencode" | "codex";
+/** Coding-agent kind a pane runs — an OPEN set now: ids come from cli
+ *  plugins' agent contributions (`keepdeck.claude` / `keepdeck.codex` /
+ *  `keepdeck.opencode` ship built-in), so this is a plain string, not a
+ *  union. A pane may carry an id whose plugin is currently absent — that
+ *  pane must surface "agent unavailable", never silently run a default. */
+export type AgentType = string;
 
-/** An agent from the backend catalog, annotated with install detection.
- *  Mirrors the Rust `AgentDto` (camelCase). */
+/** An agent from the catalog (a cli plugin's contribution annotated with
+ *  install detection). */
 export interface AgentInfo {
   id: AgentType;
   label: string;
@@ -20,9 +22,10 @@ export interface AgentInfo {
   resumePrefix?: string[];
 }
 
-/** Static fallback catalog — used only if `agents_list` errors, so the picker is
- *  never empty. Kept minimal and in sync with the Rust `AGENTS` ids; `installed`
- *  is assumed true here since we couldn't detect (better to offer than to hide). */
+/** Static recipes for the built-in CLIs — today the resume flags' source of
+ *  truth (catalog entries built from plugin contributions carry no
+ *  `resumePrefix` yet; the spawn/resume hooks replace this in a later
+ *  stage), and the last-resort catalog for tests and degraded paths. */
 export const FALLBACK_AGENTS: AgentInfo[] = [
   { id: "claude", label: "Claude Code", command: "claude", installed: true, path: null, resumePrefix: ["--resume"] },
   { id: "opencode", label: "OpenCode", command: "opencode", installed: true, path: null, resumePrefix: ["-s"] },
@@ -34,12 +37,6 @@ export const FALLBACK_AGENTS: AgentInfo[] = [
  *  it derived means a hand-kept copy can't compile clean while silently missing
  *  a newly added agent (which would degrade its restored panes to the default). */
 export const AGENT_TYPES: readonly AgentType[] = FALLBACK_AGENTS.map((a) => a.id);
-
-/** Normalize a catalog response: a non-empty list passes through; anything empty
- *  falls back to the static catalog so the UI always has something to offer. */
-export function normalizeAgents(raw: AgentInfo[] | null | undefined): AgentInfo[] {
-  return raw && raw.length > 0 ? raw : FALLBACK_AGENTS;
-}
 
 /** Agents to offer in the picker: installed only, but the full catalog when none
  *  are detected — never lock the user out of creating an agent ([F1]). */
