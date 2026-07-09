@@ -183,6 +183,21 @@
   }
 }
 
+/* Category group: a muted caption over its member rows. */
+.settings__plugin-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings__plugin-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7280;
+}
+
 .settings__plugin {
   display: flex;
   align-items: flex-start;
