@@ -1,9 +1,9 @@
 mod agents;
+mod bridge;
 mod clipboard;
 mod dnd;
 mod fswatch;
 mod head_watch;
-mod history;
 mod links;
 mod logging;
 mod menu;
@@ -80,15 +80,16 @@ pub fn run() {
             // Adopt state a legacy install left in the identifier-keyed
             // dirs — before the webview boots and asks for the deck.
             migration::run(app.handle());
-            // The session spool: agents report their session ids here; the
-            // watcher lives as managed state for the app's lifetime.
-            let watcher = sessions::watch_spool(app.handle())?;
-            app.manage(watcher);
+            // The CLI bridge: agents report their session ids through this
+            // run's inbox; the lock and watcher live as managed state for
+            // the app's lifetime.
+            let bridge = bridge::start(app.handle())?;
+            app.manage(bridge);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
-            agents::agents_list,
+            agents::agents_detect,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,
             links::open_url,
@@ -104,10 +105,11 @@ pub fn run() {
             state::settings_load,
             state::settings_save,
             state::settings_quarantine,
-            history::history_presence,
             ports::ports_allocate,
             plugins_fs::plugins_scan,
             plugins_fs::plugins_resolve_dir,
+            plugins_fs::plugin_resource_path,
+            plugins_fs::plugin_external_resource_path,
             project_fs::project_fs_read_dir,
             project_fs::project_fs_read_file,
             project_fs::project_fs_watch,

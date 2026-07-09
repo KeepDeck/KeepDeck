@@ -24,8 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 keepdeck-pty = { path = "../crates/keepdeck-pty" }
 keepdeck-git = { path = "../crates/keepdeck-git" }
-keepdeck-agents = { path = "../crates/keepdeck-agents" }
-keepdeck-history = { path = "../crates/keepdeck-history" }
+keepdeck-env = { path = "../crates/keepdeck-env" }
 notify = "6"
 infer = "0.19.0"
 tauri-plugin-opener = "2.5.4"
@@ -48,4 +47,9 @@ tauri-plugin-log = "2"
 # decoding — one less way a malicious archive could smuggle a codec-
 # specific bomb past the size caps `plugins_fs.rs` checks on the way in.
 zip = { version = "8.6", default-features = false }
+# Bridge run-dir names (`bridge.rs`); already in the tree transitively.
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
 

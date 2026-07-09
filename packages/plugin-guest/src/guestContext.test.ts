@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildGuestContext } from "./context";
 import { fakeManifest } from "./fakeHost";
 import { GuestRpc } from "./rpc";
@@ -40,5 +40,37 @@ describe("buildGuestContext dock tabs", () => {
     const manifest = fakeManifest("dev.custom");
     const { ctx } = buildGuestContext(silentRpc(), manifest);
     expect(ctx.manifest).toBe(manifest);
+  });
+});
+
+describe("registration outcomes fail loud", () => {
+  it("a refused registration rejects registrationsSettled", async () => {
+    // The host answers ok:false (an undeclared contribution, a gate
+    // violation) — activation must FAIL, not show active with the
+    // contribution silently missing.
+    const rpc = {
+      call: vi.fn((path: string) =>
+        path === "agents.register"
+          ? Promise.reject(new Error('agents "codex" not declared'))
+          : Promise.resolve(undefined),
+      ),
+    } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    bundle.ctx.agents.register({
+      id: "codex",
+      label: "Codex",
+      detect: { bin: "codex" },
+      hooks: {},
+    });
+    await expect(bundle.registrationsSettled()).rejects.toThrow("not declared");
+  });
+
+  it("accepted registrations settle clean", async () => {
+    const rpc = {
+      call: vi.fn(() => Promise.resolve(undefined)),
+    } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    bundle.ctx.settings.registerSection({ label: "S", fields: [] });
+    await expect(bundle.registrationsSettled()).resolves.toBeUndefined();
   });
 });

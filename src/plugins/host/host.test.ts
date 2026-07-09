@@ -23,8 +23,10 @@ const manifest = (
   name: id,
   version: "1.0.0",
   minApiVersion: 1,
+  category: "deck",
   capabilities: [],
-  contributes: {},
+  // Declare the tab `registrar` registers — registration is manifest-gated.
+  contributes: { dockTabs: [{ id, label: id }] },
   ...overrides,
 });
 
@@ -57,6 +59,7 @@ function fakeDeps() {
     })),
     events,
     services: vi.fn(() => services),
+    resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
     log: vi.fn(() => logger),
     hostFacts: { settings: vi.fn(async () => ({ terminalScrollback: 10_000 })) },
     isEnabled,
@@ -174,7 +177,21 @@ describe("PluginHost", () => {
       throw new Error("activate blew up");
     });
     host.install(
-      { manifest: manifest("p"), load: async () => ({ activate }) },
+      {
+        // Every kind declared — all registrations must land BEFORE the
+        // plugin's own throw, so the sweep has real residue to clear.
+        manifest: manifest("p", {
+          capabilities: [{ kind: "exec", commands: ["x"] }],
+          contributes: {
+            dockTabs: [{ id: "d", label: "d" }],
+            topBarActions: [{ id: "tb", label: "tb" }],
+            paneActions: [{ id: "pa", label: "pa" }],
+            settings: true,
+            agents: [{ id: "ag", label: "ag" }],
+          },
+        }),
+        load: async () => ({ activate }),
+      },
       "builtin",
     );
 

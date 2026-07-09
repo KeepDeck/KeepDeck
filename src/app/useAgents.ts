@@ -1,34 +1,85 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { AgentContribution } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../domain/agents";
-import { listAgents } from "../ipc/agents";
+import { detectBins, type BinStatus } from "../ipc/agents";
+import { useContributions } from "../plugins/react";
+import { bootstrapPlugins, pluginRegistries } from "./pluginManager";
 
-// The last successfully fetched catalog. A remount seeds from it so consumers
-// never render an empty picker while re-detection runs — App's boot mount
-// warms it long before any dialog opens.
-let lastCatalog: AgentInfo[] | null = null;
+// Last known per-bin install status. A remount seeds from it so consumers
+// never render a "nothing installed" flash while re-detection runs; detection
+// re-runs per mount, so a just-installed agent shows up without a restart.
+let lastStatus = new Map<string, BinStatus>();
 
-/** Load the agent catalog into component state. Fetches per mount, so re-opening
- *  a spawn form re-detects (a just-installed agent shows up without a restart);
- *  until the fetch returns, the previous catalog stands in. */
+/**
+ * The agent catalog: agents contributed by cli plugins, annotated with
+ * install detection. The registry fills as plugins activate — `loading` is
+ * plugin bootstrap, not detection, so an empty catalog AFTER boot is an
+ * honest empty (every cli plugin disabled), not a fallback moment. Until a
+ * bin's status arrives it counts as installed: better to offer an agent that
+ * may fail to spawn than to hide one that works.
+ */
 export function useAgents(): { agents: AgentInfo[]; loading: boolean } {
-  const [agents, setAgents] = useState<AgentInfo[]>(lastCatalog ?? []);
-  const [loading, setLoading] = useState(lastCatalog === null);
+  const contributions = useContributions(pluginRegistries.agents);
+  const [booted, setBooted] = useState(false);
+  const [status, setStatus] = useState(lastStatus);
+
   useEffect(() => {
     let alive = true;
-    listAgents().then((a) => {
-      lastCatalog = a;
-      if (!alive) return;
-      setAgents(a);
-      setLoading(false);
+    // Idempotent join on the app's one bootstrap — App kicked it off at
+    // mount; this only observes completion.
+    void bootstrapPlugins().then(() => {
+      if (alive) setBooted(true);
     });
     return () => {
       alive = false;
     };
   }, []);
-  return { agents, loading };
+
+  const binsKey = useMemo(
+    () =>
+      [...new Set(contributions.map((c) => c.entry.detect.bin))]
+        .sort()
+        .join("\n"),
+    [contributions],
+  );
+  useEffect(() => {
+    if (!binsKey) return;
+    let alive = true;
+    void detectBins(binsKey.split("\n")).then((statuses) => {
+      const next = new Map(lastStatus);
+      for (const s of statuses) next.set(s.bin, s);
+      lastStatus = next;
+      if (alive) setStatus(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [binsKey]);
+
+  const agents = useMemo(
+    () =>
+      contributions.map(({ entry }) =>
+        toAgentInfo(entry, status.get(entry.detect.bin)),
+      ),
+    [contributions, status],
+  );
+  return { agents, loading: !booted };
 }
 
-/** Test hook: forget the cached catalog. */
+function toAgentInfo(
+  entry: AgentContribution,
+  status: BinStatus | undefined,
+): AgentInfo {
+  return {
+    id: entry.id,
+    label: entry.label,
+    command: entry.detect.bin,
+    installed: status?.installed ?? true,
+    path: status?.path ?? null,
+  };
+}
+
+/** Test hook: forget the cached detection. */
 export function resetAgentsCache(): void {
-  lastCatalog = null;
+  lastStatus = new Map();
 }

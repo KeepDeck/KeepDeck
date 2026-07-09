@@ -8,9 +8,17 @@ import type { Capability, PluginManifest } from "@keepdeck/plugin-api";
  * asks for MORE) drops the plugin back to disabled until the user consents
  * again. So the fingerprint must be canonical: the same capability set always
  * produces the same string regardless of declaration order.
+ *
+ * The CATEGORY is part of the fingerprint too: a plugin flipping deck→cli
+ * changes what it IS (it may now define an agent that runs a binary), and
+ * that change must re-prompt even when the capability list happens to stay
+ * identical.
  */
 export function capabilityFingerprint(manifest: PluginManifest): string {
-  return JSON.stringify(manifest.capabilities.map(canonical).sort());
+  return JSON.stringify([
+    `category:${manifest.category}`,
+    ...manifest.capabilities.map(canonical).sort(),
+  ]);
 }
 
 /** One capability as a canonical, order-independent string. */

@@ -69,6 +69,7 @@ export function fakeManifest(
     name: id,
     version: "1.0.0",
     minApiVersion: 1,
+    category: "deck",
     capabilities: [],
     contributes: {},
     ...overrides,
@@ -139,6 +140,7 @@ export function createFakeHost(
     agents: {
       register: (agent) => record(agents, agent),
     },
+    resources: { path: async () => null },
     storage: {
       workspace: (wsId) => ({
         get: async <T>(key: string) =>

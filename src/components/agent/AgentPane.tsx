@@ -47,6 +47,14 @@ interface AgentPaneProps {
   /** The pane's worktree create in flight or failed — render a status card
    * instead of a terminal until it resolves (optimistic provisioning). */
   provisioning?: PaneProvisioning | null;
+  /** The pane's agent id when NO plugin provides it (disabled/uninstalled) —
+   * render an explanatory card instead of a terminal; mounting one would
+   * spawn the bare id as a command. */
+  unavailableAgent?: string | null;
+  /** The pane's spawn plan is still being built (async plugin hooks) —
+   * render the quiet tile instead of a terminal; mounting would spawn
+   * without the plan's identity args. */
+  planPending?: boolean;
   /** Re-issue the failed create from its stored intent. */
   onRetryProvision?(): void;
   /** Grid columns this pane spans (>1 lets a partial last row fill the width). */
@@ -60,6 +68,8 @@ interface AgentPaneProps {
   onRename(name: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onTitle(title: string): void;
+  /** The PTY process ended — the resume-failure detector listens upstream. */
+  onExited?(code: number | null): void;
 }
 
 /**
@@ -83,6 +93,8 @@ export function AgentPane({
   dormant,
   blockedDir,
   provisioning,
+  unavailableAgent,
+  planPending,
   colSpan,
   onSelect,
   onToggleFocus,
@@ -90,6 +102,7 @@ export function AgentPane({
   onClose,
   onRename,
   onTitle,
+  onExited,
   onStartFresh,
   onRetryProvision,
 }: AgentPaneProps) {
@@ -216,6 +229,20 @@ export function AgentPane({
               <ProvisionLocation provisioning={provisioning} />
             </div>
           )
+        ) : unavailableAgent ? (
+          // No plugin provides this pane's agent (disabled or uninstalled).
+          // The pane keeps its identity and session binding; the revive
+          // effect skips it, and re-enabling the plugin brings it back live.
+          <div className="pane__dormant" role="alert">
+            <span className="pane__exit-title">Agent unavailable</span>
+            <span
+              className="pane__exit-sub pane__dormant-path"
+              title={unavailableAgent}
+            >
+              No plugin provides “{unavailableAgent}” — enable it in Settings
+              → Plugins
+            </span>
+          </div>
         ) : dormant ? (
           // Restored, no PTY behind it ([F7]). Normally transient (the revive
           // effect wakes active-workspace panes); it persists only when the
@@ -241,6 +268,12 @@ export function AgentPane({
               <span className="pane__exit-title">Waking up…</span>
             )}
           </div>
+        ) : planPending ? (
+          // The spawn plan is a beat away (async plugin hooks) — same quiet
+          // tile as a waking pane; it resolves within milliseconds.
+          <div className="pane__dormant" role="status">
+            <span className="pane__exit-title">Waking up…</span>
+          </div>
         ) : (
           <TerminalPane
             paneId={paneId}
@@ -250,11 +283,14 @@ export function AgentPane({
             cwd={cwd}
             visible={visible}
             selected={selected}
-            onExit={(code) => setExit({ code })}
+            onExit={(code) => {
+              setExit({ code });
+              onExited?.(code);
+            }}
             onTitle={onTitle}
           />
         )}
-        {exit && !dormant && (
+        {exit && !dormant && !unavailableAgent && (
           <div className="pane__exit" role="status">
             <span className="pane__exit-title">Agent exited</span>
             <span className="pane__exit-sub">

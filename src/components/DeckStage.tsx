@@ -24,6 +24,9 @@ interface DeckStageProps {
   selectedPaneId: string | null;
   /** Agent catalog, for pane commands and derived titles. */
   agents: AgentInfo[];
+  /** The catalog reflects the booted plugin system — only then can a pane's
+   * agent be judged missing (before boot, EVERY id is absent from it). */
+  agentsReady: boolean;
   /** Runtime git HEAD observations, keyed by pane execution cwd. */
   gitHeads: ReadonlyMap<string, GitPosition>;
   /** The empty-workspace count picker chose `count` agents. */
@@ -47,6 +50,11 @@ interface DeckStageProps {
   onStartFresh(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
   onRetryProvision(wsId: string, paneId: string): void;
+  /** A pane's PTY exited (the resume-failure detector lives upstream). */
+  onAgentExited(wsId: string, paneId: string, code: number | null): void;
+  /** Bumped to force a pane's full remount — the respawn-fresh path after a
+   * dead resume (an exited session is never silently respawned in place). */
+  respawnEpochs: ReadonlyMap<string, number>;
 }
 
 /**
@@ -61,6 +69,7 @@ export function DeckStage({
   viewByWs,
   selectedPaneId,
   agents,
+  agentsReady,
   gitHeads,
   onStartWorkspace,
   onSelectPane,
@@ -73,6 +82,8 @@ export function DeckStage({
   specByPane,
   onStartFresh,
   onRetryProvision,
+  onAgentExited,
+  respawnEpochs,
 }: DeckStageProps) {
   return (
     <>
@@ -124,7 +135,25 @@ export function DeckStage({
               // while the catalog is still loading.
               const agentType = pane.agentType ?? "claude";
               const agentInfo = agents.find((a) => a.id === agentType);
-              const command = agentInfo?.command ?? agentType;
+              const spec = specByPane[pane.id];
+              // The plan's word wins (a hook may pick the user's shell via
+              // null); the catalog covers degraded bare plans.
+              const command =
+                spec?.command !== undefined
+                  ? spec.command
+                  : (agentInfo?.command ?? agentType);
+              // Judged only against a booted catalog; the card blocks the
+              // terminal (and thus the spawn) instead of silently running
+              // the bare id as a command.
+              const unavailableAgent =
+                agentsReady && !agentInfo ? agentType : null;
+              // Plans arrive a beat after the pane (async hooks) — the
+              // terminal must not mount (= spawn) before its plan exists.
+              const planPending =
+                !spec &&
+                !pane.dormant &&
+                !pane.provisioning &&
+                !unavailableAgent;
               const displayTitle = paneDisplayTitle(pane, index, agents);
               const executionCwd = paneExecutionCwd(ws, pane);
               const badge = gitBadge(
@@ -132,12 +161,13 @@ export function DeckStage({
               );
               return (
                 <AgentPane
-                  key={pane.id}
+                  key={`${pane.id}#${respawnEpochs.get(pane.id) ?? 0}`}
                   paneId={pane.id}
                   title={displayTitle}
                   command={command}
-                  args={specByPane[pane.id]?.args}
-                  env={specByPane[pane.id]?.env}
+                  args={spec?.args}
+                  env={spec?.env}
+                  planPending={planPending}
                   cwd={executionCwd}
                   gitBadge={badge}
                   visible={isActive && !isCollapsed}
@@ -148,6 +178,7 @@ export function DeckStage({
                   dormant={pane.dormant}
                   blockedDir={dormantBlocked[pane.id] ?? null}
                   provisioning={pane.provisioning}
+                  unavailableAgent={unavailableAgent}
                   colSpan={colSpan}
                   onSelect={() => onSelectPane(ws.id, pane.id)}
                   onToggleFocus={() => onToggleFocus(ws.id, pane.id)}
@@ -159,6 +190,7 @@ export function DeckStage({
                   onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
                   onStartFresh={() => onStartFresh(ws.id, pane.id)}
                   onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
+                  onExited={(code) => onAgentExited(ws.id, pane.id, code)}
                 />
               );
             })}

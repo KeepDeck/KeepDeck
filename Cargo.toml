@@ -5,6 +5,4 @@ members = [
     "crates/keepdeck-env",
     "crates/keepdeck-pty",
     "crates/keepdeck-git",
-    "crates/keepdeck-agents",
-    "crates/keepdeck-history",
 ]

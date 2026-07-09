@@ -79,11 +79,18 @@ describe("hydrateSettings", () => {
     // The file is hand-editable: one typo must not reset the other settings.
     const doc = hydrateSettings(
       JSON.stringify({
-        defaultAgent: "vim", // not an agent
+        defaultAgent: 7, // not even a string
         scrollback: 50_000, // fine
       }),
     );
     expect(doc?.settings).toEqual({ ...DEFAULT_SETTINGS, scrollback: 50_000 });
+  });
+
+  it("keeps an unknown defaultAgent id — the id set is open", () => {
+    // Agents come from plugins; hydration cannot know the catalog. An absent
+    // plugin's id just loses the picker vote (defaultAgentType snaps away).
+    const doc = hydrateSettings(JSON.stringify({ defaultAgent: "gemini" }));
+    expect(doc?.settings.defaultAgent).toBe("gemini");
   });
 
   it("clamps scrollback into bounds and whole lines", () => {

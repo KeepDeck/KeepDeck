@@ -8,7 +8,6 @@ import {
   resetSettingsManager,
   updateSettings,
 } from "../../app/settingsManager";
-import { FALLBACK_AGENTS } from "../../domain/agents";
 import {
   DEFAULT_SETTINGS,
   SCROLLBACK_MIN,
@@ -29,11 +28,52 @@ const ipc = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/settings", () => ipc);
 
-// The General section fetches the agent catalog itself (re-detect on open).
+// The General section assembles the agent catalog from the plugin registry
+// (seeded with the three built-in cli agents) plus per-mount detection —
+// detectBins is the refetch tripwire.
 const agentsIpc = vi.hoisted(() => ({
-  listAgents: vi.fn(async () => FALLBACK_AGENTS),
+  detectBins: vi.fn(async (bins: string[]) =>
+    bins.map((bin) => ({ bin, installed: true, path: null })),
+  ),
 }));
 vi.mock("../../ipc/agents", () => agentsIpc);
+vi.mock("../../app/pluginManager", async () => {
+  const { createContributionRegistries } = await import(
+    "../../plugins/registries/contributions"
+  );
+  const registries = createContributionRegistries();
+  for (const [id, label] of [
+    ["claude", "Claude Code"],
+    ["codex", "Codex"],
+    ["opencode", "OpenCode"],
+  ]) {
+    registries.agents.add("test-plugin", {
+      id,
+      label,
+      detect: { bin: id },
+      hooks: {},
+    });
+  }
+  return {
+    pluginRegistries: registries,
+    bootstrapPlugins: () => Promise.resolve(),
+    // The Plugins section renders in the dialog's nav tree — a quiet, empty
+    // host keeps it inert without pulling the real Tauri-backed manager in.
+    pluginHost: {
+      // useSyncExternalStore compares snapshots by identity — return a
+      // STABLE empty list, or the store loops forever.
+      getInstalled: (() => {
+        const none: never[] = [];
+        return () => none;
+      })(),
+      subscribe: () => () => {},
+      setEnabled: async () => {},
+    },
+    externalPluginInfo: () => null,
+    rescanPlugins: async () => {},
+    restartPlugin: async () => {},
+  };
+});
 
 const button = (text: string) =>
   Array.from(document.querySelectorAll("button")).find(
@@ -71,7 +111,7 @@ describe("SettingsDialog", () => {
 
   beforeEach(() => {
     ipc.saveSettings.mockClear();
-    agentsIpc.listAgents.mockClear();
+    agentsIpc.detectBins.mockClear();
     resetSettingsManager();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -115,10 +155,10 @@ describe("SettingsDialog", () => {
     // A remount would refetch and flash the General panel empty while the
     // IPC roundtrip runs — panels must stay mounted across switches.
     await mount();
-    agentsIpc.listAgents.mockClear();
+    agentsIpc.detectBins.mockClear();
     toTerminal();
     act(() => button("General").click());
-    expect(agentsIpc.listAgents).not.toHaveBeenCalled();
+    expect(agentsIpc.detectBins).not.toHaveBeenCalled();
   });
 
   it("an uncommitted scrollback draft survives a section round-trip", async () => {

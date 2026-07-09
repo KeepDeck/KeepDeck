@@ -101,7 +101,8 @@ export type EventChannel =
   | "settingsChanged"
   | `session:${string}`
   | `action:${string}`
-  | `fswatch:${string}`;
+  | `fswatch:${string}`
+  | `hook:${string}`;
 
 /** The three deck-lifecycle channels a guest may subscribe to by name via
  * `events.subscribe`. Kept as a value so the host can validate an incoming
@@ -138,6 +139,13 @@ export function fswatchChannel(id: number): `fswatch:${string}` {
   return `fswatch:${id}`;
 }
 
+/** The push channel for ONE agent-hook invocation (host→guest). The host
+ * mints the id and pushes a `WireHookCall`; the guest runs the plugin's hook
+ * and answers with an `agents.hookResult` call carrying the same id. */
+export function hookChannel(id: number): `hook:${string}` {
+  return `hook:${id}`;
+}
+
 // ------------------------------------------------------------- session bodies
 
 /** The wire form of a `PluginSessionEvent`. `output.bytes` is a `number[]`, not
@@ -146,3 +154,23 @@ export function fswatchChannel(id: number): `fswatch:${string}` {
 export type WireSessionEvent =
   | { type: "output"; bytes: number[] }
   | { type: "exit"; code: number | null };
+
+// ---------------------------------------------------------------- hook bodies
+
+/** The serializable half of a `SpawnPlanOutput` — what an agent hook mutates
+ * across the wire. */
+export interface WireSpawnPlanOutput {
+  command: string | null;
+  args: string[];
+  env: [string, string][];
+}
+
+/** The payload of one `hook:<id>` push: which agent, which hook, and the
+ * input/output pair (both plain data — the mutate-in-place contract crosses
+ * the wire as "send both, return the mutated output"). */
+export interface WireHookCall {
+  agentId: string;
+  hook: string;
+  input: unknown;
+  output: WireSpawnPlanOutput;
+}

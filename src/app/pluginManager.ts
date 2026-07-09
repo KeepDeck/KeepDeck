@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import {
   readManifest,
   type Disposable,
@@ -251,6 +252,37 @@ export const pluginHost = new PluginHost(
         mode: source === "external" ? "enforce" : "warn",
         log: loggerFor(manifest.id),
       }),
+    resources: (manifest, source) => ({
+      async path(relative: string) {
+        // Plain /-separated segments only — a resource name, not a path
+        // expression. (The dev candidate's own ../ prefix is OURS, below.)
+        const segments = relative.split("/");
+        if (
+          segments.some((seg) => seg === "" || seg === "." || seg === "..") ||
+          relative.startsWith("/")
+        ) {
+          loggerFor(manifest.id).warn(`resources.path: rejected "${relative}"`);
+          return null;
+        }
+        if (source === "external") {
+          // Resolved inside the plugin's install folder (dev folders in
+          // place; archive entries materialized to disk) with the same
+          // source resolution as its file serving.
+          return invoke<string | null>("plugin_external_resource_path", {
+            id: manifest.id,
+            relative,
+          }).catch(() => null);
+        }
+        // Built-in: the built plugin dirs ship as real files under the
+        // app's Resource dir — in a bundle AND in dev (tauri copies the
+        // configured resources next to the debug binary at dev start, so
+        // this path resolves identically in both modes; a dev copy is a
+        // snapshot of dist/, refreshed by `pnpm build`).
+        return invoke<string | null>("plugin_resource_path", {
+          path: `plugins/${manifest.id}/resources/${relative}`,
+        }).catch(() => null);
+      },
+    }),
     log: loggerFor,
     hostFacts: {
       // The whitelisted read-only host facts (see PluginHostFacts): grown a

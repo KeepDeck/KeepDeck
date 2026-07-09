@@ -154,7 +154,10 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     // is the deterministic-shape tripwire: a new built-in updates it on purpose.
     expect(index).toEqual({
       plugins: [
+        { id: "keepdeck.claude", dir: "plugins/keepdeck.claude" },
+        { id: "keepdeck.codex", dir: "plugins/keepdeck.codex" },
         { id: "keepdeck.files", dir: "plugins/keepdeck.files" },
+        { id: "keepdeck.opencode", dir: "plugins/keepdeck.opencode" },
         { id: "keepdeck.run", dir: "plugins/keepdeck.run" },
       ],
     });

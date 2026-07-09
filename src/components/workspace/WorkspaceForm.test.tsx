@@ -27,8 +27,9 @@ const agent = (id: string, label: string) => ({
 const TWO_AGENTS = [agent("claude", "Claude Code"), agent("codex", "Codex")];
 const THREE_AGENTS = [...TWO_AGENTS, agent("opencode", "OpenCode")];
 const catalog = vi.hoisted(() => ({ list: [] as unknown[] }));
-vi.mock("../../ipc/agents", () => ({
-  listAgents: async () => catalog.list,
+vi.mock("../../app/useAgents", () => ({
+  useAgents: () => ({ agents: catalog.list, loading: false }),
+  resetAgentsCache: () => {},
 }));
 
 // The form reads the default agent from the settings store ([F6]); run the

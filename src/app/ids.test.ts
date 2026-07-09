@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mintAgentSeq, mintAgentSeqs, mintSessionId, mintWorkspaceSeq } from "./ids";
+import { mintAgentSeq, mintAgentSeqs, mintWorkspaceSeq } from "./ids";
 
 describe("id mints", () => {
   it("a batch reservation hands out exactly `count` seqs before the next mint", () => {
@@ -13,11 +13,5 @@ describe("id mints", () => {
     const ws = mintWorkspaceSeq();
     mintAgentSeqs(5);
     expect(mintWorkspaceSeq()).toBe(ws + 1);
-  });
-
-  it("session ids are lowercase UUIDs — the shape claude --session-id accepts", () => {
-    expect(mintSessionId()).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
   });
 });

@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  buildSpawnPlan,
-  type AgentInfo,
-  type SpawnPlanContext,
-} from "../domain/agents";
+import type { AgentInfo, SpawnPlanContext } from "../domain/agents";
 import { findWorkspace, type Pane } from "../domain/deck";
-import { sessionPresence } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
-import { mintSessionId } from "./ids";
-import { setPaneSpawnSpec } from "./spawnSpecs";
+import { buildResumeSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 
 /**
@@ -38,6 +32,9 @@ export function useRevive(
   deck: Deck,
   agents: AgentInfo[],
   ctx: SpawnPlanContext | null,
+  /** The agent catalog reflects the booted plugin system — waking anything
+   * earlier would misjudge every pane's agent as unknown. */
+  agentsReady: boolean,
 ): ReviveApi {
   const [blocked, setBlocked] = useState<Record<string, string>>({});
   // Revivals in flight — re-renders while one is pending must not double-run.
@@ -65,61 +62,46 @@ export function useRevive(
     });
   }, [deck.workspaces]);
 
+  // Re-run when the catalog's id set changes: re-enabling a cli plugin must
+  // wake the panes its absence kept dormant, without an app restart.
+  const agentIds = agents
+    .map((a) => a.id)
+    .sort()
+    .join("\n");
+
   useEffect(() => {
-    // Wait for the spawn context: a resume plan built without it would miss
-    // the agent's identity mechanism (e.g. codex hook args).
-    if (!active || !ctx) return;
+    // Wait for the spawn context (a resume plan built without it would miss
+    // the agent's identity mechanism) AND the catalog (see `agentsReady`).
+    if (!active || !ctx || !agentsReady) return;
 
     /** Resolve the resume session and wake one pane. */
     const wake = async (pane: Pane, dir: string) => {
       const agentType = pane.agentType ?? "claude";
-      const recorded = pane.session?.id ?? null;
-      let sessionId: string | null = null;
-      if (recorded) {
-        // Validate before resuming — an assigned id whose session was never
-        // written (a pane the user never spoke to), or one the agent GC'd.
-        // Either way the pane starts FRESH: falling back to
-        // newest-in-directory here would resurrect someone else's
-        // conversation (the empty-claude-pane bug). Only a DEFINITIVE
-        // absence counts: an unanswerable store ("unknown" — locked DB, IO
-        // error) or a failed check trusts the binding (worst case: the
-        // resume exits visibly), never wipes a resumable conversation.
-        const presence = await sessionPresence(agentType, recorded, dir).catch(
-          () => "unknown" as const,
-        );
-        sessionId = presence === "absent" ? null : recorded;
-        // Drop the dead binding — a pane must not keep pointing at a ghost:
-        // the binding hook refuses to overwrite an existing session, so a
-        // stale one would block the fresh spawn's identity from ever being
-        // recorded (the lost-"test"-conversation bug).
-        if (presence === "absent") {
-          deckRef.current.setPaneSession(active.id, pane.id, null);
-        }
-      } else {
-        // Never bound: the hook/plugin reporter never posted this pane's
-        // session id — a pane nobody messaged (codex/opencode create the
-        // session lazily with the first message), a mid-TUI `/new`, a pre-v2
-        // deck, or a reporter that couldn't arm. Start FRESH: matching the
-        // newest session in the directory would resume a FOREIGN conversation
-        // whenever panes share a cwd (the default — a worktree is optional),
-        // the same directory-theft the recorded-but-absent branch above
-        // already refuses. claude never reaches here — its id is assigned at
-        // spawn, so it is always bound.
-        sessionId = null;
-      }
+      // A recorded binding is TRUSTED: it came from the pane's own process
+      // (the reporter posts at session creation), so it existed. If it was
+      // deleted out from under us since, the resume fails VISIBLY in the
+      // terminal — accepted, rare, and uniform across agents; the app never
+      // reads an agent's session store. An unbound pane starts FRESH:
+      // matching the newest session in the directory would resume a FOREIGN
+      // conversation whenever panes share a cwd (the default — a worktree
+      // is optional).
+      const sessionId = pane.session?.id ?? null;
       log.info(
         "web:revive",
-        `${pane.id} (${agentType}): recorded=${recorded ?? "-"} → ` +
+        `${pane.id} (${agentType}): ` +
           (sessionId ? `resume ${sessionId}` : "fresh"),
       );
       if (sessionId && ctxRef.current) {
-        setPaneSpawnSpec(
+        // Built through the agent plugin's resume.plan hook and cached
+        // BEFORE the pane wakes — the mounting terminal reads it.
+        await buildResumeSpec(
+          agentType,
           pane.id,
-          buildSpawnPlan(agentType, pane.id, ctxRef.current, {
-            resumeId: sessionId,
-            agents: agentsRef.current,
-            mintId: mintSessionId,
-          }),
+          active.id,
+          dir,
+          pane.branch,
+          ctxRef.current,
+          sessionId,
         );
       }
       deckRef.current.revivePane(active.id, pane.id);
@@ -128,6 +110,13 @@ export function useRevive(
     for (const pane of active.panes) {
       if (!pane.dormant || pane.id in blocked || waking.current.has(pane.id))
         continue;
+      // An agent no plugin provides must NOT wake: the spawn would run the
+      // bare id as a command, and the presence check would answer "absent"
+      // for the unknown store and WIPE a binding that resumes fine once the
+      // plugin returns. The pane stays dormant behind its
+      // "agent unavailable" card.
+      const agentType = pane.agentType ?? "claude";
+      if (!agentsRef.current.some((a) => a.id === agentType)) continue;
       const dir = pane.cwd ?? active.cwd;
       waking.current.add(pane.id);
       void probeWorktree(dir)
@@ -144,7 +133,7 @@ export function useRevive(
         })
         .finally(() => waking.current.delete(pane.id));
     }
-  }, [active, blocked, ctx]);
+  }, [active, blocked, ctx, agentsReady, agentIds]);
 
   const startFresh = (wsId: string, paneId: string) => {
     setBlocked(({ [paneId]: _gone, ...rest }) => rest);

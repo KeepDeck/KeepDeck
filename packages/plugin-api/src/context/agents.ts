@@ -43,19 +43,15 @@ export interface SpawnPlanInput {
   wsId: string;
   cwd: string;
   branch?: string;
-  /** Pre-minted session identity the host expects the CLI to adopt. */
-  sessionId: string;
-  /** Where the session reporter posts binding events. */
-  spoolPath: string;
 }
 
 export interface ResumePlanInput {
   paneId: string;
   wsId: string;
   cwd: string;
+  branch?: string;
   /** The recorded session to resume. */
   sessionId: string;
-  spoolPath: string;
 }
 
 /** Mutate-in-place spawn plan: hooks adjust what the host will run. */

@@ -181,3 +181,48 @@ describe("AgentPane — provisioning cards", () => {
     expect(document.querySelector(".pane__open")).toBeNull();
   });
 });
+
+describe("AgentPane — the unavailable-agent card", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("blocks the terminal (the spawn) and names the missing agent", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, { ...baseProps, unavailableAgent: "gemini" }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Agent unavailable");
+    expect(document.body.textContent).toContain("gemini");
+    // Mounting the terminal is what spawns — the card must prevent it.
+    expect(TerminalPane).not.toHaveBeenCalled();
+  });
+
+  it("wins over the dormant tile — the card explains WHY nothing wakes", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          unavailableAgent: "gemini",
+          dormant: true,
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Agent unavailable");
+    expect(document.body.textContent).not.toContain("Waking up");
+  });
+});

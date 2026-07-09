@@ -1,8 +1,0 @@
-[package]
-name = "keepdeck-agents"
-version = "0.1.0"
-edition = "2021"
-description = "Catalog and installed-detection of the coding agents KeepDeck can launch."
-
-[dependencies]
-keepdeck-env = { path = "../keepdeck-env" }

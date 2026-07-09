@@ -20,6 +20,7 @@ const manifest: PluginManifest = {
   name: "Example",
   version: "1.0.0",
   minApiVersion: 1,
+  category: "deck",
   capabilities: [],
   contributes: {},
 };
@@ -42,6 +43,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       onChange: () => disposable,
     },
     agents: { register: () => disposable },
+    resources: { path: async () => null },
     storage: {
       workspace: () => ({
         get: async () => undefined,

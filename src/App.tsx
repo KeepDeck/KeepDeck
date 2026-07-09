@@ -16,8 +16,14 @@ import { useSessionBinding } from "./app/useSessionBinding";
 import { useSettings } from "./app/useSettings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
-import { paneSpawnSpec } from "./app/spawnSpecs";
-import type { SpawnPlan } from "./domain/agents";
+import {
+  dropPaneSpawnSpec,
+  peekPaneSpawnSpec,
+  resumeDiedSilently,
+  usePaneSpawnSpecs,
+} from "./app/spawnSpecs";
+import { postbackCount } from "./app/postbacks";
+import { closePane } from "./app/ptyManager";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -66,20 +72,53 @@ function App() {
   // reducer so close transitions clean focus + selection atomically ([S1], [B2],
   // [L6]).
   const deck = useDeck();
-  // Detected agent catalog (labels/commands/install status), fetched from Rust.
-  const { agents } = useAgents();
+  // The agent catalog: cli plugins' contributions + install detection.
+  const { agents, loading: agentsLoading } = useAgents();
   // Global preferences ([F6]) — loaded before the first paint, saved through.
   const settings = useSettings();
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);
   const [frozenAck, setFrozenAck] = useState(false);
-  // Per-install spawn-plan constants (spool dir, reporter activation) — the
+  // Per-install spawn-plan constants (bridge inbox, reporter activation) — the
   // deck's first paint waits for it ([F7]/[F8] session identity v2).
   const spawnCtx = useSpawnContext();
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
-  const revive = useRevive(deck, agents, spawnCtx);
+  const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);
+  // Every live pane's spawn plan, built through its agent plugin's hooks
+  // (async — the pane's terminal waits for its plan; mounting is what
+  // spawns). Dormant panes get theirs at revive time.
+  // Bumped per pane to force a full remount — the respawn-fresh path after
+  // a resume that died without ever reporting a session.
+  const [respawnEpochs, setRespawnEpochs] = useState<ReadonlyMap<string, number>>(
+    new Map(),
+  );
+  const specByPane = usePaneSpawnSpecs(
+    deck.workspaces,
+    spawnCtx,
+    !agentsLoading,
+    respawnEpochs,
+  );
+
+  /** A pane's PTY exited. If its plan was a RESUME and the process never
+   * reported a session (see `resumeDiedSilently`), the CLI refused the
+   * recorded id — "No conversation found". Handle it: drop the dead
+   * binding, forget the plan, respawn FRESH. Once — the fresh plan carries
+   * no `resumeOf`, so a second exit shows the normal exited card. */
+  const handleAgentExited = (wsId: string, paneId: string, code: number | null) => {
+    const spec = peekPaneSpawnSpec(paneId);
+    if (!resumeDiedSilently(spec, postbackCount(paneId))) return;
+    log.warn(
+      "web:revive",
+      `${paneId}: resume of ${spec?.resumeOf} exited (${code ?? "?"}) without reporting — respawning fresh`,
+    );
+    deck.setPaneSession(wsId, paneId, null);
+    dropPaneSpawnSpec(paneId);
+    void closePane(paneId).finally(() =>
+      setRespawnEpochs((m) => new Map(m).set(paneId, (m.get(paneId) ?? 0) + 1)),
+    );
+  };
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
   useSessionBinding(deck);
   // Runtime git HEAD observations for pane badges and worktree close cleanup.
@@ -255,18 +294,6 @@ function App() {
   // setting at construction ([F6]).
   if (restoring || !spawnCtx || !settings) return <div className="deck" />;
 
-  // Every live pane's spawn plan (cached per pane id — a claude plan mints
-  // its session id once). Dormant panes get theirs at revive time; a
-  // provisioning pane has no working directory yet, so spawning would drop
-  // the agent into the workspace cwd — exactly the fallback the cards
-  // replaced.
-  const specByPane: Record<string, SpawnPlan> = {};
-  for (const ws of deck.workspaces) {
-    for (const pane of ws.panes) {
-      if (!pane.dormant && !pane.provisioning)
-        specByPane[pane.id] = paneSpawnSpec(pane, spawnCtx, agents);
-    }
-  }
 
   return (
     <div className="deck">
@@ -365,6 +392,7 @@ function App() {
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
             agents={agents}
+            agentsReady={!agentsLoading}
             gitHeads={gitHeads}
             onStartWorkspace={(wsId, count) =>
               void provisioning.startWorkspace(wsId, count)
@@ -383,6 +411,8 @@ function App() {
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
             onRetryProvision={provisioning.retryPane}
+            onAgentExited={handleAgentExited}
+            respawnEpochs={respawnEpochs}
           />
 
           {showForm &&

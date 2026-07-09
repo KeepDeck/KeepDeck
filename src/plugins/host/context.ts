@@ -3,6 +3,7 @@ import type {
   PluginContext,
   PluginManifest,
 } from "@keepdeck/plugin-api";
+import { execCovers } from "../capabilities/execCovers";
 import type { ContributionRegistries } from "../registries/contributions";
 import type { PluginSource } from "../model/installed";
 import type { PluginHostDeps } from "./deps";
@@ -66,25 +67,64 @@ export function buildPluginContext(
     }
   }
 
+  // Registration is bounded by the manifest: only DECLARED contributions may
+  // register (the same fail-closed idiom the capability gate applies to
+  // services). A mismatch throws — activation catches it, the plugin lands
+  // `failed` with zero residue, and the author reads exactly what to fix.
+  function declared(
+    kind: keyof PluginManifest["contributes"],
+    id: string,
+  ): void {
+    const list = manifest.contributes[kind];
+    if (Array.isArray(list) && list.some((s) => s.id === id)) return;
+    throw new Error(
+      `contribution not declared in the manifest: ${kind} "${id}"`,
+    );
+  }
+
   const ctx: PluginContext = {
     manifest,
     ui: {
-      registerDockTab: (tab) => track(registries.dockTabs.add(pluginId, tab)),
-      registerTopBarAction: (action) =>
-        track(registries.topBarActions.add(pluginId, action)),
-      registerPaneAction: (action) =>
-        track(registries.paneActions.add(pluginId, action)),
+      registerDockTab: (tab) => {
+        declared("dockTabs", tab.id);
+        return track(registries.dockTabs.add(pluginId, tab));
+      },
+      registerTopBarAction: (action) => {
+        declared("topBarActions", action.id);
+        return track(registries.topBarActions.add(pluginId, action));
+      },
+      registerPaneAction: (action) => {
+        declared("paneActions", action.id);
+        return track(registries.paneActions.add(pluginId, action));
+      },
     },
     settings: {
-      registerSection: (section) =>
-        track(registries.settingsSections.add(pluginId, section)),
+      registerSection: (section) => {
+        if (manifest.contributes.settings !== true) {
+          throw new Error(
+            "contribution not declared in the manifest: settings",
+          );
+        }
+        return track(registries.settingsSections.add(pluginId, section));
+      },
       read: () => settingsPort.read(),
       onChange: (cb) => track(settingsPort.onChange(cb)),
     },
     agents: {
-      register: (agent) => track(registries.agents.add(pluginId, agent)),
+      register: (agent) => {
+        declared("agents", agent.id);
+        // The agent's binary is what spawn plans fall back to — it must be
+        // legitimate by declaration, both tiers, no exceptions.
+        if (!execCovers(manifest.capabilities, agent.detect.bin)) {
+          throw new Error(
+            `agent "${agent.id}": detect.bin "${agent.detect.bin}" is not covered by an exec capability`,
+          );
+        }
+        return track(registries.agents.add(pluginId, agent));
+      },
     },
     storage: deps.storage(pluginId),
+    resources: deps.resources(manifest, source),
     events: {
       onWorkspaceClosed: (cb) => track(deps.events.onWorkspaceClosed(cb)),
       onPaneSelected: (cb) => track(deps.events.onPaneSelected(cb)),

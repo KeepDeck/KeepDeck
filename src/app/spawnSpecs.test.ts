@@ -1,35 +1,197 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentContribution, Disposable } from "@keepdeck/plugin-api";
+import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "../domain/agents";
+import type { Workspace } from "../domain/deck";
+import { pluginRegistries } from "./pluginManager";
 import {
-  paneSpawnSpec,
+  buildResumeSpec,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
-  setPaneSpawnSpec,
+  resumeDiedSilently,
+  usePaneSpawnSpecs,
 } from "./spawnSpecs";
 
-const ctx = { ...EMPTY_SPAWN_CONTEXT, spoolDir: "/spool" };
+// React 19 requires this flag for act() outside a test-framework integration.
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
+  true;
 
-describe("spawnSpecs cache", () => {
-  afterEach(resetPaneSpawnSpecs);
+const hostState = vi.hoisted(() => ({ installed: [] as unknown[] }));
+vi.mock("./pluginManager", async () => {
+  const { createContributionRegistries } = await import(
+    "../plugins/registries/contributions"
+  );
+  return {
+    pluginRegistries: createContributionRegistries(),
+    bootstrapPlugins: () => Promise.resolve(),
+    pluginHost: { getInstalled: () => hostState.installed },
+  };
+});
 
-  it("is stable across renders — a claude id is minted exactly once", () => {
-    const pane = { id: "pane-1", agentType: "claude" as const };
-    const first = paneSpawnSpec(pane, ctx, []);
-    const second = paneSpawnSpec(pane, ctx, []);
-    expect(second).toBe(first);
-    expect(first.sessionId).toBeDefined();
+const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
+
+/** A claude-shaped agent: reporter args on spawn, --resume on resume. */
+const adopting: AgentContribution = {
+  id: "claude",
+  label: "Claude Code",
+  detect: { bin: "claude" },
+  hooks: {
+    "spawn.plan": (_input, output) => {
+      output.args = ["--settings", "{hook}"];
+    },
+    "resume.plan": (input, output) => {
+      output.args = ["--resume", input.sessionId];
+    },
+  },
+};
+
+const ws = (panes: Workspace["panes"]): Workspace[] => [
+  { id: "ws-1", name: "ws", cwd: "/repo", worktreeBaseDir: null, panes },
+];
+
+let seen: Record<string, SpawnPlan>;
+function Probe({ workspaces }: { workspaces: Workspace[] }) {
+  seen = usePaneSpawnSpecs(workspaces, ctx, true);
+  return null;
+}
+
+/** Let the build→cache→tick chain settle. */
+const settle = async () => {
+  for (let i = 0; i < 4; i++) await act(async () => {});
+};
+
+describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
+  let root: Root;
+  let registered: Disposable[] = [];
+
+  const register = (agent: AgentContribution) => {
+    registered.push(pluginRegistries.agents.add("test-plugin", agent));
+  };
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    hostState.installed = [];
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
   });
 
-  it("a pre-registered revive plan wins over the fresh default", () => {
-    const resume = { args: ["--resume", "old"], env: [] as [string, string][] };
-    setPaneSpawnSpec("pane-2", resume);
-    expect(
-      paneSpawnSpec({ id: "pane-2", agentType: "claude" }, ctx, []),
-    ).toBe(resume);
-    expect(peekPaneSpawnSpec("pane-2")).toBe(resume);
+  afterEach(() => {
+    act(() => root.unmount());
+    for (const d of registered) d.dispose();
+    registered = [];
   });
 
-  it("peek never builds", () => {
-    expect(peekPaneSpawnSpec("pane-3")).toBeUndefined();
+  const mount = (workspaces: Workspace[]) =>
+    act(async () => root.render(createElement(Probe, { workspaces })));
+
+  it("builds through the hook and arms the bridge on top", async () => {
+    register(adopting);
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    const plan = seen["pane-1"];
+    expect(plan.command).toBe("claude");
+    expect(plan.args).toEqual(["--settings", "{hook}"]);
+    // Host-owned arming: the ONE bridge var, token echoed in the plan.
+    const env = Object.fromEntries(plan.env);
+    const bridge = JSON.parse(env.KEEPDECK_BRIDGE);
+    expect(bridge).toMatchObject({ v: 1, dir: "/bridge/run-1", pane: "pane-1" });
+    expect(plan.token).toBe(bridge.token);
+  });
+
+  it("builds each pane ONCE — a re-render must not re-mint", async () => {
+    register(adopting);
+    const workspaces = ws([{ id: "pane-1", agentType: "claude" }]);
+    await mount(workspaces);
+    await settle();
+    const first = seen["pane-1"];
+
+    await mount([...workspaces]); // new array identity → effect re-runs
+    await settle();
+    expect(seen["pane-1"]).toBe(first);
+  });
+
+  it("skips dormant, provisioning and unknown-agent panes", async () => {
+    register(adopting);
+    await mount(
+      ws([
+        { id: "pane-d", agentType: "claude", dormant: true },
+        {
+          id: "pane-p",
+          agentType: "claude",
+          provisioning: { repo: "/r", baseDir: "/b", workspace: "w", index: 1 },
+        },
+        { id: "pane-u", agentType: "gemini" },
+      ]),
+    );
+    await settle();
+    expect(seen).toEqual({});
+  });
+
+  it("a throwing hook degrades to a bare spawn, not a dead pane", async () => {
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(seen["pane-1"]).toEqual({ command: "claude", args: [], env: [] });
+  });
+
+  it("an EXTERNAL plugin's off-capability command is clamped to its binary", async () => {
+    // The hook picked a program its manifest never declared — a sandboxed
+    // plugin must not choose the spawn target. Built-ins only warn.
+    hostState.installed = [
+      {
+        manifest: {
+          id: "test-plugin",
+          capabilities: [{ kind: "exec", commands: ["claude"] }],
+        },
+        source: "external",
+        status: { kind: "active" },
+      },
+    ];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (_input, output) => {
+          output.command = "curl";
+          output.args = ["evil.sh"];
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+
+    expect(seen["pane-1"].command).toBe("claude"); // detect.bin, declared
+    expect(seen["pane-1"].args).toEqual([]);
+  });
+
+  it("buildResumeSpec caches a resume plan the wake can read back", async () => {
+    register(adopting);
+    await buildResumeSpec("claude", "pane-9", "ws-1", "/repo", undefined, ctx, "old-id");
+    expect(peekPaneSpawnSpec("pane-9")?.args).toEqual(["--resume", "old-id"]);
+    expect(peekPaneSpawnSpec("pane-9")?.token).toBeDefined();
+    // The failure detector's bookkeeping rides the plan.
+    expect(peekPaneSpawnSpec("pane-9")?.resumeOf).toBe("old-id");
+    expect(peekPaneSpawnSpec("pane-9")?.postbackMark).toBe(0);
+  });
+
+  it("resumeDiedSilently: only a resume with ZERO new postbacks retries", () => {
+    const resume = { args: [], env: [], resumeOf: "old", postbackMark: 2 };
+    // Exited with the count unmoved — the CLI refused the id: retry fresh.
+    expect(resumeDiedSilently(resume, 2)).toBe(true);
+    // A postback arrived — the session really started; a later exit is real.
+    expect(resumeDiedSilently(resume, 3)).toBe(false);
+    // Fresh plans and unknown panes never retry.
+    expect(resumeDiedSilently({ args: [], env: [] }, 0)).toBe(false);
+    expect(resumeDiedSilently(undefined, 0)).toBe(false);
   });
 });

@@ -67,57 +67,77 @@ export function PluginsSection() {
         <p className="settings__hint">No plugins installed.</p>
       ) : (
         <div className="settings__plugins">
-          {installed.map((plugin) => {
-            const external = externalPluginInfo(plugin.manifest.id);
+          {GROUPS.map(({ category, title }) => {
+            const members = installed.filter(
+              (p) => p.manifest.category === category,
+            );
+            if (members.length === 0) return null;
             return (
-              <div key={plugin.manifest.id} className="settings__plugin">
-                <label className="settings__toggle">
-                  <input
-                    type="checkbox"
-                    checked={plugin.status.kind !== "disabled"}
-                    onChange={(e) =>
-                      void pluginHost.setEnabled(
-                        plugin.manifest.id,
-                        e.target.checked,
-                      )
-                    }
-                    aria-label={`Enable plugin ${plugin.manifest.name}`}
-                  />
-                  <span className="settings__toggle-text">
-                    <span className="settings__plugin-name">
-                      {plugin.manifest.name}
-                      {external?.dev && (
-                        <span className="settings__badge">dev</span>
-                      )}
-                    </span>
-                    <span className="settings__hint">
-                      {plugin.manifest.id} · {plugin.manifest.version}
-                      {plugin.status.kind === "failed" &&
-                        ` · failed: ${plugin.status.reason}`}
-                    </span>
-                    {external && plugin.manifest.capabilities.length > 0 && (
-                      <span className="settings__hint">
-                        Wants: {plugin.manifest.capabilities.map(describe).join(", ")}
-                      </span>
-                    )}
-                  </span>
-                </label>
-                {plugin.status.kind === "active" && (
-                  <button
-                    type="button"
-                    className="form__cancel settings__plugin-restart"
-                    onClick={() => void restartPlugin(plugin.manifest.id)}
-                    title={`Restart ${plugin.manifest.name}`}
-                  >
-                    Restart
-                  </button>
-                )}
+              <div key={category} className="settings__plugin-group">
+                <span className="settings__plugin-group-title">{title}</span>
+                {members.map((plugin) => (
+                  <PluginRow key={plugin.manifest.id} plugin={plugin} />
+                ))}
               </div>
             );
           })}
         </div>
       )}
     </>
+  );
+}
+
+/** Category grouping, cli agents first — they are what the deck runs. */
+const GROUPS: { category: "cli" | "deck"; title: string }[] = [
+  { category: "cli", title: "CLI agents" },
+  { category: "deck", title: "Deck" },
+];
+
+function PluginRow({
+  plugin,
+}: {
+  plugin: ReturnType<typeof pluginHost.getInstalled>[number];
+}) {
+  const external = externalPluginInfo(plugin.manifest.id);
+  return (
+    <div className="settings__plugin">
+      <label className="settings__toggle">
+        <input
+          type="checkbox"
+          checked={plugin.status.kind !== "disabled"}
+          onChange={(e) =>
+            void pluginHost.setEnabled(plugin.manifest.id, e.target.checked)
+          }
+          aria-label={`Enable plugin ${plugin.manifest.name}`}
+        />
+        <span className="settings__toggle-text">
+          <span className="settings__plugin-name">
+            {plugin.manifest.name}
+            {external?.dev && <span className="settings__badge">dev</span>}
+          </span>
+          <span className="settings__hint">
+            {plugin.manifest.id} · {plugin.manifest.version}
+            {plugin.status.kind === "failed" &&
+              ` · failed: ${plugin.status.reason}`}
+          </span>
+          {external && plugin.manifest.capabilities.length > 0 && (
+            <span className="settings__hint">
+              Wants: {plugin.manifest.capabilities.map(describe).join(", ")}
+            </span>
+          )}
+        </span>
+      </label>
+      {plugin.status.kind === "active" && (
+        <button
+          type="button"
+          className="form__cancel settings__plugin-restart"
+          onClick={() => void restartPlugin(plugin.manifest.id)}
+          title={`Restart ${plugin.manifest.name}`}
+        >
+          Restart
+        </button>
+      )}
+    </div>
   );
 }
 

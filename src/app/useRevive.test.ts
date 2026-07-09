@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckState } from "../domain/deck";
 import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
-import { peekPaneSpawnSpec, resetPaneSpawnSpecs } from "./spawnSpecs";
+import { buildResumeSpec, peekPaneSpawnSpec, resetPaneSpawnSpecs } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { useRevive, type ReviveApi } from "./useRevive";
@@ -15,20 +15,54 @@ import { useRevive, type ReviveApi } from "./useRevive";
 
 const ipc = vi.hoisted(() => ({
   probeWorktree: vi.fn(),
-  sessionPresence: vi.fn(),
 }));
 vi.mock("../ipc/worktree", () => ({ probeWorktree: ipc.probeWorktree }));
-vi.mock("../ipc/history", () => ({
-  sessionPresence: ipc.sessionPresence,
-}));
+
+// Resume plans are built through the agent plugins' hooks; the seam is
+// mocked with a tiny cache so these tests assert revive POLICY (when a
+// resume plan is requested) — the plan CONTENT is the plugin tests' job.
+vi.mock("./spawnSpecs", () => {
+  const specs = new Map<string, unknown>();
+  return {
+    buildResumeSpec: vi.fn(
+      async (
+        _agentType: string,
+        paneId: string,
+        _wsId: string,
+        _cwd: string,
+        _branch: string | undefined,
+        _ctx: unknown,
+        resumeId: string,
+      ) => {
+        specs.set(paneId, { args: ["--resume", resumeId], env: [] });
+      },
+    ),
+    peekPaneSpawnSpec: (id: string) =>
+      specs.get(id) as { args: string[] } | undefined,
+    resetPaneSpawnSpecs: () => specs.clear(),
+  };
+});
 
 let deck: Deck;
 let revive: ReviveApi;
-const ctx = { ...EMPTY_SPAWN_CONTEXT, spoolDir: "/spool" };
+const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
+
+// The catalog the revive gate consults — swappable per test (the id set is
+// open: revive must skip panes whose agent no plugin provides).
+const catalog = {
+  agents: ["claude", "codex", "opencode"].map((id) => ({
+    id,
+    label: id,
+    command: id,
+    installed: true,
+    path: null,
+  })),
+  ready: true,
+};
 
 function Probe() {
   deck = useDeck();
-  revive = useRevive(deck, [], ctx);
+  revive = useRevive(deck, catalog.agents, ctx, catalog.ready);
   return null;
 }
 
@@ -63,7 +97,7 @@ describe("useRevive — session policy", () => {
       empty: false,
       branch: null,
     });
-    ipc.sessionPresence.mockReset();
+    catalog.ready = true;
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -75,57 +109,66 @@ describe("useRevive — session policy", () => {
 
   const pane = () => deck.workspaces[0].panes[0];
 
-  it("a recorded session that's still PRESENT is resumed", async () => {
-    ipc.sessionPresence.mockResolvedValue("present");
-    act(() => deck.hydrate(restored({ session: { id: "old", boundAt: "t" } })));
-    await settle();
-
-    expect(pane().dormant).toBeUndefined();
-    expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "old"]);
-  });
-
-  it("a recorded session that's ABSENT starts fresh — NEVER someone else's", async () => {
-    // The empty-claude-pane bug: an assigned id nobody spoke to never
-    // materialized; falling back to newest-in-directory resurrected an
-    // unrelated old conversation.
-    ipc.sessionPresence.mockResolvedValue("absent");
-    act(() => deck.hydrate(restored({ session: { id: "ghost", boundAt: "t" } })));
-    await settle();
-
-    expect(pane().dormant).toBeUndefined();
-    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
-    // The dead binding is DROPPED — otherwise the fresh spawn's identity can
-    // never be recorded (the binding hook refuses to overwrite an existing
-    // session) and the pane keeps resurrecting fresh forever.
-    expect(pane().session).toBeUndefined();
-  });
-
-  it("an UNANSWERABLE store keeps the binding and still resumes", async () => {
-    // A locked/unreadable store is NOT absence: wiping the binding here
-    // loses a conversation `--resume` would still open. Worst case the
-    // resume exits visibly in the terminal.
-    ipc.sessionPresence.mockResolvedValue("unknown");
+  it("a recorded binding is TRUSTED and resumed — no store is read", async () => {
+    // The binding came from the pane's own process (the reporter posts at
+    // session creation), so it existed; a session deleted since fails the
+    // resume VISIBLY in the terminal — accepted, rare, uniform. The app
+    // never opens an agent's session store.
     act(() => deck.hydrate(restored({ session: { id: "old", boundAt: "t" } })));
     await settle();
 
     expect(pane().dormant).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "old"]);
     expect(pane().session).toEqual({ id: "old", boundAt: "t" }); // kept
+    expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
+      "claude",
+      "pane-1",
+      "ws-1",
+      "/repo",
+      undefined,
+      expect.anything(),
+      "old",
+    );
   });
 
-  it("an unbound codex pane starts FRESH — hooks-only, never matched by directory", async () => {
-    // codex/opencode report their id post-hoc, so an unbound pane is normal
-    // (never messaged — the session is created lazily with the first message —
-    // a mid-TUI /new, or a reporter that couldn't arm). Matching the newest
-    // session in the pane's cwd would resume a FOREIGN conversation whenever
-    // panes share a cwd (the default — a worktree is optional). Hooks-only:
-    // unbound wakes fresh, with no resume spec and without touching any store.
+  it("an unbound pane starts FRESH — never matched by directory", async () => {
+    // Every agent reports its id post-hoc now, so an unbound pane is normal
+    // (never messaged, a mid-TUI /new, or a reporter that couldn't arm).
+    // Matching the newest session in the pane's cwd would resume a FOREIGN
+    // conversation whenever panes share a cwd (the default — a worktree is
+    // optional): unbound wakes fresh, with no resume spec.
     act(() => deck.hydrate(restored({ agentType: "codex", cwd: "/repo" })));
     await settle();
 
     expect(pane().dormant).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
-    expect(ipc.sessionPresence).not.toHaveBeenCalled();
+  });
+
+  it("an agent no plugin provides stays dormant — and KEEPS its binding", async () => {
+    // Waking would spawn the bare id as a command; the binding may resume
+    // perfectly once the plugin is re-enabled. No wake, no probe.
+    act(() =>
+      deck.hydrate(
+        restored({ agentType: "gemini", session: { id: "old", boundAt: "t" } }),
+      ),
+    );
+    await settle();
+
+    expect(pane().dormant).toBe(true);
+    expect(ipc.probeWorktree).not.toHaveBeenCalled();
+    expect(pane().session).toEqual({ id: "old", boundAt: "t" });
+  });
+
+  it("nothing wakes before the catalog is ready", async () => {
+    // Before plugin bootstrap EVERY id is absent from the catalog — waking
+    // then would misjudge every pane. The effect waits for the ready flag.
+    catalog.ready = false;
+    act(() => root.render(createElement(Probe)));
+    act(() => deck.hydrate(restored({})));
+    await settle();
+
+    expect(pane().dormant).toBe(true);
+    expect(ipc.probeWorktree).not.toHaveBeenCalled();
   });
 
   it("a gone directory blocks revival instead of spawning into nowhere", async () => {
