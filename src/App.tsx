@@ -66,8 +66,8 @@ function App() {
   // reducer so close transitions clean focus + selection atomically ([S1], [B2],
   // [L6]).
   const deck = useDeck();
-  // Detected agent catalog (labels/commands/install status), fetched from Rust.
-  const { agents } = useAgents();
+  // The agent catalog: cli plugins' contributions + install detection.
+  const { agents, loading: agentsLoading } = useAgents();
   // Global preferences ([F6]) — loaded before the first paint, saved through.
   const settings = useSettings();
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
@@ -79,7 +79,7 @@ function App() {
   const spawnCtx = useSpawnContext();
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
-  const revive = useRevive(deck, agents, spawnCtx);
+  const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
   useSessionBinding(deck);
   // Runtime git HEAD observations for pane badges and worktree close cleanup.
@@ -365,6 +365,7 @@ function App() {
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
             agents={agents}
+            agentsReady={!agentsLoading}
             gitHeads={gitHeads}
             onStartWorkspace={(wsId, count) =>
               void provisioning.startWorkspace(wsId, count)

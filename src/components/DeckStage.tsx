@@ -24,6 +24,9 @@ interface DeckStageProps {
   selectedPaneId: string | null;
   /** Agent catalog, for pane commands and derived titles. */
   agents: AgentInfo[];
+  /** The catalog reflects the booted plugin system — only then can a pane's
+   * agent be judged missing (before boot, EVERY id is absent from it). */
+  agentsReady: boolean;
   /** Runtime git HEAD observations, keyed by pane execution cwd. */
   gitHeads: ReadonlyMap<string, GitPosition>;
   /** The empty-workspace count picker chose `count` agents. */
@@ -61,6 +64,7 @@ export function DeckStage({
   viewByWs,
   selectedPaneId,
   agents,
+  agentsReady,
   gitHeads,
   onStartWorkspace,
   onSelectPane,
@@ -125,6 +129,11 @@ export function DeckStage({
               const agentType = pane.agentType ?? "claude";
               const agentInfo = agents.find((a) => a.id === agentType);
               const command = agentInfo?.command ?? agentType;
+              // Judged only against a booted catalog; the card blocks the
+              // terminal (and thus the spawn) instead of silently running
+              // the bare id as a command.
+              const unavailableAgent =
+                agentsReady && !agentInfo ? agentType : null;
               const displayTitle = paneDisplayTitle(pane, index, agents);
               const executionCwd = paneExecutionCwd(ws, pane);
               const badge = gitBadge(
@@ -148,6 +157,7 @@ export function DeckStage({
                   dormant={pane.dormant}
                   blockedDir={dormantBlocked[pane.id] ?? null}
                   provisioning={pane.provisioning}
+                  unavailableAgent={unavailableAgent}
                   colSpan={colSpan}
                   onSelect={() => onSelectPane(ws.id, pane.id)}
                   onToggleFocus={() => onToggleFocus(ws.id, pane.id)}

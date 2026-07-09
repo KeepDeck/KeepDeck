@@ -38,6 +38,9 @@ export function useRevive(
   deck: Deck,
   agents: AgentInfo[],
   ctx: SpawnPlanContext | null,
+  /** The agent catalog reflects the booted plugin system — waking anything
+   * earlier would misjudge every pane's agent as unknown. */
+  agentsReady: boolean,
 ): ReviveApi {
   const [blocked, setBlocked] = useState<Record<string, string>>({});
   // Revivals in flight — re-renders while one is pending must not double-run.
@@ -65,10 +68,17 @@ export function useRevive(
     });
   }, [deck.workspaces]);
 
+  // Re-run when the catalog's id set changes: re-enabling a cli plugin must
+  // wake the panes its absence kept dormant, without an app restart.
+  const agentIds = agents
+    .map((a) => a.id)
+    .sort()
+    .join("\n");
+
   useEffect(() => {
-    // Wait for the spawn context: a resume plan built without it would miss
-    // the agent's identity mechanism (e.g. codex hook args).
-    if (!active || !ctx) return;
+    // Wait for the spawn context (a resume plan built without it would miss
+    // the agent's identity mechanism) AND the catalog (see `agentsReady`).
+    if (!active || !ctx || !agentsReady) return;
 
     /** Resolve the resume session and wake one pane. */
     const wake = async (pane: Pane, dir: string) => {
@@ -129,6 +139,13 @@ export function useRevive(
     for (const pane of active.panes) {
       if (!pane.dormant || pane.id in blocked || waking.current.has(pane.id))
         continue;
+      // An agent no plugin provides must NOT wake: the spawn would run the
+      // bare id as a command, and the presence check would answer "absent"
+      // for the unknown store and WIPE a binding that resumes fine once the
+      // plugin returns. The pane stays dormant behind its
+      // "agent unavailable" card.
+      const agentType = pane.agentType ?? "claude";
+      if (!agentsRef.current.some((a) => a.id === agentType)) continue;
       const dir = pane.cwd ?? active.cwd;
       waking.current.add(pane.id);
       void probeWorktree(dir)
@@ -145,7 +162,7 @@ export function useRevive(
         })
         .finally(() => waking.current.delete(pane.id));
     }
-  }, [active, blocked, ctx]);
+  }, [active, blocked, ctx, agentsReady, agentIds]);
 
   const startFresh = (wsId: string, paneId: string) => {
     setBlocked(({ [paneId]: _gone, ...rest }) => rest);

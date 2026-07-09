@@ -26,9 +26,22 @@ let deck: Deck;
 let revive: ReviveApi;
 const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
+// The catalog the revive gate consults — swappable per test (the id set is
+// open: revive must skip panes whose agent no plugin provides).
+const catalog = {
+  agents: ["claude", "codex", "opencode"].map((id) => ({
+    id,
+    label: id,
+    command: id,
+    installed: true,
+    path: null,
+  })),
+  ready: true,
+};
+
 function Probe() {
   deck = useDeck();
-  revive = useRevive(deck, [], ctx);
+  revive = useRevive(deck, catalog.agents, ctx, catalog.ready);
   return null;
 }
 
@@ -64,6 +77,7 @@ describe("useRevive — session policy", () => {
       branch: null,
     });
     ipc.sessionPresence.mockReset();
+    catalog.ready = true;
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -126,6 +140,35 @@ describe("useRevive — session policy", () => {
     expect(pane().dormant).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
     expect(ipc.sessionPresence).not.toHaveBeenCalled();
+  });
+
+  it("an agent no plugin provides stays dormant — and KEEPS its binding", async () => {
+    // The unknown store would answer "absent" and the absent branch wipes
+    // bindings; but this session may resume perfectly once the plugin is
+    // re-enabled. No wake, no probe, no presence check, binding intact.
+    act(() =>
+      deck.hydrate(
+        restored({ agentType: "gemini", session: { id: "old", boundAt: "t" } }),
+      ),
+    );
+    await settle();
+
+    expect(pane().dormant).toBe(true);
+    expect(ipc.probeWorktree).not.toHaveBeenCalled();
+    expect(ipc.sessionPresence).not.toHaveBeenCalled();
+    expect(pane().session).toEqual({ id: "old", boundAt: "t" });
+  });
+
+  it("nothing wakes before the catalog is ready", async () => {
+    // Before plugin bootstrap EVERY id is absent from the catalog — waking
+    // then would misjudge every pane. The effect waits for the ready flag.
+    catalog.ready = false;
+    act(() => root.render(createElement(Probe)));
+    act(() => deck.hydrate(restored({})));
+    await settle();
+
+    expect(pane().dormant).toBe(true);
+    expect(ipc.probeWorktree).not.toHaveBeenCalled();
   });
 
   it("a gone directory blocks revival instead of spawning into nowhere", async () => {
