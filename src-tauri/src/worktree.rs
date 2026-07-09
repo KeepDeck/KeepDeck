@@ -204,6 +204,20 @@ pub fn worktree_probe(path: String) -> PathProbe {
     }
 }
 
+/// The repo's local branch names, alphabetical — the options behind the
+/// "+ Agent" dialog's base-branch picker. Errors (not a repo, git failure)
+/// surface to the caller, which flattens them to "no list" and degrades the
+/// picker to a plain input. `(async)`: it shells out to git — off the main
+/// thread.
+#[tauri::command(async)]
+pub fn worktree_branches(repo: String) -> Result<Vec<String>, String> {
+    let path = Path::new(&repo);
+    if !repo::is_git_repo(path) {
+        return Err(format!("not a git repository: {repo}"));
+    }
+    repo::list_branches(path).map_err(|e| e.to_string())
+}
+
 /// Inspect a working directory: is it a git repo, and if so its `HEAD`/branch.
 /// Never errors — a non-repo simply reports `is_repo: false`. `(async)`: it
 /// shells out to git — off the main thread.
