@@ -49,6 +49,9 @@ const STAGING_DIR: &str = ".staging";
 /// The lock file a live instance holds inside its run dir.
 const LOCK_FILE: &str = "lock";
 
+/// The root-wide lock serializing boot (sweep + publish) across instances.
+const BOOT_LOCK: &str = ".boot-lock";
+
 /// One message dropped into the inbox. Unknown fields are ignored so
 /// reporters may attach diagnostics.
 #[derive(Debug, Deserialize)]
@@ -100,8 +103,7 @@ pub fn start(app: &AppHandle) -> Result<Bridge, String> {
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     restrict(&root);
 
-    let swept = sweep_orphans(&root);
-    let (run_dir, lock) = create_run_dir(&root)?;
+    let (run_dir, lock, swept) = boot(&root)?;
     log::info!(
         "bridge: inbox {} (swept {swept} orphaned run dir(s))",
         run_dir.display()
@@ -141,10 +143,28 @@ fn restrict(dir: &Path) {
     }
 }
 
+/// Sweep, then publish this run's inbox — under a root-wide boot lock, so
+/// the two are one atomic step ACROSS instances. The per-inbox lock cannot
+/// cover the moment before it exists (a dir is created before its lock
+/// file), which is exactly the window where a concurrently booting sweeper
+/// could eat a sibling's half-built staging dir. The gate is held for
+/// microseconds and the kernel releases it even on a crash. Expects `root`
+/// to exist.
+fn boot(root: &Path) -> Result<(PathBuf, File, usize), String> {
+    let gate = File::create(root.join(BOOT_LOCK)).map_err(|e| e.to_string())?;
+    gate.lock()
+        .map_err(|e| format!("bridge boot lock failed: {e:?}"))?;
+    let swept = sweep_orphans(root);
+    let (run_dir, lock) = create_run_dir(root)?;
+    Ok((run_dir, lock, swept))
+    // `gate` drops here — boot section over, the next instance may proceed.
+}
+
 /// Build this run's inbox under `.staging/`, take its lock THERE, then
 /// atomically rename it into the root. Publication happens already-locked,
-/// so a concurrent sweeper can never mistake a booting instance's inbox for
-/// an orphan.
+/// so a sweeper OUTSIDE the boot gate (there are none today — sweeping only
+/// happens inside `boot`) could still never mistake a published live inbox
+/// for an orphan.
 fn create_run_dir(root: &Path) -> Result<(PathBuf, File), String> {
     let staging = root.join(STAGING_DIR);
     fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
@@ -168,6 +188,8 @@ fn sweep_orphans(root: &Path) -> usize {
         let Ok(entries) = fs::read_dir(&base) else {
             continue;
         };
+        // Only dirs are probed — the boot-lock FILE at the root is skipped
+        // by the is_dir check below.
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_dir() || path.file_name().is_some_and(|n| n == STAGING_DIR) {
@@ -231,15 +253,26 @@ fn deliver(app: &AppHandle, path: &Path) {
 }
 
 /// One inbox file → one event, enforcing the size cap before reading.
+/// Only a VANISHED file is transient (already consumed / writer mid-rename —
+/// it re-fires or is gone for good reason); any other IO failure is dropped
+/// like garbage, because a completed file gets no further fs events and
+/// would otherwise sit in the inbox unread forever.
 fn consume_file(path: &Path) -> Result<SessionBound, Rejected> {
-    let meta = fs::metadata(path).map_err(|_| Rejected::Transient)?;
+    let vanished_or = |e: std::io::Error, what: &str| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            Rejected::Transient
+        } else {
+            Rejected::Dropped(format!("{what}: {e}"))
+        }
+    };
+    let meta = fs::metadata(path).map_err(|e| vanished_or(e, "unstattable envelope"))?;
     if meta.len() > MAX_ENVELOPE_BYTES {
         return Err(Rejected::Dropped(format!(
             "oversized envelope ({} bytes)",
             meta.len()
         )));
     }
-    let content = fs::read_to_string(path).map_err(|_| Rejected::Transient)?;
+    let content = fs::read_to_string(path).map_err(|e| vanished_or(e, "unreadable envelope"))?;
     interpret(&content).map_err(Rejected::Dropped)
 }
 
@@ -405,5 +438,38 @@ mod tests {
 
         let gone = root.path().join("missing.json");
         assert!(matches!(consume_file(&gone), Err(Rejected::Transient)));
+
+        // A completed file that can't be READ (non-UTF-8 here) is garbage to
+        // consume, not a transient to retry — it gets no further fs events.
+        let binary = root.path().join("binary.json");
+        fs::write(&binary, [0xff, 0xfe, 0x00, 0x80]).unwrap();
+        assert!(matches!(
+            consume_file(&binary),
+            Err(Rejected::Dropped(reason)) if reason.contains("unreadable")
+        ));
+    }
+
+    #[test]
+    fn concurrent_boots_never_eat_each_other() {
+        // Regression for the boot race: a sweeping instance must never
+        // observe (and delete) a sibling's half-built staging dir. The boot
+        // gate serializes sweep+publish, so every one of these succeeds and
+        // every published inbox stays alive.
+        let root = tempfile::tempdir().unwrap();
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let root = root.path().to_path_buf();
+                std::thread::spawn(move || boot(&root))
+            })
+            .collect();
+        let live: Vec<_> = handles
+            .into_iter()
+            .map(|h| h.join().unwrap().expect("every boot succeeds"))
+            .collect();
+        assert_eq!(live.len(), 8);
+        for (dir, _lock, _swept) in &live {
+            assert!(dir.is_dir(), "published inbox survives: {}", dir.display());
+            assert!(!is_orphan(dir));
+        }
     }
 }
