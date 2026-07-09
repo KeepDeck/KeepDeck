@@ -2185,7 +2185,6 @@ version = "0.8.16"
 dependencies = [
  "image",
  "infer",
- "keepdeck-agents",
  "keepdeck-env",
  "keepdeck-git",
  "keepdeck-history",
@@ -2206,13 +2205,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "keepdeck-agents"
-version = "0.1.0"
-dependencies = [
- "keepdeck-env",
-]
-
-[[package]]
 name = "keepdeck-env"
 version = "0.1.0"
 dependencies = [
@@ -2229,7 +2221,6 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "serde_json",
- "sha2",
 ]
 
 [[package]]

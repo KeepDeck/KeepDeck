@@ -16,21 +16,7 @@ export interface AgentInfo {
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */
   path: string | null;
-  /** CLI args placed before a session id to resume it ([F8]), e.g.
-   * `["--resume"]`. Optional so hand-built fixtures stay light; the Rust
-   * catalog always sends it. */
-  resumePrefix?: string[];
 }
-
-/** Static recipes for the built-in CLIs — today the resume flags' source of
- *  truth (catalog entries built from plugin contributions carry no
- *  `resumePrefix` yet; the spawn/resume hooks replace this in a later
- *  stage), and the last-resort catalog for tests and degraded paths. */
-export const FALLBACK_AGENTS: AgentInfo[] = [
-  { id: "claude", label: "Claude Code", command: "claude", installed: true, path: null, resumePrefix: ["--resume"] },
-  { id: "opencode", label: "OpenCode", command: "opencode", installed: true, path: null, resumePrefix: ["-s"] },
-  { id: "codex", label: "Codex", command: "codex", installed: true, path: null, resumePrefix: ["resume"] },
-];
 
 /** Agents to offer in the picker: installed only, but the full catalog when none
  *  are detected — never lock the user out of creating an agent ([F1]). */
@@ -50,13 +36,3 @@ export function defaultAgentType(
   return pool[0]?.id ?? "claude";
 }
 
-/** Args to relaunch `agent` into recorded session `sessionId` ([F8]), or null
- *  when the catalog carries no resume recipe — callers fall back to a fresh
- *  spawn rather than guessing flags. */
-export function resumeArgs(
-  agent: AgentInfo | undefined,
-  sessionId: string,
-): string[] | null {
-  if (!agent?.resumePrefix || agent.resumePrefix.length === 0) return null;
-  return [...agent.resumePrefix, sessionId];
-}

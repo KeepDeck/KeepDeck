@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckState } from "../domain/deck";
 import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
-import { peekPaneSpawnSpec, resetPaneSpawnSpecs } from "./spawnSpecs";
+import { buildResumeSpec, peekPaneSpawnSpec, resetPaneSpawnSpecs } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { useRevive, type ReviveApi } from "./useRevive";
@@ -21,6 +21,31 @@ vi.mock("../ipc/worktree", () => ({ probeWorktree: ipc.probeWorktree }));
 vi.mock("../ipc/history", () => ({
   sessionPresence: ipc.sessionPresence,
 }));
+
+// Resume plans are built through the agent plugins' hooks; the seam is
+// mocked with a tiny cache so these tests assert revive POLICY (when a
+// resume plan is requested) — the plan CONTENT is the plugin tests' job.
+vi.mock("./spawnSpecs", () => {
+  const specs = new Map<string, unknown>();
+  return {
+    buildResumeSpec: vi.fn(
+      async (
+        _agentType: string,
+        paneId: string,
+        _wsId: string,
+        _cwd: string,
+        _branch: string | undefined,
+        _ctx: unknown,
+        resumeId: string,
+      ) => {
+        specs.set(paneId, { args: ["--resume", resumeId], env: [] });
+      },
+    ),
+    peekPaneSpawnSpec: (id: string) =>
+      specs.get(id) as { args: string[] } | undefined,
+    resetPaneSpawnSpecs: () => specs.clear(),
+  };
+});
 
 let deck: Deck;
 let revive: ReviveApi;
@@ -96,6 +121,15 @@ describe("useRevive — session policy", () => {
 
     expect(pane().dormant).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "old"]);
+    expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
+      "claude",
+      "pane-1",
+      "ws-1",
+      "/repo",
+      undefined,
+      expect.anything(),
+      "old",
+    );
   });
 
   it("a recorded session that's ABSENT starts fresh — NEVER someone else's", async () => {

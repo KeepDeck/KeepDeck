@@ -29,13 +29,7 @@ export function onSessionBound(
 }
 
 /** The per-install spawn-plan context (mirrors the Rust `SpawnContextDto`):
- * this run's bridge inbox plus each agent's ready-made identity mechanism,
- * resolved once at boot. */
-export function spawnContext(): Promise<{
-  bridgeDir: string;
-  claudeHookArgs: string[] | null;
-  codexHookArgs: string[] | null;
-  opencodePluginPath: string | null;
-}> {
+ * this run's bridge inbox, resolved once at boot. */
+export function spawnContext(): Promise<{ bridgeDir: string }> {
   return invoke("session_spawn_context");
 }

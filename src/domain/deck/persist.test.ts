@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { FALLBACK_AGENTS } from "../agents";
 import type { DeckState } from "./reducer";
 import {
   DECK_STATE_VERSION,
@@ -164,7 +163,7 @@ describe("hydrateDeck — unusable input", () => {
   it("restores a pane of EVERY cataloged agent type", () => {
     // The id set is open (any string restores) — this pins the three
     // built-in ids' round-trip explicitly all the same.
-    for (const agent of FALLBACK_AGENTS) {
+    for (const id of ["claude", "opencode", "codex"]) {
       const restored = okDeck(
         JSON.stringify({
           version: 1,
@@ -177,12 +176,12 @@ describe("hydrateDeck — unusable input", () => {
               name: "x",
               cwd: "/x",
               worktreeBaseDir: null,
-              panes: [{ id: "pane-1", agentType: agent.id }],
+              panes: [{ id: "pane-1", agentType: id }],
             },
           ],
         }),
       );
-      expect(restored.state.workspaces[0].panes[0].agentType).toBe(agent.id);
+      expect(restored.state.workspaces[0].panes[0].agentType).toBe(id);
     }
   });
 });

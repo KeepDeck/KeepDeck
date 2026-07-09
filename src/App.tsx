@@ -16,8 +16,7 @@ import { useSessionBinding } from "./app/useSessionBinding";
 import { useSettings } from "./app/useSettings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
-import { paneSpawnSpec } from "./app/spawnSpecs";
-import type { SpawnPlan } from "./domain/agents";
+import { usePaneSpawnSpecs } from "./app/spawnSpecs";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -80,8 +79,12 @@ function App() {
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
   const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);
+  // Every live pane's spawn plan, built through its agent plugin's hooks
+  // (async — the pane's terminal waits for its plan; mounting is what
+  // spawns). Dormant panes get theirs at revive time.
+  const specByPane = usePaneSpawnSpecs(deck.workspaces, spawnCtx, !agentsLoading);
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
-  useSessionBinding(deck);
+  useSessionBinding(deck, specByPane);
   // Runtime git HEAD observations for pane badges and worktree close cleanup.
   const gitHeads = useGitHead(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).
@@ -255,18 +258,6 @@ function App() {
   // setting at construction ([F6]).
   if (restoring || !spawnCtx || !settings) return <div className="deck" />;
 
-  // Every live pane's spawn plan (cached per pane id — a claude plan mints
-  // its session id once). Dormant panes get theirs at revive time; a
-  // provisioning pane has no working directory yet, so spawning would drop
-  // the agent into the workspace cwd — exactly the fallback the cards
-  // replaced.
-  const specByPane: Record<string, SpawnPlan> = {};
-  for (const ws of deck.workspaces) {
-    for (const pane of ws.panes) {
-      if (!pane.dormant && !pane.provisioning)
-        specByPane[pane.id] = paneSpawnSpec(pane, spawnCtx, agents);
-    }
-  }
 
   return (
     <div className="deck">

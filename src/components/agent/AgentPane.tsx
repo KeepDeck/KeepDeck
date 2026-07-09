@@ -51,6 +51,10 @@ interface AgentPaneProps {
    * render an explanatory card instead of a terminal; mounting one would
    * spawn the bare id as a command. */
   unavailableAgent?: string | null;
+  /** The pane's spawn plan is still being built (async plugin hooks) —
+   * render the quiet tile instead of a terminal; mounting would spawn
+   * without the plan's identity args. */
+  planPending?: boolean;
   /** Re-issue the failed create from its stored intent. */
   onRetryProvision?(): void;
   /** Grid columns this pane spans (>1 lets a partial last row fill the width). */
@@ -88,6 +92,7 @@ export function AgentPane({
   blockedDir,
   provisioning,
   unavailableAgent,
+  planPending,
   colSpan,
   onSelect,
   onToggleFocus,
@@ -259,6 +264,12 @@ export function AgentPane({
             ) : (
               <span className="pane__exit-title">Waking up…</span>
             )}
+          </div>
+        ) : planPending ? (
+          // The spawn plan is a beat away (async plugin hooks) — same quiet
+          // tile as a waking pane; it resolves within milliseconds.
+          <div className="pane__dormant" role="status">
+            <span className="pane__exit-title">Waking up…</span>
           </div>
         ) : (
           <TerminalPane

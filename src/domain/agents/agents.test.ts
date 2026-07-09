@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  resumeArgs,
   selectableAgents,
   defaultAgentType,
-  FALLBACK_AGENTS,
   type AgentInfo,
 } from "./agents";
 
@@ -15,22 +13,6 @@ function agent(
 ): AgentInfo {
   return { id, label: id, command: id, installed, path: null, ...extra };
 }
-
-describe("resumeArgs ([F8])", () => {
-  it("builds prefix + session id per agent (the verified recipes)", () => {
-    const byId = (id: AgentInfo["id"]) =>
-      FALLBACK_AGENTS.find((a) => a.id === id);
-    expect(resumeArgs(byId("claude"), "abc")).toEqual(["--resume", "abc"]);
-    expect(resumeArgs(byId("codex"), "abc")).toEqual(["resume", "abc"]);
-    expect(resumeArgs(byId("opencode"), "abc")).toEqual(["-s", "abc"]);
-  });
-
-  it("returns null without a recipe — the caller spawns fresh, not guessed", () => {
-    expect(resumeArgs(undefined, "abc")).toBeNull();
-    expect(resumeArgs(agent("claude", true), "abc")).toBeNull();
-    expect(resumeArgs(agent("claude", true, { resumePrefix: [] }), "abc")).toBeNull();
-  });
-});
 
 describe("selectableAgents", () => {
   it("keeps only installed agents when some are installed", () => {

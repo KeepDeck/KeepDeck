@@ -90,7 +90,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
-            agents::agents_list,
             agents::agents_detect,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,

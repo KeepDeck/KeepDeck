@@ -128,12 +128,25 @@ export function DeckStage({
               // while the catalog is still loading.
               const agentType = pane.agentType ?? "claude";
               const agentInfo = agents.find((a) => a.id === agentType);
-              const command = agentInfo?.command ?? agentType;
+              const spec = specByPane[pane.id];
+              // The plan's word wins (a hook may pick the user's shell via
+              // null); the catalog covers degraded bare plans.
+              const command =
+                spec?.command !== undefined
+                  ? spec.command
+                  : (agentInfo?.command ?? agentType);
               // Judged only against a booted catalog; the card blocks the
               // terminal (and thus the spawn) instead of silently running
               // the bare id as a command.
               const unavailableAgent =
                 agentsReady && !agentInfo ? agentType : null;
+              // Plans arrive a beat after the pane (async hooks) — the
+              // terminal must not mount (= spawn) before its plan exists.
+              const planPending =
+                !spec &&
+                !pane.dormant &&
+                !pane.provisioning &&
+                !unavailableAgent;
               const displayTitle = paneDisplayTitle(pane, index, agents);
               const executionCwd = paneExecutionCwd(ws, pane);
               const badge = gitBadge(
@@ -145,8 +158,9 @@ export function DeckStage({
                   paneId={pane.id}
                   title={displayTitle}
                   command={command}
-                  args={specByPane[pane.id]?.args}
-                  env={specByPane[pane.id]?.env}
+                  args={spec?.args}
+                  env={spec?.env}
+                  planPending={planPending}
                   cwd={executionCwd}
                   gitBadge={badge}
                   visible={isActive && !isCollapsed}

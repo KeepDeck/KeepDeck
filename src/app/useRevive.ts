@@ -1,15 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  buildSpawnPlan,
-  type AgentInfo,
-  type SpawnPlanContext,
-} from "../domain/agents";
+import type { AgentInfo, SpawnPlanContext } from "../domain/agents";
 import { findWorkspace, type Pane } from "../domain/deck";
 import { sessionPresence } from "../ipc/history";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
-import { mintBridgeToken, mintSessionId } from "./ids";
-import { setPaneSpawnSpec } from "./spawnSpecs";
+import { buildResumeSpec } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 
 /**
@@ -123,14 +118,16 @@ export function useRevive(
           (sessionId ? `resume ${sessionId}` : "fresh"),
       );
       if (sessionId && ctxRef.current) {
-        setPaneSpawnSpec(
+        // Built through the agent plugin's resume.plan hook and cached
+        // BEFORE the pane wakes — the mounting terminal reads it.
+        await buildResumeSpec(
+          agentType,
           pane.id,
-          buildSpawnPlan(agentType, pane.id, ctxRef.current, {
-            resumeId: sessionId,
-            agents: agentsRef.current,
-            mintId: mintSessionId,
-            mintToken: mintBridgeToken,
-          }),
+          active.id,
+          dir,
+          pane.branch,
+          ctxRef.current,
+          sessionId,
         );
       }
       deckRef.current.revivePane(active.id, pane.id);

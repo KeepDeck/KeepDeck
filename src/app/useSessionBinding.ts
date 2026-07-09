@@ -27,7 +27,13 @@ export function postbackAccepted(
 ): boolean {
   return !!spec?.token && spec.token === token;
 }
-export function useSessionBinding(deck: Deck): void {
+export function useSessionBinding(
+  deck: Deck,
+  /** The live spawn-plan snapshot — plans land ASYNC (plugin hooks), so the
+   * assigned-id effect must re-run when one arrives, not only on deck
+   * changes. */
+  specByPane: Record<string, SpawnPlan>,
+): void {
   const deckRef = useRef(deck);
   deckRef.current = deck;
 
@@ -39,7 +45,7 @@ export function useSessionBinding(deck: Deck): void {
     for (const ws of deck.workspaces) {
       for (const pane of ws.panes) {
         if (pane.dormant || pane.session) continue;
-        const spec = peekPaneSpawnSpec(pane.id);
+        const spec = specByPane[pane.id];
         if (spec?.sessionId) {
           d.setPaneSession(ws.id, pane.id, {
             id: spec.sessionId,
@@ -48,7 +54,7 @@ export function useSessionBinding(deck: Deck): void {
         }
       }
     }
-  }, [deck.workspaces]);
+  }, [deck.workspaces, specByPane]);
 
   useEffect(() => {
     let disposed = false;
