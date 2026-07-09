@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
@@ -6,9 +6,11 @@ import "@xterm/xterm/css/xterm.css";
 import {
   acquirePane,
   attachPane,
+  isPaneLaunched,
   resizePane,
   writePane,
 } from "../../app/ptyManager";
+import { LaunchSpinner } from "../../ui/LaunchSpinner";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
 import { registerPaneInput } from "../../app/paneInput";
 import { useSettings } from "../../app/useSettings";
@@ -94,6 +96,13 @@ export function TerminalPane({
   // Transient in-pane notice ([F16]) — "File not found" after a Cmd+click on a
   // stale path (or a failed open). Self-clears; anchored to the click point.
   const [hint, showHint] = useTransient<PaneHint>(HINT_MS);
+
+  // The launch overlay: shown from mount until the program paints its first
+  // frame (its first PTY output), so opening a pane animates through the whole
+  // spawn — not only while a worktree is being created. Seeded from the manager
+  // so a re-attach to an already-launched session opens straight to the
+  // terminal instead of flashing the overlay again.
+  const [launching, setLaunching] = useState(() => !isPaneLaunched(paneId));
 
   // Held in a ref so the exit handler inside the (command/cwd)-scoped effect
   // always calls the latest callback without re-running the effect.
@@ -242,16 +251,26 @@ export function TerminalPane({
       cols: term.cols,
       rows: term.rows,
     });
+    // A fresh spawn (mount, or a cwd/command change that re-ran this effect)
+    // hasn't launched yet — re-arm the overlay; an already-live re-attach keeps
+    // it down (the sink's onLaunched below fires again through the replay).
+    setLaunching(!isPaneLaunched(paneId));
     const detach = attachPane(paneId, {
       onOutput: (bytes) => term.write(bytes),
       onExit: (code) => {
         const suffix = code !== null ? ` (${code})` : "";
         term.writeln(`\r\n\x1b[90m[process exited${suffix}]\x1b[0m`);
+        // A process that ends without ever printing must not leave the overlay
+        // spinning over the exit notice.
+        setLaunching(false);
         onExitRef.current?.(code);
       },
       onSpawnError: (message) => {
         term.writeln(`\r\n\x1b[31m[failed to start session: ${message}]\x1b[0m`);
+        setLaunching(false);
       },
+      // First output — the CLI has launched. Drop the overlay to reveal it.
+      onLaunched: () => setLaunching(false),
       onReady: () => {
         // Sync the PTY to the current grid. A ResizeObserver can fire while the
         // spawn is pending (sibling panes mounting) — it advances the
@@ -351,6 +370,16 @@ export function TerminalPane({
   return (
     <div className="terminal-pane">
       <div className="terminal-pane__host" ref={hostRef} />
+      {launching && (
+        <div
+          className="terminal-pane__launching"
+          role="status"
+          aria-label="Starting session"
+        >
+          <LaunchSpinner />
+          <span className="terminal-pane__launching-label">Starting…</span>
+        </div>
+      )}
       <PaneHintView hint={hint} />
     </div>
   );

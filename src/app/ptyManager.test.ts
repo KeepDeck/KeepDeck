@@ -41,6 +41,7 @@ import {
   acquirePane,
   attachPane,
   closePane,
+  isPaneLaunched,
   resetPtyManager,
   writePane,
 } from "./ptyManager";
@@ -53,6 +54,7 @@ function makeSink() {
     onExit: vi.fn(),
     onSpawnError: vi.fn(),
     onReady: vi.fn(),
+    onLaunched: vi.fn(),
   };
 }
 
@@ -185,6 +187,67 @@ describe("attachPane", () => {
     expect(sink.onOutput).toHaveBeenCalledTimes(2);
     expect((sink.onOutput.mock.calls[0][0] as Uint8Array)[0]).toBe(2);
     expect((sink.onOutput.mock.calls[1][0] as Uint8Array)[0]).toBe(3);
+  });
+});
+
+describe("launch signal", () => {
+  it("reports launch on the first output only, and marks the pane launched", () => {
+    acquirePane("pane-1", SPEC);
+    const sink = makeSink();
+    attachPane("pane-1", sink);
+    expect(isPaneLaunched("pane-1")).toBe(false);
+
+    output(0, 1);
+    output(0, 2);
+
+    expect(sink.onLaunched).toHaveBeenCalledTimes(1);
+    expect(isPaneLaunched("pane-1")).toBe(true);
+  });
+
+  it("does not report launch before any output — a spawned PTY has not yet painted", async () => {
+    acquirePane("pane-1", SPEC);
+    const sink = makeSink();
+    attachPane("pane-1", sink);
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+
+    expect(sink.onReady).toHaveBeenCalledTimes(1);
+    expect(sink.onLaunched).not.toHaveBeenCalled();
+    expect(isPaneLaunched("pane-1")).toBe(false);
+  });
+
+  it("tells a late sink the session already launched, after the replay", () => {
+    acquirePane("pane-1", SPEC);
+    output(0, 9);
+
+    const late = makeSink();
+    attachPane("pane-1", late);
+
+    expect(late.onLaunched).toHaveBeenCalledTimes(1);
+    // The replayed output lands before the launch announcement, so the view
+    // paints its history and only then drops the overlay.
+    const outputOrder = late.onOutput.mock.invocationCallOrder[0];
+    const launchOrder = late.onLaunched.mock.invocationCallOrder[0];
+    expect(outputOrder).toBeLessThan(launchOrder);
+  });
+
+  it("forgets the launch when the identity changes — the new session must show its own overlay", async () => {
+    acquirePane("pane-1", SPEC);
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+    output(0, 4);
+    expect(isPaneLaunched("pane-1")).toBe(true);
+
+    acquirePane("pane-1", { ...SPEC, cwd: "/elsewhere" });
+    expect(isPaneLaunched("pane-1")).toBe(false);
+  });
+
+  it("is false for an unknown or closed pane", () => {
+    expect(isPaneLaunched("pane-none")).toBe(false);
+    acquirePane("pane-1", SPEC);
+    output(0, 1);
+    void closePane("pane-1");
+    expect(isPaneLaunched("pane-1")).toBe(false);
   });
 });
 

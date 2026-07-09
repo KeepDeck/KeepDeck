@@ -49,6 +49,11 @@ export interface PaneSink {
   /** The session is live: sync the PTY size to the view now. Fires on spawn
    * resolution and on attach to an already-live session. */
   onReady(): void;
+  /** The program produced its first output — it has painted its first frame,
+   * i.e. the CLI has actually launched (distinct from `onReady`, which only
+   * means the PTY process exists). Fires once per session; a later attach to an
+   * already-launched session is told immediately, after the replay. */
+  onLaunched(): void;
 }
 
 /** Replay budget per pane; oldest chunks fall off first. */
@@ -66,6 +71,11 @@ interface Entry {
   exited: { code: number | null } | null;
   failed: string | null;
   closed: boolean;
+  /** The process has emitted at least one output chunk — the "CLI launched"
+   * signal. Lives on the entry (not the view) so it survives a re-attach: a
+   * workspace switch back to a running agent must not replay the launch
+   * animation. */
+  launched: boolean;
 }
 
 const entries = new Map<string, Entry>();
@@ -98,6 +108,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     exited: null,
     failed: null,
     closed: false,
+    launched: false,
   };
   entries.set(paneId, entry);
   log.info("web:pty", `${paneId}: spawn ${spec.command ?? "(shell)"} in ${spec.cwd ?? "(app cwd)"}`);
@@ -116,6 +127,12 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       if (event.type === "output") {
         const bytes = new Uint8Array(event.bytes);
         entry.sink?.onOutput(bytes);
+        if (!entry.launched) {
+          // First byte from the process: the CLI has painted — announce the
+          // launch once, then never again for this session.
+          entry.launched = true;
+          entry.sink?.onLaunched();
+        }
         remember(entry, bytes);
       } else {
         entry.exited = { code: event.code };
@@ -156,11 +173,24 @@ export function attachPane(paneId: string, sink: PaneSink): () => void {
   if (entry.failed !== null) sink.onSpawnError(entry.failed);
   else if (entry.exited) sink.onExit(entry.exited.code);
   else if (entry.session) sink.onReady();
+  // Already-launched session (re-attach): tell the view now, after the replay,
+  // so it opens without the launch overlay instead of flashing it again.
+  if (entry.launched) sink.onLaunched();
   return () => {
     // Only detach if this sink is still the current one — a re-mount may have
     // already attached its own before the old cleanup ran.
     if (entries.get(paneId) === entry && entry.sink === sink) entry.sink = null;
   };
+}
+
+/**
+ * Whether the pane's session has already emitted output (the CLI has launched).
+ * A view reads this at mount to decide whether to open with the launch overlay:
+ * a fresh (or unknown) pane hasn't launched → show it; a re-attach to a running
+ * session has → skip it, no flash.
+ */
+export function isPaneLaunched(paneId: string): boolean {
+  return entries.get(paneId)?.launched ?? false;
 }
 
 /** Write keystrokes/text into the pane's PTY. No-op without a live session

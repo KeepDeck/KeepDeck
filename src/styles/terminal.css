@@ -12,6 +12,27 @@
   overflow: hidden;
 }
 
+/* Launch overlay: covers the freshly-mounted (still blank) terminal from spawn
+   until the program prints its first frame, so opening any pane animates — not
+   only worktree creation. Opaque in the terminal's own background so the empty
+   grid never shows; removed the instant the first output lands. The slide bar
+   (LaunchSpinner) pins to the top of this positioned box. */
+.terminal-pane__launching {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #0b0e14;
+}
+
+.terminal-pane__launching-label {
+  color: #8b93a3;
+  font-size: 13px;
+}
+
 /* Transient notice over a terminal surface ([F16]) — e.g. "File not found"
    after a Cmd+click on a stale path. Shared by every xterm host (agent panes,
    the Run log — PaneHint.tsx). Anchored next to the clicked link (left/top set
