@@ -10,7 +10,7 @@ export interface SpawnOptions {
   command?: string | null;
   args?: string[];
   /** Extra environment on top of the inherited one (the [F7]/[F8] session
-   * identity plan: pane id, spool path, reporter activation). */
+   * identity plan: the KEEPDECK_BRIDGE var, reporter activation). */
   env?: [string, string][];
   cwd?: string | null;
   cols: number;

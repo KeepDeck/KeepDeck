@@ -3,16 +3,20 @@ import { listen } from "@tauri-apps/api/event";
 
 /**
  * Session-binding events ([F7]/[F8] session identity v2). A pane's own agent
- * process reports its session id through the KeepDeck spool (hook/plugin armed
- * at spawn); the Rust watcher parses the postback and emits this event. The
- * constant mirrors `SESSION_BOUND_EVENT` in src-tauri/src/sessions.rs.
+ * process reports its session id through the CLI bridge (hook/plugin armed
+ * at spawn via the `KEEPDECK_BRIDGE` env var); the Rust watcher parses the
+ * envelope and emits this event. The constant mirrors `SESSION_BOUND_EVENT`
+ * in src-tauri/src/bridge.rs.
  */
 export const SESSION_BOUND_EVENT = "deck://session/bound";
 
-/** Mirrors the Rust `SessionPostback` (camelCase). */
+/** Mirrors the Rust `SessionBound` (camelCase). The token is the per-spawn
+ * bridge secret — the binding hook verifies it against the pane's spawn plan
+ * before believing the postback. */
 export interface SessionBound {
   paneId: string;
   sessionId: string;
+  token: string;
 }
 
 /** Subscribe to session bindings; resolves to the unlisten function. */
@@ -25,10 +29,10 @@ export function onSessionBound(
 }
 
 /** The per-install spawn-plan context (mirrors the Rust `SpawnContextDto`):
- * the spool dir plus each agent's ready-made identity mechanism, resolved
- * once at boot. */
+ * this run's bridge inbox plus each agent's ready-made identity mechanism,
+ * resolved once at boot. */
 export function spawnContext(): Promise<{
-  spoolDir: string;
+  bridgeDir: string;
   claudeHookArgs: string[] | null;
   codexHookArgs: string[] | null;
   opencodePluginPath: string | null;

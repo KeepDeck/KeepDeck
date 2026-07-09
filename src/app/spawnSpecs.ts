@@ -5,7 +5,7 @@ import {
   type SpawnPlanContext,
 } from "../domain/agents";
 import type { Pane } from "../domain/deck";
-import { mintSessionId } from "./ids";
+import { mintBridgeToken, mintSessionId } from "./ids";
 
 /**
  * One spawn plan per pane id, stable across re-renders — module scope like
@@ -34,6 +34,7 @@ export function paneSpawnSpec(
   const spec = buildSpawnPlan(pane.agentType ?? "claude", pane.id, ctx, {
     agents,
     mintId: mintSessionId,
+    mintToken: mintBridgeToken,
   });
   specs.set(pane.id, spec);
   return spec;

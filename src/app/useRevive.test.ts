@@ -24,7 +24,7 @@ vi.mock("../ipc/history", () => ({
 
 let deck: Deck;
 let revive: ReviveApi;
-const ctx = { ...EMPTY_SPAWN_CONTEXT, spoolDir: "/spool" };
+const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
 function Probe() {
   deck = useDeck();

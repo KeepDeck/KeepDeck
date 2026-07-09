@@ -74,7 +74,7 @@ function App() {
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);
   const [frozenAck, setFrozenAck] = useState(false);
-  // Per-install spawn-plan constants (spool dir, reporter activation) — the
+  // Per-install spawn-plan constants (bridge inbox, reporter activation) — the
   // deck's first paint waits for it ([F7]/[F8] session identity v2).
   const spawnCtx = useSpawnContext();
   // Wake restored panes lazily per workspace — resuming recorded sessions —

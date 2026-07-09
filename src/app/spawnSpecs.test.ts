@@ -7,7 +7,7 @@ import {
   setPaneSpawnSpec,
 } from "./spawnSpecs";
 
-const ctx = { ...EMPTY_SPAWN_CONTEXT, spoolDir: "/spool" };
+const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
 describe("spawnSpecs cache", () => {
   afterEach(resetPaneSpawnSpecs);

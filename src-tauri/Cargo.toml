@@ -48,4 +48,9 @@ tauri-plugin-log = "2"
 # decoding — one less way a malicious archive could smuggle a codec-
 # specific bomb past the size caps `plugins_fs.rs` checks on the way in.
 zip = { version = "8.6", default-features = false }
+# Bridge run-dir names (`bridge.rs`); already in the tree transitively.
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
 

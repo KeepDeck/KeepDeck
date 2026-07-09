@@ -1,4 +1,5 @@
 mod agents;
+mod bridge;
 mod clipboard;
 mod dnd;
 mod fswatch;
@@ -80,10 +81,11 @@ pub fn run() {
             // Adopt state a legacy install left in the identifier-keyed
             // dirs — before the webview boots and asks for the deck.
             migration::run(app.handle());
-            // The session spool: agents report their session ids here; the
-            // watcher lives as managed state for the app's lifetime.
-            let watcher = sessions::watch_spool(app.handle())?;
-            app.manage(watcher);
+            // The CLI bridge: agents report their session ids through this
+            // run's inbox; the lock and watcher live as managed state for
+            // the app's lifetime.
+            let bridge = bridge::start(app.handle())?;
+            app.manage(bridge);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

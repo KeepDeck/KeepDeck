@@ -41,3 +41,9 @@ export function seedWorkspaceSeq(min: number): void {
 export function mintSessionId(): string {
   return crypto.randomUUID();
 }
+
+/** Mint a per-spawn bridge token (`buildSpawnPlan`'s `mintToken`) — the
+ * secret a reporter must echo for its postback to be believed. */
+export function mintBridgeToken(): string {
+  return crypto.randomUUID();
+}
