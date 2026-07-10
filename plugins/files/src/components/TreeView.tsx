@@ -4,22 +4,26 @@ import { FileIcon, FolderIcon, SymlinkIcon } from "../icons";
 
 /**
  * The tree body: the flat list of visible rows (`visibleRows(state)`), each
- * indented by its depth. A directory row toggles; a file/symlink row selects.
- * Rendering from the pre-flattened rows keeps this component free of tree
- * recursion — the model already resolved what is visible. The `role="tree"`
- * and keyboard focus live on the parent container (`FilesTab`); rows are the
- * `treeitem`s. `cursorPath` is the keyboard-focused row.
+ * indented by its depth. A directory row toggles on click; a file/symlink row
+ * SELECTS on click and only OPENS on double click — single click is for
+ * aiming (cursor, drag) without lifting the peek over the window. Rendering
+ * from the pre-flattened rows keeps this component free of tree recursion —
+ * the model already resolved what is visible. The `role="tree"` and keyboard
+ * focus live on the parent container (`FilesTab`); rows are the `treeitem`s.
+ * `cursorPath` is the keyboard-focused row.
  */
 export function TreeView({
   rows,
   cursorPath,
   onToggle,
   onSelect,
+  onOpen,
 }: {
   rows: TreeRow[];
   cursorPath: string | null;
   onToggle: (path: string) => void;
   onSelect: (node: TreeNode) => void;
+  onOpen: (node: TreeNode) => void;
 }) {
   return (
     <ul className="files__list" role="presentation">
@@ -31,6 +35,7 @@ export function TreeView({
           active={node.path === cursorPath}
           onToggle={onToggle}
           onSelect={onSelect}
+          onOpen={onOpen}
         />
       ))}
     </ul>
@@ -43,12 +48,14 @@ function TreeRowItem({
   active,
   onToggle,
   onSelect,
+  onOpen,
 }: {
   node: TreeNode;
   depth: number;
   active: boolean;
   onToggle: (path: string) => void;
   onSelect: (node: TreeNode) => void;
+  onOpen: (node: TreeNode) => void;
 }) {
   const isDir = node.kind === "dir";
   return (
@@ -64,9 +71,12 @@ function TreeRowItem({
         title={node.path}
         // Drag a row onto a pane's terminal to drop its path in. The host owns
         // the pointer drag and reads this attribute (src/app/usePaneDrag); a
-        // click still opens/toggles, since a click without movement isn't a drag.
+        // click still selects/toggles, since a click without movement isn't a drag.
         data-kd-drag-path={node.path}
         onClick={() => (isDir ? onToggle(node.path) : onSelect(node))}
+        // The double click's own two clicks have already selected the row —
+        // opening is strictly additive, so no gesture is lost.
+        onDoubleClick={isDir ? undefined : () => onOpen(node)}
       >
         <span
           className={`files__chevron${

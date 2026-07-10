@@ -191,6 +191,10 @@
 }
 
 .files__dhead {
+  /* Never shrinks: once the code body overflows (scroll available), the
+     panel's height shortage must all land on the scrollable .files__dbody —
+     without this the flex squashes the header and clips the file name. */
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -265,6 +269,9 @@
 
 /* Breadcrumb: where the file sits under the root — mono, muted, one line. */
 .files__dpath {
+  /* Same as .files__dhead — and doubly so: overflow:hidden strips the
+     automatic min-height, so an unpinned breadcrumb squashes to nothing. */
+  flex: none;
   padding: 6px 14px;
   border-bottom: 1px solid #1c2230;
   color: #6b7280;
