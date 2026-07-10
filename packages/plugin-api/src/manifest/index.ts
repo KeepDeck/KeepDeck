@@ -5,6 +5,7 @@ export {
   readManifest,
   type ContributionSummary,
   type ManifestResult,
+  type PluginCategory,
   type PluginManifest,
 } from "./manifest.ts";
 export {

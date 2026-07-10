@@ -13,11 +13,16 @@ import type {
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
-// The dialog pulls the agent catalog via useAgents → IPC; pin one agent.
-vi.mock("../../ipc/agents", () => ({
-  listAgents: async () => [
-    { id: "claude", label: "Claude Code", command: "claude", installed: true, path: null },
-  ],
+// The dialog pulls the agent catalog via useAgents; pin one agent at the
+// hook seam (the real hook would bootstrap the real plugin system).
+vi.mock("../../app/useAgents", () => ({
+  useAgents: () => ({
+    agents: [
+      { id: "claude", label: "Claude Code", command: "claude", installed: true, path: null },
+    ],
+    loading: false,
+  }),
+  resetAgentsCache: () => {},
 }));
 
 /** Probe results: an attachable worktree, a not-yet-existing dir, and a
