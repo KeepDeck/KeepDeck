@@ -3,6 +3,7 @@ import {
   readManifest,
   type Disposable,
   type KeepDeckPlugin,
+  type PluginCategory,
   type PluginManifest,
 } from "@keepdeck/plugin-api";
 import {
@@ -22,6 +23,7 @@ import {
   projectFsUnwatch,
   projectFsWatch,
 } from "../ipc/projectFs";
+import { enabledByPolicy } from "../plugins/host/enabledPolicy";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openUrl } from "../ipc/app";
@@ -293,20 +295,24 @@ export const pluginHost = new PluginHost(
       }),
     },
     isEnabled: (pluginId) => {
-      // Every plugin is OFF until the user turns it on — nothing activates on
-      // its own (user decision). Enabling is stored in settings; a plugin is
-      // active only for an explicit stored `true`.
       const stored = getSettings()?.plugins.enabled[pluginId];
-      if (stored !== true) return false;
       const external = externalPlugins.get(pluginId);
       if (external) {
-        // External plugins additionally need CURRENT consent: an update that
+        // Externals are opt-in AND need CURRENT consent: an update that
         // escalated capabilities no longer matches the recorded fingerprint,
         // so it drops back to off until the user consents again.
+        if (stored !== true) return false;
         const consented = getSettings()?.plugins.consented[pluginId];
         return consented === capabilityFingerprint(external.manifest);
       }
-      return true;
+      // Built-ins resolve through the default policy: cli agents ON unless
+      // explicitly turned off, deck plugins opt-in (user decisions,
+      // 2026-07-06 opt-in / 2026-07-11 cli override).
+      return enabledByPolicy(
+        stored,
+        "builtin",
+        builtinCategories.get(pluginId) ?? "deck",
+      );
     },
     onEnabledChanged: (pluginId, enabled) => {
       const plugins = getSettings()?.plugins ?? {
@@ -335,6 +341,10 @@ export const pluginHost = new PluginHost(
   },
   pluginRegistries,
 );
+
+/** Built-in plugins' categories, recorded at install — `isEnabled(id)` is a
+ * narrow port and needs the category to resolve the default policy. */
+const builtinCategories = new Map<string, PluginCategory>();
 
 // ----------------------------------------------------- external discovery
 
@@ -382,7 +392,10 @@ export function bootstrapPlugins(): Promise<void> {
     const builtins = import.meta.env.DEV
       ? discoverDevPlugins()
       : await discoverBuiltPlugins();
-    for (const install of builtins) pluginHost.install(install, "builtin");
+    for (const install of builtins) {
+      builtinCategories.set(install.manifest.id, install.manifest.category);
+      pluginHost.install(install, "builtin");
+    }
     await syncExternalPlugins();
     await pluginHost.activateAll();
     // The one boot line that says the system came up — failures are logged
