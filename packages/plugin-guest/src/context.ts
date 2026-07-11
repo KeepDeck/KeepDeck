@@ -3,6 +3,7 @@ import type {
   Disposable,
   FsEntry,
   FsFile,
+  GitStatus,
   PluginContext,
   PluginManifest,
   PluginSessionEvent,
@@ -122,6 +123,29 @@ export function buildGuestContext(
         live = false;
         localCleanup();
         void rpc.call("registrations.dispose", [regId]).catch(noop);
+      },
+    };
+  }
+
+  /** Open one host-side watch (fs directory or git repo — same wire shape:
+   * guest-minted id, `fswatch:<id>` pushes back). The callback stays here;
+   * dispose both unfiles it and asks the host to stop watching. */
+  function remoteWatch(
+    service: "fs" | "git",
+    path: string,
+    onChange: () => void,
+  ): Disposable {
+    const id = nextRegId++;
+    const channel = `fswatch:${id}`;
+    watchCallbacks.set(channel, onChange);
+    void rpc.call(`services.${service}.watch`, [id, path]).catch(noop);
+    let live = true;
+    return {
+      dispose() {
+        if (!live) return;
+        live = false;
+        watchCallbacks.delete(channel);
+        void rpc.call(`services.${service}.unwatch`, [id]).catch(noop);
       },
     };
   }
@@ -310,21 +334,14 @@ export function buildGuestContext(
           rpc.call("services.fs.readDir", [path]) as Promise<FsEntry[]>,
         readFile: (path, opts) =>
           rpc.call("services.fs.readFile", [path, opts]) as Promise<FsFile>,
-        watch: (path, onChange) => {
-          const id = nextRegId++;
-          const channel = `fswatch:${id}`;
-          watchCallbacks.set(channel, onChange);
-          void rpc.call("services.fs.watch", [id, path]).catch(noop);
-          let live = true;
-          return {
-            dispose() {
-              if (!live) return;
-              live = false;
-              watchCallbacks.delete(channel);
-              void rpc.call("services.fs.unwatch", [id]).catch(noop);
-            },
-          };
-        },
+        watch: (path, onChange) => remoteWatch("fs", path, onChange),
+      },
+      git: {
+        status: (repo) =>
+          rpc.call("services.git.status", [repo]) as Promise<GitStatus>,
+        diffFile: (repo, file, opts) =>
+          rpc.call("services.git.diffFile", [repo, file, opts]) as Promise<string>,
+        watch: (repo, onChange) => remoteWatch("git", repo, onChange),
       },
     },
 

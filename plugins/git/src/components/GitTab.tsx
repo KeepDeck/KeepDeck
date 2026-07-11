@@ -1,0 +1,183 @@
+import { useEffect, useRef, useState } from "react";
+import type { DockTabProps } from "@keepdeck/plugin-api";
+import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
+import { useGitStatus } from "./useGitStatus";
+import {
+  baseName,
+  codeLabel,
+  dirName,
+  groupEntries,
+  headline,
+  type ChangeRow,
+} from "../domain/status";
+import { DiffPeek } from "./DiffPeek";
+import { BranchIcon } from "../icons";
+
+/**
+ * The Git tab: a live changes view of the chosen repo. The root is a pane's
+ * worktree or the workspace folder, defaulting to the highlighted pane's
+ * worktree — "show what I'm looking at" — and following the highlight like the
+ * Files tab's root; a manual pick holds until the next pane click.
+ *
+ * Everything updates by itself: the git watch (edits, staging, commits,
+ * checkouts) feeds `useGitStatus`, which is why there is no refresh button
+ * anywhere. Clicking a row lifts its diff into the wide peek; the open peek
+ * follows status refreshes too.
+ */
+export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
+  const [target, setTarget] = useState(
+    () =>
+      workspace.panes.find((pane) => pane.id === selectedPaneId)?.cwd ??
+      workspace.cwd,
+  );
+  // Follow the highlighted pane (same seen-ref idiom as the Files tab).
+  const seenSelectedRef = useRef(selectedPaneId);
+  if (seenSelectedRef.current !== selectedPaneId) {
+    seenSelectedRef.current = selectedPaneId;
+    const followed = workspace.panes.find(
+      (pane) => pane.id === selectedPaneId,
+    )?.cwd;
+    if (followed && followed !== target) setTarget(followed);
+  }
+
+  const { status, error, version } = useGitStatus(target);
+  const [peek, setPeek] = useState<ChangeRow | null>(null);
+
+  // A new root starts fresh — drop any open diff.
+  useEffect(() => {
+    setPeek(null);
+  }, [target]);
+
+  // Distinct roots: each pane worktree once, the workspace folder last (a
+  // pane attached to the main repo can't duplicate it).
+  const targets = [
+    ...[
+      ...new Map(
+        workspace.panes
+          .filter((pane) => pane.cwd && pane.cwd !== workspace.cwd)
+          .map((pane) => [pane.cwd!, pane.branch ?? shortPath(pane.cwd!)]),
+      ).entries(),
+    ].map(([value, label]) => ({ value, label })),
+    { value: workspace.cwd, label: "Workspace folder" },
+  ];
+
+  const groups = status ? groupEntries(status.entries) : null;
+
+  return (
+    <div className="git">
+      <div className="git__bar">
+        <Dropdown
+          className="git__root"
+          options={targets}
+          value={target}
+          onChange={setTarget}
+          ariaLabel="Repository to show changes for"
+        />
+      </div>
+
+      {status && (
+        <div className="git__head">
+          <span className="git__bicon">
+            <BranchIcon />
+          </span>
+          <span className="git__branch" title={headline(status)}>
+            {headline(status)}
+          </span>
+          {status.upstream && (
+            <span
+              className="git__ab"
+              title={`${status.ahead ?? 0} ahead, ${status.behind ?? 0} behind ${status.upstream}`}
+            >
+              ↑{status.ahead ?? 0} ↓{status.behind ?? 0}
+            </span>
+          )}
+          {groups && groups.total > 0 && (
+            <span className="git__count">{groups.total}</span>
+          )}
+        </div>
+      )}
+
+      <div className="git__list" role="list" aria-label="Working tree changes">
+        {!status && !error && <div className="git__empty">Loading…</div>}
+        {error && <div className="git__empty git__empty--bad">{error}</div>}
+        {groups && groups.total === 0 && (
+          <div className="git__empty">No changes — the tree is clean.</div>
+        )}
+        {groups && (
+          <>
+            <Section
+              label="Conflicts"
+              rows={groups.conflicted}
+              onOpen={setPeek}
+            />
+            <Section label="Staged" rows={groups.staged} onOpen={setPeek} />
+            <Section label="Changes" rows={groups.unstaged} onOpen={setPeek} />
+            <Section
+              label="Untracked"
+              rows={groups.untracked}
+              onOpen={setPeek}
+            />
+          </>
+        )}
+      </div>
+
+      {peek && (
+        <DiffPeek
+          repo={target}
+          row={peek}
+          version={version}
+          onClose={() => setPeek(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** One section (Staged / Changes / …): a header with the count, then rows.
+ * Renders nothing when empty — absent sections don't take up rail space. */
+function Section({
+  label,
+  rows,
+  onOpen,
+}: {
+  label: string;
+  rows: ChangeRow[];
+  onOpen: (row: ChangeRow) => void;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="git__section">
+      <div className="git__sechead">
+        {label}
+        <span className="git__seccount">{rows.length}</span>
+      </div>
+      {rows.map((row) => (
+        <button
+          type="button"
+          className="git__row"
+          key={`${row.kind}:${row.path}`}
+          onClick={() => onOpen(row)}
+          title={`${row.path} — ${codeLabel(row.code)}`}
+        >
+          <span
+            className={`git__code git__code--${row.kind === "conflicted" ? "conflicted" : row.code === "D" ? "del" : row.kind}`}
+            aria-hidden
+          >
+            {row.code}
+          </span>
+          <span className="git__file">
+            {dirName(row.path) && (
+              <span className="git__dir">{dirName(row.path)}</span>
+            )}
+            <span className="git__base">{baseName(row.path)}</span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Last two path segments — enough to tell worktrees apart in the dropdown. */
+function shortPath(path: string): string {
+  return path.split("/").filter(Boolean).slice(-2).join("/");
+}

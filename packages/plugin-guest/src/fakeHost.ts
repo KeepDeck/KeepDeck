@@ -233,6 +233,19 @@ export function createFakeHost(
         }),
         watch: () => ({ dispose() {} }),
       },
+      git: {
+        status: async () => ({
+          branch: "main",
+          detached: false,
+          oid: null,
+          upstream: null,
+          ahead: null,
+          behind: null,
+          entries: [],
+        }),
+        diffFile: async () => "",
+        watch: () => ({ dispose() {} }),
+      },
     },
     host: {
       settings: async () => options.hostSettings ?? { terminalScrollback: 10_000 },

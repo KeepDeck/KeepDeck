@@ -45,6 +45,19 @@ function fakeBackend() {
       })),
       watch: vi.fn(() => ({ dispose: vi.fn() })),
     },
+    git: {
+      status: vi.fn(async () => ({
+        branch: null,
+        detached: false,
+        oid: null,
+        upstream: null,
+        ahead: null,
+        behind: null,
+        entries: [],
+      })),
+      diffFile: vi.fn(async () => ""),
+      watch: vi.fn(() => ({ dispose: vi.fn() })),
+    },
   };
   return { backend, handle };
 }
@@ -387,5 +400,84 @@ describe("createCapabilityGate — fs", () => {
     });
     expect(() => gate.fs.watch("/repo", vi.fn())).toThrow('"fs" capability');
     expect(backend.fs.watch).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCapabilityGate — git", () => {
+  it("forwards declared calls with the derived scope; the fs capability does NOT cover git", async () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "git", scope: "workspace" }]),
+      backend,
+      { mode: "enforce", log },
+    );
+    const onChange = vi.fn();
+
+    await gate.git.status("/repo");
+    await gate.git.diffFile("/repo", "src/main.rs", { staged: true });
+    gate.git.watch("/repo", onChange);
+
+    expect(backend.git.status).toHaveBeenCalledWith("/repo", "workspace");
+    expect(backend.git.diffFile).toHaveBeenCalledWith(
+      "/repo",
+      "src/main.rs",
+      "workspace",
+      { staged: true },
+    );
+    expect(backend.git.watch).toHaveBeenCalledWith("/repo", "workspace", onChange);
+    expect(log.warn).not.toHaveBeenCalled();
+
+    // fs and git are separate grants: an fs-only manifest gets no git service.
+    const fsOnly = fakeBackend();
+    const fsOnlyGate = createCapabilityGate(
+      manifest([{ kind: "fs", scope: "everywhere" }]),
+      fsOnly.backend,
+      { mode: "enforce", log: fakeLog() },
+    );
+    expect(() => fsOnlyGate.git.status("/repo")).toThrow('"git" capability');
+    expect(fsOnly.backend.git.status).not.toHaveBeenCalled();
+  });
+
+  it("passes the everywhere scope through; git scope is derived from git, not fs", async () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([
+        { kind: "fs", scope: "workspace" },
+        { kind: "git", scope: "everywhere" },
+      ]),
+      backend,
+      { mode: "enforce", log: fakeLog() },
+    );
+
+    await gate.git.status("/anywhere");
+
+    expect(backend.git.status).toHaveBeenCalledWith("/anywhere", "everywhere");
+  });
+
+  it("missing git capability warns-and-forwards in warn mode with the safe scope, throws in enforce", async () => {
+    const warn = { ...fakeBackend(), log: fakeLog() };
+    const warnGate = createCapabilityGate(manifest([]), warn.backend, {
+      mode: "warn",
+      log: warn.log,
+    });
+    await warnGate.git.status("/repo");
+    expect(warn.log.warn).toHaveBeenCalledTimes(1);
+    expect(warn.log.warn.mock.calls[0][0]).toContain('"git" capability');
+    expect(warn.backend.git.status).toHaveBeenCalledWith("/repo", "workspace");
+
+    const hard = { ...fakeBackend(), log: fakeLog() };
+    const hardGate = createCapabilityGate(manifest([]), hard.backend, {
+      mode: "enforce",
+      log: hard.log,
+    });
+    expect(() => hardGate.git.diffFile("/repo", "a.ts")).toThrow(
+      '"git" capability',
+    );
+    expect(() => hardGate.git.watch("/repo", vi.fn())).toThrow(
+      '"git" capability',
+    );
+    expect(hard.backend.git.diffFile).not.toHaveBeenCalled();
+    expect(hard.backend.git.watch).not.toHaveBeenCalled();
   });
 });

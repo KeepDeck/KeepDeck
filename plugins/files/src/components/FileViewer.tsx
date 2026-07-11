@@ -1,21 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FsFile } from "@keepdeck/plugin-api";
+import { Peek } from "@keepdeck/ui-kit/Peek";
 import { getRuntime } from "../runtime";
 import { baseName } from "../domain/tree";
-import { BackIcon, OpenExternalIcon, WrapIcon } from "../icons";
+import { OpenExternalIcon, WrapIcon } from "../icons";
 
 /**
- * The file preview — a wide "peek" overlay, not a strip inside the dock. A code
- * view can't be read in a 340px rail, so opening a file lifts it OUT of the
- * panel into a centered surface over the whole window (a `position: fixed`
- * backdrop — no ancestor establishes a transform/stacking trap, so it reaches
- * the viewport without a portal; matches the host's own `.modal-overlay`).
- * Dismiss with Esc, the back button, or a click on the dimmed backdrop.
- *
- * Reads through `services.fs` (capped, binary-aware). Text renders
- * line-numbered — soft-wrapped or horizontally scrolled per the wrap toggle;
- * binary or oversized files defer to the external app. A stale in-flight read
- * is ignored so a fast reopen never flashes the wrong file.
+ * The file preview, inside the shared `Peek` overlay (ui-kit) — the shell
+ * (backdrop, header, Esc/backdrop dismissal) is the kit's; this component owns
+ * what fills it. Reads through `services.fs` (capped, binary-aware). Text
+ * renders line-numbered — soft-wrapped or horizontally scrolled per the wrap
+ * toggle; binary or oversized files defer to the external app. A stale
+ * in-flight read is ignored so a fast reopen never flashes the wrong file.
  */
 export function FileViewer({
   path,
@@ -30,7 +26,6 @@ export function FileViewer({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [wrap, setWrap] = useState(false);
-  const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,52 +52,21 @@ export function FileViewer({
     };
   }, [path]);
 
-  // Focus the scroll body so arrow keys scroll the code; Esc closes from
-  // anywhere inside via the backdrop handler below.
-  useEffect(() => {
-    bodyRef.current?.focus();
-  }, []);
-
   const openExternally = () => void getRuntime().services.opener.openPath(path);
-  const trail = breadcrumb(root, path);
 
   return (
-    <div
-      className="files__peek"
-      onClick={onClose}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          onClose();
-        }
-      }}
-    >
-      <div
-        className="files__peekpanel"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Preview of ${baseName(path)}`}
-        // A click inside the panel must not fall through to the backdrop.
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="files__dhead">
-          <button
-            type="button"
-            className="files__dback"
-            onClick={onClose}
-            title="Back to the tree (Esc)"
-            aria-label="Back to the tree"
-          >
-            <BackIcon />
-          </button>
-          <span className="files__dname" title={path}>
-            {baseName(path)}
-          </span>
-          {file && <span className="files__dsize">{formatBytes(file.size)}</span>}
+    <Peek
+      ariaLabel={`Preview of ${baseName(path)}`}
+      name={baseName(path)}
+      meta={
+        file ? <span className="peek__meta">{formatBytes(file.size)}</span> : null
+      }
+      actions={
+        <>
           {file && !file.isBinary && file.text !== null && (
             <button
               type="button"
-              className={`files__dact${wrap ? " files__dact--on" : ""}`}
+              className={`peek__act${wrap ? " peek__act--on" : ""}`}
               onClick={() => setWrap((w) => !w)}
               title={wrap ? "Don't wrap lines" : "Wrap lines"}
               aria-label="Toggle line wrapping"
@@ -113,47 +77,37 @@ export function FileViewer({
           )}
           <button
             type="button"
-            className="files__dact"
+            className="peek__act"
             onClick={openExternally}
             title="Open in the default app"
             aria-label={`Open ${baseName(path)} in the default app`}
           >
             <OpenExternalIcon />
           </button>
+        </>
+      }
+      path={breadcrumb(root, path)}
+      onClose={onClose}
+    >
+      {loading && <p className="peek__note">Loading…</p>}
+      {error && <p className="peek__note peek__note--bad">{error}</p>}
+      {file && file.isBinary && (
+        <div className="files__binary">
+          <p className="peek__note">Binary file · {formatBytes(file.size)}</p>
+          <button type="button" className="form__create" onClick={openExternally}>
+            Open in the default app
+          </button>
         </div>
-        {trail && (
-          <div className="files__dpath" title={path}>
-            {trail}
-          </div>
-        )}
-        <div className="files__dbody" ref={bodyRef} tabIndex={0}>
-          {loading && <p className="files__note">Loading…</p>}
-          {error && <p className="files__note files__note--bad">{error}</p>}
-          {file && file.isBinary && (
-            <div className="files__binary">
-              <p className="files__note">
-                Binary file · {formatBytes(file.size)}
-              </p>
-              <button
-                type="button"
-                className="form__create"
-                onClick={openExternally}
-              >
-                Open in the default app
-              </button>
-            </div>
-          )}
-          {file && !file.isBinary && file.text !== null && (
-            <TextView
-              text={file.text}
-              wrap={wrap}
-              truncated={file.truncated}
-              size={file.size}
-            />
-          )}
-        </div>
-      </div>
-    </div>
+      )}
+      {file && !file.isBinary && file.text !== null && (
+        <TextView
+          text={file.text}
+          wrap={wrap}
+          truncated={file.truncated}
+          size={file.size}
+        />
+      )}
+    </Peek>
   );
 }
 
@@ -187,7 +141,7 @@ function TextView({
         ))}
       </div>
       {truncated && (
-        <p className="files__note files__note--bad">
+        <p className="peek__note peek__note--bad">
           Preview truncated — file is {formatBytes(size)}. Open it in the default
           app to see the rest.
         </p>

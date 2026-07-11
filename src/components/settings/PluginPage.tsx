@@ -150,6 +150,10 @@ function describe(cap: Capability): string {
       return `run ${cap.commands.join("/")}`;
     case "fs":
       return cap.scope === "everywhere" ? "read any file" : "read project files";
+    case "git":
+      return cap.scope === "everywhere"
+        ? "read git state of any repository"
+        : "read git state of project repositories";
     case "net":
       return `reach ${cap.domains.join("/")}`;
     case "ports":

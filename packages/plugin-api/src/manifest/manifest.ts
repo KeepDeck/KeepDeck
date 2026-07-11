@@ -179,6 +179,11 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
           errors.push(`${at}: fs "scope" must be "workspace" or "everywhere"`);
         else out.push({ kind: "fs", scope: cap.scope });
         return;
+      case "git":
+        if (cap.scope !== "workspace" && cap.scope !== "everywhere")
+          errors.push(`${at}: git "scope" must be "workspace" or "everywhere"`);
+        else out.push({ kind: "git", scope: cap.scope });
+        return;
       case "net":
         if (!isStringArray(cap.domains) || cap.domains.length === 0)
           errors.push(`${at}: net needs a non-empty "domains" string array`);

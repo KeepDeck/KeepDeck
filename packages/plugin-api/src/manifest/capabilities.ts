@@ -17,6 +17,10 @@ export type Capability =
   /** Read project files. `workspace` = the workspace folder and its panes'
    * worktrees; `everywhere` = no path restriction (consent shouts this). */
   | { kind: "fs"; scope: "workspace" | "everywhere" }
+  /** Read git state (status, diffs) of project repositories — read-only, the
+   * same path scoping as `fs`. Writing (stage/commit) would be its own
+   * capability; it deliberately does not exist yet. */
+  | { kind: "git"; scope: "workspace" | "everywhere" }
   /** Network access from the plugin's own realm, enforced via the realm's
    * CSP. Domains are literal hosts; `*` is deliberately not supported. */
   | { kind: "net"; domains: string[] }
@@ -27,4 +31,11 @@ export type Capability =
   | { kind: "open" };
 
 /** All manifest-legal capability kinds — the validator's source of truth. */
-export const CAPABILITY_KINDS = ["exec", "fs", "net", "ports", "open"] as const;
+export const CAPABILITY_KINDS = [
+  "exec",
+  "fs",
+  "git",
+  "net",
+  "ports",
+  "open",
+] as const;

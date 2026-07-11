@@ -23,6 +23,13 @@ import {
   projectFsUnwatch,
   projectFsWatch,
 } from "../ipc/projectFs";
+import {
+  onProjectGitChange,
+  projectGitDiffFile,
+  projectGitStatus,
+  projectGitUnwatch,
+  projectGitWatch,
+} from "../ipc/projectGit";
 import { enabledByPolicy } from "../plugins/host/enabledPolicy";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
@@ -146,54 +153,83 @@ function fsRoots(scope: FsScope): string[] {
   return [...roots];
 }
 
-// ---- fs directory watching (one OS listener, fanned out by path) ----
+// ---- path watching (one OS listener, fanned out by path) ----
 
-/** Live watch callbacks per registered directory path. One Rust watcher per
- * path (started on the first subscriber, stopped after the last), fanned out
- * here to every callback watching it — so two panes browsing the same folder
- * share one OS watcher. */
-const fsWatchCbs = new Map<string, Set<() => void>>();
-/** The single subscription to the backend's change event, attached lazily. */
-let fsChangeListener: Promise<() => void> | null = null;
+/** Build a path-watch fan-out over one backend watcher family (fs dirs, git
+ * repos): one Rust watcher per path (started on the first subscriber, stopped
+ * after the last), fanned out to every callback watching it — so two panes
+ * browsing the same folder share one OS watcher. The single subscription to
+ * the backend's change event attaches lazily on first use. */
+function makeWatchFanout(backend: {
+  label: string;
+  subscribe: (handler: (path: string) => void) => Promise<() => void>;
+  start: (path: string, roots: string[], everywhere: boolean) => Promise<void>;
+  stop: (path: string) => Promise<void>;
+}) {
+  const watchCbs = new Map<string, Set<() => void>>();
+  let changeListener: Promise<() => void> | null = null;
 
-function watchProjectDir(
-  path: string,
-  scope: FsScope,
-  onChange: () => void,
-): Disposable {
-  fsChangeListener ??= onProjectFsChange((changed) => {
-    const cbs = fsWatchCbs.get(changed);
-    if (cbs) for (const cb of [...cbs]) cb();
-  }).catch((e) => {
-    log.warn("web:plugins", `fs change listener failed: ${describeError(e)}`);
-    return () => {};
-  });
+  return function watchPath(
+    path: string,
+    scope: FsScope,
+    onChange: () => void,
+  ): Disposable {
+    changeListener ??= backend
+      .subscribe((changed) => {
+        const cbs = watchCbs.get(changed);
+        if (cbs) for (const cb of [...cbs]) cb();
+      })
+      .catch((e) => {
+        log.warn(
+          "web:plugins",
+          `${backend.label} change listener failed: ${describeError(e)}`,
+        );
+        return () => {};
+      });
 
-  let set = fsWatchCbs.get(path);
-  if (!set) {
-    set = new Set();
-    fsWatchCbs.set(path, set);
-    void projectFsWatch(path, fsRoots(scope), scope === "everywhere").catch((e) =>
-      log.warn("web:plugins", `fs watch ${path} failed: ${describeError(e)}`),
-    );
-  }
-  set.add(onChange);
+    let set = watchCbs.get(path);
+    if (!set) {
+      set = new Set();
+      watchCbs.set(path, set);
+      void backend.start(path, fsRoots(scope), scope === "everywhere").catch((e) =>
+        log.warn(
+          "web:plugins",
+          `${backend.label} watch ${path} failed: ${describeError(e)}`,
+        ),
+      );
+    }
+    set.add(onChange);
 
-  let live = true;
-  return {
-    dispose() {
-      if (!live) return;
-      live = false;
-      const current = fsWatchCbs.get(path);
-      if (!current) return;
-      current.delete(onChange);
-      if (current.size === 0) {
-        fsWatchCbs.delete(path);
-        void projectFsUnwatch(path).catch(() => {});
-      }
-    },
+    let live = true;
+    return {
+      dispose() {
+        if (!live) return;
+        live = false;
+        const current = watchCbs.get(path);
+        if (!current) return;
+        current.delete(onChange);
+        if (current.size === 0) {
+          watchCbs.delete(path);
+          void backend.stop(path).catch(() => {});
+        }
+      },
+    };
   };
 }
+
+const watchProjectDir = makeWatchFanout({
+  label: "fs",
+  subscribe: onProjectFsChange,
+  start: projectFsWatch,
+  stop: projectFsUnwatch,
+});
+
+const watchProjectGit = makeWatchFanout({
+  label: "git",
+  subscribe: onProjectGitChange,
+  start: projectGitWatch,
+  stop: projectGitUnwatch,
+});
 
 /** The ungated platform services — what the capability gate decorates. `fs`
  * is scope-aware here (the gate injects the scope it derived from the
@@ -231,6 +267,19 @@ const serviceBackend: ServiceBackends = {
     readFile: (path, scope, opts) =>
       projectFsReadFile(path, fsRoots(scope), scope === "everywhere", opts?.maxBytes),
     watch: (path, scope, onChange) => watchProjectDir(path, scope, onChange),
+  },
+  git: {
+    status: (repo, scope) =>
+      projectGitStatus(repo, fsRoots(scope), scope === "everywhere"),
+    diffFile: (repo, file, scope, opts) =>
+      projectGitDiffFile(
+        repo,
+        fsRoots(scope),
+        scope === "everywhere",
+        file,
+        opts?.staged ?? false,
+      ),
+    watch: (repo, scope, onChange) => watchProjectGit(repo, scope, onChange),
   },
 };
 

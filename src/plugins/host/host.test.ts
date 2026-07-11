@@ -43,6 +43,11 @@ function fakeDeps() {
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn() },
     fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ dispose: vi.fn() })) },
+    git: {
+      status: vi.fn(),
+      diffFile: vi.fn(),
+      watch: vi.fn(() => ({ dispose: vi.fn() })),
+    },
   };
   const events = {
     onWorkspaceClosed: vi.fn(spyDisposable),

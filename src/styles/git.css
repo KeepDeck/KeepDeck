@@ -1,0 +1,281 @@
+/* The Git tab (keepdeck.git plugin): a live changes view over the git
+   capability, with a diff peek. Palette mirrors the dock, the Run tab and the
+   Files tab so the plugin reads as native chrome. */
+
+.git {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* Repo selector. */
+.git__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.git__root {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The branch line: where HEAD is, ahead/behind, total change count. */
+.git__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 8px;
+  border-bottom: 1px solid #1c2230;
+  margin-bottom: 6px;
+}
+
+.git__bicon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: #8b93a3;
+}
+
+.git__branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #c5c8c6;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.git__ab {
+  flex: none;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.git__count {
+  flex: none;
+  margin-left: auto;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background-color: #243044;
+  color: #c5c8c6;
+  font-size: 11px;
+  text-align: center;
+}
+
+/* The change list: fills the panel and scrolls on its own. */
+.git__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.git__section {
+  margin-bottom: 8px;
+}
+
+.git__sechead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  color: #8b93a3;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.git__seccount {
+  color: #6b7280;
+  font-weight: 400;
+}
+
+/* One changed path — a full-width click target opening its diff. */
+.git__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 3px 8px 3px 2px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #c5c8c6;
+  font-size: 12.5px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.git__row:hover {
+  background-color: #151a24;
+}
+
+/* The one-letter porcelain code, colored by what happened. */
+.git__code {
+  flex: none;
+  width: 14px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.git__code--staged {
+  color: #58b368;
+}
+
+.git__code--unstaged {
+  color: #d9a441;
+}
+
+.git__code--untracked {
+  color: #6b9fd0;
+}
+
+.git__code--conflicted {
+  color: #e5736f;
+}
+
+.git__code--del {
+  color: #e5736f;
+}
+
+.git__file {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git__dir {
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git__base {
+  flex: none;
+}
+
+.git__empty {
+  padding: 16px 8px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.git__empty--bad {
+  color: #e5736f;
+}
+
+/* The peek's shell is the shared .peek (peek.css / ui-kit Peek); below is
+   only the diff content that fills it. */
+
+/* The change-kind badge in the peek header's meta slot. */
+.git__badge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background-color: #243044;
+  color: #9aa3af;
+  font-size: 11px;
+}
+
+.git__badge--staged {
+  color: #58b368;
+}
+
+.git__badge--conflicted {
+  color: #e5736f;
+}
+
+/* The diff itself: two number gutters (old / new), a marker column, the line.
+   Sized to the widest line so long lines scroll horizontally; the gutters stay
+   pinned left through the scroll. */
+.git__diff {
+  width: max-content;
+  min-width: 100%;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 0;
+}
+
+.git__hunkhead {
+  padding: 6px 12px;
+  color: #6b9fd0;
+  background-color: #10151f;
+  font-size: 11px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.git__diffrow {
+  display: flex;
+}
+
+.git__lineno {
+  position: sticky;
+  z-index: 1;
+  flex: none;
+  width: 40px;
+  padding-right: 8px;
+  text-align: right;
+  color: #3b4658;
+  background-color: #0b0e14;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Two gutters: the first pins at 0, the second right after it. */
+.git__lineno:nth-child(1) {
+  left: 0;
+}
+
+.git__lineno:nth-child(2) {
+  left: 40px;
+}
+
+.git__linemark {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  user-select: none;
+  -webkit-user-select: none;
+  color: #6b7280;
+}
+
+.git__linetext {
+  flex: 1 1 auto;
+  color: #c5c8c6;
+  white-space: pre;
+  padding-right: 16px;
+}
+
+.git__diffrow--add {
+  background-color: rgba(88, 179, 104, 0.09);
+}
+
+.git__diffrow--add .git__linemark {
+  color: #58b368;
+}
+
+.git__diffrow--del {
+  background-color: rgba(229, 115, 111, 0.09);
+}
+
+.git__diffrow--del .git__linemark {
+  color: #e5736f;
+}
+
+.git__diffrow--meta .git__linetext {
+  color: #6b7280;
+}
+
+

@@ -57,6 +57,19 @@ describe("capabilityFingerprint", () => {
     ).not.toBe(
       capabilityFingerprint(manifest([{ kind: "fs", scope: "everywhere" }])),
     );
+    expect(
+      capabilityFingerprint(manifest([{ kind: "git", scope: "workspace" }])),
+    ).not.toBe(
+      capabilityFingerprint(manifest([{ kind: "git", scope: "everywhere" }])),
+    );
+  });
+
+  it("fs and git scopes fingerprint apart — one cannot pass as consent for the other", () => {
+    expect(
+      capabilityFingerprint(manifest([{ kind: "fs", scope: "workspace" }])),
+    ).not.toBe(
+      capabilityFingerprint(manifest([{ kind: "git", scope: "workspace" }])),
+    );
   });
 
   it("empty capabilities fingerprint the same", () => {

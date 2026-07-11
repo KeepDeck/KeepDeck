@@ -8,5 +8,6 @@
  */
 export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
 export { Combobox, fuzzyFilter } from "./Combobox.tsx";
+export { Peek, type PeekProps } from "./Peek.tsx";
 export { noAutoCorrect } from "./inputProps.ts";
 export * from "./icons.tsx";

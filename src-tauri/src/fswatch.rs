@@ -25,6 +25,27 @@ pub fn watch_dir(
     dir: &Path,
     on_event: impl Fn(&Event) + Send + 'static,
 ) -> Result<RecommendedWatcher, String> {
+    watch(dir, RecursiveMode::NonRecursive, on_event)
+}
+
+/// Watch `dir` and its WHOLE subtree. The recursive variant exists for the one
+/// consumer that genuinely means "anything in this tree" — a git working tree
+/// whose status must follow edits landing anywhere inside it. On macOS this is
+/// a single FSEvents stream per root (the OS walks the tree, not us), so depth
+/// costs nothing; the caller still filters kinds/paths and MUST debounce, since
+/// a build or checkout can fire thousands of events in a burst.
+pub fn watch_dir_recursive(
+    dir: &Path,
+    on_event: impl Fn(&Event) + Send + 'static,
+) -> Result<RecommendedWatcher, String> {
+    watch(dir, RecursiveMode::Recursive, on_event)
+}
+
+fn watch(
+    dir: &Path,
+    mode: RecursiveMode,
+    on_event: impl Fn(&Event) + Send + 'static,
+) -> Result<RecommendedWatcher, String> {
     let mut watcher =
         notify::recommended_watcher(move |result: notify::Result<Event>| {
             if let Ok(event) = result {
@@ -32,9 +53,7 @@ pub fn watch_dir(
             }
         })
         .map_err(|e| e.to_string())?;
-    watcher
-        .watch(dir, RecursiveMode::NonRecursive)
-        .map_err(|e| e.to_string())?;
+    watcher.watch(dir, mode).map_err(|e| e.to_string())?;
     Ok(watcher)
 }
 
@@ -97,6 +116,34 @@ mod tests {
 
         rx.recv_timeout(Duration::from_secs(10))
             .expect("an fs event within 10s");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn watch_dir_recursive_sees_a_nested_change() {
+        let dir = temp_dir();
+        let nested = dir.join("a/b/c");
+        fs::create_dir_all(&nested).unwrap();
+
+        let (tx, rx) = mpsc::channel::<PathBuf>();
+        let _watcher = watch_dir_recursive(&dir, move |event| {
+            for p in &event.paths {
+                let _ = tx.send(p.clone());
+            }
+        })
+        .expect("watch");
+
+        fs::write(nested.join("deep.txt"), "hi").unwrap();
+
+        // The non-recursive sibling would never report a grandchild.
+        let mut seen = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("an fs event within 10s");
+        while !seen.ends_with("deep.txt") {
+            seen = rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("the nested file's event");
+        }
         fs::remove_dir_all(&dir).ok();
     }
 

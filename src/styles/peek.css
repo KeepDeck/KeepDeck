@@ -1,0 +1,177 @@
+/* The shared "peek" overlay (@keepdeck/ui-kit Peek): the wide detail surface
+   dock plugins lift content into — the Files preview, the Git diff. Shell only;
+   what fills the body is styled by each consumer (files.css, git.css). Palette
+   mirrors the dock so a peek reads as native chrome. */
+
+.peek {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  /* A slim uniform frame — the panel fills the window, the dim edge just marks
+     it as a dismissible overlay (backdrop click / Esc). */
+  padding: 10px;
+  background-color: rgba(7, 9, 13, 0.66);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: peek-fade 120ms ease-out;
+}
+
+.peek__panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #0e121a;
+  border: 1px solid #1c2230;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.85);
+  animation: peek-pop 140ms ease-out;
+  /* The dock is user-select: none; re-enable it here so the peeked content
+     (code, a diff, paths) can be selected and copied. Consumers opt their
+     gutters back out, so a copied selection is clean text without numbers. */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+@keyframes peek-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes peek-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .peek,
+  .peek__panel {
+    animation: none;
+  }
+}
+
+.peek__head {
+  /* Never shrinks: once the body overflows (scroll available), the panel's
+     height shortage must all land on the scrollable .peek__body — without this
+     the flex squashes the header and clips the title. */
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1c2230;
+  background-color: #11151d;
+}
+
+.peek__back {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #9aa3af;
+  cursor: pointer;
+}
+
+.peek__back:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+.peek__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #c5c8c6;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Small muted facts right of the name — a size, a count. */
+.peek__meta {
+  flex: none;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+/* A header action button (consumer-supplied: wrap toggle, open-external). */
+.peek__act {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+
+.peek__act:hover {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+/* A toggle action, currently on. */
+.peek__act--on {
+  color: #58b368;
+}
+
+.peek__act--on:hover {
+  color: #6fd07f;
+}
+
+/* The second header line: where the content sits — mono, muted, one line. */
+.peek__path {
+  /* Same as .peek__head — and doubly so: overflow:hidden strips the automatic
+     min-height, so an unpinned path line squashes to nothing. */
+  flex: none;
+  padding: 6px 14px;
+  border-bottom: 1px solid #1c2230;
+  color: #6b7280;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peek__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background-color: #0b0e14;
+  outline: none;
+}
+
+/* Inline body messages: loading, errors, binary notes. */
+.peek__note {
+  margin: 0;
+  padding: 8px 12px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.peek__note--bad {
+  color: #e5736f;
+}

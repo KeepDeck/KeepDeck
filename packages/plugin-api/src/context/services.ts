@@ -10,6 +10,7 @@ export interface PluginServices {
   readonly ports: PluginPorts;
   readonly opener: PluginOpener;
   readonly fs: PluginFs;
+  readonly git: PluginGit;
 }
 
 export interface PluginSessions {
@@ -106,4 +107,59 @@ export interface FsFile {
   isBinary: boolean;
   size: number;
   truncated: boolean;
+}
+
+/** Read-only git state of the user's PROJECT repositories, gated by the `git`
+ * capability — path-scoped exactly like `fs` (`workspace` / `everywhere`),
+ * enforced host-side. Reads never take git's optional locks, so they can run
+ * beside an agent's own git commands without ever stalling them. Read-only:
+ * stage/commit/discard would be a separate write capability. */
+export interface PluginGit {
+  /** The working tree's status at `repo` (a worktree path works — each
+   * worktree has its own status). Rejects a path outside the scope. */
+  status(repo: string): Promise<GitStatus>;
+  /** Unified diff text for ONE tracked path, relative to `repo` — worktree vs
+   * index by default, index vs HEAD with `staged`. Untracked files have no
+   * diff; render their plain content (via `fs.readFile`) instead. */
+  diffFile(repo: string, file: string, opts?: GitDiffOptions): Promise<string>;
+  /** Watch the repo for status-relevant changes — working-tree edits AND
+   * index/HEAD/ref moves (stage, commit, checkout). `onChange` fires
+   * throttled; re-`status` to get the fresh state (debounce it — bursts are
+   * normal). Passive OS notification: nothing is polled, nothing is locked. */
+  watch(repo: string, onChange: () => void): Disposable;
+}
+
+export interface GitDiffOptions {
+  /** Diff the index against HEAD (what's staged) instead of the worktree
+   * against the index. */
+  staged?: boolean;
+}
+
+/** A working tree's git status: the branch header plus every changed path. */
+export interface GitStatus {
+  /** Current branch; absent when HEAD is detached. */
+  branch: string | null;
+  detached: boolean;
+  /** HEAD commit sha; absent on an unborn branch. */
+  oid: string | null;
+  /** Upstream branch, when configured (agent worktrees usually have none). */
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
+  /** Changed paths, in git's own output order. */
+  entries: GitStatusEntry[];
+}
+
+/** One changed path. `staged`/`unstaged` carry git's porcelain v2 codes
+ * verbatim (`M`odified, `A`dded, `D`eleted, `R`enamed, …; `"."` = unchanged
+ * on that side) — how to word them is the plugin's presentation concern. */
+export interface GitStatusEntry {
+  /** Path relative to the repo root. */
+  path: string;
+  /** The pre-rename path, when the index stages a rename. */
+  origPath: string | null;
+  staged: string;
+  unstaged: string;
+  untracked: boolean;
+  conflicted: boolean;
 }
