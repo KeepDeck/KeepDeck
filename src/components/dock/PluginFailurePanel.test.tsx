@@ -16,8 +16,18 @@ const clipboardMock = vi.hoisted(() => ({
 vi.mock("../../ipc/clipboard", () => clipboardMock);
 
 const CRASHES = [
-  { pluginId: "keepdeck.files", surface: 'overlay "viewer"', detail: "Error: render died\n  at FilesOverlay" },
-  { pluginId: "keepdeck.files", surface: 'tab "files"', detail: "Error: again" },
+  {
+    pluginId: "keepdeck.files",
+    surfaceKind: "overlay" as const,
+    surfaceId: "viewer",
+    detail: "Error: render died\n  at FilesOverlay",
+  },
+  {
+    pluginId: "keepdeck.files",
+    surfaceKind: "tab" as const,
+    surfaceId: "files",
+    detail: "Error: again",
+  },
 ];
 
 describe("PluginFailurePanel", () => {

@@ -1,4 +1,4 @@
-import type { PluginCrash } from "../../app/pluginHealth";
+import { crashSurfaceLabel, type PluginCrash } from "../../app/pluginHealth";
 import { restartPlugin } from "../../app/pluginManager";
 import { writeText } from "../../ipc/clipboard";
 
@@ -19,14 +19,15 @@ export function PluginFailurePanel({
   crashes: readonly PluginCrash[];
 }) {
   const log = crashes
-    .map((crash) => `[${crash.surface}] ${crash.detail}`)
+    .map((crash) => `[${crashSurfaceLabel(crash)}] ${crash.detail}`)
     .join("\n\n");
   return (
     <div className="plugin-failure" role="alert">
       <p className="plugin-failure__title">{label} isn't working</p>
       <p className="plugin-failure__hint">
-        Part of this plugin crashed ({crashes[crashes.length - 1]?.surface}).
-        Restarting it usually recovers.
+        Part of this plugin crashed (
+        {crashes.length > 0 && crashSurfaceLabel(crashes[crashes.length - 1])}
+        ). Restarting it usually recovers.
       </p>
       <pre className="plugin-failure__log">{log}</pre>
       <div className="plugin-failure__actions">

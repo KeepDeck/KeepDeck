@@ -4,6 +4,11 @@ interface ErrorBoundaryProps {
   /** Names the guarded subtree in the fallback and the error report. */
   label: string;
   onError?(error: unknown): void;
+  /** What a tripped boundary renders. Defaults to the inline "crashed" note;
+   * pass `null` for surfaces whose failure is reported elsewhere — an
+   * INVISIBLE overlay's fallback would otherwise show up as stray text
+   * wherever the mount slot happens to sit. */
+  fallback?: ReactNode;
   children: ReactNode;
 }
 
@@ -30,6 +35,7 @@ export class ErrorBoundary extends Component<
 
   render(): ReactNode {
     if (this.state.failed) {
+      if (this.props.fallback !== undefined) return this.props.fallback;
       return (
         <div className="plugin-error" role="alert">
           {this.props.label} crashed — see the log

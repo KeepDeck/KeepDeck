@@ -163,22 +163,29 @@ function App() {
   const dockTabs: DockTabItem[] = [
     ...(dockOpen && active
       ? pluginDockTabs.map((c) => {
-          // A crashed plugin (any of its surfaces — the tab itself, or an
-          // invisible overlay) shows the failure panel in its UI area instead
-          // of dead or half-working content, and an alert badge on its tab.
+          // Any crash badges every tab of the plugin, but the failure panel
+          // REPLACES content only where the crash lives: this tab's own
+          // crash, or an overlay's (shared, tab-less infrastructure — the
+          // plugin's tabs are the only place its panel can live). A SIBLING
+          // tab's crash leaves this tab's healthy content alone.
           const pluginCrashList = crashes.filter(
             (crash) => crash.pluginId === c.pluginId,
+          );
+          const panelCrashes = pluginCrashList.filter(
+            (crash) =>
+              crash.surfaceKind === "overlay" ||
+              (crash.surfaceKind === "tab" && crash.surfaceId === c.entry.id),
           );
           return {
             id: `${c.pluginId}:${c.entry.id}`,
             label: c.entry.label,
             alert: pluginCrashList.length > 0,
             element:
-              pluginCrashList.length > 0 ? (
+              panelCrashes.length > 0 ? (
                 <PluginFailurePanel
                   pluginId={c.pluginId}
                   label={c.entry.label}
-                  crashes={pluginCrashList}
+                  crashes={panelCrashes}
                 />
               ) : "Component" in c.entry ? (
                 // Built-in tier: a trusted React component in the host tree.
@@ -189,7 +196,7 @@ function App() {
                       `web:plugin:${c.pluginId}`,
                       `dock tab "${c.entry.id}" crashed: ${describeError(e)}`,
                     );
-                    reportPluginCrash(c.pluginId, `tab "${c.entry.id}"`, e);
+                    reportPluginCrash(c.pluginId, "tab", c.entry.id, e);
                   }}
                 >
                   <c.entry.Component

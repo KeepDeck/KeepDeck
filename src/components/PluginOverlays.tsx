@@ -36,6 +36,10 @@ export function PluginOverlays() {
           <ErrorBoundary
             key={key}
             label={c.entry.id}
+            // The crash surfaces through the report (badge + failure panel);
+            // the default inline fallback would appear as stray text at the
+            // slot's position — an overlay's failure has no place HERE.
+            fallback={null}
             onError={(e) => {
               log.error(
                 `web:plugin:${c.pluginId}`,
@@ -44,7 +48,7 @@ export function PluginOverlays() {
               // An overlay is invisible — without this report the crash
               // would be too. It lights the plugin's dock tab badge and
               // failure panel.
-              reportPluginCrash(c.pluginId, `overlay "${c.entry.id}"`, e);
+              reportPluginCrash(c.pluginId, "overlay", c.entry.id, e);
             }}
           >
             {"Component" in c.entry ? (

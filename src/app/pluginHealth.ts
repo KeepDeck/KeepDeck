@@ -1,18 +1,28 @@
 /**
  * Runtime crash reports per plugin — what turns an invisible ErrorBoundary
- * trip into a VISIBLE state: a red badge on the plugin's dock tab and a
- * failure panel (log + Restart) in its UI area. No automatic recovery, by
- * decision: a render that threw once will throw again, so the way back is
- * the user's explicit Restart — which clears this store for the plugin.
- * House-idiom external store: stable snapshot, rebuilt only on real change.
+ * trip into a VISIBLE state: a red badge on the plugin's dock tabs and a
+ * failure panel (log + Restart) where the crash lives. No automatic
+ * recovery, by decision: a render that threw once will throw again, so the
+ * way back is the user's explicit Restart — which clears this store for the
+ * plugin. House-idiom external store: stable snapshot, rebuilt only on real
+ * change.
  */
 
 export interface PluginCrash {
   pluginId: string;
-  /** Which surface fell — `overlay "viewer"`, `tab "files"`. */
-  surface: string;
+  /** Which KIND of surface fell — panels scope by it: a tab's own crash (or
+   * a shared, tab-less overlay's) shows the panel; a SIBLING tab's crash is
+   * only a badge. */
+  surfaceKind: "tab" | "overlay";
+  /** The contribution id of the fallen surface. */
+  surfaceId: string;
   /** The human line plus stack when available — what "Copy log" copies. */
   detail: string;
+}
+
+/** The crash's surface in words — log lines and the panel's hint. */
+export function crashSurfaceLabel(crash: PluginCrash): string {
+  return `${crash.surfaceKind} "${crash.surfaceId}"`;
 }
 
 const records: PluginCrash[] = [];
@@ -26,10 +36,11 @@ function notify(): void {
 
 export function reportPluginCrash(
   pluginId: string,
-  surface: string,
+  surfaceKind: PluginCrash["surfaceKind"],
+  surfaceId: string,
   error: unknown,
 ): void {
-  records.push({ pluginId, surface, detail: detailOf(error) });
+  records.push({ pluginId, surfaceKind, surfaceId, detail: detailOf(error) });
   notify();
 }
 
