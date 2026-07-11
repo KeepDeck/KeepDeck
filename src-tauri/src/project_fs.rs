@@ -34,7 +34,7 @@
 
 use std::fs;
 use std::io::Read as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use notify::{Event, EventKind};
 use serde::Serialize;
@@ -257,6 +257,7 @@ pub fn project_fs_unwatch(watchers: State<ProjectFsWatchers>, path: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::mpsc;
     use std::time::Duration;
