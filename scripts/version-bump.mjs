@@ -5,20 +5,21 @@
 //
 // Auto mode (default): find the newest first-parent commit where the package
 // version changed (the "anchor" — the commit that introduced the current
-// version), then classify every merge into main since it: a merge whose
-// subject contains "(minor)" bumps minor, any other merge bumps patch. Bumps
-// apply in merge order, so one run can cover several merges (e.g. a failed
-// CI push is healed by the next run recounting from the same anchor). A merge
-// that already changed the version itself becomes the anchor, so manually
-// bumped merges are respected and never double-counted.
+// version), then classify every merge into main since it: "(major)" bumps
+// major, "(minor)" bumps minor, and every other merge bumps patch. Bumps apply
+// in merge order, so one run can cover several merges (e.g. a failed CI push
+// is healed by the next run recounting from the same anchor). A merge that
+// already changed the version itself becomes the anchor, so manually bumped
+// merges are respected and never double-counted.
 //
-// Dispatch mode (--bump patch|minor): apply exactly one bump, ignoring git
-// history. Used by the workflow_dispatch escape hatch.
+// Dispatch mode (--bump patch|minor|major): append exactly one forced bump
+// after any merge bumps not yet reflected in the version. Every forced bump is
+// a release, including a forced patch.
 //
 // Writes src-tauri/Cargo.toml (the declared source of truth), package.json
 // and the keepdeck entry in Cargo.lock. Prints the new version and, when
-// GITHUB_OUTPUT is set, appends version=<new> and minor=<bool> (whether the
-// batch included a minor bump) for the workflow.
+// GITHUB_OUTPUT is set, appends version=<new> and release=<bool> for the
+// workflow.
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
@@ -28,12 +29,14 @@ const CARGO_TOML = "src-tauri/Cargo.toml";
 const PACKAGE_JSON = "package.json";
 const CARGO_LOCK = "Cargo.lock";
 const LOCK_PACKAGE = "keepdeck";
+const MAJOR_MARKER = "(major)";
 const MINOR_MARKER = "(minor)";
 
 export function bumpVersion(version, kind) {
   const m = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!m) throw new Error(`unsupported version format: ${version}`);
   const [major, minor, patch] = m.slice(1).map(Number);
+  if (kind === "major") return `${major + 1}.0.0`;
   if (kind === "minor") return `${major}.${minor + 1}.0`;
   if (kind === "patch") return `${major}.${minor}.${patch + 1}`;
   throw new Error(`unknown bump kind: ${kind}`);
@@ -44,6 +47,7 @@ export function computeNext(current, kinds) {
 }
 
 export function classifyMergeSubject(subject) {
+  if (subject.includes(MAJOR_MARKER)) return "major";
   return subject.includes(MINOR_MARKER) ? "minor" : "patch";
 }
 
@@ -109,8 +113,10 @@ function readBumpArg(argv) {
   const i = argv.indexOf("--bump");
   if (i === -1) return null;
   const kind = argv[i + 1];
-  if (kind !== "patch" && kind !== "minor") {
-    throw new Error(`--bump expects "patch" or "minor", got: ${kind ?? "(nothing)"}`);
+  if (kind !== "patch" && kind !== "minor" && kind !== "major") {
+    throw new Error(
+      `--bump expects "patch", "minor" or "major", got: ${kind ?? "(nothing)"}`,
+    );
   }
   return kind;
 }
@@ -119,29 +125,25 @@ export function main(argv = process.argv.slice(2)) {
   const forced = readBumpArg(argv);
   const current = parseCargoVersion(readFileSync(CARGO_TOML, "utf8"));
 
-  let kinds;
-  if (forced) {
-    kinds = [forced];
-  } else {
-    const anchor = findAnchor();
-    const subjects =
-      anchor === null
-        ? []
-        : git(
-            "log",
-            "--first-parent",
-            "--merges",
-            "--reverse",
-            "--format=%s",
-            `${anchor}..HEAD`,
-          )
-            .split("\n")
-            .filter(Boolean);
-    kinds = subjects.map(classifyMergeSubject);
-    if (kinds.length === 0) {
-      console.log("No merges since the last version change; nothing to bump.");
-      return null;
-    }
+  const anchor = findAnchor();
+  const subjects =
+    anchor === null
+      ? []
+      : git(
+          "log",
+          "--first-parent",
+          "--merges",
+          "--reverse",
+          "--format=%s",
+          `${anchor}..HEAD`,
+        )
+          .split("\n")
+          .filter(Boolean);
+  const kinds = subjects.map(classifyMergeSubject);
+  if (forced) kinds.push(forced);
+  if (kinds.length === 0) {
+    console.log("No merges since the last version change; nothing to bump.");
+    return null;
   }
 
   const next = computeNext(current, kinds);
@@ -156,11 +158,12 @@ export function main(argv = process.argv.slice(2)) {
   );
   console.log(`Bump version to ${next} (${current} + ${kinds.join(", ")})`);
   if (process.env.GITHUB_OUTPUT) {
-    // `minor` gates the release build, which runs only for minor (or larger)
-    // bumps — patch merges skip the expensive macOS build.
+    // Automatic patch batches only update the version. Major/minor batches and
+    // every forced bump build a release before the version commit is pushed.
+    const release = forced !== null || kinds.some((kind) => kind !== "patch");
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `version=${next}\nminor=${kinds.includes("minor")}\n`,
+      `version=${next}\nrelease=${release}\n`,
     );
   }
   return next;
