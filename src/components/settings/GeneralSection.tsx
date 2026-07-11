@@ -4,9 +4,23 @@ import { useSettings } from "../../app/useSettings";
 import { selectableAgents } from "../../domain/agents";
 import {
   COLLAPSE_STYLES,
+  DECK_LAYOUTS,
   DEFAULT_SETTINGS,
   type CollapseStyle,
+  type DeckLayout,
 } from "../../domain/settings";
+
+/** Label + one-line explanation for each deck layout, in picker order. */
+const LAYOUT_OPTIONS: Record<DeckLayout, { label: string; hint: string }> = {
+  grid: {
+    label: "Grid",
+    hint: "Agents tile in a square grid; minimize ones you're not watching.",
+  },
+  list: {
+    label: "List",
+    hint: "Agents stack in a list — open one at a time; the rest fold to bars.",
+  },
+};
 
 /** Label + one-line explanation for each collapse style, in picker order. */
 const COLLAPSE_OPTIONS: Record<CollapseStyle, { label: string; hint: string }> = {
@@ -18,21 +32,18 @@ const COLLAPSE_OPTIONS: Record<CollapseStyle, { label: string; hint: string }> =
     label: "Strip",
     hint: "Minimized agents fold to their own header bar below the grid.",
   },
-  list: {
-    label: "List",
-    hint: "The workspace becomes a list — one agent open at a time.",
-  },
 };
 
 /**
- * General preferences: the default agent ([F6]/[F1]) and how a minimized agent
- * is presented in the deck. Fetches the catalog itself (per mount, like
- * WorkspaceForm) — opening settings re-detects a just-installed agent instead
- * of showing the boot-time picture.
+ * General preferences: the default agent ([F6]/[F1]), the deck layout, and —
+ * for the grid layout — how a minimized agent is presented. Fetches the catalog
+ * itself (per mount, like WorkspaceForm) — opening settings re-detects a
+ * just-installed agent instead of showing the boot-time picture.
  */
 export function GeneralSection() {
   const settings = useSettings();
   const defaultAgent = settings?.defaultAgent;
+  const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const collapseStyle = settings?.collapseStyle ?? DEFAULT_SETTINGS.collapseStyle;
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
@@ -56,6 +67,21 @@ export function GeneralSection() {
         Preselected when creating workspaces and agents
       </span>
 
+      <span className="form__label">Deck layout</span>
+      <div className="form__types">
+        {DECK_LAYOUTS.map((layout) => (
+          <button
+            key={layout}
+            type="button"
+            className={`form__type${layout === deckLayout ? " form__type--active" : ""}`}
+            onClick={() => updateSettings({ deckLayout: layout })}
+          >
+            {LAYOUT_OPTIONS[layout].label}
+          </button>
+        ))}
+      </div>
+      <span className="settings__hint">{LAYOUT_OPTIONS[deckLayout].hint}</span>
+
       <span className="form__label">Minimized agents</span>
       <div className="form__types">
         {COLLAPSE_STYLES.map((style) => (
@@ -63,13 +89,18 @@ export function GeneralSection() {
             key={style}
             type="button"
             className={`form__type${style === collapseStyle ? " form__type--active" : ""}`}
+            disabled={deckLayout !== "grid"}
             onClick={() => updateSettings({ collapseStyle: style })}
           >
             {COLLAPSE_OPTIONS[style].label}
           </button>
         ))}
       </div>
-      <span className="settings__hint">{COLLAPSE_OPTIONS[collapseStyle].hint}</span>
+      <span className="settings__hint">
+        {deckLayout === "grid"
+          ? COLLAPSE_OPTIONS[collapseStyle].hint
+          : "Applies to the grid layout."}
+      </span>
     </>
   );
 }

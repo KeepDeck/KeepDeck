@@ -215,6 +215,13 @@ describe("SettingsDialog", () => {
     expect(button("Claude Code").className).not.toContain("form__type--active");
   });
 
+  it("picking a deck layout writes it through to the store", async () => {
+    await mount({ deckLayout: "grid" });
+    act(() => button("List").click());
+    expect(getSettings()?.deckLayout).toBe("list");
+    expect(button("List").className).toContain("form__type--active");
+  });
+
   it("picking a collapse style writes it through to the store", async () => {
     await mount({ collapseStyle: "tray" });
     act(() => button("Strip").click());
@@ -224,9 +231,15 @@ describe("SettingsDialog", () => {
   });
 
   it("marks the active collapse style", async () => {
-    await mount({ collapseStyle: "list" });
-    expect(button("List").className).toContain("form__type--active");
+    await mount({ collapseStyle: "strip" });
+    expect(button("Strip").className).toContain("form__type--active");
     expect(button("Tray").className).not.toContain("form__type--active");
+  });
+
+  it("disables the collapse-style picker outside the grid layout", async () => {
+    await mount({ deckLayout: "list" });
+    expect((button("Tray") as HTMLButtonElement).disabled).toBe(true);
+    expect((button("Strip") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("scrollback commits clamped on blur — not per keystroke", async () => {

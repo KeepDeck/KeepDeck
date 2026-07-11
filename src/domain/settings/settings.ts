@@ -29,20 +29,27 @@ import {
   settingsFloorBreach,
 } from "../migrations";
 
-/** How a minimized agent is presented in the deck — the collapse layout the
- * user picks in Settings:
- * - `tray`  — it leaves the grid (which retiles to the live count) and docks
- *   as a chip in a strip along the bottom;
- * - `strip` — it folds to its own header bar, stacked below the grid;
- * - `list`  — the whole workspace becomes a vertical list of agents, the
- *   selected one expanded to its terminal and the rest folded to bars.
+/** How a workspace's agents are laid out:
+ * - `grid` — the square grid (agents can be minimized out of it);
+ * - `list` — a vertical list, one agent expanded to its terminal and the rest
+ *   folded to bars. A display mode, NOT a way to minimize — every agent stays
+ *   in place; the layout just shows one at a time. */
+export type DeckLayout = "grid" | "list";
+
+/** Every deck layout, in picker order; also the allow-list for a stored value. */
+export const DECK_LAYOUTS: readonly DeckLayout[] = ["grid", "list"];
+
+/** How a minimized agent is presented in the GRID layout:
+ * - `tray`  — it docks as a chip in a strip along the bottom;
+ * - `strip` — it folds to its own header bar, stacked below the grid.
+ * Either way the other agents stay on the grid and retile to fill the space.
  * The minimized SET is per-workspace runtime state ([`WorkspaceView.collapsed`]);
  * this is only the presentation choice, shared across the app. */
-export type CollapseStyle = "tray" | "strip" | "list";
+export type CollapseStyle = "tray" | "strip";
 
 /** Every collapse style, in the order the settings picker lists them; also the
  * allow-list a stored value is validated against. */
-export const COLLAPSE_STYLES: readonly CollapseStyle[] = ["tray", "strip", "list"];
+export const COLLAPSE_STYLES: readonly CollapseStyle[] = ["tray", "strip"];
 
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete
@@ -51,7 +58,9 @@ export interface Settings {
   defaultAgent: AgentType;
   /** Scrollback lines kept per terminal pane. */
   scrollback: number;
-  /** How a minimized agent is presented in the deck (tray / strip / list). */
+  /** How a workspace's agents are laid out (grid / list). */
+  deckLayout: DeckLayout;
+  /** How a minimized agent is presented in the grid layout (tray / strip). */
   collapseStyle: CollapseStyle;
   /** Per-plugin persisted settings, keyed by plugin id. The plugin system
    * itself is not a flag — it simply exists (user decision); `enabled` is
@@ -74,6 +83,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
   scrollback: 10_000,
+  deckLayout: "grid",
   collapseStyle: "tray",
   plugins: { enabled: {}, values: {}, consented: {} },
 };
@@ -187,6 +197,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (typeof doc.scrollback === "number" && Number.isFinite(doc.scrollback)) {
     settings.scrollback = clampScrollback(doc.scrollback);
+  }
+  if (DECK_LAYOUTS.includes(doc.deckLayout as DeckLayout)) {
+    settings.deckLayout = doc.deckLayout as DeckLayout;
   }
   if (COLLAPSE_STYLES.includes(doc.collapseStyle as CollapseStyle)) {
     settings.collapseStyle = doc.collapseStyle as CollapseStyle;

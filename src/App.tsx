@@ -393,6 +393,7 @@ function App() {
             activeId={deck.activeId}
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
+            deckLayout={settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout}
             collapseStyle={settings?.collapseStyle ?? DEFAULT_SETTINGS.collapseStyle}
             agents={agents}
             agentsReady={!agentsLoading}

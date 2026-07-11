@@ -130,7 +130,8 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       plugins.enabled["keepdeck.run"]=false at read (the Run panel is the
  *       run plugin now); the key itself is consumed, never re-written.
  *   6 — + plugins.consented (per-external-plugin capability fingerprints).
- *   7 — + collapseStyle (how a minimized agent is presented: tray|strip|list).
+ *   7 — + deckLayout (grid|list) and collapseStyle (tray|strip): the deck's
+ *       display mode and how a minimized agent is shown in the grid.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay

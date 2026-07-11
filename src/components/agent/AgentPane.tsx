@@ -3,6 +3,7 @@ import type { PaneProvisioning } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 import {
+  ChevronDownIcon,
   CloseIcon,
   GitBranchIcon,
   MaximizeIcon,
@@ -30,8 +31,12 @@ interface AgentPaneProps {
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
   focused: boolean;
-  /** Whether this pane is hidden because another pane is maximized. */
+  /** Whether this pane is hidden (display:none, still mounted) — because
+   * another pane is maximized, or because it's minimized to the tray/strip. */
   collapsed: boolean;
+  /** List layout: render header-only (the terminal body is hidden but stays
+   * mounted), with a chevron; clicking the header expands it (via onSelect). */
+  folded?: boolean;
   /** Whether this is the active pane (gets the highlight border). */
   selected: boolean;
   /** The only pane in its workspace: no maximize control ([U1]) and no highlight
@@ -93,6 +98,7 @@ export function AgentPane({
   visible,
   focused,
   collapsed,
+  folded,
   selected,
   solo,
   dormant,
@@ -124,12 +130,17 @@ export function AgentPane({
   return (
     <section
       data-pane-id={paneId}
-      className={`pane${collapsed ? " pane--collapsed" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
+      className={`pane${collapsed ? " pane--collapsed" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       onMouseDown={onSelect}
       onFocus={onSelect}
     >
       <header className="pane__bar">
+        {folded && (
+          <span className="pane__fold-chevron" aria-hidden>
+            <ChevronDownIcon />
+          </span>
+        )}
         <div className="pane__identity">
           {editing ? (
             <input
@@ -178,7 +189,7 @@ export function AgentPane({
               <span className="pane__branch-label">{gitBadge.label}</span>
             </span>
           )}
-          {onCollapse && !focused && (
+          {onCollapse && !focused && !folded && (
             <button
               type="button"
               className="pane__action"
@@ -189,7 +200,7 @@ export function AgentPane({
               <MinimizeIcon />
             </button>
           )}
-          {!solo && (
+          {!solo && !folded && (
             <button
               type="button"
               className="pane__action"

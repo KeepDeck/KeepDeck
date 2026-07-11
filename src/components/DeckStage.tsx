@@ -6,29 +6,43 @@ import {
   paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
-  partitionPanes,
   resolveFocus,
   type GitPosition,
   type Pane,
   type Workspace,
   type WorkspaceView,
 } from "../domain/deck";
-import type { CollapseStyle } from "../domain/settings";
+import type { CollapseStyle, DeckLayout } from "../domain/settings";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane } from "./agent/AgentPane";
 import { CollapsedItem } from "./deck/CollapsedItem";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 
+/** The per-pane positioning the two layouts resolve to; the rest of a pane's
+ * props (command, spec, cwd, badge) are the same everywhere. */
+interface PaneLayout {
+  colSpan: number;
+  visible: boolean;
+  focused: boolean;
+  /** Hidden (display:none) but mounted — maximized-away, or minimized. */
+  collapsed: boolean;
+  /** Header-only (list layout, a non-expanded row). */
+  folded: boolean;
+  solo: boolean;
+  onCollapse?: () => void;
+}
+
 interface DeckStageProps {
   workspaces: Workspace[];
   activeId: string;
-  /** Per-workspace view state — read for each workspace's maximized pane and
-   * its minimized set. */
+  /** Per-workspace view state — read for each workspace's maximized pane, its
+   * minimized set, and (in list layout) its expanded pane. */
   viewByWs: Record<string, WorkspaceView>;
   /** The active workspace's highlighted pane (pane ids are app-unique). */
   selectedPaneId: string | null;
-  /** How a minimized agent is presented (tray / strip / list) — the [F6]
-   * setting; the same value for every workspace. */
+  /** How a workspace's agents are laid out (grid / list) — the [F6] setting. */
+  deckLayout: DeckLayout;
+  /** How a minimized agent is shown in the grid layout (tray / strip). */
   collapseStyle: CollapseStyle;
   /** Agent catalog, for pane commands and derived titles. */
   agents: AgentInfo[];
@@ -41,7 +55,7 @@ interface DeckStageProps {
   onStartWorkspace(wsId: string, count: number): void;
   onSelectPane(wsId: string, paneId: string): void;
   onToggleFocus(wsId: string, paneId: string): void;
-  /** Minimize a pane out of the grid, or restore it (tray/strip styles). */
+  /** Minimize a pane out of the grid, or restore it (grid layout only). */
   onToggleCollapse(wsId: string, paneId: string): void;
   /** Open an agent's working directory in the editor. */
   onOpenInEditor(path: string): void;
@@ -68,22 +82,30 @@ interface DeckStageProps {
 }
 
 /**
- * The stage: every workspace's grid, stacked. Each workspace stays MOUNTED and
- * only the active one is visible, so switching workspaces doesn't unmount live
- * panes — their PTY sessions keep running. An empty workspace shows the count
- * picker instead of a grid ([F15]).
+ * The stage: every workspace's panes, stacked, only the active one visible.
  *
- * A minimized agent leaves the grid and is shown as a `CollapsedItem` — the
- * `collapseStyle` decides where: `tray` (chips below the grid), `strip` (folded
- * header bars below the grid), or `list` (the whole workspace becomes a
- * vertical accordion, the selected agent expanded). Minimizing only unmounts
- * the pane's view; the session keeps running and re-mounts on restore.
+ * Every pane stays MOUNTED at all times — across workspace switches, layout
+ * switches, maximize, and minimize — so a PTY's terminal is never torn down and
+ * re-attached (which would flicker and replay its scrollback). What changes is
+ * only CSS and props: the grid retiles, a pane is hidden (display:none) or
+ * folded to its header, the container flips between grid and list. Nothing
+ * unmounts, so switching any of it is seamless.
+ *
+ * - `grid` layout: the square grid. An agent can be minimized out of it (its
+ *   tile is hidden and the grid retiles to fill the space); it's shown as a
+ *   `CollapsedItem` in a zone below — `tray` chips or `strip` bars — that
+ *   restores it. Maximize still spotlights one live tile.
+ * - `list` layout: a vertical accordion — the selected agent expanded to its
+ *   terminal, the rest folded to header bars. A display mode, not a minimize:
+ *   every agent stays, one is shown at a time. An empty workspace shows the
+ *   count picker ([F15]).
  */
 export function DeckStage({
   workspaces,
   activeId,
   viewByWs,
   selectedPaneId,
+  deckLayout,
   collapseStyle,
   agents,
   agentsReady,
@@ -103,6 +125,7 @@ export function DeckStage({
   onAgentExited,
   respawnEpochs,
 }: DeckStageProps) {
+  const isList = deckLayout === "list";
   return (
     <>
       {workspaces.map((ws) => {
@@ -136,36 +159,70 @@ export function DeckStage({
           return gitBadge(cwd ? gitHeads.get(cwd) : undefined);
         };
 
-        // Resolve one pane into a full AgentPane. Shared by the grid and the
-        // list's expanded row, so the catalog / spec / cwd / badge resolution
-        // lives in ONE place; `layout` carries the per-mode positioning.
-        const renderPane = (
-          pane: Pane,
-          layout: {
-            colSpan: number;
-            visible: boolean;
-            focused: boolean;
-            hiddenByMaximize: boolean;
-            solo: boolean;
-            onCollapse?: () => void;
-          },
-        ) => {
-          // Agent command/label are per pane (not the workspace), resolved from
-          // the fetched catalog ([F1]); fall back to the id string while it loads.
+        // ── Per-pane layout, resolved once per workspace. ─────────────────
+        // Grid: the live (not minimized) panes tile; the minimized ones are
+        // hidden but stay in the grid mounted. List: the selected pane expands,
+        // the rest fold to headers.
+        const minimizedSet = new Set(isList ? [] : (view?.collapsed ?? []));
+        const live = ws.panes.filter((p) => !minimizedSet.has(p.id));
+        const liveIndex = new Map(live.map((p, i) => [p.id, i] as const));
+        const focusedHere = isList ? null : resolveFocus(live, view?.focus);
+        const soloGrid = live.length === 1;
+        const expandedId = view?.select ?? ws.panes[0]?.id;
+        const trackColumns =
+          live.length === 0 ? 1 : focusedHere ? 1 : paneGridTrackColumns(live.length);
+        const rowCount =
+          live.length === 0 ? 1 : focusedHere ? 1 : paneGrid(live.length).rows;
+
+        const layoutFor = (pane: Pane): PaneLayout => {
+          if (isList) {
+            const folded = pane.id !== expandedId;
+            return {
+              colSpan: 1,
+              visible: isActive && !folded,
+              focused: false,
+              collapsed: false,
+              folded,
+              solo: true, // no maximize / highlight border in list rows
+            };
+          }
+          if (minimizedSet.has(pane.id)) {
+            // Minimized: hidden from the grid (the CollapsedItem below is its
+            // stand-in), but mounted so its session doesn't flicker on restore.
+            return {
+              colSpan: 1,
+              visible: false,
+              focused: false,
+              collapsed: true,
+              folded: false,
+              solo: false,
+            };
+          }
+          const isFocused = pane.id === focusedHere;
+          const hiddenByMaximize = focusedHere !== null && !isFocused;
+          return {
+            colSpan: focusedHere ? 1 : paneColumnSpan(liveIndex.get(pane.id) ?? 0, live.length),
+            visible: isActive && !hiddenByMaximize,
+            focused: isFocused,
+            collapsed: hiddenByMaximize,
+            folded: false,
+            solo: soloGrid,
+            onCollapse: () => onToggleCollapse(ws.id, pane.id),
+          };
+        };
+
+        // Resolve one pane into a full AgentPane. The catalog / spec / cwd /
+        // badge resolution lives in ONE place; `layout` carries positioning.
+        const renderPane = (pane: Pane) => {
+          const layout = layoutFor(pane);
           const agentType = pane.agentType ?? "claude";
           const agentInfo = agents.find((a) => a.id === agentType);
           const spec = specByPane[pane.id];
-          // The plan's word wins (a hook may pick the user's shell via null);
-          // the catalog covers degraded bare plans.
           const command =
             spec?.command !== undefined
               ? spec.command
               : (agentInfo?.command ?? agentType);
-          // Judged only against a booted catalog; the card blocks the terminal
-          // (and thus the spawn) instead of silently running the bare id.
           const unavailableAgent = agentsReady && !agentInfo ? agentType : null;
-          // Plans arrive a beat after the pane (async hooks) — the terminal
-          // must not mount (= spawn) before its plan exists.
           const planPending =
             !spec && !pane.dormant && !pane.provisioning && !unavailableAgent;
           const displayTitle = titleOf(pane);
@@ -186,7 +243,8 @@ export function DeckStage({
               gitBadge={badge}
               visible={layout.visible}
               focused={layout.focused}
-              collapsed={layout.hiddenByMaximize}
+              collapsed={layout.collapsed}
+              folded={layout.folded}
               selected={pane.id === selectedPaneId}
               solo={layout.solo}
               dormant={pane.dormant}
@@ -210,92 +268,40 @@ export function DeckStage({
           );
         };
 
-        const wsClass = `deck__workspace${isActive ? "" : " deck__workspace--hidden"}`;
-
-        // ── List style: the whole workspace is a vertical accordion, the
-        // selected agent expanded to its terminal, the rest folded to bars. ──
-        if (collapseStyle === "list") {
-          const expandedId = view?.select ?? ws.panes[0]?.id;
-          return (
-            <main key={ws.id} className={wsClass} aria-hidden={!isActive}>
-              <div className="deck__list">
-                {ws.panes.map((pane) =>
-                  pane.id === expandedId ? (
-                    <div key={pane.id} className="deck__list-open">
-                      {renderPane(pane, {
-                        colSpan: 1,
-                        visible: isActive,
-                        focused: false,
-                        hiddenByMaximize: false,
-                        solo: true,
-                      })}
-                    </div>
-                  ) : (
-                    <CollapsedItem
-                      key={pane.id}
-                      variant="bar"
-                      action="expand"
-                      title={titleOf(pane)}
-                      gitBadge={badgeOf(pane)}
-                      label={`Expand ${titleOf(pane)}`}
-                      onClick={() => onSelectPane(ws.id, pane.id)}
-                    />
-                  ),
-                )}
-              </div>
-            </main>
-          );
-        }
-
-        // ── Tray / strip styles: a grid of the live panes, plus a zone of the
-        // minimized ones below it. ───────────────────────────────────────────
-        const { live, minimized } = partitionPanes(ws.panes, view?.collapsed);
-        const focusedHere = resolveFocus(live, view?.focus);
-        const solo = live.length === 1;
-        const trackColumns =
-          live.length === 0 ? 1 : focusedHere ? 1 : paneGridTrackColumns(live.length);
-        const rowCount =
-          live.length === 0 ? 1 : focusedHere ? 1 : paneGrid(live.length).rows;
+        const minimized = ws.panes.filter((p) => minimizedSet.has(p.id));
 
         return (
-          <main key={ws.id} className={wsClass} aria-hidden={!isActive}>
+          <main
+            key={ws.id}
+            className={`deck__workspace${isActive ? "" : " deck__workspace--hidden"}`}
+            aria-hidden={!isActive}
+          >
             <div className="deck__gridwrap">
               <div
-                className="deck__grid"
-                style={{
-                  gridTemplateColumns: gridTracks(trackColumns),
-                  gridTemplateRows: gridTracks(rowCount),
-                }}
+                className={isList ? "deck__list-inner" : "deck__grid"}
+                style={
+                  isList
+                    ? undefined
+                    : {
+                        gridTemplateColumns: gridTracks(trackColumns),
+                        gridTemplateRows: gridTracks(rowCount),
+                      }
+                }
               >
-                {live.length === 0 ? (
-                  <div className="deck__grid-empty" role="status">
-                    <span className="deck__grid-empty-title">
-                      Every agent is minimized
-                    </span>
-                    <span className="deck__grid-empty-sub">
-                      They keep running — restore one below to bring it back
-                    </span>
-                  </div>
-                ) : (
-                  live.map((pane, gridIndex) => {
-                    const isFocused = pane.id === focusedHere;
-                    const hiddenByMaximize = focusedHere !== null && !isFocused;
-                    const colSpan = focusedHere
-                      ? 1
-                      : paneColumnSpan(gridIndex, live.length);
-                    return renderPane(pane, {
-                      colSpan,
-                      visible: isActive && !hiddenByMaximize,
-                      focused: isFocused,
-                      hiddenByMaximize,
-                      solo,
-                      onCollapse: () => onToggleCollapse(ws.id, pane.id),
-                    });
-                  })
-                )}
+                {ws.panes.map(renderPane)}
               </div>
+              {!isList && live.length === 0 && (
+                <div className="deck__grid-empty" role="status">
+                  <span className="deck__grid-empty-title">
+                    Every agent is minimized
+                  </span>
+                  <span className="deck__grid-empty-sub">
+                    They keep running — restore one below to bring it back
+                  </span>
+                </div>
+              )}
             </div>
-            {minimized.length > 0 && (
+            {!isList && minimized.length > 0 && (
               <div className={collapseStyle === "tray" ? "deck__tray" : "deck__folds"}>
                 {collapseStyle === "tray" && (
                   <span className="deck__tray-label">
@@ -306,7 +312,6 @@ export function DeckStage({
                   <CollapsedItem
                     key={pane.id}
                     variant={collapseStyle === "tray" ? "chip" : "bar"}
-                    action="restore"
                     title={titleOf(pane)}
                     gitBadge={badgeOf(pane)}
                     label={`Restore ${titleOf(pane)}`}

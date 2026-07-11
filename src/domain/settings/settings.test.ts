@@ -31,6 +31,7 @@ describe("hydrateSettings", () => {
         version: 1,
         defaultAgent: "codex",
         scrollback: 50_000,
+        deckLayout: "list",
         collapseStyle: "strip",
         plugins: {
           enabled: { git: true },
@@ -41,38 +42,55 @@ describe("hydrateSettings", () => {
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
+      deckLayout: "list",
       collapseStyle: "strip",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
     });
   });
 
-  it("defaults collapseStyle to tray when absent", () => {
-    expect(hydrateSettings("{}")?.settings.collapseStyle).toBe("tray");
+  it("defaults deckLayout to grid and collapseStyle to tray when absent", () => {
+    const s = hydrateSettings("{}")?.settings;
+    expect(s?.deckLayout).toBe("grid");
+    expect(s?.collapseStyle).toBe("tray");
+  });
+
+  it("accepts each known deckLayout and rejects an unknown one", () => {
+    for (const layout of ["grid", "list"]) {
+      expect(hydrateSettings(JSON.stringify({ deckLayout: layout }))?.settings.deckLayout).toBe(
+        layout,
+      );
+    }
+    expect(hydrateSettings(JSON.stringify({ deckLayout: "spiral" }))?.settings.deckLayout).toBe(
+      "grid",
+    );
   });
 
   it("accepts each known collapseStyle and rejects an unknown one", () => {
-    for (const style of ["tray", "strip", "list"]) {
+    for (const style of ["tray", "strip"]) {
       expect(hydrateSettings(JSON.stringify({ collapseStyle: style }))?.settings.collapseStyle).toBe(
         style,
       );
     }
     // A garbage value degrades to the default, on its own, like any other key.
-    expect(
-      hydrateSettings(JSON.stringify({ collapseStyle: "mosaic" }))?.settings.collapseStyle,
-    ).toBe("tray");
-    expect(
-      hydrateSettings(JSON.stringify({ collapseStyle: 3 }))?.settings.collapseStyle,
-    ).toBe("tray");
+    // (`list` moved to deckLayout — it's no longer a collapse style.)
+    for (const bad of ["list", "mosaic", 3]) {
+      expect(
+        hydrateSettings(JSON.stringify({ collapseStyle: bad }))?.settings.collapseStyle,
+      ).toBe("tray");
+    }
   });
 
-  it("serializes collapseStyle only when it differs from the default (sparse)", () => {
+  it("serializes deckLayout / collapseStyle only when they differ from default (sparse)", () => {
     const base = defaultSettingsDocument();
+    expect(serializeSettings(base)).not.toContain("deckLayout");
     expect(serializeSettings(base)).not.toContain("collapseStyle");
     const changed = {
       ...base,
-      settings: { ...base.settings, collapseStyle: "list" as const },
+      settings: { ...base.settings, deckLayout: "list" as const, collapseStyle: "strip" as const },
     };
-    expect(JSON.parse(serializeSettings(changed)).collapseStyle).toBe("list");
+    const out = JSON.parse(serializeSettings(changed));
+    expect(out.deckLayout).toBe("list");
+    expect(out.collapseStyle).toBe("strip");
   });
 
   it("v5 graduation: an explicit experimentRunPresets=false disables the Run plugin", () => {

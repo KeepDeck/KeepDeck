@@ -1,7 +1,8 @@
-/* Minimized-agent surfaces: the tray strip, the folded strip bars, the list
-   mode, and the CollapsedItem stand-in shared by all three. A minimized agent
-   carries no terminal here — the PTY runs on in the manager and re-mounts on
-   restore. */
+/* Minimized-agent surfaces (grid layout) and the list layout. Every pane stays
+   mounted throughout — a minimized agent is a hidden-but-mounted tile with a
+   CollapsedItem stand-in; a folded list row is the pane's own header with the
+   terminal body hidden. Restoring / expanding needs no re-attach, so there's no
+   flicker. */
 
 /* ── Tray: a horizontal strip of chips below the grid ─────────────────── */
 .deck__tray {
@@ -35,8 +36,8 @@
   overflow-y: auto;
 }
 
-/* ── List: the whole workspace as a vertical accordion ────────────────── */
-.deck__list {
+/* ── List layout: the whole workspace as a vertical accordion ─────────── */
+.deck__list-inner {
   position: absolute;
   inset: 0;
   display: flex;
@@ -45,24 +46,20 @@
   background-color: #1c2230;
   overflow-y: auto;
 }
-
-/* The one expanded row = a real pane, filling the remaining height. */
-.deck__list-open {
+/* The one expanded row fills the remaining height; the folded ones sit flush
+   at their header height. (Both selectors are equally specific — source order
+   makes the folded rule win.) */
+.deck__list-inner > .pane {
   flex: 1 1 auto;
   min-height: 240px;
-  display: flex;
   min-width: 0;
 }
-.deck__list-open > .pane {
-  flex: 1;
-  min-width: 0;
-}
-/* Folded list rows sit flush; keep them from stretching. */
-.deck__list > .collapsed--bar {
+.deck__list-inner > .pane--folded {
   flex: none;
+  min-height: 0;
 }
 
-/* ── CollapsedItem: the minimized stand-in ────────────────────────────── */
+/* ── CollapsedItem: the minimized stand-in (tray chip / strip bar) ─────── */
 .collapsed {
   display: flex;
   align-items: center;
@@ -117,13 +114,6 @@
   flex: 1 1 auto;
 }
 
-.collapsed__chevron {
-  flex: none;
-  display: inline-flex;
-  color: #6b7280;
-  transform: rotate(-90deg);
-}
-
 .collapsed__branch {
   display: inline-flex;
   align-items: center;
@@ -162,7 +152,6 @@
   border-radius: 4px;
   color: #6b7280;
 }
-.collapsed:hover .collapsed__restore,
-.collapsed:hover .collapsed__chevron {
+.collapsed:hover .collapsed__restore {
   color: #c5c8c6;
 }

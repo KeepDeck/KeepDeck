@@ -265,4 +265,18 @@ describe("AgentPane — minimize control", () => {
     );
     expect(minimizeBtn()).toBeNull();
   });
+
+  it("a folded (list) pane shows a chevron and neither minimize nor maximize", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, { ...baseProps, folded: true, onCollapse: vi.fn() }),
+      ),
+    );
+    expect(document.querySelector(".pane--folded")).not.toBeNull();
+    expect(document.querySelector(".pane__fold-chevron")).not.toBeNull();
+    expect(minimizeBtn()).toBeNull();
+    expect(document.querySelector('[aria-label="Maximize Claude 1"]')).toBeNull();
+    // Close still works from a folded row.
+    expect(document.querySelector('[aria-label="Close Claude 1"]')).not.toBeNull();
+  });
 });

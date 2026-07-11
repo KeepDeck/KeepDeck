@@ -151,8 +151,11 @@
   background-color: #1c2230;
 }
 
-/* Shown in place of the grid when every agent in a workspace is minimized. */
+/* Overlaid on the grid when every agent in a workspace is minimized (the
+   hidden tiles still occupy the grid mounted, so this covers them). */
 .deck__grid-empty {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
