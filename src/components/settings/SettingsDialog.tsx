@@ -21,20 +21,35 @@ interface SettingsDialogProps {
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
   useEscape(onClose);
   const contributed = useContributions(pluginRegistries.settingsSections);
-  const sections: { id: string; label: string; body: ReactNode }[] = [
-    ...SETTINGS_SECTIONS.map((s) => ({
+  const appSections: { id: string; label: string; body: ReactNode }[] =
+    SETTINGS_SECTIONS.map((s) => ({
       id: s.id,
       label: s.label,
       body: <s.Component />,
-    })),
-    ...contributed.map((c) => ({
+    }));
+  // Plugin-contributed sections are a separate tier of the nav (their own
+  // labeled group below the app's), not more app sections.
+  const pluginSections: { id: string; label: string; body: ReactNode }[] =
+    contributed.map((c) => ({
       id: `plugin:${c.pluginId}`,
       label: c.entry.label,
       body: <PluginSettingsSection pluginId={c.pluginId} section={c.entry} />,
-    })),
-  ];
+    }));
+  const sections = [...appSections, ...pluginSections];
   const [activeId, setActiveId] = useState(sections[0].id);
   const active = sections.find((s) => s.id === activeId) ?? sections[0];
+
+  const navItem = (s: { id: string; label: string }) => (
+    <button
+      key={s.id}
+      type="button"
+      className={`settings__nav-item${s.id === active.id ? " settings__nav-item--active" : ""}`}
+      aria-current={s.id === active.id || undefined}
+      onClick={() => setActiveId(s.id)}
+    >
+      {s.label}
+    </button>
+  );
 
   return (
     <ModalOverlay>
@@ -59,17 +74,13 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
         <div className="settings__body">
           <nav className="settings__nav" aria-label="Settings sections">
-            {sections.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={`settings__nav-item${s.id === active.id ? " settings__nav-item--active" : ""}`}
-                aria-current={s.id === active.id || undefined}
-                onClick={() => setActiveId(s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
+            {appSections.map(navItem)}
+            {pluginSections.length > 0 && (
+              <span className="settings__nav-group" role="presentation">
+                Plugins
+              </span>
+            )}
+            {pluginSections.map(navItem)}
           </nav>
           {sections.map((s) => (
             // Every section stays mounted and inactive ones hide (the
