@@ -27,3 +27,14 @@
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
 }
+
+/* An external plugin's resident overlay: the plugin's own document over the
+   whole window (its origin is the isolation, like dock plugin frames). Kept
+   mounted while hidden — residents keep their state out of sight. */
+.plugin-overlay__frame {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  border: 0;
+  background: transparent;
+}

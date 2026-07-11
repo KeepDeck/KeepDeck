@@ -198,13 +198,23 @@ export function buildGuestContext(
           () => actionCallbacks.delete(key),
         );
       },
-      registerOverlay: () => {
-        // A resident overlay is a live component; until an iframe variant
-        // exists it cannot cross the sandbox boundary.
-        throw new Error(
-          "ui.registerOverlay is not yet available to external plugins",
+      registerOverlay: (overlay) => {
+        // An external overlay is an iframe document, never a component: a
+        // React Component cannot be serialized across the realm boundary.
+        // Same rule (and message shape) as external dock tabs.
+        if ("Component" in overlay) {
+          throw new Error(
+            "external overlays must use the `iframe` variant: a React Component cannot cross the plugin sandbox boundary",
+          );
+        }
+        return registerRemote(
+          "ui.registerOverlay",
+          { id: overlay.id, iframe: overlay.iframe },
+          noop,
         );
       },
+      setOverlayVisible: (id, visible) =>
+        void rpc.call("ui.setOverlayVisible", [id, visible]).catch(noop),
       // Fire-and-forget by contract (returns void) — a rejection has nowhere
       // to land, and the host treats an unregistered tab as a no-op anyway.
       revealDockTab: (id) => void rpc.call("ui.revealDockTab", [id]).catch(noop),

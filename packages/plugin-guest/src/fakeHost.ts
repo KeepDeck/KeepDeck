@@ -36,6 +36,8 @@ export interface FakeHost {
   agents: AgentContribution[];
   /** Recorded `ui.revealDockTab` calls, in order. */
   revealedTabs: string[];
+  /** Recorded `ui.setOverlayVisible` calls, in order. */
+  overlayVisibility: [string, boolean][];
   /** Storage backing, so a test can inspect what a plugin persisted. */
   globalStore: Map<string, unknown>;
   workspaceStore: Map<string, unknown>;
@@ -97,6 +99,7 @@ export function createFakeHost(
   const settingsSections: SettingsSectionContribution[] = [];
   const agents: AgentContribution[] = [];
   const revealedTabs: string[] = [];
+  const overlayVisibility: [string, boolean][] = [];
   const globalStore = new Map<string, unknown>();
   const workspaceStore = new Map<string, unknown>();
   const logs = { info: [] as string[], warn: [] as string[], error: [] as string[] };
@@ -135,6 +138,9 @@ export function createFakeHost(
       registerOverlay: (overlay) => record(overlays, overlay),
       revealDockTab: (id) => {
         revealedTabs.push(id);
+      },
+      setOverlayVisible: (id, visible) => {
+        overlayVisibility.push([id, visible]);
       },
     },
     openers: {
@@ -267,6 +273,7 @@ export function createFakeHost(
     settingsSections,
     agents,
     revealedTabs,
+    overlayVisibility,
     globalStore,
     workspaceStore,
     fire: {

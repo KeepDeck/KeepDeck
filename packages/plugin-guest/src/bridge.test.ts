@@ -398,4 +398,29 @@ describe("external plugin bridge", () => {
     await flush();
     expect(host.revealedTabs).toEqual(["files"]);
   });
+
+  it("an external overlay crosses as an iframe document; visibility follows", async () => {
+    const plugin: KeepDeckPlugin = {
+      activate(ctx) {
+        ctx.ui.registerOverlay({ id: "viewer", iframe: "ui/viewer.html" });
+        ctx.ui.setOverlayVisible("viewer", true);
+      },
+    };
+    const { host, bridge } = wire(plugin);
+    await bridge.activated;
+    await flush();
+
+    expect(host.overlays).toEqual([{ id: "viewer", iframe: "ui/viewer.html" }]);
+    expect(host.overlayVisibility).toEqual([["viewer", true]]);
+  });
+
+  it("an external overlay refuses the Component variant, synchronously", async () => {
+    const { bridge, ctxReady } = wireCapturingCtx();
+    await bridge.activated;
+    const ctx = await ctxReady;
+
+    expect(() =>
+      ctx.ui.registerOverlay({ id: "viewer", Component: () => null }),
+    ).toThrow("iframe");
+  });
 });

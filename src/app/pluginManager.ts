@@ -41,6 +41,7 @@ import { spawnSession } from "../ipc/session";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { getSettings, subscribeSettings, updateSettings } from "./settingsManager";
 import { makeGlobalKvStub, makeWorkspaceKv, type DeckAccess } from "./pluginKv";
+import { setOverlayVisibility } from "./overlayVisibility";
 import { mergeSectionValues } from "./pluginSettingsValues";
 
 /**
@@ -361,6 +362,8 @@ export const pluginHost = new PluginHost(
           .some((c) => c.pluginId === pluginId && c.entry.id === entryId);
         if (registered) deckUi.revealDockTab(`${pluginId}:${entryId}`);
       },
+      setOverlayVisible: (pluginId, entryId, visible) =>
+        setOverlayVisibility(`${pluginId}:${entryId}`, visible),
     },
     log: loggerFor,
     hostFacts: {

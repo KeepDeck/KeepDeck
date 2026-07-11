@@ -102,6 +102,8 @@ export function buildPluginContext(
         return track(registries.overlays.add(pluginId, overlay));
       },
       revealDockTab: (id) => deps.ui.revealDockTab(pluginId, id),
+      setOverlayVisible: (id, visible) =>
+        deps.ui.setOverlayVisible(pluginId, id, visible),
     },
     openers: {
       register: (handler) => {

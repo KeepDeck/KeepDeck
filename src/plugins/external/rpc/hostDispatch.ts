@@ -220,6 +220,17 @@ export function createHostDispatch(
       );
     },
     "ui.revealDockTab": ([id]) => ctx.ui.revealDockTab(id as string),
+    "ui.registerOverlay": ([regId, entry]) => {
+      const { id, iframe } = entry as { id: string; iframe: unknown };
+      // Only the iframe variant may arrive over the wire — a Component can't
+      // exist here, and a hostile realm's junk must not either.
+      if (typeof iframe !== "string" || iframe.length === 0) {
+        throw new Error("external overlays must carry an `iframe` document path");
+      }
+      retain(regId as number, ctx.ui.registerOverlay({ id, iframe }));
+    },
+    "ui.setOverlayVisible": ([id, visible]) =>
+      ctx.ui.setOverlayVisible(id as string, visible === true),
 
     // ---- file-open handlers: identity as data; open() as a host→realm proxy ----
     "openers.register": ([regId, entry]) => {
