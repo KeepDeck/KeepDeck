@@ -20,8 +20,9 @@ export interface PluginUi {
    * differently — a Component overlay is visible from mount (it self-manages
    * by rendering nothing), an iframe overlay starts hidden (a full-window
    * frame can't render "nothing"; unhidden it would also swallow clicks) —
-   * and this is the one switch that moves either. A no-op for an id that
-   * isn't registered. */
+   * and this is the one switch that moves either. An id the manifest doesn't
+   * DECLARE is refused like any contribution; a declared id that isn't
+   * currently registered is an inert no-op. */
   setOverlayVisible(id: string, visible: boolean): void;
   /** Contribute an icon action to the top bar's right cluster. */
   registerTopBarAction(action: TopBarActionContribution): Disposable;

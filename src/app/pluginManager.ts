@@ -41,7 +41,7 @@ import { spawnSession } from "../ipc/session";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { getSettings, subscribeSettings, updateSettings } from "./settingsManager";
 import { makeGlobalKvStub, makeWorkspaceKv, type DeckAccess } from "./pluginKv";
-import { setOverlayVisibility } from "./overlayVisibility";
+import { clearOverlayVisibility, setOverlayVisibility } from "./overlayVisibility";
 import { clearPluginCrashes } from "./pluginHealth";
 import { mergeSectionValues } from "./pluginSettingsValues";
 
@@ -397,8 +397,10 @@ export const pluginHost = new PluginHost(
     },
     onEnabledChanged: (pluginId, enabled) => {
       // Either flip is a fresh start for the plugin's surfaces — stale crash
-      // reports must not paint a just-re-enabled plugin as broken.
+      // reports must not paint a just-re-enabled plugin as broken, and stale
+      // visibility must not bring its overlays back over the window.
       clearPluginCrashes(pluginId);
+      clearOverlayVisibility(pluginId);
       const plugins = getSettings()?.plugins ?? {
         enabled: {},
         values: {},
@@ -514,6 +516,7 @@ export async function rescanPlugins(): Promise<void> {
  * a crash during the restart itself reports fresh. */
 export async function restartPlugin(pluginId: string): Promise<void> {
   clearPluginCrashes(pluginId);
+  clearOverlayVisibility(pluginId);
   await pluginHost.restart(pluginId);
 }
 
@@ -553,11 +556,15 @@ async function syncExternalPlugins(): Promise<boolean> {
 
   let changed = false;
 
-  // Gone: installed external ids no longer on disk.
+  // Gone: installed external ids no longer on disk. Their runtime residue
+  // (crash reports, overlay visibility) goes with them — a later reinstall
+  // under the same id must start clean.
   for (const id of [...externalPlugins.keys()]) {
     if (!scanned.has(id)) {
       externalPlugins.delete(id);
       await pluginHost.uninstall(id);
+      clearPluginCrashes(id);
+      clearOverlayVisibility(id);
       changed = true;
     }
   }

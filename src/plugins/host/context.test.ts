@@ -141,6 +141,17 @@ describe("buildPluginContext", () => {
     expect(ui.setOverlayVisible).toHaveBeenCalledWith("p", "viewer", false);
   });
 
+  it("refuses setOverlayVisible for an UNDECLARED overlay id — no key seeding", () => {
+    const registries = createContributionRegistries();
+    const { deps, ui } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    expect(() => ctx.ui.setOverlayVisible("ghost", true)).toThrow(
+      'contribution not declared in the manifest: overlays "ghost"',
+    );
+    expect(ui.setOverlayVisible).not.toHaveBeenCalled();
+  });
+
   it("refuses any contribution the manifest does not declare", () => {
     const registries = createContributionRegistries();
     const { deps } = fakeDeps();
