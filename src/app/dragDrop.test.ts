@@ -8,16 +8,33 @@ import {
 import { registerPaneInput } from "./paneInput";
 
 describe("collectPaneRects (real DOM)", () => {
-  it("extracts pane ids from the active grid, skipping hidden grids", () => {
+  // Fixtures mirror DeckStage's real structure: a .deck__workspace layer per
+  // workspace, hidden ones carrying --hidden, panes inside the grid wrap.
+  it("extracts pane ids from the active workspace, skipping hidden ones (grid)", () => {
     document.body.innerHTML = `
-      <main class="deck__grid">
-        <section data-pane-id="pane-7"></section>
-        <section data-pane-id="pane-8"></section>
+      <main class="deck__workspace">
+        <div class="deck__gridwrap"><div class="deck__grid">
+          <section data-pane-id="pane-7"></section>
+          <section data-pane-id="pane-8"></section>
+        </div></div>
       </main>
-      <main class="deck__grid deck__grid--hidden">
-        <section data-pane-id="pane-99"></section>
+      <main class="deck__workspace deck__workspace--hidden">
+        <div class="deck__gridwrap"><div class="deck__grid">
+          <section data-pane-id="pane-99"></section>
+        </div></div>
       </main>`;
     expect(collectPaneRects().map((r) => r.id)).toEqual(["pane-7", "pane-8"]);
+  });
+
+  it("finds panes in the list layout too — drops must not go dead there", () => {
+    document.body.innerHTML = `
+      <main class="deck__workspace">
+        <div class="deck__gridwrap"><div class="deck__list-inner">
+          <section data-pane-id="pane-1"></section>
+          <section data-pane-id="pane-2"></section>
+        </div></div>
+      </main>`;
+    expect(collectPaneRects().map((r) => r.id)).toEqual(["pane-1", "pane-2"]);
   });
 });
 

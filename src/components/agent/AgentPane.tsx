@@ -3,9 +3,11 @@ import type { PaneProvisioning } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 import {
+  ChevronDownIcon,
   CloseIcon,
   GitBranchIcon,
   MaximizeIcon,
+  MinimizeIcon,
   RestoreIcon,
 } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
@@ -29,8 +31,12 @@ interface AgentPaneProps {
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
   focused: boolean;
-  /** Whether this pane is hidden because another pane is maximized. */
-  collapsed: boolean;
+  /** Whether this pane is hidden (display:none, still mounted) — because
+   * another pane is maximized, or because it's minimized to the tray/strip. */
+  hidden: boolean;
+  /** List layout: render header-only (the terminal body is hidden but stays
+   * mounted), with a chevron; clicking the header expands it (via onSelect). */
+  folded?: boolean;
   /** Whether this is the active pane (gets the highlight border). */
   selected: boolean;
   /** The only pane in its workspace: no maximize control ([U1]) and no highlight
@@ -61,6 +67,10 @@ interface AgentPaneProps {
   colSpan: number;
   onSelect(): void;
   onToggleFocus(): void;
+  /** Minimize this agent out of the grid; the button shows only when set (the
+   * tray/strip minimize styles). The session keeps running — it's re-mounted
+   * on restore. */
+  onMinimize?(): void;
   /** Open the agent's working dir in VS Code; shown only when a `cwd` is known. */
   onOpenInEditor(): void;
   onClose(): void;
@@ -87,7 +97,8 @@ export function AgentPane({
   gitBadge,
   visible,
   focused,
-  collapsed,
+  hidden,
+  folded,
   selected,
   solo,
   dormant,
@@ -98,6 +109,7 @@ export function AgentPane({
   colSpan,
   onSelect,
   onToggleFocus,
+  onMinimize,
   onOpenInEditor,
   onClose,
   onRename,
@@ -118,12 +130,34 @@ export function AgentPane({
   return (
     <section
       data-pane-id={paneId}
-      className={`pane${collapsed ? " pane--collapsed" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
+      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
-      onMouseDown={onSelect}
-      onFocus={onSelect}
+      // A folded row expands only from an EXPLICIT header click (below), never
+      // from raw mousedown/focus: descendant focus bubbling would expand rows
+      // as Tab passes through their buttons, and a mousedown-select reflows
+      // the accordion under the pointer before the click completes.
+      onMouseDown={folded ? undefined : onSelect}
+      onFocus={folded ? undefined : onSelect}
     >
-      <header className="pane__bar">
+      {/* Folded: the whole header is the expand control; the action buttons
+          stop propagation so they act WITHOUT expanding. */}
+      <header className="pane__bar" onClick={folded ? onSelect : undefined}>
+        {folded && (
+          // The accessible expand handle (the header click is the pointer
+          // convenience around it).
+          <button
+            type="button"
+            className="pane__fold-chevron"
+            aria-expanded={false}
+            aria-label={`Expand ${title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+            }}
+          >
+            <ChevronDownIcon />
+          </button>
+        )}
         <div className="pane__identity">
           {editing ? (
             <input
@@ -160,7 +194,11 @@ export function AgentPane({
             <button
               type="button"
               className="pane__open"
-              onClick={onOpenInEditor}
+              onClick={(e) => {
+                // Own click: on a folded row this must not expand the header.
+                e.stopPropagation();
+                onOpenInEditor();
+              }}
               title="Open this agent's working directory in VS Code"
             >
               Open in VSCode
@@ -172,7 +210,18 @@ export function AgentPane({
               <span className="pane__branch-label">{gitBadge.label}</span>
             </span>
           )}
-          {!solo && (
+          {onMinimize && !focused && !folded && (
+            <button
+              type="button"
+              className="pane__action"
+              onClick={onMinimize}
+              title="Minimize agent"
+              aria-label={`Minimize ${title}`}
+            >
+              <MinimizeIcon />
+            </button>
+          )}
+          {!solo && !folded && (
             <button
               type="button"
               className="pane__action"
@@ -186,7 +235,11 @@ export function AgentPane({
           <button
             type="button"
             className="pane__close"
-            onClick={onClose}
+            onClick={(e) => {
+              // Own click: closing a folded row must not also expand it.
+              e.stopPropagation();
+              onClose();
+            }}
             title="Close agent"
             aria-label={`Close ${title}`}
           >

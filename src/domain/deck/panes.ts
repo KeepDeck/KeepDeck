@@ -93,6 +93,27 @@ export function removePane(panes: Pane[], id: string): Pane[] {
 }
 
 /**
+ * Split panes into the ones still on the grid (`live`) and the ones minimized
+ * out of it (`minimized`) — the tray/strip minimize styles. A minimized id
+ * that no longer matches a pane is simply ignored, so the minimized set
+ * self-heals over any pane removal without every removal path having to prune
+ * it. Order within each group follows the pane order; when nothing is
+ * minimized the SAME `panes` array is returned as `live` (a stable ref for
+ * render memoization).
+ */
+export function partitionPanes(
+  panes: Pane[],
+  minimized: readonly string[] | undefined,
+): { live: Pane[]; minimized: Pane[] } {
+  if (!minimized || minimized.length === 0) return { live: panes, minimized: [] };
+  const set = new Set(minimized);
+  const live: Pane[] = [];
+  const out: Pane[] = [];
+  for (const pane of panes) (set.has(pane.id) ? out : live).push(pane);
+  return { live, minimized: out };
+}
+
+/**
  * The pane that should render maximized, or `null` when none does. A workspace
  * with a single pane is never maximized ([U1]: maximize is a no-op on a solo
  * pane — the lone tile already fills the grid), and a `focusedId` that no longer

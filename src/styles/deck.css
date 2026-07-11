@@ -117,6 +117,32 @@
   min-width: 0;
 }
 
+/* One workspace's layer, stacked over the stage. Only the active one is
+   visible; inactive ones keep their size (so xterm needs no refit) and stay
+   mounted (so live panes keep running). A column: the grid on top, a
+   minimized-agents zone (tray/strip) below it when present. */
+.deck__workspace {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.deck__workspace--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Holds the absolutely-filled grid so a minimized-agents zone can sit beneath
+   it as a normal-flow sibling. */
+.deck__gridwrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
 .deck__grid {
   position: absolute;
   inset: 0;
@@ -125,7 +151,25 @@
   background-color: #1c2230;
 }
 
-.deck__grid--hidden {
-  visibility: hidden;
-  pointer-events: none;
+/* Overlaid on the grid when every agent in a workspace is minimized (the
+   hidden tiles still occupy the grid mounted, so this covers them). */
+.deck__grid-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background-color: #0b0e14;
+}
+.deck__grid-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #8b93a3;
+}
+.deck__grid-empty-sub {
+  font-size: 12px;
+  color: #6b7280;
 }

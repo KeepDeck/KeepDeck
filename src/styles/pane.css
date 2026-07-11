@@ -12,9 +12,46 @@
   background-color: #0b0e14;
 }
 
-/* Hidden while another pane is maximized; stays mounted so its session lives. */
-.pane--collapsed {
+/* Hidden (maximized-away or minimized) but still mounted, so its session — and
+   its terminal's scroll state — survive with no re-attach. */
+.pane--hidden {
   display: none;
+}
+
+/* Folded to its header (a non-expanded row in the list layout): the terminal
+   body is hidden but stays mounted, so expanding it needs no re-attach. Its
+   flex sizing is set by the list container. */
+.pane--folded .pane__body {
+  display: none;
+}
+
+/* The folded header is the expand control — read as clickable. */
+.pane--folded .pane__bar {
+  cursor: pointer;
+}
+
+.pane--folded:hover .pane__bar {
+  background-color: #1a212e;
+}
+
+/* The caret on a folded row — the accessible expand handle (a real button;
+   the header around it is the pointer convenience). */
+.pane__fold-chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #6b7280;
+  margin-right: -2px;
+  transform: rotate(-90deg);
+  cursor: pointer;
+}
+
+.pane__fold-chevron:hover {
+  color: #c5c8c6;
 }
 
 /* The focused pane — colour the reserved border. Content stays fully inside it. */

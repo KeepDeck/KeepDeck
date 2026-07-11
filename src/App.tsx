@@ -14,6 +14,7 @@ import { usePersistence } from "./app/usePersistence";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useSettings } from "./app/useSettings";
+import { DEFAULT_SETTINGS } from "./domain/settings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
 import {
@@ -77,6 +78,13 @@ function App() {
   const { agents, loading: agentsLoading } = useAgents();
   // Global preferences ([F6]) — loaded before the first paint, saved through.
   const settings = useSettings();
+  // The deck's display mode and how minimized agents show ([F6]). `minimizeOn`
+  // = the stored minimized sets are IN FORCE: only the grid layout renders
+  // them, and only when the style isn't "none" — the hotkeys must agree with
+  // the screen on what's visible.
+  const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
+  const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
+  const minimizeOn = deckLayout === "grid" && minimizeStyle !== "none";
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);
@@ -244,6 +252,7 @@ function App() {
         deck.activeId,
         deck.viewByWs,
         agents,
+        minimizeOn,
       );
       if (!target) return;
       if (target.kind === "workspace")
@@ -253,10 +262,14 @@ function App() {
     },
     toggleMaximize: () => {
       if (modalOpen) return;
+      // The list layout has no maximize — writing a focus it doesn't render
+      // would spring back as a surprise maximize on the return to the grid.
+      if (deckLayout === "list") return;
       const target = maximizeHotkeyTarget(
         deck.workspaces,
         deck.activeId,
         deck.viewByWs,
+        minimizeOn,
       );
       if (target) deck.toggleFocus(target.wsId, target.paneId);
     },
@@ -392,6 +405,8 @@ function App() {
             activeId={deck.activeId}
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
+            deckLayout={deckLayout}
+            minimizeStyle={minimizeStyle}
             agents={agents}
             agentsReady={!agentsLoading}
             gitHeads={gitHeads}
@@ -400,6 +415,7 @@ function App() {
             }
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
+            onToggleMinimize={deck.toggleMinimize}
             onOpenInEditor={(path) =>
               void openInEditor(path).catch((e) =>
                 log.warn("web:links", `open in editor failed for ${path}: ${describeError(e)}`),

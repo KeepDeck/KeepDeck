@@ -31,6 +31,8 @@ describe("hydrateSettings", () => {
         version: 1,
         defaultAgent: "codex",
         scrollback: 50_000,
+        deckLayout: "list",
+        minimizeStyle: "strip",
         plugins: {
           enabled: { git: true },
           values: { git: { remote: "origin" } },
@@ -40,8 +42,55 @@ describe("hydrateSettings", () => {
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
+      deckLayout: "list",
+      minimizeStyle: "strip",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
     });
+  });
+
+  it("defaults deckLayout to grid and minimizeStyle to tray when absent", () => {
+    const s = hydrateSettings("{}")?.settings;
+    expect(s?.deckLayout).toBe("grid");
+    expect(s?.minimizeStyle).toBe("tray");
+  });
+
+  it("accepts each known deckLayout and rejects an unknown one", () => {
+    for (const layout of ["grid", "list"]) {
+      expect(hydrateSettings(JSON.stringify({ deckLayout: layout }))?.settings.deckLayout).toBe(
+        layout,
+      );
+    }
+    expect(hydrateSettings(JSON.stringify({ deckLayout: "spiral" }))?.settings.deckLayout).toBe(
+      "grid",
+    );
+  });
+
+  it("accepts each known minimizeStyle and rejects an unknown one", () => {
+    for (const style of ["tray", "strip", "none"]) {
+      expect(hydrateSettings(JSON.stringify({ minimizeStyle: style }))?.settings.minimizeStyle).toBe(
+        style,
+      );
+    }
+    // A garbage value degrades to the default, on its own, like any other key.
+    // (`list` moved to deckLayout — it's no longer a minimize style.)
+    for (const bad of ["list", "mosaic", 3]) {
+      expect(
+        hydrateSettings(JSON.stringify({ minimizeStyle: bad }))?.settings.minimizeStyle,
+      ).toBe("tray");
+    }
+  });
+
+  it("serializes deckLayout / minimizeStyle only when they differ from default (sparse)", () => {
+    const base = defaultSettingsDocument();
+    expect(serializeSettings(base)).not.toContain("deckLayout");
+    expect(serializeSettings(base)).not.toContain("minimizeStyle");
+    const changed = {
+      ...base,
+      settings: { ...base.settings, deckLayout: "list" as const, minimizeStyle: "strip" as const },
+    };
+    const out = JSON.parse(serializeSettings(changed));
+    expect(out.deckLayout).toBe("list");
+    expect(out.minimizeStyle).toBe("strip");
   });
 
   it("v5 graduation: an explicit experimentRunPresets=false disables the Run plugin", () => {

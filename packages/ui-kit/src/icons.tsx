@@ -48,6 +48,28 @@ export function CloseIcon() {
   );
 }
 
+/** Minimize — the conventional window-control underscore (a single bottom
+ * line). */
+export function MinimizeIcon() {
+  return (
+    <svg {...iconProps}>
+      <line x1="6" y1="18" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+/** Restore up — bring a minimized agent back onto the grid (arrow out of a
+ * bottom line); the visual inverse of [`MinimizeIcon`]. */
+export function RestoreUpIcon() {
+  return (
+    <svg {...iconProps}>
+      <line x1="5" y1="4" x2="19" y2="4" />
+      <polyline points="8 12 12 8 16 12" />
+      <line x1="12" y1="8" x2="12" y2="20" />
+    </svg>
+  );
+}
+
 /** Git branch — identifies the currently observed branch in pane chrome
  * (Lucide `git-branch`, ISC). */
 export function GitBranchIcon() {

@@ -3,14 +3,18 @@ import { formatDroppedPaths } from "../domain/terminal";
 import { writeToPane } from "./paneInput";
 
 /**
- * Snapshot the live viewport rects of the panes in the ACTIVE grid. Scoped to
- * the non-hidden grid (`.deck__grid:not(.deck__grid--hidden)`) so a drop can't
- * resolve to a pane in an inactive workspace stacked at the same coordinates.
+ * Snapshot the live viewport rects of the panes in the ACTIVE workspace.
+ * Scoped to the non-hidden workspace layer (`.deck__workspace`) so a drop
+ * can't resolve to a pane in an inactive workspace stacked at the same
+ * coordinates (inactive layers are visibility:hidden — their rects are real).
+ * Covers both layouts (the layer holds a grid or a list). Panes that are
+ * display:none (minimized, or hidden behind a maximize) yield zero-size rects
+ * no drop point can hit.
  */
 export function collectPaneRects(doc: Document = document): PaneRect[] {
   return Array.from(
     doc.querySelectorAll<HTMLElement>(
-      ".deck__grid:not(.deck__grid--hidden) [data-pane-id]",
+      ".deck__workspace:not(.deck__workspace--hidden) [data-pane-id]",
     ),
   ).map((el) => {
     const r = el.getBoundingClientRect();

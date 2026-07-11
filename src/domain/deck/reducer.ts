@@ -35,6 +35,10 @@ export interface WorkspaceView {
   dock?: boolean;
   /** The selected dock tab id (`pluginId:entryId`). Session-only. */
   dockTab?: string;
+  /** Pane ids minimized out of the grid (the tray/strip minimize styles).
+   * Session-only, like dock/dockTab — persist.ts never writes it, so every
+   * launch starts with nothing minimized. Kept only while non-empty. */
+  minimized?: string[];
 }
 
 /**
@@ -68,6 +72,8 @@ export type DeckAction =
   | { type: "closeAgent"; wsId: string; paneId: string }
   | { type: "closeWorkspace"; id: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
+  /** Minimize a pane out of the grid, or restore it (the tray/strip styles). */
+  | { type: "toggleMinimize"; wsId: string; paneId: string }
   | { type: "selectPane"; wsId: string; paneId: string }
   /** Flip a workspace's dock (the top bar's dock button). */
   | { type: "toggleDock"; wsId: string }
@@ -134,7 +140,8 @@ function isEmptyView(view: WorkspaceView): boolean {
     view.focus === undefined &&
     view.select === undefined &&
     view.dock === undefined &&
-    view.dockTab === undefined
+    view.dockTab === undefined &&
+    view.minimized === undefined
   );
 }
 
@@ -228,7 +235,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ?.panes.some((p) => p.id === action.pane.id);
       if (!appended) return { ...state, workspaces };
       // Select the appended pane, and exit any maximize so it isn't left
-      // collapsed and invisible behind the old maximized pane (resolveFocus
+      // hidden and invisible behind the old maximized pane (resolveFocus
       // still points at the old pane) — the mirror of closeAgent's guard.
       let viewByWs = setViewField(state.viewByWs, action.id, "select", action.pane.id);
       viewByWs = setViewField(viewByWs, action.id, "focus", undefined);
@@ -257,14 +264,31 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // Drop the maximize unless it still RESOLVES over the survivors — not
       // only when the maximized pane itself was closed. A key left on a
       // now-solo workspace is masked (solo never maximizes) but springs back
-      // on the NEXT added pane, rendering it collapsed and invisible.
+      // on the NEXT added pane, rendering it hidden and invisible.
       if (view?.focus !== undefined && resolveFocus(remaining, view.focus) === null) {
         viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
       }
-      // Move the highlight off the closed pane — to the first survivor, or
-      // clear it when none remain.
+      // Move the highlight off the closed pane — to the first VISIBLE
+      // survivor when one exists (a minimized survivor can't usefully carry
+      // the highlight), else the first survivor of any kind (correct for the
+      // "none" style, where the minimized set is ignored and every pane
+      // shows), or clear it when none remain.
       if (view?.select === paneId) {
-        viewByWs = setViewField(viewByWs, wsId, "select", remaining[0]?.id);
+        const minimized = view?.minimized ?? [];
+        const firstLive = remaining.find((p) => !minimized.includes(p.id));
+        viewByWs = setViewField(viewByWs, wsId, "select", (firstLive ?? remaining[0])?.id);
+      }
+      // Drop the closed pane from the minimized set so it can't linger as a
+      // stale chip/bar (partitionPanes ignores stale ids at render, but the
+      // stored set is kept tidy here, mirroring the focus/select cleanup).
+      if (view?.minimized?.includes(paneId)) {
+        const next = view.minimized.filter((id) => id !== paneId);
+        viewByWs = setViewField(
+          viewByWs,
+          wsId,
+          "minimized",
+          next.length > 0 ? next : undefined,
+        );
       }
       return { ...state, workspaces, viewByWs };
     }
@@ -285,6 +309,45 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         setViewField(state.viewByWs, wsId, "focus", current === paneId ? undefined : paneId),
       );
+    }
+    case "toggleMinimize": {
+      const { wsId, paneId } = action;
+      const view = state.viewByWs[wsId];
+      const current = view?.minimized ?? [];
+      const isMinimized = current.includes(paneId);
+      const next = isMinimized
+        ? current.filter((id) => id !== paneId)
+        : [...current, paneId];
+      let viewByWs = setViewField(
+        state.viewByWs,
+        wsId,
+        "minimized",
+        next.length > 0 ? next : undefined,
+      );
+      if (isMinimized) {
+        // Restoring: highlight it where it reappears on the grid, and exit any
+        // maximize — a maximized OTHER pane would keep the restored one hidden
+        // the moment its chip disappears (the addAgentPane guard's reason).
+        viewByWs = setViewField(viewByWs, wsId, "select", paneId);
+        viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
+      } else {
+        // Minimizing the maximized pane: nothing left to spotlight over, and a
+        // lingering focus would spring back onto a hidden pane when restored.
+        if (view?.focus === paneId) {
+          viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
+        }
+        // The minimize click selects its own pane first (the header's
+        // mousedown), so the selection would stay stranded on the now-hidden
+        // pane — ⌘W and the maximize hotkey would target an invisible agent.
+        // Move it to the first still-visible pane, like closeAgent does.
+        const selected = view?.select;
+        if (selected !== undefined && next.includes(selected)) {
+          const ws = state.workspaces.find((w) => w.id === wsId);
+          const firstLive = ws?.panes.find((p) => !next.includes(p.id))?.id;
+          viewByWs = setViewField(viewByWs, wsId, "select", firstLive);
+        }
+      }
+      return withView(state, viewByWs);
     }
     case "selectPane":
       return withView(

@@ -215,6 +215,40 @@ describe("SettingsDialog", () => {
     expect(button("Claude Code").className).not.toContain("form__type--active");
   });
 
+  it("picking a deck layout writes it through to the store", async () => {
+    await mount({ deckLayout: "grid" });
+    act(() => button("List").click());
+    expect(getSettings()?.deckLayout).toBe("list");
+    expect(button("List").className).toContain("form__type--active");
+  });
+
+  it("picking a minimize style writes it through to the store", async () => {
+    await mount({ minimizeStyle: "tray" });
+    act(() => button("Strip").click());
+    expect(getSettings()?.minimizeStyle).toBe("strip");
+    // The active mark follows the store, not local state.
+    expect(button("Strip").className).toContain("form__type--active");
+  });
+
+  it("marks the active minimize style", async () => {
+    await mount({ minimizeStyle: "strip" });
+    expect(button("Strip").className).toContain("form__type--active");
+    expect(button("Tray").className).not.toContain("form__type--active");
+  });
+
+  it("turns minimizing off with None", async () => {
+    await mount({ minimizeStyle: "tray" });
+    act(() => button("None").click());
+    expect(getSettings()?.minimizeStyle).toBe("none");
+    expect(button("None").className).toContain("form__type--active");
+  });
+
+  it("disables the minimize-style picker outside the grid layout", async () => {
+    await mount({ deckLayout: "list" });
+    expect((button("Tray") as HTMLButtonElement).disabled).toBe(true);
+    expect((button("Strip") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("scrollback commits clamped on blur — not per keystroke", async () => {
     await mount();
     toTerminal();

@@ -46,7 +46,7 @@ describe("deckReducer closeAgent", () => {
 
   it("keeps selection but clears a maximize that no longer resolves (solo survivor)", () => {
     // Focus left on a now-solo workspace is masked (solo never maximizes)
-    // but would spring back on the NEXT added pane, rendering it collapsed
+    // but would spring back on the NEXT added pane, rendering it minimized
     // and invisible — the reducer must not produce that state.
     const next = deckReducer(
       state({
@@ -259,7 +259,7 @@ describe("deckReducer selection", () => {
         pane: { id: "a-2", cwd: "/wt", branch: "kd/a/2" },
       },
     );
-    // Maximize dropped so the appended pane isn't left collapsed; it's selected.
+    // Maximize dropped so the appended pane isn't left hidden; it's selected.
     expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
   });
 
@@ -559,5 +559,145 @@ describe("deckReducer setWorkspacePluginSlot", () => {
         value: undefined,
       }),
     ).toBe(start);
+  });
+});
+
+describe("deckReducer toggleMinimize", () => {
+  it("minimizes a pane into the minimized set", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { select: "a-1" } },
+      }),
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
+    );
+    expect(next.viewByWs).toEqual({ a: { select: "a-1", minimized: ["a-2"] } });
+  });
+
+  it("restores a minimized pane and highlights it where it reappears", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { select: "a-1", minimized: ["a-2", "a-3"] } },
+      }),
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
+    );
+    // a-2 leaves the set and becomes the selection; a-3 stays minimized.
+    expect(next.viewByWs).toEqual({ a: { select: "a-2", minimized: ["a-3"] } });
+  });
+
+  it("prunes the whole view when the last minimized pane is restored", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2"])],
+        activeId: "a",
+        viewByWs: { a: { minimized: ["a-2"] } },
+      }),
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
+    );
+    // minimized empties → undefined; select is set to the restored pane, so the
+    // view is { select: "a-2" }, not pruned to {}.
+    expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
+  });
+
+  it("drops a maximize when the maximized pane is itself minimized", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2"])],
+        activeId: "a",
+        viewByWs: { a: { focus: "a-1", select: "a-1" } },
+      }),
+      { type: "toggleMinimize", wsId: "a", paneId: "a-1" },
+    );
+    // You can't spotlight a hidden pane: focus is cleared, a-1 is minimized,
+    // and the stranded selection moves to the surviving visible pane.
+    expect(next.viewByWs).toEqual({ a: { select: "a-2", minimized: ["a-1"] } });
+  });
+
+  it("keeps a maximize when a DIFFERENT pane is minimized", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { focus: "a-1", select: "a-1" } },
+      }),
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
+    );
+    expect(next.viewByWs).toEqual({
+      a: { focus: "a-1", select: "a-1", minimized: ["a-2"] },
+    });
+  });
+
+  it("moves a selection stranded on the minimized pane to the first visible one", () => {
+    // The minimize click's own mousedown selects the pane being minimized, so
+    // this is the NORMAL post-minimize state, not an edge case — left as-is,
+    // ⌘W would target an invisible agent.
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { select: "a-2" } },
+      }),
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
+    );
+    expect(next.viewByWs).toEqual({ a: { select: "a-1", minimized: ["a-2"] } });
+  });
+
+  it("restore exits a maximize on ANOTHER pane so the restored one is visible", () => {
+    // Minimize C, maximize A, restore C: without clearing the focus, C's chip
+    // disappears while C itself stays hidden behind A's maximize — the agent
+    // just vanishes.
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { focus: "a-1", select: "a-1", minimized: ["a-3"] } },
+      }),
+      { type: "toggleMinimize", wsId: "a", paneId: "a-3" },
+    );
+    expect(next.viewByWs).toEqual({ a: { select: "a-3" } });
+  });
+
+  it("closeAgent drops the closed pane from the minimized set", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { select: "a-1", minimized: ["a-2", "a-3"] } },
+      }),
+      { type: "closeAgent", wsId: "a", paneId: "a-2" },
+    );
+    expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-3"]);
+    expect(next.viewByWs).toEqual({ a: { select: "a-1", minimized: ["a-3"] } });
+  });
+
+  it("closeAgent moves the highlight to a VISIBLE survivor over a minimized one", () => {
+    // Close the selected a-1 while a-2 is minimized: the highlight should land
+    // on a-3 (visible), not a-2 (a hidden pane can't usefully carry it).
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { select: "a-1", minimized: ["a-2"] } },
+      }),
+      { type: "closeAgent", wsId: "a", paneId: "a-1" },
+    );
+    expect(next.viewByWs).toEqual({ a: { select: "a-3", minimized: ["a-2"] } });
+  });
+
+  it("closeAgent falls back to a minimized survivor when no visible one remains", () => {
+    // Correct for the "none" style (minimized set ignored, every pane shows);
+    // under tray/strip the hotkeys skip minimized targets anyway.
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2"])],
+        activeId: "a",
+        viewByWs: { a: { select: "a-1", minimized: ["a-2"] } },
+      }),
+      { type: "closeAgent", wsId: "a", paneId: "a-1" },
+    );
+    expect(next.viewByWs).toEqual({ a: { select: "a-2", minimized: ["a-2"] } });
   });
 });
