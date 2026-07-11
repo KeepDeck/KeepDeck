@@ -44,6 +44,12 @@ export interface PluginHostDeps {
    * picks the backing: built-ins resolve inside the app bundle, externals
    * inside their install folder. */
   resources(manifest: PluginManifest, source: PluginSource): PluginResources;
+  /** Host UI actions a context forwards verbatim (identity threaded so the
+   * host can namespace — a dock tab's full id is `pluginId:entryId`). */
+  ui: {
+    /** Open the dock on the active workspace with this plugin's tab selected. */
+    revealDockTab(pluginId: string, entryId: string): void;
+  };
   /** This plugin's logger — lines land in the shared log namespaced by id. */
   log(pluginId: string): PluginLogger;
   /** Read-only whitelisted host facts, shared by every plugin. */

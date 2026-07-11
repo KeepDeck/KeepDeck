@@ -3,6 +3,7 @@ import type { PluginEvents } from "./events.ts";
 import type { PluginHostFacts } from "./hostFacts.ts";
 import type { PluginLogger } from "./log.ts";
 import type { PluginManifest } from "../manifest/manifest.ts";
+import type { PluginFileOpeners } from "./openers.ts";
 import type { PluginServices } from "./services.ts";
 import type { PluginSettings } from "./settings.ts";
 import type { PluginResources } from "./resources.ts";
@@ -27,6 +28,7 @@ import type { PluginUi } from "./ui.ts";
 export interface PluginContext {
   readonly manifest: PluginManifest;
   readonly ui: PluginUi;
+  readonly openers: PluginFileOpeners;
   readonly settings: PluginSettings;
   readonly agents: PluginAgents;
   readonly storage: PluginStorage;

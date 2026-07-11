@@ -70,6 +70,21 @@ const liveDeckAccess: DeckAccess = {
     deckAccess.setPluginSlot(wsId, pluginId, value),
 };
 
+/** The deck's UI actions, late-bound like `DeckAccess` but a SEPARATE port:
+ * the KV factories consume DeckAccess as a storage port and must not be
+ * handed UI powers they never use. */
+export interface DeckUiAccess {
+  /** Open the dock on the ACTIVE workspace with `tabId` selected — the host
+   * side of `ctx.ui.revealDockTab` (tabId is the full `pluginId:entryId`). */
+  revealDockTab(tabId: string): void;
+}
+
+let deckUi: DeckUiAccess = { revealDockTab: () => {} };
+
+export function wireDeckUi(ui: DeckUiAccess): void {
+  deckUi = ui;
+}
+
 // ------------------------------------------------------------- deck events
 
 type Listener<E> = (event: E) => void;
@@ -285,6 +300,19 @@ export const pluginHost = new PluginHost(
         }).catch(() => null);
       },
     }),
+    ui: {
+      // Dock tab ids are namespaced `pluginId:entryId` — the same shape App
+      // builds when rendering the tab strip. The contract says "a no-op when
+      // the tab isn't registered": honored HERE, against the registry —
+      // otherwise the dock would open onto DockPanel's first-tab fallback
+      // (or onto nothing at all, leaving a phantom open flag).
+      revealDockTab: (pluginId, entryId) => {
+        const registered = pluginRegistries.dockTabs
+          .list()
+          .some((c) => c.pluginId === pluginId && c.entry.id === entryId);
+        if (registered) deckUi.revealDockTab(`${pluginId}:${entryId}`);
+      },
+    },
     log: loggerFor,
     hostFacts: {
       // The whitelisted read-only host facts (see PluginHostFacts): grown a

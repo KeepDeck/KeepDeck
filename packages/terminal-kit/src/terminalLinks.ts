@@ -24,8 +24,10 @@ export interface TerminalLinkTarget {
   showHint(hint: PaneHint): void;
   /** Open a URL in the user's default browser ([F14]). */
   openUrl(url: string): Promise<void>;
-  /** Open a file path in its default app ([F10]). */
-  openPath(path: string): Promise<void>;
+  /** Open a file path. A resolution may carry a `notice` — something the
+   * opener wants said AT the click (e.g. a routing fallback) — which the
+   * linker shows as a hint; plain `void` stays silent. */
+  openPath(path: string): Promise<void | { notice?: string }>;
 }
 
 /**
@@ -109,9 +111,13 @@ function openOrHint(
     d.kind === "url" ? d.text : resolvePathTarget(d.text, target.cwd ?? "");
   const open = d.kind === "url" ? target.openUrl(dest) : target.openPath(dest);
   // Surface the failure — a deleted file, a bad URL — next to the link that
-  // was clicked instead of swallowing it ([F16]).
-  open.catch((err: unknown) =>
-    target.showHint({ text: openErrorHint(err, dest), ...at }),
+  // was clicked instead of swallowing it ([F16]); a successful open may still
+  // carry a notice worth saying at the click (an opener routing fallback).
+  open.then(
+    (result) => {
+      if (result && result.notice) target.showHint({ text: result.notice, ...at });
+    },
+    (err: unknown) => target.showHint({ text: openErrorHint(err, dest), ...at }),
   );
 }
 

@@ -1,7 +1,9 @@
 import type {
   AgentContribution,
   DockTabContribution,
+  FileOpenHandler,
   HostSettingsSnapshot,
+  OverlayContribution,
   PaneActionContribution,
   PluginContext,
   PluginManifest,
@@ -28,8 +30,12 @@ export interface FakeHost {
   dockTabs: DockTabContribution[];
   topBarActions: TopBarActionContribution[];
   paneActions: PaneActionContribution[];
+  fileOpeners: FileOpenHandler[];
+  overlays: OverlayContribution[];
   settingsSections: SettingsSectionContribution[];
   agents: AgentContribution[];
+  /** Recorded `ui.revealDockTab` calls, in order. */
+  revealedTabs: string[];
   /** Storage backing, so a test can inspect what a plugin persisted. */
   globalStore: Map<string, unknown>;
   workspaceStore: Map<string, unknown>;
@@ -86,8 +92,11 @@ export function createFakeHost(
   const dockTabs: DockTabContribution[] = [];
   const topBarActions: TopBarActionContribution[] = [];
   const paneActions: PaneActionContribution[] = [];
+  const fileOpeners: FileOpenHandler[] = [];
+  const overlays: OverlayContribution[] = [];
   const settingsSections: SettingsSectionContribution[] = [];
   const agents: AgentContribution[] = [];
+  const revealedTabs: string[] = [];
   const globalStore = new Map<string, unknown>();
   const workspaceStore = new Map<string, unknown>();
   const logs = { info: [] as string[], warn: [] as string[], error: [] as string[] };
@@ -123,6 +132,13 @@ export function createFakeHost(
       registerDockTab: (tab) => record(dockTabs, tab),
       registerTopBarAction: (action) => record(topBarActions, action),
       registerPaneAction: (action) => record(paneActions, action),
+      registerOverlay: (overlay) => record(overlays, overlay),
+      revealDockTab: (id) => {
+        revealedTabs.push(id);
+      },
+    },
+    openers: {
+      register: (handler) => record(fileOpeners, handler),
     },
     settings: {
       registerSection: (section) => record(settingsSections, section),
@@ -233,8 +249,11 @@ export function createFakeHost(
     dockTabs,
     topBarActions,
     paneActions,
+    fileOpeners,
+    overlays,
     settingsSections,
     agents,
+    revealedTabs,
     globalStore,
     workspaceStore,
     fire: {

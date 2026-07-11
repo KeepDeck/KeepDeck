@@ -166,6 +166,15 @@ export function baseName(path: string): string {
   return index < 0 ? trimmed : trimmed.slice(index + 1);
 }
 
+/** The path without its last segment, or null when there is none to take
+ * (a bare name, a root). The file-open handler probes this directory to learn
+ * whether a linked file is inside the plugin's fs scope. */
+export function parentDir(path: string): string | null {
+  const trimmed = path.replace(/[/\\]+$/, "");
+  const index = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return index > 0 ? trimmed.slice(0, index) : null;
+}
+
 // ---------------------------------------------------------------- internals
 
 function dirNode(path: string, name: string, expanded: boolean): TreeNode {

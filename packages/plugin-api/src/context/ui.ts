@@ -10,12 +10,23 @@ export interface PluginUi {
   /** Contribute a tab to the right dock. The dock itself is host chrome —
    * it exists only while at least one tab is registered. */
   registerDockTab(tab: DockTabContribution): Disposable;
+  /** Contribute a RESIDENT overlay: the host keeps it mounted for the whole
+   * time the plugin is active, independent of any dock or panel state —
+   * invisible until it renders something. This is how plugin functionality
+   * that must outlive chrome (the Files peek waiting for an open request)
+   * lives entirely in the plugin while the host provides only the slot. */
+  registerOverlay(overlay: OverlayContribution): Disposable;
   /** Contribute an icon action to the top bar's right cluster. */
   registerTopBarAction(action: TopBarActionContribution): Disposable;
   /** Contribute an icon action to every agent pane's header. FORWARD
    * SURFACE: wired through the contract and RPC but not yet rendered by the
    * host — a plausible pane-header contribution awaiting its first consumer. */
   registerPaneAction(action: PaneActionContribution): Disposable;
+  /** Bring the dock into view on the ACTIVE workspace with this plugin's
+   * dock tab `id` selected — the imperative entry a behavior like a file-open
+   * handler needs to land its result somewhere visible. A no-op when the tab
+   * isn't registered. */
+  revealDockTab(id: string): void;
 }
 
 /** A dock tab, in one of two forms — by TIER, not by author choice:
@@ -43,6 +54,15 @@ export type DockTabContribution =
 export interface DockTabProps {
   workspace: WorkspaceSnapshot;
   selectedPaneId: string | null;
+}
+
+/** A resident overlay. Builtin tier only for now — a React component in the
+ * host tree, no props (it reads its own plugin-internal state); an external
+ * iframe variant arrives with its first real consumer. */
+export interface OverlayContribution {
+  id: string;
+  /** Rendered mounted-but-empty until the plugin has something to show. */
+  Component: ComponentType;
 }
 
 /** `title` on actions is tooltip semantics — it feeds the button's

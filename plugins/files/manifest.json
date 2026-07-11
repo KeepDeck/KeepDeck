@@ -2,7 +2,7 @@
   "id": "keepdeck.files",
   "name": "Files",
   "version": "0.1.0",
-  "minApiVersion": 7,
+  "minApiVersion": 12,
   "category": "deck",
   "description": "Browse the workspace file tree and preview file contents, scoped to the workspace folder and its worktrees.",
   "capabilities": [
@@ -19,6 +19,19 @@
       {
         "id": "files",
         "label": "Files"
+      }
+    ],
+    "fileOpeners": [
+      {
+        "id": "peek",
+        "label": "KeepDeck file peek"
+      }
+    ],
+    "settings": true,
+    "overlays": [
+      {
+        "id": "viewer",
+        "label": "File peek"
       }
     ]
   }

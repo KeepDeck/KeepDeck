@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from "react";
-import { pluginRegistries } from "../../app/pluginManager";
-import { useContributions } from "../../plugins";
+import { pluginHost, pluginRegistries } from "../../app/pluginManager";
+import { useContributions, useInstalledPlugins } from "../../plugins";
 import { CloseIcon } from "../../ui/icons";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
-import { PluginSettingsSection } from "./PluginSettingsSection";
+import { PluginPage, RescanButton, sectionFor } from "./PluginPage";
 import { SETTINGS_SECTIONS } from "./sections";
 
 interface SettingsDialogProps {
@@ -14,27 +14,54 @@ interface SettingsDialogProps {
 /**
  * Global settings ([F6]) — an in-app modal (no system windows): a left nav of
  * sections over a panel area. Sections talk to the settings store themselves;
- * controls apply instantly, Done/Esc only dismiss. Static sections come from
- * the `SETTINGS_SECTIONS` registry; plugin-contributed sections (rendered by
- * the host from their declared schema) follow.
+ * controls apply instantly, Done/Esc only dismiss. App sections come from the
+ * `SETTINGS_SECTIONS` registry; below them, under the nav's "Plugins" group
+ * header (which carries the global Rescan), EVERY installed plugin is its own
+ * section — enable toggle, access, restart and its contributed settings in
+ * one place. There is deliberately no all-plugins page (user decision).
  */
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
   useEscape(onClose);
+  const installed = useInstalledPlugins(pluginHost);
   const contributed = useContributions(pluginRegistries.settingsSections);
-  const sections: { id: string; label: string; body: ReactNode }[] = [
-    ...SETTINGS_SECTIONS.map((s) => ({
+  const appSections: { id: string; label: string; body: ReactNode }[] =
+    SETTINGS_SECTIONS.map((s) => ({
       id: s.id,
       label: s.label,
       body: <s.Component />,
-    })),
-    ...contributed.map((c) => ({
-      id: `plugin:${c.pluginId}`,
-      label: c.entry.label,
-      body: <PluginSettingsSection pluginId={c.pluginId} section={c.entry} />,
-    })),
-  ];
+    }));
+  // One section per installed plugin, cli agents first (they are what the
+  // deck runs) — mirroring the old list's grouping as nav order.
+  const pluginSections = [...installed]
+    .sort(
+      (a, b) => rank(a.manifest.category) - rank(b.manifest.category),
+    )
+    .map((plugin) => ({
+      id: `plugin:${plugin.manifest.id}`,
+      label: plugin.manifest.name,
+      body: (
+        <PluginPage
+          plugin={plugin}
+          section={sectionFor(contributed, plugin.manifest.id)}
+        />
+      ),
+    }));
+  const sections = [...appSections, ...pluginSections];
   const [activeId, setActiveId] = useState(sections[0].id);
+  // An uninstalled plugin's section can vanish while open — fall back.
   const active = sections.find((s) => s.id === activeId) ?? sections[0];
+
+  const navItem = (s: { id: string; label: string }) => (
+    <button
+      key={s.id}
+      type="button"
+      className={`settings__nav-item${s.id === active.id ? " settings__nav-item--active" : ""}`}
+      aria-current={s.id === active.id || undefined}
+      onClick={() => setActiveId(s.id)}
+    >
+      {s.label}
+    </button>
+  );
 
   return (
     <ModalOverlay>
@@ -59,17 +86,20 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
         <div className="settings__body">
           <nav className="settings__nav" aria-label="Settings sections">
-            {sections.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={`settings__nav-item${s.id === active.id ? " settings__nav-item--active" : ""}`}
-                aria-current={s.id === active.id || undefined}
-                onClick={() => setActiveId(s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
+            {appSections.map(navItem)}
+            {/* The group header doubles as home for the global Rescan — the
+                one plugins action that belongs to no single plugin. */}
+            <div className="settings__nav-group">
+              <span className="settings__nav-group-label">Plugins</span>
+              <RescanButton />
+            </div>
+            {pluginSections.length === 0 ? (
+              <span className="settings__hint settings__nav-empty">
+                No plugins installed
+              </span>
+            ) : (
+              pluginSections.map(navItem)
+            )}
           </nav>
           {sections.map((s) => (
             // Every section stays mounted and inactive ones hide (the
@@ -94,4 +124,10 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
       </div>
     </ModalOverlay>
   );
+}
+
+/** Nav order for plugin categories: cli agents first — they are what the
+ * deck runs. */
+function rank(category: "cli" | "deck"): number {
+  return category === "cli" ? 0 : 1;
 }

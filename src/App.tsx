@@ -34,6 +34,7 @@ import { useContributions } from "./plugins";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { externalPluginUrl } from "./plugins/external/url";
 import { DockPanel, type DockTabItem } from "./components/dock/DockPanel";
+import { PluginOverlays } from "./components/PluginOverlays";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import { usePaneDrag } from "./app/usePaneDrag";
@@ -545,6 +546,9 @@ function App() {
           />
         )}
       </div>
+      {/* Plugin residents — mounted for each active plugin's whole lifetime,
+          independent of the dock. What they render is theirs. */}
+      <PluginOverlays />
     </div>
   );
 }

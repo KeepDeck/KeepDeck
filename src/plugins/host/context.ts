@@ -97,6 +97,17 @@ export function buildPluginContext(
         declared("paneActions", action.id);
         return track(registries.paneActions.add(pluginId, action));
       },
+      registerOverlay: (overlay) => {
+        declared("overlays", overlay.id);
+        return track(registries.overlays.add(pluginId, overlay));
+      },
+      revealDockTab: (id) => deps.ui.revealDockTab(pluginId, id),
+    },
+    openers: {
+      register: (handler) => {
+        declared("fileOpeners", handler.id);
+        return track(registries.fileOpeners.add(pluginId, handler));
+      },
     },
     settings: {
       registerSection: (section) => {
