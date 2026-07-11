@@ -236,6 +236,13 @@ describe("SettingsDialog", () => {
     expect(button("Tray").className).not.toContain("form__type--active");
   });
 
+  it("turns minimizing off with None", async () => {
+    await mount({ collapseStyle: "tray" });
+    act(() => button("None").click());
+    expect(getSettings()?.collapseStyle).toBe("none");
+    expect(button("None").className).toContain("form__type--active");
+  });
+
   it("disables the collapse-style picker outside the grid layout", async () => {
     await mount({ deckLayout: "list" });
     expect((button("Tray") as HTMLButtonElement).disabled).toBe(true);

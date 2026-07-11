@@ -66,7 +66,7 @@ describe("hydrateSettings", () => {
   });
 
   it("accepts each known collapseStyle and rejects an unknown one", () => {
-    for (const style of ["tray", "strip"]) {
+    for (const style of ["tray", "strip", "none"]) {
       expect(hydrateSettings(JSON.stringify({ collapseStyle: style }))?.settings.collapseStyle).toBe(
         style,
       );

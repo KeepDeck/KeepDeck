@@ -126,6 +126,8 @@ export function DeckStage({
   respawnEpochs,
 }: DeckStageProps) {
   const isList = deckLayout === "list";
+  // Minimizing is a grid-only affordance, and off entirely under `none`.
+  const canMinimize = !isList && collapseStyle !== "none";
   return (
     <>
       {workspaces.map((ws) => {
@@ -163,7 +165,7 @@ export function DeckStage({
         // Grid: the live (not minimized) panes tile; the minimized ones are
         // hidden but stay in the grid mounted. List: the selected pane expands,
         // the rest fold to headers.
-        const minimizedSet = new Set(isList ? [] : (view?.collapsed ?? []));
+        const minimizedSet = new Set(canMinimize ? (view?.collapsed ?? []) : []);
         const live = ws.panes.filter((p) => !minimizedSet.has(p.id));
         const liveIndex = new Map(live.map((p, i) => [p.id, i] as const));
         const focusedHere = isList ? null : resolveFocus(live, view?.focus);
@@ -207,7 +209,12 @@ export function DeckStage({
             collapsed: hiddenByMaximize,
             folded: false,
             solo: soloGrid,
-            onCollapse: () => onToggleCollapse(ws.id, pane.id),
+            // No minimizing the last visible agent — that would leave an empty
+            // grid; hide the control until there's more than one live pane.
+            onCollapse:
+              canMinimize && !soloGrid
+                ? () => onToggleCollapse(ws.id, pane.id)
+                : undefined,
           };
         };
 

@@ -41,15 +41,16 @@ export const DECK_LAYOUTS: readonly DeckLayout[] = ["grid", "list"];
 
 /** How a minimized agent is presented in the GRID layout:
  * - `tray`  — it docks as a chip in a strip along the bottom;
- * - `strip` — it folds to its own header bar, stacked below the grid.
- * Either way the other agents stay on the grid and retile to fill the space.
- * The minimized SET is per-workspace runtime state ([`WorkspaceView.collapsed`]);
- * this is only the presentation choice, shared across the app. */
-export type CollapseStyle = "tray" | "strip";
+ * - `strip` — it folds to its own header bar, stacked below the grid;
+ * - `none`  — minimizing is off (no control, no zone; every agent stays tiled).
+ * For tray/strip the other agents stay on the grid and retile to fill the
+ * space. The minimized SET is per-workspace runtime state
+ * ([`WorkspaceView.collapsed`]); this is only the presentation choice. */
+export type CollapseStyle = "tray" | "strip" | "none";
 
 /** Every collapse style, in the order the settings picker lists them; also the
  * allow-list a stored value is validated against. */
-export const COLLAPSE_STYLES: readonly CollapseStyle[] = ["tray", "strip"];
+export const COLLAPSE_STYLES: readonly CollapseStyle[] = ["tray", "strip", "none"];
 
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete

@@ -32,6 +32,10 @@ const COLLAPSE_OPTIONS: Record<CollapseStyle, { label: string; hint: string }> =
     label: "Strip",
     hint: "Minimized agents fold to their own header bar below the grid.",
   },
+  none: {
+    label: "None",
+    hint: "Minimizing is off — every agent stays on the grid.",
+  },
 };
 
 /**
