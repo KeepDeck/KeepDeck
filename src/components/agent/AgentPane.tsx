@@ -132,14 +132,31 @@ export function AgentPane({
       data-pane-id={paneId}
       className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
-      onMouseDown={onSelect}
-      onFocus={onSelect}
+      // A folded row expands only from an EXPLICIT header click (below), never
+      // from raw mousedown/focus: descendant focus bubbling would expand rows
+      // as Tab passes through their buttons, and a mousedown-select reflows
+      // the accordion under the pointer before the click completes.
+      onMouseDown={folded ? undefined : onSelect}
+      onFocus={folded ? undefined : onSelect}
     >
-      <header className="pane__bar">
+      {/* Folded: the whole header is the expand control; the action buttons
+          stop propagation so they act WITHOUT expanding. */}
+      <header className="pane__bar" onClick={folded ? onSelect : undefined}>
         {folded && (
-          <span className="pane__fold-chevron" aria-hidden>
+          // The accessible expand handle (the header click is the pointer
+          // convenience around it).
+          <button
+            type="button"
+            className="pane__fold-chevron"
+            aria-expanded={false}
+            aria-label={`Expand ${title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+            }}
+          >
             <ChevronDownIcon />
-          </span>
+          </button>
         )}
         <div className="pane__identity">
           {editing ? (
@@ -177,7 +194,11 @@ export function AgentPane({
             <button
               type="button"
               className="pane__open"
-              onClick={onOpenInEditor}
+              onClick={(e) => {
+                // Own click: on a folded row this must not expand the header.
+                e.stopPropagation();
+                onOpenInEditor();
+              }}
               title="Open this agent's working directory in VS Code"
             >
               Open in VSCode
@@ -214,7 +235,11 @@ export function AgentPane({
           <button
             type="button"
             className="pane__close"
-            onClick={onClose}
+            onClick={(e) => {
+              // Own click: closing a folded row must not also expand it.
+              e.stopPropagation();
+              onClose();
+            }}
             title="Close agent"
             aria-label={`Close ${title}`}
           >

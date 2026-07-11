@@ -25,14 +25,33 @@
   display: none;
 }
 
-/* The caret on a folded row; the header itself expands it. */
+/* The folded header is the expand control — read as clickable. */
+.pane--folded .pane__bar {
+  cursor: pointer;
+}
+
+.pane--folded:hover .pane__bar {
+  background-color: #1a212e;
+}
+
+/* The caret on a folded row — the accessible expand handle (a real button;
+   the header around it is the pointer convenience). */
 .pane__fold-chevron {
   flex: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
   color: #6b7280;
   margin-right: -2px;
   transform: rotate(-90deg);
+  cursor: pointer;
+}
+
+.pane__fold-chevron:hover {
+  color: #c5c8c6;
 }
 
 /* The focused pane — colour the reserved border. Content stays fully inside it. */
