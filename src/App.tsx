@@ -78,6 +78,13 @@ function App() {
   const { agents, loading: agentsLoading } = useAgents();
   // Global preferences ([F6]) — loaded before the first paint, saved through.
   const settings = useSettings();
+  // The deck's display mode and how minimized agents show ([F6]). `minimizeOn`
+  // = the stored minimized sets are IN FORCE: only the grid layout renders
+  // them, and only when the style isn't "none" — the hotkeys must agree with
+  // the screen on what's visible.
+  const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
+  const collapseStyle = settings?.collapseStyle ?? DEFAULT_SETTINGS.collapseStyle;
+  const minimizeOn = deckLayout === "grid" && collapseStyle !== "none";
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);
@@ -245,6 +252,7 @@ function App() {
         deck.activeId,
         deck.viewByWs,
         agents,
+        minimizeOn,
       );
       if (!target) return;
       if (target.kind === "workspace")
@@ -254,10 +262,14 @@ function App() {
     },
     toggleMaximize: () => {
       if (modalOpen) return;
+      // The list layout has no maximize — writing a focus it doesn't render
+      // would spring back as a surprise maximize on the return to the grid.
+      if (deckLayout === "list") return;
       const target = maximizeHotkeyTarget(
         deck.workspaces,
         deck.activeId,
         deck.viewByWs,
+        minimizeOn,
       );
       if (target) deck.toggleFocus(target.wsId, target.paneId);
     },
@@ -393,8 +405,8 @@ function App() {
             activeId={deck.activeId}
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
-            deckLayout={settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout}
-            collapseStyle={settings?.collapseStyle ?? DEFAULT_SETTINGS.collapseStyle}
+            deckLayout={deckLayout}
+            collapseStyle={collapseStyle}
             agents={agents}
             agentsReady={!agentsLoading}
             gitHeads={gitHeads}
