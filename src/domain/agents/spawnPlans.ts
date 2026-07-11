@@ -22,6 +22,14 @@ export const EMPTY_SPAWN_CONTEXT: SpawnPlanContext = {
   bridgeDir: "",
 };
 
+/** Why a resume plan was requested. Only boot restoration may fall back to
+ * one automatic fresh spawn when the recorded session no longer exists;
+ * user-requested resumes must leave the exited pane visible. */
+export type ResumeOrigin = "restore" | "manual";
+
+/** The explicit action an exited-agent card asks the application to take. */
+export type AgentRestartMode = "resume" | "fresh";
+
 /** What a pane's PTY spawn needs beyond the pane itself. */
 export interface SpawnPlan {
   /** Program to run — the hook's word (prefilled with the detected binary;
@@ -36,6 +44,9 @@ export interface SpawnPlan {
   /** Host bookkeeping: the recorded session this plan tries to RESUME. Set
    * only on resume plans — the resume-failure detector keys off it. */
   resumeOf?: string;
+  /** Host bookkeeping: who requested this resume. The origin determines
+   * whether a silent refusal is eligible for the one-shot fresh fallback. */
+  resumeOrigin?: ResumeOrigin;
   /** Host bookkeeping: the pane's accepted-postback count when this plan
    * was built. An exit with the count still here means the resume never
    * became a session (see `resumeDiedSilently`). */

@@ -380,3 +380,138 @@ describe("AgentPane — folded-row interactions", () => {
     expect(onSelect).toHaveBeenCalled();
   });
 });
+
+describe("AgentPane — manual restart after exit", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const mount = (overrides: Record<string, unknown> = {}) => {
+    act(() =>
+      root.render(createElement(AgentPane, { ...baseProps, ...overrides })),
+    );
+  };
+
+  const reportExit = (code: number | null) => {
+    const calls = vi.mocked(TerminalPane).mock.calls;
+    const terminalProps = calls[calls.length - 1][0];
+    act(() => terminalProps.onExit?.(code));
+  };
+
+  const actionButtons = () =>
+    Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".pane__exit-action"),
+    );
+
+  it("shows no restart controls before exit and reports both exit-code forms", () => {
+    mount({ onRestart: vi.fn() });
+
+    expect(document.querySelector(".pane__exit")).toBeNull();
+    expect(actionButtons()).toHaveLength(0);
+
+    reportExit(17);
+    expect(document.querySelector(".pane__exit")?.textContent).toContain(
+      "exit code 17",
+    );
+    expect(actionButtons()).toHaveLength(1);
+
+    reportExit(null);
+    expect(document.querySelector(".pane__exit")?.textContent).toContain(
+      "terminated",
+    );
+  });
+
+  it("starts fresh from the primary action when no session can be resumed", () => {
+    const onRestart = vi.fn();
+    mount({ onRestart });
+    reportExit(0);
+
+    const buttons = actionButtons();
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "Restart agent",
+    ]);
+    act(() => buttons[0].click());
+
+    expect(onRestart).toHaveBeenCalledTimes(1);
+    expect(onRestart).toHaveBeenCalledWith("fresh");
+  });
+
+  it("resumes from the primary action and offers an explicit fresh alternative", () => {
+    const onRestart = vi.fn();
+    mount({ canResume: true, onRestart });
+    reportExit(2);
+
+    const buttons = actionButtons();
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "Restart agent",
+      "Start new session",
+    ]);
+    act(() => buttons[0].click());
+
+    expect(onRestart).toHaveBeenCalledTimes(1);
+    expect(onRestart).toHaveBeenCalledWith("resume");
+  });
+
+  it("uses fresh mode from the secondary action", () => {
+    const onRestart = vi.fn();
+    mount({ canResume: true, onRestart });
+    reportExit(2);
+
+    act(() => actionButtons()[1].click());
+
+    expect(onRestart).toHaveBeenCalledTimes(1);
+    expect(onRestart).toHaveBeenCalledWith("fresh");
+  });
+
+  it("guards an in-flight restart from repeated clicks", () => {
+    const pending = new Promise<void>(() => {});
+    const onRestart = vi.fn(() => pending);
+    mount({ canResume: true, onRestart });
+    reportExit(0);
+
+    const primary = actionButtons()[0];
+    act(() => {
+      primary.click();
+      primary.click();
+    });
+
+    expect(onRestart).toHaveBeenCalledTimes(1);
+    expect(actionButtons().every((button) => button.disabled)).toBe(true);
+    expect(actionButtons()[0].textContent).toBe("Restarting…");
+  });
+
+  it("restores both choices when restart planning rejects", async () => {
+    let rejectRestart: (reason: Error) => void = () => {};
+    const pending = new Promise<void>((_resolve, reject) => {
+      rejectRestart = reject;
+    });
+    const onRestart = vi.fn(() => pending);
+    mount({ canResume: true, onRestart });
+    reportExit(1);
+
+    act(() => actionButtons()[0].click());
+    expect(actionButtons().every((button) => button.disabled)).toBe(true);
+
+    await act(async () => {
+      rejectRestart(new Error("restart plan failed"));
+      await Promise.resolve();
+    });
+
+    expect(actionButtons().every((button) => !button.disabled)).toBe(true);
+    expect(actionButtons()[0].textContent).toBe("Restart agent");
+    expect(document.querySelector("[role='alert']")?.textContent).toBe(
+      "Restart failed",
+    );
+  });
+});

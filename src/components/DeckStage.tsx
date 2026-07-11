@@ -1,4 +1,8 @@
-import type { AgentInfo, SpawnPlan } from "../domain/agents";
+import type {
+  AgentInfo,
+  AgentRestartMode,
+  SpawnPlan,
+} from "../domain/agents";
 import {
   gridTracks,
   paneColumnSpan,
@@ -77,9 +81,14 @@ interface DeckStageProps {
   onRetryProvision(wsId: string, paneId: string): void;
   /** A pane's PTY exited (the resume-failure detector lives upstream). */
   onAgentExited(wsId: string, paneId: string, code: number | null): void;
-  /** Bumped to force a pane's full remount — the respawn-fresh path after a
-   * dead resume (an exited session is never silently respawned in place). */
-  respawnEpochs: ReadonlyMap<string, number>;
+  /** Explicitly restart an exited pane, resuming its exact binding or fresh. */
+  onRestartAgent(
+    wsId: string,
+    paneId: string,
+    mode: AgentRestartMode,
+  ): Promise<void>;
+  /** Bumped after the old PTY entry is retired to remount the same pane. */
+  restartEpochs: ReadonlyMap<string, number>;
 }
 
 /**
@@ -124,7 +133,8 @@ export function DeckStage({
   onStartFresh,
   onRetryProvision,
   onAgentExited,
-  respawnEpochs,
+  onRestartAgent,
+  restartEpochs,
 }: DeckStageProps) {
   const isList = deckLayout === "list";
   // Minimizing is a grid-only affordance, and off entirely under `none`.
@@ -242,7 +252,7 @@ export function DeckStage({
           const badge = badgeOf(pane);
           return (
             <AgentPane
-              key={`${pane.id}#${respawnEpochs.get(pane.id) ?? 0}`}
+              key={`${pane.id}#${restartEpochs.get(pane.id) ?? 0}`}
               paneId={pane.id}
               title={displayTitle}
               command={command}
@@ -274,6 +284,8 @@ export function DeckStage({
               onStartFresh={() => onStartFresh(ws.id, pane.id)}
               onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
               onExited={(code) => onAgentExited(ws.id, pane.id, code)}
+              canResume={!!pane.session?.id}
+              onRestart={(mode) => onRestartAgent(ws.id, pane.id, mode)}
             />
           );
         };

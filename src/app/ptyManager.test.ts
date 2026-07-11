@@ -87,6 +87,27 @@ describe("acquirePane", () => {
     expect(harness.spawns).toHaveLength(1);
   });
 
+  it("respawns exactly once after an explicit close and ignores the retired run", async () => {
+    acquirePane("pane-1", SPEC);
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+    const firstSink = makeSink();
+    attachPane("pane-1", firstSink);
+    harness.spawns[0].onEvent({ type: "exit", code: 0 });
+
+    await closePane("pane-1");
+    acquirePane("pane-1", SPEC);
+    const restartedSink = makeSink();
+    attachPane("pane-1", restartedSink);
+
+    expect(harness.spawns).toHaveLength(2);
+    output(0, 7);
+    output(1, 8);
+    expect(firstSink.onOutput).not.toHaveBeenCalled();
+    expect(restartedSink.onOutput).toHaveBeenCalledOnce();
+    expect(restartedSink.onOutput).toHaveBeenCalledWith(new Uint8Array([8]));
+  });
+
   it("closes the old session and respawns when the identity changes", async () => {
     acquirePane("pane-1", SPEC);
     const session = harness.makeSession();

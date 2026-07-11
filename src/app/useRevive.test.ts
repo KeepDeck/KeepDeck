@@ -33,8 +33,10 @@ vi.mock("./spawnSpecs", () => {
         _branch: string | undefined,
         _ctx: unknown,
         resumeId: string,
+        _origin: "restore" | "manual",
       ) => {
         specs.set(paneId, { args: ["--resume", resumeId], env: [] });
+        return true;
       },
     ),
     peekPaneSpawnSpec: (id: string) =>
@@ -128,6 +130,7 @@ describe("useRevive — session policy", () => {
       undefined,
       expect.anything(),
       "old",
+      "restore",
     );
   });
 
