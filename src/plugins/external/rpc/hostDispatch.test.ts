@@ -173,6 +173,31 @@ describe("file-open handlers over the RPC seam", () => {
     }
   });
 
+  it("a malformed openResult settles as a failure — it must NEVER strand the click", async () => {
+    // The settle runs after clearTimeout: junk throwing there would leave the
+    // promise pending forever, past the very timeout meant to prevent hangs.
+    for (const junk of [undefined, null, 42, {}, { ok: "yes" }]) {
+      const h = openersHarness();
+      await h.dispatch.call("openers.register", [1, { id: "peek", label: "Peek" }]);
+      const asking = h.handler().open({ path: "/repo/x" });
+      const id = Number(h.pushes[0].channel.slice("open:".length));
+      await h.dispatch.call("openers.openResult", [id, junk]);
+      await expect(asking).rejects.toThrow(/malformed|failure/);
+    }
+  });
+
+  it("a malformed hookResult settles as a failure too — same stranding shape", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [1, entry]);
+    const running = h.agent().hooks["spawn.plan"]!(
+      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
+      output(),
+    );
+    const id = Number(h.pushes[0].channel.slice("hook:".length));
+    await h.dispatch.call("agents.hookResult", [id]); // no result arg at all
+    await expect(running).rejects.toThrow("malformed");
+  });
+
   it("dispose fails opens still in flight; a late openResult is ignored", async () => {
     const h = openersHarness();
     await h.dispatch.call("openers.register", [1, { id: "peek", label: "Peek" }]);

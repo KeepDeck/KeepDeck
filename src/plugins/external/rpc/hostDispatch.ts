@@ -249,7 +249,7 @@ export function createHostDispatch(
       if (!settle) return; // timed out, disposed, or never ours
       pendingOpens.delete(id as number);
       settle(
-        result as { ok: true; handled: boolean } | { ok: false; error: string },
+        asRealmResult(result, (v) => ({ ok: true, handled: v.handled === true })),
       );
     },
 
@@ -272,7 +272,7 @@ export function createHostDispatch(
       const settle = pendingHooks.get(id as number);
       if (!settle) return; // timed out, disposed, or never ours
       pendingHooks.delete(id as number);
-      settle(result as { ok: true; output: unknown } | { ok: false; error: string });
+      settle(asRealmResult(result, (v) => ({ ok: true, output: v.output })));
     },
 
     // ---- the one teardown path shared by every registration kind ----
@@ -379,6 +379,30 @@ export function createHostDispatch(
       watches.clear();
     },
   };
+}
+
+/**
+ * Shape a realm's reply BEFORE it may settle a pending host→realm call. The
+ * settle callbacks run after `clearTimeout` — a `result.ok` read throwing on
+ * junk (`[id]` with no result, `null`, a primitive) would strand the pending
+ * promise FOREVER, past the very timeout built to prevent hangs. So junk
+ * becomes an explicit failure, and only a literal `ok: true` reaches `onOk`.
+ */
+function asRealmResult<T extends { ok: true }>(
+  value: unknown,
+  onOk: (v: Record<string, unknown>) => T,
+): T | { ok: false; error: string } {
+  if (typeof value === "object" && value !== null) {
+    const v = value as Record<string, unknown>;
+    if (v.ok === true) return onOk(v);
+    if (v.ok === false) {
+      return {
+        ok: false,
+        error: typeof v.error === "string" ? v.error : "realm reported a failure",
+      };
+    }
+  }
+  return { ok: false, error: "malformed result from the realm" };
 }
 
 /** Validate a realm-returned plan output down to plain strings; `null` when
