@@ -14,6 +14,7 @@ import { usePersistence } from "./app/usePersistence";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useSettings } from "./app/useSettings";
+import { DEFAULT_SETTINGS } from "./domain/settings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
 import {
@@ -392,6 +393,7 @@ function App() {
             activeId={deck.activeId}
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
+            collapseStyle={settings?.collapseStyle ?? DEFAULT_SETTINGS.collapseStyle}
             agents={agents}
             agentsReady={!agentsLoading}
             gitHeads={gitHeads}
@@ -400,6 +402,7 @@ function App() {
             }
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
+            onToggleCollapse={deck.toggleCollapse}
             onOpenInEditor={(path) =>
               void openInEditor(path).catch((e) =>
                 log.warn("web:links", `open in editor failed for ${path}: ${describeError(e)}`),
