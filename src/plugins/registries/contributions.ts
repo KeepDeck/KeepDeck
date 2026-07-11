@@ -3,6 +3,7 @@ import type {
   Disposable,
   DockTabContribution,
   FileOpenHandler,
+  OverlayContribution,
   PaneActionContribution,
   SettingsSectionContribution,
   TopBarActionContribution,
@@ -129,6 +130,8 @@ export interface ContributionRegistries {
   /** The host's file-open chain, in registration order — membership here IS
    * the whole truth of who handles file opens (no stored preference). */
   readonly fileOpeners: ContributionRegistry<FileOpenHandler>;
+  /** Resident components, mounted for a plugin's whole active lifetime. */
+  readonly overlays: ContributionRegistry<OverlayContribution>;
   readonly settingsSections: ContributionRegistry<SettingsSectionContribution>;
   readonly agents: ContributionRegistry<AgentContribution>;
 }
@@ -139,6 +142,7 @@ export function createContributionRegistries(): ContributionRegistries {
     topBarActions: createContributionRegistry(),
     paneActions: createContributionRegistry(),
     fileOpeners: createContributionRegistry(),
+    overlays: createContributionRegistry(),
     settingsSections: createContributionRegistry(),
     agents: createContributionRegistry(),
   };

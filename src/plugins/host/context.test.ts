@@ -28,6 +28,7 @@ const declaring = (id: string): PluginManifest =>
     contributes: {
       dockTabs: [{ id: "t", label: "T" }],
       fileOpeners: [{ id: "peek", label: "Peek" }],
+      overlays: [{ id: "viewer", label: "Viewer" }],
       settings: true,
     },
   });
@@ -104,6 +105,24 @@ describe("buildPluginContext", () => {
     expect(() =>
       ctx.openers.register({ id: "ghost", label: "G", open: async () => true }),
     ).toThrow('contribution not declared in the manifest: fileOpeners "ghost"');
+  });
+
+  it("routes a declared overlay into its registry and refuses an undeclared one", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    const overlay = { id: "viewer", Component: () => null };
+    const handle = ctx.ui.registerOverlay(overlay);
+    expect(registries.overlays.list()).toEqual([
+      { pluginId: "p", entry: overlay },
+    ]);
+    handle.dispose();
+    expect(registries.overlays.list()).toEqual([]);
+
+    expect(() =>
+      ctx.ui.registerOverlay({ id: "ghost", Component: () => null }),
+    ).toThrow('contribution not declared in the manifest: overlays "ghost"');
   });
 
   it("forwards revealDockTab to the host UI port with the plugin's identity", () => {

@@ -166,6 +166,13 @@ export function buildGuestContext(
           () => actionCallbacks.delete(key),
         );
       },
+      registerOverlay: () => {
+        // A resident overlay is a live component; until an iframe variant
+        // exists it cannot cross the sandbox boundary.
+        throw new Error(
+          "ui.registerOverlay is not yet available to external plugins",
+        );
+      },
       revealDockTab: () => {
         // Not bridged yet — fail loud (the external fail-closed idiom), not
         // silently: a plugin author must learn the surface isn't there.

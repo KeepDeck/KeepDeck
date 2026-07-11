@@ -3,6 +3,7 @@ import type {
   DockTabContribution,
   FileOpenHandler,
   HostSettingsSnapshot,
+  OverlayContribution,
   PaneActionContribution,
   PluginContext,
   PluginManifest,
@@ -30,6 +31,7 @@ export interface FakeHost {
   topBarActions: TopBarActionContribution[];
   paneActions: PaneActionContribution[];
   fileOpeners: FileOpenHandler[];
+  overlays: OverlayContribution[];
   settingsSections: SettingsSectionContribution[];
   agents: AgentContribution[];
   /** Recorded `ui.revealDockTab` calls, in order. */
@@ -91,6 +93,7 @@ export function createFakeHost(
   const topBarActions: TopBarActionContribution[] = [];
   const paneActions: PaneActionContribution[] = [];
   const fileOpeners: FileOpenHandler[] = [];
+  const overlays: OverlayContribution[] = [];
   const settingsSections: SettingsSectionContribution[] = [];
   const agents: AgentContribution[] = [];
   const revealedTabs: string[] = [];
@@ -129,6 +132,7 @@ export function createFakeHost(
       registerDockTab: (tab) => record(dockTabs, tab),
       registerTopBarAction: (action) => record(topBarActions, action),
       registerPaneAction: (action) => record(paneActions, action),
+      registerOverlay: (overlay) => record(overlays, overlay),
       revealDockTab: (id) => {
         revealedTabs.push(id);
       },
@@ -246,6 +250,7 @@ export function createFakeHost(
     topBarActions,
     paneActions,
     fileOpeners,
+    overlays,
     settingsSections,
     agents,
     revealedTabs,
