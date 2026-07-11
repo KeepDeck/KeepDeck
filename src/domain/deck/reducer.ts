@@ -35,6 +35,10 @@ export interface WorkspaceView {
   dock?: boolean;
   /** The selected dock tab id (`pluginId:entryId`). Session-only. */
   dockTab?: string;
+  /** Pane ids minimized out of the grid (the tray/strip collapse styles).
+   * Session-only, like dock/dockTab — persist.ts never writes it, so every
+   * launch starts with nothing minimized. Kept only while non-empty. */
+  collapsed?: string[];
 }
 
 /**
@@ -68,6 +72,8 @@ export type DeckAction =
   | { type: "closeAgent"; wsId: string; paneId: string }
   | { type: "closeWorkspace"; id: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
+  /** Minimize a pane out of the grid, or restore it (the tray/strip styles). */
+  | { type: "toggleCollapse"; wsId: string; paneId: string }
   | { type: "selectPane"; wsId: string; paneId: string }
   /** Flip a workspace's dock (the top bar's dock button). */
   | { type: "toggleDock"; wsId: string }
@@ -134,7 +140,8 @@ function isEmptyView(view: WorkspaceView): boolean {
     view.focus === undefined &&
     view.select === undefined &&
     view.dock === undefined &&
-    view.dockTab === undefined
+    view.dockTab === undefined &&
+    view.collapsed === undefined
   );
 }
 
@@ -266,6 +273,18 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       if (view?.select === paneId) {
         viewByWs = setViewField(viewByWs, wsId, "select", remaining[0]?.id);
       }
+      // Drop the closed pane from the minimized set so it can't linger as a
+      // stale chip/bar (partitionPanes ignores stale ids at render, but the
+      // stored set is kept tidy here, mirroring the focus/select cleanup).
+      if (view?.collapsed?.includes(paneId)) {
+        const next = view.collapsed.filter((id) => id !== paneId);
+        viewByWs = setViewField(
+          viewByWs,
+          wsId,
+          "collapsed",
+          next.length > 0 ? next : undefined,
+        );
+      }
       return { ...state, workspaces, viewByWs };
     }
     case "closeWorkspace": {
@@ -285,6 +304,30 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         setViewField(state.viewByWs, wsId, "focus", current === paneId ? undefined : paneId),
       );
+    }
+    case "toggleCollapse": {
+      const { wsId, paneId } = action;
+      const view = state.viewByWs[wsId];
+      const current = view?.collapsed ?? [];
+      const isMinimized = current.includes(paneId);
+      const next = isMinimized
+        ? current.filter((id) => id !== paneId)
+        : [...current, paneId];
+      let viewByWs = setViewField(
+        state.viewByWs,
+        wsId,
+        "collapsed",
+        next.length > 0 ? next : undefined,
+      );
+      if (isMinimized) {
+        // Restoring: highlight it where it reappears on the grid.
+        viewByWs = setViewField(viewByWs, wsId, "select", paneId);
+      } else if (view?.focus === paneId) {
+        // Minimizing the maximized pane: nothing left to spotlight over, and a
+        // lingering focus would spring back onto a hidden pane when restored.
+        viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
+      }
+      return withView(state, viewByWs);
     }
     case "selectPane":
       return withView(

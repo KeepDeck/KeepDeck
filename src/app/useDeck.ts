@@ -45,6 +45,8 @@ export function useDeck() {
     closeWorkspace: (id: string) => dispatch({ type: "closeWorkspace", id }),
     toggleFocus: (wsId: string, paneId: string) =>
       dispatch({ type: "toggleFocus", wsId, paneId }),
+    toggleCollapse: (wsId: string, paneId: string) =>
+      dispatch({ type: "toggleCollapse", wsId, paneId }),
     selectPane: (wsId: string, paneId: string) =>
       dispatch({ type: "selectPane", wsId, paneId }),
     toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),
