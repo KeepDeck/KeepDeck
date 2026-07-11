@@ -48,6 +48,31 @@ export function CloseIcon() {
   );
 }
 
+/** Minimize — stow down to a shelf (arrow into a bottom line). Distinct from
+ * the maximize arrows and the restore bar so the three pane controls read
+ * apart at a glance. */
+export function MinimizeIcon() {
+  return (
+    <svg {...iconProps}>
+      <line x1="12" y1="4" x2="12" y2="14" />
+      <polyline points="8 10 12 14 16 10" />
+      <line x1="5" y1="20" x2="19" y2="20" />
+    </svg>
+  );
+}
+
+/** Restore up — bring a minimized agent back onto the grid (arrow out of a
+ * bottom line); the visual inverse of [`MinimizeIcon`]. */
+export function RestoreUpIcon() {
+  return (
+    <svg {...iconProps}>
+      <line x1="5" y1="4" x2="19" y2="4" />
+      <polyline points="8 12 12 8 16 12" />
+      <line x1="12" y1="8" x2="12" y2="20" />
+    </svg>
+  );
+}
+
 /** Git branch — identifies the currently observed branch in pane chrome
  * (Lucide `git-branch`, ISC). */
 export function GitBranchIcon() {

@@ -6,6 +6,7 @@ import {
   CloseIcon,
   GitBranchIcon,
   MaximizeIcon,
+  MinimizeIcon,
   RestoreIcon,
 } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
@@ -61,6 +62,10 @@ interface AgentPaneProps {
   colSpan: number;
   onSelect(): void;
   onToggleFocus(): void;
+  /** Minimize this agent out of the grid; the button shows only when set (the
+   * tray/strip collapse styles). The session keeps running — it's re-mounted
+   * on restore. */
+  onCollapse?(): void;
   /** Open the agent's working dir in VS Code; shown only when a `cwd` is known. */
   onOpenInEditor(): void;
   onClose(): void;
@@ -98,6 +103,7 @@ export function AgentPane({
   colSpan,
   onSelect,
   onToggleFocus,
+  onCollapse,
   onOpenInEditor,
   onClose,
   onRename,
@@ -171,6 +177,17 @@ export function AgentPane({
               <GitBranchIcon />
               <span className="pane__branch-label">{gitBadge.label}</span>
             </span>
+          )}
+          {onCollapse && !focused && (
+            <button
+              type="button"
+              className="pane__action"
+              onClick={onCollapse}
+              title="Minimize agent"
+              aria-label={`Minimize ${title}`}
+            >
+              <MinimizeIcon />
+            </button>
           )}
           {!solo && (
             <button

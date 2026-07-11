@@ -226,3 +226,43 @@ describe("AgentPane — the unavailable-agent card", () => {
     expect(document.body.textContent).not.toContain("Waking up");
   });
 });
+
+describe("AgentPane — minimize control", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const minimizeBtn = () =>
+    document.querySelector<HTMLButtonElement>('[aria-label="Minimize Claude 1"]');
+
+  it("shows the button only when onCollapse is provided, and fires it on click", () => {
+    act(() => root.render(createElement(AgentPane, { ...baseProps })));
+    expect(minimizeBtn()).toBeNull();
+
+    const onCollapse = vi.fn();
+    act(() => root.render(createElement(AgentPane, { ...baseProps, onCollapse })));
+    const btn = minimizeBtn();
+    expect(btn).not.toBeNull();
+    act(() => btn!.click());
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the button while the pane is maximized (restore first)", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, { ...baseProps, onCollapse: vi.fn(), focused: true }),
+      ),
+    );
+    expect(minimizeBtn()).toBeNull();
+  });
+});
