@@ -8,7 +8,9 @@ import type { PaneHint } from "./PaneHint";
 // mock, which is the whole point of the inversion.
 const opener = {
   openUrl: vi.fn(async (_url: string) => {}),
-  openPath: vi.fn(async (_path: string) => {}),
+  openPath: vi.fn(
+    async (_path: string): Promise<void | { notice?: string }> => {},
+  ),
 };
 
 /** Rows of a fake xterm buffer; `wrapped` marks a continuation row. */
@@ -239,6 +241,28 @@ describe("registerTerminalLinks", () => {
       x: 100,
       y: 200,
     });
+  });
+
+  it("shows an opener's notice at the click; a silent resolution shows nothing", async () => {
+    // A resolution can carry a notice — e.g. the host's file-open chain saying
+    // it fell back to the system opener after an in-app handler declined.
+    opener.openPath.mockResolvedValueOnce({ notice: "Opened externally" });
+    const { term, provider } = stubTerm([{ text: "see /wt/a/readme.md now" }]);
+    registerTerminalLinks(term, host, target(null));
+
+    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    await flush();
+    expect(showHint).toHaveBeenCalledWith({
+      text: "Opened externally",
+      x: 100,
+      y: 200,
+    });
+
+    showHint.mockClear();
+    opener.openPath.mockResolvedValueOnce(undefined);
+    linksAt(provider(), 1)![0].activate(click({ metaKey: true }), "");
+    await flush();
+    expect(showHint).not.toHaveBeenCalled();
   });
 
   it("passes xterm's provider disposable through", () => {
