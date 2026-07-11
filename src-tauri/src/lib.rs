@@ -13,6 +13,7 @@ mod paths;
 mod plugins_fs;
 mod ports;
 mod project_fs;
+mod project_git;
 mod session;
 mod sessions;
 mod state;
@@ -69,6 +70,7 @@ pub fn run() {
         .manage(worktree::RepoLocks::default())
         .manage(head_watch::HeadWatchers::default())
         .manage(project_fs::ProjectFsWatchers::default())
+        .manage(project_git::ProjectGitWatchers::default())
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();
@@ -115,6 +117,10 @@ pub fn run() {
             project_fs::project_fs_read_file,
             project_fs::project_fs_watch,
             project_fs::project_fs_unwatch,
+            project_git::project_git_status,
+            project_git::project_git_diff_file,
+            project_git::project_git_watch,
+            project_git::project_git_unwatch,
             sessions::session_spawn_context,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
