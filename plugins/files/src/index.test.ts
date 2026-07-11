@@ -2,22 +2,27 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   FileOpenHandler,
   FsEntry,
+  OverlayContribution,
   PluginContext,
 } from "@keepdeck/plugin-api";
 import plugin, { OPEN_LINKS_KEY } from "./index";
 import { takeOpenRequest } from "./openRequests";
 
 /** A context fake covering exactly what activate() touches: registrations,
- * the settings value feed, fs.readDir for the scope probe, the dock reveal. */
+ * the settings value feed, fs.readDir for the scope probe. */
 function makeCtx(values: Record<string, unknown> = {}) {
   const registered: FileOpenHandler[] = [];
   let onChange: ((values: Record<string, unknown>) => void) | undefined;
   const revealDockTab = vi.fn();
+  const registerOverlay = vi.fn((_overlay: OverlayContribution) => ({
+    dispose: vi.fn(),
+  }));
   const readDir = vi.fn(async (_path: string): Promise<FsEntry[]> => []);
   const disposable = () => ({ dispose: vi.fn() });
   const ctx = {
     ui: {
       registerDockTab: vi.fn(disposable),
+      registerOverlay,
       revealDockTab,
     },
     openers: {
@@ -46,6 +51,7 @@ function makeCtx(values: Record<string, unknown> = {}) {
     ctx,
     registered,
     revealDockTab,
+    registerOverlay,
     readDir,
     fireSettings: (v: Record<string, unknown>) => onChange?.(v),
   };
@@ -61,6 +67,13 @@ describe("Files plugin activation", () => {
     const { ctx, registered } = makeCtx();
     await plugin.activate(ctx);
     expect(registered.map((h) => h.id)).toEqual(["peek"]);
+  });
+
+  it("registers the viewer overlay UNCONDITIONALLY — the tree's own opens need it", async () => {
+    const { ctx, registerOverlay } = makeCtx({ [OPEN_LINKS_KEY]: false });
+    await plugin.activate(ctx);
+    expect(registerOverlay).toHaveBeenCalledTimes(1);
+    expect(registerOverlay.mock.calls[0][0]).toMatchObject({ id: "viewer" });
   });
 
   it("derives the registration from the setting, both directions, live", async () => {
@@ -93,13 +106,15 @@ describe("the peek opener", () => {
     return { open: made.registered[0].open, ...made };
   }
 
-  it("opens an in-scope file: parks the request, reveals the tab, accepts", async () => {
+  it("opens an in-scope file: parks the request and accepts — the dock is NOT touched", async () => {
     const { open, revealDockTab } = await handler(async () => [
       entry("readme.md", "file"),
     ]);
     expect(await open({ path: "/repo/readme.md" })).toBe(true);
-    expect(takeOpenRequest()).toBe("/repo/readme.md");
-    expect(revealDockTab).toHaveBeenCalledWith("files");
+    // The resident overlay consumes this; a terminal link must never
+    // rearrange the user's layout.
+    expect(takeOpenRequest()).toEqual({ path: "/repo/readme.md" });
+    expect(revealDockTab).not.toHaveBeenCalled();
   });
 
   it("declines outside the fs scope — the probe's rejection is an answer", async () => {

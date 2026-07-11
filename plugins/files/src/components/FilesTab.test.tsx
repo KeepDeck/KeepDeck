@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, StrictMode } from "react";
+import { act, createElement, Fragment, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requestOpen, takeOpenRequest } from "../openRequests";
@@ -11,6 +11,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
 import { FilesTab } from "./FilesTab";
+import { FilesOverlay } from "./FilesOverlay";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -119,9 +120,18 @@ describe("FilesTab", () => {
   let host: HTMLElement;
   let root: Root;
 
+  // The real composition: the tab (navigator) plus the resident overlay (the
+  // peek's single consumer) — opens flow from one to the other over the bus.
   const mount = async () => {
     await act(async () => {
-      root.render(createElement(FilesTab, { workspace, selectedPaneId: null }));
+      root.render(
+        createElement(
+          Fragment,
+          null,
+          createElement(FilesTab, { workspace, selectedPaneId: null }),
+          createElement(FilesOverlay, null),
+        ),
+      );
     });
     // Flush the root readDir kicked off on mount.
     await act(async () => {});
@@ -299,8 +309,8 @@ describe("FilesTab", () => {
     expect(document.querySelector(".files__peek")).toBeNull();
   });
 
-  it("consumes an open request parked BEFORE mount — the dock reveal mounts the tab", async () => {
-    requestOpen("/repo/readme.md");
+  it("consumes an open request parked BEFORE mount (activation races the click)", async () => {
+    requestOpen({ path: "/repo/readme.md" });
     await mount();
     await act(async () => {});
     expect(document.querySelector(".files__dname")?.textContent).toBe(
@@ -312,7 +322,7 @@ describe("FilesTab", () => {
   it("opens a live request while already mounted", async () => {
     await mount();
     expect(document.querySelector(".files__peek")).toBeNull();
-    await act(async () => requestOpen("/repo/readme.md"));
+    await act(async () => requestOpen({ path: "/repo/readme.md" }));
     await act(async () => {});
     expect(document.querySelector(".files__peek")).not.toBeNull();
   });
@@ -321,13 +331,14 @@ describe("FilesTab", () => {
     // The dev app renders under StrictMode: mount effects run twice. The
     // root-reset effect's SECOND run used to wipe the preview the consumer's
     // first run had just set — the dock reveal then "opened nothing".
-    requestOpen("/repo/readme.md");
+    requestOpen({ path: "/repo/readme.md" });
     await act(async () => {
       root.render(
         createElement(
           StrictMode,
           null,
           createElement(FilesTab, { workspace, selectedPaneId: null }),
+          createElement(FilesOverlay, null),
         ),
       );
     });

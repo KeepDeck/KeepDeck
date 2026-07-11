@@ -19,6 +19,7 @@ import { setRuntime } from "./runtime";
 import { requestOpen } from "./openRequests";
 import { baseName, parentDir } from "./domain/tree";
 import { FilesTab } from "./components/FilesTab";
+import { FilesOverlay } from "./components/FilesOverlay";
 
 /** The settings key behind "Open terminal file links in KeepDeck". */
 export const OPEN_LINKS_KEY = "openFileLinks";
@@ -45,10 +46,9 @@ function peekOpener(ctx: PluginContext): FileOpenHandler {
       const entry = entries.find((e) => e.name === name);
       if (!entry || entry.kind === "dir") return false;
 
-      // Park the path BEFORE the reveal: a Files tab that mounts because of
-      // the reveal must find the request already waiting.
-      requestOpen(path);
-      ctx.ui.revealDockTab("files");
+      // The resident FilesOverlay consumes this — no dock involvement at
+      // all, so a terminal link never rearranges the user's layout.
+      requestOpen({ path });
       return true;
     },
   };
@@ -57,6 +57,11 @@ function peekOpener(ctx: PluginContext): FileOpenHandler {
 const activate: KeepDeckPlugin["activate"] = async (ctx: PluginContext) => {
   setRuntime(ctx);
   ctx.ui.registerDockTab({ id: "files", label: "Files", Component: FilesTab });
+  // The viewer is a RESIDENT overlay, not part of the tab: the tree's own
+  // opens need it with the dock in any state, and terminal links need it
+  // with the dock closed. Registered unconditionally — it renders nothing
+  // until a request arrives.
+  ctx.ui.registerOverlay({ id: "viewer", Component: FilesOverlay });
   ctx.settings.registerSection({
     label: "Files",
     fields: [

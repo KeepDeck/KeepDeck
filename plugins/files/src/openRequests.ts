@@ -1,27 +1,37 @@
 /**
- * The plugin-internal hand-off between the file-open HANDLER (registered at
- * activate, no React) and the Files TAB (mounted by the host, maybe not yet):
- * the handler parks the path and asks the host to reveal the tab; the tab
- * consumes the pending request at mount and subscribes for later ones. One
- * slot, latest wins — a second click before the tab mounts should open the
- * second file, not queue both.
+ * The plugin-internal open-request bus. Two PRODUCERS — the terminal-link
+ * file-open handler and the tree's own open gestures (double click / Enter) —
+ * and ONE consumer: the resident `FilesOverlay`, which renders the single
+ * `FileViewer` for both. One slot, latest wins — a second request before the
+ * consumer wakes should open the second file, not queue both.
  */
 
-let pending: string | null = null;
+export interface OpenRequest {
+  /** Absolute file path to preview. */
+  path: string;
+  /** Breadcrumb base — the tree root when opened from the tree; absent for a
+   * terminal link (the viewer then shows the absolute path). */
+  root?: string;
+  /** Runs when the peek closes: a tree-originated open returns focus to the
+   * tree; a terminal one has nowhere to return and passes nothing. */
+  onClose?: () => void;
+}
+
+let pending: OpenRequest | null = null;
 const listeners = new Set<() => void>();
 
-/** Park `path` and wake any mounted tab. Called by the handler BEFORE the
- * dock reveal, so a tab that mounts because of the reveal finds it waiting. */
-export function requestOpen(path: string): void {
-  pending = path;
+/** Park a request and wake the consumer (it may also mount later and find
+ * the request waiting). */
+export function requestOpen(request: OpenRequest): void {
+  pending = request;
   for (const listener of [...listeners]) listener();
 }
 
 /** The pending request, consumed — a second take answers null. */
-export function takeOpenRequest(): string | null {
-  const path = pending;
+export function takeOpenRequest(): OpenRequest | null {
+  const request = pending;
   pending = null;
-  return path;
+  return request;
 }
 
 /** Wake on each new request; returns the unsubscribe. */

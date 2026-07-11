@@ -3,26 +3,25 @@ import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import { useFileTree } from "./useFileTree";
-import { subscribeOpenRequests, takeOpenRequest } from "../openRequests";
+import { requestOpen } from "../openRequests";
 import { visibleRows, type TreeNode } from "../domain/tree";
 import { navigate, type ArrowKey } from "../domain/navigate";
 import { TreeView } from "./TreeView";
-import { FileViewer } from "./FileViewer";
 
 /**
- * The Files tab: a lazy tree of the chosen root. Opening a file lifts it into a
- * wide "peek" over the whole window (a 340px rail can't read code — see
- * FileViewer); the tree stays here as the navigator. The root is a pane's
- * worktree or the workspace folder, defaulting to the highlighted pane's
- * worktree — "browse what I'm looking at" — and following the highlight like the
- * Run tab's target; a manual pick holds until the next pane click. Everything
- * reads through the fs capability's scope, so only the workspace and its
- * worktrees are reachable.
+ * The Files tab: a lazy tree of the chosen root — the NAVIGATOR half; the
+ * peek itself lives in the resident `FilesOverlay` (a 340px rail can't read
+ * code, and the viewer must outlive the dock), reached through the shared
+ * open-request bus. The root is a pane's worktree or the workspace folder,
+ * defaulting to the highlighted pane's worktree — "browse what I'm looking
+ * at" — and following the highlight like the Run tab's target; a manual pick
+ * holds until the next pane click. Everything reads through the fs
+ * capability's scope, so only the workspace and its worktrees are reachable.
  *
  * `cursor` is the keyboard-focused row; arrows move it (and expand/collapse).
- * Enter or a DOUBLE click opens the focused file into the peek — a single
- * click only selects the row (aim, drag, keyboard handoff); the tree stays
- * mounted so its cursor and scroll survive the round trip.
+ * Enter or a DOUBLE click asks the overlay to open the focused file — a
+ * single click only selects the row (aim, drag, keyboard handoff); the tree
+ * keeps its cursor and scroll through the whole round trip.
  */
 export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   const [target, setTarget] = useState(
@@ -42,34 +41,17 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
 
   const { state, toggle, refresh } = useFileTree(target);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
   const treeRef = useRef<HTMLDivElement>(null);
 
-  // A new root starts fresh — drop the keyboard cursor and any open preview.
-  // Guarded by the PREVIOUS target, not "every invocation": StrictMode runs
-  // mount effects twice, and an unguarded reset's second run wiped the
-  // preview the open-request consumer below had just set — the dock reveal
-  // then "opened nothing".
+  // A new root starts fresh — drop the keyboard cursor. Guarded by the
+  // PREVIOUS target, not "every invocation": StrictMode runs mount effects
+  // twice, and a reset must never fire for a mere re-invocation.
   const prevTargetRef = useRef(target);
   useEffect(() => {
     if (prevTargetRef.current === target) return;
     prevTargetRef.current = target;
     setCursor(null);
-    setPreview(null);
   }, [target]);
-
-  // Open requests from the plugin's file-open handler (terminal links):
-  // consume the one parked before this tab mounted — the dock reveal is what
-  // mounted it — and every later one live. Declared AFTER the root-reset
-  // effect so a mount-time request wins over the reset's setPreview(null).
-  useEffect(() => {
-    const consume = () => {
-      const path = takeOpenRequest();
-      if (path) setPreview(path);
-    };
-    consume();
-    return subscribeOpenRequests(consume);
-  }, []);
 
   // Keep the focused row in view as the cursor moves.
   useEffect(() => {
@@ -106,10 +88,13 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
     setCursor(node.path);
     focusTree();
   };
+  // Opening goes over the request bus to the resident FilesOverlay — the
+  // same viewer terminal links use. A tree-originated open wants its focus
+  // back here when the peek closes.
   const openFile = (node: TreeNode) => {
     setCursor(node.path);
-    setPreview(node.path);
     focusTree();
+    requestOpen({ path: node.path, root: target, onClose: focusTree });
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -183,16 +168,6 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
         )}
       </div>
 
-      {preview && (
-        <FileViewer
-          path={preview}
-          root={target}
-          onClose={() => {
-            setPreview(null);
-            focusTree();
-          }}
-        />
-      )}
     </div>
   );
 }
