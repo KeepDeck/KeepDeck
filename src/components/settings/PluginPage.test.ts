@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sectionFor } from "./PluginsSection";
+import { sectionFor } from "./PluginPage";
 
 describe("sectionFor", () => {
   const files = { label: "Files", fields: [] };
@@ -14,7 +14,7 @@ describe("sectionFor", () => {
     expect(sectionFor(contributions, "keepdeck.run")).toBe(run);
   });
 
-  it("answers null for a plugin without one — its row simply has no fields", () => {
+  it("answers null for a plugin without one — its page simply has no fields", () => {
     expect(sectionFor(contributions, "keepdeck.claude")).toBeNull();
     expect(sectionFor([], "keepdeck.files")).toBeNull();
   });

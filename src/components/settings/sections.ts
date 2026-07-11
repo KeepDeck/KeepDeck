@@ -1,12 +1,13 @@
 import type { ComponentType } from "react";
 import { GeneralSection } from "./GeneralSection";
-import { PluginsSection } from "./PluginsSection";
 import { TerminalSection } from "./TerminalSection";
 
 /** One page of the settings dialog ([F6]): a nav entry plus the panel it
  * shows. Sections read and write the settings store themselves — the dialog
  * shell only switches between them, so adding a setting never widens a
- * component contract, it just adds a row here (or a control to a section). */
+ * component contract, it just adds a row here (or a control to a section).
+ * Plugins are NOT listed here: each installed plugin is its own dynamic nav
+ * section (see SettingsDialog) — there is no all-plugins page. */
 export interface SettingsSection {
   id: string;
   label: string;
@@ -16,5 +17,4 @@ export interface SettingsSection {
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "general", label: "General", Component: GeneralSection },
   { id: "terminal", label: "Terminal", Component: TerminalSection },
-  { id: "plugins", label: "Plugins", Component: PluginsSection },
 ];
