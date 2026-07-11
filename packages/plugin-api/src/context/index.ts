@@ -44,6 +44,7 @@ export type { PluginKV, PluginStorage } from "./storage.ts";
 export type {
   DockTabContribution,
   DockTabProps,
+  OverlayContribution,
   PaneActionContribution,
   PluginUi,
   TopBarActionContribution,

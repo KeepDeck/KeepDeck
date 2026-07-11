@@ -19,6 +19,7 @@ const GOLDEN = {
     dockTabs: [{ id: "preview", label: "Preview" }],
     topBarActions: [{ id: "open", label: "Open preview" }],
     fileOpeners: [{ id: "peek", label: "Preview peek" }],
+    overlays: [{ id: "viewer", label: "Preview viewer" }],
     settings: true,
   },
 };
@@ -77,6 +78,7 @@ describe("readManifest", () => {
           "topBarActions",
           "paneActions",
           "fileOpeners",
+          "overlays",
         ]) {
           expect(cli.errors).toContain(
             `contributes.${kind}: a "cli" plugin contributes agents, not deck chrome`,
