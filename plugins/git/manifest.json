@@ -2,7 +2,7 @@
   "id": "keepdeck.git",
   "name": "Git",
   "version": "0.1.0",
-  "minApiVersion": 11,
+  "minApiVersion": 13,
   "category": "deck",
   "description": "Live view of each worktree's current changes — status and diffs, scoped to the workspace folder and its worktrees.",
   "capabilities": [
