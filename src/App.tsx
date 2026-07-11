@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { DeckStage } from "./components/DeckStage";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
@@ -29,7 +29,13 @@ import { useContributions } from "./plugins";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { externalPluginUrl } from "./plugins/external/url";
 import { DockPanel, type DockTabItem } from "./components/dock/DockPanel";
+import { PluginFailurePanel } from "./components/dock/PluginFailurePanel";
 import { PluginOverlays } from "./components/PluginOverlays";
+import {
+  pluginCrashes,
+  reportPluginCrash,
+  subscribePluginCrashes,
+} from "./app/pluginHealth";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import { usePaneDrag } from "./app/usePaneDrag";
@@ -131,6 +137,8 @@ function App() {
   }, [settings]);
   const pluginDockTabs = useContributions(pluginRegistries.dockTabs);
   const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
+  // Runtime crash reports — they flip a plugin's tab to the failure panel.
+  const crashes = useSyncExternalStore(subscribePluginCrashes, pluginCrashes);
 
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
   // ([F4]). Two sources, one delivery: an OS file drop from Finder, and an
@@ -154,40 +162,63 @@ function App() {
   // exists only while this list is non-empty.
   const dockTabs: DockTabItem[] = [
     ...(dockOpen && active
-      ? pluginDockTabs.map((c) => ({
-          id: `${c.pluginId}:${c.entry.id}`,
-          label: c.entry.label,
-          element:
-            "Component" in c.entry ? (
-              // Built-in tier: a trusted React component in the host tree.
-              <ErrorBoundary
-                label={c.entry.label}
-                onError={(e) =>
-                  log.error(
-                    `web:plugin:${c.pluginId}`,
-                    `dock tab "${c.entry.id}" crashed: ${describeError(e)}`,
-                  )
-                }
-              >
-                <c.entry.Component
-                  workspace={toWorkspaceSnapshot(active)}
-                  selectedPaneId={selectedPaneId}
+      ? pluginDockTabs.map((c) => {
+          // Any crash badges every tab of the plugin, but the failure panel
+          // REPLACES content only where the crash lives: this tab's own
+          // crash, or an overlay's (shared, tab-less infrastructure — the
+          // plugin's tabs are the only place its panel can live). A SIBLING
+          // tab's crash leaves this tab's healthy content alone.
+          const pluginCrashList = crashes.filter(
+            (crash) => crash.pluginId === c.pluginId,
+          );
+          const panelCrashes = pluginCrashList.filter(
+            (crash) =>
+              crash.surfaceKind === "overlay" ||
+              (crash.surfaceKind === "tab" && crash.surfaceId === c.entry.id),
+          );
+          return {
+            id: `${c.pluginId}:${c.entry.id}`,
+            label: c.entry.label,
+            alert: pluginCrashList.length > 0,
+            element:
+              panelCrashes.length > 0 ? (
+                <PluginFailurePanel
+                  pluginId={c.pluginId}
+                  label={c.entry.label}
+                  crashes={panelCrashes}
                 />
-              </ErrorBoundary>
-            ) : (
-              // External tier: the plugin's own document at its own
-              // kdplugin://<id> origin. allow-same-origin lets it load its own
-              // scripts/assets under that origin (per-plugin CSP still bounds
-              // its network); the origin — cross-origin to the host — is the
-              // isolation boundary, so it can't reach the host or other plugins.
-              <iframe
-                className="dock__plugin-frame"
-                title={c.entry.label}
-                sandbox="allow-scripts allow-same-origin"
-                src={externalPluginUrl(c.pluginId, c.entry.iframe)}
-              />
-            ),
-        }))
+              ) : "Component" in c.entry ? (
+                // Built-in tier: a trusted React component in the host tree.
+                <ErrorBoundary
+                  label={c.entry.label}
+                  onError={(e) => {
+                    log.error(
+                      `web:plugin:${c.pluginId}`,
+                      `dock tab "${c.entry.id}" crashed: ${describeError(e)}`,
+                    );
+                    reportPluginCrash(c.pluginId, "tab", c.entry.id, e);
+                  }}
+                >
+                  <c.entry.Component
+                    workspace={toWorkspaceSnapshot(active)}
+                    selectedPaneId={selectedPaneId}
+                  />
+                </ErrorBoundary>
+              ) : (
+                // External tier: the plugin's own document at its own
+                // kdplugin://<id> origin. allow-same-origin lets it load its own
+                // scripts/assets under that origin (per-plugin CSP still bounds
+                // its network); the origin — cross-origin to the host — is the
+                // isolation boundary, so it can't reach the host or other plugins.
+                <iframe
+                  className="dock__plugin-frame"
+                  title={c.entry.label}
+                  sandbox="allow-scripts allow-same-origin"
+                  src={externalPluginUrl(c.pluginId, c.entry.iframe)}
+                />
+              ),
+          };
+        })
       : []),
   ];
   const activeCount = active?.panes.length ?? 0;

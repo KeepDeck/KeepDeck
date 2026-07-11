@@ -63,7 +63,7 @@ function fakeDeps() {
     onPaneSelected: vi.fn(spyDisposable),
     onDeckChanged: vi.fn(spyDisposable),
   };
-  const ui = { revealDockTab: vi.fn() };
+  const ui = { revealDockTab: vi.fn(), setOverlayVisible: vi.fn() };
   const deps: PluginHostDeps = {
     storage: vi.fn(() => storage),
     settings: vi.fn(() => settingsView),
@@ -130,13 +130,26 @@ describe("buildPluginContext", () => {
     ).toThrow('contribution not declared in the manifest: overlays "ghost"');
   });
 
-  it("forwards revealDockTab to the host UI port with the plugin's identity", () => {
+  it("forwards revealDockTab and setOverlayVisible to the host UI port with the plugin's identity", () => {
     const registries = createContributionRegistries();
     const { deps, ui } = fakeDeps();
     const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
 
     ctx.ui.revealDockTab("t");
     expect(ui.revealDockTab).toHaveBeenCalledWith("p", "t");
+    ctx.ui.setOverlayVisible("viewer", false);
+    expect(ui.setOverlayVisible).toHaveBeenCalledWith("p", "viewer", false);
+  });
+
+  it("refuses setOverlayVisible for an UNDECLARED overlay id — no key seeding", () => {
+    const registries = createContributionRegistries();
+    const { deps, ui } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    expect(() => ctx.ui.setOverlayVisible("ghost", true)).toThrow(
+      'contribution not declared in the manifest: overlays "ghost"',
+    );
+    expect(ui.setOverlayVisible).not.toHaveBeenCalled();
   });
 
   it("refuses any contribution the manifest does not declare", () => {

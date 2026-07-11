@@ -38,6 +38,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       registerPaneAction: () => disposable,
       registerOverlay: () => disposable,
       revealDockTab: () => {},
+      setOverlayVisible: () => {},
     },
     openers: { register: () => disposable },
     settings: {

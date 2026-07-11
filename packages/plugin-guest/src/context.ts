@@ -1,6 +1,7 @@
 import type {
   AgentHooks,
   Disposable,
+  FileOpenRequest,
   FsEntry,
   FsFile,
   GitStatus,
@@ -10,7 +11,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { describeError } from "./errors";
 import type { GuestRpc } from "./rpc";
-import type { WireHookCall, WireSessionEvent } from "./protocol";
+import type { WireHookCall, WireOpenCall, WireSessionEvent } from "./protocol";
 
 /** A guest context wired to a bridge, plus the sink the connection pumps
  * host-initiated `event` pushes into. */
@@ -67,6 +68,13 @@ export function buildGuestContext(
   // Agent hooks stay HERE (functions can't cross the wire); the host pushes
   // `hook:<id>` per invocation and we answer with `agents.hookResult`.
   const agentHooks = new Map<string, AgentHooks>();
+  // File-open handlers likewise: identity crosses as data, the open()
+  // callback stays here; the host pushes `open:<id>` and we answer with
+  // `openers.openResult`.
+  const openHandlers = new Map<
+    string,
+    (request: FileOpenRequest) => Promise<boolean>
+  >();
   // One `fswatch:<id>` change callback per open directory watch.
   const watchCallbacks = new Map<string, () => void>();
   let nextRegId = 1;
@@ -190,28 +198,38 @@ export function buildGuestContext(
           () => actionCallbacks.delete(key),
         );
       },
-      registerOverlay: () => {
-        // A resident overlay is a live component; until an iframe variant
-        // exists it cannot cross the sandbox boundary.
-        throw new Error(
-          "ui.registerOverlay is not yet available to external plugins",
+      registerOverlay: (overlay) => {
+        // An external overlay is an iframe document, never a component: a
+        // React Component cannot be serialized across the realm boundary.
+        // Same rule (and message shape) as external dock tabs.
+        if ("Component" in overlay) {
+          throw new Error(
+            "external overlays must use the `iframe` variant: a React Component cannot cross the plugin sandbox boundary",
+          );
+        }
+        return registerRemote(
+          "ui.registerOverlay",
+          { id: overlay.id, iframe: overlay.iframe },
+          noop,
         );
       },
-      revealDockTab: () => {
-        // Not bridged yet — fail loud (the external fail-closed idiom), not
-        // silently: a plugin author must learn the surface isn't there.
-        throw new Error(
-          "ui.revealDockTab is not yet available to external plugins",
-        );
-      },
+      setOverlayVisible: (id, visible) =>
+        void rpc.call("ui.setOverlayVisible", [id, visible]).catch(noop),
+      // Fire-and-forget by contract (returns void) — a rejection has nowhere
+      // to land, and the host treats an unregistered tab as a no-op anyway.
+      revealDockTab: (id) => void rpc.call("ui.revealDockTab", [id]).catch(noop),
     },
 
     openers: {
-      register: () => {
-        // A file-open handler is a host-invoked callback; until an RPC
-        // callback bridge exists it cannot cross the sandbox boundary.
-        throw new Error(
-          "file-open handlers are not yet available to external plugins",
+      // Identity crosses as data; open() stays in this realm and the host
+      // invokes it per click through `open:<id>` pushes — the agent-hook
+      // pattern with a boolean answer.
+      register: (handler) => {
+        openHandlers.set(handler.id, handler.open);
+        return registerRemote(
+          "openers.register",
+          { id: handler.id, label: handler.label },
+          () => openHandlers.delete(handler.id),
         );
       },
     },
@@ -375,9 +393,33 @@ export function buildGuestContext(
     }
   }
 
+  /** Run one host-requested file-open and post the boolean verdict back. */
+  async function runOpen(callId: number, payload: unknown): Promise<void> {
+    const { handlerId, request } = payload as WireOpenCall;
+    try {
+      const open = openHandlers.get(handlerId);
+      if (!open) throw new Error(`no file-open handler "${handlerId}"`);
+      const handled = await open(request);
+      void rpc
+        .call("openers.openResult", [callId, { ok: true, handled: handled === true }])
+        .catch(noop);
+    } catch (error) {
+      void rpc
+        .call("openers.openResult", [
+          callId,
+          { ok: false, error: describeError(error) },
+        ])
+        .catch(noop);
+    }
+  }
+
   function dispatchEvent(channel: string, payload: unknown): void {
     if (channel.startsWith("hook:")) {
       void runHook(Number(channel.slice("hook:".length)), payload);
+      return;
+    }
+    if (channel.startsWith("open:")) {
+      void runOpen(Number(channel.slice("open:".length)), payload);
       return;
     }
     if (channel.startsWith("session:")) {

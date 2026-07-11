@@ -16,6 +16,14 @@ export interface PluginUi {
    * that must outlive chrome (the Files peek waiting for an open request)
    * lives entirely in the plugin while the host provides only the slot. */
   registerOverlay(overlay: OverlayContribution): Disposable;
+  /** Show or hide one of this plugin's overlays. The two tiers START
+   * differently — a Component overlay is visible from mount (it self-manages
+   * by rendering nothing), an iframe overlay starts hidden (a full-window
+   * frame can't render "nothing"; unhidden it would also swallow clicks) —
+   * and this is the one switch that moves either. An id the manifest doesn't
+   * DECLARE is refused like any contribution; a declared id that isn't
+   * currently registered is an inert no-op. */
+  setOverlayVisible(id: string, visible: boolean): void;
   /** Contribute an icon action to the top bar's right cluster. */
   registerTopBarAction(action: TopBarActionContribution): Disposable;
   /** Contribute an icon action to every agent pane's header. FORWARD
@@ -56,14 +64,25 @@ export interface DockTabProps {
   selectedPaneId: string | null;
 }
 
-/** A resident overlay. Builtin tier only for now — a React component in the
- * host tree, no props (it reads its own plugin-internal state); an external
- * iframe variant arrives with its first real consumer. */
-export interface OverlayContribution {
-  id: string;
-  /** Rendered mounted-but-empty until the plugin has something to show. */
-  Component: ComponentType;
-}
+/** A resident overlay, in one of two forms — by TIER, like dock tabs:
+ * built-in plugins contribute a React component rendered in the host tree
+ * (no props — it reads its own plugin-internal state and renders nothing
+ * while idle); external plugins contribute a document path inside their own
+ * bundle, kept mounted as a sandboxed full-window iframe under the plugin's
+ * origin — hidden until the plugin calls `setOverlayVisible`. */
+export type OverlayContribution =
+  | {
+      id: string;
+      /** Built-in tier: mounted-but-empty until the plugin has something to
+       * show. Visible by default. */
+      Component: ComponentType;
+    }
+  | {
+      id: string;
+      /** External tier: a document path relative to the plugin's install
+       * folder, shown full-window when the plugin asks. Hidden by default. */
+      iframe: string;
+    };
 
 /** `title` on actions is tooltip semantics — it feeds the button's
  * `title`/`aria-label`, matching how the host's own bar icons work. */

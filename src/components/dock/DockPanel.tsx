@@ -8,6 +8,9 @@ export interface DockTabItem {
   id: string;
   label: string;
   element: ReactNode;
+  /** The tab's plugin has a problem (a crashed surface) — the strip shows a
+   * red alert badge so the failure is visible before the tab is opened. */
+  alert?: boolean;
 }
 
 /**
@@ -48,6 +51,15 @@ export function DockPanel({
             onClick={() => onSelectTab(tab.id)}
           >
             {tab.label}
+            {tab.alert && (
+              <span
+                className="dock__tab-alert"
+                role="img"
+                aria-label={`${tab.label} has a problem`}
+              >
+                !
+              </span>
+            )}
           </button>
         ))}
       </div>

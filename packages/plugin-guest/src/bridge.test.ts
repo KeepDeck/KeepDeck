@@ -338,4 +338,89 @@ describe("external plugin bridge", () => {
 
     await expect(pending).rejects.toThrow(/disposed/);
   });
+
+  it("proxies a file-open handler: the request crosses, the verdict comes back", async () => {
+    const seen: string[] = [];
+    const plugin: KeepDeckPlugin = {
+      activate(ctx) {
+        ctx.openers.register({
+          id: "peek",
+          label: "Peek",
+          open: async ({ path }) => {
+            seen.push(path);
+            return path.endsWith(".md");
+          },
+        });
+      },
+    };
+    const { host, bridge } = wire(plugin);
+    await bridge.activated;
+
+    // The host holds a PROXY tagged with the plugin's identity, not the fn.
+    expect(host.fileOpeners.map((h) => ({ id: h.id, label: h.label }))).toEqual([
+      { id: "peek", label: "Peek" },
+    ]);
+    await expect(host.fileOpeners[0].open({ path: "/a/readme.md" })).resolves.toBe(
+      true,
+    );
+    await expect(host.fileOpeners[0].open({ path: "/a/logo.png" })).resolves.toBe(
+      false,
+    );
+    expect(seen).toEqual(["/a/readme.md", "/a/logo.png"]);
+  });
+
+  it("a throwing realm handler rejects the proxy — the chain logs and declines", async () => {
+    const plugin: KeepDeckPlugin = {
+      activate(ctx) {
+        ctx.openers.register({
+          id: "boom",
+          label: "Boom",
+          open: async () => {
+            throw new Error("realm broke");
+          },
+        });
+      },
+    };
+    const { host, bridge } = wire(plugin);
+    await bridge.activated;
+
+    await expect(host.fileOpeners[0].open({ path: "/x" })).rejects.toThrow(
+      "realm broke",
+    );
+  });
+
+  it("revealDockTab crosses as fire-and-forget", async () => {
+    const { host, bridge, ctxReady } = wireCapturingCtx();
+    await bridge.activated;
+    const ctx = await ctxReady;
+
+    ctx.ui.revealDockTab("files");
+    await flush();
+    expect(host.revealedTabs).toEqual(["files"]);
+  });
+
+  it("an external overlay crosses as an iframe document; visibility follows", async () => {
+    const plugin: KeepDeckPlugin = {
+      activate(ctx) {
+        ctx.ui.registerOverlay({ id: "viewer", iframe: "ui/viewer.html" });
+        ctx.ui.setOverlayVisible("viewer", true);
+      },
+    };
+    const { host, bridge } = wire(plugin);
+    await bridge.activated;
+    await flush();
+
+    expect(host.overlays).toEqual([{ id: "viewer", iframe: "ui/viewer.html" }]);
+    expect(host.overlayVisibility).toEqual([["viewer", true]]);
+  });
+
+  it("an external overlay refuses the Component variant, synchronously", async () => {
+    const { bridge, ctxReady } = wireCapturingCtx();
+    await bridge.activated;
+    const ctx = await ctxReady;
+
+    expect(() =>
+      ctx.ui.registerOverlay({ id: "viewer", Component: () => null }),
+    ).toThrow("iframe");
+  });
 });

@@ -1,6 +1,13 @@
+import { useSyncExternalStore } from "react";
+import {
+  overlayVisibility,
+  subscribeOverlayVisibility,
+} from "../app/overlayVisibility";
+import { reportPluginCrash } from "../app/pluginHealth";
 import { pluginRegistries } from "../app/pluginManager";
 import { describeError, log } from "../ipc/log";
 import { useContributions } from "../plugins";
+import { externalPluginUrl } from "../plugins/external/url";
 import { ErrorBoundary } from "../ui/ErrorBoundary";
 
 /**
@@ -9,26 +16,59 @@ import { ErrorBoundary } from "../ui/ErrorBoundary";
  * mounted for its whole active lifetime (registry entries dispose with the
  * plugin), each inside its own error boundary so a crashing overlay can't
  * take the deck down. The host neither knows nor cares what an overlay
- * renders; a well-behaved one is empty until it has something to show.
+ * renders. Visibility (`ui.setOverlayVisible`) toggles `hidden`, never
+ * mounting: a resident's state must survive being out of sight. Defaults by
+ * tier — a Component self-manages (visible), a full-window iframe cannot
+ * (hidden, or it would swallow every click).
  */
 export function PluginOverlays() {
   const overlays = useContributions(pluginRegistries.overlays);
+  const visibility = useSyncExternalStore(
+    subscribeOverlayVisibility,
+    overlayVisibility,
+  );
   return (
     <>
-      {overlays.map((c) => (
-        <ErrorBoundary
-          key={`${c.pluginId}:${c.entry.id}`}
-          label={c.entry.id}
-          onError={(e) =>
-            log.error(
-              `web:plugin:${c.pluginId}`,
-              `overlay "${c.entry.id}" crashed: ${describeError(e)}`,
-            )
-          }
-        >
-          <c.entry.Component />
-        </ErrorBoundary>
-      ))}
+      {overlays.map((c) => {
+        const key = `${c.pluginId}:${c.entry.id}`;
+        const visible = visibility.get(key) ?? "Component" in c.entry;
+        return (
+          <ErrorBoundary
+            key={key}
+            label={c.entry.id}
+            // The crash surfaces through the report (badge + failure panel);
+            // the default inline fallback would appear as stray text at the
+            // slot's position — an overlay's failure has no place HERE.
+            fallback={null}
+            onError={(e) => {
+              log.error(
+                `web:plugin:${c.pluginId}`,
+                `overlay "${c.entry.id}" crashed: ${describeError(e)}`,
+              );
+              // An overlay is invisible — without this report the crash
+              // would be too. It lights the plugin's dock tab badge and
+              // failure panel.
+              reportPluginCrash(c.pluginId, "overlay", c.entry.id, e);
+            }}
+          >
+            {"Component" in c.entry ? (
+              <div hidden={!visible}>
+                <c.entry.Component />
+              </div>
+            ) : (
+              // External tier: the plugin's own document, same origin isolation
+              // as its dock tabs — resident (kept mounted while hidden).
+              <iframe
+                className="plugin-overlay__frame"
+                title={c.entry.id}
+                sandbox="allow-scripts allow-same-origin"
+                src={externalPluginUrl(c.pluginId, c.entry.iframe)}
+                hidden={!visible}
+              />
+            )}
+          </ErrorBoundary>
+        );
+      })}
     </>
   );
 }

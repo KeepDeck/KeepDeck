@@ -102,7 +102,8 @@ export type EventChannel =
   | `session:${string}`
   | `action:${string}`
   | `fswatch:${string}`
-  | `hook:${string}`;
+  | `hook:${string}`
+  | `open:${string}`;
 
 /** The three deck-lifecycle channels a guest may subscribe to by name via
  * `events.subscribe`. Kept as a value so the host can validate an incoming
@@ -146,6 +147,14 @@ export function hookChannel(id: number): `hook:${string}` {
   return `hook:${id}`;
 }
 
+/** The push channel for ONE file-open invocation (host→guest) — the same
+ * request/response shape as agent hooks. The host mints the id and pushes a
+ * `WireOpenCall`; the guest runs the plugin's handler and answers with an
+ * `openers.openResult` call carrying the same id. */
+export function openChannel(id: number): `open:${string}` {
+  return `open:${id}`;
+}
+
 // ------------------------------------------------------------- session bodies
 
 /** The wire form of a `PluginSessionEvent`. `output.bytes` is a `number[]`, not
@@ -173,4 +182,14 @@ export interface WireHookCall {
   hook: string;
   input: unknown;
   output: WireSpawnPlanOutput;
+}
+
+// ---------------------------------------------------------------- open bodies
+
+/** The payload of one `open:<id>` push: which of the plugin's file-open
+ * handlers, and the request it must answer (already plain data — a
+ * `FileOpenRequest` is serializable by contract). */
+export interface WireOpenCall {
+  handlerId: string;
+  request: { path: string };
 }

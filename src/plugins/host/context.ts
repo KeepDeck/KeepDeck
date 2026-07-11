@@ -102,6 +102,14 @@ export function buildPluginContext(
         return track(registries.overlays.add(pluginId, overlay));
       },
       revealDockTab: (id) => deps.ui.revealDockTab(pluginId, id),
+      setOverlayVisible: (id, visible) => {
+        // Same fail-closed gate as every contribution surface — and the one
+        // route that could otherwise SEED a visibility key for an id the
+        // plugin never declared (a stale `true` would then override the
+        // iframe tier's hidden default on a later registration).
+        declared("overlays", id);
+        deps.ui.setOverlayVisible(pluginId, id, visible);
+      },
     },
     openers: {
       register: (handler) => {

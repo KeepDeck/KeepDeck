@@ -15,7 +15,9 @@ import {
   DECK_EVENT_CHANNELS,
   fswatchChannel,
   hookChannel,
+  openChannel,
   type WireHookCall,
+  type WireOpenCall,
   type WireSpawnPlanOutput,
 } from "./protocol";
 import { createHostSessions } from "./hostSessions";
@@ -96,6 +98,42 @@ export function createHostDispatch(
       });
       const call: WireHookCall = { agentId, hook, input, output };
       push(hookChannel(id), call);
+    });
+  }
+
+  // File-open invocations awaiting their `openers.openResult` reply — the
+  // agent-hook pattern, but the stake is a CLICK: a hung or dead realm must
+  // not strand it, so a timeout settles the proxy as a rejection, which the
+  // host's file-open chain logs and treats as a decline (the system opener
+  // takes the file). Tighter than the hook timeout — a user is watching.
+  const OPEN_TIMEOUT_MS = 5_000;
+  let nextOpenId = 1;
+  const pendingOpens = new Map<
+    number,
+    (result: { ok: true; handled: boolean } | { ok: false; error: string }) => void
+  >();
+
+  /** Ask the realm's handler about ONE file-open request. */
+  function callOpen(handlerId: string, request: { path: string }): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      const id = nextOpenId++;
+      const timer = setTimeout(() => {
+        if (pendingOpens.delete(id))
+          reject(
+            new Error(
+              `file-open handler "${handlerId}" timed out after ${OPEN_TIMEOUT_MS}ms`,
+            ),
+          );
+      }, OPEN_TIMEOUT_MS);
+      pendingOpens.set(id, (result) => {
+        clearTimeout(timer);
+        if (!result.ok) return reject(new Error(result.error));
+        // A hostile realm's word only ever gets to be a BOOLEAN: anything
+        // but literal true is a decline.
+        resolve(result.handled === true);
+      });
+      const call: WireOpenCall = { handlerId, request };
+      push(openChannel(id), call);
     });
   }
 
@@ -181,6 +219,39 @@ export function createHostDispatch(
         }),
       );
     },
+    "ui.revealDockTab": ([id]) => ctx.ui.revealDockTab(id as string),
+    "ui.registerOverlay": ([regId, entry]) => {
+      const { id, iframe } = entry as { id: string; iframe: unknown };
+      // Only the iframe variant may arrive over the wire — a Component can't
+      // exist here, and a hostile realm's junk must not either.
+      if (typeof iframe !== "string" || iframe.length === 0) {
+        throw new Error("external overlays must carry an `iframe` document path");
+      }
+      retain(regId as number, ctx.ui.registerOverlay({ id, iframe }));
+    },
+    "ui.setOverlayVisible": ([id, visible]) =>
+      ctx.ui.setOverlayVisible(id as string, visible === true),
+
+    // ---- file-open handlers: identity as data; open() as a host→realm proxy ----
+    "openers.register": ([regId, entry]) => {
+      const { id, label } = entry as { id: string; label: string };
+      retain(
+        regId as number,
+        ctx.openers.register({
+          id,
+          label,
+          open: (request) => callOpen(id, request),
+        }),
+      );
+    },
+    "openers.openResult": ([id, result]) => {
+      const settle = pendingOpens.get(id as number);
+      if (!settle) return; // timed out, disposed, or never ours
+      pendingOpens.delete(id as number);
+      settle(
+        asRealmResult(result, (v) => ({ ok: true, handled: v.handled === true })),
+      );
+    },
 
     // ---- agents: identity as data; hooks as host→realm proxies ----
     "agents.register": ([regId, entry]) => {
@@ -201,7 +272,7 @@ export function createHostDispatch(
       const settle = pendingHooks.get(id as number);
       if (!settle) return; // timed out, disposed, or never ours
       pendingHooks.delete(id as number);
-      settle(result as { ok: true; output: unknown } | { ok: false; error: string });
+      settle(asRealmResult(result, (v) => ({ ok: true, output: v.output })));
     },
 
     // ---- the one teardown path shared by every registration kind ----
@@ -296,6 +367,10 @@ export function createHostDispatch(
         settle({ ok: false, error: "plugin bridge disposed" });
       }
       pendingHooks.clear();
+      for (const settle of pendingOpens.values()) {
+        settle({ ok: false, error: "plugin bridge disposed" });
+      }
+      pendingOpens.clear();
       subscriptions.disposeAll();
       sessions.disposeAll();
       for (const disposable of registrations.values()) disposable.dispose();
@@ -304,6 +379,30 @@ export function createHostDispatch(
       watches.clear();
     },
   };
+}
+
+/**
+ * Shape a realm's reply BEFORE it may settle a pending host→realm call. The
+ * settle callbacks run after `clearTimeout` — a `result.ok` read throwing on
+ * junk (`[id]` with no result, `null`, a primitive) would strand the pending
+ * promise FOREVER, past the very timeout built to prevent hangs. So junk
+ * becomes an explicit failure, and only a literal `ok: true` reaches `onOk`.
+ */
+function asRealmResult<T extends { ok: true }>(
+  value: unknown,
+  onOk: (v: Record<string, unknown>) => T,
+): T | { ok: false; error: string } {
+  if (typeof value === "object" && value !== null) {
+    const v = value as Record<string, unknown>;
+    if (v.ok === true) return onOk(v);
+    if (v.ok === false) {
+      return {
+        ok: false,
+        error: typeof v.error === "string" ? v.error : "realm reported a failure",
+      };
+    }
+  }
+  return { ok: false, error: "malformed result from the realm" };
 }
 
 /** Validate a realm-returned plan output down to plain strings; `null` when

@@ -49,6 +49,8 @@ export interface PluginHostDeps {
   ui: {
     /** Open the dock on the active workspace with this plugin's tab selected. */
     revealDockTab(pluginId: string, entryId: string): void;
+    /** Show/hide one of this plugin's overlays (see `PluginUi`). */
+    setOverlayVisible(pluginId: string, entryId: string, visible: boolean): void;
   };
   /** This plugin's logger — lines land in the shared log namespaced by id. */
   log(pluginId: string): PluginLogger;
