@@ -1,10 +1,7 @@
 import { useState, type ReactNode } from "react";
-import { pluginRegistries } from "../../app/pluginManager";
-import { useContributions } from "../../plugins";
 import { CloseIcon } from "../../ui/icons";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
-import { PluginSettingsSection } from "./PluginSettingsSection";
 import { SETTINGS_SECTIONS } from "./sections";
 
 interface SettingsDialogProps {
@@ -14,42 +11,21 @@ interface SettingsDialogProps {
 /**
  * Global settings ([F6]) — an in-app modal (no system windows): a left nav of
  * sections over a panel area. Sections talk to the settings store themselves;
- * controls apply instantly, Done/Esc only dismiss. Static sections come from
- * the `SETTINGS_SECTIONS` registry; plugin-contributed sections (rendered by
- * the host from their declared schema) follow.
+ * controls apply instantly, Done/Esc only dismiss. All sections come from the
+ * `SETTINGS_SECTIONS` registry; plugin-contributed settings render INSIDE the
+ * Plugins section, under their plugin's row (one home for everything plugin —
+ * user decision), never as nav entries of their own.
  */
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
   useEscape(onClose);
-  const contributed = useContributions(pluginRegistries.settingsSections);
-  const appSections: { id: string; label: string; body: ReactNode }[] =
+  const sections: { id: string; label: string; body: ReactNode }[] =
     SETTINGS_SECTIONS.map((s) => ({
       id: s.id,
       label: s.label,
       body: <s.Component />,
     }));
-  // Plugin-contributed sections are a separate tier of the nav (their own
-  // labeled group below the app's), not more app sections.
-  const pluginSections: { id: string; label: string; body: ReactNode }[] =
-    contributed.map((c) => ({
-      id: `plugin:${c.pluginId}`,
-      label: c.entry.label,
-      body: <PluginSettingsSection pluginId={c.pluginId} section={c.entry} />,
-    }));
-  const sections = [...appSections, ...pluginSections];
   const [activeId, setActiveId] = useState(sections[0].id);
   const active = sections.find((s) => s.id === activeId) ?? sections[0];
-
-  const navItem = (s: { id: string; label: string }) => (
-    <button
-      key={s.id}
-      type="button"
-      className={`settings__nav-item${s.id === active.id ? " settings__nav-item--active" : ""}`}
-      aria-current={s.id === active.id || undefined}
-      onClick={() => setActiveId(s.id)}
-    >
-      {s.label}
-    </button>
-  );
 
   return (
     <ModalOverlay>
@@ -74,13 +50,17 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
         <div className="settings__body">
           <nav className="settings__nav" aria-label="Settings sections">
-            {appSections.map(navItem)}
-            {pluginSections.length > 0 && (
-              <span className="settings__nav-group" role="presentation">
-                Plugins
-              </span>
-            )}
-            {pluginSections.map(navItem)}
+            {sections.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`settings__nav-item${s.id === active.id ? " settings__nav-item--active" : ""}`}
+                aria-current={s.id === active.id || undefined}
+                onClick={() => setActiveId(s.id)}
+              >
+                {s.label}
+              </button>
+            ))}
           </nav>
           {sections.map((s) => (
             // Every section stays mounted and inactive ones hide (the

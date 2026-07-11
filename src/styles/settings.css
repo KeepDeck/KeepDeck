@@ -66,19 +66,6 @@
   color: #c5c8c6;
 }
 
-/* The nav's plugin-tier divider: contributed sections sit under their own
-   muted group label so they read apart from the app's built-in sections. */
-.settings__nav-group {
-  margin-top: 12px;
-  padding: 10px 10px 2px;
-  border-top: 1px solid #1c2230;
-  color: #4b5563;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .settings__nav-item--active {
   background-color: #1c2230;
   color: #c5c8c6;
@@ -213,9 +200,26 @@
 
 .settings__plugin {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings__plugin-row {
+  display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* An active plugin's own settings, inline under its row — indented past the
+   checkbox so the fields read as the plugin's, not the list's. */
+.settings__plugin-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0 4px 26px;
+  padding-left: 12px;
+  border-left: 1px solid #1c2230;
 }
 
 .settings__plugin .settings__toggle {

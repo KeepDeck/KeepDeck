@@ -1,20 +1,30 @@
 import { useState } from "react";
-import type { Capability } from "@keepdeck/plugin-api";
+import type {
+  Capability,
+  SettingsSectionContribution,
+} from "@keepdeck/plugin-api";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import {
   externalPluginInfo,
   pluginHost,
+  pluginRegistries,
   rescanPlugins,
   restartPlugin,
 } from "../../app/pluginManager";
-import { useInstalledPlugins } from "../../plugins";
+import { useContributions, useInstalledPlugins } from "../../plugins";
+import type { Contribution } from "../../plugins/registries/contributions";
+import { PluginSettingsSection } from "./PluginSettingsSection";
 
 /**
  * The installed plugins — not an experiment, a first-class part of the app
  * (user decision: the system either exists or it doesn't; no master flag).
- * Each plugin shows its enable toggle and, for an external one, the access it
- * asks for (enabling IS the consent) plus a `dev` badge when it's an unpacked
- * folder. Rescan re-reads the plugins folder (KeepDeck doesn't watch it);
+ * ONE home for everything plugin: each row shows the enable toggle, an
+ * external plugin's requested access (enabling IS the consent) and `dev`
+ * badge — and, for an active plugin that contributed a settings section, its
+ * fields inline right under the row (user decision: no separate nav entries
+ * for plugin settings). A disabled plugin's section is unregistered with the
+ * plugin, so the fields and the features they toggle appear and disappear
+ * together. Rescan re-reads the plugins folder (KeepDeck doesn't watch it);
  * Restart reloads an active plugin.
  */
 /** One rescan-spinner turn, in ms — mirrors the 0.7s CSS animation period so
@@ -23,6 +33,7 @@ const SPIN_MS = 700;
 
 export function PluginsSection() {
   const installed = useInstalledPlugins(pluginHost);
+  const sections = useContributions(pluginRegistries.settingsSections);
   const [scanning, setScanning] = useState(false);
 
   const rescan = () => {
@@ -76,7 +87,11 @@ export function PluginsSection() {
               <div key={category} className="settings__plugin-group">
                 <span className="settings__plugin-group-title">{title}</span>
                 {members.map((plugin) => (
-                  <PluginRow key={plugin.manifest.id} plugin={plugin} />
+                  <PluginRow
+                    key={plugin.manifest.id}
+                    plugin={plugin}
+                    section={sectionFor(sections, plugin.manifest.id)}
+                  />
                 ))}
               </div>
             );
@@ -93,49 +108,71 @@ const GROUPS: { category: "cli" | "deck"; title: string }[] = [
   { category: "deck", title: "Deck" },
 ];
 
+/** The settings section `pluginId` contributed, if any. Registrations live
+ * and die with the plugin, so a disabled plugin naturally answers null. Pure
+ * — exported for its unit test. */
+export function sectionFor(
+  contributions: readonly Contribution<SettingsSectionContribution>[],
+  pluginId: string,
+): SettingsSectionContribution | null {
+  return contributions.find((c) => c.pluginId === pluginId)?.entry ?? null;
+}
+
 function PluginRow({
   plugin,
+  section,
 }: {
   plugin: ReturnType<typeof pluginHost.getInstalled>[number];
+  section: SettingsSectionContribution | null;
 }) {
   const external = externalPluginInfo(plugin.manifest.id);
   return (
     <div className="settings__plugin">
-      <label className="settings__toggle">
-        <input
-          type="checkbox"
-          checked={plugin.status.kind !== "disabled"}
-          onChange={(e) =>
-            void pluginHost.setEnabled(plugin.manifest.id, e.target.checked)
-          }
-          aria-label={`Enable plugin ${plugin.manifest.name}`}
-        />
-        <span className="settings__toggle-text">
-          <span className="settings__plugin-name">
-            {plugin.manifest.name}
-            {external?.dev && <span className="settings__badge">dev</span>}
-          </span>
-          <span className="settings__hint">
-            {plugin.manifest.id} · {plugin.manifest.version}
-            {plugin.status.kind === "failed" &&
-              ` · failed: ${plugin.status.reason}`}
-          </span>
-          {external && plugin.manifest.capabilities.length > 0 && (
-            <span className="settings__hint">
-              Wants: {plugin.manifest.capabilities.map(describe).join(", ")}
+      <div className="settings__plugin-row">
+        <label className="settings__toggle">
+          <input
+            type="checkbox"
+            checked={plugin.status.kind !== "disabled"}
+            onChange={(e) =>
+              void pluginHost.setEnabled(plugin.manifest.id, e.target.checked)
+            }
+            aria-label={`Enable plugin ${plugin.manifest.name}`}
+          />
+          <span className="settings__toggle-text">
+            <span className="settings__plugin-name">
+              {plugin.manifest.name}
+              {external?.dev && <span className="settings__badge">dev</span>}
             </span>
-          )}
-        </span>
-      </label>
-      {plugin.status.kind === "active" && (
-        <button
-          type="button"
-          className="form__cancel settings__plugin-restart"
-          onClick={() => void restartPlugin(plugin.manifest.id)}
-          title={`Restart ${plugin.manifest.name}`}
-        >
-          Restart
-        </button>
+            <span className="settings__hint">
+              {plugin.manifest.id} · {plugin.manifest.version}
+              {plugin.status.kind === "failed" &&
+                ` · failed: ${plugin.status.reason}`}
+            </span>
+            {external && plugin.manifest.capabilities.length > 0 && (
+              <span className="settings__hint">
+                Wants: {plugin.manifest.capabilities.map(describe).join(", ")}
+              </span>
+            )}
+          </span>
+        </label>
+        {plugin.status.kind === "active" && (
+          <button
+            type="button"
+            className="form__cancel settings__plugin-restart"
+            onClick={() => void restartPlugin(plugin.manifest.id)}
+            title={`Restart ${plugin.manifest.name}`}
+          >
+            Restart
+          </button>
+        )}
+      </div>
+      {section && plugin.status.kind === "active" && (
+        <div className="settings__plugin-fields">
+          <PluginSettingsSection
+            pluginId={plugin.manifest.id}
+            section={section}
+          />
+        </div>
       )}
     </div>
   );
