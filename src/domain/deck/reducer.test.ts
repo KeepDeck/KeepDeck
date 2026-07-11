@@ -46,7 +46,7 @@ describe("deckReducer closeAgent", () => {
 
   it("keeps selection but clears a maximize that no longer resolves (solo survivor)", () => {
     // Focus left on a now-solo workspace is masked (solo never maximizes)
-    // but would spring back on the NEXT added pane, rendering it collapsed
+    // but would spring back on the NEXT added pane, rendering it minimized
     // and invisible — the reducer must not produce that state.
     const next = deckReducer(
       state({
@@ -259,7 +259,7 @@ describe("deckReducer selection", () => {
         pane: { id: "a-2", cwd: "/wt", branch: "kd/a/2" },
       },
     );
-    // Maximize dropped so the appended pane isn't left collapsed; it's selected.
+    // Maximize dropped so the appended pane isn't left hidden; it's selected.
     expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
   });
 
@@ -562,17 +562,17 @@ describe("deckReducer setWorkspacePluginSlot", () => {
   });
 });
 
-describe("deckReducer toggleCollapse", () => {
-  it("minimizes a pane into the collapsed set", () => {
+describe("deckReducer toggleMinimize", () => {
+  it("minimizes a pane into the minimized set", () => {
     const next = deckReducer(
       state({
         workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
         viewByWs: { a: { select: "a-1" } },
       }),
-      { type: "toggleCollapse", wsId: "a", paneId: "a-2" },
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
     );
-    expect(next.viewByWs).toEqual({ a: { select: "a-1", collapsed: ["a-2"] } });
+    expect(next.viewByWs).toEqual({ a: { select: "a-1", minimized: ["a-2"] } });
   });
 
   it("restores a minimized pane and highlights it where it reappears", () => {
@@ -580,12 +580,12 @@ describe("deckReducer toggleCollapse", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
-        viewByWs: { a: { select: "a-1", collapsed: ["a-2", "a-3"] } },
+        viewByWs: { a: { select: "a-1", minimized: ["a-2", "a-3"] } },
       }),
-      { type: "toggleCollapse", wsId: "a", paneId: "a-2" },
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
     );
     // a-2 leaves the set and becomes the selection; a-3 stays minimized.
-    expect(next.viewByWs).toEqual({ a: { select: "a-2", collapsed: ["a-3"] } });
+    expect(next.viewByWs).toEqual({ a: { select: "a-2", minimized: ["a-3"] } });
   });
 
   it("prunes the whole view when the last minimized pane is restored", () => {
@@ -593,11 +593,11 @@ describe("deckReducer toggleCollapse", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2"])],
         activeId: "a",
-        viewByWs: { a: { collapsed: ["a-2"] } },
+        viewByWs: { a: { minimized: ["a-2"] } },
       }),
-      { type: "toggleCollapse", wsId: "a", paneId: "a-2" },
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
     );
-    // collapsed empties → undefined; select is set to the restored pane, so the
+    // minimized empties → undefined; select is set to the restored pane, so the
     // view is { select: "a-2" }, not pruned to {}.
     expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
   });
@@ -609,11 +609,11 @@ describe("deckReducer toggleCollapse", () => {
         activeId: "a",
         viewByWs: { a: { focus: "a-1", select: "a-1" } },
       }),
-      { type: "toggleCollapse", wsId: "a", paneId: "a-1" },
+      { type: "toggleMinimize", wsId: "a", paneId: "a-1" },
     );
     // You can't spotlight a hidden pane: focus is cleared, a-1 is minimized,
     // and the stranded selection moves to the surviving visible pane.
-    expect(next.viewByWs).toEqual({ a: { select: "a-2", collapsed: ["a-1"] } });
+    expect(next.viewByWs).toEqual({ a: { select: "a-2", minimized: ["a-1"] } });
   });
 
   it("keeps a maximize when a DIFFERENT pane is minimized", () => {
@@ -623,10 +623,10 @@ describe("deckReducer toggleCollapse", () => {
         activeId: "a",
         viewByWs: { a: { focus: "a-1", select: "a-1" } },
       }),
-      { type: "toggleCollapse", wsId: "a", paneId: "a-2" },
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
     );
     expect(next.viewByWs).toEqual({
-      a: { focus: "a-1", select: "a-1", collapsed: ["a-2"] },
+      a: { focus: "a-1", select: "a-1", minimized: ["a-2"] },
     });
   });
 
@@ -640,9 +640,9 @@ describe("deckReducer toggleCollapse", () => {
         activeId: "a",
         viewByWs: { a: { select: "a-2" } },
       }),
-      { type: "toggleCollapse", wsId: "a", paneId: "a-2" },
+      { type: "toggleMinimize", wsId: "a", paneId: "a-2" },
     );
-    expect(next.viewByWs).toEqual({ a: { select: "a-1", collapsed: ["a-2"] } });
+    expect(next.viewByWs).toEqual({ a: { select: "a-1", minimized: ["a-2"] } });
   });
 
   it("restore exits a maximize on ANOTHER pane so the restored one is visible", () => {
@@ -653,9 +653,9 @@ describe("deckReducer toggleCollapse", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
-        viewByWs: { a: { focus: "a-1", select: "a-1", collapsed: ["a-3"] } },
+        viewByWs: { a: { focus: "a-1", select: "a-1", minimized: ["a-3"] } },
       }),
-      { type: "toggleCollapse", wsId: "a", paneId: "a-3" },
+      { type: "toggleMinimize", wsId: "a", paneId: "a-3" },
     );
     expect(next.viewByWs).toEqual({ a: { select: "a-3" } });
   });
@@ -665,12 +665,12 @@ describe("deckReducer toggleCollapse", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
-        viewByWs: { a: { select: "a-1", collapsed: ["a-2", "a-3"] } },
+        viewByWs: { a: { select: "a-1", minimized: ["a-2", "a-3"] } },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-2" },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-3"]);
-    expect(next.viewByWs).toEqual({ a: { select: "a-1", collapsed: ["a-3"] } });
+    expect(next.viewByWs).toEqual({ a: { select: "a-1", minimized: ["a-3"] } });
   });
 
   it("closeAgent moves the highlight to a VISIBLE survivor over a minimized one", () => {
@@ -680,11 +680,11 @@ describe("deckReducer toggleCollapse", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
         activeId: "a",
-        viewByWs: { a: { select: "a-1", collapsed: ["a-2"] } },
+        viewByWs: { a: { select: "a-1", minimized: ["a-2"] } },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-1" },
     );
-    expect(next.viewByWs).toEqual({ a: { select: "a-3", collapsed: ["a-2"] } });
+    expect(next.viewByWs).toEqual({ a: { select: "a-3", minimized: ["a-2"] } });
   });
 
   it("closeAgent falls back to a minimized survivor when no visible one remains", () => {
@@ -694,10 +694,10 @@ describe("deckReducer toggleCollapse", () => {
       state({
         workspaces: [ws("a", ["a-1", "a-2"])],
         activeId: "a",
-        viewByWs: { a: { select: "a-1", collapsed: ["a-2"] } },
+        viewByWs: { a: { select: "a-1", minimized: ["a-2"] } },
       }),
       { type: "closeAgent", wsId: "a", paneId: "a-1" },
     );
-    expect(next.viewByWs).toEqual({ a: { select: "a-2", collapsed: ["a-2"] } });
+    expect(next.viewByWs).toEqual({ a: { select: "a-2", minimized: ["a-2"] } });
   });
 });

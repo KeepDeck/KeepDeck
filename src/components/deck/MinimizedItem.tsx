@@ -1,7 +1,7 @@
 import { GitBranchIcon, RestoreUpIcon } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
 
-interface CollapsedItemProps {
+interface MinimizedItemProps {
   /** `chip` = a compact pill for the tray; `bar` = a full-width header bar for
    * the strip. */
   variant: "chip" | "bar";
@@ -18,29 +18,29 @@ interface CollapsedItemProps {
  * strip bar. It carries no terminal; the real pane is hidden but still mounted
  * in the grid, so restoring is instant (no re-attach, no scrollback replay).
  */
-export function CollapsedItem({
+export function MinimizedItem({
   variant,
   title,
   gitBadge,
   label,
   onClick,
-}: CollapsedItemProps) {
+}: MinimizedItemProps) {
   return (
     <button
       type="button"
-      className={`collapsed collapsed--${variant}`}
+      className={`minimized minimized--${variant}`}
       onClick={onClick}
       title={label}
       aria-label={label}
     >
-      <span className="collapsed__title">{title}</span>
+      <span className="minimized__title">{title}</span>
       {gitBadge && (
-        <span className="collapsed__branch" title={gitBadge.title}>
+        <span className="minimized__branch" title={gitBadge.title}>
           <GitBranchIcon />
-          <span className="collapsed__branch-label">{gitBadge.label}</span>
+          <span className="minimized__branch-label">{gitBadge.label}</span>
         </span>
       )}
-      <span className="collapsed__restore" aria-hidden>
+      <span className="minimized__restore" aria-hidden>
         <RestoreUpIcon />
       </span>
     </button>

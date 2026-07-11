@@ -93,7 +93,7 @@ describe("closeHotkeyTarget", () => {
 
   it("never targets a minimized pane — a confirm must not close an off-screen agent", () => {
     const workspaces = [ws("ws-1", [{ id: "pane-1" }, { id: "pane-2" }])];
-    const view = { "ws-1": { select: "pane-2", collapsed: ["pane-2"] } };
+    const view = { "ws-1": { select: "pane-2", minimized: ["pane-2"] } };
     expect(closeHotkeyTarget(workspaces, "ws-1", view, agents, true)).toMatchObject({
       // The selection sits on the minimized pane; the visible-solo fallback
       // targets what's actually on screen instead.
@@ -116,7 +116,7 @@ describe("closeHotkeyTarget", () => {
       closeHotkeyTarget(
         workspaces,
         "ws-1",
-        { "ws-1": { collapsed: ["pane-1"] } },
+        { "ws-1": { minimized: ["pane-1"] } },
         agents,
         true,
       ),
@@ -134,7 +134,7 @@ describe("closeHotkeyTarget", () => {
       closeHotkeyTarget(
         workspaces,
         "ws-1",
-        { "ws-1": { select: "pane-1", collapsed: ["pane-1"] } },
+        { "ws-1": { select: "pane-1", minimized: ["pane-1"] } },
         agents,
         true,
       ),
@@ -189,7 +189,7 @@ describe("maximizeHotkeyTarget", () => {
   it("returns null when minimizing leaves one visible pane — already full-size", () => {
     // Writing a focus here would be masked by the render (visible-solo never
     // maximizes) but spring a surprise maximize on the next restore.
-    const view = { "ws-1": { select: "pane-2", collapsed: ["pane-1"] } };
+    const view = { "ws-1": { select: "pane-2", minimized: ["pane-1"] } };
     expect(maximizeHotkeyTarget(multi, "ws-1", view, true)).toBeNull();
     // With minimize out of force both panes are visible — normal maximize.
     expect(maximizeHotkeyTarget(multi, "ws-1", view, false)).toEqual({
@@ -204,7 +204,7 @@ describe("maximizeHotkeyTarget", () => {
       maximizeHotkeyTarget(
         three,
         "ws-1",
-        { "ws-1": { select: "pane-3", collapsed: ["pane-3"] } },
+        { "ws-1": { select: "pane-3", minimized: ["pane-3"] } },
         true,
       ),
     ).toBeNull();

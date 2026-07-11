@@ -25,7 +25,7 @@ const baseProps = {
   cwd: "/repo/work" as string | null,
   visible: true,
   focused: false,
-  collapsed: false,
+  hidden: false,
   selected: false,
   solo: false,
   colSpan: 1,
@@ -245,22 +245,22 @@ describe("AgentPane — minimize control", () => {
   const minimizeBtn = () =>
     document.querySelector<HTMLButtonElement>('[aria-label="Minimize Claude 1"]');
 
-  it("shows the button only when onCollapse is provided, and fires it on click", () => {
+  it("shows the button only when onMinimize is provided, and fires it on click", () => {
     act(() => root.render(createElement(AgentPane, { ...baseProps })));
     expect(minimizeBtn()).toBeNull();
 
-    const onCollapse = vi.fn();
-    act(() => root.render(createElement(AgentPane, { ...baseProps, onCollapse })));
+    const onMinimize = vi.fn();
+    act(() => root.render(createElement(AgentPane, { ...baseProps, onMinimize })));
     const btn = minimizeBtn();
     expect(btn).not.toBeNull();
     act(() => btn!.click());
-    expect(onCollapse).toHaveBeenCalledTimes(1);
+    expect(onMinimize).toHaveBeenCalledTimes(1);
   });
 
   it("hides the button while the pane is maximized (restore first)", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, { ...baseProps, onCollapse: vi.fn(), focused: true }),
+        createElement(AgentPane, { ...baseProps, onMinimize: vi.fn(), focused: true }),
       ),
     );
     expect(minimizeBtn()).toBeNull();
@@ -269,7 +269,7 @@ describe("AgentPane — minimize control", () => {
   it("a folded (list) pane shows a chevron and neither minimize nor maximize", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, { ...baseProps, folded: true, onCollapse: vi.fn() }),
+        createElement(AgentPane, { ...baseProps, folded: true, onMinimize: vi.fn() }),
       ),
     );
     expect(document.querySelector(".pane--folded")).not.toBeNull();

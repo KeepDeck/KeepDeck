@@ -220,7 +220,7 @@
   color: #c5c8c6;
 }
 
-/* A choice that doesn't apply right now (e.g. the collapse style outside the
+/* A choice that doesn't apply right now (e.g. the minimize style outside the
    grid layout) — visibly inert, not just silently ignoring clicks. */
 .form__type:disabled {
   opacity: 0.45;

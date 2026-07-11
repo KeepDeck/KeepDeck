@@ -154,7 +154,7 @@ describe("paneDisplayTitle", () => {
 });
 
 describe("partitionPanes", () => {
-  it("returns the SAME array as live (and empty minimized) when nothing is collapsed", () => {
+  it("returns the SAME array as live (and empty minimized) when nothing is minimized", () => {
     const panes = seed(3);
     const both = partitionPanes(panes, undefined);
     expect(both.live).toBe(panes); // stable ref for memoization
@@ -162,14 +162,14 @@ describe("partitionPanes", () => {
     expect(partitionPanes(panes, []).live).toBe(panes);
   });
 
-  it("splits by the collapsed set, preserving pane order in each group", () => {
+  it("splits by the minimized set, preserving pane order in each group", () => {
     const panes = seed(4); // pane-1..pane-4
     const { live, minimized } = partitionPanes(panes, ["pane-3", "pane-1"]);
     expect(live.map((p) => p.id)).toEqual(["pane-2", "pane-4"]);
     expect(minimized.map((p) => p.id)).toEqual(["pane-1", "pane-3"]);
   });
 
-  it("ignores collapsed ids that no longer match a pane (self-heals)", () => {
+  it("ignores minimized ids that no longer match a pane (self-heals)", () => {
     const panes = seed(2);
     const { live, minimized } = partitionPanes(panes, ["pane-2", "pane-99"]);
     expect(live.map((p) => p.id)).toEqual(["pane-1"]);

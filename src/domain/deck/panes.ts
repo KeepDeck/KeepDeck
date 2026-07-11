@@ -94,7 +94,7 @@ export function removePane(panes: Pane[], id: string): Pane[] {
 
 /**
  * Split panes into the ones still on the grid (`live`) and the ones minimized
- * out of it (`minimized`) — the tray/strip collapse styles. A `collapsed` id
+ * out of it (`minimized`) — the tray/strip minimize styles. A minimized id
  * that no longer matches a pane is simply ignored, so the minimized set
  * self-heals over any pane removal without every removal path having to prune
  * it. Order within each group follows the pane order; when nothing is
@@ -103,14 +103,14 @@ export function removePane(panes: Pane[], id: string): Pane[] {
  */
 export function partitionPanes(
   panes: Pane[],
-  collapsed: readonly string[] | undefined,
+  minimized: readonly string[] | undefined,
 ): { live: Pane[]; minimized: Pane[] } {
-  if (!collapsed || collapsed.length === 0) return { live: panes, minimized: [] };
-  const set = new Set(collapsed);
+  if (!minimized || minimized.length === 0) return { live: panes, minimized: [] };
+  const set = new Set(minimized);
   const live: Pane[] = [];
-  const minimized: Pane[] = [];
-  for (const pane of panes) (set.has(pane.id) ? minimized : live).push(pane);
-  return { live, minimized };
+  const out: Pane[] = [];
+  for (const pane of panes) (set.has(pane.id) ? out : live).push(pane);
+  return { live, minimized: out };
 }
 
 /**

@@ -1,6 +1,6 @@
 /* Minimized-agent surfaces (grid layout) and the list layout. Every pane stays
    mounted throughout — a minimized agent is a hidden-but-mounted tile with a
-   CollapsedItem stand-in; a folded list row is the pane's own header with the
+   MinimizedItem stand-in; a folded list row is the pane's own header with the
    terminal body hidden. Restoring / expanding needs no re-attach, so there's no
    flicker. */
 
@@ -59,8 +59,8 @@
   min-height: 0;
 }
 
-/* ── CollapsedItem: the minimized stand-in (tray chip / strip bar) ─────── */
-.collapsed {
+/* ── MinimizedItem: the minimized stand-in (tray chip / strip bar) ─────── */
+.minimized {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -73,18 +73,18 @@
 }
 
 /* Bar: mirrors a pane header (30px, full width) — the folded agent's own bar. */
-.collapsed--bar {
+.minimized--bar {
   height: 30px;
   width: 100%;
   padding: 0 9px 0 11px;
   text-align: left;
 }
-.collapsed--bar:hover {
+.minimized--bar:hover {
   background-color: #1a212e;
 }
 
 /* Chip: a compact rounded pill for the tray. */
-.collapsed--chip {
+.minimized--chip {
   height: 26px;
   padding: 0 6px 0 11px;
   border-radius: 7px;
@@ -94,12 +94,12 @@
     border-color 0.15s ease,
     background-color 0.15s ease;
 }
-.collapsed--chip:hover {
+.minimized--chip:hover {
   background-color: #182231;
   border-color: #33405a;
 }
 
-.collapsed__title {
+.minimized__title {
   font-size: 13px;
   font-weight: 500;
   color: #d6d9df;
@@ -110,11 +110,11 @@
 }
 /* On a bar the title takes the slack so the branch + action sit to the right,
    exactly like a pane header; on a chip everything hugs the content. */
-.collapsed--bar .collapsed__title {
+.minimized--bar .minimized__title {
   flex: 1 1 auto;
 }
 
-.collapsed__branch {
+.minimized__branch {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -131,18 +131,18 @@
   flex: 0 1 auto;
   min-width: 0;
 }
-.collapsed__branch svg {
+.minimized__branch svg {
   flex: none;
   color: #c3c8d4;
 }
-.collapsed__branch-label {
+.minimized__branch-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
 }
 
-.collapsed__restore {
+.minimized__restore {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -152,6 +152,6 @@
   border-radius: 4px;
   color: #6b7280;
 }
-.collapsed:hover .collapsed__restore {
+.minimized:hover .minimized__restore {
   color: #c5c8c6;
 }

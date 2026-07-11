@@ -83,8 +83,8 @@ function App() {
   // them, and only when the style isn't "none" — the hotkeys must agree with
   // the screen on what's visible.
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
-  const collapseStyle = settings?.collapseStyle ?? DEFAULT_SETTINGS.collapseStyle;
-  const minimizeOn = deckLayout === "grid" && collapseStyle !== "none";
+  const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
+  const minimizeOn = deckLayout === "grid" && minimizeStyle !== "none";
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);
@@ -406,7 +406,7 @@ function App() {
             viewByWs={deck.viewByWs}
             selectedPaneId={selectedPaneId}
             deckLayout={deckLayout}
-            collapseStyle={collapseStyle}
+            minimizeStyle={minimizeStyle}
             agents={agents}
             agentsReady={!agentsLoading}
             gitHeads={gitHeads}
@@ -415,7 +415,7 @@ function App() {
             }
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
-            onToggleCollapse={deck.toggleCollapse}
+            onToggleMinimize={deck.toggleMinimize}
             onOpenInEditor={(path) =>
               void openInEditor(path).catch((e) =>
                 log.warn("web:links", `open in editor failed for ${path}: ${describeError(e)}`),

@@ -33,7 +33,7 @@ interface AgentPaneProps {
   focused: boolean;
   /** Whether this pane is hidden (display:none, still mounted) — because
    * another pane is maximized, or because it's minimized to the tray/strip. */
-  collapsed: boolean;
+  hidden: boolean;
   /** List layout: render header-only (the terminal body is hidden but stays
    * mounted), with a chevron; clicking the header expands it (via onSelect). */
   folded?: boolean;
@@ -68,9 +68,9 @@ interface AgentPaneProps {
   onSelect(): void;
   onToggleFocus(): void;
   /** Minimize this agent out of the grid; the button shows only when set (the
-   * tray/strip collapse styles). The session keeps running — it's re-mounted
+   * tray/strip minimize styles). The session keeps running — it's re-mounted
    * on restore. */
-  onCollapse?(): void;
+  onMinimize?(): void;
   /** Open the agent's working dir in VS Code; shown only when a `cwd` is known. */
   onOpenInEditor(): void;
   onClose(): void;
@@ -97,7 +97,7 @@ export function AgentPane({
   gitBadge,
   visible,
   focused,
-  collapsed,
+  hidden,
   folded,
   selected,
   solo,
@@ -109,7 +109,7 @@ export function AgentPane({
   colSpan,
   onSelect,
   onToggleFocus,
-  onCollapse,
+  onMinimize,
   onOpenInEditor,
   onClose,
   onRename,
@@ -130,7 +130,7 @@ export function AgentPane({
   return (
     <section
       data-pane-id={paneId}
-      className={`pane${collapsed ? " pane--collapsed" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
+      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       onMouseDown={onSelect}
       onFocus={onSelect}
@@ -189,11 +189,11 @@ export function AgentPane({
               <span className="pane__branch-label">{gitBadge.label}</span>
             </span>
           )}
-          {onCollapse && !focused && !folded && (
+          {onMinimize && !focused && !folded && (
             <button
               type="button"
               className="pane__action"
-              onClick={onCollapse}
+              onClick={onMinimize}
               title="Minimize agent"
               aria-label={`Minimize ${title}`}
             >

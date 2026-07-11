@@ -45,12 +45,12 @@ export const DECK_LAYOUTS: readonly DeckLayout[] = ["grid", "list"];
  * - `none`  — minimizing is off (no control, no zone; every agent stays tiled).
  * For tray/strip the other agents stay on the grid and retile to fill the
  * space. The minimized SET is per-workspace runtime state
- * ([`WorkspaceView.collapsed`]); this is only the presentation choice. */
-export type CollapseStyle = "tray" | "strip" | "none";
+ * ([`WorkspaceView.minimized`]); this is only the presentation choice. */
+export type MinimizeStyle = "tray" | "strip" | "none";
 
-/** Every collapse style, in the order the settings picker lists them; also the
+/** Every minimize style, in the order the settings picker lists them; also the
  * allow-list a stored value is validated against. */
-export const COLLAPSE_STYLES: readonly CollapseStyle[] = ["tray", "strip", "none"];
+export const MINIMIZE_STYLES: readonly MinimizeStyle[] = ["tray", "strip", "none"];
 
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete
@@ -62,7 +62,7 @@ export interface Settings {
   /** How a workspace's agents are laid out (grid / list). */
   deckLayout: DeckLayout;
   /** How a minimized agent is presented in the grid layout (tray / strip). */
-  collapseStyle: CollapseStyle;
+  minimizeStyle: MinimizeStyle;
   /** Per-plugin persisted settings, keyed by plugin id. The plugin system
    * itself is not a flag — it simply exists (user decision); `enabled` is
    * each plugin's own on/off switch, `values` is what a plugin's
@@ -85,7 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
   scrollback: 10_000,
   deckLayout: "grid",
-  collapseStyle: "tray",
+  minimizeStyle: "tray",
   plugins: { enabled: {}, values: {}, consented: {} },
 };
 
@@ -202,8 +202,8 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   if (DECK_LAYOUTS.includes(doc.deckLayout as DeckLayout)) {
     settings.deckLayout = doc.deckLayout as DeckLayout;
   }
-  if (COLLAPSE_STYLES.includes(doc.collapseStyle as CollapseStyle)) {
-    settings.collapseStyle = doc.collapseStyle as CollapseStyle;
+  if (MINIMIZE_STYLES.includes(doc.minimizeStyle as MinimizeStyle)) {
+    settings.minimizeStyle = doc.minimizeStyle as MinimizeStyle;
   }
   const plugins = readPlugins(doc.plugins);
   // Only replace the default's object reference when there's genuinely

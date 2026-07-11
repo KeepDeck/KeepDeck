@@ -44,7 +44,7 @@ interface TerminalPaneProps {
   env?: [string, string][];
   /** Working directory for the session; omitted uses the app's cwd. */
   cwd?: string | null;
-  /** Whether this pane is currently on screen (active workspace, not collapsed). */
+  /** Whether this pane is currently on screen (active workspace, not hidden). */
   visible: boolean;
   /** The highlighted pane — focus its terminal when it's on screen. */
   selected?: boolean;

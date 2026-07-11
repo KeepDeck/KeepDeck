@@ -12,14 +12,14 @@ export type CloseTarget =
 
 /** The workspace's VISIBLE panes: the ones the minimized set doesn't hide.
  * `minimizeOn` says whether that set is in force — it's ignored exactly where
- * rendering ignores it (the list layout, or the "none" collapse style), so the
+ * rendering ignores it (the list layout, or the "none" minimize style), so the
  * hotkeys and the screen always agree on what's visible. */
 function visiblePanes(
   ws: Workspace,
   view: WorkspaceView | undefined,
   minimizeOn: boolean,
 ): Pane[] {
-  return partitionPanes(ws.panes, minimizeOn ? view?.collapsed : undefined).live;
+  return partitionPanes(ws.panes, minimizeOn ? view?.minimized : undefined).live;
 }
 
 /**
