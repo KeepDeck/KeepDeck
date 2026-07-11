@@ -16,7 +16,11 @@ import type {
   PluginContext,
 } from "@keepdeck/plugin-api";
 import { setRuntime } from "./runtime";
-import { requestOpen } from "./openRequests";
+import {
+  hasOpenRequestConsumer,
+  requestOpen,
+  takeOpenRequest,
+} from "./openRequests";
 import { baseName, parentDir } from "./domain/tree";
 import { FilesTab } from "./components/FilesTab";
 import { FilesOverlay } from "./components/FilesOverlay";
@@ -30,10 +34,12 @@ function peekOpener(ctx: PluginContext): FileOpenHandler {
     id: "peek",
     label: "KeepDeck file peek",
     async open({ path }) {
-      // Previewable = a FILE the fs capability can reach. Probe the parent
-      // listing: a scope rejection or a missing entry is a DECLINE (the
-      // system opener takes it), never an error. Directories decline too —
-      // the peek reads file contents; Finder is the right opener for a dir.
+      // Previewable = a PLAIN FILE the fs capability can reach. Probe the
+      // parent listing: a scope rejection or a missing entry is a DECLINE
+      // (the system opener takes it), never an error. Directories and
+      // symlinks decline too — the peek reads plain file contents, a symlink
+      // may point at a directory or clean out of the fs scope (the backend
+      // refuses to follow it there), and the system opener handles both.
       const parent = parentDir(path);
       const name = baseName(path);
       if (!parent || !name) return false;
@@ -44,7 +50,14 @@ function peekOpener(ctx: PluginContext): FileOpenHandler {
         return false;
       }
       const entry = entries.find((e) => e.name === name);
-      if (!entry || entry.kind === "dir") return false;
+      if (!entry || entry.kind !== "file") return false;
+
+      // "Handled" must be TRUE: without a live consumer — the plugin was
+      // disabled while the probe was in flight, or the overlay crashed — an
+      // accepted click would land nowhere. Decline instead; the chain's
+      // system floor takes it. Same tick as the park, so no request races
+      // past the check.
+      if (!hasOpenRequestConsumer()) return false;
 
       // The resident FilesOverlay consumes this — no dock involvement at
       // all, so a terminal link never rearranges the user's layout.
@@ -92,6 +105,9 @@ const activate: KeepDeckPlugin["activate"] = async (ctx: PluginContext) => {
 };
 
 const deactivate: KeepDeckPlugin["deactivate"] = () => {
+  // Drain the one-slot bus: a request parked in this lifetime must never
+  // replay into the NEXT activation's overlay as a stale peek.
+  takeOpenRequest();
   setRuntime(null);
 };
 

@@ -41,3 +41,12 @@ export function subscribeOpenRequests(listener: () => void): () => void {
     listeners.delete(listener);
   };
 }
+
+/** Whether anyone is listening RIGHT NOW. The file-open handler must not
+ * claim a click as handled when no consumer is alive to show it — a plugin
+ * mid-teardown or a crashed overlay would otherwise swallow clicks that the
+ * system opener should have taken. Same-tick check + park is race-free:
+ * requests fire listeners synchronously. */
+export function hasOpenRequestConsumer(): boolean {
+  return listeners.size > 0;
+}

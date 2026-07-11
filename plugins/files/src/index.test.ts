@@ -6,7 +6,11 @@ import type {
   PluginContext,
 } from "@keepdeck/plugin-api";
 import plugin, { OPEN_LINKS_KEY } from "./index";
-import { takeOpenRequest } from "./openRequests";
+import {
+  requestOpen,
+  subscribeOpenRequests,
+  takeOpenRequest,
+} from "./openRequests";
 
 /** A context fake covering exactly what activate() touches: registrations,
  * the settings value feed, fs.readDir for the scope probe. */
@@ -57,7 +61,11 @@ function makeCtx(values: Record<string, unknown> = {}) {
   };
 }
 
+/** Consumer subscriptions made by tests, torn down between them. */
+const cleanups: (() => void)[] = [];
+
 afterEach(() => {
+  for (const dispose of cleanups.splice(0)) dispose();
   takeOpenRequest(); // drain the open-request slot between tests
   void plugin.deactivate?.();
 });
@@ -99,10 +107,15 @@ describe("the peek opener", () => {
     size: 1,
   });
 
-  async function handler(readDirImpl: (path: string) => Promise<FsEntry[]>) {
+  async function handler(
+    readDirImpl: (path: string) => Promise<FsEntry[]>,
+    opts: { consumer?: boolean } = {},
+  ) {
     const made = makeCtx();
     made.readDir.mockImplementation(readDirImpl);
     await plugin.activate(made.ctx);
+    // The FilesOverlay stand-in: a handler only accepts while one listens.
+    if (opts.consumer !== false) cleanups.push(subscribeOpenRequests(() => {}));
     return { open: made.registered[0].open, ...made };
   }
 
@@ -126,10 +139,16 @@ describe("the peek opener", () => {
     expect(revealDockTab).not.toHaveBeenCalled();
   });
 
-  it("declines a missing entry and a directory — the peek previews files", async () => {
-    const { open } = await handler(async () => [entry("src", "dir")]);
+  it("declines a missing entry, a directory AND a symlink — the peek previews plain files", async () => {
+    const { open } = await handler(async () => [
+      entry("src", "dir"),
+      entry("link", "symlink"),
+    ]);
     expect(await open({ path: "/repo/gone.md" })).toBe(false);
     expect(await open({ path: "/repo/src" })).toBe(false);
+    // A symlink may point at a directory or clean out of the fs scope (the
+    // backend refuses to follow it there) — the system opener's job.
+    expect(await open({ path: "/repo/link" })).toBe(false);
   });
 
   it("declines a rootless path without probing", async () => {
@@ -137,5 +156,21 @@ describe("the peek opener", () => {
     readDir.mockClear();
     expect(await open({ path: "/" })).toBe(false);
     expect(readDir).not.toHaveBeenCalled();
+  });
+
+  it("declines when NO consumer is alive — an accepted click would land nowhere", async () => {
+    // The plugin was disabled while the probe was in flight (the overlay is
+    // gone), or the overlay crashed: "handled" would swallow the click.
+    const { open } = await handler(async () => [entry("readme.md", "file")], {
+      consumer: false,
+    });
+    expect(await open({ path: "/repo/readme.md" })).toBe(false);
+    expect(takeOpenRequest()).toBeNull(); // nothing parked to replay later
+  });
+
+  it("deactivate drains a parked request — the next activation never replays a stale peek", async () => {
+    requestOpen({ path: "/repo/old-click.md" });
+    await plugin.deactivate?.();
+    expect(takeOpenRequest()).toBeNull();
   });
 });
