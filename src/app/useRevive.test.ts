@@ -36,6 +36,7 @@ vi.mock("./spawnSpecs", () => {
         _origin: "restore" | "manual",
       ) => {
         specs.set(paneId, { args: ["--resume", resumeId], env: [] });
+        return true;
       },
     ),
     peekPaneSpawnSpec: (id: string) =>

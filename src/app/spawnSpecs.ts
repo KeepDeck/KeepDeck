@@ -32,10 +32,39 @@ import { useContributions } from "../plugins/react";
  */
 const specs = new Map<string, SpawnPlan>();
 
-/** Panes whose build is in flight — a StrictMode re-run must not build a
- * second time. Never cleared on unmount: the build completes and caches
- * regardless, which is exactly the stability we want. */
+/** Panes whose CURRENT build is in flight — a StrictMode re-run must not
+ * build a second time. A manual resume reserves the same slot before its
+ * first await, so the ordinary fresh-plan sweep cannot race it. */
 const pending = new Set<string>();
+
+/** Per-pane build generations make invalidation real: dropping a spec while
+ * an async hook is running prevents that stale promise from installing its
+ * result after a newer manual/fresh decision. */
+const buildGenerations = new Map<string, number>();
+
+function reserveBuild(paneId: string): number {
+  const generation = (buildGenerations.get(paneId) ?? 0) + 1;
+  buildGenerations.set(paneId, generation);
+  pending.add(paneId);
+  return generation;
+}
+
+async function buildAndCache(
+  paneId: string,
+  build: () => Promise<SpawnPlan>,
+): Promise<boolean> {
+  const generation = reserveBuild(paneId);
+  try {
+    const plan = await build();
+    if (buildGenerations.get(paneId) !== generation) return false;
+    pending.delete(paneId);
+    specs.set(paneId, plan);
+    return true;
+  } catch (error) {
+    if (buildGenerations.get(paneId) === generation) pending.delete(paneId);
+    throw error;
+  }
+}
 
 /** Build one plan through the agent's hook; a throwing hook degrades to a
  * bare spawn (no identity) rather than a dead pane. */
@@ -144,10 +173,12 @@ export function resumeDiedSilently(
 export function dropPaneSpawnSpec(paneId: string): void {
   specs.delete(paneId);
   pending.delete(paneId);
+  buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
 }
 
-/** Build and cache a RESUME plan for a dormant pane about to wake — replaces
- * any cached plan (revive decides resume-vs-fresh, and its word wins). */
+/** Build and cache an exclusive RESUME plan for a dormant pane about to wake
+ * or an exited pane the user explicitly restarts. Replaces any cached plan;
+ * the generation reservation prevents the ordinary fresh sweep from racing. */
 export async function buildResumeSpec(
   agentType: string,
   paneId: string,
@@ -157,12 +188,18 @@ export async function buildResumeSpec(
   ctx: SpawnPlanContext,
   resumeId: string,
   origin: ResumeOrigin,
-): Promise<void> {
+): Promise<boolean> {
   const agent = findAgent(agentType);
-  if (!agent) return; // unavailable — the card keeps the pane dormant
-  specs.set(
-    paneId,
-    await buildPlan(agent, paneId, wsId, cwd, branch, ctx, resumeId, origin),
+  if (!agent) return false; // unavailable — the card keeps the pane dormant
+  if (!agent.entry.hooks["resume.plan"]) {
+    log.warn(
+      "web:agents",
+      `${agentType}: cannot resume ${paneId} — plugin has no resume.plan hook`,
+    );
+    return false;
+  }
+  return buildAndCache(paneId, () =>
+    buildPlan(agent, paneId, wsId, cwd, branch, ctx, resumeId, origin),
   );
 }
 
@@ -195,19 +232,25 @@ export function usePaneSpawnSpecs(
         if (specs.has(pane.id) || pending.has(pane.id)) continue;
         const agent = findAgent(pane.agentType ?? "claude");
         if (!agent) continue; // the unavailable card blocks the terminal
-        pending.add(pane.id);
-        void buildPlan(
-          agent,
-          pane.id,
-          ws.id,
-          pane.cwd ?? ws.cwd,
-          pane.branch,
-          ctx,
-        ).then((plan) => {
-          pending.delete(pane.id);
-          specs.set(pane.id, plan);
-          if (alive) setTick((t) => t + 1);
-        });
+        void buildAndCache(pane.id, () =>
+          buildPlan(
+            agent,
+            pane.id,
+            ws.id,
+            pane.cwd ?? ws.cwd,
+            pane.branch,
+            ctx,
+          ),
+        )
+          .then((committed) => {
+            if (committed && alive) setTick((t) => t + 1);
+          })
+          .catch((error: unknown) =>
+            log.error(
+              "web:agents",
+              `${pane.id} plan build failed: ${describeError(error)}`,
+            ),
+          );
       }
     }
     return () => {
@@ -238,6 +281,7 @@ export function peekPaneSpawnSpec(paneId: string): SpawnPlan | undefined {
 export function resetPaneSpawnSpecs(): void {
   specs.clear();
   pending.clear();
+  buildGenerations.clear();
 }
 
 function findAgent(

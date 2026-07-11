@@ -8,6 +8,7 @@ import type { Workspace } from "../domain/deck";
 import { pluginRegistries } from "./pluginManager";
 import {
   buildResumeSpec,
+  dropPaneSpawnSpec,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
   resumeDiedSilently,
@@ -192,6 +193,104 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(peekPaneSpawnSpec("pane-9")?.resumeOf).toBe("old-id");
     expect(peekPaneSpawnSpec("pane-9")?.resumeOrigin).toBe("restore");
     expect(peekPaneSpawnSpec("pane-9")?.postbackMark).toBe(0);
+  });
+
+  it("refuses to label a bare spawn as a manual resume", async () => {
+    register({ ...adopting, hooks: { "spawn.plan": adopting.hooks["spawn.plan"] } });
+
+    const built = await buildResumeSpec(
+      "claude",
+      "pane-unsupported",
+      "ws-1",
+      "/repo",
+      undefined,
+      ctx,
+      "old-id",
+      "manual",
+    );
+
+    expect(built).toBe(false);
+    expect(peekPaneSpawnSpec("pane-unsupported")).toBeUndefined();
+  });
+
+  it("reserves a manual resume so the fresh-plan sweep cannot overwrite it", async () => {
+    let releaseResume!: () => void;
+    let spawnCalls = 0;
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": async (_input, output) => {
+          spawnCalls += 1;
+          // A racy second fresh build stays pending long enough to overwrite
+          // the manual plan after it lands; the reservation prevents it from
+          // starting in the first place.
+          if (spawnCalls > 1) await new Promise<void>(() => {});
+          output.args = ["--settings", "{hook}"];
+        },
+        "resume.plan": async (input, output) => {
+          await new Promise<void>((resolve) => (releaseResume = resolve));
+          output.args = ["--resume", input.sessionId];
+        },
+      },
+    });
+    const workspaces = ws([{ id: "pane-1", agentType: "claude" }]);
+    await mount(workspaces);
+    await settle();
+    expect(spawnCalls).toBe(1);
+
+    dropPaneSpawnSpec("pane-1");
+    const manual = buildResumeSpec(
+      "claude",
+      "pane-1",
+      "ws-1",
+      "/repo",
+      undefined,
+      ctx,
+      "old-id",
+      "manual",
+    );
+    // An unrelated deck render re-runs the ordinary plan sweep while the
+    // plugin's async resume hook is still waiting.
+    await mount([...workspaces]);
+    expect(spawnCalls).toBe(1);
+
+    releaseResume();
+    await manual;
+    await settle();
+    expect(peekPaneSpawnSpec("pane-1")).toMatchObject({
+      args: ["--resume", "old-id"],
+      resumeOf: "old-id",
+      resumeOrigin: "manual",
+    });
+  });
+
+  it("does not install an async resume plan invalidated while it was building", async () => {
+    let releaseResume!: () => void;
+    register({
+      ...adopting,
+      hooks: {
+        "resume.plan": async (input, output) => {
+          await new Promise<void>((resolve) => (releaseResume = resolve));
+          output.args = ["--resume", input.sessionId];
+        },
+      },
+    });
+
+    const building = buildResumeSpec(
+      "claude",
+      "pane-1",
+      "ws-1",
+      "/repo",
+      undefined,
+      ctx,
+      "old-id",
+      "manual",
+    );
+    dropPaneSpawnSpec("pane-1");
+    releaseResume();
+    await building;
+
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
   });
 
   it("resumeDiedSilently: only a restored resume with ZERO new postbacks retries", () => {
