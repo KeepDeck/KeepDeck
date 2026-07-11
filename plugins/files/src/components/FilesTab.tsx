@@ -46,7 +46,14 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
   const treeRef = useRef<HTMLDivElement>(null);
 
   // A new root starts fresh — drop the keyboard cursor and any open preview.
+  // Guarded by the PREVIOUS target, not "every invocation": StrictMode runs
+  // mount effects twice, and an unguarded reset's second run wiped the
+  // preview the open-request consumer below had just set — the dock reveal
+  // then "opened nothing".
+  const prevTargetRef = useRef(target);
   useEffect(() => {
+    if (prevTargetRef.current === target) return;
+    prevTargetRef.current = target;
     setCursor(null);
     setPreview(null);
   }, [target]);

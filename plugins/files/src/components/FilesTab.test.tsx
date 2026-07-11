@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { requestOpen, takeOpenRequest } from "../openRequests";
@@ -315,5 +315,25 @@ describe("FilesTab", () => {
     await act(async () => requestOpen("/repo/readme.md"));
     await act(async () => {});
     expect(document.querySelector(".files__peek")).not.toBeNull();
+  });
+
+  it("survives StrictMode's double-invoked effects — the parked request still opens", async () => {
+    // The dev app renders under StrictMode: mount effects run twice. The
+    // root-reset effect's SECOND run used to wipe the preview the consumer's
+    // first run had just set — the dock reveal then "opened nothing".
+    requestOpen("/repo/readme.md");
+    await act(async () => {
+      root.render(
+        createElement(
+          StrictMode,
+          null,
+          createElement(FilesTab, { workspace, selectedPaneId: null }),
+        ),
+      );
+    });
+    await act(async () => {});
+    expect(document.querySelector(".files__dname")?.textContent).toBe(
+      "readme.md",
+    );
   });
 });
