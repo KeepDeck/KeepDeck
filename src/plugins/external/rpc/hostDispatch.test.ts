@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   AgentContribution,
+  FileOpenHandler,
   PluginContext,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
@@ -103,5 +104,89 @@ describe("agent hooks over the RPC seam", () => {
     );
     h.dispatch.dispose();
     await expect(running).rejects.toThrow("disposed");
+  });
+});
+
+/** Harness over the file-open surface: `openers.register` proxies the realm's
+ * handler; `ui.revealDockTab` forwards straight through. */
+function openersHarness() {
+  let registered: FileOpenHandler | undefined;
+  const revealed: string[] = [];
+  const pushes: { channel: string; payload: unknown }[] = [];
+  const ctx = {
+    openers: {
+      register: vi.fn((handler: FileOpenHandler) => {
+        registered = handler;
+        return { dispose() {} };
+      }),
+    },
+    ui: { revealDockTab: (id: string) => revealed.push(id) },
+  } as unknown as PluginContext;
+  const dispatch = createHostDispatch(ctx, (channel, payload) =>
+    pushes.push({ channel, payload }),
+  );
+  return {
+    dispatch,
+    pushes,
+    revealed,
+    handler: () => {
+      if (!registered) throw new Error("nothing registered");
+      return registered;
+    },
+  };
+}
+
+describe("file-open handlers over the RPC seam", () => {
+  it("round-trips: push out, openResult back, boolean sanitized", async () => {
+    const h = openersHarness();
+    await h.dispatch.call("openers.register", [1, { id: "peek", label: "Peek" }]);
+    expect(h.handler().id).toBe("peek");
+
+    const asking = h.handler().open({ path: "/repo/readme.md" });
+    expect(h.pushes[0].channel).toMatch(/^open:/);
+    expect(h.pushes[0].payload).toEqual({
+      handlerId: "peek",
+      request: { path: "/repo/readme.md" },
+    });
+    const id = Number(h.pushes[0].channel.slice("open:".length));
+    await h.dispatch.call("openers.openResult", [id, { ok: true, handled: true }]);
+    await expect(asking).resolves.toBe(true);
+
+    // A hostile realm's word only gets to be a boolean: truthy junk = decline.
+    const lying = h.handler().open({ path: "/repo/x" });
+    const id2 = Number(h.pushes[1].channel.slice("open:".length));
+    await h.dispatch.call("openers.openResult", [id2, { ok: true, handled: "yes" }]);
+    await expect(lying).resolves.toBe(false);
+  });
+
+  it("a hung realm times out into a rejection — the click's chain moves on", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = openersHarness();
+      await h.dispatch.call("openers.register", [1, { id: "peek", label: "Peek" }]);
+      const asking = h.handler().open({ path: "/repo/x" });
+      const failed = expect(asking).rejects.toThrow("timed out");
+      await vi.advanceTimersByTimeAsync(5_000);
+      await failed;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("dispose fails opens still in flight; a late openResult is ignored", async () => {
+    const h = openersHarness();
+    await h.dispatch.call("openers.register", [1, { id: "peek", label: "Peek" }]);
+    const asking = h.handler().open({ path: "/repo/x" });
+    h.dispatch.dispose();
+    await expect(asking).rejects.toThrow("disposed");
+    const id = Number(h.pushes[0].channel.slice("open:".length));
+    // Settled already — the straggler must be a no-op, not a crash.
+    await h.dispatch.call("openers.openResult", [id, { ok: true, handled: true }]);
+  });
+
+  it("ui.revealDockTab forwards the id verbatim", async () => {
+    const h = openersHarness();
+    await h.dispatch.call("ui.revealDockTab", ["files"]);
+    expect(h.revealed).toEqual(["files"]);
   });
 });

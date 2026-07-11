@@ -15,7 +15,9 @@ import {
   DECK_EVENT_CHANNELS,
   fswatchChannel,
   hookChannel,
+  openChannel,
   type WireHookCall,
+  type WireOpenCall,
   type WireSpawnPlanOutput,
 } from "./protocol";
 import { createHostSessions } from "./hostSessions";
@@ -99,6 +101,42 @@ export function createHostDispatch(
     });
   }
 
+  // File-open invocations awaiting their `openers.openResult` reply — the
+  // agent-hook pattern, but the stake is a CLICK: a hung or dead realm must
+  // not strand it, so a timeout settles the proxy as a rejection, which the
+  // host's file-open chain logs and treats as a decline (the system opener
+  // takes the file). Tighter than the hook timeout — a user is watching.
+  const OPEN_TIMEOUT_MS = 5_000;
+  let nextOpenId = 1;
+  const pendingOpens = new Map<
+    number,
+    (result: { ok: true; handled: boolean } | { ok: false; error: string }) => void
+  >();
+
+  /** Ask the realm's handler about ONE file-open request. */
+  function callOpen(handlerId: string, request: { path: string }): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      const id = nextOpenId++;
+      const timer = setTimeout(() => {
+        if (pendingOpens.delete(id))
+          reject(
+            new Error(
+              `file-open handler "${handlerId}" timed out after ${OPEN_TIMEOUT_MS}ms`,
+            ),
+          );
+      }, OPEN_TIMEOUT_MS);
+      pendingOpens.set(id, (result) => {
+        clearTimeout(timer);
+        if (!result.ok) return reject(new Error(result.error));
+        // A hostile realm's word only ever gets to be a BOOLEAN: anything
+        // but literal true is a decline.
+        resolve(result.handled === true);
+      });
+      const call: WireOpenCall = { handlerId, request };
+      push(openChannel(id), call);
+    });
+  }
+
   // Registrations retained by the guest-minted id that will later dispose them.
   const registrations = new Map<number, Disposable>();
   // Directory watches, retained by the guest-minted id that will unwatch them.
@@ -179,6 +217,28 @@ export function createHostDispatch(
           title,
           run: (target) => push(actionChannel("pane", id), target),
         }),
+      );
+    },
+    "ui.revealDockTab": ([id]) => ctx.ui.revealDockTab(id as string),
+
+    // ---- file-open handlers: identity as data; open() as a host→realm proxy ----
+    "openers.register": ([regId, entry]) => {
+      const { id, label } = entry as { id: string; label: string };
+      retain(
+        regId as number,
+        ctx.openers.register({
+          id,
+          label,
+          open: (request) => callOpen(id, request),
+        }),
+      );
+    },
+    "openers.openResult": ([id, result]) => {
+      const settle = pendingOpens.get(id as number);
+      if (!settle) return; // timed out, disposed, or never ours
+      pendingOpens.delete(id as number);
+      settle(
+        result as { ok: true; handled: boolean } | { ok: false; error: string },
       );
     },
 
@@ -296,6 +356,10 @@ export function createHostDispatch(
         settle({ ok: false, error: "plugin bridge disposed" });
       }
       pendingHooks.clear();
+      for (const settle of pendingOpens.values()) {
+        settle({ ok: false, error: "plugin bridge disposed" });
+      }
+      pendingOpens.clear();
       subscriptions.disposeAll();
       sessions.disposeAll();
       for (const disposable of registrations.values()) disposable.dispose();
