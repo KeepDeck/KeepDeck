@@ -68,3 +68,68 @@
   border: 0;
   background: transparent;
 }
+
+/* The tab-strip alert: a plugin with a crashed surface announces it before
+   its tab is even opened. */
+.dock__tab-alert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background-color: #b3261e;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: 1px;
+}
+
+/* The failure panel a crashed plugin's UI area shows: the fact, the copyable
+   log, and Restart — host chrome that works precisely when the plugin doesn't. */
+.plugin-failure {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  min-height: 0;
+}
+
+.plugin-failure__title {
+  margin: 0;
+  color: #c5c8c6;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.plugin-failure__hint {
+  margin: 0;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.plugin-failure__log {
+  flex: none;
+  margin: 0;
+  padding: 10px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0b0e14;
+  color: #9aa3af;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.plugin-failure__actions {
+  display: flex;
+  gap: 8px;
+}

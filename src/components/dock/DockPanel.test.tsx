@@ -71,4 +71,16 @@ describe("DockPanel (controlled tab)", () => {
       "p:two",
     );
   });
+
+  it("shows the alert badge exactly on tabs that carry one", () => {
+    render({
+      tabs: [TABS[0], { ...TABS[1], alert: true }],
+      activeTab: "p:one",
+      onSelectTab: () => {},
+    });
+    const badges = tabButtons().map((b) => b.querySelector(".dock__tab-alert"));
+    expect(badges[0]).toBeNull();
+    expect(badges[1]).not.toBeNull();
+    expect(badges[1]?.getAttribute("aria-label")).toBe("Two has a problem");
+  });
 });

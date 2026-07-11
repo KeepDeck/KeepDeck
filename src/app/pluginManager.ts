@@ -42,6 +42,7 @@ import { DEFAULT_SETTINGS } from "../domain/settings";
 import { getSettings, subscribeSettings, updateSettings } from "./settingsManager";
 import { makeGlobalKvStub, makeWorkspaceKv, type DeckAccess } from "./pluginKv";
 import { setOverlayVisibility } from "./overlayVisibility";
+import { clearPluginCrashes } from "./pluginHealth";
 import { mergeSectionValues } from "./pluginSettingsValues";
 
 /**
@@ -395,6 +396,9 @@ export const pluginHost = new PluginHost(
       );
     },
     onEnabledChanged: (pluginId, enabled) => {
+      // Either flip is a fresh start for the plugin's surfaces — stale crash
+      // reports must not paint a just-re-enabled plugin as broken.
+      clearPluginCrashes(pluginId);
       const plugins = getSettings()?.plugins ?? {
         enabled: {},
         values: {},
@@ -504,9 +508,12 @@ export async function rescanPlugins(): Promise<void> {
   if (await syncExternalPlugins()) await pluginHost.activateAll();
 }
 
-/** Restart one installed plugin (Settings → Plugins). External plugins reload
- * their code; built-ins restart their state. */
+/** Restart one installed plugin (Settings → a plugin's page, or the failure
+ * panel). External plugins reload their code; built-ins restart their state.
+ * Crash reports clear FIRST: the restarted plugin starts visibly clean, and
+ * a crash during the restart itself reports fresh. */
 export async function restartPlugin(pluginId: string): Promise<void> {
+  clearPluginCrashes(pluginId);
   await pluginHost.restart(pluginId);
 }
 

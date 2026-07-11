@@ -3,6 +3,7 @@ import {
   overlayVisibility,
   subscribeOverlayVisibility,
 } from "../app/overlayVisibility";
+import { reportPluginCrash } from "../app/pluginHealth";
 import { pluginRegistries } from "../app/pluginManager";
 import { describeError, log } from "../ipc/log";
 import { useContributions } from "../plugins";
@@ -35,12 +36,16 @@ export function PluginOverlays() {
           <ErrorBoundary
             key={key}
             label={c.entry.id}
-            onError={(e) =>
+            onError={(e) => {
               log.error(
                 `web:plugin:${c.pluginId}`,
                 `overlay "${c.entry.id}" crashed: ${describeError(e)}`,
-              )
-            }
+              );
+              // An overlay is invisible — without this report the crash
+              // would be too. It lights the plugin's dock tab badge and
+              // failure panel.
+              reportPluginCrash(c.pluginId, `overlay "${c.entry.id}"`, e);
+            }}
           >
             {"Component" in c.entry ? (
               <div hidden={!visible}>
