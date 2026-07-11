@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import type { AgentRestartMode } from "../../domain/agents";
 import type { PaneProvisioning } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
@@ -83,7 +84,7 @@ interface AgentPaneProps {
   /** Whether the exited process is bound to a resumable agent session. */
   canResume?: boolean;
   /** Manually restart an exited agent, either from its binding or fresh. */
-  onRestart?(mode: "resume" | "fresh"): Promise<void> | void;
+  onRestart?(mode: AgentRestartMode): Promise<void> | void;
 }
 
 /**
@@ -130,14 +131,17 @@ export function AgentPane({
   // keep both choices inert; only a rejected plan lets the user try again.
   const restartInFlight = useRef(false);
   const [restarting, setRestarting] = useState(false);
-  const restart = (mode: "resume" | "fresh") => {
+  const [restartFailed, setRestartFailed] = useState(false);
+  const restart = (mode: AgentRestartMode) => {
     if (!onRestart || restartInFlight.current) return;
     restartInFlight.current = true;
     setRestarting(true);
+    setRestartFailed(false);
 
     const recover = () => {
       restartInFlight.current = false;
       setRestarting(false);
+      setRestartFailed(true);
     };
     try {
       void Promise.resolve(onRestart(mode)).catch(recover);
@@ -393,6 +397,11 @@ export function AgentPane({
                   >
                     Start new session
                   </button>
+                )}
+                {restartFailed && (
+                  <span className="pane__exit-restart-error" role="alert">
+                    Restart failed
+                  </span>
                 )}
               </div>
             )}

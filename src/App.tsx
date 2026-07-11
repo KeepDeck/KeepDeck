@@ -17,14 +17,8 @@ import { useSettings } from "./app/useSettings";
 import { DEFAULT_SETTINGS } from "./domain/settings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
-import {
-  dropPaneSpawnSpec,
-  peekPaneSpawnSpec,
-  resumeDiedSilently,
-  usePaneSpawnSpecs,
-} from "./app/spawnSpecs";
-import { postbackCount } from "./app/postbacks";
-import { closePane } from "./app/ptyManager";
+import { usePaneSpawnSpecs } from "./app/spawnSpecs";
+import { useAgentRestart } from "./app/useAgentRestart";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -95,39 +89,21 @@ function App() {
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
   const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);
+  // Manual exited-card restart plus the separate, one-shot recovery for a
+  // rejected boot resume. Both replace only runtime PTY/spec state; the pane
+  // keeps its identity and layout position.
+  const agentRestart = useAgentRestart(deck, spawnCtx);
   // Every live pane's spawn plan, built through its agent plugin's hooks
   // (async — the pane's terminal waits for its plan; mounting is what
   // spawns). Dormant panes get theirs at revive time.
-  // Bumped per pane to force a full remount — the respawn-fresh path after
-  // a resume that died without ever reporting a session.
-  const [respawnEpochs, setRespawnEpochs] = useState<ReadonlyMap<string, number>>(
-    new Map(),
-  );
+  // Restart epochs force a full remount only after an explicit manual restart
+  // (or the accepted boot-recovery exception) has retired the old PTY entry.
   const specByPane = usePaneSpawnSpecs(
     deck.workspaces,
     spawnCtx,
     !agentsLoading,
-    respawnEpochs,
+    agentRestart.epochs,
   );
-
-  /** A pane's PTY exited. If its plan was a RESUME and the process never
-   * reported a session (see `resumeDiedSilently`), the CLI refused the
-   * recorded id — "No conversation found". Handle it: drop the dead
-   * binding, forget the plan, respawn FRESH. Once — the fresh plan carries
-   * no `resumeOf`, so a second exit shows the normal exited card. */
-  const handleAgentExited = (wsId: string, paneId: string, code: number | null) => {
-    const spec = peekPaneSpawnSpec(paneId);
-    if (!resumeDiedSilently(spec, postbackCount(paneId))) return;
-    log.warn(
-      "web:revive",
-      `${paneId}: resume of ${spec?.resumeOf} exited (${code ?? "?"}) without reporting — respawning fresh`,
-    );
-    deck.setPaneSession(wsId, paneId, null);
-    dropPaneSpawnSpec(paneId);
-    void closePane(paneId).finally(() =>
-      setRespawnEpochs((m) => new Map(m).set(paneId, (m.get(paneId) ?? 0) + 1)),
-    );
-  };
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
   useSessionBinding(deck);
   // Runtime git HEAD observations for pane badges and worktree close cleanup.
@@ -428,8 +404,9 @@ function App() {
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
             onRetryProvision={provisioning.retryPane}
-            onAgentExited={handleAgentExited}
-            respawnEpochs={respawnEpochs}
+            onAgentExited={agentRestart.recoverRejectedResume}
+            onRestartAgent={agentRestart.restart}
+            restartEpochs={agentRestart.epochs}
           />
 
           {showForm &&

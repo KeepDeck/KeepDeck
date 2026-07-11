@@ -27,6 +27,9 @@ export const EMPTY_SPAWN_CONTEXT: SpawnPlanContext = {
  * user-requested resumes must leave the exited pane visible. */
 export type ResumeOrigin = "restore" | "manual";
 
+/** The explicit action an exited-agent card asks the application to take. */
+export type AgentRestartMode = "resume" | "fresh";
+
 /** What a pane's PTY spawn needs beyond the pane itself. */
 export interface SpawnPlan {
   /** Program to run — the hook's word (prefilled with the detected binary;

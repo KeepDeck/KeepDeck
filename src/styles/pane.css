@@ -296,6 +296,11 @@
   opacity: 0.55;
 }
 
+.pane__exit-restart-error {
+  color: #b66a6a;
+  font-size: 11px;
+}
+
 /* Restored-but-not-running tile ([F7]) — shown instead of the terminal until
    the pane is revived; persists only when its directory is gone. */
 .pane__dormant {

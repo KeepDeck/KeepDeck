@@ -510,5 +510,8 @@ describe("AgentPane — manual restart after exit", () => {
 
     expect(actionButtons().every((button) => !button.disabled)).toBe(true);
     expect(actionButtons()[0].textContent).toBe("Restart agent");
+    expect(document.querySelector("[role='alert']")?.textContent).toBe(
+      "Restart failed",
+    );
   });
 });
