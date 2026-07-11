@@ -28,12 +28,3 @@ export function BranchIcon() {
     </svg>
   );
 }
-
-/** Back out of the diff peek to the list — a left chevron. */
-export function BackIcon() {
-  return (
-    <svg {...iconProps}>
-      <polyline points="15 18 9 12 15 6" />
-    </svg>
-  );
-}

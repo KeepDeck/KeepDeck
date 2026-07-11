@@ -47,15 +47,6 @@ export function SymlinkIcon() {
   );
 }
 
-/** Back out of the file preview to the tree — a left chevron. */
-export function BackIcon() {
-  return (
-    <svg {...iconProps}>
-      <polyline points="15 18 9 12 15 6" />
-    </svg>
-  );
-}
-
 /** Toggle soft-wrapping of long code lines (Lucide `wrap-text`, ISC). */
 export function WrapIcon() {
   return (

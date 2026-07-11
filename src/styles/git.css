@@ -174,105 +174,10 @@
   color: #e5736f;
 }
 
-/* The diff peek: the same wide overlay family as the Files preview — a 340px
-   rail can't read a diff. */
-.git__peek {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  padding: 10px;
-  background-color: rgba(7, 9, 13, 0.66);
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
-  animation: git-peek-fade 120ms ease-out;
-}
+/* The peek's shell is the shared .peek (peek.css / ui-kit Peek); below is
+   only the diff content that fills it. */
 
-.git__peekpanel {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  background-color: #0e121a;
-  border: 1px solid #1c2230;
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.85);
-  animation: git-peek-pop 140ms ease-out;
-  /* The dock is user-select: none; re-enable it here so diff text can be
-     copied. The gutters opt back out below, so a copied selection is clean
-     code without numbers and +/- markers. */
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-@keyframes git-peek-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes git-peek-pop {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.99);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .git__peek,
-  .git__peekpanel {
-    animation: none;
-  }
-}
-
-.git__dhead {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #1c2230;
-  background-color: #11151d;
-}
-
-.git__dback {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: #9aa3af;
-  cursor: pointer;
-}
-
-.git__dback:hover {
-  background-color: #243044;
-  color: #c5c8c6;
-}
-
-.git__dname {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: #c5c8c6;
-  font-size: 12.5px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* The change-kind badge in the peek header's meta slot. */
 .git__badge {
   flex: none;
   padding: 1px 7px;
@@ -288,26 +193,6 @@
 
 .git__badge--conflicted {
   color: #e5736f;
-}
-
-.git__dpath {
-  flex: none;
-  padding: 6px 14px;
-  border-bottom: 1px solid #1c2230;
-  color: #6b7280;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.git__dbody {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-  background-color: #0b0e14;
-  outline: none;
 }
 
 /* The diff itself: two number gutters (old / new), a marker column, the line.
@@ -393,13 +278,4 @@
   color: #6b7280;
 }
 
-.git__note {
-  margin: 0;
-  padding: 8px 12px;
-  color: #6b7280;
-  font-size: 12px;
-}
 
-.git__note--bad {
-  color: #e5736f;
-}

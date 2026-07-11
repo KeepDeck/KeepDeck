@@ -204,7 +204,7 @@ describe("GitTab", () => {
     expect(git.diffFile).toHaveBeenCalledWith("/repo", "src/app.ts", {
       staged: false,
     });
-    expect(host.querySelector(".git__peek")).toBeTruthy();
+    expect(host.querySelector(".peek")).toBeTruthy();
     expect(host.textContent).toContain("goodbye");
   });
 

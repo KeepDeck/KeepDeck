@@ -189,7 +189,7 @@ describe("FilesTab", () => {
     await mount();
     await act(async () => rowByName("readme.md")!.click());
     await act(async () => {});
-    expect(document.querySelector(".files__peek")).toBeNull();
+    expect(document.querySelector(".peek")).toBeNull();
     expect(fs.readFile).not.toHaveBeenCalled();
     // The click did take the cursor, so keyboard flow continues from here.
     expect(activeName()).toBe("readme.md");
@@ -202,7 +202,7 @@ describe("FilesTab", () => {
     await act(async () => {});
 
     expect(fs.readFile).toHaveBeenCalledWith("/repo/readme.md");
-    expect(document.querySelector(".files__dname")?.textContent).toBe(
+    expect(document.querySelector(".peek__name")?.textContent).toBe(
       "readme.md",
     );
     expect(document.body.textContent).toContain("second line");
@@ -224,11 +224,11 @@ describe("FilesTab", () => {
     await mount();
     await act(async () => dblclick(rowByName("readme.md")!));
     await act(async () => {});
-    expect(document.querySelector(".files__peek")).not.toBeNull();
+    expect(document.querySelector(".peek")).not.toBeNull();
     await act(async () =>
-      document.querySelector<HTMLElement>(".files__peek")!.click(),
+      document.querySelector<HTMLElement>(".peek")!.click(),
     );
-    expect(document.querySelector(".files__peek")).toBeNull();
+    expect(document.querySelector(".peek")).toBeNull();
   });
 
   it("tags tree rows with their path for dragging into a pane", async () => {
@@ -285,17 +285,17 @@ describe("FilesTab", () => {
     press("Enter"); // open it
     await act(async () => {});
     expect(fs.readFile).toHaveBeenCalledWith("/repo/readme.md");
-    expect(document.querySelector(".files__dname")?.textContent).toBe(
+    expect(document.querySelector(".peek__name")?.textContent).toBe(
       "readme.md",
     );
 
     // Escape from the detail drills back out to the tree.
     await act(async () => {
       document
-        .querySelector(".files__peek")!
+        .querySelector(".peek")!
         .dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
-    expect(document.querySelector(".files__peek")).toBeNull();
+    expect(document.querySelector(".peek")).toBeNull();
     expect(document.querySelector(".files__list")).not.toBeNull();
   });
 
@@ -306,7 +306,7 @@ describe("FilesTab", () => {
     await act(async () => {});
     expect(fs.readDir).toHaveBeenCalledWith("/repo/src");
     expect(fs.readFile).not.toHaveBeenCalled();
-    expect(document.querySelector(".files__peek")).toBeNull();
+    expect(document.querySelector(".peek")).toBeNull();
   });
 
   it("consumes an open request parked BEFORE mount (activation races the click)", async () => {
