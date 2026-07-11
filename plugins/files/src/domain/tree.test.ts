@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FsEntry } from "@keepdeck/plugin-api";
 import {
   baseName,
+  parentDir,
   initTree,
   refreshTargets,
   setChildren,
@@ -163,5 +164,18 @@ describe("baseName", () => {
     expect(baseName("/a/b/c")).toBe("c");
     expect(baseName("/a/b/c/")).toBe("c");
     expect(baseName("/")).toBe("");
+  });
+});
+
+describe("parentDir", () => {
+  it("takes the path up to the last segment", () => {
+    expect(parentDir("/a/b/c")).toBe("/a/b");
+    expect(parentDir("/a/b/c/")).toBe("/a/b");
+  });
+
+  it("answers null when there is no parent to probe", () => {
+    expect(parentDir("/")).toBeNull();
+    expect(parentDir("name-only")).toBeNull();
+    expect(parentDir("/top")).toBeNull(); // parent would be the bare root
   });
 });

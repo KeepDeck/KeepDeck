@@ -3,6 +3,7 @@ import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import { useFileTree } from "./useFileTree";
+import { subscribeOpenRequests, takeOpenRequest } from "../openRequests";
 import { visibleRows, type TreeNode } from "../domain/tree";
 import { navigate, type ArrowKey } from "../domain/navigate";
 import { TreeView } from "./TreeView";
@@ -49,6 +50,19 @@ export function FilesTab({ workspace, selectedPaneId }: DockTabProps) {
     setCursor(null);
     setPreview(null);
   }, [target]);
+
+  // Open requests from the plugin's file-open handler (terminal links):
+  // consume the one parked before this tab mounted — the dock reveal is what
+  // mounted it — and every later one live. Declared AFTER the root-reset
+  // effect so a mount-time request wins over the reset's setPreview(null).
+  useEffect(() => {
+    const consume = () => {
+      const path = takeOpenRequest();
+      if (path) setPreview(path);
+    };
+    consume();
+    return subscribeOpenRequests(consume);
+  }, []);
 
   // Keep the focused row in view as the cursor moves.
   useEffect(() => {

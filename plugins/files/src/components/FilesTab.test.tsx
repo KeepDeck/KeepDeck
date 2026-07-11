@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requestOpen, takeOpenRequest } from "../openRequests";
 import type {
   FsEntry,
   FsFile,
@@ -128,6 +129,7 @@ describe("FilesTab", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    takeOpenRequest(); // a leftover parked request must not leak between tests
     fs = makeFs();
     setRuntime(makeCtx(fs));
     document.body.innerHTML = "";
@@ -295,5 +297,23 @@ describe("FilesTab", () => {
     expect(fs.readDir).toHaveBeenCalledWith("/repo/src");
     expect(fs.readFile).not.toHaveBeenCalled();
     expect(document.querySelector(".files__peek")).toBeNull();
+  });
+
+  it("consumes an open request parked BEFORE mount — the dock reveal mounts the tab", async () => {
+    requestOpen("/repo/readme.md");
+    await mount();
+    await act(async () => {});
+    expect(document.querySelector(".files__dname")?.textContent).toBe(
+      "readme.md",
+    );
+    expect(document.body.textContent).toContain("second line");
+  });
+
+  it("opens a live request while already mounted", async () => {
+    await mount();
+    expect(document.querySelector(".files__peek")).toBeNull();
+    await act(async () => requestOpen("/repo/readme.md"));
+    await act(async () => {});
+    expect(document.querySelector(".files__peek")).not.toBeNull();
   });
 });
