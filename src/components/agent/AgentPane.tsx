@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { PaneProvisioning } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
@@ -80,6 +80,10 @@ interface AgentPaneProps {
   onTitle(title: string): void;
   /** The PTY process ended — the resume-failure detector listens upstream. */
   onExited?(code: number | null): void;
+  /** Whether the exited process is bound to a resumable agent session. */
+  canResume?: boolean;
+  /** Manually restart an exited agent, either from its binding or fresh. */
+  onRestart?(mode: "resume" | "fresh"): Promise<void> | void;
 }
 
 /**
@@ -115,11 +119,32 @@ export function AgentPane({
   onRename,
   onTitle,
   onExited,
+  canResume,
+  onRestart,
   onStartFresh,
   onRetryProvision,
 }: AgentPaneProps) {
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
+  // A successful restart remounts the whole pane via its epoch. Until then,
+  // keep both choices inert; only a rejected plan lets the user try again.
+  const restartInFlight = useRef(false);
+  const [restarting, setRestarting] = useState(false);
+  const restart = (mode: "resume" | "fresh") => {
+    if (!onRestart || restartInFlight.current) return;
+    restartInFlight.current = true;
+    setRestarting(true);
+
+    const recover = () => {
+      restartInFlight.current = false;
+      setRestarting(false);
+    };
+    try {
+      void Promise.resolve(onRestart(mode)).catch(recover);
+    } catch {
+      recover();
+    }
+  };
   // Inline rename of the header title ([F11]).
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -349,6 +374,28 @@ export function AgentPane({
             <span className="pane__exit-sub">
               {exit.code !== null ? `exit code ${exit.code}` : "terminated"}
             </span>
+            {onRestart && (
+              <div className="pane__exit-actions">
+                <button
+                  type="button"
+                  className="pane__exit-action pane__exit-action--primary"
+                  disabled={restarting}
+                  onClick={() => restart(canResume ? "resume" : "fresh")}
+                >
+                  {restarting ? "Restarting…" : "Restart agent"}
+                </button>
+                {canResume && (
+                  <button
+                    type="button"
+                    className="pane__exit-action pane__exit-action--secondary"
+                    disabled={restarting}
+                    onClick={() => restart("fresh")}
+                  >
+                    Start new session
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

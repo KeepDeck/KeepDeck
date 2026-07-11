@@ -247,6 +247,55 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The exit veil stays click-through so terminal scrollback can still be
+   selected. Only this compact action island participates in pointer input. */
+.pane__exit-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  margin-top: 10px;
+  pointer-events: auto;
+}
+
+.pane__exit-action {
+  pointer-events: auto;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pane__exit-action--primary {
+  min-width: 112px;
+  padding: 5px 13px;
+  border: 1px solid #3c6850;
+  background-color: #1b3026;
+  color: #d3e8da;
+}
+
+.pane__exit-action--primary:hover:not(:disabled) {
+  border-color: #4d8867;
+  background-color: #234030;
+}
+
+.pane__exit-action--secondary {
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: #7f8899;
+}
+
+.pane__exit-action--secondary:hover:not(:disabled) {
+  color: #b7bdc8;
+  text-decoration: underline;
+}
+
+.pane__exit-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 /* Restored-but-not-running tile ([F7]) — shown instead of the terminal until
    the pane is revived; persists only when its directory is gone. */
 .pane__dormant {
