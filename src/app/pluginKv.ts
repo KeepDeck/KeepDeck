@@ -17,6 +17,9 @@ import { isRecord } from "../domain/json";
 export interface DeckAccess {
   workspaces(): Workspace[];
   setPluginSlot(wsId: string, pluginId: string, value: unknown): void;
+  /** Open the dock on the ACTIVE workspace with `tabId` selected — the host
+   * side of `ctx.ui.revealDockTab` (tabId is the full `pluginId:entryId`). */
+  revealDockTab(tabId: string): void;
 }
 
 export function makeWorkspaceKv(

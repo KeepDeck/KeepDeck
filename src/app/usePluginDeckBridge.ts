@@ -18,6 +18,7 @@ export function usePluginDeckBridge(deck: Deck): void {
       workspaces: () => deckRef.current.workspaces,
       setPluginSlot: (wsId, pluginId, value) =>
         deckRef.current.setWorkspacePluginSlot(wsId, pluginId, value),
+      revealDockTab: (tabId) => revealDockTabOn(deckRef.current, tabId),
     });
   }, []);
 
@@ -40,6 +41,19 @@ export function usePluginDeckBridge(deck: Deck): void {
       paneId: selectedPaneId,
     });
   }, [deck.activeId, selectedPaneId]);
+}
+
+/** Reveal a dock tab on the ACTIVE workspace — the host side of a plugin's
+ * `ui.revealDockTab`: open the dock if it's closed (the deck action is a
+ * toggle, so read the view first), then select the tab. No active workspace →
+ * nothing to reveal into. */
+export function revealDockTabOn(
+  deck: Pick<Deck, "activeId" | "viewOf" | "toggleDock" | "setDockTab">,
+  tabId: string,
+): void {
+  if (!deck.activeId) return;
+  if (!deck.viewOf(deck.activeId).dock) deck.toggleDock(deck.activeId);
+  deck.setDockTab(deck.activeId, tabId);
 }
 
 /** Ids present before and gone now — the workspaces that just closed. */

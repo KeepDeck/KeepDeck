@@ -166,6 +166,23 @@ export function buildGuestContext(
           () => actionCallbacks.delete(key),
         );
       },
+      revealDockTab: () => {
+        // Not bridged yet — fail loud (the external fail-closed idiom), not
+        // silently: a plugin author must learn the surface isn't there.
+        throw new Error(
+          "ui.revealDockTab is not yet available to external plugins",
+        );
+      },
+    },
+
+    openers: {
+      register: () => {
+        // A file-open handler is a host-invoked callback; until an RPC
+        // callback bridge exists it cannot cross the sandbox boundary.
+        throw new Error(
+          "file-open handlers are not yet available to external plugins",
+        );
+      },
     },
 
     settings: {

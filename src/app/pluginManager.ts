@@ -57,6 +57,7 @@ export const pluginRegistries = createContributionRegistries();
 let deckAccess: DeckAccess = {
   workspaces: () => [],
   setPluginSlot: () => {},
+  revealDockTab: () => {},
 };
 
 export function wireDeckAccess(access: DeckAccess): void {
@@ -68,6 +69,7 @@ const liveDeckAccess: DeckAccess = {
   workspaces: () => deckAccess.workspaces(),
   setPluginSlot: (wsId, pluginId, value) =>
     deckAccess.setPluginSlot(wsId, pluginId, value),
+  revealDockTab: (tabId) => deckAccess.revealDockTab(tabId),
 };
 
 // ------------------------------------------------------------- deck events
@@ -285,6 +287,12 @@ export const pluginHost = new PluginHost(
         }).catch(() => null);
       },
     }),
+    ui: {
+      // Dock tab ids are namespaced `pluginId:entryId` — the same shape App
+      // builds when rendering the tab strip.
+      revealDockTab: (pluginId, entryId) =>
+        liveDeckAccess.revealDockTab(`${pluginId}:${entryId}`),
+    },
     log: loggerFor,
     hostFacts: {
       // The whitelisted read-only host facts (see PluginHostFacts): grown a

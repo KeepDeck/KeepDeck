@@ -14,7 +14,11 @@ const ws = (id: string, plugins?: Record<string, unknown>): Workspace => ({
 function access(workspaces: Workspace[]): DeckAccess & {
   setPluginSlot: ReturnType<typeof vi.fn>;
 } {
-  return { workspaces: () => workspaces, setPluginSlot: vi.fn() };
+  return {
+    workspaces: () => workspaces,
+    setPluginSlot: vi.fn(),
+    revealDockTab: vi.fn(),
+  };
 }
 
 describe("makeWorkspaceKv", () => {
@@ -59,6 +63,7 @@ describe("makeWorkspaceKv", () => {
     const a: DeckAccess = {
       workspaces: () => current,
       setPluginSlot: vi.fn(),
+      revealDockTab: vi.fn(),
     };
     const kv = makeWorkspaceKv(a, "p", "w1");
     expect(await kv.get("k")).toBeUndefined();

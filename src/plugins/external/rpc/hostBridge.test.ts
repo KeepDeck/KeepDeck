@@ -36,7 +36,9 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       registerDockTab: () => disposable,
       registerTopBarAction: () => disposable,
       registerPaneAction: () => disposable,
+      revealDockTab: () => {},
     },
+    openers: { register: () => disposable },
     settings: {
       registerSection: () => disposable,
       read: async () => ({}),

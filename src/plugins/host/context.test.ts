@@ -25,7 +25,11 @@ const manifest = (
 /** A manifest declaring the contributions the happy-path tests register. */
 const declaring = (id: string): PluginManifest =>
   manifest(id, {
-    contributes: { dockTabs: [{ id: "t", label: "T" }], settings: true },
+    contributes: {
+      dockTabs: [{ id: "t", label: "T" }],
+      fileOpeners: [{ id: "peek", label: "Peek" }],
+      settings: true,
+    },
   });
 
 /** A disposable whose `dispose` is a spy — lets a test assert exactly how many
@@ -53,16 +57,18 @@ function fakeDeps() {
     onPaneSelected: vi.fn(spyDisposable),
     onDeckChanged: vi.fn(spyDisposable),
   };
+  const ui = { revealDockTab: vi.fn() };
   const deps: PluginHostDeps = {
     storage: vi.fn(() => storage),
     settings: vi.fn(() => settingsView),
     events,
     services: vi.fn(() => services),
     resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
+    ui,
     log: vi.fn(() => logger),
     hostFacts: { settings: vi.fn(async () => ({ terminalScrollback: 10_000 })) },
   };
-  return { deps, logger, events, settingsView, storage, services };
+  return { deps, logger, events, settingsView, storage, services, ui };
 }
 
 describe("buildPluginContext", () => {
@@ -79,6 +85,34 @@ describe("buildPluginContext", () => {
     expect(registries.settingsSections.list()).toEqual([
       { pluginId: "p", entry: { label: "S", fields: [] } },
     ]);
+  });
+
+  it("routes a declared file-open handler into its registry and out on dispose", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    const handler = { id: "peek", label: "Peek", open: async () => true };
+    const handle = ctx.openers.register(handler);
+    expect(registries.fileOpeners.list()).toEqual([
+      { pluginId: "p", entry: handler },
+    ]);
+    handle.dispose();
+    expect(registries.fileOpeners.list()).toEqual([]);
+
+    // Undeclared id → refused, fail-closed like every contribution.
+    expect(() =>
+      ctx.openers.register({ id: "ghost", label: "G", open: async () => true }),
+    ).toThrow('contribution not declared in the manifest: fileOpeners "ghost"');
+  });
+
+  it("forwards revealDockTab to the host UI port with the plugin's identity", () => {
+    const registries = createContributionRegistries();
+    const { deps, ui } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    ctx.ui.revealDockTab("t");
+    expect(ui.revealDockTab).toHaveBeenCalledWith("p", "t");
   });
 
   it("refuses any contribution the manifest does not declare", () => {
