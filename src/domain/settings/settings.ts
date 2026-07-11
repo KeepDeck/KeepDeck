@@ -29,6 +29,21 @@ import {
   settingsFloorBreach,
 } from "../migrations";
 
+/** How a minimized agent is presented in the deck — the collapse layout the
+ * user picks in Settings:
+ * - `tray`  — it leaves the grid (which retiles to the live count) and docks
+ *   as a chip in a strip along the bottom;
+ * - `strip` — it folds to its own header bar, stacked below the grid;
+ * - `list`  — the whole workspace becomes a vertical list of agents, the
+ *   selected one expanded to its terminal and the rest folded to bars.
+ * The minimized SET is per-workspace runtime state ([`WorkspaceView.collapsed`]);
+ * this is only the presentation choice, shared across the app. */
+export type CollapseStyle = "tray" | "strip" | "list";
+
+/** Every collapse style, in the order the settings picker lists them; also the
+ * allow-list a stored value is validated against. */
+export const COLLAPSE_STYLES: readonly CollapseStyle[] = ["tray", "strip", "list"];
+
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete
    * agent; if it isn't installed, the pickers snap to the first one that
@@ -36,6 +51,8 @@ export interface Settings {
   defaultAgent: AgentType;
   /** Scrollback lines kept per terminal pane. */
   scrollback: number;
+  /** How a minimized agent is presented in the deck (tray / strip / list). */
+  collapseStyle: CollapseStyle;
   /** Per-plugin persisted settings, keyed by plugin id. The plugin system
    * itself is not a flag — it simply exists (user decision); `enabled` is
    * each plugin's own on/off switch, `values` is what a plugin's
@@ -57,6 +74,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
   scrollback: 10_000,
+  collapseStyle: "tray",
   plugins: { enabled: {}, values: {}, consented: {} },
 };
 
@@ -169,6 +187,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (typeof doc.scrollback === "number" && Number.isFinite(doc.scrollback)) {
     settings.scrollback = clampScrollback(doc.scrollback);
+  }
+  if (COLLAPSE_STYLES.includes(doc.collapseStyle as CollapseStyle)) {
+    settings.collapseStyle = doc.collapseStyle as CollapseStyle;
   }
   const plugins = readPlugins(doc.plugins);
   // Only replace the default's object reference when there's genuinely

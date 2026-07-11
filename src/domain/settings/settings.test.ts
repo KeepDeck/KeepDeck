@@ -31,6 +31,7 @@ describe("hydrateSettings", () => {
         version: 1,
         defaultAgent: "codex",
         scrollback: 50_000,
+        collapseStyle: "strip",
         plugins: {
           enabled: { git: true },
           values: { git: { remote: "origin" } },
@@ -40,8 +41,38 @@ describe("hydrateSettings", () => {
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
       scrollback: 50_000,
+      collapseStyle: "strip",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
     });
+  });
+
+  it("defaults collapseStyle to tray when absent", () => {
+    expect(hydrateSettings("{}")?.settings.collapseStyle).toBe("tray");
+  });
+
+  it("accepts each known collapseStyle and rejects an unknown one", () => {
+    for (const style of ["tray", "strip", "list"]) {
+      expect(hydrateSettings(JSON.stringify({ collapseStyle: style }))?.settings.collapseStyle).toBe(
+        style,
+      );
+    }
+    // A garbage value degrades to the default, on its own, like any other key.
+    expect(
+      hydrateSettings(JSON.stringify({ collapseStyle: "mosaic" }))?.settings.collapseStyle,
+    ).toBe("tray");
+    expect(
+      hydrateSettings(JSON.stringify({ collapseStyle: 3 }))?.settings.collapseStyle,
+    ).toBe("tray");
+  });
+
+  it("serializes collapseStyle only when it differs from the default (sparse)", () => {
+    const base = defaultSettingsDocument();
+    expect(serializeSettings(base)).not.toContain("collapseStyle");
+    const changed = {
+      ...base,
+      settings: { ...base.settings, collapseStyle: "list" as const },
+    };
+    expect(JSON.parse(serializeSettings(changed)).collapseStyle).toBe("list");
   });
 
   it("v5 graduation: an explicit experimentRunPresets=false disables the Run plugin", () => {
