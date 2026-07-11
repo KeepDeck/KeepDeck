@@ -215,6 +215,20 @@ describe("SettingsDialog", () => {
     expect(button("Claude Code").className).not.toContain("form__type--active");
   });
 
+  it("picking a collapse style writes it through to the store", async () => {
+    await mount({ collapseStyle: "tray" });
+    act(() => button("Strip").click());
+    expect(getSettings()?.collapseStyle).toBe("strip");
+    // The active mark follows the store, not local state.
+    expect(button("Strip").className).toContain("form__type--active");
+  });
+
+  it("marks the active collapse style", async () => {
+    await mount({ collapseStyle: "list" });
+    expect(button("List").className).toContain("form__type--active");
+    expect(button("Tray").className).not.toContain("form__type--active");
+  });
+
   it("scrollback commits clamped on blur — not per keystroke", async () => {
     await mount();
     toTerminal();
