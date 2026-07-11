@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AgentContribution, SpawnPlanOutput } from "@keepdeck/plugin-api";
 import {
   BRIDGE_PROTOCOL_VERSION,
+  type ResumeOrigin,
   type SpawnPlan,
   type SpawnPlanContext,
 } from "../domain/agents";
@@ -46,6 +47,7 @@ async function buildPlan(
   branch: string | undefined,
   ctx: SpawnPlanContext,
   resumeId?: string | null,
+  resumeOrigin?: ResumeOrigin,
 ): Promise<SpawnPlan> {
   const { entry, pluginId } = agent;
   const output: SpawnPlanOutput = {
@@ -109,23 +111,32 @@ async function buildPlan(
     args: output.args,
     env,
     ...(token ? { token } : {}),
-    ...(resumeId
-      ? { resumeOf: resumeId, postbackMark: postbackCount(paneId) }
+    ...(resumeId && resumeOrigin
+      ? {
+          resumeOf: resumeId,
+          resumeOrigin,
+          postbackMark: postbackCount(paneId),
+        }
       : {}),
   };
 }
 
-/** Whether a pane's exit means its RESUME died before ever becoming a
- * session: the plan was a resume, and not one accepted postback has arrived
- * since it was built — a working resume always reports first (every agent's
- * startup hook posts through the bridge). Such an exit is the CLI refusing
- * the recorded id (deleted, GC'd, never materialized): the binding is dead
- * and the pane deserves a fresh start instead of a corpse. */
+/** Whether a pane's boot-restoration RESUME died before ever becoming a
+ * session: the plan came from restore, and not one accepted postback has
+ * arrived since it was built — a working resume always reports first (every
+ * agent's startup hook posts through the bridge). Such an exit is the CLI
+ * refusing the recorded id (deleted, GC'd, never materialized): the binding
+ * is dead and the pane deserves the one-shot fresh fallback. Manual resumes
+ * deliberately stay exited so another spawn only happens on another click. */
 export function resumeDiedSilently(
   spec: SpawnPlan | undefined,
   currentPostbacks: number,
 ): boolean {
-  return !!spec?.resumeOf && spec.postbackMark === currentPostbacks;
+  return (
+    spec?.resumeOrigin === "restore" &&
+    !!spec.resumeOf &&
+    spec.postbackMark === currentPostbacks
+  );
 }
 
 /** Forget a pane's plan so the next build starts clean (the respawn-fresh
@@ -145,12 +156,13 @@ export async function buildResumeSpec(
   branch: string | undefined,
   ctx: SpawnPlanContext,
   resumeId: string,
+  origin: ResumeOrigin,
 ): Promise<void> {
   const agent = findAgent(agentType);
   if (!agent) return; // unavailable — the card keeps the pane dormant
   specs.set(
     paneId,
-    await buildPlan(agent, paneId, wsId, cwd, branch, ctx, resumeId),
+    await buildPlan(agent, paneId, wsId, cwd, branch, ctx, resumeId, origin),
   );
 }
 

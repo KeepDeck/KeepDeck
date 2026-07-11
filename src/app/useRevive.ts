@@ -102,6 +102,7 @@ export function useRevive(
           pane.branch,
           ctxRef.current,
           sessionId,
+          "restore",
         );
       }
       deckRef.current.revivePane(active.id, pane.id);

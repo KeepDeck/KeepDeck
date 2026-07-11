@@ -176,20 +176,40 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
 
   it("buildResumeSpec caches a resume plan the wake can read back", async () => {
     register(adopting);
-    await buildResumeSpec("claude", "pane-9", "ws-1", "/repo", undefined, ctx, "old-id");
+    await buildResumeSpec(
+      "claude",
+      "pane-9",
+      "ws-1",
+      "/repo",
+      undefined,
+      ctx,
+      "old-id",
+      "restore",
+    );
     expect(peekPaneSpawnSpec("pane-9")?.args).toEqual(["--resume", "old-id"]);
     expect(peekPaneSpawnSpec("pane-9")?.token).toBeDefined();
     // The failure detector's bookkeeping rides the plan.
     expect(peekPaneSpawnSpec("pane-9")?.resumeOf).toBe("old-id");
+    expect(peekPaneSpawnSpec("pane-9")?.resumeOrigin).toBe("restore");
     expect(peekPaneSpawnSpec("pane-9")?.postbackMark).toBe(0);
   });
 
-  it("resumeDiedSilently: only a resume with ZERO new postbacks retries", () => {
-    const resume = { args: [], env: [], resumeOf: "old", postbackMark: 2 };
+  it("resumeDiedSilently: only a restored resume with ZERO new postbacks retries", () => {
+    const restored = {
+      args: [],
+      env: [],
+      resumeOf: "old",
+      resumeOrigin: "restore" as const,
+      postbackMark: 2,
+    };
     // Exited with the count unmoved — the CLI refused the id: retry fresh.
-    expect(resumeDiedSilently(resume, 2)).toBe(true);
+    expect(resumeDiedSilently(restored, 2)).toBe(true);
     // A postback arrived — the session really started; a later exit is real.
-    expect(resumeDiedSilently(resume, 3)).toBe(false);
+    expect(resumeDiedSilently(restored, 3)).toBe(false);
+    // A manual restart is never silently replaced with another spawn.
+    expect(
+      resumeDiedSilently({ ...restored, resumeOrigin: "manual" }, 2),
+    ).toBe(false);
     // Fresh plans and unknown panes never retry.
     expect(resumeDiedSilently({ args: [], env: [] }, 0)).toBe(false);
     expect(resumeDiedSilently(undefined, 0)).toBe(false);
