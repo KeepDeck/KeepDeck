@@ -316,6 +316,11 @@ describe("FilesTab", () => {
     expect(document.querySelector(".files__dname")?.textContent).toBe(
       "readme.md",
     );
+    // A terminal-link open has no tree root: the breadcrumb shows the
+    // ABSOLUTE path, not a fake root-relative remainder.
+    expect(document.querySelector(".files__dpath")?.textContent).toBe(
+      "/repo/readme.md",
+    );
     expect(document.body.textContent).toContain("second line");
   });
 

@@ -37,6 +37,25 @@ const agentsIpc = vi.hoisted(() => ({
   ),
 }));
 vi.mock("../../ipc/agents", () => agentsIpc);
+// A controllable installed-plugins store: tests install/uninstall plugins and
+// the dialog reacts through the same useSyncExternalStore path as the real
+// host (stable snapshots, notified subscribers).
+const pluginStore = vi.hoisted(() => {
+  let installed: unknown[] = [];
+  const subscribers = new Set<() => void>();
+  return {
+    getInstalled: () => installed,
+    subscribe: (cb: () => void) => {
+      subscribers.add(cb);
+      return () => subscribers.delete(cb);
+    },
+    set(next: unknown[]) {
+      installed = next;
+      for (const cb of [...subscribers]) cb();
+    },
+  };
+});
+
 vi.mock("../../app/pluginManager", async () => {
   const { createContributionRegistries } = await import(
     "../../plugins/registries/contributions"
@@ -57,16 +76,11 @@ vi.mock("../../app/pluginManager", async () => {
   return {
     pluginRegistries: registries,
     bootstrapPlugins: () => Promise.resolve(),
-    // The Plugins section renders in the dialog's nav tree — a quiet, empty
-    // host keeps it inert without pulling the real Tauri-backed manager in.
+    // Per-plugin sections render in the dialog's nav tree — the controllable
+    // store keeps it honest without pulling the real Tauri-backed manager in.
     pluginHost: {
-      // useSyncExternalStore compares snapshots by identity — return a
-      // STABLE empty list, or the store loops forever.
-      getInstalled: (() => {
-        const none: never[] = [];
-        return () => none;
-      })(),
-      subscribe: () => () => {},
+      getInstalled: pluginStore.getInstalled,
+      subscribe: pluginStore.subscribe,
       setEnabled: async () => {},
     },
     externalPluginInfo: () => null,
@@ -74,6 +88,20 @@ vi.mock("../../app/pluginManager", async () => {
     restartPlugin: async () => {},
   };
 });
+
+/** An installed, active Files plugin — enough manifest for a PluginPage. */
+const FILES_PLUGIN = {
+  manifest: {
+    id: "keepdeck.files",
+    name: "Files",
+    version: "0.1.0",
+    minApiVersion: 1,
+    category: "deck",
+    capabilities: [],
+    contributes: { settings: true },
+  },
+  status: { kind: "active" },
+};
 
 const button = (text: string) =>
   Array.from(document.querySelectorAll("button")).find(
@@ -113,6 +141,7 @@ describe("SettingsDialog", () => {
     ipc.saveSettings.mockClear();
     agentsIpc.detectBins.mockClear();
     resetSettingsManager();
+    pluginStore.set([]);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     closed = 0;
@@ -225,5 +254,49 @@ describe("SettingsDialog", () => {
     });
     expect(closed).toBe(3);
     expect(ipc.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("an installed plugin is its own nav section: toggle plus contributed fields", async () => {
+    const { pluginRegistries } = await import("../../app/pluginManager");
+    pluginStore.set([FILES_PLUGIN]);
+    const section = pluginRegistries.settingsSections.add("keepdeck.files", {
+      label: "Files",
+      fields: [
+        {
+          kind: "boolean",
+          key: "openFileLinks",
+          label: "Open terminal file links in KeepDeck",
+          default: true,
+        },
+      ],
+    });
+    try {
+      await mount();
+      act(() => button("Files").click());
+      const enable = document.querySelector<HTMLInputElement>(
+        'input[aria-label="Enable plugin Files"]',
+      )!;
+      const feature = document.querySelector<HTMLInputElement>(
+        'input[aria-label="Open terminal file links in KeepDeck"]',
+      )!;
+      // Everything about the plugin lives on ITS page.
+      expect(panelOf(enable).hasAttribute("hidden")).toBe(false);
+      expect(panelOf(feature).hasAttribute("hidden")).toBe(false);
+      expect(feature.checked).toBe(true); // the schema default, no stored value
+    } finally {
+      section.dispose();
+    }
+  });
+
+  it("falls back to the first section when the open plugin section vanishes", async () => {
+    pluginStore.set([FILES_PLUGIN]);
+    await mount();
+    act(() => button("Files").click());
+    expect(button("Files").className).toContain("settings__nav-item--active");
+
+    // A rescan/uninstall removes the plugin while its page is open.
+    act(() => pluginStore.set([]));
+    expect(button("General").className).toContain("settings__nav-item--active");
+    expect(panelOf(button("Claude Code")).hasAttribute("hidden")).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ import {
   type PaneHint,
 } from "@keepdeck/terminal-kit";
 import { openUrl } from "../../ipc/app";
-import { fileOpenManager } from "../../app/fileOpenManager";
+import { fileOpenManager, type FileOpenOutcome } from "../../app/fileOpenManager";
 
 /** Where link activation lands: cwd for relative paths, hints for feedback.
  * The kit's provider is ipc-inverted (it takes `openUrl`/`openPath` on the
@@ -37,11 +37,20 @@ export function registerTerminalLinks(
   return registerKitLinks(term, host, {
     ...target,
     openUrl,
-    openPath: async (path) => {
-      const outcome = await fileOpenManager.open({ path });
-      if (outcome.declined && outcome.via === "system") {
-        return { notice: "Opened externally" };
-      }
-    },
+    openPath: async (path) =>
+      linkOpenNotice(await fileOpenManager.open({ path })),
   });
+}
+
+/** What the click should say for a chain outcome: an in-app handler declined
+ * and the SYSTEM opener took the file → "Opened externally" (routing never
+ * silently contradicts an enabled in-app opener); every other outcome —
+ * handled in-app, or system with nothing registered — stays silent. Pure,
+ * exported for its unit test: this one branch is the seam's whole behavior. */
+export function linkOpenNotice(
+  outcome: FileOpenOutcome,
+): { notice: string } | undefined {
+  return outcome.declined && outcome.via === "system"
+    ? { notice: "Opened externally" }
+    : undefined;
 }

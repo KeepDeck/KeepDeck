@@ -198,9 +198,12 @@ function TextView({
 
 /** The file's path relative to the tree root — best effort. Falls back to the
  * tail from the root folder's name (canonicalization can make the two disagree)
- * and finally the absolute path. */
+ * and finally the absolute path. No root at all (a terminal-link open, which
+ * has no tree) shows the absolute path verbatim — NOT the leading-slash-
+ * stripped remainder a `""` base would otherwise produce. */
 function breadcrumb(root: string, path: string): string {
   const base = root.replace(/[/\\]+$/, "");
+  if (!base) return path;
   if (path === base) return "";
   if (path.startsWith(`${base}/`)) return path.slice(base.length + 1);
   const marker = `/${baseName(base)}/`;

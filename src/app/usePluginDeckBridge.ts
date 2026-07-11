@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Deck } from "./useDeck";
-import { pluginDeckEvents, wireDeckAccess } from "./pluginManager";
+import { pluginDeckEvents, wireDeckAccess, wireDeckUi } from "./pluginManager";
 
 /**
  * The one place the React-owned deck and the module-level plugin system
@@ -18,6 +18,8 @@ export function usePluginDeckBridge(deck: Deck): void {
       workspaces: () => deckRef.current.workspaces,
       setPluginSlot: (wsId, pluginId, value) =>
         deckRef.current.setWorkspacePluginSlot(wsId, pluginId, value),
+    });
+    wireDeckUi({
       revealDockTab: (tabId) => revealDockTabOn(deckRef.current, tabId),
     });
   }, []);
