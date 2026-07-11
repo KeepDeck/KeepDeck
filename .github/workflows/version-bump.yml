@@ -1,15 +1,19 @@
 # Bumps the app version on main after every merge, so feature branches never
 # touch version files and parallel agents cannot collide on a bump.
 #
-# Every merge landed since the last version change bumps patch; a merge whose
-# subject contains "(minor)" bumps minor (scripts/version-bump.mjs). A newer
-# push to main cancels an in-flight run: the fresh run recounts from the last
-# version change and covers every merge since, so cancellation loses nothing —
-# and the same recount heals a run whose final push lost a race.
+# Every merge landed since the last version change bumps patch; "(minor)" and
+# "(major)" merge subjects raise the corresponding release boundary. Automatic
+# patch batches commit immediately without macOS builds. Major/minor batches and
+# every manual dispatch prepare the version without pushing, build both native
+# architectures, then commit the bump and publish only after the full matrix
+# succeeds.
 #
-# The bump commit is pushed with GITHUB_TOKEN, and GITHUB_TOKEN pushes never
-# trigger workflows, so this cannot recurse. workflow_dispatch is the manual
-# escape hatch: it applies exactly one bump of the chosen kind.
+# Runs queue instead of replacing one another so a manual release request is not
+# discarded by a later push. Each release job uses the exact main revision and
+# version files captured by prepare; a moved main makes the final push fail
+# safely instead of publishing binaries built from stale source.
+#
+# GITHUB_TOKEN bump pushes do not trigger another workflow run.
 name: Version bump
 
 on:
@@ -22,21 +26,22 @@ on:
         required: true
         default: patch
         type: choice
-        options: [patch, minor]
+        options: [patch, minor, major]
 
 permissions:
   contents: write
 
 concurrency:
   group: version-bump
-  cancel-in-progress: true
+  queue: max
 
 jobs:
-  bump:
+  prepare:
     runs-on: ubuntu-latest
     outputs:
+      base_sha: ${{ steps.base.outputs.sha }}
       version: ${{ steps.bump.outputs.version }}
-      minor: ${{ steps.bump.outputs.minor }}
+      release: ${{ steps.bump.outputs.release }}
     # Belt and braces for pushes made with credentials other than GITHUB_TOKEN.
     if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'Bump version to ')
     steps:
@@ -45,40 +50,58 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Record the source revision
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Compute and apply the bump
         id: bump
         run: node scripts/version-bump.mjs ${{ github.event_name == 'workflow_dispatch' && format('--bump {0}', inputs.bump) || '' }}
 
-      - name: Commit and push
-        if: steps.bump.outputs.version != ''
+      - name: Commit and push patch bump
+        if: steps.bump.outputs.version != '' && steps.bump.outputs.release != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "Bump version to ${{ steps.bump.outputs.version }}"
-          git push origin main
+          git push origin HEAD:main
 
-  # Build the newly bumped version for each macOS arch, natively and in
-  # parallel (arm64 on Apple Silicon, x86_64 on an Intel runner — no fragile
-  # cross-compile), and hand the zips to the publish job. Runs ONLY for minor
-  # (or larger) bumps; patch merges skip the expensive macOS build. Hangs off
-  # the same run via `needs` because the bot's GITHUB_TOKEN bump push cannot
-  # trigger a fresh workflow.
+      - name: Preserve the prepared release version
+        if: steps.bump.outputs.version != '' && steps.bump.outputs.release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-files
+          path: |
+            Cargo.lock
+            package.json
+            src-tauri/Cargo.toml
+          if-no-files-found: error
+          overwrite: true
+
+  # Build the prepared release version for both macOS architectures natively.
+  # Automatic patch batches skip this job and finish in prepare.
   build:
-    needs: bump
-    if: needs.bump.outputs.minor == 'true'
+    needs: prepare
+    if: needs.prepare.outputs.version != '' && needs.prepare.outputs.release == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: macos-latest # Apple Silicon (arm64)
             asset: KeepDeck-macos-arm64.zip
-          - runner: macos-13 # Intel (x86_64)
+          - runner: macos-15-intel # Intel (x86_64)
             asset: KeepDeck-macos-x64.zip
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main # includes the bump commit pushed by the bump job
+          ref: ${{ needs.prepare.outputs.base_sha }}
+
+      - name: Restore the prepared release version
+        uses: actions/download-artifact@v4
+        with:
+          name: version-files
+          path: .
 
       - uses: pnpm/action-setup@v4
         with:
@@ -111,20 +134,47 @@ jobs:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
           if-no-files-found: error
+          overwrite: true
 
-  # Attach both arch zips to the rolling "latest" GitHub Release (one fixed tag,
-  # force-updated each release; the installer always pulls it).
+  # The implicit success gate on `needs: build` requires every matrix leg to
+  # succeed before the release version reaches main.
+  bump_release:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.version != '' && needs.prepare.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+
+      - name: Restore the prepared release version
+        uses: actions/download-artifact@v4
+        with:
+          name: version-files
+          path: .
+
+      - name: Commit and push release bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Bump version to ${{ needs.prepare.outputs.version }}"
+          git push origin HEAD:main
+
+  # Attach both architecture zips to the rolling "latest" GitHub Release. If
+  # only this job fails, re-run failed jobs so the prepared version is reused;
+  # re-running every job would constitute a new forced bump for a manual run.
   publish:
-    needs: [bump, build]
-    if: needs.bump.outputs.minor == 'true'
+    needs: [prepare, build, bump_release]
+    if: needs.prepare.outputs.version != '' && needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      VERSION: ${{ needs.bump.outputs.version }}
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: KeepDeck-macos-*
           path: assets
           merge-multiple: true
 
