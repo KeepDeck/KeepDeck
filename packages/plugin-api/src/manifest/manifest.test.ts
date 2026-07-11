@@ -11,6 +11,7 @@ const GOLDEN = {
   capabilities: [
     { kind: "exec", commands: ["pnpm", "npm"] },
     { kind: "fs", scope: "workspace" },
+    { kind: "git", scope: "workspace" },
     { kind: "net", domains: ["localhost"] },
     { kind: "ports" },
     { kind: "open" },
@@ -157,6 +158,8 @@ describe("readManifest", () => {
       [{ kind: "exec", commands: [] }, "non-empty"],
       [{ kind: "exec" }, "non-empty"],
       [{ kind: "fs", scope: "disk" }, '"workspace" or "everywhere"'],
+      [{ kind: "git", scope: "disk" }, '"workspace" or "everywhere"'],
+      [{ kind: "git" }, '"workspace" or "everywhere"'],
       [{ kind: "net", domains: ["*.evil.com"] }, "bare hostnames"],
       [{ kind: "net", domains: [] }, "non-empty"],
       // A domain must be a bare hostname — anything carrying a CSP separator

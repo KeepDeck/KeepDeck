@@ -86,6 +86,19 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         }),
         watch: () => ({ dispose() {} }),
       },
+      git: {
+        status: async () => ({
+          branch: null,
+          detached: false,
+          oid: null,
+          upstream: null,
+          ahead: null,
+          behind: null,
+          entries: [],
+        }),
+        diffFile: async () => "",
+        watch: () => ({ dispose() {} }),
+      },
     },
     host: { settings: async () => ({ terminalScrollback: 1000 }) },
     log: {

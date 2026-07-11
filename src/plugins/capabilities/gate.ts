@@ -4,6 +4,8 @@ import type {
   FsEntry,
   FsFile,
   FsReadFileOptions,
+  GitDiffOptions,
+  GitStatus,
   PluginLogger,
   PluginManifest,
   PluginOpener,
@@ -32,15 +34,30 @@ export interface FsBackend {
   watch(path: string, scope: FsScope, onChange: () => void): Disposable;
 }
 
+/** The scope-aware git backend, mirroring [`FsBackend`]: the gate derives the
+ * scope from the manifest's `git` capability, the backend resolves it to the
+ * same roots fs containment uses. */
+export interface GitBackend {
+  status(repo: string, scope: FsScope): Promise<GitStatus>;
+  diffFile(
+    repo: string,
+    file: string,
+    scope: FsScope,
+    opts?: GitDiffOptions,
+  ): Promise<string>;
+  watch(repo: string, scope: FsScope, onChange: () => void): Disposable;
+}
+
 /** The ungated platform backends the gate decorates. Identical to
- * `PluginServices` except `fs`: the backend's fs is scope-aware (the gate
- * injects the scope), while the `PluginServices.fs` the gate RETURNS matches
- * the public, scope-free `PluginFs` the plugin calls. */
+ * `PluginServices` except `fs`/`git`: those backends are scope-aware (the gate
+ * injects the scope), while the services the gate RETURNS match the public,
+ * scope-free contracts the plugin calls. */
 export interface ServiceBackends {
   sessions: PluginSessions;
   ports: PluginPorts;
   opener: PluginOpener;
   fs: FsBackend;
+  git: GitBackend;
 }
 
 /**
@@ -151,6 +168,34 @@ export function createCapabilityGate(
         return backend.fs.watch(path, fsScope(manifest.capabilities), onChange);
       },
     },
+    git: {
+      status(repo) {
+        admit(
+          hasGitCapability(manifest.capabilities),
+          `git.status: "${repo}" requires a "git" capability, which the manifest does not declare`,
+        );
+        return backend.git.status(repo, gitScope(manifest.capabilities));
+      },
+      diffFile(repo, file, opts) {
+        admit(
+          hasGitCapability(manifest.capabilities),
+          `git.diffFile: "${repo}" requires a "git" capability, which the manifest does not declare`,
+        );
+        return backend.git.diffFile(
+          repo,
+          file,
+          gitScope(manifest.capabilities),
+          opts,
+        );
+      },
+      watch(repo, onChange) {
+        admit(
+          hasGitCapability(manifest.capabilities),
+          `git.watch: "${repo}" requires a "git" capability, which the manifest does not declare`,
+        );
+        return backend.git.watch(repo, gitScope(manifest.capabilities), onChange);
+      },
+    },
   };
 }
 
@@ -166,6 +211,10 @@ function hasFsCapability(capabilities: Capability[]): boolean {
   return capabilities.some((capability) => capability.kind === "fs");
 }
 
+function hasGitCapability(capabilities: Capability[]): boolean {
+  return capabilities.some((capability) => capability.kind === "git");
+}
+
 /** The scope the fs backend should enforce: the declared scope, defaulting to
  * the SAFEST (`workspace`) when none is declared. `everywhere` is never assumed
  * — a warn-mode built-in that calls `fs` without declaring it is contained to
@@ -176,4 +225,13 @@ function fsScope(capabilities: Capability[]): FsScope {
       capability.kind === "fs",
   );
   return fs?.scope === "everywhere" ? "everywhere" : "workspace";
+}
+
+/** Same safest-default rule as [`fsScope`], for the `git` capability. */
+function gitScope(capabilities: Capability[]): FsScope {
+  const git = capabilities.find(
+    (capability): capability is Extract<Capability, { kind: "git" }> =>
+      capability.kind === "git",
+  );
+  return git?.scope === "everywhere" ? "everywhere" : "workspace";
 }

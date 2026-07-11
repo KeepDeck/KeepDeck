@@ -28,6 +28,8 @@ function canonical(cap: Capability): string {
       return `exec:${[...cap.commands].sort().join(",")}`;
     case "fs":
       return `fs:${cap.scope}`;
+    case "git":
+      return `git:${cap.scope}`;
     case "net":
       return `net:${[...cap.domains].sort().join(",")}`;
     case "ports":

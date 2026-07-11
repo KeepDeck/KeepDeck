@@ -4,6 +4,7 @@ import type {
   Disposable,
   DockTabContribution,
   FsReadFileOptions,
+  GitDiffOptions,
   PluginContext,
   PluginSpawnOptions,
   SettingsSectionContribution,
@@ -237,6 +238,32 @@ export function createHostDispatch(
       );
     },
     "services.fs.unwatch": ([id]) => {
+      const key = id as number;
+      watches.get(key)?.dispose();
+      watches.delete(key);
+    },
+    "services.git.status": ([repo]) => ctx.services.git.status(repo as string),
+    "services.git.diffFile": ([repo, file, opts]) =>
+      ctx.services.git.diffFile(
+        repo as string,
+        file as string,
+        opts as GitDiffOptions | undefined,
+      ),
+    // Git watches share the fs watches' plumbing: same guest-minted id space
+    // (one counter mints both), same retained-Disposable map, same
+    // `fswatch:<id>` push channel — a watch is a watch, only the backend
+    // differs.
+    "services.git.watch": ([id, repo]) => {
+      const key = id as number;
+      watches.get(key)?.dispose();
+      watches.set(
+        key,
+        ctx.services.git.watch(repo as string, () =>
+          push(fswatchChannel(key), undefined),
+        ),
+      );
+    },
+    "services.git.unwatch": ([id]) => {
       const key = id as number;
       watches.get(key)?.dispose();
       watches.delete(key);
