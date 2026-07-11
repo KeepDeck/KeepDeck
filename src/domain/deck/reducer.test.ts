@@ -611,8 +611,9 @@ describe("deckReducer toggleCollapse", () => {
       }),
       { type: "toggleCollapse", wsId: "a", paneId: "a-1" },
     );
-    // You can't spotlight a hidden pane: focus is cleared, a-1 is minimized.
-    expect(next.viewByWs).toEqual({ a: { select: "a-1", collapsed: ["a-1"] } });
+    // You can't spotlight a hidden pane: focus is cleared, a-1 is minimized,
+    // and the stranded selection moves to the surviving visible pane.
+    expect(next.viewByWs).toEqual({ a: { select: "a-2", collapsed: ["a-1"] } });
   });
 
   it("keeps a maximize when a DIFFERENT pane is minimized", () => {
@@ -629,6 +630,36 @@ describe("deckReducer toggleCollapse", () => {
     });
   });
 
+  it("moves a selection stranded on the minimized pane to the first visible one", () => {
+    // The minimize click's own mousedown selects the pane being minimized, so
+    // this is the NORMAL post-minimize state, not an edge case — left as-is,
+    // ⌘W would target an invisible agent.
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { select: "a-2" } },
+      }),
+      { type: "toggleCollapse", wsId: "a", paneId: "a-2" },
+    );
+    expect(next.viewByWs).toEqual({ a: { select: "a-1", collapsed: ["a-2"] } });
+  });
+
+  it("restore exits a maximize on ANOTHER pane so the restored one is visible", () => {
+    // Minimize C, maximize A, restore C: without clearing the focus, C's chip
+    // disappears while C itself stays hidden behind A's maximize — the agent
+    // just vanishes.
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { focus: "a-1", select: "a-1", collapsed: ["a-3"] } },
+      }),
+      { type: "toggleCollapse", wsId: "a", paneId: "a-3" },
+    );
+    expect(next.viewByWs).toEqual({ a: { select: "a-3" } });
+  });
+
   it("closeAgent drops the closed pane from the minimized set", () => {
     const next = deckReducer(
       state({
@@ -640,5 +671,33 @@ describe("deckReducer toggleCollapse", () => {
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-3"]);
     expect(next.viewByWs).toEqual({ a: { select: "a-1", collapsed: ["a-3"] } });
+  });
+
+  it("closeAgent moves the highlight to a VISIBLE survivor over a minimized one", () => {
+    // Close the selected a-1 while a-2 is minimized: the highlight should land
+    // on a-3 (visible), not a-2 (a hidden pane can't usefully carry it).
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2", "a-3"])],
+        activeId: "a",
+        viewByWs: { a: { select: "a-1", collapsed: ["a-2"] } },
+      }),
+      { type: "closeAgent", wsId: "a", paneId: "a-1" },
+    );
+    expect(next.viewByWs).toEqual({ a: { select: "a-3", collapsed: ["a-2"] } });
+  });
+
+  it("closeAgent falls back to a minimized survivor when no visible one remains", () => {
+    // Correct for the "none" style (minimized set ignored, every pane shows);
+    // under tray/strip the hotkeys skip minimized targets anyway.
+    const next = deckReducer(
+      state({
+        workspaces: [ws("a", ["a-1", "a-2"])],
+        activeId: "a",
+        viewByWs: { a: { select: "a-1", collapsed: ["a-2"] } },
+      }),
+      { type: "closeAgent", wsId: "a", paneId: "a-1" },
+    );
+    expect(next.viewByWs).toEqual({ a: { select: "a-2", collapsed: ["a-2"] } });
   });
 });
