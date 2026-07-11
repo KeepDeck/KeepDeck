@@ -26,13 +26,17 @@ describe("bumpVersion", () => {
     expect(bumpVersion("0.4.20", "minor")).toBe("0.5.0");
   });
 
+  it("bumps major and resets minor and patch", () => {
+    expect(bumpVersion("2.4.20", "major")).toBe("3.0.0");
+  });
+
   it("rejects non-plain-semver versions", () => {
     expect(() => bumpVersion("0.4", "patch")).toThrow(/unsupported version/);
     expect(() => bumpVersion("0.4.20-beta", "patch")).toThrow(/unsupported version/);
   });
 
   it("rejects unknown bump kinds", () => {
-    expect(() => bumpVersion("0.4.20", "major")).toThrow(/unknown bump kind/);
+    expect(() => bumpVersion("0.4.20", "breaking")).toThrow(/unknown bump kind/);
   });
 });
 
@@ -41,14 +45,21 @@ describe("computeNext", () => {
     expect(computeNext("0.4.20", [])).toBe("0.4.20");
   });
 
-  it("applies bumps in order (minor resets patch mid-chain)", () => {
-    expect(computeNext("0.4.20", ["patch", "minor", "patch"])).toBe("0.5.1");
+  it("applies bumps in order, including reset boundaries", () => {
+    expect(computeNext("0.4.20", ["patch", "minor", "patch", "major", "patch"])).toBe(
+      "1.0.1",
+    );
   });
 });
 
 describe("classifyMergeSubject", () => {
   it("treats a (minor) marker as a minor bump", () => {
     expect(classifyMergeSubject("Merge: settings screen (minor)")).toBe("minor");
+  });
+
+  it("treats a (major) marker as a major bump with precedence", () => {
+    expect(classifyMergeSubject("Merge: new plugin API (major)")).toBe("major");
+    expect(classifyMergeSubject("Merge: new plugin API (minor) (major)")).toBe("major");
   });
 
   it("defaults to patch, including legacy version-suffixed subjects", () => {
@@ -216,6 +227,12 @@ describe("end-to-end against a real git repo", () => {
     expect(readVersions().cargo).toBe("0.2.0");
   });
 
+  it("honors an automatic (major) merge", () => {
+    mergeFeature("feat/api", "Merge: replace the plugin API (major)");
+    runScript();
+    expect(readVersions()).toEqual({ cargo: "1.0.0", pkg: "1.0.0", lock: "1.0.0" });
+  });
+
   it("is a no-op when no merges landed since the last version change", () => {
     mergeFeature("feat/a", "Merge: feature a");
     runScript();
@@ -236,26 +253,43 @@ describe("end-to-end against a real git repo", () => {
     expect(readVersions().cargo).toBe("0.2.0");
   });
 
-  it("applies exactly one forced bump in dispatch mode, ignoring history", () => {
+  it("applies exactly one forced bump when no merge bumps are pending", () => {
     runScript("--bump", "minor");
     expect(readVersions()).toEqual({ cargo: "0.2.0", pkg: "0.2.0", lock: "0.2.0" });
   });
 
-  it("rejects an invalid --bump argument", () => {
-    expect(() => runScript("--bump", "major")).toThrow();
+  it("preserves pending merge bumps before a forced bump", () => {
+    mergeFeature("feat/release", "Merge: release boundary (minor)");
+    runScript("--bump", "patch");
+    expect(readVersions()).toEqual({ cargo: "0.2.1", pkg: "0.2.1", lock: "0.2.1" });
   });
 
-  it("emits minor=true to GITHUB_OUTPUT when the batch includes a (minor) merge", () => {
+  it("supports a forced major bump", () => {
+    runScript("--bump", "major");
+    expect(readVersions()).toEqual({ cargo: "1.0.0", pkg: "1.0.0", lock: "1.0.0" });
+  });
+
+  it("rejects an invalid --bump argument", () => {
+    expect(() => runScript("--bump", "breaking")).toThrow();
+  });
+
+  it("emits release=true when an automatic batch includes a (minor) merge", () => {
     mergeFeature("feat/a", "Merge: stream done (minor)");
     const out = runScriptCapturingOutput();
     expect(out).toContain("version=0.2.0");
-    expect(out).toContain("minor=true");
+    expect(out).toContain("release=true");
   });
 
-  it("emits minor=false to GITHUB_OUTPUT for a patch-only batch", () => {
+  it("emits release=false for an automatic patch-only batch", () => {
     mergeFeature("feat/a", "Merge: feature a");
     const out = runScriptCapturingOutput();
     expect(out).toContain("version=0.1.1");
-    expect(out).toContain("minor=false");
+    expect(out).toContain("release=false");
+  });
+
+  it("emits release=true for a forced patch bump", () => {
+    const out = runScriptCapturingOutput("--bump", "patch");
+    expect(out).toContain("version=0.1.1");
+    expect(out).toContain("release=true");
   });
 });
