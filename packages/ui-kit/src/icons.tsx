@@ -48,15 +48,12 @@ export function CloseIcon() {
   );
 }
 
-/** Minimize — stow down to a shelf (arrow into a bottom line). Distinct from
- * the maximize arrows and the restore bar so the three pane controls read
- * apart at a glance. */
+/** Minimize — the conventional window-control underscore (a single bottom
+ * line). */
 export function MinimizeIcon() {
   return (
     <svg {...iconProps}>
-      <line x1="12" y1="4" x2="12" y2="14" />
-      <polyline points="8 10 12 14 16 10" />
-      <line x1="5" y1="20" x2="19" y2="20" />
+      <line x1="6" y1="18" x2="18" y2="18" />
     </svg>
   );
 }
