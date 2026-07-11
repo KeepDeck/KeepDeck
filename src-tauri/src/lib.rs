@@ -1,6 +1,7 @@
 mod agents;
 mod bridge;
 mod clipboard;
+mod containment;
 mod dnd;
 mod fswatch;
 mod head_watch;
