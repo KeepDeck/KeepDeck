@@ -215,9 +215,16 @@
   cursor: pointer;
 }
 
-.form__type:hover {
+.form__type:hover:not(:disabled) {
   border-color: #3a4658;
   color: #c5c8c6;
+}
+
+/* A choice that doesn't apply right now (e.g. the collapse style outside the
+   grid layout) — visibly inert, not just silently ignoring clicks. */
+.form__type:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .form__type--active {

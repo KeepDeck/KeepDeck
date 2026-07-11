@@ -6,6 +6,7 @@ import {
   paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
+  partitionPanes,
   resolveFocus,
   type GitPosition,
   type Pane,
@@ -165,8 +166,10 @@ export function DeckStage({
         // Grid: the live (not minimized) panes tile; the minimized ones are
         // hidden but stay in the grid mounted. List: the selected pane expands,
         // the rest fold to headers.
-        const minimizedSet = new Set(canMinimize ? (view?.collapsed ?? []) : []);
-        const live = ws.panes.filter((p) => !minimizedSet.has(p.id));
+        const { live, minimized } = partitionPanes(
+          ws.panes,
+          canMinimize ? view?.collapsed : undefined,
+        );
         const liveIndex = new Map(live.map((p, i) => [p.id, i] as const));
         const focusedHere = isList ? null : resolveFocus(live, view?.focus);
         const soloGrid = live.length === 1;
@@ -188,7 +191,7 @@ export function DeckStage({
               solo: true, // no maximize / highlight border in list rows
             };
           }
-          if (minimizedSet.has(pane.id)) {
+          if (!liveIndex.has(pane.id)) {
             // Minimized: hidden from the grid (the CollapsedItem below is its
             // stand-in), but mounted so its session doesn't flicker on restore.
             return {
@@ -203,7 +206,9 @@ export function DeckStage({
           const isFocused = pane.id === focusedHere;
           const hiddenByMaximize = focusedHere !== null && !isFocused;
           return {
-            colSpan: focusedHere ? 1 : paneColumnSpan(liveIndex.get(pane.id) ?? 0, live.length),
+            // The pane is live here (the minimized branch returned above), so
+            // its live index always resolves.
+            colSpan: focusedHere ? 1 : paneColumnSpan(liveIndex.get(pane.id)!, live.length),
             visible: isActive && !hiddenByMaximize,
             focused: isFocused,
             collapsed: hiddenByMaximize,
@@ -234,9 +239,7 @@ export function DeckStage({
             !spec && !pane.dormant && !pane.provisioning && !unavailableAgent;
           const displayTitle = titleOf(pane);
           const executionCwd = paneExecutionCwd(ws, pane);
-          const badge = gitBadge(
-            executionCwd ? gitHeads.get(executionCwd) : undefined,
-          );
+          const badge = badgeOf(pane);
           return (
             <AgentPane
               key={`${pane.id}#${respawnEpochs.get(pane.id) ?? 0}`}
@@ -274,8 +277,6 @@ export function DeckStage({
             />
           );
         };
-
-        const minimized = ws.panes.filter((p) => minimizedSet.has(p.id));
 
         return (
           <main
@@ -315,16 +316,19 @@ export function DeckStage({
                     Minimized · {minimized.length}
                   </span>
                 )}
-                {minimized.map((pane) => (
-                  <CollapsedItem
-                    key={pane.id}
-                    variant={collapseStyle === "tray" ? "chip" : "bar"}
-                    title={titleOf(pane)}
-                    gitBadge={badgeOf(pane)}
-                    label={`Restore ${titleOf(pane)}`}
-                    onClick={() => onToggleCollapse(ws.id, pane.id)}
-                  />
-                ))}
+                {minimized.map((pane) => {
+                  const title = titleOf(pane);
+                  return (
+                    <CollapsedItem
+                      key={pane.id}
+                      variant={collapseStyle === "tray" ? "chip" : "bar"}
+                      title={title}
+                      gitBadge={badgeOf(pane)}
+                      label={`Restore ${title}`}
+                      onClick={() => onToggleCollapse(ws.id, pane.id)}
+                    />
+                  );
+                })}
               </div>
             )}
           </main>
