@@ -40,6 +40,9 @@ export interface PluginManifest {
     dockTabs?: ContributionSummary[];
     topBarActions?: ContributionSummary[];
     paneActions?: ContributionSummary[];
+    /** File-open handlers: the plugin claims the host's "open this file"
+     * gestures (terminal links), falling back to the system opener. */
+    fileOpeners?: ContributionSummary[];
     agents?: ContributionSummary[];
     /** The plugin registers a host-rendered settings section. */
     settings?: boolean;
@@ -59,7 +62,12 @@ export interface ContributionSummary {
 export type PluginCategory = "cli" | "deck";
 
 /** Contribution kinds a `cli` plugin may NOT declare (they're deck chrome). */
-const DECK_ONLY_KINDS = ["dockTabs", "topBarActions", "paneActions"] as const;
+const DECK_ONLY_KINDS = [
+  "dockTabs",
+  "topBarActions",
+  "paneActions",
+  "fileOpeners",
+] as const;
 
 export type ManifestResult =
   | { ok: true; manifest: PluginManifest }
@@ -224,6 +232,8 @@ function readContributes(
   if (topBarActions) out.topBarActions = topBarActions;
   const paneActions = readSummaries(value.paneActions, "paneActions", errors);
   if (paneActions) out.paneActions = paneActions;
+  const fileOpeners = readSummaries(value.fileOpeners, "fileOpeners", errors);
+  if (fileOpeners) out.fileOpeners = fileOpeners;
   const agents = readSummaries(value.agents, "agents", errors);
   if (agents) out.agents = agents;
   if (value.settings !== undefined) {

@@ -18,6 +18,7 @@ const GOLDEN = {
   contributes: {
     dockTabs: [{ id: "preview", label: "Preview" }],
     topBarActions: [{ id: "open", label: "Open preview" }],
+    fileOpeners: [{ id: "peek", label: "Preview peek" }],
     settings: true,
   },
 };
@@ -60,7 +61,7 @@ describe("readManifest", () => {
     });
 
     it("bounds the contribution surface by category", () => {
-      // A cli plugin may not contribute deck chrome — all three kinds.
+      // A cli plugin may not contribute deck chrome — all four kinds.
       const cli = readManifest({
         ...GOLDEN,
         category: "cli",
@@ -71,7 +72,12 @@ describe("readManifest", () => {
       });
       expect(cli.ok).toBe(false);
       if (!cli.ok) {
-        for (const kind of ["dockTabs", "topBarActions", "paneActions"]) {
+        for (const kind of [
+          "dockTabs",
+          "topBarActions",
+          "paneActions",
+          "fileOpeners",
+        ]) {
           expect(cli.errors).toContain(
             `contributes.${kind}: a "cli" plugin contributes agents, not deck chrome`,
           );

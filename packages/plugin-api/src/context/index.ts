@@ -13,6 +13,11 @@ export type { Disposable } from "./disposable.ts";
 export type { PluginEvents } from "./events.ts";
 export type { HostSettingsSnapshot, PluginHostFacts } from "./hostFacts.ts";
 export type { PluginLogger } from "./log.ts";
+export type {
+  FileOpenHandler,
+  FileOpenRequest,
+  PluginFileOpeners,
+} from "./openers.ts";
 export type { KeepDeckPlugin } from "./plugin.ts";
 export type {
   FsEntry,

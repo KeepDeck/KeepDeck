@@ -16,6 +16,11 @@ export interface PluginUi {
    * SURFACE: wired through the contract and RPC but not yet rendered by the
    * host — a plausible pane-header contribution awaiting its first consumer. */
   registerPaneAction(action: PaneActionContribution): Disposable;
+  /** Bring the dock into view on the ACTIVE workspace with this plugin's
+   * dock tab `id` selected — the imperative entry a behavior like a file-open
+   * handler needs to land its result somewhere visible. A no-op when the tab
+   * isn't registered. */
+  revealDockTab(id: string): void;
 }
 
 /** A dock tab, in one of two forms — by TIER, not by author choice:
