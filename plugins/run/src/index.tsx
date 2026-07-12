@@ -11,6 +11,7 @@
 // dev; the lib build emits it as the bundle's index.css for the host to link.
 import "./styles.css";
 import type { KeepDeckPlugin, PluginContext } from "@keepdeck/plugin-api";
+import { DEFAULT_OPEN_APPS, OPEN_APPS_KEY } from "./domain";
 import { createRunManager } from "./manager";
 import { peekRuntime, setRuntime } from "./runtime";
 import { RunTab } from "./components/RunTab";
@@ -25,6 +26,20 @@ const activate: KeepDeckPlugin["activate"] = (ctx: PluginContext) => {
     id: "run",
     label: "Run",
     Component: RunTab,
+  });
+
+  // The tab's "Open in" applications — a user-managed list, host-rendered.
+  ctx.settings.registerSection({
+    label: "Run",
+    fields: [
+      {
+        kind: "stringList",
+        key: OPEN_APPS_KEY,
+        label: "Open in applications",
+        default: DEFAULT_OPEN_APPS,
+        picker: "application",
+      },
+    ],
   });
 
   // A workspace closing takes its runs with it — nothing may leak. (The

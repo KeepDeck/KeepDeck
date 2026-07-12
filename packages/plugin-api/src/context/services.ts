@@ -52,6 +52,11 @@ export interface PluginPorts {
 export interface PluginOpener {
   openUrl(url: string): Promise<void>;
   openPath(path: string): Promise<void>;
+  /** Open a path in a NAMED application — `application` is the app's name as
+   * the OS resolves it (macOS: the `open -a` argument, e.g. "Visual Studio
+   * Code"), so a plugin can target a specific editor instead of the default
+   * handler. Rejects when the path is gone or the app isn't installed. */
+  openPathWith(path: string, application: string): Promise<void>;
 }
 
 /** Read-only access to the user's PROJECT files, gated by the `fs` capability —

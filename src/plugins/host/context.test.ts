@@ -50,7 +50,7 @@ function fakeDeps() {
   const services: PluginServices = {
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
-    opener: { openUrl: vi.fn(), openPath: vi.fn() },
+    opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
     fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ dispose: vi.fn() })) },
     git: {
       status: vi.fn(),

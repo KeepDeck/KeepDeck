@@ -160,6 +160,13 @@ export function createCapabilityGate(
         );
         return backend.opener.openPath(path);
       },
+      openPathWith(path, application) {
+        admit(
+          hasOpenCapability(manifest.capabilities),
+          `opener.openPathWith: "${path}" requires an "open" capability, which the manifest does not declare`,
+        );
+        return backend.opener.openPathWith(path, application);
+      },
     },
     fs: {
       readDir(path) {

@@ -35,7 +35,6 @@ const callbacks = {
   onSelectPane: vi.fn(),
   onToggleFocus: vi.fn(),
   onToggleMinimize: vi.fn(),
-  onOpenInEditor: vi.fn(),
   onCloseAgent: vi.fn(),
   onRenamePane: vi.fn(),
   onPaneTitle: vi.fn(),

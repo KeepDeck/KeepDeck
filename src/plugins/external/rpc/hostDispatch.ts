@@ -284,6 +284,8 @@ export function createHostDispatch(
     "services.opener.openUrl": ([url]) => ctx.services.opener.openUrl(url as string),
     "services.opener.openPath": ([path]) =>
       ctx.services.opener.openPath(path as string),
+    "services.opener.openPathWith": ([path, application]) =>
+      ctx.services.opener.openPathWith(path as string, application as string),
     "services.sessions.spawn": ([opts]) =>
       sessions.spawn(opts as PluginSpawnOptions),
     "services.sessions.write": ([id, data]) =>

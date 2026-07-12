@@ -27,8 +27,14 @@ export function openPath(path: string): Promise<void> {
   return invoke("open_path", { path });
 }
 
-/** Open a directory — an agent's working dir — in Visual Studio Code. */
-export function openInEditor(path: string): Promise<void> {
-  return invoke("open_in_editor", { path });
+/** Open a path in a named application (the opener service's `openPathWith`). */
+export function openPathWith(path: string, application: string): Promise<void> {
+  return invoke("open_path_with", { path, application });
 }
 
+
+/** Installed applications — `.app` bundle display names out of the standard
+ * application folders — for the settings' application picker. */
+export function listApplications(): Promise<string[]> {
+  return invoke<string[]>("list_applications");
+}

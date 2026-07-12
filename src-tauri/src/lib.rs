@@ -1,4 +1,5 @@
 mod agents;
+mod apps;
 mod bridge;
 mod clipboard;
 mod containment;
@@ -93,11 +94,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_info,
             agents::agents_detect,
+            apps::list_applications,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,
             links::open_url,
             links::open_path,
-            links::open_in_editor,
+            links::open_path_with,
             session::session_spawn,
             session::session_write,
             session::session_resize,

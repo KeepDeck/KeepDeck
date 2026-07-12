@@ -62,8 +62,6 @@ interface DeckStageProps {
   onToggleFocus(wsId: string, paneId: string): void;
   /** Minimize a pane out of the grid, or restore it (grid layout only). */
   onToggleMinimize(wsId: string, paneId: string): void;
-  /** Open an agent's working directory in the editor. */
-  onOpenInEditor(path: string): void;
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
@@ -124,7 +122,6 @@ export function DeckStage({
   onSelectPane,
   onToggleFocus,
   onToggleMinimize,
-  onOpenInEditor,
   onCloseAgent,
   onRenamePane,
   onPaneTitle,
@@ -275,9 +272,6 @@ export function DeckStage({
               onSelect={() => onSelectPane(ws.id, pane.id)}
               onToggleFocus={() => onToggleFocus(ws.id, pane.id)}
               onMinimize={layout.onMinimize}
-              onOpenInEditor={() => {
-                if (executionCwd) onOpenInEditor(executionCwd);
-              }}
               onClose={() => onCloseAgent(ws.id, pane.id, displayTitle)}
               onRename={(name) => onRenamePane(ws.id, pane.id, name)}
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}

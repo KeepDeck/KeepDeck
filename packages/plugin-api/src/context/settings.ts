@@ -39,4 +39,18 @@ export type SettingsField =
       label: string;
       default: string;
       options: { value: string; label: string }[];
+    }
+  | {
+      /** A user-managed list of strings (add / remove rows) — e.g. the Run
+       * plugin's "Open in" applications. Order is the stored order. */
+      kind: "stringList";
+      key: string;
+      label: string;
+      default: string[];
+      /** Placeholder for the add-entry input (free-text mode only). */
+      placeholder?: string;
+      /** Entries come from a host-rendered search over the INSTALLED
+       * applications instead of free text; the picked app's display name
+       * (the macOS `open -a` argument) enters the list. */
+      picker?: "application";
     };

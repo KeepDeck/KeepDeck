@@ -32,7 +32,11 @@ function fakeBackend() {
   };
   const backend: ServiceBackends = {
     sessions: { spawn: vi.fn(async () => handle) },
-    opener: { openUrl: vi.fn(async () => {}), openPath: vi.fn(async () => {}) },
+    opener: {
+      openUrl: vi.fn(async () => {}),
+      openPath: vi.fn(async () => {}),
+      openPathWith: vi.fn(async () => {}),
+    },
     ports: { allocate: vi.fn(async () => 4000) },
     fs: {
       readDir: vi.fn(async () => []),
@@ -286,8 +290,13 @@ describe("createCapabilityGate — zero capabilities", () => {
     );
     await gate.opener.openUrl("http://localhost:3000");
     await gate.opener.openPath("/tmp/report.html");
+    await gate.opener.openPathWith("/repo", "Visual Studio Code");
     expect(backend.opener.openUrl).toHaveBeenCalledWith("http://localhost:3000");
     expect(backend.opener.openPath).toHaveBeenCalledWith("/tmp/report.html");
+    expect(backend.opener.openPathWith).toHaveBeenCalledWith(
+      "/repo",
+      "Visual Studio Code",
+    );
     expect(log.warn).not.toHaveBeenCalled();
   });
 
@@ -311,6 +320,10 @@ describe("createCapabilityGate — zero capabilities", () => {
       '"open" capability',
     );
     expect(hard.backend.opener.openPath).not.toHaveBeenCalled();
+    expect(() => hardGate.opener.openPathWith("/repo", "Zed")).toThrow(
+      '"open" capability',
+    );
+    expect(hard.backend.opener.openPathWith).not.toHaveBeenCalled();
   });
 });
 

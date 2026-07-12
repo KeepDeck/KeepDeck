@@ -72,8 +72,6 @@ interface AgentPaneProps {
    * tray/strip minimize styles). The session keeps running — it's re-mounted
    * on restore. */
   onMinimize?(): void;
-  /** Open the agent's working dir in VS Code; shown only when a `cwd` is known. */
-  onOpenInEditor(): void;
   onClose(): void;
   /** Set a manual name ([F11]); an empty name reverts to auto/derived. */
   onRename(name: string): void;
@@ -115,7 +113,6 @@ export function AgentPane({
   onSelect,
   onToggleFocus,
   onMinimize,
-  onOpenInEditor,
   onClose,
   onRename,
   onTitle,
@@ -217,22 +214,6 @@ export function AgentPane({
           )}
         </div>
         <div className="pane__actions">
-          {cwd && !provisioning && (
-            // Hidden while provisioning: the pane has no directory of its own
-            // yet, and the fallback cwd would open the wrong folder.
-            <button
-              type="button"
-              className="pane__open"
-              onClick={(e) => {
-                // Own click: on a folded row this must not expand the header.
-                e.stopPropagation();
-                onOpenInEditor();
-              }}
-              title="Open this agent's working directory in VS Code"
-            >
-              Open in VSCode
-            </button>
-          )}
           {gitBadge && (
             <span className="pane__branch" title={gitBadge.title}>
               <GitBranchIcon />

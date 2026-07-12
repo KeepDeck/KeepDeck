@@ -4,7 +4,7 @@ import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
-import { fetchAppInfo, openInEditor, type AppInfo } from "./ipc/app";
+import { fetchAppInfo, type AppInfo } from "./ipc/app";
 import { pickFolder } from "./ipc/dialogs";
 import { describeError, log } from "./ipc/log";
 import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
@@ -423,11 +423,6 @@ function App() {
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
             onToggleMinimize={deck.toggleMinimize}
-            onOpenInEditor={(path) =>
-              void openInEditor(path).catch((e) =>
-                log.warn("web:links", `open in editor failed for ${path}: ${describeError(e)}`),
-              )
-            }
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onPaneTitle={deck.setPaneAutoTitle}

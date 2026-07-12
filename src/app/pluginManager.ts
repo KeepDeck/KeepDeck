@@ -36,7 +36,7 @@ import {
 import { enabledByPolicy } from "../plugins/host/enabledPolicy";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
-import { openPath, openUrl } from "../ipc/app";
+import { openPath, openPathWith, openUrl } from "../ipc/app";
 import { describeError, log } from "../ipc/log";
 import { allocatePorts } from "../ipc/ports";
 import { scanPlugins } from "../ipc/plugins";
@@ -266,6 +266,7 @@ const serviceBackend: ServiceBackends = {
   opener: {
     openUrl: (url) => openUrl(url),
     openPath: (path) => openPath(path),
+    openPathWith: (path, application) => openPathWith(path, application),
   },
   fs: {
     readDir: (path, scope) =>

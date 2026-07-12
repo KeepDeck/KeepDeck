@@ -1,9 +1,12 @@
+import { useEffect, useState } from "react";
 import type {
   SettingsField,
   SettingsSectionContribution,
 } from "@keepdeck/plugin-api";
+import { listApplications } from "../../ipc/app";
 import { getSettings, updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
+import { Combobox } from "../../ui/Combobox";
 import { Dropdown } from "../../ui/Dropdown";
 import { noAutoCorrect } from "../../ui/inputProps";
 
@@ -119,5 +122,143 @@ function PluginField({
           />
         </label>
       );
+    case "stringList":
+      return (
+        <StringListField
+          field={field}
+          value={
+            Array.isArray(stored) &&
+            stored.every((item) => typeof item === "string")
+              ? stored
+              : field.default
+          }
+          onWrite={onWrite}
+        />
+      );
   }
+}
+
+/** The stringList editor: one row per entry with a remove control, plus an
+ * add flow — the OS application picker when the field asks for it, a free
+ * input otherwise. Entries are trimmed; blanks and duplicates never enter
+ * the list — silently, since both mean "already what you asked for". */
+function StringListField({
+  field,
+  value,
+  onWrite,
+}: {
+  field: Extract<SettingsField, { kind: "stringList" }>;
+  value: string[];
+  onWrite(value: string[]): void;
+}) {
+  const [draft, setDraft] = useState("");
+  const add = (raw: string) => {
+    const entry = raw.trim();
+    if (!entry) return;
+    if (!value.includes(entry)) onWrite([...value, entry]);
+  };
+  return (
+    <div className="settings__field">
+      <span className="form__label">{field.label}</span>
+      {value.map((entry) => (
+        <div key={entry} className="settings__list-row">
+          <span className="settings__list-entry">{entry}</span>
+          <button
+            type="button"
+            className="settings__list-remove"
+            onClick={() => onWrite(value.filter((v) => v !== entry))}
+            title={`Remove ${entry}`}
+            aria-label={`Remove ${entry}`}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      {field.picker === "application" ? (
+        <ApplicationAdd label={field.label} listed={value} onAdd={add} />
+      ) : (
+        <div className="settings__list-add">
+          <input
+            {...noAutoCorrect}
+            className="form__input"
+            value={draft}
+            placeholder={field.placeholder}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                add(draft);
+                setDraft("");
+              }
+            }}
+            aria-label={`Add ${field.label}`}
+          />
+          <button
+            type="button"
+            className="settings__list-add-btn"
+            onClick={() => {
+              add(draft);
+              setDraft("");
+            }}
+            disabled={!draft.trim()}
+          >
+            Add
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The application add flow: a fuzzy-search combobox over the INSTALLED
+ * applications, scanned host-side across the standard app folders — including
+ * `~/Applications`, where per-user installers put things the native dialog
+ * never surfaces unprompted. Picking stores the display name — the `open -a`
+ * argument. */
+function ApplicationAdd({
+  label,
+  listed,
+  onAdd,
+}: {
+  label: string;
+  listed: string[];
+  onAdd(app: string): void;
+}) {
+  const [installed, setInstalled] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+  useEffect(() => {
+    let alive = true;
+    listApplications()
+      .then((apps) => {
+        if (alive) setInstalled(apps);
+      })
+      // A failed scan degrades to Browse…-only; nothing to tell the user.
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // What's already listed drops out of the menu — adding it again is a no-op.
+  const options = installed.filter((app) => !listed.includes(app));
+  return (
+    <div className="settings__list-add">
+      <Combobox
+        className="settings__list-combo"
+        options={options}
+        value={draft}
+        onChange={(next) => {
+          // A pick (or a typed exact name) adds immediately and clears the
+          // field for the next one; anything else is just the filter text.
+          if (options.includes(next)) {
+            onAdd(next);
+            setDraft("");
+          } else {
+            setDraft(next);
+          }
+        }}
+        ariaLabel={`Add ${label}`}
+        placeholder="Search applications…"
+      />
+    </div>
+  );
 }
