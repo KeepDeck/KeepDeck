@@ -1,3 +1,6 @@
 packages:
-  - "packages/*"
-  - "plugins/*"
+  - packages/*
+  - plugins/*
+
+patchedDependencies:
+  '@xterm/xterm@5.5.0': patches/@xterm__xterm@5.5.0.patch
