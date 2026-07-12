@@ -70,6 +70,93 @@
   text-align: center;
 }
 
+/* The view toggle: Changes | History — a compact segmented pair. */
+.git__mode {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background-color: #151a24;
+}
+
+.git__modebtn {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8b93a3;
+  font-size: 11.5px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.git__modebtn--on {
+  background-color: #243044;
+  color: #c5c8c6;
+}
+
+/* Commit rows: subject fills, sha and age trail in mono/muted. */
+.git__subject {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.git__sha {
+  flex: none;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.git__when {
+  flex: none;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* The pinned "Since fork" summary — set apart from the commits below it. */
+.git__row--pin {
+  border-bottom: 1px solid #1c2230;
+  border-radius: 5px 5px 0 0;
+  margin-bottom: 4px;
+}
+
+/* Backing out of a drilled-in file list to the commits. */
+.git__drillback {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #8b93a3;
+  padding: 4px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.git__drillback:hover {
+  color: #c5c8c6;
+}
+
+.git__drilllabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* History rows' status letters — neutral, the range says what happened. */
+.git__code--history {
+  color: #8b93a3;
+}
+
 /* The change list: fills the panel and scrolls on its own. */
 .git__list {
   flex: 1 1 auto;

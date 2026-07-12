@@ -11,6 +11,8 @@ import {
   type ChangeRow,
 } from "../domain/status";
 import { DiffPeek } from "./DiffPeek";
+import { HistoryView } from "./HistoryView";
+import type { GitRange } from "../domain/history";
 import { BranchIcon } from "../icons";
 
 /**
@@ -41,9 +43,13 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   }
 
   const { status, error, version } = useGitStatus(target);
-  const [peek, setPeek] = useState<ChangeRow | null>(null);
+  const [mode, setMode] = useState<"changes" | "history">("changes");
+  const [peek, setPeek] = useState<{ row: ChangeRow; range?: GitRange } | null>(
+    null,
+  );
 
-  // A new root starts fresh — drop any open diff.
+  // A new root starts fresh — drop any open diff (the mode survives: "I'm
+  // reviewing history" holds across pane clicks).
   useEffect(() => {
     setPeek(null);
   }, [target]);
@@ -62,6 +68,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   ];
 
   const groups = status ? groupEntries(status.entries) : null;
+  const openRow = (row: ChangeRow) => setPeek({ row });
 
   return (
     <div className="git">
@@ -73,6 +80,24 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           onChange={setTarget}
           ariaLabel="Repository to show changes for"
         />
+        <div className="git__mode" role="group" aria-label="View">
+          <button
+            type="button"
+            className={`git__modebtn${mode === "changes" ? " git__modebtn--on" : ""}`}
+            onClick={() => setMode("changes")}
+            aria-pressed={mode === "changes"}
+          >
+            Changes
+          </button>
+          <button
+            type="button"
+            className={`git__modebtn${mode === "history" ? " git__modebtn--on" : ""}`}
+            onClick={() => setMode("history")}
+            aria-pressed={mode === "history"}
+          >
+            History
+          </button>
+        </div>
       </div>
 
       {status && (
@@ -97,26 +122,44 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
         </div>
       )}
 
-      <div className="git__list" role="list" aria-label="Working tree changes">
-        {!status && !error && <div className="git__empty">Loading…</div>}
-        {error && <div className="git__empty git__empty--bad">{error}</div>}
-        {groups && groups.total === 0 && (
-          <div className="git__empty">No changes — the tree is clean.</div>
-        )}
-        {groups && (
+      <div
+        className="git__list"
+        role="list"
+        aria-label={mode === "changes" ? "Working tree changes" : "History"}
+      >
+        {mode === "history" ? (
+          <HistoryView
+            repo={target}
+            version={version}
+            onOpen={(row, range) => setPeek({ row, range })}
+          />
+        ) : (
           <>
-            <Section
-              label="Conflicts"
-              rows={groups.conflicted}
-              onOpen={setPeek}
-            />
-            <Section label="Staged" rows={groups.staged} onOpen={setPeek} />
-            <Section label="Changes" rows={groups.unstaged} onOpen={setPeek} />
-            <Section
-              label="Untracked"
-              rows={groups.untracked}
-              onOpen={setPeek}
-            />
+            {!status && !error && <div className="git__empty">Loading…</div>}
+            {error && <div className="git__empty git__empty--bad">{error}</div>}
+            {groups && groups.total === 0 && (
+              <div className="git__empty">No changes — the tree is clean.</div>
+            )}
+            {groups && (
+              <>
+                <Section
+                  label="Conflicts"
+                  rows={groups.conflicted}
+                  onOpen={openRow}
+                />
+                <Section label="Staged" rows={groups.staged} onOpen={openRow} />
+                <Section
+                  label="Changes"
+                  rows={groups.unstaged}
+                  onOpen={openRow}
+                />
+                <Section
+                  label="Untracked"
+                  rows={groups.untracked}
+                  onOpen={openRow}
+                />
+              </>
+            )}
           </>
         )}
       </div>
@@ -124,7 +167,8 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
       {peek && (
         <DiffPeek
           repo={target}
-          row={peek}
+          row={peek.row}
+          range={peek.range}
           version={version}
           onClose={() => setPeek(null)}
         />

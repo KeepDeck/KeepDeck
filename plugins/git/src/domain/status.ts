@@ -7,8 +7,14 @@ import type { GitStatus, GitStatusEntry } from "@keepdeck/plugin-api";
 
 /** Which section a row belongs to — also decides which diff it opens
  * (`staged` peeks index-vs-HEAD, `unstaged` peeks worktree-vs-index,
- * `untracked` renders the file's plain content as all-new). */
-export type ChangeKind = "conflicted" | "staged" | "unstaged" | "untracked";
+ * `untracked` renders the file's plain content as all-new, `history` diffs
+ * across the History view's drilled revision range). */
+export type ChangeKind =
+  | "conflicted"
+  | "staged"
+  | "unstaged"
+  | "untracked"
+  | "history";
 
 /** One row in a section. A path staged AND edited again appears twice — once
  * under Staged, once under Changes — because those are two different diffs

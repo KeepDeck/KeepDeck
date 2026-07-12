@@ -3,6 +3,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  GitChangedFile,
+  GitHistory,
   GitStatus,
   PluginContext,
   WorkspaceSnapshot,
@@ -37,14 +39,27 @@ const cleanStatus = (over: Partial<GitStatus> = {}): GitStatus => ({
 /** A fake git service keyed by repo path — enough to drive the tab end to end. */
 function makeGit() {
   const statuses = new Map<string, GitStatus>();
+  const histories = new Map<string, GitHistory>();
+  const changed = new Map<string, GitChangedFile[]>();
   const watchers = new Map<string, Set<() => void>>();
   return {
     statuses,
+    histories,
+    changed, // keyed `${from}..${to ?? ""}`
     status: vi.fn(async (repo: string) => {
       const st = statuses.get(repo);
       if (!st) throw new Error(`not a git repository: ${repo}`);
       return st;
     }),
+    history: vi.fn(async (repo: string) => {
+      const h = histories.get(repo);
+      if (!h) throw new Error(`no history for: ${repo}`);
+      return h;
+    }),
+    changedFiles: vi.fn(
+      async (_repo: string, from: string, to?: string) =>
+        changed.get(`${from}..${to ?? ""}`) ?? [],
+    ),
     diffFile: vi.fn(
       async () => "@@ -1 +1 @@\n-hello\n+goodbye\n",
     ),
@@ -66,7 +81,13 @@ function makeGit() {
 function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
   return {
     services: {
-      git: { status: git.status, diffFile: git.diffFile, watch: git.watch },
+      git: {
+        status: git.status,
+        diffFile: git.diffFile,
+        history: git.history,
+        changedFiles: git.changedFiles,
+        watch: git.watch,
+      },
       fs: {
         readDir: vi.fn(async () => []),
         readFile: vi.fn(async (path: string) => ({
@@ -244,6 +265,116 @@ describe("GitTab", () => {
     await render("p1");
     expect(git.watcherCount("/repo")).toBe(0);
     expect(git.watcherCount("/wt/one")).toBe(1);
+  });
+
+  it("History mode lists commits since the fork and drills into a commit's diff", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", {
+      forkSha: "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0",
+      commits: [
+        { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "add feature" },
+        { sha: "b2".repeat(20), author: "Agent", timestamp: 1_750_000_000, subject: "fix tests" },
+      ],
+    });
+    const commitSha = "a1".repeat(20);
+    git.changed.set(`${commitSha}^..${commitSha}`, [
+      { path: "src/feature.ts", origPath: null, code: "A" },
+    ]);
+    setRuntime(makeCtx(git));
+
+    await render();
+    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
+      (el) => el.textContent === "History",
+    ) as HTMLButtonElement;
+    await act(async () => historyBtn.click());
+
+    // Commits newest-first plus the pinned since-fork summary.
+    expect(host.textContent).toContain("Since fork");
+    expect(host.textContent).toContain("2 commits");
+    expect(host.textContent).toContain("add feature");
+    expect(host.textContent).toContain("fix tests");
+    expect(host.textContent).toContain("a1a1a1a");
+
+    // Drill into the newest commit → its file list, fetched parent..self.
+    const commitRow = [...host.querySelectorAll("button.git__row")].find((el) =>
+      el.textContent?.includes("add feature"),
+    ) as HTMLButtonElement;
+    await act(async () => commitRow.click());
+    expect(git.changedFiles).toHaveBeenCalledWith(
+      "/repo",
+      `${commitSha}^`,
+      commitSha,
+    );
+    expect(host.textContent).toContain("feature.ts");
+
+    // A file opens the peek with the RANGE diff, never the index one.
+    const fileRow = [...host.querySelectorAll("button.git__row")].find((el) =>
+      el.textContent?.includes("feature.ts"),
+    ) as HTMLButtonElement;
+    await act(async () => fileRow.click());
+    expect(git.diffFile).toHaveBeenCalledWith("/repo", "src/feature.ts", {
+      from: `${commitSha}^`,
+      to: commitSha,
+    });
+    expect(host.querySelector(".peek")).toBeTruthy();
+    expect(host.textContent).toContain("goodbye");
+
+    // Backing out of the drill returns to the commit list.
+    await act(async () => {
+      (host.querySelector(".peek") as HTMLElement).click(); // close peek
+    });
+    const back = host.querySelector("button.git__drillback") as HTMLButtonElement;
+    await act(async () => back.click());
+    expect(host.textContent).toContain("fix tests");
+  });
+
+  it("the since-fork drill diffs against the working tree (open-ended range)", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    const fork = "f0".repeat(20);
+    git.histories.set("/repo", {
+      forkSha: fork,
+      commits: [
+        { sha: "c3".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "work" },
+      ],
+    });
+    git.changed.set(`${fork}..`, [
+      { path: "net.ts", origPath: null, code: "M" },
+    ]);
+    setRuntime(makeCtx(git));
+
+    await render();
+    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
+      (el) => el.textContent === "History",
+    ) as HTMLButtonElement;
+    await act(async () => historyBtn.click());
+
+    const pin = host.querySelector("button.git__row--pin") as HTMLButtonElement;
+    await act(async () => pin.click());
+    expect(git.changedFiles).toHaveBeenCalledWith("/repo", fork, undefined);
+    expect(host.textContent).toContain("net.ts");
+  });
+
+  it("without a fork point History is a plain log with no since-fork row", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", {
+      forkSha: null,
+      commits: [
+        { sha: "d4".repeat(20), author: "Me", timestamp: 1_760_000_000, subject: "init" },
+      ],
+    });
+    setRuntime(makeCtx(git));
+
+    await render();
+    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
+      (el) => el.textContent === "History",
+    ) as HTMLButtonElement;
+    await act(async () => historyBtn.click());
+
+    expect(host.textContent).toContain("init");
+    expect(host.textContent).not.toContain("Since fork");
   });
 
   it("surfaces a status failure instead of a stuck spinner", async () => {
