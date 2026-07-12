@@ -37,6 +37,19 @@ pub fn default_branch(repo: &Path) -> Result<Option<String>, GitError> {
     }
 }
 
+/// The best common ancestor of two revisions — the fork point a branch's
+/// history is measured from. `None` when the revisions share no history (or
+/// either doesn't resolve): for a changes view that's an answer ("no fork
+/// point"), not an error.
+pub fn merge_base(repo: &Path, a: &str, b: &str) -> Result<Option<String>, GitError> {
+    match run_git(repo, ["merge-base", "--", a, b]) {
+        Ok(out) => Ok(Some(out.trim().to_string())),
+        // Exit 1 = no common ancestor; unresolvable revs also land here.
+        Err(GitError::Command { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
 /// The current branch name, or `None` when `HEAD` is detached.
 pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
     let out = run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])?;

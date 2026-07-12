@@ -17,11 +17,13 @@ mod error;
 pub mod branch;
 pub mod diff;
 pub mod head;
+pub mod log;
 pub mod repo;
 pub mod status;
 pub mod worktree;
 
 pub use error::GitError;
 pub use head::Head;
+pub use log::Commit;
 pub use status::{RepoStatus, StatusEntry};
 pub use worktree::WorktreeInfo;
