@@ -94,6 +94,18 @@
   cursor: default;
 }
 
+/* The "Update ready" affordance: the one green action in the bar — an update
+ * sits downloaded and verified, and a single click restarts into it. */
+.bar__action--update {
+  border-color: #2c5136;
+  color: #58b368;
+}
+
+.bar__action--update:hover:not(:disabled) {
+  background-color: #16241b;
+  border-color: #58b368;
+}
+
 .deck__status {
   font-size: 12px;
   color: #6b7280;

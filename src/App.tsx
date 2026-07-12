@@ -5,6 +5,8 @@ import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { fetchAppInfo, type AppInfo } from "./ipc/app";
+import { restartToUpdate } from "./app/updateManager";
+import { useUpdate } from "./app/useUpdate";
 import { pickFolder } from "./ipc/dialogs";
 import { describeError, log } from "./ipc/log";
 import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
@@ -60,6 +62,7 @@ import "./styles/index.css";
  */
 function App() {
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const updateState = useUpdate();
 
   useEffect(() => {
     fetchAppInfo()
@@ -337,6 +340,22 @@ function App() {
           )}
         </div>
         <div className="deck__bar-right">
+          {(updateState.phase === "ready" || updateState.phase === "installing") && (
+            // An update sits downloaded and signature-verified; nothing
+            // happens until this click. The deck revives after the restart
+            // through workspace persistence.
+            <button
+              type="button"
+              className="bar__action bar__action--update"
+              onClick={() => void restartToUpdate()}
+              disabled={updateState.phase === "installing"}
+              title={`Update to ${updateState.version ?? "new version"} and restart`}
+            >
+              {updateState.phase === "installing"
+                ? "Restarting…"
+                : "Update ready · Restart"}
+            </button>
+          )}
           <button
             type="button"
             className="bar__action"

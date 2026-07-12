@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { GeneralSection } from "./GeneralSection";
 import { TerminalSection } from "./TerminalSection";
+import { UpdatesSection } from "./UpdatesSection";
 
 /** One page of the settings dialog ([F6]): a nav entry plus the panel it
  * shows. Sections read and write the settings store themselves — the dialog
@@ -17,4 +18,5 @@ export interface SettingsSection {
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "general", label: "General", Component: GeneralSection },
   { id: "terminal", label: "Terminal", Component: TerminalSection },
+  { id: "updates", label: "Updates", Component: UpdatesSection },
 ];
