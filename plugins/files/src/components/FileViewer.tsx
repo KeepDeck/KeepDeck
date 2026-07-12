@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FsFile } from "@keepdeck/plugin-api";
 import { Peek } from "@keepdeck/ui-kit/Peek";
+import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
 import { baseName } from "../domain/tree";
 import { OpenExternalIcon, WrapIcon } from "../icons";
@@ -9,9 +10,11 @@ import { OpenExternalIcon, WrapIcon } from "../icons";
  * The file preview, inside the shared `Peek` overlay (ui-kit) — the shell
  * (backdrop, header, Esc/backdrop dismissal) is the kit's; this component owns
  * what fills it. Reads through `services.fs` (capped, binary-aware). Text
- * renders line-numbered — soft-wrapped or horizontally scrolled per the wrap
- * toggle; binary or oversized files defer to the external app. A stale
- * in-flight read is ignored so a fast reopen never flashes the wrong file.
+ * renders line-numbered — syntax-colored when the path maps to a grammar
+ * (code-kit; plain first, recolored when tokens land) — soft-wrapped or
+ * horizontally scrolled per the wrap toggle; binary or oversized files defer
+ * to the external app. A stale in-flight read is ignored so a fast reopen
+ * never flashes the wrong file.
  */
 export function FileViewer({
   path,
@@ -102,6 +105,7 @@ export function FileViewer({
       {file && !file.isBinary && file.text !== null && (
         <TextView
           text={file.text}
+          path={path}
           wrap={wrap}
           truncated={file.truncated}
           size={file.size}
@@ -113,19 +117,25 @@ export function FileViewer({
 
 /** Monospace text with a sticky line-number gutter. Each line is its own row so
  * the gutter and code stay aligned; long lines soft-wrap or scroll horizontally
- * under the gutter, which stays pinned left. */
+ * under the gutter, which stays pinned left. Syntax color arrives progressively
+ * (code-kit's useHighlight): the plain text is on screen at once, and the rows
+ * recolor when tokenization lands — or never do, for an unknown language or an
+ * over-limit file, which is exactly the old plain view. */
 function TextView({
   text,
+  path,
   wrap,
   truncated,
   size,
 }: {
   text: string;
+  path: string;
   wrap: boolean;
   truncated: boolean;
   size: number;
 }) {
   const lines = text.split("\n");
+  const tokens = useHighlight(text, langFor(path));
   return (
     <>
       <div className={`files__code${wrap ? " files__code--wrap" : ""}`}>
@@ -136,7 +146,9 @@ function TextView({
               {index + 1}
             </span>
             {/* A space keeps an empty line's row height under white-space: pre. */}
-            <span className="files__linetext">{line || " "}</span>
+            <span className="files__linetext">
+              {tokens ? <TokenLine tokens={tokens[index]} /> : line || " "}
+            </span>
           </div>
         ))}
       </div>
