@@ -63,6 +63,36 @@ describe("initLogging", () => {
     );
   });
 
+  it("appends the thrown error's stack frames when it has them", () => {
+    initLogging();
+    const thrown = new Error("dims gone");
+    thrown.stack = "syncScrollArea@app.js:10:5\n_innerRefresh@app.js:20:9";
+    window.dispatchEvent(
+      new ErrorEvent("error", { message: "TypeError: dims", error: thrown }),
+    );
+    expect(plugin.error).toHaveBeenCalledWith(
+      "[web:window] uncaught: TypeError: dims\nsyncScrollArea@app.js:10:5\n_innerRefresh@app.js:20:9",
+    );
+  });
+
+  it("caps stack depth and frame length so one bundled line can't flood", () => {
+    initLogging();
+    const thrown = new Error("deep");
+    thrown.stack = [
+      `top@${"x".repeat(500)}:1:1`,
+      ...Array.from({ length: 20 }, (_, i) => `f${i}@app.js:${i}:1`),
+    ].join("\n");
+    window.dispatchEvent(
+      new ErrorEvent("error", { message: "boom", error: thrown }),
+    );
+    const shipped = (plugin.error.mock.lastCall as unknown as [string])[0];
+    const lines = shipped.split("\n");
+    // Message line + at most 8 frames, none longer than its cap.
+    expect(lines.length).toBe(9);
+    expect(lines[1].endsWith("…")).toBe(true);
+    expect(lines[1].length).toBeLessThanOrEqual(201);
+  });
+
   it("routes unhandled rejections into the log", () => {
     initLogging();
     const event = new Event("unhandledrejection") as Event & { reason?: unknown };
@@ -70,6 +100,18 @@ describe("initLogging", () => {
     window.dispatchEvent(event);
     expect(plugin.error).toHaveBeenCalledWith(
       "[web:window] unhandled rejection: spawn failed",
+    );
+  });
+
+  it("appends the stack when a rejection's reason is an Error", () => {
+    initLogging();
+    const reason = new Error("plan rejected");
+    reason.stack = "commitPlan@app.js:33:3";
+    const event = new Event("unhandledrejection") as Event & { reason?: unknown };
+    event.reason = reason;
+    window.dispatchEvent(event);
+    expect(plugin.error).toHaveBeenCalledWith(
+      "[web:window] unhandled rejection: plan rejected\ncommitPlan@app.js:33:3",
     );
   });
 });

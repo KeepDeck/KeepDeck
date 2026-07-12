@@ -41,15 +41,36 @@ export function describeError(e: unknown): string {
   }
 }
 
+/** The first frames of a thrown value's stack, newline-prefixed — they name
+ *  the throwing callback, which the message alone never does. Both the frame
+ *  count and each line are capped: a bundler can put an entire file on one
+ *  line, and a stack through it would flood the log file. Empty when the
+ *  value carries no stack (sanitized cross-origin errors, bare rejections). */
+function stackSuffix(thrown: unknown): string {
+  const stack = thrown instanceof Error ? thrown.stack : undefined;
+  if (!stack) return "";
+  const frames = stack
+    .split("\n")
+    .slice(0, 8)
+    .map((line) => (line.length > 200 ? `${line.slice(0, 200)}…` : line));
+  return `\n${frames.join("\n")}`;
+}
+
 /** Wire the webview's last-resort surfaces into the log: uncaught errors and
  *  unhandled promise rejections. In dev, also mirror the Rust side's log
  *  stream into the devtools console. Call once at boot. */
 export function initLogging(): void {
   window.addEventListener("error", (event) => {
-    log.error("web:window", `uncaught: ${event.message}`);
+    log.error(
+      "web:window",
+      `uncaught: ${event.message}${stackSuffix(event.error)}`,
+    );
   });
   window.addEventListener("unhandledrejection", (event) => {
-    log.error("web:window", `unhandled rejection: ${describeError(event.reason)}`);
+    log.error(
+      "web:window",
+      `unhandled rejection: ${describeError(event.reason)}${stackSuffix(event.reason)}`,
+    );
   });
   if (import.meta.env.DEV) {
     try {
