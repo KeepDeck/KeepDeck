@@ -178,6 +178,12 @@
   color: #58b368;
 }
 
+/* The badge marks the checkout IN THE OPEN LIST only — on the closed control
+   the picked value is self-evident, the check would just be noise. */
+.git__ref .dropdown__button .git__refcheck {
+  display: none;
+}
+
 /* The fork boundary inside the full log: work above, base history below. */
 .git__forkline {
   display: flex;
