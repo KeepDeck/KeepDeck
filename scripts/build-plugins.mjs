@@ -17,6 +17,13 @@
 // discover what's installed — with entries sorted by id so the file's diff
 // is stable across builds regardless of directory-scan order.
 //
+// A plugin OWNS its CSS: any stylesheet its module graph imports is emitted
+// by the lib build as <dist>/plugins/<id>/index.css (the fixed name matters —
+// the host can't chase a hash), and the plugin's index.json entry is flagged
+// `css: true` so the production loader links the file alongside the module
+// import. Dev needs none of this: plugins load from source and Vite injects
+// their styles on import.
+//
 // Runs AFTER `vite build` in the "build" script (see package.json): the app
 // build's `emptyOutDir` would otherwise wipe whatever this script wrote.
 // Conversely, this script only ever touches <dist>/plugins/ — dist/ may not
@@ -131,8 +138,12 @@ async function buildOne(pluginDir, distRoot) {
   if (existsSync(resources)) {
     cpSync(resources, join(outDir, "resources"), { recursive: true });
   }
+  // Whether the build emitted the plugin's stylesheet — the OUTPUT is the
+  // ground truth (not a manifest claim), so the flag can never point the
+  // loader at a file that isn't there.
+  const css = existsSync(join(outDir, "index.css"));
   console.log(`  built ${manifest.id}  (${pluginDir} -> ${join(distRoot, "plugins", manifest.id)})`);
-  return manifest.id;
+  return { id: manifest.id, css };
 }
 
 async function buildPluginBundle(entry, outDir) {
@@ -152,16 +163,27 @@ async function buildPluginBundle(entry, outDir) {
         entry: resolve(entry),
         formats: ["es"],
         fileName: () => "index.js",
+        // CSS imported anywhere in the plugin's module graph lands here, next
+        // to index.js, under a name the loader can compute.
+        cssFileName: "index",
       },
       rollupOptions: { external: EXTERNAL },
     },
   });
 }
 
-function writeIndex(distRoot, ids) {
+function writeIndex(distRoot, built) {
   const dir = join(distRoot, "plugins");
   mkdirSync(dir, { recursive: true });
-  const plugins = [...ids].sort().map((id) => ({ id, dir: `plugins/${id}` }));
+  const plugins = [...built]
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map(({ id, css }) => ({
+      id,
+      dir: `plugins/${id}`,
+      // Present only when true — an entry without CSS stays the shape it
+      // always was, so the file's diff shows exactly which plugins gained one.
+      ...(css ? { css: true } : {}),
+    }));
   writeFileSync(join(dir, "index.json"), JSON.stringify({ plugins }, null, 2) + "\n");
   return join(dir, "index.json");
 }
@@ -177,14 +199,14 @@ export async function run(argv = process.argv.slice(2), env = process.env) {
   }
 
   console.log(`Building ${pluginDirs.length} plugin(s)...`);
-  const ids = [];
+  const built = [];
   for (const dir of pluginDirs) {
-    ids.push(await buildOne(dir, distRoot));
+    built.push(await buildOne(dir, distRoot));
   }
 
-  const indexPath = writeIndex(distRoot, ids);
+  const indexPath = writeIndex(distRoot, built);
   console.log(`Wrote ${indexPath}`);
-  return ids;
+  return built.map(({ id }) => id);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

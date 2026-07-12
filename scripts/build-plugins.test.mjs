@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -152,6 +153,8 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     );
     // Every built-in plugin, sorted by id (files before run) — this exact-match
     // is the deterministic-shape tripwire: a new built-in updates it on purpose.
+    // `css: true` appears exactly where the build emitted an index.css; the
+    // cli plugins import no CSS and keep the bare shape.
     expect(index).toEqual({
       plugins: [
         { id: "keepdeck.claude", dir: "plugins/keepdeck.claude" },
@@ -159,9 +162,21 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
         { id: "keepdeck.files", dir: "plugins/keepdeck.files" },
         { id: "keepdeck.git", dir: "plugins/keepdeck.git" },
         { id: "keepdeck.opencode", dir: "plugins/keepdeck.opencode" },
-        { id: "keepdeck.run", dir: "plugins/keepdeck.run" },
+        { id: "keepdeck.run", dir: "plugins/keepdeck.run", css: true },
       ],
     });
+
+    // The flag and the file agree, both ways: run's CSS (xterm's stylesheet,
+    // imported by its log renderer) landed under the fixed name the loader
+    // computes; a plugin without the flag shipped no stylesheet at all.
+    const runCss = readFileSync(
+      join(distRoot, "plugins", "keepdeck.run", "index.css"),
+      "utf8",
+    );
+    expect(runCss).toContain(".xterm");
+    expect(
+      existsSync(join(distRoot, "plugins", "keepdeck.claude", "index.css")),
+    ).toBe(false);
   });
 
   it("is a no-op that still writes an empty index.json when plugins/ has none", () => {
