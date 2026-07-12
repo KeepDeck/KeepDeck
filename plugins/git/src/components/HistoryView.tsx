@@ -12,7 +12,7 @@ import {
   type GitRange,
 } from "../domain/history";
 import { baseName, codeLabel, dirName, type ChangeRow } from "../domain/status";
-import { BackIcon } from "../icons";
+import { BackIcon, CheckIcon } from "../icons";
 
 /**
  * The History half of the Git tab: commits since the branch's fork point
@@ -186,7 +186,16 @@ export function HistoryView({
             options={branches.branches.map((name) => ({
               value: name,
               label:
-                name === branches.current ? `${name} · checked out` : name,
+                name === branches.current ? (
+                  <span className="git__refcur">
+                    {name}
+                    <span className="git__refcheck" title="checked out">
+                      <CheckIcon />
+                    </span>
+                  </span>
+                ) : (
+                  name
+                ),
             }))}
             value={rev ?? branches.current ?? branches.branches[0]}
             onChange={(name) =>

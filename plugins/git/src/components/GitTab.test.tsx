@@ -459,9 +459,11 @@ describe("GitTab", () => {
     ) as HTMLButtonElement;
     await act(async () => historyBtn.click());
 
-    // The picker labels the checkout; switching to the foreign branch walks
-    // it by ref — no checkout involved.
-    expect(host.textContent).toContain("main · checked out");
+    // The picker marks the checkout with the green-check badge, not a text
+    // suffix; switching to the foreign branch walks it by ref — no checkout
+    // involved.
+    expect(host.querySelector(".git__refcur .git__refcheck")).toBeTruthy();
+    expect(host.textContent).not.toContain("checked out");
     git.histories.set("/repo", {
       forkSha: fork,
       ahead: 1,

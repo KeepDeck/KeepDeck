@@ -163,6 +163,21 @@
   min-width: 0;
 }
 
+/* The checked-out branch in the ref picker: name plus a green check. */
+.git__refcur {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.git__refcheck {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: #58b368;
+}
+
 /* The fork boundary inside the full log: work above, base history below. */
 .git__forkline {
   display: flex;
