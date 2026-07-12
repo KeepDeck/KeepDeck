@@ -127,13 +127,37 @@ describe("release workflow", () => {
     expect(JSON.stringify(release)).not.toContain("git push");
   });
 
-  it("publishes every downloaded asset to the rolling latest release", () => {
-    const download = release.jobs.publish.steps.find(
-      (s) => s.uses === "actions/download-artifact@v4",
+  it("builds the updater manifest for both platforms", () => {
+    const manifest = release.jobs.publish.steps.find(
+      (s) => s.name === "Build the updater manifest",
     );
-    expect(download.with.pattern).toBe("KeepDeck-macos-*");
+    expect(manifest.run).toContain("scripts/release-manifest.mjs");
+    expect(manifest.run).toContain(
+      "--payload darwin-aarch64=assets/KeepDeck-macos-arm64.app.tar.gz",
+    );
+    expect(manifest.run).toContain(
+      "--payload darwin-x86_64=assets/KeepDeck-macos-x64.app.tar.gz",
+    );
+  });
+
+  it("uploads payloads before the manifest, and the manifest last", () => {
     const publish = release.jobs.publish.steps.at(-1);
-    expect(publish.run).toContain("gh release upload latest assets/*.zip --clobber");
+    const lines = publish.run.split("\n");
+    const payloadUpload = lines.findIndex((l) =>
+      l.includes("gh release upload latest \\"),
+    );
+    const manifestUpload = lines.findIndex((l) =>
+      l.includes("gh release upload latest assets/latest.json --clobber"),
+    );
+    expect(payloadUpload).toBeGreaterThanOrEqual(0);
+    expect(manifestUpload).toBeGreaterThan(payloadUpload);
+    // Every asset the manifest points at is uploaded in the first batch.
+    const batch = publish.run.slice(0, publish.run.indexOf("latest.json"));
+    for (const arch of ["arm64", "x64"]) {
+      expect(batch).toContain(`assets/KeepDeck-macos-${arch}.zip`);
+      expect(batch).toContain(`assets/KeepDeck-macos-${arch}.app.tar.gz`);
+      expect(batch).toContain(`assets/KeepDeck-macos-${arch}.app.tar.gz.sig`);
+    }
   });
 });
 

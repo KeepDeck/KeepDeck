@@ -66,6 +66,17 @@ jobs:
           path: assets
           merge-multiple: true
 
+      - name: Build the updater manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node scripts/release-manifest.mjs \
+            --version "$VERSION" \
+            --repo "${{ github.repository }}" \
+            --out assets/latest.json \
+            --payload darwin-aarch64=assets/KeepDeck-macos-arm64.app.tar.gz \
+            --payload darwin-x86_64=assets/KeepDeck-macos-x64.app.tar.gz
+
       - name: Publish the rolling "latest" release
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -74,10 +85,20 @@ jobs:
 
           Install:
           curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh"
-          if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest assets/*.zip --clobber
-            gh release edit latest --title "KeepDeck $VERSION" --notes "$notes"
-          else
-            gh release create latest assets/*.zip \
-              --title "KeepDeck $VERSION" --notes "$notes" --latest
+          if ! gh release view latest >/dev/null 2>&1; then
+            gh release create latest --title "KeepDeck $VERSION" --notes "$notes" --latest
           fi
+          # Payloads and zips first; the manifest goes LAST so a client that
+          # polls mid-publish never sees it point at assets still being
+          # replaced (worst case: a clean signature mismatch, retried on the
+          # next check).
+          gh release upload latest \
+            assets/KeepDeck-macos-arm64.zip \
+            assets/KeepDeck-macos-x64.zip \
+            assets/KeepDeck-macos-arm64.app.tar.gz \
+            assets/KeepDeck-macos-arm64.app.tar.gz.sig \
+            assets/KeepDeck-macos-x64.app.tar.gz \
+            assets/KeepDeck-macos-x64.app.tar.gz.sig \
+            --clobber
+          gh release upload latest assets/latest.json --clobber
+          gh release edit latest --title "KeepDeck $VERSION" --notes "$notes"
