@@ -8,10 +8,7 @@ import {
   initSettings,
   resetSettingsManager,
 } from "../../app/settingsManager";
-import {
-  appNameFromPath,
-  PluginSettingsSection,
-} from "./PluginSettingsSection";
+import { PluginSettingsSection } from "./PluginSettingsSection";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -26,13 +23,7 @@ const ipc = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/settings", () => ipc);
 
-// The picker-mode add flow: the installed-apps scan feeds the combobox, the
-// native dialog backs the Browse… fallback — both mocked here.
-const dialogs = vi.hoisted(() => ({
-  pickFolder: vi.fn<() => Promise<string | null>>(async () => null),
-  pickApplication: vi.fn<() => Promise<string | null>>(async () => null),
-}));
-vi.mock("../../ipc/dialogs", () => dialogs);
+// The picker-mode add flow reads the installed-apps scan — mocked here.
 const appIpc = vi.hoisted(() => ({
   listApplications: vi.fn<() => Promise<string[]>>(async () => []),
 }));
@@ -154,18 +145,6 @@ describe("PluginSettingsSection — the stringList editor", () => {
   });
 });
 
-describe("appNameFromPath", () => {
-  it("strips the .app suffix off the bundle's basename", () => {
-    expect(appNameFromPath("/Applications/IntelliJ IDEA.app")).toBe(
-      "IntelliJ IDEA",
-    );
-  });
-
-  it("passes a non-bundle basename through", () => {
-    expect(appNameFromPath("/usr/local/bin/nvim")).toBe("nvim");
-  });
-});
-
 describe("PluginSettingsSection — the application-picker add flow", () => {
   const pickerSection: SettingsSectionContribution = {
     label: "Run",
@@ -187,11 +166,6 @@ describe("PluginSettingsSection — the application-picker add flow", () => {
     [...document.querySelectorAll(".settings__list-entry")].map(
       (n) => n.textContent,
     );
-  const addButton = () =>
-    [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-      (b) => b.textContent === "Browse…",
-    )!;
-
   const mount = async () => {
     await initSettings();
     await act(async () => {
@@ -255,26 +229,12 @@ describe("PluginSettingsSection — the application-picker add flow", () => {
     expect(combo().value).toBe("");
   });
 
-  it("Browse… falls back to the OS picker and adds the bundle's display name", async () => {
-    dialogs.pickApplication.mockResolvedValue("/Applications/IntelliJ IDEA.app");
+  it("the combobox is the whole add flow — no other buttons in the row", async () => {
     await mount();
-    await act(async () => addButton().click());
-    expect(entries()).toEqual(["Visual Studio Code", "IntelliJ IDEA"]);
-  });
-
-  it("a cancelled Browse… adds nothing", async () => {
-    dialogs.pickApplication.mockResolvedValue(null);
-    await mount();
-    await act(async () => addButton().click());
-    expect(entries()).toEqual(["Visual Studio Code"]);
-  });
-
-  it("re-picking a listed app never duplicates it", async () => {
-    dialogs.pickApplication.mockResolvedValue(
-      "/Applications/Visual Studio Code.app",
-    );
-    await mount();
-    await act(async () => addButton().click());
-    expect(entries()).toEqual(["Visual Studio Code"]);
+    expect(
+      [...document.querySelectorAll(".settings__list-add button")].map(
+        (b) => b.getAttribute("aria-label") ?? b.textContent,
+      ),
+    ).toEqual(["Toggle Add Open in applications options"]);
   });
 });

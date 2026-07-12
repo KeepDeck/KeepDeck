@@ -49,8 +49,8 @@ export type SettingsField =
       default: string[];
       /** Placeholder for the add-entry input (free-text mode only). */
       placeholder?: string;
-      /** Entries come from the OS application picker instead of free text:
-       * the host shows an "Add application…" button, and the picked app's
-       * display name (the macOS `open -a` argument) enters the list. */
+      /** Entries come from a host-rendered search over the INSTALLED
+       * applications instead of free text; the picked app's display name
+       * (the macOS `open -a` argument) enters the list. */
       picker?: "application";
     };

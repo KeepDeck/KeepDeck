@@ -4,7 +4,6 @@ import type {
   SettingsSectionContribution,
 } from "@keepdeck/plugin-api";
 import { listApplications } from "../../ipc/app";
-import { pickApplication } from "../../ipc/dialogs";
 import { getSettings, updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { Combobox } from "../../ui/Combobox";
@@ -139,13 +138,6 @@ function PluginField({
   }
 }
 
-/** The picked bundle's display name — the `open -a` argument: the basename
- * with a trailing `.app` stripped (`/Applications/Zed.app` → `Zed`). */
-export function appNameFromPath(path: string): string {
-  const base = path.split("/").filter(Boolean).pop() ?? "";
-  return base.endsWith(".app") ? base.slice(0, -".app".length) : base;
-}
-
 /** The stringList editor: one row per entry with a remove control, plus an
  * add flow — the OS application picker when the field asks for it, a free
  * input otherwise. Entries are trimmed; blanks and duplicates never enter
@@ -218,10 +210,10 @@ function StringListField({
 }
 
 /** The application add flow: a fuzzy-search combobox over the INSTALLED
- * applications (scanned host-side across the standard app folders, including
- * `~/Applications` — the native dialog never surfaces that one unprompted),
- * plus a Browse… fallback to the OS picker for bundles living anywhere else.
- * Picking either way stores the display name — the `open -a` argument. */
+ * applications, scanned host-side across the standard app folders — including
+ * `~/Applications`, where per-user installers put things the native dialog
+ * never surfaces unprompted. Picking stores the display name — the `open -a`
+ * argument. */
 function ApplicationAdd({
   label,
   listed,
@@ -267,17 +259,6 @@ function ApplicationAdd({
         ariaLabel={`Add ${label}`}
         placeholder="Search applications…"
       />
-      <button
-        type="button"
-        className="settings__list-add-btn"
-        onClick={() =>
-          void pickApplication().then((path) => {
-            if (path) onAdd(appNameFromPath(path));
-          })
-        }
-      >
-        Browse…
-      </button>
     </div>
   );
 }
