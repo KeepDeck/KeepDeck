@@ -59,6 +59,17 @@ export function WrapIcon() {
   );
 }
 
+/** Angle brackets — "show me the source" (Lucide `code`, ISC). Toggles the
+ * Markdown preview between rendered and raw. */
+export function CodeIcon() {
+  return (
+    <svg {...iconProps}>
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
+    </svg>
+  );
+}
+
 /** Open in the default app — an arrow leaving a frame (Lucide
  * `external-link`, ISC). */
 export function OpenExternalIcon() {

@@ -109,4 +109,93 @@ describe("FileViewer", () => {
     expect(styledSpans().length).toBe(0);
     expect(rowTexts()[0]).toBe("just words");
   });
+
+  const MD_TEXT = [
+    "# Title",
+    "",
+    "Some [docs](https://example.com/docs) and [local](./other.md).",
+    "",
+    "```ts",
+    "const x = 1",
+    "```",
+    "",
+  ].join("\n");
+
+  const toggleButton = () =>
+    document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Toggle Markdown source view"]',
+    );
+
+  it("renders markdown as a document by default and toggles to raw source", async () => {
+    const path = "/repo/README.md";
+    await mount(path, { [path]: fsFile(path, MD_TEXT) });
+
+    // Rendered: a real heading element, no line-numbered rows, no wrap toggle
+    // (nothing to wrap in a document).
+    expect(document.querySelector(".files__md h1")?.textContent).toBe("Title");
+    expect(document.querySelector(".files__code")).toBeNull();
+    expect(
+      document.querySelector('button[aria-label="Toggle line wrapping"]'),
+    ).toBeNull();
+
+    await act(async () => toggleButton()!.click());
+
+    // Raw: the exact line view every other text file gets.
+    expect(document.querySelector(".files__md")).toBeNull();
+    expect(rowTexts()[0]).toBe("# Title");
+    expect(
+      document.querySelector('button[aria-label="Toggle line wrapping"]'),
+    ).not.toBeNull();
+
+    await act(async () => toggleButton()!.click());
+    expect(document.querySelector(".files__md h1")?.textContent).toBe("Title");
+  });
+
+  it("colors fenced code inside the rendered document", async () => {
+    const path = "/repo/README.md";
+    await mount(path, { [path]: fsFile(path, MD_TEXT) });
+
+    await settle(
+      () => document.querySelectorAll(".files__md pre span[style]").length > 0,
+    );
+    expect(
+      document.querySelector(".files__md pre code")?.textContent,
+    ).toContain("const x = 1");
+  });
+
+  it("never executes or renders raw HTML from the document", async () => {
+    const path = "/repo/README.md";
+    const hostile =
+      '# Hi\n\n<script>window.pwned = true</script>\n<img src="x" onerror="window.pwned = true">\n';
+    await mount(path, { [path]: fsFile(path, hostile) });
+
+    expect(document.querySelector(".files__md script")).toBeNull();
+    expect(document.querySelector(".files__md img")).toBeNull();
+    expect((window as { pwned?: boolean }).pwned).toBeUndefined();
+  });
+
+  it("routes external links to the opener and keeps relative ones inert", async () => {
+    const path = "/repo/README.md";
+    const files = { [path]: fsFile(path, MD_TEXT) };
+    setRuntime(null);
+    const ctx = makeCtx(files);
+    setRuntime(ctx);
+    await act(async () => {
+      root.render(
+        createElement(FileViewer, { path, root: "/repo", onClose: vi.fn() }),
+      );
+    });
+    await act(async () => {});
+
+    const links = [...document.querySelectorAll<HTMLAnchorElement>(".files__md a")];
+    const external = links.find((a) => a.textContent === "docs")!;
+    const relative = links.find((a) => a.textContent === "local")!;
+    const openUrl = ctx.services.opener.openUrl as ReturnType<typeof vi.fn>;
+
+    await act(async () => external.click());
+    expect(openUrl).toHaveBeenCalledWith("https://example.com/docs");
+
+    await act(async () => relative.click());
+    expect(openUrl).toHaveBeenCalledTimes(1); // still only the external one
+  });
 });

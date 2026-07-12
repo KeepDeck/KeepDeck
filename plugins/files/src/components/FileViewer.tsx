@@ -4,7 +4,8 @@ import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
 import { baseName } from "../domain/tree";
-import { OpenExternalIcon, WrapIcon } from "../icons";
+import { CodeIcon, OpenExternalIcon, WrapIcon } from "../icons";
+import { MarkdownView } from "./MarkdownView";
 
 /**
  * The file preview, inside the shared `Peek` overlay (ui-kit) — the shell
@@ -12,9 +13,10 @@ import { OpenExternalIcon, WrapIcon } from "../icons";
  * what fills it. Reads through `services.fs` (capped, binary-aware). Text
  * renders line-numbered — syntax-colored when the path maps to a grammar
  * (code-kit; plain first, recolored when tokens land) — soft-wrapped or
- * horizontally scrolled per the wrap toggle; binary or oversized files defer
- * to the external app. A stale in-flight read is ignored so a fast reopen
- * never flashes the wrong file.
+ * horizontally scrolled per the wrap toggle. Markdown renders as a document
+ * by default, with a header toggle back to the raw line view; binary or
+ * oversized files defer to the external app. A stale in-flight read is
+ * ignored so a fast reopen never flashes the wrong file.
  */
 export function FileViewer({
   path,
@@ -29,12 +31,16 @@ export function FileViewer({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [wrap, setWrap] = useState(false);
+  const [rawMarkdown, setRawMarkdown] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setFile(null);
     setError(null);
     setLoading(true);
+    // A per-file view choice, not a session preference: the next file opens
+    // in its own default view again.
+    setRawMarkdown(false);
     const { services, log } = getRuntime();
     services.fs
       .readFile(path)
@@ -56,6 +62,11 @@ export function FileViewer({
   }, [path]);
 
   const openExternally = () => void getRuntime().services.opener.openPath(path);
+  const hasText = file !== null && !file.isBinary && file.text !== null;
+  const markdown = langFor(path) === "markdown";
+  // The document view has no lines to wrap or number — those controls belong
+  // to the raw view only.
+  const showRendered = markdown && !rawMarkdown;
 
   return (
     <Peek
@@ -66,7 +77,19 @@ export function FileViewer({
       }
       actions={
         <>
-          {file && !file.isBinary && file.text !== null && (
+          {hasText && markdown && (
+            <button
+              type="button"
+              className={`peek__act${rawMarkdown ? " peek__act--on" : ""}`}
+              onClick={() => setRawMarkdown((raw) => !raw)}
+              title={rawMarkdown ? "Show rendered Markdown" : "Show Markdown source"}
+              aria-label="Toggle Markdown source view"
+              aria-pressed={rawMarkdown}
+            >
+              <CodeIcon />
+            </button>
+          )}
+          {hasText && !showRendered && (
             <button
               type="button"
               className={`peek__act${wrap ? " peek__act--on" : ""}`}
@@ -102,7 +125,13 @@ export function FileViewer({
           </button>
         </div>
       )}
-      {file && !file.isBinary && file.text !== null && (
+      {file && !file.isBinary && file.text !== null && showRendered && (
+        <>
+          <MarkdownView text={file.text} />
+          {file.truncated && <TruncatedNote size={file.size} />}
+        </>
+      )}
+      {file && !file.isBinary && file.text !== null && !showRendered && (
         <TextView
           text={file.text}
           path={path}
@@ -152,13 +181,18 @@ function TextView({
           </div>
         ))}
       </div>
-      {truncated && (
-        <p className="peek__note peek__note--bad">
-          Preview truncated — file is {formatBytes(size)}. Open it in the default
-          app to see the rest.
-        </p>
-      )}
+      {truncated && <TruncatedNote size={size} />}
     </>
+  );
+}
+
+/** The read stopped at the fs cap — say so under either view, in one voice. */
+function TruncatedNote({ size }: { size: number }) {
+  return (
+    <p className="peek__note peek__note--bad">
+      Preview truncated — file is {formatBytes(size)}. Open it in the default
+      app to see the rest.
+    </p>
   );
 }
 

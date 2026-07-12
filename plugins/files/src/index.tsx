@@ -9,9 +9,11 @@
  * visible toggle and the click behavior are projections of one state and can
  * never disagree.
  */
-// The plugin's own stylesheet rides the module graph: Vite injects it in
-// dev; the lib build emits it as the bundle's index.css for the host to link.
+// The plugin's own stylesheets ride the module graph: Vite injects them in
+// dev; the lib build folds both into the bundle's index.css for the host to
+// link. markdown.css after styles.css — document typography over chrome.
 import "./styles.css";
+import "./markdown.css";
 import type {
   Disposable,
   FileOpenHandler,
