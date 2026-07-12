@@ -211,17 +211,47 @@ pub fn project_git_history(
     // the walk starts at the working tree's own HEAD.
     let rev = rev.as_deref().unwrap_or("HEAD");
     let tip = repo::resolve_commit(&repo, rev).map_err(|e| e.to_string())?;
-    let base_ref = match base {
-        Some(base) => Some(base),
-        None => repo::default_branch(&repo).unwrap_or(None),
+
+    // The fork-point ladder:
+    // 1. an EXPLICIT base wins — merge-base against it, as asked;
+    // 2. else the branch's own reflog: git recorded the creation commit when
+    //    the branch was cut, which is the exact fork even for a worktree made
+    //    off a picked base (the default-branch guess would misjudge that);
+    // 3. else merge-base against the repo's default branch.
+    // A fork AT the tip means "this ref IS the base" — nothing to measure.
+    let default = repo::default_branch(&repo).unwrap_or(None);
+    let branch_name = if rev == "HEAD" {
+        repo::current_branch(&repo).unwrap_or(None)
+    } else {
+        Some(rev.to_string())
     };
-    let fork = match base_ref {
+    let fork = match base {
         Some(ref base_ref) => repo::merge_base(&repo, base_ref, rev)
             .map_err(|e| e.to_string())?
-            // The fork point AT the tip means "this ref IS the base" (the
-            // main repo sitting on its default branch) — nothing to measure.
             .filter(|fork| fork != &tip),
-        None => None,
+        None => {
+            let from_reflog = branch_name
+                // The default branch's creation entry is its clone point —
+                // meaningless as a fork; the base branch has no base.
+                .filter(|name| Some(name) != default.as_ref())
+                .and_then(|name| repo::branch_created_at(&repo, &name).ok().flatten())
+                .filter(|created| created != &tip)
+                // A rebase orphans the creation point — only an ancestor of
+                // the tip still describes this branch's history.
+                .filter(|created| {
+                    repo::merge_base(&repo, created, &tip).ok().flatten().as_deref()
+                        == Some(created.as_str())
+                });
+            match from_reflog {
+                Some(created) => Some(created),
+                None => match default {
+                    Some(ref base_ref) => repo::merge_base(&repo, base_ref, rev)
+                        .map_err(|e| e.to_string())?
+                        .filter(|fork| fork != &tip),
+                    None => None,
+                },
+            }
+        }
     };
 
     // The FULL recent log — the ref's own commits arrive first (newest-first
@@ -735,6 +765,65 @@ mod tests {
         .expect("branches");
         assert_eq!(listed.current.as_deref(), Some("main"));
         assert!(listed.branches.contains(&"kd/test/2".to_string()));
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn fork_comes_from_the_reflog_for_a_picked_base() {
+        let repo = init_repo();
+        fake_origin_main_here(&repo);
+
+        // A picked base: a feature branch one commit past main…
+        git(&repo, &["checkout", "-q", "-b", "base-feat"]);
+        fs::write(repo.join("base.ts"), "b\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "base work"]);
+        let base_tip = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
+
+        // …and an agent branch cut FROM it, one commit of its own.
+        git(&repo, &["checkout", "-q", "-b", "kd/picked/1"]);
+        fs::write(repo.join("own.ts"), "o\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "own work"]);
+
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("history");
+
+        // The default-branch heuristic would blame the base's commit on the
+        // agent (fork at main, ahead 2). The reflog knows better.
+        assert_eq!(history.fork_sha.as_deref(), Some(base_tip.as_str()));
+        assert_eq!(history.ahead, Some(1));
+        assert_eq!(history.commits[0].subject, "own work");
+
+        // A rebase orphans the creation point — the ladder falls back to the
+        // default-branch heuristic instead of measuring from a non-ancestor.
+        // Main must move first: rebasing onto an ancestor is a no-op.
+        git(&repo, &["checkout", "-q", "main"]);
+        fs::write(repo.join("mainline.ts"), "m\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "mainline moves"]);
+        git(&repo, &["checkout", "-q", "kd/picked/1"]);
+        git(&repo, &["rebase", "-q", "main"]);
+        let rebased = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("history after rebase");
+        let main_sha = keepdeck_git::repo::resolve_commit(&repo, "main").unwrap();
+        assert_eq!(rebased.fork_sha.as_deref(), Some(main_sha.as_str()));
+        assert_eq!(rebased.ahead, Some(2), "base+own commits, both rebased");
 
         fs::remove_dir_all(&repo).ok();
     }

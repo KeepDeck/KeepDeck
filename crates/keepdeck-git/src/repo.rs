@@ -50,6 +50,31 @@ pub fn merge_base(repo: &Path, a: &str, b: &str) -> Result<Option<String>, GitEr
     }
 }
 
+/// The commit a branch was CREATED at — its reflog's oldest entry. Git writes
+/// that entry at `branch -b`/`worktree add -b` time (`branch: Created from …`),
+/// so the true fork point is already persisted by git itself: nothing of ours
+/// to store, and exact even when the branch was cut from a picked base the
+/// default-branch heuristic would misjudge. `None` when the reflog is gone
+/// (expired, disabled, foreign clone) — callers fall back to a heuristic.
+///
+/// Callers must validate the answer is still an ANCESTOR of the branch tip:
+/// a rebase moves the branch off its creation point, orphaning the entry.
+pub fn branch_created_at(repo: &Path, branch: &str) -> Result<Option<String>, GitError> {
+    match run_git(
+        repo,
+        ["--no-optional-locks", "log", "-g", "--format=%H", branch, "--"],
+    ) {
+        Ok(out) => Ok(out
+            .lines()
+            .filter(|line| !line.is_empty())
+            .next_back()
+            .map(str::to_string)),
+        // No reflog for the ref is an answer, not an error.
+        Err(GitError::Command { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
 /// The current branch name, or `None` when `HEAD` is detached.
 pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
     let out = run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])?;
