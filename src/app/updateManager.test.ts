@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DownloadEvent, Update } from "../ipc/updater";
 import {
   checkForUpdatesNow,
+  dismissUpdate,
+  downloadUpdate,
   getUpdateState,
   initUpdates,
   resetUpdateManager,
@@ -27,7 +29,7 @@ const mockCheck = vi.mocked(checkForUpdate);
 const mockRelaunch = vi.mocked(relaunchApp);
 
 function appInfo(updater: boolean) {
-  return { name: "KeepDeck", version: "0.10.7", updater };
+  return { name: "KeepDeck", version: "0.12.1", updater };
 }
 
 /** A fake plugin Update handle: download replays the given events. */
@@ -100,29 +102,16 @@ describe("initUpdates", () => {
 });
 
 describe("finding an update", () => {
-  it("downloads in the background and waits in ready", async () => {
+  it("stops at available — zero bytes move without consent", async () => {
     mockInfo.mockResolvedValue(appInfo(true));
-    const update = fakeUpdate("1.2.0", [
-      { event: "Started", data: { contentLength: 100 } },
-      { event: "Progress", data: { chunkLength: 60 } },
-      { event: "Progress", data: { chunkLength: 40 } },
-      { event: "Finished" },
-    ] as DownloadEvent[]);
+    const update = fakeUpdate("1.2.0");
     mockCheck.mockResolvedValue(update);
-    const phases: string[] = [];
-    subscribeUpdates(() => phases.push(getUpdateState().phase));
-
     await initUpdates();
 
     const state = getUpdateState();
-    expect(state.phase).toBe("ready");
+    expect(state.phase).toBe("available");
     expect(state.version).toBe("1.2.0");
-    expect(state.received).toBe(100);
-    expect(state.total).toBe(100);
-    expect(phases).toContain("checking");
-    expect(phases).toContain("downloading");
-    // Download happened, install did NOT — that waits for the user.
-    expect(update.download).toHaveBeenCalledTimes(1);
+    expect(update.download).not.toHaveBeenCalled();
     expect(update.install).not.toHaveBeenCalled();
   });
 
@@ -135,7 +124,47 @@ describe("finding an update", () => {
     expect(state.error).toBe("offline");
   });
 
-  it("a failed download surfaces the error and returns to idle", async () => {
+  it("a periodic tick while available or ready does not re-check", async () => {
+    mockInfo.mockResolvedValue(appInfo(true));
+    mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
+    await initUpdates(1000);
+    expect(getUpdateState().phase).toBe("available");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(mockCheck).toHaveBeenCalledTimes(1);
+
+    await downloadUpdate();
+    expect(getUpdateState().phase).toBe("ready");
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(mockCheck).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("downloadUpdate", () => {
+  it("downloads with progress and waits in ready", async () => {
+    mockInfo.mockResolvedValue(appInfo(true));
+    const update = fakeUpdate("1.2.0", [
+      { event: "Started", data: { contentLength: 100 } },
+      { event: "Progress", data: { chunkLength: 60 } },
+      { event: "Progress", data: { chunkLength: 40 } },
+      { event: "Finished" },
+    ] as DownloadEvent[]);
+    mockCheck.mockResolvedValue(update);
+    const phases: string[] = [];
+    subscribeUpdates(() => phases.push(getUpdateState().phase));
+    await initUpdates();
+
+    await downloadUpdate();
+
+    const state = getUpdateState();
+    expect(state.phase).toBe("ready");
+    expect(state.received).toBe(100);
+    expect(state.total).toBe(100);
+    expect(phases).toContain("downloading");
+    // Downloaded, NOT installed — that waits for the user.
+    expect(update.install).not.toHaveBeenCalled();
+  });
+
+  it("a failed download returns to available for a retry", async () => {
     mockInfo.mockResolvedValue(appInfo(true));
     const update = fakeUpdate("1.2.0");
     (update.download as ReturnType<typeof vi.fn>).mockRejectedValue(
@@ -143,19 +172,58 @@ describe("finding an update", () => {
     );
     mockCheck.mockResolvedValue(update);
     await initUpdates();
+
+    await downloadUpdate();
+
     const state = getUpdateState();
-    expect(state.phase).toBe("idle");
+    expect(state.phase).toBe("available");
     expect(state.error).toBe("signature mismatch");
   });
 
-  it("a periodic tick while ready does not restart the flow", async () => {
+  it("is a no-op unless an update is available", async () => {
+    mockInfo.mockResolvedValue(appInfo(true));
+    mockCheck.mockResolvedValue(null);
+    await initUpdates();
+    await downloadUpdate();
+    expect(getUpdateState().phase).toBe("idle");
+  });
+});
+
+describe("dismissUpdate", () => {
+  it("forgets a found update; the next check offers it again", async () => {
     mockInfo.mockResolvedValue(appInfo(true));
     mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
     await initUpdates(1000);
+    expect(getUpdateState().phase).toBe("available");
+
+    dismissUpdate();
+    expect(getUpdateState().phase).toBe("idle");
+    expect(getUpdateState().version).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(getUpdateState().phase).toBe("available");
+  });
+
+  it("forgets a downloaded update too", async () => {
+    mockInfo.mockResolvedValue(appInfo(true));
+    mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
+    await initUpdates();
+    await downloadUpdate();
     expect(getUpdateState().phase).toBe("ready");
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(mockCheck).toHaveBeenCalledTimes(1);
-    expect(getUpdateState().phase).toBe("ready");
+
+    dismissUpdate();
+    expect(getUpdateState().phase).toBe("idle");
+    // A dismissed download cannot be installed by a later stray call.
+    await restartToUpdate();
+    expect(mockRelaunch).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op in other phases", async () => {
+    mockInfo.mockResolvedValue(appInfo(true));
+    mockCheck.mockResolvedValue(null);
+    await initUpdates();
+    dismissUpdate();
+    expect(getUpdateState().phase).toBe("idle");
   });
 });
 
@@ -175,15 +243,30 @@ describe("checkForUpdatesNow", () => {
     checkForUpdatesNow();
     expect(mockCheck).not.toHaveBeenCalled();
   });
+
+  it("is a no-op while an update awaits a decision", async () => {
+    mockInfo.mockResolvedValue(appInfo(true));
+    mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
+    await initUpdates();
+    expect(getUpdateState().phase).toBe("available");
+    checkForUpdatesNow();
+    expect(mockCheck).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("restartToUpdate", () => {
-  it("installs the downloaded update, then relaunches", async () => {
+  async function readyState() {
     mockInfo.mockResolvedValue(appInfo(true));
     const update = fakeUpdate("1.2.0");
     mockCheck.mockResolvedValue(update);
     await initUpdates();
+    await downloadUpdate();
     expect(getUpdateState().phase).toBe("ready");
+    return update;
+  }
+
+  it("installs the downloaded update, then relaunches", async () => {
+    const update = await readyState();
 
     await restartToUpdate();
 
@@ -193,13 +276,10 @@ describe("restartToUpdate", () => {
   });
 
   it("returns to ready with the error when the install fails", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    const update = fakeUpdate("1.2.0");
+    const update = await readyState();
     (update.install as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("permission denied"),
     );
-    mockCheck.mockResolvedValue(update);
-    await initUpdates();
 
     await restartToUpdate();
 
@@ -211,10 +291,11 @@ describe("restartToUpdate", () => {
 
   it("is a no-op unless an update is ready", async () => {
     mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(null);
+    mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
     await initUpdates();
+    // available, but not downloaded — installing from here must be impossible
     await restartToUpdate();
     expect(mockRelaunch).not.toHaveBeenCalled();
-    expect(getUpdateState().phase).toBe("idle");
+    expect(getUpdateState().phase).toBe("available");
   });
 });

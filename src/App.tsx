@@ -125,6 +125,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   // The settings dialog ([F6]) — opened from the app menu (⌘,) or the gear.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Which section the dialog opens on: the gear opens the first section, the
+  // top bar's update chip jumps straight to Updates.
+  const [settingsSection, setSettingsSection] = useState<string | undefined>();
   const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
@@ -289,6 +292,7 @@ function App() {
       // blocking would make settings unreachable). Its Esc yields while the
       // settings dialog is on top.
       if (dialogOpen || settingsOpen) return;
+      setSettingsSection(undefined);
       setSettingsOpen(true);
     },
   });
@@ -340,20 +344,39 @@ function App() {
           )}
         </div>
         <div className="deck__bar-right">
-          {(updateState.phase === "ready" || updateState.phase === "installing") && (
-            // An update sits downloaded and signature-verified; nothing
-            // happens until this click. The deck revives after the restart
-            // through workspace persistence.
+          {(updateState.phase === "available" ||
+            updateState.phase === "downloading" ||
+            updateState.phase === "ready" ||
+            updateState.phase === "installing") && (
+            // The consent ladder's face in the bar: "available" only points
+            // at the Updates section (nothing downloads by itself), "ready"
+            // restarts into the already-verified download. The deck revives
+            // after the restart through workspace persistence.
             <button
               type="button"
               className="bar__action bar__action--update"
-              onClick={() => void restartToUpdate()}
-              disabled={updateState.phase === "installing"}
-              title={`Update to ${updateState.version ?? "new version"} and restart`}
+              onClick={() => {
+                if (updateState.phase === "ready") {
+                  void restartToUpdate();
+                } else if (!dialogOpen && !settingsOpen) {
+                  setSettingsSection("updates");
+                  setSettingsOpen(true);
+                }
+              }}
+              disabled={
+                updateState.phase === "downloading" ||
+                updateState.phase === "installing"
+              }
+              title={
+                updateState.phase === "ready"
+                  ? `Update to ${updateState.version ?? "new version"} and restart`
+                  : `Version ${updateState.version ?? "?"} is available`
+              }
             >
-              {updateState.phase === "installing"
-                ? "Restarting…"
-                : "Update ready · Restart"}
+              {updateState.phase === "available" && "Update available"}
+              {updateState.phase === "downloading" && "Downloading update…"}
+              {updateState.phase === "ready" && "Update ready · Restart"}
+              {updateState.phase === "installing" && "Restarting…"}
             </button>
           )}
           <button
@@ -401,7 +424,10 @@ function App() {
           <button
             type="button"
             className="bar__icon"
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => {
+              setSettingsSection(undefined);
+              setSettingsOpen(true);
+            }}
             // Mirrors the ⌘, guard. The create form does NOT disable this:
             // on first run it's the only screen, and settings must stay
             // reachable over it (e.g. to pick the default agent first).
@@ -525,7 +551,10 @@ function App() {
           )}
 
           {settingsOpen && (
-            <SettingsDialog onClose={() => setSettingsOpen(false)} />
+            <SettingsDialog
+              onClose={() => setSettingsOpen(false)}
+              initialSectionId={settingsSection}
+            />
           )}
 
           {closeFlow.closing && (

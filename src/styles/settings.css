@@ -117,6 +117,15 @@
   width: 140px;
 }
 
+/* A static read-only value under a form label (the installed version):
+   body text with the same group spacing a control row gets, so it never
+   inherits the hint's pull-up margin. */
+.settings__value {
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: #c5c8c6;
+}
+
 /* Experiment toggle: checkbox + label with an explanatory hint below. */
 .settings__toggle {
   display: flex;
