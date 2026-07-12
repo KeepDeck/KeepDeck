@@ -142,12 +142,12 @@ jobs:
         # and never the "Latest" badge, which stays on the rolling release.
         # Idempotent: a republish updates the same archive entry.
         run: |
-          if ! gh release view "v$VERSION" >/dev/null 2>&1; then
-            gh release create "v$VERSION" \
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release create "$VERSION" \
               --target "${{ needs.pin.outputs.sha }}" \
               --title "KeepDeck $VERSION" --notes-file notes.md --latest=false
           fi
-          gh release upload "v$VERSION" \
+          gh release upload "$VERSION" \
             assets/KeepDeck-macos-arm64.zip \
             assets/KeepDeck-macos-x64.zip \
             assets/KeepDeck-macos-arm64.app.tar.gz \
