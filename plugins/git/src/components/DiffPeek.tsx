@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Peek } from "@keepdeck/ui-kit/Peek";
+import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
 import {
+  flatLines,
+  hunkOffsets,
   isEmptyDiff,
   newFileDiff,
   parseDiff,
@@ -15,6 +18,13 @@ import { baseName, codeLabel, type ChangeRow } from "../domain/status";
  * the row's section: staged rows peek index-vs-HEAD, changed rows
  * worktree-vs-index, untracked rows render the file's content as all-added
  * (git has no diff for them).
+ *
+ * Lines are syntax-colored by the changed file's language (code-kit, the same
+ * engine as the Files preview): the hunks' lines tokenize as ONE flat document
+ * — an approximation, since hunks start mid-file and add/del runs interleave,
+ * but the aligner's guarantee holds (a drifted line degrades to plain, never
+ * to wrong text) and the add/del tints stay as row backgrounds under the
+ * colored runs. Meta lines keep their dim styling, uncolored.
  *
  * `version` is the status feed's revision: when the watcher refreshes the
  * list, an open peek re-fetches too, so it never shows yesterday's hunks. A
@@ -33,6 +43,14 @@ export function DiffPeek({
 }) {
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Joined flat text compares by VALUE in the hook's deps, so rebuilding the
+  // string each render never re-triggers tokenization.
+  const showsCode = diff !== null && !diff.binary;
+  const tokens = useHighlight(
+    showsCode ? flatLines(diff).join("\n") : null,
+    langFor(row.path),
+  );
+  const offsets = showsCode ? hunkOffsets(diff) : [];
 
   useEffect(() => {
     let cancelled = false;
@@ -93,25 +111,33 @@ export function DiffPeek({
             // stable for one render's diff.
             <div key={h}>
               {hunk.header && <div className="git__hunkhead">{hunk.header}</div>}
-              {hunk.lines.map((line, i) => (
-                <div
-                  className={`git__diffrow git__diffrow--${line.kind}`}
-                  key={i}
-                >
-                  <span className="git__lineno" aria-hidden>
-                    {line.oldNo ?? ""}
-                  </span>
-                  <span className="git__lineno" aria-hidden>
-                    {line.newNo ?? ""}
-                  </span>
-                  <span className="git__linemark" aria-hidden>
-                    {line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}
-                  </span>
-                  {/* A space keeps an empty line's row height under
-                      white-space: pre. */}
-                  <span className="git__linetext">{line.text || " "}</span>
-                </div>
-              ))}
+              {hunk.lines.map((line, i) => {
+                // Meta lines ("\ No newline…") aren't code — keep their dim
+                // CSS color instead of the tokenizer's guess.
+                const runs =
+                  line.kind !== "meta" ? tokens?.[offsets[h] + i] : undefined;
+                return (
+                  <div
+                    className={`git__diffrow git__diffrow--${line.kind}`}
+                    key={i}
+                  >
+                    <span className="git__lineno" aria-hidden>
+                      {line.oldNo ?? ""}
+                    </span>
+                    <span className="git__lineno" aria-hidden>
+                      {line.newNo ?? ""}
+                    </span>
+                    <span className="git__linemark" aria-hidden>
+                      {line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}
+                    </span>
+                    {/* A space keeps an empty line's row height under
+                        white-space: pre. */}
+                    <span className="git__linetext">
+                      {runs ? <TokenLine tokens={runs} /> : line.text || " "}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           ))}
         </div>

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isEmptyDiff, newFileDiff, parseDiff } from "./diff";
+import {
+  flatLines,
+  hunkOffsets,
+  isEmptyDiff,
+  newFileDiff,
+  parseDiff,
+} from "./diff";
 
 const SAMPLE = `diff --git a/src/main.ts b/src/main.ts
 index 1111111..2222222 100644
@@ -63,6 +69,26 @@ describe("parseDiff", () => {
     const diff = parseDiff("");
     expect(diff.hunks).toHaveLength(0);
     expect(isEmptyDiff(diff)).toBe(true);
+  });
+});
+
+describe("flatLines / hunkOffsets", () => {
+  it("flatten hunks in render order and index them back", () => {
+    const diff = parseDiff(
+      "@@ -1,2 +1,2 @@\n a\n-b\n+B\n@@ -9 +9 @@\n-z\n+Z\n\\ No newline at end of file\n",
+    );
+    const flat = flatLines(diff);
+    const offsets = hunkOffsets(diff);
+    expect(flat).toEqual(["a", "b", "B", "z", "Z", "\\ No newline at end of file"]);
+    expect(offsets).toEqual([0, 3]);
+    // The renderer's mapping: hunk h, line i → flat[offsets[h] + i].
+    expect(flat[offsets[1] + 1]).toBe("Z");
+  });
+
+  it("handle an empty diff", () => {
+    const diff = parseDiff("");
+    expect(flatLines(diff)).toEqual([]);
+    expect(hunkOffsets(diff)).toEqual([]);
   });
 });
 
