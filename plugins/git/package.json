@@ -8,6 +8,7 @@
     "react": "^19.1.0"
   },
   "dependencies": {
+    "@keepdeck/code-kit": "workspace:*",
     "@keepdeck/plugin-api": "workspace:*",
     "@keepdeck/ui-kit": "workspace:*"
   },

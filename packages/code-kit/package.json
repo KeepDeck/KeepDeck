@@ -1,0 +1,23 @@
+{
+  "name": "@keepdeck/code-kit",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared code-rendering kit: Shiki-backed syntax highlighting — language detection from a path, a lazy highlighter singleton, per-line token alignment and rendering — bundled into the plugins that show code (files preview, git diff).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@shikijs/core": "^4.3.1",
+    "@shikijs/engine-javascript": "^4.3.1",
+    "@shikijs/langs": "^4.3.1",
+    "@shikijs/themes": "^4.3.1"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "typescript": "~5.8.3"
+  }
+}
