@@ -41,6 +41,13 @@ describe("tokenizeLines", () => {
     expect(await tokenizeLines("whatever", "brainfuck")).toBeNull();
   });
 
+  it("accepts grammar aliases — what a Markdown fence names", async () => {
+    // "bash" aliases shellscript, "ts" aliases typescript; fences say these.
+    expect(await tokenizeLines("echo hi", "bash")).not.toBeNull();
+    expect(await tokenizeLines("const x = 1", "ts")).not.toBeNull();
+    expect(await tokenizeLines("x = 1", "py")).not.toBeNull();
+  });
+
   it("covers every id the path mapping can produce", async () => {
     // langFor's ids form a closed set; each must resolve to a loaded grammar,
     // or a file of that type silently loses color one day.

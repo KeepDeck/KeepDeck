@@ -118,10 +118,12 @@ function getHighlighter(): Promise<HighlighterCore> {
 
 /**
  * Tokenize `text` into per-line colored runs, aligned to `text.split("\n")`
- * (see tokens.ts for the alignment guarantees). Returns null for a language
- * the kit didn't load — the caller renders plain, exactly as if `langFor`
- * had said null in the first place. Engine failures reject; the caller
- * decides how loudly to fall back.
+ * (see tokens.ts for the alignment guarantees). `lang` may be a canonical id
+ * (what `langFor` emits) or any grammar alias — "bash", "ts", "py" — which is
+ * what a Markdown fence names. Returns null for a language the kit didn't
+ * load — the caller renders plain, exactly as if `langFor` had said null in
+ * the first place. Engine failures reject; the caller decides how loudly to
+ * fall back.
  */
 export async function tokenizeLines(
   text: string,
@@ -133,6 +135,15 @@ export async function tokenizeLines(
   return alignTokens(text.split("\n"), tokens);
 }
 
+/** Whether `lang` resolves to a loaded grammar. `getLanguage` follows the
+ * grammars' own alias table (`getLoadedLanguages` lists only canonical ids,
+ * which would wrongly reject "bash" or "ts") and throws on a miss — the one
+ * probe that treats ids and aliases uniformly. */
 function isLoaded(highlighter: HighlighterCore, lang: string): boolean {
-  return highlighter.getLoadedLanguages().includes(lang);
+  try {
+    highlighter.getLanguage(lang);
+    return true;
+  } catch {
+    return false;
+  }
 }
