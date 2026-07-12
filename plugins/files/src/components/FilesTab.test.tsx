@@ -210,7 +210,11 @@ describe("FilesTab", () => {
 
   it("toggles line wrapping in the peek", async () => {
     await mount();
-    await act(async () => dblclick(rowByName("readme.md")!));
+    // The wrap control belongs to the raw line view — readme.md opens as a
+    // rendered document now — so exercise it on a code file.
+    await act(async () => rowByName("src")!.click());
+    await act(async () => {});
+    await act(async () => dblclick(rowByName("main.ts")!));
     await act(async () => {});
     const wrapBtn = document.querySelector<HTMLButtonElement>(
       'button[aria-label="Toggle line wrapping"]',

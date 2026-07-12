@@ -1,0 +1,164 @@
+/* The rendered-Markdown document inside the file preview (MarkdownView).
+   Split from styles.css: this styles a DOCUMENT's typography, not the
+   plugin's chrome — a different vocabulary with its own rhythm. Palette
+   anchors match the peek body (#0b0e14) and the dock's text family so the
+   preview reads as native chrome, not an embedded web page. */
+
+.files__md {
+  max-width: 760px;
+  padding: 18px 24px 28px;
+  color: #c5c8c6;
+  font-size: 13px;
+  line-height: 1.65;
+  /* The document is prose — the root's UI sans, not the code view's mono. */
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  overflow-wrap: break-word;
+}
+
+.files__md h1,
+.files__md h2,
+.files__md h3,
+.files__md h4,
+.files__md h5,
+.files__md h6 {
+  margin: 1.4em 0 0.5em;
+  color: #dfe3e8;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.files__md h1:first-child,
+.files__md h2:first-child,
+.files__md h3:first-child {
+  margin-top: 0;
+}
+
+.files__md h1 {
+  font-size: 20px;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #1c2230;
+}
+
+.files__md h2 {
+  font-size: 16px;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid #1c2230;
+}
+
+.files__md h3 {
+  font-size: 14px;
+}
+
+.files__md h4,
+.files__md h5,
+.files__md h6 {
+  font-size: 13px;
+}
+
+.files__md p {
+  margin: 0.6em 0;
+}
+
+.files__md a {
+  color: #58b368;
+  text-decoration: none;
+}
+
+.files__md a:hover {
+  color: #6fd07f;
+  text-decoration: underline;
+}
+
+.files__md ul,
+.files__md ol {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+}
+
+.files__md li {
+  margin: 0.25em 0;
+}
+
+/* GFM task lists: the checkbox replaces the marker. Disabled on purpose
+   (react-markdown renders them disabled) — the preview is read-only. */
+.files__md li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -1.3em;
+}
+
+.files__md input[type="checkbox"] {
+  accent-color: #58b368;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.files__md blockquote {
+  margin: 0.8em 0;
+  padding: 2px 14px;
+  border-left: 3px solid #2a3446;
+  color: #9aa3af;
+}
+
+.files__md hr {
+  height: 1px;
+  margin: 1.4em 0;
+  border: 0;
+  background-color: #1c2230;
+}
+
+/* Inline code — a chip on the prose line. */
+.files__md code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  background-color: #161c28;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* Fenced blocks — the chip styling comes OFF (the pre carries the surface);
+   long lines scroll inside the block, never the page. */
+.files__md pre {
+  margin: 0.8em 0;
+  padding: 10px 14px;
+  background-color: #0e121a;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.files__md pre code {
+  display: block;
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  white-space: pre;
+}
+
+.files__md table {
+  margin: 0.8em 0;
+  border-collapse: collapse;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.files__md th,
+.files__md td {
+  padding: 5px 12px;
+  border: 1px solid #1c2230;
+}
+
+.files__md th {
+  background-color: #11151d;
+  color: #dfe3e8;
+  font-weight: 600;
+  text-align: left;
+}
+
+/* A remote image renders if the network allows; a relative one has no base
+   to resolve against here and shows its alt text. Either way it never
+   overflows the column. */
+.files__md img {
+  max-width: 100%;
+}

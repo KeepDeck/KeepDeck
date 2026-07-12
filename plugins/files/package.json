@@ -8,8 +8,11 @@
     "react": "^19.1.0"
   },
   "dependencies": {
+    "@keepdeck/code-kit": "workspace:*",
     "@keepdeck/plugin-api": "workspace:*",
-    "@keepdeck/ui-kit": "workspace:*"
+    "@keepdeck/ui-kit": "workspace:*",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/react": "^19.1.8",
