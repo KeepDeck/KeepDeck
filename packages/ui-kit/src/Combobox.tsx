@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { FloatingListbox } from "./FloatingListbox";
 import { ChevronDownIcon } from "./icons";
 import { noAutoCorrect } from "./inputProps";
 
@@ -52,8 +53,9 @@ interface ComboboxProps {
 /**
  * An editable sibling of [`Dropdown`]: a text field whose menu filters as the
  * user types (fuzzy — see [`fuzzyFilter`]). Same in-app-UI stance: the open
- * menu is our DOM, closed by pick, click-outside and Escape (which stays
- * local so modal layers keep their own Esc), never an OS popup.
+ * menu is our DOM portaled into a viewport-level floating layer, closed by
+ * pick, click-outside and Escape (which stays local so modal layers keep their
+ * own Esc), never an OS popup.
  *
  * Opening via focus or the chevron shows ALL options; the filter only kicks
  * in for text typed after that, so a value picked earlier doesn't pin the
@@ -75,17 +77,28 @@ export function Combobox({
   const [typed, setTyped] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLUListElement | null>(null);
   const listId = useId();
 
-  // Click-outside closes without picking — pointerdown, like Dropdown, so a
-  // drag that starts outside also dismisses.
+  // Pointer-away closes before the outside control acts; focus-away covers
+  // keyboard Tab now that the list is portaled out of the local DOM order.
   useEffect(() => {
     if (!open) return;
-    const away = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    const away = (event: Event) => {
+      const target = event.target as Node;
+      if (
+        !rootRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
+      ) {
+        setOpen(false);
+      }
     };
-    window.addEventListener("pointerdown", away);
-    return () => window.removeEventListener("pointerdown", away);
+    window.addEventListener("pointerdown", away, true);
+    window.addEventListener("focusin", away, true);
+    return () => {
+      window.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("focusin", away, true);
+    };
   }, [open]);
 
   const filtered = typed ? fuzzyFilter(options, value) : options;
@@ -176,9 +189,9 @@ export function Combobox({
         <ChevronDownIcon />
       </button>
       {open && filtered.length > 0 && (
-        <ul
-          className="dropdown__menu"
-          role="listbox"
+        <FloatingListbox
+          anchorRef={rootRef}
+          listRef={menuRef}
           id={listId}
           aria-label={ariaLabel}
         >
@@ -197,7 +210,7 @@ export function Combobox({
               </button>
             </li>
           ))}
-        </ul>
+        </FloatingListbox>
       )}
     </div>
   );

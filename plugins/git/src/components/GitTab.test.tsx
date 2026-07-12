@@ -484,12 +484,12 @@ describe("GitTab", () => {
         { sha: fork, author: "Me", timestamp: 1_760_000_000, subject: "init" },
       ],
     });
-    // The ui-kit Dropdown: open the trigger, click the option button.
+    // The ui-kit Dropdown portals its listbox outside this component host.
     const trigger = host.querySelector(
       ".git__ref .dropdown__button",
     ) as HTMLButtonElement;
     await act(async () => trigger.click());
-    const option = [...host.querySelectorAll("button[role='option']")].find(
+    const option = [...document.querySelectorAll("button[role='option']")].find(
       (el) => el.textContent === "kd/side/1",
     ) as HTMLButtonElement;
     await act(async () => option.click());

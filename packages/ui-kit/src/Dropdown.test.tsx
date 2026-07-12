@@ -47,10 +47,19 @@ describe("Dropdown", () => {
     expect(document.querySelector("select")).toBeNull();
   });
 
-  it("opens our own listbox, picks an option, closes", () => {
+  it("portals its listbox beside the mount and still picks an option", () => {
     mount();
     expect(menu()).toBeNull();
     act(() => button().click());
+    const listbox = menu()!;
+    expect(document.body.contains(listbox)).toBe(true);
+    expect(host.contains(listbox)).toBe(false);
+    expect(
+      [...document.body.children].some(
+        (child) => child !== host && child.contains(listbox),
+      ),
+    ).toBe(true);
+
     const options = document.querySelectorAll<HTMLButtonElement>(
       '[role="option"]',
     );
@@ -58,6 +67,13 @@ describe("Dropdown", () => {
       "kd/a",
       "Workspace folder",
     ]);
+
+    // The option lives outside the control's subtree, but is still inside the
+    // dropdown interaction: its pointerdown must not be mistaken for click-away.
+    act(() => {
+      options[1].dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(menu()).toBe(listbox);
     act(() => options[1].click());
     expect(onChange).toHaveBeenCalledWith("/repo");
     expect(menu()).toBeNull();
@@ -71,6 +87,16 @@ describe("Dropdown", () => {
         new Event("pointerdown", { bubbles: true }),
       );
     });
+    expect(menu()).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("closes when keyboard focus moves outside the portaled interaction", () => {
+    const outside = document.body.appendChild(document.createElement("button"));
+    mount();
+    act(() => button().click());
+
+    act(() => outside.focus());
     expect(menu()).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
   });

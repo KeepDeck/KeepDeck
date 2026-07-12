@@ -421,6 +421,39 @@ describe("RunTab — target follows the highlighted pane", () => {
     await render(); // same highlight → the manual pick holds
     expect(target().textContent).toBe("Workspace folder");
   });
+
+  it("shows the target list above the open log and picks from its portal", async () => {
+    manager.sessions = [running()];
+    await act(async () => {
+      root.render(
+        createElement(RunTab, { workspace, selectedPaneId: "pane-2" }),
+      );
+    });
+    await act(async () => {});
+
+    const config = document.querySelector<HTMLElement>(".run__config")!;
+    expect(document.querySelector(".run__logbox")).not.toBeNull();
+    act(() => target().click());
+
+    const listbox = document.querySelector<HTMLElement>('[role="listbox"]')!;
+    expect(document.body.contains(listbox)).toBe(true);
+    expect(config.contains(listbox)).toBe(false);
+    const workspaceOption = [...listbox.querySelectorAll<HTMLButtonElement>(
+      '[role="option"]',
+    )].find((option) => option.textContent === "Workspace folder")!;
+
+    act(() => {
+      workspaceOption.dispatchEvent(
+        new Event("pointerdown", { bubbles: true }),
+      );
+    });
+    expect(document.querySelector('[role="listbox"]')).toBe(listbox);
+    act(() => workspaceOption.click());
+
+    expect(target().textContent).toBe("Workspace folder");
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.querySelector(".run__logbox")).not.toBeNull();
+  });
 });
 
 describe("RunTab — Open in", () => {

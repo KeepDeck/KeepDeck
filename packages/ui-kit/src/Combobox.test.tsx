@@ -103,16 +103,28 @@ describe("Combobox", () => {
     expect(optionLabels()).toEqual(OPTIONS);
   });
 
-  it("typing filters fuzzily; picking an option closes the menu", () => {
+  it("portals the filtered listbox beside the mount and still picks", () => {
     mount();
     act(() => input().focus());
     type("rel");
     expect(optionLabels()).toEqual(["release-1.2"]);
-    act(() =>
-      document
-        .querySelector<HTMLButtonElement>('[role="option"]')!
-        .click(),
-    );
+    const listbox = menu()!;
+    expect(document.body.contains(listbox)).toBe(true);
+    expect(host.contains(listbox)).toBe(false);
+    expect(
+      [...document.body.children].some(
+        (child) => child !== host && child.contains(listbox),
+      ),
+    ).toBe(true);
+
+    const option = document.querySelector<HTMLButtonElement>('[role="option"]')!;
+    // A portaled option remains part of the combobox interaction even though
+    // it is outside the input wrapper in the DOM.
+    act(() => {
+      option.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(menu()).toBe(listbox);
+    act(() => option.click());
     expect(picked).toHaveBeenLastCalledWith("release-1.2");
     expect(menu()).toBeNull();
   });
@@ -180,6 +192,17 @@ describe("Combobox", () => {
     act(() => {
       document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     });
+    expect(menu()).toBeNull();
+    expect(picked).not.toHaveBeenCalled();
+  });
+
+  it("closes when keyboard focus moves outside the portaled interaction", () => {
+    const outside = document.body.appendChild(document.createElement("button"));
+    mount();
+    act(() => input().focus());
+    expect(menu()).not.toBeNull();
+
+    act(() => outside.focus());
     expect(menu()).toBeNull();
     expect(picked).not.toHaveBeenCalled();
   });
