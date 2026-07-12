@@ -1,16 +1,11 @@
 //! Open a URL or a file path that was Cmd+clicked in terminal output
-//! ([F14] URLs, [F10] file paths), and open an agent's working directory in
-//! Visual Studio Code. Goes through the opener plugin's Rust API so paths open
-//! with the OS default app (or a named app) without needing a JS-side path scope.
+//! ([F14] URLs, [F10] file paths), or a path in a named application (the
+//! opener service's `openPathWith`). Goes through the opener plugin's Rust API
+//! so paths open with the OS default app (or a named app) without needing a
+//! JS-side path scope.
 
 use serde::Serialize;
 use tauri_plugin_opener::OpenerExt;
-
-/// Application name for Visual Studio Code, passed to the opener as the app to
-/// open with. On macOS this becomes `open -a "Visual Studio Code" <dir>`, so it
-/// launches VS Code even from a GUI-started `.app` whose PATH lacks the `code`
-/// CLI, and regardless of the folder's own default handler.
-const VS_CODE_APP: &str = "Visual Studio Code";
 
 /// Why an open failed, sent to the webview as the command's structured
 /// rejection so the click path can tell "the file is gone" ([F16]) apart from
@@ -49,14 +44,6 @@ fn ensure_exists(path: String) -> Result<String, OpenError> {
     } else {
         Err(OpenError::NotFound { path })
     }
-}
-
-/// Open a directory — an agent's working dir — in Visual Studio Code.
-#[tauri::command]
-pub fn open_in_editor(app: tauri::AppHandle, path: String) -> Result<(), String> {
-    app.opener()
-        .open_path(expand_tilde(path), Some(VS_CODE_APP))
-        .map_err(|e| e.to_string())
 }
 
 /// Open a path in a named application — `application` is the app's name as the

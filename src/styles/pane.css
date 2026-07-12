@@ -101,28 +101,6 @@
   min-width: 0;
 }
 
-/* Text button in the header: open the agent's cwd in VS Code. */
-.pane__open {
-  flex: none;
-  padding: 0 8px;
-  height: 18px;
-  border: 1px solid #2a3446;
-  border-radius: 4px;
-  background: transparent;
-  color: #9aa3af;
-  font: inherit;
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.pane__open:hover {
-  background-color: #1b2230;
-  color: #c5c8c6;
-  border-color: #3a4658;
-}
-
 /* Inline rename of the pane title ([F11]). */
 .pane__rename {
   flex: 1 1 auto;

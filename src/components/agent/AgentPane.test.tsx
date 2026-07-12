@@ -31,13 +31,12 @@ const baseProps = {
   colSpan: 1,
   onSelect: () => {},
   onToggleFocus: () => {},
-  onOpenInEditor: () => {},
   onClose: () => {},
   onRename: () => {},
   onTitle: () => {},
 };
 
-describe("AgentPane — open in VS Code", () => {
+describe("AgentPane — header badges", () => {
   let host: HTMLElement;
   let root: Root;
 
@@ -50,26 +49,6 @@ describe("AgentPane — open in VS Code", () => {
 
   afterEach(() => {
     act(() => root.unmount());
-  });
-
-  it("renders the text button and fires onOpenInEditor on click when a cwd is known", () => {
-    const onOpenInEditor = vi.fn();
-    act(() =>
-      root.render(createElement(AgentPane, { ...baseProps, onOpenInEditor })),
-    );
-
-    const btn = document.querySelector<HTMLButtonElement>(".pane__open");
-    expect(btn).not.toBeNull();
-    expect(btn!.textContent).toBe("Open in VSCode");
-
-    act(() => btn!.click());
-    expect(onOpenInEditor).toHaveBeenCalledTimes(1);
-  });
-
-  it("hides the button when there is no cwd — nothing to open", () => {
-    act(() => root.render(createElement(AgentPane, { ...baseProps, cwd: null })));
-
-    expect(document.querySelector(".pane__open")).toBeNull();
   });
 
   it("renders a runtime git badge when provided", () => {
@@ -88,7 +67,7 @@ describe("AgentPane — open in VS Code", () => {
     expect(badge!.title).toBe("main");
   });
 
-  it("places the VS Code button before the git branch badge", () => {
+  it("leads the actions cluster with the git branch badge", () => {
     act(() =>
       root.render(
         createElement(AgentPane, {
@@ -99,8 +78,7 @@ describe("AgentPane — open in VS Code", () => {
     );
 
     const actions = document.querySelector(".pane__actions");
-    expect(actions?.children[0]?.className).toBe("pane__open");
-    expect(actions?.children[1]?.className).toBe("pane__branch");
+    expect(actions?.children[0]?.className).toBe("pane__branch");
   });
 });
 
@@ -171,15 +149,6 @@ describe("AgentPane — provisioning cards", () => {
     expect(onRetryProvision).toHaveBeenCalledTimes(1);
   });
 
-  it("hides the cwd launch action while provisioning — the fallback cwd is not this pane's folder", () => {
-    act(() =>
-      root.render(
-        createElement(AgentPane, { ...baseProps, provisioning: intent }),
-      ),
-    );
-
-    expect(document.querySelector(".pane__open")).toBeNull();
-  });
 });
 
 describe("AgentPane — the unavailable-agent card", () => {
