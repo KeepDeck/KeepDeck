@@ -38,7 +38,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use keepdeck_git::{diff, head, status};
+use keepdeck_git::{diff, head, log, repo, status};
 use notify::{Event, EventKind, RecommendedWatcher};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -129,9 +129,11 @@ pub fn project_git_status(
     status::status(&repo).map(GitStatus::from).map_err(|e| e.to_string())
 }
 
-/// Unified diff for one tracked path in the repo — worktree vs index, or index
-/// vs HEAD with `staged`. Untracked files have no diff (the plugin renders
-/// their plain content via `services.fs` instead).
+/// Unified diff for one tracked path in the repo. Three shapes, one command:
+/// worktree vs index (default), index vs HEAD (`staged`), or across a
+/// revision range when `from` is given (`from..to`, or `from` against the
+/// working tree without `to`). Untracked files have no diff (the plugin
+/// renders their plain content via `services.fs` instead).
 #[tauri::command(async)]
 pub fn project_git_diff_file(
     path: String,
@@ -139,9 +141,139 @@ pub fn project_git_diff_file(
     everywhere: bool,
     file: String,
     staged: bool,
+    from: Option<String>,
+    to: Option<String>,
 ) -> Result<String, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
-    diff::diff_file(&repo, &file, staged).map_err(|e| e.to_string())
+    match from {
+        Some(from) => {
+            let from = commit_or_root(&repo, &from);
+            diff::diff_file_range(&repo, &file, &from, to.as_deref())
+        }
+        None => diff::diff_file(&repo, &file, staged),
+    }
+    .map_err(|e| e.to_string())
+}
+
+/// One commit as reported to the plugin. Mirrors `keepdeck_git::Commit`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommit {
+    pub sha: String,
+    pub author: String,
+    pub timestamp: i64,
+    pub subject: String,
+}
+
+/// A branch's history since its fork point (or plain recent history).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitHistory {
+    /// The fork point the commits are measured from; `None` when there is no
+    /// meaningful one (the repo IS on the base branch, no base resolves, or
+    /// no common ancestor) — then `commits` is plain recent history.
+    pub fork_sha: Option<String>,
+    pub commits: Vec<GitCommit>,
+}
+
+/// The most commits one history read returns — an agent branch is dozens of
+/// commits, not thousands; a runaway range must not flood the webview.
+const HISTORY_LIMIT: usize = 200;
+
+/// A repo's history for the changes view: commits since the fork point off
+/// `base` (defaulting to the repo's default branch — exact for worktrees
+/// created off it), or plain recent commits when no fork point applies.
+#[tauri::command(async)]
+pub fn project_git_history(
+    path: String,
+    roots: Vec<String>,
+    everywhere: bool,
+    base: Option<String>,
+) -> Result<GitHistory, String> {
+    let repo = resolve_within(&path, &roots, everywhere)?;
+
+    let head = repo::resolve_commit(&repo, "HEAD").map_err(|e| e.to_string())?;
+    let base_ref = match base {
+        Some(base) => Some(base),
+        None => repo::default_branch(&repo).unwrap_or(None),
+    };
+    let fork = match base_ref {
+        Some(ref base_ref) => repo::merge_base(&repo, base_ref, "HEAD")
+            .map_err(|e| e.to_string())?
+            // The fork point AT HEAD means "we are the base" (the main repo
+            // sitting on its default branch) — no fork to measure from.
+            .filter(|fork| fork != &head),
+        None => None,
+    };
+
+    let commits = match &fork {
+        Some(fork) => log::log(&repo, Some(&format!("{fork}..HEAD")), HISTORY_LIMIT),
+        None => log::log(&repo, None, HISTORY_LIMIT),
+    }
+    .map_err(|e| e.to_string())?;
+
+    Ok(GitHistory {
+        fork_sha: fork,
+        commits: commits
+            .into_iter()
+            .map(|c| GitCommit {
+                sha: c.sha,
+                author: c.author,
+                timestamp: c.timestamp,
+                subject: c.subject,
+            })
+            .collect(),
+    })
+}
+
+/// One changed path across a revision range, as reported to the plugin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitChangedFile {
+    pub path: String,
+    pub orig_path: Option<String>,
+    pub code: char,
+}
+
+/// The paths changed across `from..to` (or `from` vs the working tree without
+/// `to`) — the file list behind a commit row or the "since fork" summary.
+#[tauri::command(async)]
+pub fn project_git_changed_files(
+    path: String,
+    roots: Vec<String>,
+    everywhere: bool,
+    from: String,
+    to: Option<String>,
+) -> Result<Vec<GitChangedFile>, String> {
+    let repo = resolve_within(&path, &roots, everywhere)?;
+    let from = commit_or_root(&repo, &from);
+    diff::changed_files(&repo, &from, to.as_deref())
+        .map(|files| {
+            files
+                .into_iter()
+                .map(|f| GitChangedFile {
+                    path: f.path,
+                    orig_path: f.orig_path,
+                    code: f.code,
+                })
+                .collect()
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Git's well-known empty-tree object — what a root commit's "parent" diffs
+/// against.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/// Resolve a `from` revision, degrading an unresolvable `<sha>^` (a ROOT
+/// commit's parent, which doesn't exist) to the empty tree so the root
+/// commit's own diff still renders instead of erroring.
+fn commit_or_root(repo: &Path, from: &str) -> String {
+    if repo::resolve_commit(repo, from).is_ok() {
+        from.to_string()
+    } else {
+        EMPTY_TREE.to_string()
+    }
 }
 
 /// The live git watchers — PAIRS of watchers (working tree + gitdir) keyed by
@@ -362,10 +494,138 @@ mod tests {
             false,
             "README.md".to_string(),
             false,
+            None,
+            None,
         )
         .expect("diff");
         assert!(diff.contains("-hello"));
         assert!(diff.contains("+changed"));
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    // ---- history over IPC-shaped calls ----
+
+    /// Give the repo a fake `origin/main` at the CURRENT head so
+    /// `default_branch` resolves (the fork-point default) without a network.
+    fn fake_origin_main_here(repo: &Path) {
+        git(repo, &["config", "remote.origin.url", "."]);
+        git(
+            repo,
+            &[
+                "config",
+                "remote.origin.fetch",
+                "+refs/heads/*:refs/remotes/origin/*",
+            ],
+        );
+        git(repo, &["update-ref", "refs/remotes/origin/main", "main"]);
+        git(
+            repo,
+            &[
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/main",
+            ],
+        );
+    }
+
+    #[test]
+    fn history_measures_a_branch_from_its_fork_point() {
+        let repo = init_repo();
+        fake_origin_main_here(&repo);
+
+        // Fork a branch and commit twice; one uncommitted edit on top.
+        git(&repo, &["checkout", "-q", "-b", "kd/test/1"]);
+        fs::write(repo.join("a.ts"), "a\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "first"]);
+        fs::write(repo.join("b.ts"), "b\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "second"]);
+        fs::write(repo.join("README.md"), "dirty\n").unwrap();
+
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None, // base defaults to the repo's default branch
+        )
+        .expect("history");
+
+        let fork = history.fork_sha.expect("a fork point");
+        assert_eq!(fork.len(), 40);
+        assert_eq!(history.commits.len(), 2);
+        assert_eq!(history.commits[0].subject, "second");
+        assert_eq!(history.commits[1].subject, "first");
+
+        // The since-fork file list vs the WORKING TREE includes the dirty edit.
+        let files = project_git_changed_files(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            fork,
+            None,
+        )
+        .expect("changed files");
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"a.ts"), "{paths:?}");
+        assert!(paths.contains(&"b.ts"), "{paths:?}");
+        assert!(paths.contains(&"README.md"), "{paths:?}");
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn history_on_the_base_branch_is_plain_recent_log() {
+        let repo = init_repo();
+        fake_origin_main_here(&repo);
+
+        // Still ON main: merge-base(main, HEAD) == HEAD → no fork to measure.
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+        )
+        .expect("history");
+
+        assert_eq!(history.fork_sha, None);
+        assert_eq!(history.commits.len(), 1, "the init commit");
+        assert_eq!(history.commits[0].subject, "init");
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn a_root_commits_parent_degrades_to_the_empty_tree() {
+        let repo = init_repo();
+        let head = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
+
+        // `<root>^` resolves to nothing; the diff must still render the root
+        // commit's own content instead of erroring.
+        let files = project_git_changed_files(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            format!("{head}^"),
+            Some(head.clone()),
+        )
+        .expect("root-commit files");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].code, 'A');
+        assert_eq!(files[0].path, "README.md");
+
+        let diff = project_git_diff_file(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            "README.md".to_string(),
+            false,
+            Some(format!("{head}^")),
+            Some(head),
+        )
+        .expect("root-commit diff");
+        assert!(diff.contains("+hello"), "{diff}");
 
         fs::remove_dir_all(&repo).ok();
     }
