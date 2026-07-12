@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 export interface AppInfo {
   name: string;
   version: string;
+  /** True only in release builds, where the updater plugin is configured. */
+  updater: boolean;
 }
 
 /** Fetch build/runtime info from the Rust core (skeleton IPC smoke test). */

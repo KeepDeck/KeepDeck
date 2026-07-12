@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { initSettings } from "./app/settingsManager";
+import { initUpdates } from "./app/updateManager";
 import { initLogging } from "./ipc/log";
 import { suppressNativeContextMenu } from "./ui/contextMenu";
 
@@ -10,6 +11,9 @@ suppressNativeContextMenu();
 // Kick off the settings load with the other boot IO — the first paint gates
 // on it (App renders the bare shell until the store settles).
 void initSettings();
+// Update checks are background-only chatter — nothing gates on them. In dev
+// builds the manager probes app_info once and stays disabled.
+void initUpdates();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
