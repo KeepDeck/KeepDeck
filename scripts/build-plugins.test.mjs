@@ -127,11 +127,11 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     const bundlePath = join(distRoot, "plugins", "keepdeck.run", "index.js");
     const bundle = readFileSync(bundlePath, "utf8");
 
-    // The externals stayed bare specifiers — react and react/jsx-runtime were
-    // NOT inlined, they're still imported at runtime through the host's
-    // import map.
+    // The externals stayed bare specifiers — React and both ReactDOM entry
+    // points were NOT inlined; they resolve through the host's import map.
     expect(bundle).toMatch(/from\s*["']react["']/);
     expect(bundle).toMatch(/from\s*["']react\/jsx-runtime["']/);
+    expect(bundle).toMatch(/from\s*["']react-dom["']/);
     // If externalization had failed, react's own hook implementation (which
     // defines useState in terms of useReducer) would be inlined here; its
     // complete absence is the signal that only a bare import landed.
@@ -222,6 +222,11 @@ describe("bridge source files export the names plugin bundles need", () => {
   it("react-dom-client.js exports createRoot", () => {
     const src = readFileSync(bridgePath("react-dom-client.js"), "utf8");
     expect(src).toMatch(/\bcreateRoot\b/);
+  });
+
+  it("react-dom.js exports createPortal", () => {
+    const src = readFileSync(bridgePath("react-dom.js"), "utf8");
+    expect(src).toMatch(/\bcreatePortal\b/);
   });
 
   it("plugin-api.js is a plain passthrough (genuine ESM, no hand-listed names needed)", () => {
