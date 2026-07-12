@@ -29,29 +29,47 @@ concurrency:
   queue: max
 
 jobs:
+  # Resolve the requested ref to one exact commit up front: a manual run asks
+  # for a branch name ("main"), and without pinning each job would re-resolve
+  # it at its own start time — a push landing mid-run would hand the tests and
+  # the builds different code.
+  pin:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.pin.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Pin the requested ref to an exact commit
+        id: pin
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   test:
+    needs: pin
     uses: ./.github/workflows/ci.yml
     with:
-      ref: ${{ inputs.ref }}
+      ref: ${{ needs.pin.outputs.sha }}
 
   build:
-    needs: test
+    needs: [pin, test]
     uses: ./.github/workflows/build-macos.yml
     with:
-      ref: ${{ inputs.ref }}
+      ref: ${{ needs.pin.outputs.sha }}
     secrets: inherit
 
   publish:
-    needs: build
+    needs: [pin, build]
     if: inputs.publish
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ needs.pin.outputs.sha }}
 
       - name: Read the version under release
         id: version
@@ -60,7 +78,7 @@ jobs:
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: KeepDeck-macos-*
           path: assets
