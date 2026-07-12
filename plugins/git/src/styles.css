@@ -237,10 +237,28 @@
   flex: none;
   width: 50%;
   min-width: 0;
+  /* Numeric so max-height stays interpolable — the parked collapse below
+     rides a delayed transition, and `none` would snap instead of waiting. */
+  max-height: 100000px;
+}
+
+/* The parked pane collapses AFTER the slide lands (delay = the track's
+   200ms), else the track is as tall as the TALLER pane and the list scrolls
+   into blank space. Un-parking is instant: the rule no longer matches, so
+   the pane is full-height from the slide's first frame. */
+.git__slidepane[inert] {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0s 200ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .git__track {
+    transition: none;
+  }
+
+  /* The slide is instant here — collapse without the wait. */
+  .git__slidepane[inert] {
     transition: none;
   }
 }
