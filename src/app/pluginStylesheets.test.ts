@@ -1,4 +1,13 @@
 // @vitest-environment happy-dom
+// Stylesheet loading is disabled but reported as SUCCESS: happy-dom fires the
+// link's `load` synchronously on append (no real fetch — an in-flight one
+// would abort at window teardown as an unhandled rejection), so these tests
+// exercise the helper's happy path through the environment's own events. The
+// error path needs the opposite setting and lives in its own file
+// (pluginStylesheets.failure.test.ts) — environment options are per-file.
+// (Vitest wraps this JSON in the happyDOM key itself — passing
+// {"happyDOM": ...} here would nest it twice and silently apply nothing.)
+// @vitest-environment-options {"settings": {"disableCSSFileLoading": true, "handleDisabledFileLoadingAsSuccess": true}}
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensurePluginStylesheet } from "./pluginStylesheets";
 
@@ -12,7 +21,7 @@ describe("ensurePluginStylesheet", () => {
 
   it("appends a stylesheet link marked with the plugin id and resolves on load", async () => {
     const warn = vi.fn();
-    const done = ensurePluginStylesheet(
+    await ensurePluginStylesheet(
       "keepdeck.git",
       "/plugins/keepdeck.git/index.css",
       warn,
@@ -26,35 +35,18 @@ describe("ensurePluginStylesheet", () => {
     // plugin's rules keep the "last in the cascade" position index.css gave
     // them before plugins owned their CSS.
     expect(document.head.lastElementChild).toBe(link);
-
-    link.dispatchEvent(new Event("load"));
-    await done;
     expect(warn).not.toHaveBeenCalled();
   });
 
   it("is idempotent per plugin id — a restart resolves at once, without a second link", async () => {
-    const first = ensurePluginStylesheet("keepdeck.git", "/a.css", () => {});
-    links()[0].dispatchEvent(new Event("load"));
-    await first;
-
+    await ensurePluginStylesheet("keepdeck.git", "/a.css", () => {});
     await ensurePluginStylesheet("keepdeck.git", "/a.css", () => {});
     expect(links()).toHaveLength(1);
   });
 
-  it("keeps distinct plugins' links apart", () => {
-    void ensurePluginStylesheet("keepdeck.git", "/a.css", () => {});
-    void ensurePluginStylesheet("keepdeck.files", "/b.css", () => {});
+  it("keeps distinct plugins' links apart", async () => {
+    await ensurePluginStylesheet("keepdeck.git", "/a.css", () => {});
+    await ensurePluginStylesheet("keepdeck.files", "/b.css", () => {});
     expect(links()).toHaveLength(2);
-  });
-
-  it("warns and still resolves when the stylesheet fails to load", async () => {
-    const warn = vi.fn();
-    const done = ensurePluginStylesheet("keepdeck.run", "/gone.css", warn);
-
-    links()[0].dispatchEvent(new Event("error"));
-    await done;
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("/gone.css failed to load"),
-    );
   });
 });
