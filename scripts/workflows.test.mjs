@@ -178,6 +178,29 @@ describe("release workflow", () => {
     expect(publish.run).not.toContain('--notes "');
   });
 
+  it("archives every version as its own release, badge and manifest stay rolling", () => {
+    const archive = release.jobs.publish.steps.find(
+      (s) => s.name === "Archive this version as its own release",
+    );
+    // The permanent history entry: same assets and notes...
+    expect(archive.run).toContain('gh release create "v$VERSION"');
+    expect(archive.run).toContain("--notes-file notes.md");
+    expect(archive.run).toContain('--target "${{ needs.pin.outputs.sha }}"');
+    for (const arch of ["arm64", "x64"]) {
+      expect(archive.run).toContain(`assets/KeepDeck-macos-${arch}.zip`);
+      expect(archive.run).toContain(`assets/KeepDeck-macos-${arch}.app.tar.gz`);
+    }
+    // ...but exactly one latest.json may exist (the rolling release's), and
+    // the "Latest" badge stays on the rolling release too.
+    expect(archive.run).not.toContain("latest.json");
+    expect(archive.run).toContain("--latest=false");
+    // History must never delay what installs and updates consume.
+    const steps = release.jobs.publish.steps.map((s) => s.name);
+    expect(steps.indexOf("Archive this version as its own release")).toBeGreaterThan(
+      steps.indexOf('Publish the rolling "latest" release'),
+    );
+  });
+
   it("builds the updater manifest for both platforms", () => {
     const manifest = release.jobs.publish.steps.find(
       (s) => s.name === "Build the updater manifest",

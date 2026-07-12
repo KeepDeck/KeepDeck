@@ -132,3 +132,26 @@ jobs:
             --clobber
           gh release upload latest assets/latest.json --clobber
           gh release edit latest --title "KeepDeck $VERSION" --notes-file notes.md
+
+      - name: Archive this version as its own release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # The rolling "latest" is what installs and updates consume; the
+        # versioned release is the permanent history entry — same assets and
+        # notes, but no updater manifest (exactly one latest.json may exist)
+        # and never the "Latest" badge, which stays on the rolling release.
+        # Idempotent: a republish updates the same archive entry.
+        run: |
+          if ! gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release create "v$VERSION" \
+              --target "${{ needs.pin.outputs.sha }}" \
+              --title "KeepDeck $VERSION" --notes-file notes.md --latest=false
+          fi
+          gh release upload "v$VERSION" \
+            assets/KeepDeck-macos-arm64.zip \
+            assets/KeepDeck-macos-x64.zip \
+            assets/KeepDeck-macos-arm64.app.tar.gz \
+            assets/KeepDeck-macos-arm64.app.tar.gz.sig \
+            assets/KeepDeck-macos-x64.app.tar.gz \
+            assets/KeepDeck-macos-x64.app.tar.gz.sig \
+            --clobber
