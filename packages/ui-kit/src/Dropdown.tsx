@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronDownIcon } from "./icons";
 
 export interface DropdownOption {
   value: string;
-  label: string;
+  /** What the option (and the closed control, when picked) renders — plain
+   * text for most call sites, or a small composition (a name plus a status
+   * icon) when text alone can't carry it. */
+  label: ReactNode;
 }
 
 interface DropdownProps {

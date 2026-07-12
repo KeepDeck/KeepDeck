@@ -11,6 +11,7 @@ import {
   type FileDiff,
 } from "../domain/diff";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
+import type { GitRange } from "../domain/history";
 
 /**
  * One change's diff, inside the shared `Peek` overlay (ui-kit) — the shell is
@@ -33,11 +34,15 @@ import { baseName, codeLabel, type ChangeRow } from "../domain/status";
 export function DiffPeek({
   repo,
   row,
+  range,
   version,
   onClose,
 }: {
   repo: string;
   row: ChangeRow;
+  /** Present for History rows: diff across this revision range instead of
+   * against the index (`to` omitted = up to the working tree). */
+  range?: GitRange;
   version: number;
   onClose: () => void;
 }) {
@@ -55,8 +60,11 @@ export function DiffPeek({
   useEffect(() => {
     let cancelled = false;
     const { services, log } = getRuntime();
-    const read =
-      row.kind === "untracked"
+    const read = range
+      ? services.git
+          .diffFile(repo, row.path, { from: range.from, to: range.to })
+          .then(parseDiff)
+      : row.kind === "untracked"
         ? services.fs
             .readFile(`${repo.replace(/\/+$/, "")}/${row.path}`)
             .then((file) =>
@@ -83,7 +91,7 @@ export function DiffPeek({
     return () => {
       cancelled = true;
     };
-  }, [repo, row.path, row.kind, version]);
+  }, [repo, row.path, row.kind, range?.from, range?.to, version]);
 
   return (
     <Peek

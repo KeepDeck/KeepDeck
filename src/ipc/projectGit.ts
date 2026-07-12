@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { GitStatus } from "@keepdeck/plugin-api";
+import type { GitBranches, GitChangedFile, GitHistory, GitStatus } from "@keepdeck/plugin-api";
 
 /**
  * The backend behind the plugin `git` service (`services.git`). Read-only git
@@ -29,6 +29,8 @@ export function projectGitDiffFile(
   everywhere: boolean,
   file: string,
   staged: boolean,
+  from?: string,
+  to?: string,
 ): Promise<string> {
   return invoke<string>("project_git_diff_file", {
     path,
@@ -36,6 +38,54 @@ export function projectGitDiffFile(
     everywhere,
     file,
     staged,
+    from: from ?? null,
+    to: to ?? null,
+  });
+}
+
+/** The repo's history since its fork point off `base` (or the default
+ * branch); plain recent history when no fork applies. */
+export function projectGitHistory(
+  path: string,
+  roots: string[],
+  everywhere: boolean,
+  base?: string,
+  limit?: number,
+  rev?: string,
+): Promise<GitHistory> {
+  return invoke<GitHistory>("project_git_history", {
+    path,
+    roots,
+    everywhere,
+    base: base ?? null,
+    limit: limit ?? null,
+    rev: rev ?? null,
+  });
+}
+
+/** The repo's local branches and the checked-out one. */
+export function projectGitBranches(
+  path: string,
+  roots: string[],
+  everywhere: boolean,
+): Promise<GitBranches> {
+  return invoke<GitBranches>("project_git_branches", { path, roots, everywhere });
+}
+
+/** The paths changed across `from..to`, or `from` vs the working tree. */
+export function projectGitChangedFiles(
+  path: string,
+  roots: string[],
+  everywhere: boolean,
+  from: string,
+  to?: string,
+): Promise<GitChangedFile[]> {
+  return invoke<GitChangedFile[]>("project_git_changed_files", {
+    path,
+    roots,
+    everywhere,
+    from,
+    to: to ?? null,
   });
 }
 

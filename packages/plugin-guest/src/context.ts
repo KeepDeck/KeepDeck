@@ -4,6 +4,9 @@ import type {
   FileOpenRequest,
   FsEntry,
   FsFile,
+  GitBranches,
+  GitChangedFile,
+  GitHistory,
   GitStatus,
   PluginContext,
   PluginManifest,
@@ -359,6 +362,14 @@ export function buildGuestContext(
           rpc.call("services.git.status", [repo]) as Promise<GitStatus>,
         diffFile: (repo, file, opts) =>
           rpc.call("services.git.diffFile", [repo, file, opts]) as Promise<string>,
+        history: (repo, opts) =>
+          rpc.call("services.git.history", [repo, opts]) as Promise<GitHistory>,
+        branches: (repo) =>
+          rpc.call("services.git.branches", [repo]) as Promise<GitBranches>,
+        changedFiles: (repo, from, to) =>
+          rpc.call("services.git.changedFiles", [repo, from, to]) as Promise<
+            GitChangedFile[]
+          >,
         watch: (repo, onChange) => remoteWatch("git", repo, onChange),
       },
     },

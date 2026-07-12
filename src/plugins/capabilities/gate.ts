@@ -4,7 +4,11 @@ import type {
   FsEntry,
   FsFile,
   FsReadFileOptions,
+  GitBranches,
+  GitChangedFile,
   GitDiffOptions,
+  GitHistory,
+  GitHistoryOptions,
   GitStatus,
   PluginLogger,
   PluginManifest,
@@ -45,6 +49,18 @@ export interface GitBackend {
     scope: FsScope,
     opts?: GitDiffOptions,
   ): Promise<string>;
+  history(
+    repo: string,
+    scope: FsScope,
+    opts?: GitHistoryOptions,
+  ): Promise<GitHistory>;
+  branches(repo: string, scope: FsScope): Promise<GitBranches>;
+  changedFiles(
+    repo: string,
+    from: string,
+    to: string | undefined,
+    scope: FsScope,
+  ): Promise<GitChangedFile[]>;
   watch(repo: string, scope: FsScope, onChange: () => void): Disposable;
 }
 
@@ -186,6 +202,32 @@ export function createCapabilityGate(
           file,
           gitScope(manifest.capabilities),
           opts,
+        );
+      },
+      history(repo, opts) {
+        admit(
+          hasGitCapability(manifest.capabilities),
+          `git.history: "${repo}" requires a "git" capability, which the manifest does not declare`,
+        );
+        return backend.git.history(repo, gitScope(manifest.capabilities), opts);
+      },
+      branches(repo) {
+        admit(
+          hasGitCapability(manifest.capabilities),
+          `git.branches: "${repo}" requires a "git" capability, which the manifest does not declare`,
+        );
+        return backend.git.branches(repo, gitScope(manifest.capabilities));
+      },
+      changedFiles(repo, from, to) {
+        admit(
+          hasGitCapability(manifest.capabilities),
+          `git.changedFiles: "${repo}" requires a "git" capability, which the manifest does not declare`,
+        );
+        return backend.git.changedFiles(
+          repo,
+          from,
+          to,
+          gitScope(manifest.capabilities),
         );
       },
       watch(repo, onChange) {

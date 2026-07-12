@@ -28,3 +28,21 @@ export function BranchIcon() {
     </svg>
   );
 }
+
+/** The checked-out marker in the branch picker (Lucide `check`, ISC). */
+export function CheckIcon() {
+  return (
+    <svg {...iconProps}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+/** Back out of a drilled-in file list to the commits — a left chevron. */
+export function BackIcon() {
+  return (
+    <svg {...iconProps}>
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}

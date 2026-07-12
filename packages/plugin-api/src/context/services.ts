@@ -119,9 +119,23 @@ export interface PluginGit {
    * worktree has its own status). Rejects a path outside the scope. */
   status(repo: string): Promise<GitStatus>;
   /** Unified diff text for ONE tracked path, relative to `repo` — worktree vs
-   * index by default, index vs HEAD with `staged`. Untracked files have no
-   * diff; render their plain content (via `fs.readFile`) instead. */
+   * index by default, index vs HEAD with `staged`, or across a revision range
+   * with `from`/`to` (`from` alone diffs against the working tree). Untracked
+   * files have no diff; render their plain content (via `fs.readFile`)
+   * instead. */
   diffFile(repo: string, file: string, opts?: GitDiffOptions): Promise<string>;
+  /** The repo's history for a changes view: the full recent log (newest
+   * first, capped by the host), annotated with the branch's fork point off
+   * `base` (defaulting to the repo's default branch — exact for worktrees
+   * created off it) and how many commits sit on the branch's side of it. */
+  history(repo: string, opts?: GitHistoryOptions): Promise<GitHistory>;
+  /** The repo's local branches and which one is checked out — the history
+   * browser's ref picker. */
+  branches(repo: string): Promise<GitBranches>;
+  /** The paths changed across `from..to` — or everything since `from`
+   * (committed or not) when `to` is omitted. The file list behind one commit
+   * or a "since the fork" summary. */
+  changedFiles(repo: string, from: string, to?: string): Promise<GitChangedFile[]>;
   /** Watch the repo for status-relevant changes — working-tree edits AND
    * index/HEAD/ref moves (stage, commit, checkout). `onChange` fires
    * throttled; re-`status` to get the fresh state (debounce it — bursts are
@@ -131,8 +145,66 @@ export interface PluginGit {
 
 export interface GitDiffOptions {
   /** Diff the index against HEAD (what's staged) instead of the worktree
-   * against the index. */
+   * against the index. Ignored when `from` is present. */
   staged?: boolean;
+  /** Diff from this revision — a commit's parent, a fork point. A root
+   * commit's absent parent is handled host-side (empty tree). */
+  from?: string;
+  /** Diff up to this revision; omitted = the working tree. */
+  to?: string;
+}
+
+export interface GitHistoryOptions {
+  /** The base the fork point is measured against; omitted = the repo's
+   * default branch. */
+  base?: string;
+  /** How many commits to list (the host clamps it). Lazy scrolling grows
+   * this window; `ahead` stays honest regardless of it. */
+  limit?: number;
+  /** Walk history from this ref instead of the working tree's HEAD — a
+   * branch can be browsed without being checked out anywhere. */
+  rev?: string;
+}
+
+/** A repo's local branches, for a history browser's ref picker. */
+export interface GitBranches {
+  /** The branch the working tree is on; null when detached. */
+  current: string | null;
+  /** Local branch names, alphabetical; remote-tracking refs excluded. */
+  branches: string[];
+}
+
+/** One commit in a history listing. */
+export interface GitCommit {
+  sha: string;
+  author: string;
+  /** Author time, unix seconds. */
+  timestamp: number;
+  /** The one-line commit subject. */
+  subject: string;
+}
+
+/** A branch's history: the full recent log (capped), annotated with its
+ * fork point so a UI can draw the boundary between the branch's own commits
+ * and the base history beneath them. */
+export interface GitHistory {
+  /** The fork point commit; null = no meaningful fork (the repo IS the
+   * base). It appears in `commits` too, where the boundary sits. */
+  forkSha: string | null;
+  /** Commits on the branch's own side of the fork — honest even when the
+   * fork lies beyond the listing cap. Null without a fork. */
+  ahead: number | null;
+  /** Recent commits from HEAD, newest first, capped: the branch's own
+   * commits, then the fork commit and the base history below it. */
+  commits: GitCommit[];
+}
+
+/** One changed path across a revision range. `code` is git's status letter
+ * (`M`/`A`/`D`/`R`/`C`/`T`); renames fold into one entry carrying both names. */
+export interface GitChangedFile {
+  path: string;
+  origPath: string | null;
+  code: string;
 }
 
 /** A working tree's git status: the branch header plus every changed path. */
