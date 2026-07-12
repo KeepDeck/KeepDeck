@@ -136,6 +136,19 @@ describe("release workflow", () => {
     expect(JSON.stringify(release)).not.toContain("git push");
   });
 
+  it("composes the changelog against the previously released version", () => {
+    const checkout = release.jobs.publish.steps[0];
+    expect(checkout.with["fetch-depth"]).toBe(0);
+    const notes = release.jobs.publish.steps.find(
+      (s) => s.name === "Compose the release notes",
+    );
+    expect(notes.run).toContain("releases/download/latest/latest.json");
+    expect(notes.run).toContain("scripts/release-notes.mjs");
+    const publish = release.jobs.publish.steps.at(-1);
+    expect(publish.run).toContain("--notes-file notes.md");
+    expect(publish.run).not.toContain('--notes "');
+  });
+
   it("builds the updater manifest for both platforms", () => {
     const manifest = release.jobs.publish.steps.find(
       (s) => s.name === "Build the updater manifest",
