@@ -15,9 +15,38 @@ function workflow(name) {
   );
 }
 
+const packageManifest = JSON.parse(
+  readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),
+);
+
 const SKIP_BUMP_COMMITS =
   "github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Bump version to ')";
 const REF_OR_TRIGGER = "${{ inputs.ref || github.sha }}";
+
+describe("pnpm toolchain", () => {
+  it("uses the packageManager pin in every dependency-installing workflow", () => {
+    expect(packageManifest.packageManager).toMatch(/^pnpm@10\.\d+\.\d+$/);
+
+    for (const name of ["ci.yml", "build-macos.yml"]) {
+      const parsed = workflow(name);
+      for (const [jobName, job] of Object.entries(parsed.jobs)) {
+        const installsDependencies = job.steps.some((step) =>
+          step.run?.includes("pnpm install --frozen-lockfile"),
+        );
+        if (!installsDependencies) continue;
+
+        const setup = job.steps.find(
+          (step) => step.uses === "pnpm/action-setup@v6",
+        );
+        expect(setup, `${name}/${jobName}`).toBeDefined();
+        expect(
+          setup.with?.version,
+          `${name}/${jobName} must not override packageManager`,
+        ).toBeUndefined();
+      }
+    }
+  });
+});
 
 describe("ci workflow", () => {
   const ci = workflow("ci.yml");

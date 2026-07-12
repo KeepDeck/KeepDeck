@@ -35,8 +35,6 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - uses: pnpm/action-setup@v6
-        with:
-          version: 9
 
       - uses: actions/setup-node@v6
         with:
