@@ -12,7 +12,13 @@ describe("parseArgs", () => {
   it("parses everything and defaults previous to empty", () => {
     expect(
       parseArgs(["--version", "1.3.0", "--repo", "o/r", "--out", "notes.md"]),
-    ).toEqual({ version: "1.3.0", previous: "", repo: "o/r", out: "notes.md" });
+    ).toEqual({
+      version: "1.3.0",
+      previous: "",
+      repo: "o/r",
+      out: "notes.md",
+      rolling: false,
+    });
   });
 
   it.each([
@@ -40,12 +46,25 @@ describe("buildNotes", () => {
     expect(
       buildNotes({ version: "1.3.0", repo: "o/r", changes: ["one", "two"] }),
     ).toBe(
-      "KeepDeck 1.3.0 (latest build).\n\nChanges:\n- one\n- two\n\nInstall:\ncurl -fsSL https://raw.githubusercontent.com/o/r/main/install.sh | sh\n",
+      "KeepDeck 1.3.0.\n\nChanges:\n- one\n- two\n\nInstall:\ncurl -fsSL https://raw.githubusercontent.com/o/r/main/install.sh | sh\n",
     );
   });
 
   it("omits the section entirely when there is nothing to report", () => {
     const notes = buildNotes({ version: "1.3.0", repo: "o/r", changes: [] });
+    expect(notes).not.toContain("Changes:");
+    expect(notes).toContain("Install:");
+  });
+
+  it("rolling notes are a pointer — no changelog, ever", () => {
+    const notes = buildNotes({
+      version: "1.3.0",
+      repo: "o/r",
+      changes: ["one"],
+      rolling: true,
+    });
+    expect(notes).toContain("Rolling release: always the newest build — currently 1.3.0.");
+    expect(notes).toContain("changelogs live in the versioned releases");
     expect(notes).not.toContain("Changes:");
     expect(notes).toContain("Install:");
   });
@@ -114,6 +133,17 @@ describe("end to end in a real repo", () => {
       "--repo", "o/r", "--out", "notes.md",
     ]);
     expect(republish).not.toContain("Changes:");
+  });
+
+  it("writes rolling notes without touching git at all", () => {
+    dir = mkdtempSync(join(tmpdir(), "kd-notes-"));
+    // No `git init`: rolling notes must not need history.
+    const notes = run([
+      "--version", "1.3.0", "--rolling",
+      "--repo", "o/r", "--out", "notes.md",
+    ]);
+    expect(notes).toContain("Rolling release");
+    expect(notes).not.toContain("Changes:");
   });
 
   it("degrades gracefully when the previous bump commit is missing", () => {

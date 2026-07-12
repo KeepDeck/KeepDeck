@@ -93,6 +93,11 @@ jobs:
             --previous "$previous" \
             --repo "${{ github.repository }}" \
             --out notes.md
+          node scripts/release-notes.mjs \
+            --version "$VERSION" \
+            --rolling \
+            --repo "${{ github.repository }}" \
+            --out rolling-notes.md
 
       - uses: actions/download-artifact@v8
         with:
@@ -116,7 +121,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           if ! gh release view latest >/dev/null 2>&1; then
-            gh release create latest --title "KeepDeck $VERSION" --notes-file notes.md --latest
+            gh release create latest --title "KeepDeck latest ($VERSION)" --notes-file rolling-notes.md --latest
           fi
           # Payloads and zips first; the manifest goes LAST so a client that
           # polls mid-publish never sees it point at assets still being
@@ -131,7 +136,11 @@ jobs:
             assets/KeepDeck-macos-x64.app.tar.gz.sig \
             --clobber
           gh release upload latest assets/latest.json --clobber
-          gh release edit latest --title "KeepDeck $VERSION" --notes-file notes.md
+          gh release edit latest --title "KeepDeck latest ($VERSION)" --notes-file rolling-notes.md
+          # Keep the fixed tag honest about what the rolling assets were
+          # built from — without this it points at whatever commit the
+          # release was first created on, forever.
+          git push --force origin "${{ needs.pin.outputs.sha }}:refs/tags/latest"
 
       - name: Archive this version as its own release
         env:
