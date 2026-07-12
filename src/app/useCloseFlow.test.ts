@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PathProbe } from "../domain/agents";
 import type { GitPosition } from "../domain/deck";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
@@ -27,6 +28,18 @@ vi.mock("./provisioning", () => ({
   discardWorktrees: worktrees.discardWorktrees,
 }));
 
+const probes = vi.hoisted(() => ({
+  probeWorktree: vi.fn<(path: string) => Promise<PathProbe>>(),
+}));
+vi.mock("../ipc/worktree", () => ({
+  probeWorktree: probes.probeWorktree,
+}));
+
+/** A probe answer: the dir is there (a plain worktree) or it's gone. */
+function probed(exists: boolean): PathProbe {
+  return { exists, isWorktree: exists, empty: false, branch: null };
+}
+
 let deck: Deck;
 let flow: ReturnType<typeof useCloseFlow>;
 let runtimeHeads: Map<string, GitPosition>;
@@ -37,8 +50,9 @@ function Probe() {
   return null;
 }
 
-/** A workspace with two panes, one on its own worktree (a discard target). */
-function seed() {
+/** A workspace with two panes, one on its own worktree (a discard target),
+ * plus any extra worktree panes a test needs. */
+function seed(extra: { id: string; cwd: string; branch: string }[] = []) {
   act(() => {
     deck.createWorkspace({
       id: "ws-1",
@@ -48,6 +62,7 @@ function seed() {
       panes: [
         { id: "pane-1", agentType: "claude" },
         { id: "pane-2", agentType: "claude", cwd: "/wt/2", branch: "kd/ws/2" },
+        ...extra.map((p) => ({ ...p, agentType: "claude" })),
       ],
     });
   });
@@ -61,6 +76,8 @@ describe("useCloseFlow + ptyManager", () => {
     pty.closePanes.mockClear();
     worktrees.discardWorktrees.mockClear();
     worktrees.order.length = 0;
+    probes.probeWorktree.mockReset();
+    probes.probeWorktree.mockResolvedValue(probed(true));
     runtimeHeads = new Map();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -79,9 +96,10 @@ describe("useCloseFlow + ptyManager", () => {
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
   });
 
-  it("closing a workspace ends every pane's session", () => {
+  it("closing a workspace ends every pane's session", async () => {
     const wsId = seed();
-    act(() => flow.requestCloseWorkspace(wsId));
+    // The dialog opens only after the worktree probe answers.
+    await act(async () => flow.requestCloseWorkspace(wsId));
     act(() => flow.confirmClose());
     expect(pty.closePanes).toHaveBeenCalledWith(["pane-1", "pane-2"]);
     expect(deck.workspaces).toHaveLength(0);
@@ -99,7 +117,7 @@ describe("useCloseFlow + ptyManager", () => {
           };
         }),
     );
-    act(() => flow.requestCloseWorkspace(wsId));
+    await act(async () => flow.requestCloseWorkspace(wsId));
     act(() => {
       flow.setDeleteWorktree(true);
     });
@@ -114,7 +132,7 @@ describe("useCloseFlow + ptyManager", () => {
   it("uses the observed current branch when discarding an owned worktree", async () => {
     runtimeHeads.set("/wt/2", { branch: "feature/current" });
     const wsId = seed();
-    act(() => flow.requestCloseWorkspace(wsId));
+    await act(async () => flow.requestCloseWorkspace(wsId));
     act(() => flow.setDeleteWorktree(true));
     act(() => flow.confirmClose());
     await act(async () => {});
@@ -122,6 +140,64 @@ describe("useCloseFlow + ptyManager", () => {
     expect(worktrees.discardWorktrees).toHaveBeenCalledWith([
       { repo: "/repo", path: "/wt/2", branch: "feature/current" },
     ]);
+  });
+
+  it("a gone worktree is not offered for deletion", async () => {
+    probes.probeWorktree.mockResolvedValue(probed(false));
+    const wsId = seed();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
+
+    expect(probes.probeWorktree).toHaveBeenCalledWith("/wt/2");
+    expect(flow.closing).not.toBeNull();
+    expect(flow.closing!.targets).toEqual([]);
+
+    // Even a forced checkbox can't discard: the snapshot holds no targets.
+    act(() => flow.setDeleteWorktree(true));
+    act(() => flow.confirmClose());
+    await act(async () => {});
+    expect(worktrees.discardWorktrees).not.toHaveBeenCalled();
+    expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-1"]);
+  });
+
+  it("a workspace close keeps only the worktrees that still exist", async () => {
+    probes.probeWorktree.mockImplementation((path) =>
+      Promise.resolve(probed(path !== "/wt/2")),
+    );
+    const wsId = seed([{ id: "pane-3", cwd: "/wt/3", branch: "kd/ws/3" }]);
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    act(() => flow.setDeleteWorktree(true));
+    act(() => flow.confirmClose());
+    await act(async () => {});
+
+    expect(worktrees.discardWorktrees).toHaveBeenCalledWith([
+      { repo: "/repo", path: "/wt/3", branch: "kd/ws/3" },
+    ]);
+  });
+
+  it("an unanswerable probe keeps the delete offer", async () => {
+    probes.probeWorktree.mockRejectedValue(new Error("ipc down"));
+    const wsId = seed();
+    await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
+
+    expect(flow.closing!.targets).toEqual([
+      { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" },
+    ]);
+  });
+
+  it("a newer close request wins over a slower probe", async () => {
+    let answer!: (probe: PathProbe) => void;
+    probes.probeWorktree.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve)),
+    );
+    const wsId = seed();
+    // The worktree pane's request hangs on its probe...
+    act(() => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
+    // ...and a plain pane's request opens synchronously meanwhile.
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closing).toMatchObject({ kind: "agent", paneId: "pane-1" });
+
+    await act(async () => answer(probed(true)));
+    expect(flow.closing).toMatchObject({ kind: "agent", paneId: "pane-1" });
   });
 
   it("cancel closes nothing", () => {
