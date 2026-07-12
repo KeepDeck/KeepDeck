@@ -161,21 +161,43 @@ describe("release workflow", () => {
 
   it("serializes releases and never touches version accounting", () => {
     expect(release.concurrency).toEqual({ group: "release", queue: "max" });
-    // The whole point of the split: releasing must never push to main.
-    expect(JSON.stringify(release)).not.toContain("git push");
+    // The whole point of the split: releasing must never push to the main
+    // BRANCH (version accounting). Moving the rolling `latest` tag is fine —
+    // and must target exactly the pinned, released commit.
+    expect(JSON.stringify(release)).not.toContain(":main");
+    const publish = release.jobs.publish.steps.find(
+      (s) => s.name === 'Publish the rolling "latest" release',
+    );
+    expect(publish.run).toContain(
+      'git push --force origin "${{ needs.pin.outputs.sha }}:refs/tags/latest"',
+    );
   });
 
-  it("composes the changelog against the previously released version", () => {
+  it("composes distinct notes: changelog for the archive, pointer for rolling", () => {
     const checkout = release.jobs.publish.steps[0];
     expect(checkout.with["fetch-depth"]).toBe(0);
     const notes = release.jobs.publish.steps.find(
       (s) => s.name === "Compose the release notes",
     );
     expect(notes.run).toContain("releases/download/latest/latest.json");
-    expect(notes.run).toContain("scripts/release-notes.mjs");
-    const publish = release.jobs.publish.steps.at(-1);
-    expect(publish.run).toContain("--notes-file notes.md");
-    expect(publish.run).not.toContain('--notes "');
+    expect(notes.run).toContain("--out notes.md");
+    expect(notes.run).toContain("--rolling");
+    expect(notes.run).toContain("--out rolling-notes.md");
+
+    // Rolling entry: pointer notes and a title that cannot be mistaken for a
+    // versioned release; the changelog lives on the archive alone.
+    const publish = release.jobs.publish.steps.find(
+      (s) => s.name === 'Publish the rolling "latest" release',
+    );
+    expect(publish.run).toContain('--title "KeepDeck latest ($VERSION)"');
+    expect(publish.run).toContain("--notes-file rolling-notes.md");
+    expect(publish.run).not.toContain("--notes-file notes.md");
+
+    const archive = release.jobs.publish.steps.find(
+      (s) => s.name === "Archive this version as its own release",
+    );
+    expect(archive.run).toContain('--title "KeepDeck $VERSION"');
+    expect(archive.run).toContain("--notes-file notes.md");
   });
 
   it("archives every version as its own release, badge and manifest stay rolling", () => {

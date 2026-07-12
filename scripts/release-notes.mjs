@@ -16,13 +16,14 @@ import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export function parseArgs(argv) {
-  const args = { previous: "" };
+  const args = { previous: "", rolling: false };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (flag === "--version") args.version = argv[++i];
     else if (flag === "--previous") args.previous = argv[++i] ?? "";
     else if (flag === "--repo") args.repo = argv[++i];
     else if (flag === "--out") args.out = argv[++i];
+    else if (flag === "--rolling") args.rolling = true;
     else throw new Error(`unknown argument: ${flag}`);
   }
   for (const key of ["version", "repo", "out"]) {
@@ -41,9 +42,19 @@ export function changelogLine(subject) {
     .trim();
 }
 
-export function buildNotes({ version, repo, changes }) {
-  const lines = [`KeepDeck ${version} (latest build).`];
-  if (changes.length > 0) {
+export function buildNotes({ version, repo, changes, rolling = false }) {
+  // The rolling entry is infrastructure, not a release: the installer and
+  // the in-app updater read it by its fixed tag. Its notes say exactly that
+  // and nothing else — per-version changelogs live on the archive releases,
+  // so the two entries never read as duplicates.
+  const lines = rolling
+    ? [
+        `Rolling release: always the newest build — currently ${version}.`,
+        "The installer and the in-app updater read this entry; per-version",
+        "changelogs live in the versioned releases.",
+      ]
+    : [`KeepDeck ${version}.`];
+  if (!rolling && changes.length > 0) {
     lines.push("", "Changes:", ...changes.map((c) => `- ${c}`));
   }
   lines.push(
@@ -88,11 +99,14 @@ export function collectChanges(previous, version) {
 
 export function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
-  const changes = collectChanges(args.previous, args.version);
+  // Rolling notes carry no changelog, so they need no git history either.
+  const changes = args.rolling ? [] : collectChanges(args.previous, args.version);
   const notes = buildNotes({ ...args, changes });
   writeFileSync(args.out, notes);
   console.log(
-    `Wrote ${args.out}: ${changes.length} change(s) since ${args.previous || "(none)"}`,
+    args.rolling
+      ? `Wrote ${args.out}: rolling notes for ${args.version}`
+      : `Wrote ${args.out}: ${changes.length} change(s) since ${args.previous || "(none)"}`,
   );
   return notes;
 }
