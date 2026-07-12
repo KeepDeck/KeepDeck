@@ -63,11 +63,18 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           .filter((pane) => pane.cwd && pane.cwd !== workspace.cwd)
           .map((pane) => [
             pane.cwd!,
-            // Branch AND folder: the picker chooses working trees, not
-            // branches — the folder half keeps that readable at a glance.
-            pane.branch
-              ? `${pane.branch} · ${lastSegment(pane.cwd!)}`
-              : shortPath(pane.cwd!),
+            // Branch AND folder — the picker chooses working trees, not
+            // branches — but stacked: a 340px dock can't fit them inline.
+            // The folder line shows in the OPEN list only (CSS hides it on
+            // the closed control, same rule as the ref picker's check).
+            pane.branch ? (
+              <span className="git__rootopt" title={pane.cwd}>
+                <span className="git__rootbranch">{pane.branch}</span>
+                <span className="git__rootfolder">{lastSegment(pane.cwd!)}</span>
+              </span>
+            ) : (
+              shortPath(pane.cwd!)
+            ),
           ]),
       ).entries(),
     ].map(([value, label]) => ({ value, label })),
