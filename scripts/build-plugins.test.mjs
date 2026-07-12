@@ -115,7 +115,9 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     rmSync(distRoot, { recursive: true, force: true });
   });
 
-  it("builds keepdeck.run with externals kept bare, manifest copied, index.json deterministic", () => {
+  // Builds every real plugin from scratch — well past vitest's 5s default on
+  // a cold 2-core CI runner, hence the explicit timeout.
+  it("builds keepdeck.run with externals kept bare, manifest copied, index.json deterministic", { timeout: 120_000 }, () => {
     const out = execFileSync(process.execPath, [SCRIPT, "--out-dir", distRoot], {
       cwd: REPO_ROOT,
       encoding: "utf8",
