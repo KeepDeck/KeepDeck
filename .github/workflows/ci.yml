@@ -1,0 +1,98 @@
+# Test gate: runs the full suite on every substantive push to main, and is
+# reused by release.yml (workflow_call with the exact ref under release) as
+# the pre-release gate. Version bump commits only move version numbers, so
+# they skip the suite — and bot bump pushes use GITHUB_TOKEN, which never
+# triggers workflows anyway; the message guard is belt and braces for manual
+# version pushes.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to test (defaults to the triggering commit)"
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  js:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Bump version to ')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24 (matches local dev): scripts/build-plugins.mjs imports the
+          # workspace's TypeScript entry (@keepdeck/plugin-api → src/index.ts).
+          # Node < 22.18 can't load .ts and fails with ERR_UNKNOWN_FILE_EXTENSION.
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm test
+
+      # Runs tsc and vite build, so a separate typecheck step would be redundant.
+      - name: Build the frontend and plugins
+        run: pnpm build
+
+  rust:
+    # The app's only target platform; free on a public repository.
+    runs-on: macos-latest
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Bump version to ')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Cache compiled Rust deps so repeat runs only recompile our own crates.
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # tauri::generate_context! embeds ../dist at compile time, so the
+      # frontend must exist before the workspace compiles.
+      - name: Build the frontend and plugins
+        run: pnpm build
+
+      - name: Test
+        run: cargo test --workspace
+
+  actionlint:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Bump version to ')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Download actionlint
+        id: get_actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+
+      - name: Lint workflow files
+        # actionlint's schema hasn't learned `concurrency.queue` yet; the key
+        # is live GitHub Actions syntax, so the unknown-key diagnostic is noise.
+        run: ${{ steps.get_actionlint.outputs.executable }} -color -ignore 'unexpected key "queue"'
