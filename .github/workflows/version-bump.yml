@@ -2,18 +2,17 @@
 # touch version files and parallel agents cannot collide on a bump.
 #
 # Every merge landed since the last version change bumps patch; "(minor)" and
-# "(major)" merge subjects raise the corresponding release boundary. Automatic
-# patch batches commit immediately without macOS builds. Major/minor batches and
-# every manual dispatch prepare the version without pushing, build both native
-# architectures, then commit the bump and publish only after the full matrix
-# succeeds.
+# "(major)" merge subjects raise the corresponding boundary. The bump commit
+# is pushed immediately, and a release-class bump (minor, major, or any manual
+# dispatch) then chains into release.yml for the exact bump commit. What users
+# actually receive is defined by the rolling "latest" release, so a failed
+# release leaves them untouched — re-dispatch release.yml to heal it.
 #
-# Runs queue instead of replacing one another so a manual release request is not
-# discarded by a later push. Each release job uses the exact main revision and
-# version files captured by prepare; a moved main makes the final push fail
-# safely instead of publishing binaries built from stale source.
-#
-# GITHUB_TOKEN bump pushes do not trigger another workflow run.
+# Runs queue instead of replacing one another so a manual bump request is not
+# discarded by a later push. The bump commit is pushed with GITHUB_TOKEN, and
+# GITHUB_TOKEN pushes never trigger workflows, so this cannot recurse — but
+# workflow_dispatch events created with GITHUB_TOKEN DO start runs (documented
+# exception), which is what lets the release chain work.
 name: Version bump
 
 on:
@@ -30,18 +29,15 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: version-bump
   queue: max
 
 jobs:
-  prepare:
+  bump:
     runs-on: ubuntu-latest
-    outputs:
-      base_sha: ${{ steps.base.outputs.sha }}
-      version: ${{ steps.bump.outputs.version }}
-      release: ${{ steps.bump.outputs.release }}
     # Belt and braces for pushes made with credentials other than GITHUB_TOKEN.
     if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'Bump version to ')
     steps:
@@ -50,144 +46,23 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Record the source revision
-        id: base
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: Compute and apply the bump
         id: bump
         run: node scripts/version-bump.mjs ${{ github.event_name == 'workflow_dispatch' && format('--bump {0}', inputs.bump) || '' }}
 
-      - name: Commit and push patch bump
-        if: steps.bump.outputs.version != '' && steps.bump.outputs.release != 'true'
+      - name: Commit and push the bump
+        id: push
+        if: steps.bump.outputs.version != ''
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "Bump version to ${{ steps.bump.outputs.version }}"
           git push origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Preserve the prepared release version
-        if: steps.bump.outputs.version != '' && steps.bump.outputs.release == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: version-files
-          path: |
-            Cargo.lock
-            package.json
-            src-tauri/Cargo.toml
-          if-no-files-found: error
-          overwrite: true
-
-  # Build the prepared release version for both macOS architectures natively.
-  # Automatic patch batches skip this job and finish in prepare.
-  build:
-    needs: prepare
-    if: needs.prepare.outputs.version != '' && needs.prepare.outputs.release == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-latest # Apple Silicon (arm64)
-            asset: KeepDeck-macos-arm64.zip
-          - runner: macos-15-intel # Intel (x86_64)
-            asset: KeepDeck-macos-x64.zip
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.base_sha }}
-
-      - name: Restore the prepared release version
-        uses: actions/download-artifact@v4
-        with:
-          name: version-files
-          path: .
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          # Node 24 (matches local dev): the frontend build runs
-          # `node scripts/build-plugins.mjs`, which imports the workspace's
-          # TypeScript entry (@keepdeck/plugin-api → src/index.ts). Node < 22.18
-          # can't load .ts and fails with ERR_UNKNOWN_FILE_EXTENSION.
-          node-version: 24
-          cache: pnpm
-
-      # Cache compiled Rust deps so repeat builds only recompile our own crates.
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build and package the app (native to this runner's arch)
-        run: |
-          source scripts/macos-app.sh
-          build_keepdeck_app
-          app="$(locate_keepdeck_app)"
-          ditto -c -k --sequesterRsrc --keepParent "$app" "${{ matrix.asset }}"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
-          if-no-files-found: error
-          overwrite: true
-
-  # The implicit success gate on `needs: build` requires every matrix leg to
-  # succeed before the release version reaches main.
-  bump_release:
-    needs: [prepare, build]
-    if: needs.prepare.outputs.version != '' && needs.prepare.outputs.release == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare.outputs.base_sha }}
-
-      - name: Restore the prepared release version
-        uses: actions/download-artifact@v4
-        with:
-          name: version-files
-          path: .
-
-      - name: Commit and push release bump
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "Bump version to ${{ needs.prepare.outputs.version }}"
-          git push origin HEAD:main
-
-  # Attach both architecture zips to the rolling "latest" GitHub Release. If
-  # only this job fails, re-run failed jobs so the prepared version is reused;
-  # re-running every job would constitute a new forced bump for a manual run.
-  publish:
-    needs: [prepare, build, bump_release]
-    if: needs.prepare.outputs.version != '' && needs.prepare.outputs.release == 'true'
-    runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      VERSION: ${{ needs.prepare.outputs.version }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: KeepDeck-macos-*
-          path: assets
-          merge-multiple: true
-
-      - name: Publish the rolling "latest" release
-        run: |
-          notes="KeepDeck $VERSION (latest build).
-
-          Install:
-          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh"
-          if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest assets/*.zip --clobber
-            gh release edit latest --title "KeepDeck $VERSION" --notes "$notes"
-          else
-            gh release create latest assets/*.zip \
-              --title "KeepDeck $VERSION" --notes "$notes" --latest
-          fi
+      - name: Start the release for this bump
+        if: steps.bump.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run release.yml -f ref=${{ steps.push.outputs.sha }}

@@ -158,8 +158,8 @@ export function main(argv = process.argv.slice(2)) {
   );
   console.log(`Bump version to ${next} (${current} + ${kinds.join(", ")})`);
   if (process.env.GITHUB_OUTPUT) {
-    // Automatic patch batches only update the version. Major/minor batches and
-    // every forced bump build a release before the version commit is pushed.
+    // Release classification: minor/major batches and every forced bump chain
+    // into the release workflow once the bump commit lands on main.
     const release = forced !== null || kinds.some((kind) => kind !== "patch");
     appendFileSync(
       process.env.GITHUB_OUTPUT,

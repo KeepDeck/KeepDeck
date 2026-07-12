@@ -13,7 +13,11 @@ describe("domRealm", () => {
   });
 
   it("creates a hidden iframe with allow-scripts AND allow-same-origin", () => {
-    void domRealm.openRealm("kdplugin://dev.x/__main__.html");
+    // happy-dom can't fetch kdplugin://, so the realm promise rejects via the
+    // iframe's error event after this test returns; swallow it — the sync
+    // attributes are the subject here, and an unhandled rejection fails the
+    // whole run's exit code.
+    domRealm.openRealm("kdplugin://dev.x/__main__.html").catch(() => {});
     const frame = document.body.querySelector("iframe");
     expect(frame).not.toBeNull();
     expect(frame!.hidden).toBe(true);
