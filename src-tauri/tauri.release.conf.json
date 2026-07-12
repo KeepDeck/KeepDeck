@@ -8,7 +8,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4QUZERDFGQzk3ODdGMkMKUldRc2YzakpIOTJ2aUQwTExJcVVYL2oxTUpLY1ZZeGhud01UZ002cUQrZm9XVlQ4d1A4TEVRM2QK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZGQzg0NjE1NzU0NzBDRTAKUldUZ0RFZDFGVWJJLzFOajYxY2JhQUNrMkw5c25tSmZBYjE4a1ZxTXBGVkdpSVI3akxDb2cySksK",
       "endpoints": [
         "https://github.com/KeepDeck/KeepDeck/releases/download/latest/latest.json"
       ]
