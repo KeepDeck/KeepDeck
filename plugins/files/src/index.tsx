@@ -9,6 +9,9 @@
  * visible toggle and the click behavior are projections of one state and can
  * never disagree.
  */
+// The plugin's own stylesheet rides the module graph: Vite injects it in
+// dev; the lib build emits it as the bundle's index.css for the host to link.
+import "./styles.css";
 import type {
   Disposable,
   FileOpenHandler,

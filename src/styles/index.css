@@ -1,7 +1,11 @@
 /* Feature-scoped split of the app stylesheet; each file mirrors a component
    area (components/*, ui/*). Import order carries the cascade: settings.css
    must follow form.css — .settings tightens .form's max-width at equal
-   specificity, so source order decides the winner. */
+   specificity, so source order decides the winner.
+
+   Built-in plugins' own class families are NOT here: each plugin ships its
+   stylesheet in its bundle (plugins/<name>/src/styles.css), loaded after all
+   of these — the same tail position the old run/files/git imports held. */
 @import "./base.css";
 @import "./deck.css";
 @import "./rail.css";
@@ -15,7 +19,4 @@
 @import "./settings.css";
 @import "./buttons.css";
 @import "./dock.css";
-@import "./run.css";
 @import "./peek.css";
-@import "./files.css";
-@import "./git.css";

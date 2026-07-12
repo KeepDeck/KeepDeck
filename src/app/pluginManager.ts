@@ -41,6 +41,7 @@ import { spawnSession } from "../ipc/session";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { getSettings, subscribeSettings, updateSettings } from "./settingsManager";
 import { makeGlobalKvStub, makeWorkspaceKv, type DeckAccess } from "./pluginKv";
+import { ensurePluginStylesheet } from "./pluginStylesheets";
 import { clearOverlayVisibility, setOverlayVisibility } from "./overlayVisibility";
 import { clearPluginCrashes } from "./pluginHealth";
 import { mergeSectionValues } from "./pluginSettingsValues";
@@ -624,9 +625,12 @@ function discoverDevPlugins(): PluginInstall[] {
 
 /** Production: `dist/plugins/index.json` (written by scripts/build-plugins)
  * names each prebuilt bundle; manifests are fetched, bundles dynamically
- * imported — computed URLs, same origin, resolved via the import map. */
+ * imported — computed URLs, same origin, resolved via the import map. An
+ * entry flagged `css: true` carries the second half of its bundle, the
+ * emitted `index.css` — linked alongside the module import (awaited, so the
+ * tab never renders before its styles) the first time the plugin loads. */
 async function discoverBuiltPlugins(): Promise<PluginInstall[]> {
-  let index: { plugins: { id: string; dir: string }[] };
+  let index: { plugins: { id: string; dir: string; css?: boolean }[] };
   try {
     index = await (await fetch("/plugins/index.json")).json();
   } catch {
@@ -635,14 +639,26 @@ async function discoverBuiltPlugins(): Promise<PluginInstall[]> {
     return [];
   }
   const installs: PluginInstall[] = [];
-  for (const { dir } of index.plugins) {
+  for (const { dir, css } of index.plugins) {
     try {
       const raw = await (await fetch(`/${dir}/manifest.json`)).json();
       const manifest = validate(dir, raw);
       if (!manifest) continue;
       installs.push({
         manifest,
-        load: () => import(/* @vite-ignore */ `/${dir}/index.js`).then(defaultExport),
+        load: async () => {
+          const [module] = await Promise.all([
+            import(/* @vite-ignore */ `/${dir}/index.js`),
+            css
+              ? ensurePluginStylesheet(
+                  manifest.id,
+                  `/${dir}/index.css`,
+                  loggerFor(manifest.id).warn,
+                )
+              : null,
+          ]);
+          return defaultExport(module);
+        },
       });
     } catch (e) {
       log.error("web:plugins", `${dir}: unreadable — ${describeError(e)}`);

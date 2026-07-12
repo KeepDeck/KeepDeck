@@ -1,6 +1,6 @@
 /* The shared "peek" overlay (@keepdeck/ui-kit Peek): the wide detail surface
    dock plugins lift content into — the Files preview, the Git diff. Shell only;
-   what fills the body is styled by each consumer (files.css, git.css). Palette
+   what fills the body is styled by each plugin's own stylesheet. Palette
    mirrors the dock so a peek reads as native chrome. */
 
 .peek {
