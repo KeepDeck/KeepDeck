@@ -1,6 +1,9 @@
-/* The Git tab (keepdeck.git plugin): a live changes view over the git
-   capability, with a diff peek. Palette mirrors the dock, the Run tab and the
-   Files tab so the plugin reads as native chrome. */
+/* The Git plugin's own stylesheet — imported by its entry, so it ships with
+   the plugin (Vite injects it in dev; the lib build emits it as the bundle's
+   index.css, linked by the host in prod). Styles ONLY the plugin's `.git`
+   family; the shared chrome vocabulary its markup also uses (form__*,
+   peek__*, ui-kit dropdown) stays host-styled. Palette mirrors the dock, the
+   Run tab and the Files tab so the plugin reads as native chrome. */
 
 .git {
   display: flex;

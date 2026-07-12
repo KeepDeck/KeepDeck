@@ -160,7 +160,7 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
         { id: "keepdeck.claude", dir: "plugins/keepdeck.claude" },
         { id: "keepdeck.codex", dir: "plugins/keepdeck.codex" },
         { id: "keepdeck.files", dir: "plugins/keepdeck.files" },
-        { id: "keepdeck.git", dir: "plugins/keepdeck.git" },
+        { id: "keepdeck.git", dir: "plugins/keepdeck.git", css: true },
         { id: "keepdeck.opencode", dir: "plugins/keepdeck.opencode" },
         { id: "keepdeck.run", dir: "plugins/keepdeck.run", css: true },
       ],
