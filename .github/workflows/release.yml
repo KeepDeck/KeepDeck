@@ -70,6 +70,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.pin.outputs.sha }}
+          # The release notes walk merge history back to the previous release.
+          fetch-depth: 0
 
       - name: Read the version under release
         id: version
@@ -77,6 +79,20 @@ jobs:
           version="$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' src-tauri/Cargo.toml | head -n1)"
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Compose the release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # The previously RELEASED version comes from the live manifest before
+        # this run overwrites it; a missing manifest (first release) degrades
+        # to notes without a changelog.
+        run: |
+          previous="$(curl -fsSL "https://github.com/${{ github.repository }}/releases/download/latest/latest.json" | jq -r .version || true)"
+          node scripts/release-notes.mjs \
+            --version "$VERSION" \
+            --previous "$previous" \
+            --repo "${{ github.repository }}" \
+            --out notes.md
 
       - uses: actions/download-artifact@v8
         with:
@@ -99,12 +115,8 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          notes="KeepDeck $VERSION (latest build).
-
-          Install:
-          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh"
           if ! gh release view latest >/dev/null 2>&1; then
-            gh release create latest --title "KeepDeck $VERSION" --notes "$notes" --latest
+            gh release create latest --title "KeepDeck $VERSION" --notes-file notes.md --latest
           fi
           # Payloads and zips first; the manifest goes LAST so a client that
           # polls mid-publish never sees it point at assets still being
@@ -119,4 +131,4 @@ jobs:
             assets/KeepDeck-macos-x64.app.tar.gz.sig \
             --clobber
           gh release upload latest assets/latest.json --clobber
-          gh release edit latest --title "KeepDeck $VERSION" --notes "$notes"
+          gh release edit latest --title "KeepDeck $VERSION" --notes-file notes.md
