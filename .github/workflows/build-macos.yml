@@ -48,6 +48,7 @@ jobs:
       - name: Build and package the app (native to this runner's arch)
         run: |
           source scripts/macos-app.sh
+          # shellcheck disable=SC2119 # extra build args are deliberately omitted
           build_keepdeck_app
           app="$(locate_keepdeck_app)"
           ditto -c -k --sequesterRsrc --keepParent "$app" "${{ matrix.asset }}"
