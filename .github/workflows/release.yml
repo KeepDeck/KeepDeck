@@ -121,7 +121,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           if ! gh release view latest >/dev/null 2>&1; then
-            gh release create latest --title "KeepDeck latest ($VERSION)" --notes-file rolling-notes.md --latest
+            gh release create latest --title "KeepDeck latest" --notes-file rolling-notes.md --latest=false
           fi
           # Payloads and zips first; the manifest goes LAST so a client that
           # polls mid-publish never sees it point at assets still being
@@ -136,7 +136,9 @@ jobs:
             assets/KeepDeck-macos-x64.app.tar.gz.sig \
             --clobber
           gh release upload latest assets/latest.json --clobber
-          gh release edit latest --title "KeepDeck latest ($VERSION)" --notes-file rolling-notes.md
+          # Idempotent touch-up: the content is static, but the edit heals
+          # manual changes and strips the badge if it ever landed here.
+          gh release edit latest --title "KeepDeck latest" --notes-file rolling-notes.md --latest=false
           # Keep the fixed tag honest about what the rolling assets were
           # built from — without this it points at whatever commit the
           # release was first created on, forever.
@@ -154,7 +156,7 @@ jobs:
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
             gh release create "$VERSION" \
               --target "${{ needs.pin.outputs.sha }}" \
-              --title "KeepDeck $VERSION" --notes-file notes.md --latest=false
+              --title "KeepDeck $VERSION" --notes-file notes.md --latest
           fi
           gh release upload "$VERSION" \
             assets/KeepDeck-macos-arm64.zip \

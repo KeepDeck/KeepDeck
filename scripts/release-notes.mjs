@@ -49,9 +49,12 @@ export function buildNotes({ version, repo, changes, rolling = false }) {
   // so the two entries never read as duplicates.
   const lines = rolling
     ? [
-        `Rolling release: always the newest build — currently ${version}.`,
-        "The installer and the in-app updater read this entry; per-version",
-        "changelogs live in the versioned releases.",
+        // Deliberately version-free: the rolling entry is created once and
+        // never edited for content, so it sinks down the releases page as
+        // versioned releases stack above it.
+        "Rolling release: always the newest build.",
+        "The installer and the in-app updater read this entry; versions and",
+        "changelogs live in the releases above.",
       ]
     : [`KeepDeck ${version}.`];
   if (!rolling && changes.length > 0) {

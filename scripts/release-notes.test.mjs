@@ -63,8 +63,9 @@ describe("buildNotes", () => {
       changes: ["one"],
       rolling: true,
     });
-    expect(notes).toContain("Rolling release: always the newest build — currently 1.3.0.");
-    expect(notes).toContain("changelogs live in the versioned releases");
+    expect(notes).toContain("Rolling release: always the newest build.");
+    expect(notes).not.toContain("1.3.0"); // version-free: created once, never edited
+    expect(notes).toContain("changelogs live in the releases above");
     expect(notes).not.toContain("Changes:");
     expect(notes).toContain("Install:");
   });
