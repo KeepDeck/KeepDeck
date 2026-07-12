@@ -5,5 +5,13 @@
     "macOS": {
       "signingIdentity": "-"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4QUZERDFGQzk3ODdGMkMKUldRc2YzakpIOTJ2aUQwTExJcVVYL2oxTUpLY1ZZeGhud01UZ002cUQrZm9XVlQ4d1A4TEVRM2QK",
+      "endpoints": [
+        "https://github.com/KeepDeck/KeepDeck/releases/download/latest/latest.json"
+      ]
+    }
   }
 }

@@ -8,6 +8,8 @@
     "log:default",
     "dialog:default",
     "clipboard-manager:allow-write-text",
-    "clipboard-manager:allow-read-text"
+    "clipboard-manager:allow-read-text",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

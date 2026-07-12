@@ -32,20 +32,25 @@ use tauri::Manager as _;
 pub struct AppInfo {
     pub name: String,
     pub version: String,
+    /// Whether the updater plugin is configured — true only for release
+    /// builds (the config lives in the tauri.release.conf.json overlay).
+    /// The frontend keys its whole update flow off this flag.
+    pub updater: bool,
 }
 
 impl AppInfo {
-    fn current() -> Self {
+    fn current(updater: bool) -> Self {
         Self {
             name: "KeepDeck".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            updater,
         }
     }
 }
 
 #[tauri::command]
-fn app_info() -> AppInfo {
-    AppInfo::current()
+fn app_info(app: tauri::AppHandle) -> AppInfo {
+    AppInfo::current(app.config().plugins.0.contains_key("updater"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -57,6 +62,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_process::init())
         // Serves installed EXTERNAL plugins' own files under their own host —
         // `kdplugin://<plugin-id>/<path>` — so each plugin is its own origin.
         // Logic lives in `plugins_fs`; this closure only supplies the real
@@ -75,6 +81,15 @@ pub fn run() {
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();
+            // The updater's config (pubkey + endpoints) lives only in the
+            // release overlay (tauri.release.conf.json); a dev build carries
+            // no `plugins.updater` section and the plugin refuses to init
+            // without one, so it is registered only when configured. The
+            // frontend treats the plugin's absence as "updates disabled".
+            if app.config().plugins.0.contains_key("updater") {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
             if collected > 0 {
                 log::info!("log gc: removed {collected} old file(s)");
             }
@@ -146,9 +161,10 @@ mod tests {
 
     #[test]
     fn app_info_reports_crate_identity() {
-        let info = AppInfo::current();
+        let info = AppInfo::current(false);
         assert_eq!(info.name, "KeepDeck");
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert!(!info.version.is_empty(), "version must not be empty");
+        assert!(!info.updater, "dev builds must report the updater as absent");
     }
 }
