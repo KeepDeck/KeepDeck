@@ -45,6 +45,13 @@ pub struct RepoStatus {
 /// refreshed index (taking `index.lock`), and a status poller would then race
 /// the user's — or an agent's — own git commands running in the same worktree.
 /// With it, status is a pure read that can never stall anyone.
+///
+/// `--untracked-files=all` expands untracked DIRECTORIES into their files:
+/// the default mode collapses a new folder into one `dir/` entry, which a
+/// changes view can neither diff nor meaningfully show (git tracks files,
+/// never directories — an empty folder rightly produces nothing). Ignored
+/// trees (`node_modules`, build output) are excluded either way, so the
+/// expansion doesn't blow up on generated files.
 pub fn status(path: &Path) -> Result<RepoStatus, GitError> {
     let out = run_git(
         path,
@@ -53,6 +60,7 @@ pub fn status(path: &Path) -> Result<RepoStatus, GitError> {
             "status",
             "--porcelain=v2",
             "--branch",
+            "--untracked-files=all",
             "-z",
         ],
     )?;
