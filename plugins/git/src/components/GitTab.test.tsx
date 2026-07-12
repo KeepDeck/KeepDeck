@@ -328,6 +328,11 @@ describe("GitTab", () => {
       commitSha,
     );
     expect(host.textContent).toContain("feature.ts");
+    // The drill slides in on the track; the list pane goes inert behind it.
+    expect(host.querySelector(".git__track--drill")).toBeTruthy();
+    const panes = host.querySelectorAll(".git__slidepane");
+    expect(panes[0].hasAttribute("inert")).toBe(true);
+    expect(panes[1].hasAttribute("inert")).toBe(false);
 
     // A file opens the peek with the RANGE diff, never the index one.
     const fileRow = [...host.querySelectorAll("button.git__row")].find((el) =>
@@ -347,7 +352,14 @@ describe("GitTab", () => {
     });
     const back = host.querySelector("button.git__drillback") as HTMLButtonElement;
     await act(async () => back.click());
+    // The track slides back; the list pane is live again and the drill pane
+    // keeps its content (inert) through the exit animation.
+    expect(host.querySelector(".git__track--drill")).toBeNull();
+    const panesAfter = host.querySelectorAll(".git__slidepane");
+    expect(panesAfter[0].hasAttribute("inert")).toBe(false);
+    expect(panesAfter[1].hasAttribute("inert")).toBe(true);
     expect(host.textContent).toContain("fix tests");
+    expect(host.textContent).toContain("feature.ts");
   });
 
   it("the since-fork drill diffs against the working tree (open-ended range)", async () => {

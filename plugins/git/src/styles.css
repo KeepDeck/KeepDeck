@@ -184,6 +184,37 @@
   display: none;
 }
 
+/* The list↔drill slide: two panes on a 200%-wide track, the drill class
+   translating it left. The slider clips horizontally (the off-screen pane
+   must not widen the dock) while vertical growth still reaches the list's
+   own scroll. */
+.git__slider {
+  overflow-x: hidden;
+}
+
+.git__track {
+  display: flex;
+  width: 200%;
+  align-items: flex-start;
+  transition: transform 200ms ease;
+}
+
+.git__track--drill {
+  transform: translateX(-50%);
+}
+
+.git__slidepane {
+  flex: none;
+  width: 50%;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .git__track {
+    transition: none;
+  }
+}
+
 /* The fork boundary inside the full log: work above, base history below. */
 .git__forkline {
   display: flex;

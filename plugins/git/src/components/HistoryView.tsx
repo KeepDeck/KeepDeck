@@ -19,13 +19,19 @@ import { BackIcon, CheckIcon } from "../icons";
  * (plain recent history when the repo IS the base), with a pinned "Since fork"
  * summary row when a fork applies — log and net-diff are two projections of
  * the same range, so they live on one surface (the PR commits/files-changed
- * model).
+ * model). Any local branch can be browsed by ref, checkout or not.
  *
  * Clicking a row drills into ITS file list (a commit's files, or everything
- * the branch touched since the fork, working tree included); clicking a file
- * lifts the range diff into the shared peek via `onOpen`. Drill state is
- * local: switching roots or leaving History resets it by unmount.
+ * the branch touched since the fork); clicking a file lifts the range diff
+ * into the shared peek via `onOpen`. The list and the drill are two panes on
+ * one sliding track — drilling slides forward, backing out slides back; the
+ * outgoing pane keeps its content through the transition so nothing blinks.
  */
+interface Drill {
+  label: string;
+  range: GitRange;
+}
+
 export function HistoryView({
   repo,
   version,
@@ -47,9 +53,11 @@ export function HistoryView({
     true,
     rev,
   );
-  const [drill, setDrill] = useState<{ label: string; range: GitRange } | null>(
-    null,
-  );
+  const [drill, setDrill] = useState<Drill | null>(null);
+  // The drill pane renders THIS through the slide-back, after `drill` is
+  // already null — the outgoing screen must not blank mid-animation.
+  const lastDrillRef = useRef<Drill | null>(null);
+  const sliderRef = useRef<HTMLDivElement>(null);
   const [files, setFiles] = useState<GitChangedFile[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
 
@@ -81,11 +89,17 @@ export function HistoryView({
     };
   }, [repo, version]);
 
+  // Fetch the drilled range's files. A version bump refetches IN PLACE (no
+  // loading flash); only a genuinely different drill clears the list first,
+  // so the previous drill's files never masquerade as the new one's.
+  const drillKeyRef = useRef("");
   useEffect(() => {
-    if (!drill) {
+    if (!drill) return; // keep the outgoing content for the slide-back
+    const key = `${drill.range.from}..${drill.range.to ?? ""}`;
+    if (drillKeyRef.current !== key) {
+      drillKeyRef.current = key;
       setFiles(null);
       setFilesError(null);
-      return;
     }
     let cancelled = false;
     const { services, log } = getRuntime();
@@ -124,60 +138,25 @@ export function HistoryView({
     // grows, and `hasMore` flipping off removes it entirely.
   }, [loadMore, hasMore, history]);
 
+  // Each side of the slide starts reading from the top.
+  useEffect(() => {
+    sliderRef.current?.closest(".git__list")?.scrollTo({ top: 0 });
+  }, [drill]);
+
+  const openDrill = (next: Drill) => {
+    lastDrillRef.current = next;
+    setDrill(next);
+  };
+
   if (error) return <div className="git__empty git__empty--bad">{error}</div>;
   if (!history) return <div className="git__empty">Loading…</div>;
-
-  if (drill) {
-    return (
-      <div className="git__section">
-        <button
-          type="button"
-          className="git__drillback"
-          onClick={() => setDrill(null)}
-          title="Back to the commit list"
-        >
-          <BackIcon />
-          <span className="git__drilllabel" title={drill.label}>
-            {drill.label}
-          </span>
-        </button>
-        {filesError && (
-          <div className="git__empty git__empty--bad">{filesError}</div>
-        )}
-        {!files && !filesError && <div className="git__empty">Loading…</div>}
-        {files && files.length === 0 && (
-          <div className="git__empty">Nothing changed here.</div>
-        )}
-        {files?.map((file) => (
-          <button
-            type="button"
-            className="git__row"
-            key={file.path}
-            onClick={() => onOpen(historyRow(file), drill.range)}
-            title={`${file.path} — ${codeLabel(file.code)}`}
-          >
-            <span
-              className={`git__code git__code--${file.code === "D" ? "del" : "history"}`}
-              aria-hidden
-            >
-              {file.code}
-            </span>
-            <span className="git__file">
-              {dirName(file.path) && (
-                <span className="git__dir">{dirName(file.path)}</span>
-              )}
-              <span className="git__base">{baseName(file.path)}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-    );
-  }
 
   const now = Date.now();
   const ahead = history.ahead ?? 0;
   const pickable = branches !== null && branches.branches.length > 1;
-  return (
+  const shownDrill = drill ?? lastDrillRef.current;
+
+  const list = (
     <div className="git__section">
       {pickable && (
         <div className="git__refbar">
@@ -212,7 +191,7 @@ export function HistoryView({
           type="button"
           className="git__row git__row--pin"
           onClick={() =>
-            setDrill({
+            openDrill({
               label: "Since fork",
               range: sinceForkRange(history.forkSha!, rev ?? undefined),
             })
@@ -244,7 +223,7 @@ export function HistoryView({
             type="button"
             className="git__row"
             onClick={() =>
-              setDrill({ label: commit.subject, range: commitRange(commit.sha) })
+              openDrill({ label: commit.subject, range: commitRange(commit.sha) })
             }
             title={`${commit.subject} — ${commit.author}`}
           >
@@ -268,6 +247,66 @@ export function HistoryView({
           Show earlier history
         </button>
       )}
+    </div>
+  );
+
+  const detail = shownDrill && (
+    <div className="git__section">
+      <button
+        type="button"
+        className="git__drillback"
+        onClick={() => setDrill(null)}
+        title="Back to the commit list"
+      >
+        <BackIcon />
+        <span className="git__drilllabel" title={shownDrill.label}>
+          {shownDrill.label}
+        </span>
+      </button>
+      {filesError && (
+        <div className="git__empty git__empty--bad">{filesError}</div>
+      )}
+      {!files && !filesError && <div className="git__empty">Loading…</div>}
+      {files && files.length === 0 && (
+        <div className="git__empty">Nothing changed here.</div>
+      )}
+      {files?.map((file) => (
+        <button
+          type="button"
+          className="git__row"
+          key={file.path}
+          onClick={() => onOpen(historyRow(file), shownDrill.range)}
+          title={`${file.path} — ${codeLabel(file.code)}`}
+        >
+          <span
+            className={`git__code git__code--${file.code === "D" ? "del" : "history"}`}
+            aria-hidden
+          >
+            {file.code}
+          </span>
+          <span className="git__file">
+            {dirName(file.path) && (
+              <span className="git__dir">{dirName(file.path)}</span>
+            )}
+            <span className="git__base">{baseName(file.path)}</span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="git__slider" ref={sliderRef}>
+      <div className={`git__track${drill ? " git__track--drill" : ""}`}>
+        {/* The inactive pane is inert: its buttons must not catch tabs or
+            clicks while it sits off-screen. */}
+        <div className="git__slidepane" inert={drill !== null}>
+          {list}
+        </div>
+        <div className="git__slidepane" inert={drill === null}>
+          {detail}
+        </div>
+      </div>
     </div>
   );
 }
