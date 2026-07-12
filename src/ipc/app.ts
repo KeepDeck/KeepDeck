@@ -32,3 +32,8 @@ export function openInEditor(path: string): Promise<void> {
   return invoke("open_in_editor", { path });
 }
 
+/** Open a path in a named application (the opener service's `openPathWith`). */
+export function openPathWith(path: string, application: string): Promise<void> {
+  return invoke("open_path_with", { path, application });
+}
+

@@ -75,7 +75,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         }),
       },
       ports: { allocate: async () => 0 },
-      opener: { openUrl: async () => {}, openPath: async () => {} },
+      opener: { openUrl: async () => {}, openPath: async () => {}, openPathWith: async () => {} },
       fs: {
         readDir: async () => [],
         readFile: async (path: string) => ({

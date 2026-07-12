@@ -59,6 +59,23 @@ pub fn open_in_editor(app: tauri::AppHandle, path: String) -> Result<(), String>
         .map_err(|e| e.to_string())
 }
 
+/// Open a path in a named application — `application` is the app's name as the
+/// OS resolves it (macOS: the `open -a` argument), so a caller can target any
+/// app the user configured instead of one hardcoded here.
+#[tauri::command]
+pub fn open_path_with(
+    app: tauri::AppHandle,
+    path: String,
+    application: String,
+) -> Result<(), OpenError> {
+    let path = ensure_exists(expand_tilde(path))?;
+    app.opener()
+        .open_path(path, Some(application.as_str()))
+        .map_err(|e| OpenError::Failed {
+            message: e.to_string(),
+        })
+}
+
 /// Expand a leading `~/` to `$HOME` — the opener doesn't go through a shell, so a
 /// literal `~` wouldn't resolve.
 fn expand_tilde(path: String) -> String {

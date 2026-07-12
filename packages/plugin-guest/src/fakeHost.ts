@@ -227,7 +227,7 @@ export function createFakeHost(
         },
       },
       ports: { allocate: async () => 3000 },
-      opener: { openUrl: async () => {}, openPath: async () => {} },
+      opener: { openUrl: async () => {}, openPath: async () => {}, openPathWith: async () => {} },
       fs: {
         readDir: async () => [],
         readFile: async (path) => ({

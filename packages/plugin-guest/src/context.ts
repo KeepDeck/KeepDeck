@@ -346,6 +346,8 @@ export function buildGuestContext(
       opener: {
         openUrl: (url) => rpc.call("services.opener.openUrl", [url]).then(noop),
         openPath: (path) => rpc.call("services.opener.openPath", [path]).then(noop),
+        openPathWith: (path, application) =>
+          rpc.call("services.opener.openPathWith", [path, application]).then(noop),
       },
       fs: {
         readDir: (path) =>

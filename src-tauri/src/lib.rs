@@ -98,6 +98,7 @@ pub fn run() {
             links::open_url,
             links::open_path,
             links::open_in_editor,
+            links::open_path_with,
             session::session_spawn,
             session::session_write,
             session::session_resize,
