@@ -3,6 +3,7 @@ import type {
   SettingsField,
   SettingsSectionContribution,
 } from "@keepdeck/plugin-api";
+import { pickApplication } from "../../ipc/dialogs";
 import { getSettings, updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { Dropdown } from "../../ui/Dropdown";
@@ -136,9 +137,17 @@ function PluginField({
   }
 }
 
+/** The picked bundle's display name — the `open -a` argument: the basename
+ * with a trailing `.app` stripped (`/Applications/Zed.app` → `Zed`). */
+export function appNameFromPath(path: string): string {
+  const base = path.split("/").filter(Boolean).pop() ?? "";
+  return base.endsWith(".app") ? base.slice(0, -".app".length) : base;
+}
+
 /** The stringList editor: one row per entry with a remove control, plus an
- * add input. Entries are trimmed; blanks and duplicates never enter the
- * list — silently, since both mean "already what you asked for". */
+ * add flow — the OS application picker when the field asks for it, a free
+ * input otherwise. Entries are trimmed; blanks and duplicates never enter
+ * the list — silently, since both mean "already what you asked for". */
 function StringListField({
   field,
   value,
@@ -149,11 +158,15 @@ function StringListField({
   onWrite(value: string[]): void;
 }) {
   const [draft, setDraft] = useState("");
-  const add = () => {
-    const entry = draft.trim();
+  const add = (raw: string) => {
+    const entry = raw.trim();
     if (!entry) return;
     if (!value.includes(entry)) onWrite([...value, entry]);
-    setDraft("");
+  };
+  const addFromPicker = () => {
+    void pickApplication().then((path) => {
+      if (path) add(appNameFromPath(path));
+    });
   };
   return (
     <div className="settings__field">
@@ -172,27 +185,43 @@ function StringListField({
           </button>
         </div>
       ))}
-      <div className="settings__list-add">
-        <input
-          {...noAutoCorrect}
-          className="form__input"
-          value={draft}
-          placeholder={field.placeholder}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") add();
-          }}
-          aria-label={`Add ${field.label}`}
-        />
+      {field.picker === "application" ? (
         <button
           type="button"
-          className="settings__list-add-btn"
-          onClick={add}
-          disabled={!draft.trim()}
+          className="settings__list-add-btn settings__list-add-btn--picker"
+          onClick={addFromPicker}
         >
-          Add
+          Add application…
         </button>
-      </div>
+      ) : (
+        <div className="settings__list-add">
+          <input
+            {...noAutoCorrect}
+            className="form__input"
+            value={draft}
+            placeholder={field.placeholder}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                add(draft);
+                setDraft("");
+              }
+            }}
+            aria-label={`Add ${field.label}`}
+          />
+          <button
+            type="button"
+            className="settings__list-add-btn"
+            onClick={() => {
+              add(draft);
+              setDraft("");
+            }}
+            disabled={!draft.trim()}
+          >
+            Add
+          </button>
+        </div>
+      )}
     </div>
   );
 }

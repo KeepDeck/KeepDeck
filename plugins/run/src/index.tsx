@@ -37,7 +37,7 @@ const activate: KeepDeckPlugin["activate"] = (ctx: PluginContext) => {
         key: OPEN_APPS_KEY,
         label: "Open in applications",
         default: DEFAULT_OPEN_APPS,
-        placeholder: "Application name (as the OS knows it)",
+        picker: "application",
       },
     ],
   });

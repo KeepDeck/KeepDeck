@@ -8,7 +8,10 @@ import {
   initSettings,
   resetSettingsManager,
 } from "../../app/settingsManager";
-import { PluginSettingsSection } from "./PluginSettingsSection";
+import {
+  appNameFromPath,
+  PluginSettingsSection,
+} from "./PluginSettingsSection";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -22,6 +25,13 @@ const ipc = vi.hoisted(() => ({
   quarantineSettings: vi.fn<() => Promise<void>>(async () => {}),
 }));
 vi.mock("../../ipc/settings", () => ipc);
+
+// The picker-mode add flow goes through the native dialog — mocked here.
+const dialogs = vi.hoisted(() => ({
+  pickFolder: vi.fn<() => Promise<string | null>>(async () => null),
+  pickApplication: vi.fn<() => Promise<string | null>>(async () => null),
+}));
+vi.mock("../../ipc/dialogs", () => dialogs);
 
 const section: SettingsSectionContribution = {
   label: "Run",
@@ -136,5 +146,100 @@ describe("PluginSettingsSection — the stringList editor", () => {
     expect(entries()).toEqual([]);
     // An explicitly emptied list is stored as [], NOT reset to the default.
     expect(storedApps()).toEqual([]);
+  });
+});
+
+describe("appNameFromPath", () => {
+  it("strips the .app suffix off the bundle's basename", () => {
+    expect(appNameFromPath("/Applications/IntelliJ IDEA.app")).toBe(
+      "IntelliJ IDEA",
+    );
+  });
+
+  it("passes a non-bundle basename through", () => {
+    expect(appNameFromPath("/usr/local/bin/nvim")).toBe("nvim");
+  });
+});
+
+describe("PluginSettingsSection — the application-picker add flow", () => {
+  const pickerSection: SettingsSectionContribution = {
+    label: "Run",
+    fields: [
+      {
+        kind: "stringList",
+        key: "openApps",
+        label: "Open in applications",
+        default: ["Visual Studio Code"],
+        picker: "application",
+      },
+    ],
+  };
+
+  let host: HTMLElement;
+  let root: Root;
+
+  const entries = () =>
+    [...document.querySelectorAll(".settings__list-entry")].map(
+      (n) => n.textContent,
+    );
+  const addButton = () =>
+    [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (b) => b.textContent === "Add application…",
+    )!;
+
+  const mount = async () => {
+    await initSettings();
+    await act(async () => {
+      root.render(
+        createElement(PluginSettingsSection, {
+          pluginId: "keepdeck.run",
+          section: pickerSection,
+        }),
+      );
+    });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetSettingsManager();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    resetSettingsManager();
+  });
+
+  it("replaces the free input with the picker button", async () => {
+    await mount();
+    expect(addButton()).not.toBeUndefined();
+    expect(document.querySelector("input")).toBeNull();
+  });
+
+  it("a picked bundle enters the list by its display name", async () => {
+    dialogs.pickApplication.mockResolvedValue("/Applications/IntelliJ IDEA.app");
+    await mount();
+    await act(async () => addButton().click());
+    expect(entries()).toEqual(["Visual Studio Code", "IntelliJ IDEA"]);
+    expect(
+      getSettings()?.plugins.values["keepdeck.run"]?.openApps,
+    ).toEqual(["Visual Studio Code", "IntelliJ IDEA"]);
+  });
+
+  it("a cancelled picker adds nothing", async () => {
+    dialogs.pickApplication.mockResolvedValue(null);
+    await mount();
+    await act(async () => addButton().click());
+    expect(entries()).toEqual(["Visual Studio Code"]);
+  });
+
+  it("re-picking a listed app never duplicates it", async () => {
+    dialogs.pickApplication.mockResolvedValue(
+      "/Applications/Visual Studio Code.app",
+    );
+    await mount();
+    await act(async () => addButton().click());
+    expect(entries()).toEqual(["Visual Studio Code"]);
   });
 });
