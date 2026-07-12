@@ -189,15 +189,22 @@ describe("release workflow", () => {
     const publish = release.jobs.publish.steps.find(
       (s) => s.name === 'Publish the rolling "latest" release',
     );
-    expect(publish.run).toContain('--title "KeepDeck latest ($VERSION)"');
+    // Static title and notes — created once, never version-stamped, so the
+    // entry sinks down the page as versioned releases stack above it.
+    expect(publish.run).toContain('--title "KeepDeck latest"');
+    expect(publish.run).not.toContain("KeepDeck latest (");
     expect(publish.run).toContain("--notes-file rolling-notes.md");
     expect(publish.run).not.toContain("--notes-file notes.md");
+    // The "Latest" badge belongs to the versioned releases, never to rolling.
+    expect(publish.run).toContain("--latest=false");
 
     const archive = release.jobs.publish.steps.find(
       (s) => s.name === "Archive this version as its own release",
     );
     expect(archive.run).toContain('--title "KeepDeck $VERSION"');
     expect(archive.run).toContain("--notes-file notes.md");
+    expect(archive.run).toContain("--latest");
+    expect(archive.run).not.toContain("--latest=false");
   });
 
   it("archives every version as its own release, badge and manifest stay rolling", () => {
@@ -217,7 +224,6 @@ describe("release workflow", () => {
     // ...but exactly one latest.json may exist (the rolling release's), and
     // the "Latest" badge stays on the rolling release too.
     expect(archive.run).not.toContain("latest.json");
-    expect(archive.run).toContain("--latest=false");
     // History must never delay what installs and updates consume.
     const steps = release.jobs.publish.steps.map((s) => s.name);
     expect(steps.indexOf("Archive this version as its own release")).toBeGreaterThan(
