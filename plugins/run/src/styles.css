@@ -26,6 +26,37 @@
   margin-bottom: 16px;
 }
 
+/* ── "Open in" — the target directory in a picked application ─────────── */
+.run__open {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.run__open-app {
+  flex: 1;
+  min-width: 0;
+}
+
+.run__open-go {
+  flex: none;
+  padding: 0 14px;
+  border: 1px solid #2a3446;
+  border-radius: 8px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.run__open-go:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
+  border-color: #3a4658;
+}
+
 /* Section head with the rail's "+" idiom. */
 .run__sect {
   display: flex;

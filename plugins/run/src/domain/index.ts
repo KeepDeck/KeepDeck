@@ -5,6 +5,7 @@
  * and testable without the plugin context; the manager and components wire it
  * to `ctx.services` and `ctx.storage`.
  */
+export * from "./openIn";
 export * from "./presets";
 export * from "./presentation";
 export * from "./sessions";

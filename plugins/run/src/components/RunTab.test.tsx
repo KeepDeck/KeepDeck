@@ -66,6 +66,11 @@ function makeManager() {
 }
 
 const kv = { get: vi.fn(), set: vi.fn(async () => {}), delete: vi.fn(async () => {}) };
+const opener = {
+  openUrl: vi.fn(async () => {}),
+  openPath: vi.fn(async () => {}),
+  openPathWith: vi.fn(async () => {}),
+};
 const ctx = {
   storage: { workspace: vi.fn(() => kv), global: kv },
   events: {
@@ -73,6 +78,8 @@ const ctx = {
     onWorkspaceClosed: vi.fn(() => ({ dispose: vi.fn() })),
     onPaneSelected: vi.fn(() => ({ dispose: vi.fn() })),
   },
+  services: { opener },
+  log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 } as unknown as PluginContext;
 
 function type(el: HTMLTextAreaElement | HTMLInputElement, text: string) {
@@ -406,5 +413,63 @@ describe("RunTab — target follows the highlighted pane", () => {
     expect(target().textContent).toBe("Workspace folder");
     await render(); // same highlight → the manual pick holds
     expect(target().textContent).toBe("Workspace folder");
+  });
+});
+
+describe("RunTab — Open in", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let manager: ReturnType<typeof makeManager>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    manager = makeManager();
+    setRuntime({ manager: manager as unknown as RunManager, ctx });
+    kv.get.mockResolvedValue([]);
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    setRuntime(null);
+  });
+
+  const mount = async (selectedPaneId = "pane-2") => {
+    await act(async () => {
+      root.render(createElement(RunTab, { workspace, selectedPaneId }));
+    });
+    // Flush the async storage reads (presets + the openApp pick).
+    await act(async () => {});
+  };
+
+  const row = () => document.querySelector<HTMLElement>(".run__open")!;
+
+  it("opens the CURRENT target in the picked application", async () => {
+    await mount(); // pane-2 highlighted → target /wt/b
+    act(() => byText("Open")!.click());
+    expect(opener.openPathWith).toHaveBeenCalledWith(
+      "/wt/b",
+      "Visual Studio Code",
+    );
+  });
+
+  it("a pick is written to the workspace slot and used on open", async () => {
+    await mount();
+    act(() =>
+      row().querySelector<HTMLButtonElement>(".dropdown__button")!.click(),
+    );
+    act(() => byText("IntelliJ IDEA")!.click());
+    expect(kv.set).toHaveBeenCalledWith("openApp", "IntelliJ IDEA");
+    act(() => byText("Open")!.click());
+    expect(opener.openPathWith).toHaveBeenCalledWith("/wt/b", "IntelliJ IDEA");
+  });
+
+  it("hydrates the stored pick; junk in the slot falls back to the default", async () => {
+    kv.get.mockImplementation(async (key: unknown) =>
+      key === "openApp" ? "Finder" : [],
+    );
+    await mount();
+    expect(row().querySelector(".dropdown__label")!.textContent).toBe("Finder");
   });
 });
