@@ -183,7 +183,9 @@ describe("release workflow", () => {
       (s) => s.name === "Archive this version as its own release",
     );
     // The permanent history entry: same assets and notes...
-    expect(archive.run).toContain('gh release create "v$VERSION"');
+    // Bare version, per the repo-wide no-v-prefix rule.
+    expect(archive.run).toContain('gh release create "$VERSION"');
+    expect(archive.run).not.toContain("v$VERSION");
     expect(archive.run).toContain("--notes-file notes.md");
     expect(archive.run).toContain('--target "${{ needs.pin.outputs.sha }}"');
     for (const arch of ["arm64", "x64"]) {
