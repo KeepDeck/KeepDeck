@@ -64,18 +64,35 @@ describe("build-macos workflow", () => {
   it("builds both supported architectures natively", () => {
     expect(build.jobs.build.strategy["fail-fast"]).toBe(false);
     expect(build.jobs.build.strategy.matrix.include).toEqual([
-      { runner: "macos-latest", asset: "KeepDeck-macos-arm64.zip" },
-      { runner: "macos-15-intel", asset: "KeepDeck-macos-x64.zip" },
+      { runner: "macos-latest", arch: "arm64" },
+      { runner: "macos-15-intel", arch: "x64" },
     ]);
   });
 
-  it("fails loudly when a leg produces no asset", () => {
-    const upload = build.jobs.build.steps.at(-1);
-    expect(upload.with).toMatchObject({
-      name: "${{ matrix.asset }}",
-      path: "${{ matrix.asset }}",
-      "if-no-files-found": "error",
+  it("signs updater payloads with the key from the caller's secrets", () => {
+    expect(build.on.workflow_call.secrets.TAURI_SIGNING_PRIVATE_KEY.required).toBe(
+      true,
+    );
+    const step = build.jobs.build.steps.find((s) =>
+      s.name?.startsWith("Build and package"),
+    );
+    expect(step.env).toEqual({
+      TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}",
     });
+    expect(step.run).toContain("--config src-tauri/tauri.release.conf.json");
+  });
+
+  it("ships the zip, the updater payload and its signature per arch", () => {
+    const upload = build.jobs.build.steps.at(-1);
+    expect(upload.with.name).toBe("KeepDeck-macos-${{ matrix.arch }}");
+    expect(upload.with.path.trim().split("\n")).toEqual([
+      "KeepDeck-macos-${{ matrix.arch }}.zip",
+      "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz",
+      "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz.sig",
+    ]);
+    expect(upload.with["if-no-files-found"]).toBe("error");
   });
 });
 

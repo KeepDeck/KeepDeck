@@ -39,6 +39,7 @@ jobs:
     uses: ./.github/workflows/build-macos.yml
     with:
       ref: ${{ inputs.ref }}
+    secrets: inherit
 
   publish:
     needs: build
