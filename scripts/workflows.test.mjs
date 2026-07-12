@@ -215,7 +215,10 @@ describe("release workflow", () => {
   });
 
   it("uploads payloads before the manifest, and the manifest last", () => {
-    const publish = release.jobs.publish.steps.at(-1);
+    // By name, not position — the version archive step now follows it.
+    const publish = release.jobs.publish.steps.find(
+      (s) => s.name === 'Publish the rolling "latest" release',
+    );
     const lines = publish.run.split("\n");
     const payloadUpload = lines.findIndex((l) =>
       l.includes("gh release upload latest \\"),
