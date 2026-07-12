@@ -221,6 +221,13 @@
 .pane__exit {
   position: absolute;
   inset: 0;
+  /* Above every layer xterm stacks over the dead terminal: the canvas
+     renderer's transparent full-size layers carry inline z-index 0–3, and
+     xterm.css goes up to 10 (accessibility) — none of the ancestors up to
+     .pane__body form a stacking context, so without this the cursor canvas
+     invisibly hit-tests ABOVE the card and swallows the action buttons'
+     clicks into the dead PTY. */
+  z-index: 11;
   display: flex;
   flex-direction: column;
   align-items: center;
