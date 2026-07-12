@@ -5,12 +5,18 @@ import { checkForUpdate, relaunchApp, type Update } from "../ipc/updater";
 /**
  * The owner of the in-app update flow — one per app, outside React, like
  * `settingsManager`. Boot calls [`initUpdates`] once (main.tsx); React reads
- * through the `useUpdate` hook; the top-bar button and the Updates settings
- * section act through [`checkForUpdatesNow`]/[`restartToUpdate`].
+ * through the `useUpdate` hook; the top bar and the Updates settings section
+ * act through the exported actions.
  *
- * The flow is deliberately download-then-wait: an update found by the
- * periodic check downloads and verifies in the background, then sits in
- * `ready` until the USER restarts — the running deck is never yanked away.
+ * The flow is deliberately consent-driven — NOTHING is downloaded or
+ * installed without an explicit user action (user decision 2026-07-12, after
+ * the first cut auto-downloaded on a manual check):
+ *
+ *   check (boot / periodic / manual) → `available`   — found, zero bytes
+ *   [Download]                       → `downloading` → `ready`
+ *   [Restart to update]              → `installing`  → relaunch
+ *   [Dismiss]                        → back to `idle` from available/ready
+ *
  * Dev builds carry no updater config (see tauri.release.conf.json), the
  * `app_info` command reports that, and the whole flow stays `disabled`.
  */
@@ -19,18 +25,19 @@ export type UpdatePhase =
   | "disabled" // dev build — the updater plugin is not configured
   | "idle" // no update known; periodic checks continue
   | "checking"
+  | "available" // a newer version exists; nothing has been downloaded
   | "downloading"
   | "ready" // downloaded and signature-verified; waiting for the user
   | "installing"; // swapping the bundle and relaunching
 
 export interface UpdateState {
   phase: UpdatePhase;
-  /** The update's version, from `downloading` onward. */
+  /** The update's version, from `available` onward. */
   version: string | null;
   /** Download progress in bytes; `total` is null until the server says. */
   received: number;
   total: number | null;
-  /** The last failure, kept for the settings row; cleared on a new check. */
+  /** The last failure, kept for the settings row; cleared on a new attempt. */
   error: string | null;
   /** Epoch ms of the last completed check. */
   checkedAt: number | null;
@@ -50,7 +57,8 @@ function initial(): UpdateState {
 }
 
 let state: UpdateState = initial();
-/** The plugin's handle for the downloaded update — what `install()` applies. */
+/** The plugin's handle for the found update — download() and install() live
+ * on it, so it is kept from `available` through `installing`. */
 let update: Update | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let boot: Promise<void> | null = null;
@@ -84,15 +92,15 @@ export function initUpdates(intervalMs = CHECK_INTERVAL_MS): Promise<void> {
 }
 
 /** Manual "Check for updates" from settings. A no-op while anything is in
- * flight or already waiting — restarting is the only move from `ready`. */
+ * flight or already found — those states have their own actions. */
 export function checkForUpdatesNow(): void {
   if (state.phase !== "idle") return;
   void runCheck();
 }
 
 async function runCheck(): Promise<void> {
-  // A periodic tick may land while a download runs or an update waits in
-  // `ready` — nothing useful to do until the user restarts.
+  // A periodic tick may land while a found update awaits a decision or a
+  // download runs — the user's move, nothing to re-check.
   if (state.phase !== "idle") return;
   apply({ phase: "checking", error: null });
   try {
@@ -101,30 +109,46 @@ async function runCheck(): Promise<void> {
       apply({ phase: "idle", checkedAt: Date.now() });
       return;
     }
-    apply({
-      phase: "downloading",
-      version: found.version,
-      received: 0,
-      total: null,
-      checkedAt: Date.now(),
-    });
-    // Download (and signature-verify) now; install waits for the user.
-    await found.download((event) => {
+    // Found — and STOP. Zero bytes move until the user asks for them.
+    update = found;
+    apply({ phase: "available", version: found.version, checkedAt: Date.now() });
+  } catch (e) {
+    // Transient by assumption (offline, mid-publish window…): surface in
+    // settings, retry on the next tick.
+    update = null;
+    log.warn("web:update", `update check failed: ${describeError(e)}`);
+    apply({ phase: "idle", error: describeError(e), checkedAt: Date.now() });
+  }
+}
+
+/** Explicit consent to fetch the found update. Downloads and verifies the
+ * signature, then waits in `ready` — installing is a separate decision. */
+export async function downloadUpdate(): Promise<void> {
+  const pending = update;
+  if (state.phase !== "available" || !pending) return;
+  apply({ phase: "downloading", received: 0, total: null, error: null });
+  try {
+    await pending.download((event) => {
       if (event.event === "Started") {
         apply({ total: event.data.contentLength ?? null });
       } else if (event.event === "Progress") {
         apply({ received: state.received + event.data.chunkLength });
       }
     });
-    update = found;
     apply({ phase: "ready" });
   } catch (e) {
-    // Transient by assumption (offline, mid-publish signature mismatch…):
-    // surface in settings, retry on the next tick.
-    update = null;
-    log.warn("web:update", `update check failed: ${describeError(e)}`);
-    apply({ phase: "idle", error: describeError(e), checkedAt: Date.now() });
+    // The update is still known-available; the Download button retries.
+    log.warn("web:update", `update download failed: ${describeError(e)}`);
+    apply({ phase: "available", error: describeError(e) });
   }
+}
+
+/** Forget the found (or downloaded) update and return to `idle`. A later
+ * check — periodic or manual — will offer it again. */
+export function dismissUpdate(): void {
+  if (state.phase !== "available" && state.phase !== "ready") return;
+  update = null;
+  apply({ phase: "idle", version: null, received: 0, total: null });
 }
 
 /** Swap the downloaded bundle into place and relaunch. Only meaningful from

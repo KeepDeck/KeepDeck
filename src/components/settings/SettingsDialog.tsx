@@ -9,6 +9,9 @@ import { SETTINGS_SECTIONS } from "./sections";
 
 interface SettingsDialogProps {
   onClose(): void;
+  /** Open on this section instead of the first one (the bar's update chip
+   * jumps straight to Updates). Unknown ids fall back to the first section. */
+  initialSectionId?: string;
 }
 
 /**
@@ -20,7 +23,7 @@ interface SettingsDialogProps {
  * section — enable toggle, access, restart and its contributed settings in
  * one place. There is deliberately no all-plugins page (user decision).
  */
-export function SettingsDialog({ onClose }: SettingsDialogProps) {
+export function SettingsDialog({ onClose, initialSectionId }: SettingsDialogProps) {
   useEscape(onClose);
   const installed = useInstalledPlugins(pluginHost);
   const contributed = useContributions(pluginRegistries.settingsSections);
@@ -47,7 +50,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
       ),
     }));
   const sections = [...appSections, ...pluginSections];
-  const [activeId, setActiveId] = useState(sections[0].id);
+  const [activeId, setActiveId] = useState(initialSectionId ?? sections[0].id);
   // An uninstalled plugin's section can vanish while open — fall back.
   const active = sections.find((s) => s.id === activeId) ?? sections[0];
 
