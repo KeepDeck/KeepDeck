@@ -18,6 +18,12 @@ const section: SettingsSectionContribution = {
         { value: "manual", label: "Manual" },
       ],
     },
+    {
+      kind: "stringList",
+      key: "apps",
+      label: "Apps",
+      default: ["VS Code"],
+    },
   ],
 };
 
@@ -28,6 +34,7 @@ describe("mergeSectionValues", () => {
       note: "",
       port: 3000,
       mode: "auto",
+      apps: ["VS Code"],
     });
   });
 
@@ -44,8 +51,24 @@ describe("mergeSectionValues", () => {
         note: 5,
         port: "eighty",
         mode: "bogus",
+        apps: [1, "Zed"],
       }),
-    ).toEqual({ greet: true, note: "", port: 3000, mode: "auto" });
+    ).toEqual({
+      greet: true,
+      note: "",
+      port: 3000,
+      mode: "auto",
+      apps: ["VS Code"],
+    });
+  });
+
+  it("stringList accepts only an all-strings array", () => {
+    expect(mergeSectionValues(section, { apps: ["Zed", "Nova"] }).apps).toEqual(
+      ["Zed", "Nova"],
+    );
+    expect(mergeSectionValues(section, { apps: "Zed" }).apps).toEqual([
+      "VS Code",
+    ]);
   });
 
   it("select accepts only a declared option", () => {

@@ -39,4 +39,14 @@ export type SettingsField =
       label: string;
       default: string;
       options: { value: string; label: string }[];
+    }
+  | {
+      /** A user-managed list of strings (add / remove rows) — e.g. the Run
+       * plugin's "Open in" applications. Order is the stored order. */
+      kind: "stringList";
+      key: string;
+      label: string;
+      default: string[];
+      /** Placeholder for the add-entry input. */
+      placeholder?: string;
     };

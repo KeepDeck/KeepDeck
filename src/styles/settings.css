@@ -156,6 +156,82 @@
   margin-bottom: 16px;
 }
 
+/* A stringList field's entry row: the value + its remove control. */
+.settings__list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #c5c8c6;
+}
+
+.settings__list-entry {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings__list-remove {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings__list-remove:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
+}
+
+.settings__list-add {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.settings__list-add .form__input {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.settings__list-add-btn {
+  flex: none;
+  padding: 0 14px;
+  border: 1px solid #2a3446;
+  border-radius: 8px;
+  background: transparent;
+  color: #9aa3af;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings__list-add-btn:hover:not(:disabled) {
+  background-color: #1b2230;
+  color: #c5c8c6;
+  border-color: #3a4658;
+}
+
+.settings__list-add-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* A plugin page's rescan lives on the nav group header; fixed square so the
    button never resizes between scan states. */
 .settings__rescan {

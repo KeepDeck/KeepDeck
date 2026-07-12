@@ -1,22 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_OPEN_APP, knownOpenApp, OPEN_APPS } from "./openIn";
+import { openAppsFrom, resolveOpenApp } from "./openIn";
 
-describe("knownOpenApp", () => {
-  it("passes a listed app through", () => {
-    expect(knownOpenApp("IntelliJ IDEA")).toBe("IntelliJ IDEA");
+describe("openAppsFrom", () => {
+  it("reads the configured list in stored order", () => {
+    expect(
+      openAppsFrom({ openApps: ["Visual Studio Code", "IntelliJ IDEA"] }),
+    ).toEqual(["Visual Studio Code", "IntelliJ IDEA"]);
   });
 
-  it("falls back to the default for an unknown name", () => {
-    // A stored pick can outlive the list it was made from.
-    expect(knownOpenApp("Sublime Text")).toBe(DEFAULT_OPEN_APP);
+  it("trims entries and drops blanks and duplicates (hand-edited file)", () => {
+    expect(
+      openAppsFrom({ openApps: [" Zed ", "", "Zed", "  "] }),
+    ).toEqual(["Zed"]);
   });
 
-  it("falls back for non-string junk out of the schemaless slot", () => {
-    expect(knownOpenApp(undefined)).toBe(DEFAULT_OPEN_APP);
-    expect(knownOpenApp([{ id: "run-1" }])).toBe(DEFAULT_OPEN_APP);
+  it("yields an empty list for junk in the settings bag", () => {
+    expect(openAppsFrom({})).toEqual([]);
+    expect(openAppsFrom({ openApps: "Zed" })).toEqual([]);
+    expect(openAppsFrom({ openApps: [1, { app: "Zed" }] })).toEqual([]);
+  });
+});
+
+describe("resolveOpenApp", () => {
+  const apps = ["Visual Studio Code", "IntelliJ IDEA"];
+
+  it("keeps the workspace's pick while the list still has it", () => {
+    expect(resolveOpenApp("IntelliJ IDEA", apps)).toBe("IntelliJ IDEA");
   });
 
-  it("defaults to the first listed app", () => {
-    expect(DEFAULT_OPEN_APP).toBe(OPEN_APPS[0]);
+  it("falls back to the list's first entry when the pick left the list", () => {
+    // The pick itself survives in storage — re-adding the app restores it.
+    expect(resolveOpenApp("Zed", apps)).toBe("Visual Studio Code");
+    expect(resolveOpenApp(null, apps)).toBe("Visual Studio Code");
+  });
+
+  it("resolves to null when nothing is configured — the row hides", () => {
+    expect(resolveOpenApp("Zed", [])).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
   SettingsField,
   SettingsSectionContribution,
@@ -119,5 +120,79 @@ function PluginField({
           />
         </label>
       );
+    case "stringList":
+      return (
+        <StringListField
+          field={field}
+          value={
+            Array.isArray(stored) &&
+            stored.every((item) => typeof item === "string")
+              ? stored
+              : field.default
+          }
+          onWrite={onWrite}
+        />
+      );
   }
+}
+
+/** The stringList editor: one row per entry with a remove control, plus an
+ * add input. Entries are trimmed; blanks and duplicates never enter the
+ * list — silently, since both mean "already what you asked for". */
+function StringListField({
+  field,
+  value,
+  onWrite,
+}: {
+  field: Extract<SettingsField, { kind: "stringList" }>;
+  value: string[];
+  onWrite(value: string[]): void;
+}) {
+  const [draft, setDraft] = useState("");
+  const add = () => {
+    const entry = draft.trim();
+    if (!entry) return;
+    if (!value.includes(entry)) onWrite([...value, entry]);
+    setDraft("");
+  };
+  return (
+    <div className="settings__field">
+      <span className="form__label">{field.label}</span>
+      {value.map((entry) => (
+        <div key={entry} className="settings__list-row">
+          <span className="settings__list-entry">{entry}</span>
+          <button
+            type="button"
+            className="settings__list-remove"
+            onClick={() => onWrite(value.filter((v) => v !== entry))}
+            title={`Remove ${entry}`}
+            aria-label={`Remove ${entry}`}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <div className="settings__list-add">
+        <input
+          {...noAutoCorrect}
+          className="form__input"
+          value={draft}
+          placeholder={field.placeholder}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") add();
+          }}
+          aria-label={`Add ${field.label}`}
+        />
+        <button
+          type="button"
+          className="settings__list-add-btn"
+          onClick={add}
+          disabled={!draft.trim()}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
 }

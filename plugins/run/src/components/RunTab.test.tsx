@@ -66,6 +66,9 @@ function makeManager() {
 }
 
 const kv = { get: vi.fn(), set: vi.fn(async () => {}), delete: vi.fn(async () => {}) };
+// The plugin's effective settings values — per-test mutable (the Open in
+// describe swaps the app list).
+let settingsBag: Record<string, unknown> = {};
 const opener = {
   openUrl: vi.fn(async () => {}),
   openPath: vi.fn(async () => {}),
@@ -79,6 +82,10 @@ const ctx = {
     onPaneSelected: vi.fn(() => ({ dispose: vi.fn() })),
   },
   services: { opener },
+  settings: {
+    read: vi.fn(async () => settingsBag),
+    onChange: vi.fn(() => ({ dispose: vi.fn() })),
+  },
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 } as unknown as PluginContext;
 
@@ -426,6 +433,8 @@ describe("RunTab — Open in", () => {
     manager = makeManager();
     setRuntime({ manager: manager as unknown as RunManager, ctx });
     kv.get.mockResolvedValue([]);
+    // The settings-sourced application list (Settings → Run).
+    settingsBag = { openApps: ["Visual Studio Code", "IntelliJ IDEA"] };
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -439,13 +448,13 @@ describe("RunTab — Open in", () => {
     await act(async () => {
       root.render(createElement(RunTab, { workspace, selectedPaneId }));
     });
-    // Flush the async storage reads (presets + the openApp pick).
+    // Flush the async reads (presets, the openApp pick, the settings list).
     await act(async () => {});
   };
 
-  const row = () => document.querySelector<HTMLElement>(".run__open")!;
+  const row = () => document.querySelector<HTMLElement>(".run__open");
 
-  it("opens the CURRENT target in the picked application", async () => {
+  it("opens the CURRENT target in the list's first app when nothing is picked", async () => {
     await mount(); // pane-2 highlighted → target /wt/b
     act(() => byText("Open")!.click());
     expect(opener.openPathWith).toHaveBeenCalledWith(
@@ -457,7 +466,7 @@ describe("RunTab — Open in", () => {
   it("a pick is written to the workspace slot and used on open", async () => {
     await mount();
     act(() =>
-      row().querySelector<HTMLButtonElement>(".dropdown__button")!.click(),
+      row()!.querySelector<HTMLButtonElement>(".dropdown__button")!.click(),
     );
     act(() => byText("IntelliJ IDEA")!.click());
     expect(kv.set).toHaveBeenCalledWith("openApp", "IntelliJ IDEA");
@@ -465,11 +474,30 @@ describe("RunTab — Open in", () => {
     expect(opener.openPathWith).toHaveBeenCalledWith("/wt/b", "IntelliJ IDEA");
   });
 
-  it("hydrates the stored pick; junk in the slot falls back to the default", async () => {
+  it("hydrates the stored pick from the workspace slot", async () => {
+    kv.get.mockImplementation(async (key: unknown) =>
+      key === "openApp" ? "IntelliJ IDEA" : [],
+    );
+    await mount();
+    expect(row()!.querySelector(".dropdown__label")!.textContent).toBe(
+      "IntelliJ IDEA",
+    );
+  });
+
+  it("a pick that LEFT the settings list falls back to the first app", async () => {
     kv.get.mockImplementation(async (key: unknown) =>
       key === "openApp" ? "Finder" : [],
     );
     await mount();
-    expect(row().querySelector(".dropdown__label")!.textContent).toBe("Finder");
+    expect(row()!.querySelector(".dropdown__label")!.textContent).toBe(
+      "Visual Studio Code",
+    );
+  });
+
+  it("an emptied settings list hides the row entirely", async () => {
+    settingsBag = { openApps: [] };
+    await mount();
+    expect(row()).toBeNull();
+    expect(byText("Open")).toBeUndefined();
   });
 });

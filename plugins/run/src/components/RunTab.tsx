@@ -3,13 +3,14 @@ import type { DockTabProps } from "@keepdeck/plugin-api";
 import {
   addPreset,
   commandRows,
-  OPEN_APPS,
   removePreset,
+  resolveOpenApp,
   updatePreset,
   type RunSession,
 } from "../domain";
 import { getRuntime } from "../runtime";
 import { useOpenApp } from "./useOpenApp";
+import { useOpenApps } from "./useOpenApps";
 import { usePresets } from "./usePresets";
 import { useRunSessions } from "./useRunSessions";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
@@ -38,8 +39,12 @@ import { RunLog } from "./RunLog";
 export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
   const { manager, ctx } = getRuntime();
   const [presets, savePresets] = usePresets(workspace.id);
-  // The workspace's "Open in" application — its own pick, stored per workspace.
-  const [openApp, setOpenApp] = useOpenApp(workspace.id);
+  // The "Open in" applications from the plugin's settings; the workspace's
+  // own pick out of that list rides its storage slot. An emptied list hides
+  // the row (openApp = null).
+  const apps = useOpenApps();
+  const [openPick, setOpenPick] = useOpenApp(workspace.id);
+  const openApp = resolveOpenApp(openPick, apps);
 
   // Where to run: a pane's worktree, or the workspace folder. Defaults to the
   // highlighted pane's worktree — "run what I'm looking at" — and FOLLOWS the
@@ -247,34 +252,38 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
           ariaLabel="Run target directory"
         />
 
-        {/* The same target, opened in an application of the workspace's
-            choice — the pick is remembered per workspace (useOpenApp). */}
-        <span className="form__label">Open in</span>
-        <div className="run__open">
-          <Dropdown
-            className="run__open-app"
-            options={OPEN_APPS.map((app) => ({ value: app, label: app }))}
-            value={openApp}
-            onChange={setOpenApp}
-            ariaLabel="Application to open the target in"
-          />
-          <button
-            type="button"
-            className="run__open-go"
-            onClick={() =>
-              void ctx.services.opener
-                .openPathWith(target, openApp)
-                .catch((e) =>
-                  ctx.log.warn(
-                    `Open in ${openApp} failed for ${target}: ${JSON.stringify(e)}`,
-                  ),
-                )
-            }
-            title={`Open ${target} in ${openApp}`}
-          >
-            Open
-          </button>
-        </div>
+        {/* The same target, opened in an application from the plugin's
+            settings — the pick is remembered per workspace (useOpenApp). */}
+        {openApp && (
+          <>
+            <span className="form__label">Open in</span>
+            <div className="run__open">
+              <Dropdown
+                className="run__open-app"
+                options={apps.map((app) => ({ value: app, label: app }))}
+                value={openApp}
+                onChange={setOpenPick}
+                ariaLabel="Application to open the target in"
+              />
+              <button
+                type="button"
+                className="run__open-go"
+                onClick={() =>
+                  void ctx.services.opener
+                    .openPathWith(target, openApp)
+                    .catch((e) =>
+                      ctx.log.warn(
+                        `Open in ${openApp} failed for ${target}: ${JSON.stringify(e)}`,
+                      ),
+                    )
+                }
+                title={`Open ${target} in ${openApp}`}
+              >
+                Open
+              </button>
+            </div>
+          </>
+        )}
 
         <div className="run__sect">
           <span className="form__label">Commands</span>

@@ -39,5 +39,10 @@ function pick(field: SettingsField, stored: unknown): unknown {
         field.options.some((o) => o.value === stored)
         ? stored
         : field.default;
+    case "stringList":
+      return Array.isArray(stored) &&
+        stored.every((item) => typeof item === "string")
+        ? stored
+        : field.default;
   }
 }
