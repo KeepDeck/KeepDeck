@@ -55,6 +55,8 @@ function fakeDeps() {
     git: {
       status: vi.fn(),
       diffFile: vi.fn(),
+      history: vi.fn(),
+      changedFiles: vi.fn(),
       watch: vi.fn(() => ({ dispose: vi.fn() })),
     },
   };

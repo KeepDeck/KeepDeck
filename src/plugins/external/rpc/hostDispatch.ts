@@ -5,6 +5,7 @@ import type {
   DockTabContribution,
   FsReadFileOptions,
   GitDiffOptions,
+  GitHistoryOptions,
   PluginContext,
   PluginSpawnOptions,
   SettingsSectionContribution,
@@ -314,6 +315,17 @@ export function createHostDispatch(
       watches.delete(key);
     },
     "services.git.status": ([repo]) => ctx.services.git.status(repo as string),
+    "services.git.history": ([repo, opts]) =>
+      ctx.services.git.history(
+        repo as string,
+        opts as GitHistoryOptions | undefined,
+      ),
+    "services.git.changedFiles": ([repo, from, to]) =>
+      ctx.services.git.changedFiles(
+        repo as string,
+        from as string,
+        to as string | undefined,
+      ),
     "services.git.diffFile": ([repo, file, opts]) =>
       ctx.services.git.diffFile(
         repo as string,

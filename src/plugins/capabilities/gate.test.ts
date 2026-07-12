@@ -56,6 +56,8 @@ function fakeBackend() {
         entries: [],
       })),
       diffFile: vi.fn(async () => ""),
+      history: vi.fn(async () => ({ forkSha: null, commits: [] })),
+      changedFiles: vi.fn(async () => []),
       watch: vi.fn(() => ({ dispose: vi.fn() })),
     },
   };
@@ -437,6 +439,40 @@ describe("createCapabilityGate — git", () => {
     );
     expect(() => fsOnlyGate.git.status("/repo")).toThrow('"git" capability');
     expect(fsOnly.backend.git.status).not.toHaveBeenCalled();
+  });
+
+  it("gates history and changedFiles like the other git reads, scope included", async () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "git", scope: "workspace" }]),
+      backend,
+      { mode: "enforce", log: fakeLog() },
+    );
+
+    await gate.git.history("/repo", { base: "main" });
+    await gate.git.changedFiles("/repo", "abc123", "def456");
+
+    expect(backend.git.history).toHaveBeenCalledWith("/repo", "workspace", {
+      base: "main",
+    });
+    expect(backend.git.changedFiles).toHaveBeenCalledWith(
+      "/repo",
+      "abc123",
+      "def456",
+      "workspace",
+    );
+
+    const bare = fakeBackend();
+    const bareGate = createCapabilityGate(manifest([]), bare.backend, {
+      mode: "enforce",
+      log: fakeLog(),
+    });
+    expect(() => bareGate.git.history("/repo")).toThrow('"git" capability');
+    expect(() => bareGate.git.changedFiles("/repo", "abc123")).toThrow(
+      '"git" capability',
+    );
+    expect(bare.backend.git.history).not.toHaveBeenCalled();
+    expect(bare.backend.git.changedFiles).not.toHaveBeenCalled();
   });
 
   it("passes the everywhere scope through; git scope is derived from git, not fs", async () => {

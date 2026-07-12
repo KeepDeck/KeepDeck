@@ -250,6 +250,8 @@ export function createFakeHost(
           entries: [],
         }),
         diffFile: async () => "",
+        history: async () => ({ forkSha: null, commits: [] }),
+        changedFiles: async () => [],
         watch: () => ({ dispose() {} }),
       },
     },
