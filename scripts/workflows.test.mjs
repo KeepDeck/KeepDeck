@@ -78,3 +78,44 @@ describe("build-macos workflow", () => {
     });
   });
 });
+
+describe("release workflow", () => {
+  const release = workflow("release.yml");
+
+  it("is manually dispatchable, defaulting to a published build of main", () => {
+    expect(release.on.workflow_dispatch.inputs.ref).toMatchObject({
+      required: false,
+      default: "main",
+    });
+    expect(release.on.workflow_dispatch.inputs.publish).toMatchObject({
+      type: "boolean",
+      required: false,
+      default: true,
+    });
+  });
+
+  it("gates the build on tests and the upload on the publish switch", () => {
+    expect(release.jobs.test.uses).toBe("./.github/workflows/ci.yml");
+    expect(release.jobs.test.with.ref).toBe("${{ inputs.ref }}");
+    expect(release.jobs.build.needs).toBe("test");
+    expect(release.jobs.build.uses).toBe("./.github/workflows/build-macos.yml");
+    expect(release.jobs.build.with.ref).toBe("${{ inputs.ref }}");
+    expect(release.jobs.publish.needs).toBe("build");
+    expect(release.jobs.publish.if).toBe("inputs.publish");
+  });
+
+  it("serializes releases and never touches version accounting", () => {
+    expect(release.concurrency).toEqual({ group: "release", queue: "max" });
+    // The whole point of the split: releasing must never push to main.
+    expect(JSON.stringify(release)).not.toContain("git push");
+  });
+
+  it("publishes every downloaded asset to the rolling latest release", () => {
+    const download = release.jobs.publish.steps.find(
+      (s) => s.uses === "actions/download-artifact@v4",
+    );
+    expect(download.with.pattern).toBe("KeepDeck-macos-*");
+    const publish = release.jobs.publish.steps.at(-1);
+    expect(publish.run).toContain("gh release upload latest assets/*.zip --clobber");
+  });
+});

@@ -1,0 +1,82 @@
+# Builds and publishes a release from an exact ref, without ever touching
+# version accounting: version-bump.yml chains into this workflow after a
+# release-class bump, and a manual dispatch with defaults rebuilds and
+# republishes current main as-is. publish=false is a dry run that stops after
+# producing the build artifacts. Idempotent — re-running, or dispatching again
+# with the same ref, is always safe; what users actually receive is defined
+# solely by the assets on the rolling "latest" release.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build and release"
+        type: string
+        required: false
+        default: main
+      publish:
+        description: "Upload the assets to the rolling latest release"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  queue: max
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.ref }}
+
+  build:
+    needs: test
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      ref: ${{ inputs.ref }}
+
+  publish:
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Read the version under release
+        id: version
+        run: |
+          version="$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' src-tauri/Cargo.toml | head -n1)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: KeepDeck-macos-*
+          path: assets
+          merge-multiple: true
+
+      - name: Publish the rolling "latest" release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          notes="KeepDeck $VERSION (latest build).
+
+          Install:
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh"
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest assets/*.zip --clobber
+            gh release edit latest --title "KeepDeck $VERSION" --notes "$notes"
+          else
+            gh release create latest assets/*.zip \
+              --title "KeepDeck $VERSION" --notes "$notes" --latest
+          fi
