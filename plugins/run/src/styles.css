@@ -1,4 +1,8 @@
-/* The Run tab (experimental run presets): one command — one row. */
+/* The Run plugin's own stylesheet — imported by its entry, so it ships with
+   the plugin (Vite injects it in dev; the lib build emits it as the bundle's
+   index.css — together with xterm's stylesheet, which the log renderer
+   imports — linked by the host in prod). Styles ONLY the plugin's `.run`
+   family; shared chrome vocabulary stays host-styled. One command — one row. */
 
 /* Two zones: the config (target, commands) scrolls on its own; the log takes
    whatever remains and can never be squeezed out by growing lists — it only

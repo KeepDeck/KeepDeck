@@ -7,6 +7,9 @@
  * everything else (sessions, the live log) is transient, exactly as the legacy
  * feature was.
  */
+// The plugin's own stylesheet rides the module graph: Vite injects it in
+// dev; the lib build emits it as the bundle's index.css for the host to link.
+import "./styles.css";
 import type { KeepDeckPlugin, PluginContext } from "@keepdeck/plugin-api";
 import { createRunManager } from "./manager";
 import { peekRuntime, setRuntime } from "./runtime";
