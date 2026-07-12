@@ -13,7 +13,7 @@ export default defineConfig(async () => ({
     rollupOptions: {
       input: {
         index: "index.html",
-        // The four bridge chunks plugin bundles resolve through the
+        // The five bridge chunks plugin bundles resolve through the
         // production import map (see index.html). They need STABLE
         // filenames — a plugin's import map entry can't chase a content
         // hash across app releases — so they get explicit `entryFileNames`
@@ -21,6 +21,7 @@ export default defineConfig(async () => ({
         // hashed name for cache-busting.
         "react-bridge": "src/plugins/bridges/react.js",
         "react-jsx-runtime-bridge": "src/plugins/bridges/react-jsx-runtime.js",
+        "react-dom-bridge": "src/plugins/bridges/react-dom.js",
         "react-dom-client-bridge": "src/plugins/bridges/react-dom-client.js",
         "plugin-api-bridge": "src/plugins/bridges/plugin-api.js",
       },

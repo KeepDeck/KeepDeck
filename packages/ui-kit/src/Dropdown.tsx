@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { FloatingListbox } from "./FloatingListbox";
 import { ChevronDownIcon } from "./icons";
 
 export interface DropdownOption {
@@ -22,7 +23,8 @@ interface DropdownProps {
  * An in-app replacement for `<select>`: the app renders its own UI for every
  * interaction (no system dialogs, no WebView context menus), and a native
  * select popup is the same kind of foreign chrome. The closed control is a
- * form field; the open menu is our DOM — closes on pick, click-outside and
+ * form field; the open menu is our DOM portaled into a viewport-level floating
+ * layer, so panel overflow cannot clip it. It closes on pick, click-outside and
  * Escape. Keyboard cursor navigation can come when a consumer needs it.
  */
 export function Dropdown({
@@ -34,16 +36,28 @@ export function Dropdown({
 }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLUListElement | null>(null);
+  const listId = useId();
 
-  // Click-outside closes without picking. Pointerdown (not click) so a drag
-  // that starts outside also dismisses.
+  // Pointer-away closes before the outside control acts; focus-away covers
+  // keyboard Tab now that the list is portaled out of the local DOM order.
   useEffect(() => {
     if (!open) return;
-    const away = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    const away = (event: Event) => {
+      const target = event.target as Node;
+      if (
+        !rootRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
+      ) {
+        setOpen(false);
+      }
     };
-    window.addEventListener("pointerdown", away);
-    return () => window.removeEventListener("pointerdown", away);
+    window.addEventListener("pointerdown", away, true);
+    window.addEventListener("focusin", away, true);
+    return () => {
+      window.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("focusin", away, true);
+    };
   }, [open]);
 
   const current = options.find((o) => o.value === value);
@@ -66,6 +80,7 @@ export function Dropdown({
         className="form__input dropdown__button"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={listId}
         aria-label={ariaLabel}
         onClick={() => setOpen((o) => !o)}
       >
@@ -73,7 +88,12 @@ export function Dropdown({
         <ChevronDownIcon />
       </button>
       {open && (
-        <ul className="dropdown__menu" role="listbox" aria-label={ariaLabel}>
+        <FloatingListbox
+          anchorRef={rootRef}
+          listRef={menuRef}
+          id={listId}
+          aria-label={ariaLabel}
+        >
           {options.map((o) => (
             <li key={o.value}>
               <button
@@ -90,7 +110,7 @@ export function Dropdown({
               </button>
             </li>
           ))}
-        </ul>
+        </FloatingListbox>
       )}
     </div>
   );

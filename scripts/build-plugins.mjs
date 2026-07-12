@@ -2,8 +2,9 @@
 // Builds every built-in plugin under plugins/<dir>/ into its own standalone
 // ESM bundle — never glued into the app bundle — that the host loads at
 // runtime via dynamic import() plus the import map declared in index.html.
-// Every plugin bundle marks react, react/jsx-runtime, react-dom/client, and
-// @keepdeck/plugin-api EXTERNAL: the host supplies all four at runtime via
+// Every plugin bundle marks react, react/jsx-runtime, react-dom,
+// react-dom/client, and @keepdeck/plugin-api EXTERNAL: the host supplies all
+// five at runtime via
 // the bridge chunks built from src/plugins/bridges/ (see vite.config.ts), so
 // a plugin never bundles its own React and never renders with a second,
 // unsynchronized copy sitting next to the host's.
@@ -51,11 +52,12 @@ import { pathToFileURL } from "node:url";
 const PLUGINS_ROOT = "plugins";
 const DEFAULT_DIST_ROOT = "dist";
 const ENTRY_NAMES = ["index.ts", "index.tsx"];
-// The host's bridge chunks (src/plugins/bridges/) stand in for all four at
+// The host's bridge chunks (src/plugins/bridges/) stand in for all five at
 // runtime — see the file header above.
 const EXTERNAL = [
   "react",
   "react/jsx-runtime",
+  "react-dom",
   "react-dom/client",
   "@keepdeck/plugin-api",
 ];
