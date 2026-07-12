@@ -198,32 +198,36 @@ pub fn project_git_history(
     everywhere: bool,
     base: Option<String>,
     limit: Option<u32>,
+    rev: Option<String>,
 ) -> Result<GitHistory, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
 
-    let head = repo::resolve_commit(&repo, "HEAD").map_err(|e| e.to_string())?;
+    // `rev` lets the UI browse ANY ref's history without a checkout; absent,
+    // the walk starts at the working tree's own HEAD.
+    let rev = rev.as_deref().unwrap_or("HEAD");
+    let tip = repo::resolve_commit(&repo, rev).map_err(|e| e.to_string())?;
     let base_ref = match base {
         Some(base) => Some(base),
         None => repo::default_branch(&repo).unwrap_or(None),
     };
     let fork = match base_ref {
-        Some(ref base_ref) => repo::merge_base(&repo, base_ref, "HEAD")
+        Some(ref base_ref) => repo::merge_base(&repo, base_ref, rev)
             .map_err(|e| e.to_string())?
-            // The fork point AT HEAD means "we are the base" (the main repo
-            // sitting on its default branch) — no fork to measure from.
-            .filter(|fork| fork != &head),
+            // The fork point AT the tip means "this ref IS the base" (the
+            // main repo sitting on its default branch) — nothing to measure.
+            .filter(|fork| fork != &tip),
         None => None,
     };
 
-    // The FULL recent log — the branch's commits arrive first (newest-first
+    // The FULL recent log — the ref's own commits arrive first (newest-first
     // order), then the fork commit and the base history; the fork sha lets
     // the UI draw the boundary. `ahead` is counted separately so it stays
     // honest whatever window the UI has scrolled to.
     let limit = (limit.unwrap_or(HISTORY_CHUNK as u32) as usize).clamp(1, HISTORY_MAX);
-    let commits = log::log(&repo, None, limit).map_err(|e| e.to_string())?;
+    let commits = log::log(&repo, Some(rev), limit).map_err(|e| e.to_string())?;
     let ahead = match &fork {
         Some(fork) => Some(
-            log::count_range(&repo, &format!("{fork}..HEAD")).map_err(|e| e.to_string())?,
+            log::count_range(&repo, &format!("{fork}..{rev}")).map_err(|e| e.to_string())?,
         ),
         None => None,
     };
@@ -240,6 +244,31 @@ pub fn project_git_history(
                 subject: c.subject,
             })
             .collect(),
+    })
+}
+
+/// A repo's local branches, for the history browser's ref picker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBranches {
+    /// The branch the working tree is on; `None` when detached.
+    pub current: Option<String>,
+    /// Local branch names, alphabetical. Remote-tracking refs are excluded —
+    /// browsing history is a LOCAL affair, same rule as the base-branch picker.
+    pub branches: Vec<String>,
+}
+
+/// List the repo's local branches and which one is checked out.
+#[tauri::command(async)]
+pub fn project_git_branches(
+    path: String,
+    roots: Vec<String>,
+    everywhere: bool,
+) -> Result<GitBranches, String> {
+    let repo = resolve_within(&path, &roots, everywhere)?;
+    Ok(GitBranches {
+        current: repo::current_branch(&repo).map_err(|e| e.to_string())?,
+        branches: repo::list_branches(&repo).map_err(|e| e.to_string())?,
     })
 }
 
@@ -567,6 +596,7 @@ mod tests {
             false,
             None, // base defaults to the repo's default branch
             None, // default page size
+            None, // the working tree's own HEAD
         )
         .expect("history");
 
@@ -577,6 +607,7 @@ mod tests {
             false,
             None,
             Some(1),
+            None,
         )
         .expect("windowed history");
         assert_eq!(windowed.commits.len(), 1);
@@ -610,6 +641,45 @@ mod tests {
     }
 
     #[test]
+    fn history_browses_a_ref_without_a_checkout() {
+        let repo = init_repo();
+        fake_origin_main_here(&repo);
+
+        // A branch with one commit — then BACK to main, so the ref under
+        // inspection is not checked out anywhere.
+        git(&repo, &["checkout", "-q", "-b", "kd/test/2"]);
+        fs::write(repo.join("side.ts"), "s\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "side work"]);
+        git(&repo, &["checkout", "-q", "main"]);
+
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            Some("kd/test/2".to_string()),
+        )
+        .expect("history of a foreign ref");
+
+        assert_eq!(history.ahead, Some(1));
+        assert_eq!(history.commits[0].subject, "side work");
+        assert!(history.fork_sha.is_some());
+
+        let listed = project_git_branches(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+        )
+        .expect("branches");
+        assert_eq!(listed.current.as_deref(), Some("main"));
+        assert!(listed.branches.contains(&"kd/test/2".to_string()));
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
     fn history_on_the_base_branch_is_plain_recent_log() {
         let repo = init_repo();
         fake_origin_main_here(&repo);
@@ -619,6 +689,7 @@ mod tests {
             repo.to_string_lossy().into_owned(),
             roots(&repo),
             false,
+            None,
             None,
             None,
         )

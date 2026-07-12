@@ -129,6 +129,9 @@ export interface PluginGit {
    * `base` (defaulting to the repo's default branch — exact for worktrees
    * created off it) and how many commits sit on the branch's side of it. */
   history(repo: string, opts?: GitHistoryOptions): Promise<GitHistory>;
+  /** The repo's local branches and which one is checked out — the history
+   * browser's ref picker. */
+  branches(repo: string): Promise<GitBranches>;
   /** The paths changed across `from..to` — or everything since `from`
    * (committed or not) when `to` is omitted. The file list behind one commit
    * or a "since the fork" summary. */
@@ -158,6 +161,17 @@ export interface GitHistoryOptions {
   /** How many commits to list (the host clamps it). Lazy scrolling grows
    * this window; `ahead` stays honest regardless of it. */
   limit?: number;
+  /** Walk history from this ref instead of the working tree's HEAD — a
+   * branch can be browsed without being checked out anywhere. */
+  rev?: string;
+}
+
+/** A repo's local branches, for a history browser's ref picker. */
+export interface GitBranches {
+  /** The branch the working tree is on; null when detached. */
+  current: string | null;
+  /** Local branch names, alphabetical; remote-tracking refs excluded. */
+  branches: string[];
 }
 
 /** One commit in a history listing. */

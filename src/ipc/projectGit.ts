@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { GitChangedFile, GitHistory, GitStatus } from "@keepdeck/plugin-api";
+import type { GitBranches, GitChangedFile, GitHistory, GitStatus } from "@keepdeck/plugin-api";
 
 /**
  * The backend behind the plugin `git` service (`services.git`). Read-only git
@@ -51,6 +51,7 @@ export function projectGitHistory(
   everywhere: boolean,
   base?: string,
   limit?: number,
+  rev?: string,
 ): Promise<GitHistory> {
   return invoke<GitHistory>("project_git_history", {
     path,
@@ -58,7 +59,17 @@ export function projectGitHistory(
     everywhere,
     base: base ?? null,
     limit: limit ?? null,
+    rev: rev ?? null,
   });
+}
+
+/** The repo's local branches and the checked-out one. */
+export function projectGitBranches(
+  path: string,
+  roots: string[],
+  everywhere: boolean,
+): Promise<GitBranches> {
+  return invoke<GitBranches>("project_git_branches", { path, roots, everywhere });
 }
 
 /** The paths changed across `from..to`, or `from` vs the working tree. */

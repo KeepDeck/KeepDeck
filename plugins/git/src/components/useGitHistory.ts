@@ -19,25 +19,30 @@ export const HISTORY_CHUNK = 50;
  * `enabled` gates the fetch to the History view being open — the Changes view
  * never pays for a log walk.
  */
-export function useGitHistory(repo: string, version: number, enabled: boolean) {
+export function useGitHistory(
+  repo: string,
+  version: number,
+  enabled: boolean,
+  rev: string | null,
+) {
   const [history, setHistory] = useState<GitHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(HISTORY_CHUNK);
 
-  // A new repo starts blank at the first page — stale commits from the
-  // previous root must not flash while the first read is in flight.
+  // A new repo or ref starts blank at the first page — stale commits from
+  // the previous walk must not flash while the first read is in flight.
   useEffect(() => {
     setHistory(null);
     setError(null);
     setCount(HISTORY_CHUNK);
-  }, [repo]);
+  }, [repo, rev]);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     const { services, log } = getRuntime();
     services.git
-      .history(repo, { limit: count })
+      .history(repo, { limit: count, ...(rev ? { rev } : {}) })
       .then((next) => {
         if (cancelled) return;
         setHistory(next);
@@ -53,7 +58,7 @@ export function useGitHistory(repo: string, version: number, enabled: boolean) {
     return () => {
       cancelled = true;
     };
-  }, [repo, version, enabled, count]);
+  }, [repo, version, enabled, count, rev]);
 
   /** Whether scrolling further could reveal more: the last read filled its
    * whole window. A short repo underfills it and the list is complete. */

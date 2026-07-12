@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
+  GitBranches,
   GitChangedFile,
   GitHistory,
   GitStatus,
@@ -40,11 +41,13 @@ const cleanStatus = (over: Partial<GitStatus> = {}): GitStatus => ({
 function makeGit() {
   const statuses = new Map<string, GitStatus>();
   const histories = new Map<string, GitHistory>();
+  const branchLists = new Map<string, GitBranches>();
   const changed = new Map<string, GitChangedFile[]>();
   const watchers = new Map<string, Set<() => void>>();
   return {
     statuses,
     histories,
+    branchLists,
     changed, // keyed `${from}..${to ?? ""}`
     status: vi.fn(async (repo: string) => {
       const st = statuses.get(repo);
@@ -60,6 +63,10 @@ function makeGit() {
     changedFiles: vi.fn(
       async (_repo: string, from: string, to?: string) =>
         changed.get(`${from}..${to ?? ""}`) ?? [],
+    ),
+    branches: vi.fn(
+      async (repo: string) =>
+        branchLists.get(repo) ?? { current: "main", branches: ["main"] },
     ),
     diffFile: vi.fn(
       async () => "@@ -1 +1 @@\n-hello\n+goodbye\n",
@@ -86,6 +93,7 @@ function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
         status: git.status,
         diffFile: git.diffFile,
         history: git.history,
+        branches: git.branches,
         changedFiles: git.changedFiles,
         watch: git.watch,
       },
@@ -426,6 +434,63 @@ describe("GitTab", () => {
     expect(git.history).toHaveBeenCalledWith("/repo", { limit: 100 });
     expect(host.querySelectorAll("button.git__row").length).toBe(60);
     expect(host.querySelector("button.git__more")).toBeNull();
+  });
+
+  it("History can browse a branch that is not checked out", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.branchLists.set("/repo", {
+      current: "main",
+      branches: ["kd/side/1", "main"],
+    });
+    const fork = "f0".repeat(20);
+    git.histories.set("/repo", {
+      forkSha: null,
+      ahead: null,
+      commits: [
+        { sha: "d4".repeat(20), author: "Me", timestamp: 1_760_000_000, subject: "init" },
+      ],
+    });
+    setRuntime(makeCtx(git));
+
+    await render();
+    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
+      (el) => el.textContent === "History",
+    ) as HTMLButtonElement;
+    await act(async () => historyBtn.click());
+
+    // The picker labels the checkout; switching to the foreign branch walks
+    // it by ref — no checkout involved.
+    expect(host.textContent).toContain("main · checked out");
+    git.histories.set("/repo", {
+      forkSha: fork,
+      ahead: 1,
+      commits: [
+        { sha: "a9".repeat(20), author: "Agent", timestamp: 1_760_000_100, subject: "side work" },
+        { sha: fork, author: "Me", timestamp: 1_760_000_000, subject: "init" },
+      ],
+    });
+    // The ui-kit Dropdown: open the trigger, click the option button.
+    const trigger = host.querySelector(
+      ".git__ref .dropdown__button",
+    ) as HTMLButtonElement;
+    await act(async () => trigger.click());
+    const option = [...host.querySelectorAll("button[role='option']")].find(
+      (el) => el.textContent === "kd/side/1",
+    ) as HTMLButtonElement;
+    await act(async () => option.click());
+
+    expect(git.history).toHaveBeenLastCalledWith("/repo", {
+      limit: 50,
+      rev: "kd/side/1",
+    });
+    expect(host.textContent).toContain("side work");
+
+    // Since-fork on a foreign ref pins the range's end to the ref — there is
+    // no working tree to reach.
+    const pin = host.querySelector("button.git__row--pin") as HTMLButtonElement;
+    await act(async () => pin.click());
+    expect(git.changedFiles).toHaveBeenCalledWith("/repo", fork, "kd/side/1");
   });
 
   it("surfaces a status failure instead of a stuck spinner", async () => {

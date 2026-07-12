@@ -152,6 +152,17 @@
   white-space: nowrap;
 }
 
+/* The History ref picker: browse any local branch, checkout or not. */
+.git__refbar {
+  display: flex;
+  margin-bottom: 6px;
+}
+
+.git__ref {
+  flex: 1;
+  min-width: 0;
+}
+
 /* The fork boundary inside the full log: work above, base history below. */
 .git__forkline {
   display: flex;

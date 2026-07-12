@@ -25,6 +25,7 @@ import {
 } from "../ipc/projectFs";
 import {
   onProjectGitChange,
+  projectGitBranches,
   projectGitChangedFiles,
   projectGitDiffFile,
   projectGitHistory,
@@ -293,7 +294,10 @@ const serviceBackend: ServiceBackends = {
         scope === "everywhere",
         opts?.base,
         opts?.limit,
+        opts?.rev,
       ),
+    branches: (repo, scope) =>
+      projectGitBranches(repo, fsRoots(scope), scope === "everywhere"),
     changedFiles: (repo, from, to, scope) =>
       projectGitChangedFiles(repo, fsRoots(scope), scope === "everywhere", from, to),
     watch: (repo, scope, onChange) => watchProjectGit(repo, scope, onChange),

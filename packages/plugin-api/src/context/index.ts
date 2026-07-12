@@ -24,6 +24,7 @@ export type {
   FsEntryKind,
   FsFile,
   FsReadFileOptions,
+  GitBranches,
   GitChangedFile,
   GitCommit,
   GitDiffOptions,

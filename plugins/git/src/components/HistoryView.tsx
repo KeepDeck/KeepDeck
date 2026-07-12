@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { GitChangedFile } from "@keepdeck/plugin-api";
+import type { GitBranches, GitChangedFile } from "@keepdeck/plugin-api";
+import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { getRuntime } from "../runtime";
 import { useGitHistory } from "./useGitHistory";
 import {
@@ -36,10 +37,15 @@ export function HistoryView({
   version: number;
   onOpen: (row: ChangeRow, range: GitRange) => void;
 }) {
+  // Which ref the walk starts from: null = the working tree's checkout.
+  // Any local branch can be browsed without being checked out anywhere.
+  const [rev, setRev] = useState<string | null>(null);
+  const [branches, setBranches] = useState<GitBranches | null>(null);
   const { history, error, hasMore, loadMore } = useGitHistory(
     repo,
     version,
     true,
+    rev,
   );
   const [drill, setDrill] = useState<{ label: string; range: GitRange } | null>(
     null,
@@ -49,7 +55,31 @@ export function HistoryView({
 
   useEffect(() => {
     setDrill(null);
+    setRev(null);
+    setBranches(null);
   }, [repo]);
+
+  // A drilled file list belongs to one walk — leave it when the ref changes.
+  useEffect(() => {
+    setDrill(null);
+  }, [rev]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const { services, log } = getRuntime();
+    services.git
+      .branches(repo)
+      .then((next) => {
+        if (!cancelled) setBranches(next);
+      })
+      .catch((cause: unknown) => {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        log.warn(`git branches failed for ${repo}: ${message}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repo, version]);
 
   useEffect(() => {
     if (!drill) {
@@ -146,8 +176,28 @@ export function HistoryView({
 
   const now = Date.now();
   const ahead = history.ahead ?? 0;
+  const pickable = branches !== null && branches.branches.length > 1;
   return (
     <div className="git__section">
+      {pickable && (
+        <div className="git__refbar">
+          <Dropdown
+            className="git__ref"
+            options={branches.branches.map((name) => ({
+              value: name,
+              label:
+                name === branches.current ? `${name} · checked out` : name,
+            }))}
+            value={rev ?? branches.current ?? branches.branches[0]}
+            onChange={(name) =>
+              // Picking the checkout goes back to null: the walk follows
+              // HEAD and since-fork reaches the working tree again.
+              setRev(name === branches.current ? null : name)
+            }
+            ariaLabel="Branch to browse history for"
+          />
+        </div>
+      )}
       {history.forkSha && (
         <button
           type="button"
@@ -155,10 +205,10 @@ export function HistoryView({
           onClick={() =>
             setDrill({
               label: "Since fork",
-              range: sinceForkRange(history.forkSha!),
+              range: sinceForkRange(history.forkSha!, rev ?? undefined),
             })
           }
-          title={`Everything since ${shortSha(history.forkSha)}, working tree included`}
+          title={`Everything since ${shortSha(history.forkSha)}${rev ? "" : ", working tree included"}`}
         >
           <span className="git__code git__code--history" aria-hidden>
             Σ

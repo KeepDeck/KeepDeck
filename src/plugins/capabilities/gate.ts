@@ -4,6 +4,7 @@ import type {
   FsEntry,
   FsFile,
   FsReadFileOptions,
+  GitBranches,
   GitChangedFile,
   GitDiffOptions,
   GitHistory,
@@ -53,6 +54,7 @@ export interface GitBackend {
     scope: FsScope,
     opts?: GitHistoryOptions,
   ): Promise<GitHistory>;
+  branches(repo: string, scope: FsScope): Promise<GitBranches>;
   changedFiles(
     repo: string,
     from: string,
@@ -208,6 +210,13 @@ export function createCapabilityGate(
           `git.history: "${repo}" requires a "git" capability, which the manifest does not declare`,
         );
         return backend.git.history(repo, gitScope(manifest.capabilities), opts);
+      },
+      branches(repo) {
+        admit(
+          hasGitCapability(manifest.capabilities),
+          `git.branches: "${repo}" requires a "git" capability, which the manifest does not declare`,
+        );
+        return backend.git.branches(repo, gitScope(manifest.capabilities));
       },
       changedFiles(repo, from, to) {
         admit(

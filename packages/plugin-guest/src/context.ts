@@ -4,6 +4,7 @@ import type {
   FileOpenRequest,
   FsEntry,
   FsFile,
+  GitBranches,
   GitChangedFile,
   GitHistory,
   GitStatus,
@@ -363,6 +364,8 @@ export function buildGuestContext(
           rpc.call("services.git.diffFile", [repo, file, opts]) as Promise<string>,
         history: (repo, opts) =>
           rpc.call("services.git.history", [repo, opts]) as Promise<GitHistory>,
+        branches: (repo) =>
+          rpc.call("services.git.branches", [repo]) as Promise<GitBranches>,
         changedFiles: (repo, from, to) =>
           rpc.call("services.git.changedFiles", [repo, from, to]) as Promise<
             GitChangedFile[]

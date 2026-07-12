@@ -320,6 +320,8 @@ export function createHostDispatch(
         repo as string,
         opts as GitHistoryOptions | undefined,
       ),
+    "services.git.branches": ([repo]) =>
+      ctx.services.git.branches(repo as string),
     "services.git.changedFiles": ([repo, from, to]) =>
       ctx.services.git.changedFiles(
         repo as string,

@@ -18,10 +18,12 @@ export function commitRange(sha: string): GitRange {
   return { from: `${sha}^`, to: sha };
 }
 
-/** The since-the-fork range: fork point vs the WORKING TREE (open end), so
- * uncommitted work counts toward "what did this branch do". */
-export function sinceForkRange(forkSha: string): GitRange {
-  return { from: forkSha };
+/** The since-the-fork range. Browsing the checkout (`rev` omitted) leaves
+ * the end OPEN — the diff reaches the working tree, so uncommitted work
+ * counts toward "what did this branch do". Browsing a foreign ref pins the
+ * end to it: there is no working tree to reach. */
+export function sinceForkRange(forkSha: string, rev?: string): GitRange {
+  return rev ? { from: forkSha, to: rev } : { from: forkSha };
 }
 
 /** First seven characters — how git itself abbreviates in one-line logs. */

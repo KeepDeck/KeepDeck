@@ -61,7 +61,14 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
       ...new Map(
         workspace.panes
           .filter((pane) => pane.cwd && pane.cwd !== workspace.cwd)
-          .map((pane) => [pane.cwd!, pane.branch ?? shortPath(pane.cwd!)]),
+          .map((pane) => [
+            pane.cwd!,
+            // Branch AND folder: the picker chooses working trees, not
+            // branches — the folder half keeps that readable at a glance.
+            pane.branch
+              ? `${pane.branch} · ${lastSegment(pane.cwd!)}`
+              : shortPath(pane.cwd!),
+          ]),
       ).entries(),
     ].map(([value, label]) => ({ value, label })),
     { value: workspace.cwd, label: "Workspace folder" },
@@ -224,4 +231,10 @@ function Section({
 /** Last two path segments — enough to tell worktrees apart in the dropdown. */
 function shortPath(path: string): string {
   return path.split("/").filter(Boolean).slice(-2).join("/");
+}
+
+/** The folder's own name. */
+function lastSegment(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? path;
 }
