@@ -34,6 +34,19 @@ pub fn git_dir(worktree: &Path) -> Result<PathBuf, GitError> {
     Ok(PathBuf::from(out.trim()))
 }
 
+/// The repository's COMMON gitdir — where the SHARED state lives: refs,
+/// packed-refs, the object store. For the main checkout it is the gitdir
+/// itself; for a linked worktree it is the main repository's `.git`, while
+/// the worktree's private gitdir holds only its own HEAD/index. A watcher
+/// that wants to see branches move must look here.
+pub fn git_common_dir(worktree: &Path) -> Result<PathBuf, GitError> {
+    let out = run_git(
+        worktree,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )?;
+    Ok(PathBuf::from(out.trim()))
+}
+
 /// Read and parse `<git_dir>/HEAD`. `None` when the file is missing, unreadable
 /// or malformed — e.g. mid-checkout transient states — which callers treat as
 /// "no update" rather than an error (the next event re-reads a settled file).

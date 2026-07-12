@@ -16,17 +16,22 @@
 //!
 //! ## The watch
 //!
-//! "The status changed" has TWO sources, so a watch registers two watchers:
+//! "The repo changed" has several sources, so a watch registers a SET:
 //!
 //! - the WORKING TREE, recursively — edits anywhere in it change status; on
 //!   macOS this is one FSEvents stream per root, the OS walks the tree.
 //!   Everything under a `.git` component is dropped here (lockfile churn,
 //!   object writes — noise for status);
 //! - the repo's private GITDIR, non-recursively — `index` (stage/unstage,
-//!   commit), `HEAD` (checkout) and `refs` change status without touching the
-//!   working tree. For a linked worktree the gitdir lives OUTSIDE the working
-//!   tree (under the main repo's `.git/worktrees/<n>`), which is exactly why
-//!   the recursive watcher alone would miss it.
+//!   commit), `HEAD` (checkout) and `packed-refs` change state without
+//!   touching the working tree. For a linked worktree the gitdir lives
+//!   OUTSIDE the working tree (under the main repo's `.git/worktrees/<n>`),
+//!   which is exactly why the recursive watcher alone would miss it;
+//! - the COMMON gitdir's `refs/`, recursively — branches are SHARED state: a
+//!   fetch, reset or merge in another checkout moves a ref without touching
+//!   this worktree at all. For linked worktrees the common dir itself is
+//!   watched too (packed-refs swaps from gc/pack-refs); the main checkout's
+//!   gitdir watcher already covers that file.
 //!
 //! Delivery is throttled (leading edge, [`MIN_EVENT_GAP`]): a checkout or a
 //! build can fire thousands of raw events in a burst, and the webview only
@@ -370,7 +375,23 @@ fn gitdir_event_matters(event: &Event) -> bool {
         if name.ends_with(".lock") {
             return false;
         }
-        name == "index" || name == "HEAD" || p.components().any(|c| c.as_os_str() == "refs")
+        name == "index"
+            || name == "HEAD"
+            || name == "packed-refs"
+            || p.components().any(|c| c.as_os_str() == "refs")
+    })
+}
+
+/// Does a shared-refs event matter? Anything but pure access and lockfile
+/// churn — a loose ref written, moved or deleted at any depth under `refs/`
+/// is a branch moving.
+fn refs_event_matters(event: &Event) -> bool {
+    if matches!(event.kind, EventKind::Access(_)) {
+        return false;
+    }
+    event.paths.iter().any(|p| {
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        !name.ends_with(".lock")
     })
 }
 
@@ -380,6 +401,7 @@ fn gitdir_event_matters(event: &Event) -> bool {
 fn spawn_git_watch(
     worktree: &Path,
     gitdir: &Path,
+    common_dir: &Path,
     registered: String,
     min_gap: Duration,
     deliver: impl Fn(String) + Send + Sync + 'static,
@@ -387,6 +409,7 @@ fn spawn_git_watch(
     let deliver = Arc::new(deliver);
     // Primed in the past so the first real event always passes the throttle.
     let last_sent = Arc::new(Mutex::new(Instant::now() - min_gap));
+    // A plain closure: its captures are Arcs, so it clones per watcher.
     let notify = {
         let deliver = deliver.clone();
         move || {
@@ -404,12 +427,41 @@ fn spawn_git_watch(
             tree_notify();
         }
     })?;
+    let gitdir_notify = notify.clone();
     let gitdir_watcher = fswatch::watch_dir(gitdir, move |event| {
         if gitdir_event_matters(event) {
-            notify();
+            gitdir_notify();
         }
     })?;
-    Ok(vec![tree_watcher, gitdir_watcher])
+    let mut watchers = vec![tree_watcher, gitdir_watcher];
+
+    // SHARED refs live in the COMMON gitdir — a branch moved from another
+    // checkout (a fetch, a reset, a merge elsewhere) touches nothing the two
+    // watchers above can see. Recursive: loose refs nest (`refs/heads/kd/…`),
+    // and the gitdir watcher above is deliberately non-recursive.
+    let refs_notify = notify.clone();
+    watchers.push(fswatch::watch_dir_recursive(
+        &common_dir.join("refs"),
+        move |event| {
+            if refs_event_matters(event) {
+                refs_notify();
+            }
+        },
+    )?);
+
+    // A linked worktree's private gitdir is NOT the common one — watch the
+    // common dir too, for the `packed-refs` swaps (gc/pack-refs) that replace
+    // loose refs without touching `refs/`. The main checkout's own gitdir
+    // watcher already covers this (same directory).
+    if common_dir != gitdir {
+        let common_notify = notify.clone();
+        watchers.push(fswatch::watch_dir(common_dir, move |event| {
+            if gitdir_event_matters(event) {
+                common_notify();
+            }
+        })?);
+    }
+    Ok(watchers)
 }
 
 /// Start watching one repo for status-relevant changes, emitting
@@ -425,12 +477,20 @@ pub fn project_git_watch(
 ) -> Result<(), String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
     let gitdir = head::git_dir(&repo).map_err(|e| e.to_string())?;
+    let common = head::git_common_dir(&repo).map_err(|e| e.to_string())?;
 
     let emitter = app.clone();
-    let pair = spawn_git_watch(&repo, &gitdir, path.clone(), MIN_EVENT_GAP, move |registered| {
-        let _ = emitter.emit(PROJECT_GIT_CHANGE_EVENT, &ProjectGitChange { path: registered });
-    })?;
-    watchers.insert(path, pair);
+    let set = spawn_git_watch(
+        &repo,
+        &gitdir,
+        &common,
+        path.clone(),
+        MIN_EVENT_GAP,
+        move |registered| {
+            let _ = emitter.emit(PROJECT_GIT_CHANGE_EVENT, &ProjectGitChange { path: registered });
+        },
+    )?;
+    watchers.insert(path, set);
     Ok(())
 }
 
@@ -785,9 +845,11 @@ mod tests {
         let gitdir = head::git_dir(&repo).unwrap();
         let (tx, rx) = mpsc::channel::<String>();
 
-        let _pair = spawn_git_watch(
+        let common = head::git_common_dir(&repo).unwrap();
+        let _set = spawn_git_watch(
             &repo,
             &gitdir,
+            &common,
             "ui-key".to_string(),
             Duration::ZERO, // no throttle in tests — assert every delivery
             move |key| {
@@ -813,14 +875,80 @@ mod tests {
     }
 
     #[test]
+    fn refs_filter_keeps_ref_writes_drops_locks_and_access() {
+        let loose = Event::new(EventKind::Create(CreateKind::File))
+            .add_path(PathBuf::from("/repo/.git/refs/heads/kd/app/1"));
+        assert!(refs_event_matters(&loose));
+
+        let lock = Event::new(EventKind::Create(CreateKind::File))
+            .add_path(PathBuf::from("/repo/.git/refs/heads/main.lock"));
+        assert!(!refs_event_matters(&lock));
+
+        let access = Event::new(EventKind::Access(AccessKind::Any))
+            .add_path(PathBuf::from("/repo/.git/refs/heads/main"));
+        assert!(!refs_event_matters(&access));
+    }
+
+    #[test]
+    fn gitdir_filter_accepts_packed_refs() {
+        let packed = Event::new(EventKind::Modify(ModifyKind::Any))
+            .add_path(PathBuf::from("/repo/.git/packed-refs"));
+        assert!(gitdir_event_matters(&packed));
+    }
+
+    #[test]
+    fn watch_sees_branch_moves_made_outside_the_watched_worktree() {
+        let repo = init_repo();
+        let base = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
+
+        // A linked worktree — the thing a pane actually watches.
+        let wt = repo.parent().unwrap().join(format!(
+            "kd-wt-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        keepdeck_git::worktree::add(&repo, &wt, "kd/watch/1", &base).expect("add worktree");
+
+        let gitdir = head::git_dir(&wt).unwrap();
+        let common = head::git_common_dir(&wt).unwrap();
+        assert_ne!(gitdir, common, "a linked worktree splits the two");
+
+        let (tx, rx) = mpsc::channel::<String>();
+        let _set = spawn_git_watch(&wt, &gitdir, &common, "wt".to_string(), Duration::ZERO, {
+            move |key| {
+                let _ = tx.send(key);
+            }
+        })
+        .expect("watch");
+
+        // A branch moved IN THE MAIN REPO — nothing in the worktree's own
+        // tree or private gitdir changes, only the shared refs.
+        git(&repo, &["branch", "outside-news"]);
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("a shared-ref event within 10s");
+        while rx.recv_timeout(Duration::from_millis(300)).is_ok() {}
+
+        // Packing the refs replaces loose files with one packed-refs swap —
+        // the common-dir watcher must still deliver.
+        git(&repo, &["pack-refs", "--all"]);
+        rx.recv_timeout(Duration::from_secs(10))
+            .expect("a packed-refs event within 10s");
+
+        fs::remove_dir_all(&wt).ok();
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
     fn throttle_swallows_a_burst() {
         let repo = init_repo();
         let gitdir = head::git_dir(&repo).unwrap();
         let (tx, rx) = mpsc::channel::<String>();
 
-        let _pair = spawn_git_watch(
+        let common = head::git_common_dir(&repo).unwrap();
+        let _set = spawn_git_watch(
             &repo,
             &gitdir,
+            &common,
             "k".to_string(),
             Duration::from_secs(3600), // one delivery, then the gate closes
             move |key| {
