@@ -223,7 +223,9 @@ export function AgentPane({
           {onMinimize && !focused && !folded && (
             <button
               type="button"
-              className="pane__action"
+              // The modifier is load-bearing: the narrow-header cascade hides
+              // minimize by this class (pane.css) while maximize stays.
+              className="pane__action pane__action--minimize"
               onClick={onMinimize}
               title="Minimize agent"
               aria-label={`Minimize ${title}`}

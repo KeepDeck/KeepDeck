@@ -70,8 +70,12 @@
   background-color: #151923;
   user-select: none;
   /* Query container for the header controls: a narrow pane collapses the branch
-     badge to an icon-only chip (see the @container rule below). */
+     badge to an icon-only chip and then sheds controls by priority (see the
+     @container rules below). */
   container-type: inline-size;
+  /* The hard floor: whatever the collapse cascade hasn't hidden yet may never
+     paint past the pane's edge onto a neighbour or the dock. */
+  overflow: clip;
 }
 
 .pane__identity {
@@ -161,6 +165,22 @@
   }
 
   .pane__branch-label {
+    display: none;
+  }
+}
+
+/* Narrower: the chip yields entirely — branch identity is the first thing to
+   go, window controls the last. */
+@container (max-width: 200px) {
+  .pane__branch {
+    display: none;
+  }
+}
+
+/* Minimal header: minimize yields too. Maximize and close never hide — a pane
+   this narrow is exactly one you want to maximize or close. */
+@container (max-width: 150px) {
+  .pane__action--minimize {
     display: none;
   }
 }
