@@ -1,5 +1,8 @@
-/* The Files tab (keepdeck.files plugin): a lazy file tree over the fs
-   capability, with a read-only preview below it. Palette mirrors the dock and
+/* The Files plugin's own stylesheet — imported by its entry, so it ships with
+   the plugin (Vite injects it in dev; the lib build emits it as the bundle's
+   index.css, linked by the host in prod). Styles ONLY the plugin's `.files`
+   family; the shared chrome vocabulary its markup also uses (form__*,
+   peek__*, ui-kit dropdown) stays host-styled. Palette mirrors the dock and
    the Run tab so the plugin reads as native chrome. */
 
 .files {
