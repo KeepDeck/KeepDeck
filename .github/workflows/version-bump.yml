@@ -41,7 +41,7 @@ jobs:
     # Belt and braces for pushes made with credentials other than GITHUB_TOKEN.
     if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'Bump version to ')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0

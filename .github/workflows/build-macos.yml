@@ -30,15 +30,15 @@ jobs:
             arch: x64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 9
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           # Node 24 (matches local dev): scripts/build-plugins.mjs imports the
           # workspace's TypeScript entry (@keepdeck/plugin-api → src/index.ts).
@@ -68,7 +68,7 @@ jobs:
           mv "$payload" "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz"
           mv "$payload.sig" "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz.sig"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: KeepDeck-macos-${{ matrix.arch }}
           path: |
