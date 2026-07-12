@@ -109,6 +109,37 @@ fn sees_staged_unstaged_untracked_and_renames() {
 }
 
 #[test]
+fn untracked_directories_expand_to_their_files() {
+    let repo = init_repo();
+
+    // A new directory with files: the status must name each FILE (the default
+    // porcelain mode would collapse everything into one "pkg/" entry a changes
+    // view can neither diff nor show).
+    fs::create_dir_all(repo.join("pkg/src")).unwrap();
+    fs::write(repo.join("pkg/README.md"), "hi\n").unwrap();
+    fs::write(repo.join("pkg/src/lib.rs"), "fn main() {}\n").unwrap();
+    // An empty directory is invisible to git — it must produce NO entry.
+    fs::create_dir_all(repo.join("empty")).unwrap();
+
+    let st = status::status(&repo).expect("status");
+    let paths: Vec<&str> = st.entries.iter().map(|e| e.path.as_str()).collect();
+
+    assert!(paths.contains(&"pkg/README.md"), "files inside: {paths:?}");
+    assert!(paths.contains(&"pkg/src/lib.rs"), "nested files too: {paths:?}");
+    assert!(
+        st.entries.iter().all(|e| !e.path.ends_with('/')),
+        "no collapsed directory entries: {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p.starts_with("empty")),
+        "an empty dir produces nothing: {paths:?}"
+    );
+    assert!(st.entries.iter().all(|e| e.untracked));
+
+    fs::remove_dir_all(&repo).ok();
+}
+
+#[test]
 fn reports_ahead_behind_against_an_upstream() {
     let repo = init_repo();
 
