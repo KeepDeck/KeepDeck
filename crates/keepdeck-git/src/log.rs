@@ -44,6 +44,19 @@ pub fn log(repo: &Path, range: Option<&str>, limit: usize) -> Result<Vec<Commit>
     Ok(parse_log(&out))
 }
 
+/// How many commits a revision range spans — `git rev-list --count`. Cheap
+/// (no diffs, no messages), so a UI can show an honest "N commits since the
+/// fork" even when the fork sits beyond whatever the log listing was capped
+/// at.
+pub fn count_range(repo: &Path, range: &str) -> Result<u32, GitError> {
+    let out = run_git(repo, ["--no-optional-locks", "rev-list", "--count", range])?;
+    out.trim().parse::<u32>().map_err(|_| GitError::Command {
+        args: vec!["rev-list".into(), "--count".into(), range.into()],
+        status: None,
+        stderr: format!("unparseable count: {out:?}"),
+    })
+}
+
 /// Parse the custom-format log output. Pure; tolerant of blank records (the
 /// trailing separator produces one).
 pub fn parse_log(out: &str) -> Vec<Commit> {

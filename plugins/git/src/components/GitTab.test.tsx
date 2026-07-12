@@ -51,10 +51,11 @@ function makeGit() {
       if (!st) throw new Error(`not a git repository: ${repo}`);
       return st;
     }),
-    history: vi.fn(async (repo: string) => {
+    history: vi.fn(async (repo: string, opts?: { limit?: number }) => {
       const h = histories.get(repo);
       if (!h) throw new Error(`no history for: ${repo}`);
-      return h;
+      // The real backend windows the log by the asked limit.
+      return { ...h, commits: h.commits.slice(0, opts?.limit ?? 50) };
     }),
     changedFiles: vi.fn(
       async (_repo: string, from: string, to?: string) =>
@@ -270,11 +271,16 @@ describe("GitTab", () => {
   it("History mode lists commits since the fork and drills into a commit's diff", async () => {
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus());
+    const fork = "f0".repeat(20);
     git.histories.set("/repo", {
-      forkSha: "f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0",
+      forkSha: fork,
+      ahead: 2,
       commits: [
         { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "add feature" },
         { sha: "b2".repeat(20), author: "Agent", timestamp: 1_750_000_000, subject: "fix tests" },
+        // The FULL log continues past the fork commit into base history.
+        { sha: fork, author: "Me", timestamp: 1_740_000_000, subject: "base work" },
+        { sha: "e5".repeat(20), author: "Me", timestamp: 1_730_000_000, subject: "older base work" },
       ],
     });
     const commitSha = "a1".repeat(20);
@@ -289,12 +295,19 @@ describe("GitTab", () => {
     ) as HTMLButtonElement;
     await act(async () => historyBtn.click());
 
-    // Commits newest-first plus the pinned since-fork summary.
+    // Commits newest-first plus the pinned since-fork summary; the count is
+    // the branch's own side of the fork, not the listing length.
     expect(host.textContent).toContain("Since fork");
     expect(host.textContent).toContain("2 commits");
     expect(host.textContent).toContain("add feature");
     expect(host.textContent).toContain("fix tests");
     expect(host.textContent).toContain("a1a1a1a");
+    // The full history is visible too, split by the fork-point divider:
+    // branch work above, base history below.
+    expect(host.textContent).toContain("base work");
+    expect(host.textContent).toContain("older base work");
+    const divider = host.querySelector(".git__forkline");
+    expect(divider).toBeTruthy();
 
     // Drill into the newest commit → its file list, fetched parent..self.
     const commitRow = [...host.querySelectorAll("button.git__row")].find((el) =>
@@ -335,6 +348,7 @@ describe("GitTab", () => {
     const fork = "f0".repeat(20);
     git.histories.set("/repo", {
       forkSha: fork,
+      ahead: 1,
       commits: [
         { sha: "c3".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "work" },
       ],
@@ -361,6 +375,7 @@ describe("GitTab", () => {
     git.statuses.set("/repo", cleanStatus());
     git.histories.set("/repo", {
       forkSha: null,
+      ahead: null,
       commits: [
         { sha: "d4".repeat(20), author: "Me", timestamp: 1_760_000_000, subject: "init" },
       ],
@@ -375,6 +390,42 @@ describe("GitTab", () => {
 
     expect(host.textContent).toContain("init");
     expect(host.textContent).not.toContain("Since fork");
+    expect(host.querySelector(".git__forkline")).toBeNull();
+  });
+
+  it("History loads lazily in chunks of 50 and stops when the log runs dry", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", {
+      forkSha: null,
+      ahead: null,
+      commits: Array.from({ length: 60 }, (_, i) => ({
+        sha: String(i).padStart(2, "0").repeat(20),
+        author: "Me",
+        timestamp: 1_760_000_000 - i,
+        subject: `commit ${i}`,
+      })),
+    });
+    setRuntime(makeCtx(git));
+
+    await render();
+    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
+      (el) => el.textContent === "History",
+    ) as HTMLButtonElement;
+    await act(async () => historyBtn.click());
+
+    // First chunk: 50 commit rows and a live sentinel.
+    expect(git.history).toHaveBeenCalledWith("/repo", { limit: 50 });
+    expect(host.querySelectorAll("button.git__row").length).toBe(50);
+    const more = host.querySelector("button.git__more") as HTMLButtonElement;
+    expect(more).toBeTruthy();
+
+    // The next chunk widens the window; a 60-commit repo underfills it, so
+    // the sentinel retires — the list is complete.
+    await act(async () => more.click());
+    expect(git.history).toHaveBeenCalledWith("/repo", { limit: 100 });
+    expect(host.querySelectorAll("button.git__row").length).toBe(60);
+    expect(host.querySelector("button.git__more")).toBeNull();
   });
 
   it("surfaces a status failure instead of a stuck spinner", async () => {

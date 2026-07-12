@@ -50,12 +50,14 @@ export function projectGitHistory(
   roots: string[],
   everywhere: boolean,
   base?: string,
+  limit?: number,
 ): Promise<GitHistory> {
   return invoke<GitHistory>("project_git_history", {
     path,
     roots,
     everywhere,
     base: base ?? null,
+    limit: limit ?? null,
   });
 }
 

@@ -152,6 +152,46 @@
   white-space: nowrap;
 }
 
+/* The fork boundary inside the full log: work above, base history below. */
+.git__forkline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  color: #58b368;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.git__forkline::before,
+.git__forkline::after {
+  content: "";
+  flex: 1 1 auto;
+  border-top: 1px solid #1c2230;
+}
+
+/* The lazy-scroll sentinel: auto-fires when scrolled into view, clickable
+   as the fallback. */
+.git__more {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 11.5px;
+  padding: 6px 8px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.git__more:hover {
+  background-color: #151a24;
+  color: #c5c8c6;
+}
+
 /* History rows' status letters — neutral, the range says what happened. */
 .git__code--history {
   color: #8b93a3;

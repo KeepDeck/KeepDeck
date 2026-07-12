@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GitChangedFile } from "@keepdeck/plugin-api";
 import { getRuntime } from "../runtime";
 import { useGitHistory } from "./useGitHistory";
@@ -36,7 +36,11 @@ export function HistoryView({
   version: number;
   onOpen: (row: ChangeRow, range: GitRange) => void;
 }) {
-  const { history, error } = useGitHistory(repo, version, true);
+  const { history, error, hasMore, loadMore } = useGitHistory(
+    repo,
+    version,
+    true,
+  );
   const [drill, setDrill] = useState<{ label: string; range: GitRange } | null>(
     null,
   );
@@ -73,6 +77,22 @@ export function HistoryView({
       cancelled = true;
     };
   }, [repo, drill, version]);
+
+  // Lazy scroll: when the trailing sentinel button scrolls into view, load
+  // the next chunk by itself. The button stays clickable — the fallback for
+  // environments without IntersectionObserver, and for keyboard users.
+  const moreRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const target = moreRef.current;
+    if (!target || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMore();
+    });
+    observer.observe(target);
+    return () => observer.disconnect();
+    // Re-attach per render window: the sentinel node remounts as the list
+    // grows, and `hasMore` flipping off removes it entirely.
+  }, [loadMore, hasMore, history]);
 
   if (error) return <div className="git__empty git__empty--bad">{error}</div>;
   if (!history) return <div className="git__empty">Loading…</div>;
@@ -125,6 +145,7 @@ export function HistoryView({
   }
 
   const now = Date.now();
+  const ahead = history.ahead ?? 0;
   return (
     <div className="git__section">
       {history.forkSha && (
@@ -144,35 +165,50 @@ export function HistoryView({
           </span>
           <span className="git__subject">Since fork</span>
           <span className="git__when">
-            {history.commits.length}{" "}
-            {history.commits.length === 1 ? "commit" : "commits"}
+            {ahead} {ahead === 1 ? "commit" : "commits"}
           </span>
         </button>
       )}
       {history.commits.length === 0 && (
-        <div className="git__empty">
-          {history.forkSha
-            ? "No commits since the fork."
-            : "No commits yet."}
-        </div>
+        <div className="git__empty">No commits yet.</div>
       )}
       {history.commits.map((commit) => (
+        // The full log, boundary drawn AT the fork commit: everything above
+        // the divider is the branch's own work, below it the base history.
+        <div key={commit.sha}>
+          {commit.sha === history.forkSha && (
+            <div className="git__forkline" role="separator">
+              <span>fork point</span>
+            </div>
+          )}
+          <button
+            type="button"
+            className="git__row"
+            onClick={() =>
+              setDrill({ label: commit.subject, range: commitRange(commit.sha) })
+            }
+            title={`${commit.subject} — ${commit.author}`}
+          >
+            <span className="git__subject">{commit.subject}</span>
+            <span className="git__sha" aria-hidden>
+              {shortSha(commit.sha)}
+            </span>
+            <span className="git__when">
+              {relativeTime(commit.timestamp, now)}
+            </span>
+          </button>
+        </div>
+      ))}
+      {hasMore && (
         <button
           type="button"
-          className="git__row"
-          key={commit.sha}
-          onClick={() =>
-            setDrill({ label: commit.subject, range: commitRange(commit.sha) })
-          }
-          title={`${commit.subject} — ${commit.author}`}
+          className="git__more"
+          ref={moreRef}
+          onClick={loadMore}
         >
-          <span className="git__subject">{commit.subject}</span>
-          <span className="git__sha" aria-hidden>
-            {shortSha(commit.sha)}
-          </span>
-          <span className="git__when">{relativeTime(commit.timestamp, now)}</span>
+          Show earlier history
         </button>
-      ))}
+      )}
     </div>
   );
 }

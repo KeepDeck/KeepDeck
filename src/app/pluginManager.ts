@@ -287,7 +287,13 @@ const serviceBackend: ServiceBackends = {
         opts?.to,
       ),
     history: (repo, scope, opts) =>
-      projectGitHistory(repo, fsRoots(scope), scope === "everywhere", opts?.base),
+      projectGitHistory(
+        repo,
+        fsRoots(scope),
+        scope === "everywhere",
+        opts?.base,
+        opts?.limit,
+      ),
     changedFiles: (repo, from, to, scope) =>
       projectGitChangedFiles(repo, fsRoots(scope), scope === "everywhere", from, to),
     watch: (repo, scope, onChange) => watchProjectGit(repo, scope, onChange),

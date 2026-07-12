@@ -124,11 +124,10 @@ export interface PluginGit {
    * files have no diff; render their plain content (via `fs.readFile`)
    * instead. */
   diffFile(repo: string, file: string, opts?: GitDiffOptions): Promise<string>;
-  /** The repo's history for a changes view: commits since the branch's fork
-   * point off `base` (defaulting to the repo's default branch — exact for
-   * worktrees created off it), newest first, capped by the host. When no fork
-   * point applies (the repo IS the base), `forkSha` is null and `commits` is
-   * plain recent history. */
+  /** The repo's history for a changes view: the full recent log (newest
+   * first, capped by the host), annotated with the branch's fork point off
+   * `base` (defaulting to the repo's default branch — exact for worktrees
+   * created off it) and how many commits sit on the branch's side of it. */
   history(repo: string, opts?: GitHistoryOptions): Promise<GitHistory>;
   /** The paths changed across `from..to` — or everything since `from`
    * (committed or not) when `to` is omitted. The file list behind one commit
@@ -156,6 +155,9 @@ export interface GitHistoryOptions {
   /** The base the fork point is measured against; omitted = the repo's
    * default branch. */
   base?: string;
+  /** How many commits to list (the host clamps it). Lazy scrolling grows
+   * this window; `ahead` stays honest regardless of it. */
+  limit?: number;
 }
 
 /** One commit in a history listing. */
@@ -168,11 +170,18 @@ export interface GitCommit {
   subject: string;
 }
 
-/** A branch's history since its fork point. */
+/** A branch's history: the full recent log (capped), annotated with its
+ * fork point so a UI can draw the boundary between the branch's own commits
+ * and the base history beneath them. */
 export interface GitHistory {
-  /** The fork point `commits` are measured from; null = no meaningful fork
-   * (plain recent history instead). */
+  /** The fork point commit; null = no meaningful fork (the repo IS the
+   * base). It appears in `commits` too, where the boundary sits. */
   forkSha: string | null;
+  /** Commits on the branch's own side of the fork — honest even when the
+   * fork lies beyond the listing cap. Null without a fork. */
+  ahead: number | null;
+  /** Recent commits from HEAD, newest first, capped: the branch's own
+   * commits, then the fork commit and the base history below it. */
   commits: GitCommit[];
 }
 

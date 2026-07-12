@@ -165,30 +165,39 @@ pub struct GitCommit {
     pub subject: String,
 }
 
-/// A branch's history since its fork point (or plain recent history).
+/// A branch's history: the FULL recent log (capped), annotated with its fork
+/// point so a UI can draw the boundary between the branch's own commits and
+/// the base history beneath them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitHistory {
-    /// The fork point the commits are measured from; `None` when there is no
-    /// meaningful one (the repo IS on the base branch, no base resolves, or
-    /// no common ancestor) — then `commits` is plain recent history.
+    /// The fork point commit; `None` when there is no meaningful one (the
+    /// repo IS on the base branch, no base resolves, or no common ancestor).
     pub fork_sha: Option<String>,
+    /// Commits on the branch's own side of the fork — honest even when the
+    /// fork sits beyond the listing cap. `None` without a fork.
+    pub ahead: Option<u32>,
+    /// Recent commits from `HEAD`, newest first, capped — the branch's own
+    /// commits first, then the fork commit and the base history below it.
     pub commits: Vec<GitCommit>,
 }
 
-/// The most commits one history read returns — an agent branch is dozens of
-/// commits, not thousands; a runaway range must not flood the webview.
-const HISTORY_LIMIT: usize = 200;
+/// The default page the webview asks for, and the hard ceiling one read may
+/// request — lazy scrolling grows the ask in [`HISTORY_CHUNK`]-sized steps,
+/// and even a runaway caller can't flood the webview past the ceiling.
+const HISTORY_CHUNK: usize = 50;
+const HISTORY_MAX: usize = 10_000;
 
-/// A repo's history for the changes view: commits since the fork point off
-/// `base` (defaulting to the repo's default branch — exact for worktrees
-/// created off it), or plain recent commits when no fork point applies.
+/// A repo's history for the changes view: the recent log (newest first, up to
+/// `limit`, clamped), annotated with the fork point off `base` (defaulting to
+/// the repo's default branch — exact for worktrees created off it).
 #[tauri::command(async)]
 pub fn project_git_history(
     path: String,
     roots: Vec<String>,
     everywhere: bool,
     base: Option<String>,
+    limit: Option<u32>,
 ) -> Result<GitHistory, String> {
     let repo = resolve_within(&path, &roots, everywhere)?;
 
@@ -206,14 +215,22 @@ pub fn project_git_history(
         None => None,
     };
 
-    let commits = match &fork {
-        Some(fork) => log::log(&repo, Some(&format!("{fork}..HEAD")), HISTORY_LIMIT),
-        None => log::log(&repo, None, HISTORY_LIMIT),
-    }
-    .map_err(|e| e.to_string())?;
+    // The FULL recent log — the branch's commits arrive first (newest-first
+    // order), then the fork commit and the base history; the fork sha lets
+    // the UI draw the boundary. `ahead` is counted separately so it stays
+    // honest whatever window the UI has scrolled to.
+    let limit = (limit.unwrap_or(HISTORY_CHUNK as u32) as usize).clamp(1, HISTORY_MAX);
+    let commits = log::log(&repo, None, limit).map_err(|e| e.to_string())?;
+    let ahead = match &fork {
+        Some(fork) => Some(
+            log::count_range(&repo, &format!("{fork}..HEAD")).map_err(|e| e.to_string())?,
+        ),
+        None => None,
+    };
 
     Ok(GitHistory {
         fork_sha: fork,
+        ahead,
         commits: commits
             .into_iter()
             .map(|c| GitCommit {
@@ -549,14 +566,31 @@ mod tests {
             roots(&repo),
             false,
             None, // base defaults to the repo's default branch
+            None, // default page size
         )
         .expect("history");
 
+        // A one-commit window still counts the branch's full side honestly.
+        let windowed = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            Some(1),
+        )
+        .expect("windowed history");
+        assert_eq!(windowed.commits.len(), 1);
+        assert_eq!(windowed.ahead, Some(2));
+
         let fork = history.fork_sha.expect("a fork point");
         assert_eq!(fork.len(), 40);
-        assert_eq!(history.commits.len(), 2);
+        assert_eq!(history.ahead, Some(2), "branch commits counted honestly");
+        // The FULL log: branch commits first, then the fork commit (init).
+        assert_eq!(history.commits.len(), 3);
         assert_eq!(history.commits[0].subject, "second");
         assert_eq!(history.commits[1].subject, "first");
+        assert_eq!(history.commits[2].subject, "init");
+        assert_eq!(history.commits[2].sha, fork, "the fork commit is listed — the UI's boundary");
 
         // The since-fork file list vs the WORKING TREE includes the dirty edit.
         let files = project_git_changed_files(
@@ -586,10 +620,12 @@ mod tests {
             roots(&repo),
             false,
             None,
+            None,
         )
         .expect("history");
 
         assert_eq!(history.fork_sha, None);
+        assert_eq!(history.ahead, None);
         assert_eq!(history.commits.len(), 1, "the init commit");
         assert_eq!(history.commits[0].subject, "init");
 
