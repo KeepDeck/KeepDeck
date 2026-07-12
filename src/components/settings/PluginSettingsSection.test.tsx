@@ -26,12 +26,17 @@ const ipc = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/settings", () => ipc);
 
-// The picker-mode add flow goes through the native dialog — mocked here.
+// The picker-mode add flow: the installed-apps scan feeds the combobox, the
+// native dialog backs the Browse… fallback — both mocked here.
 const dialogs = vi.hoisted(() => ({
   pickFolder: vi.fn<() => Promise<string | null>>(async () => null),
   pickApplication: vi.fn<() => Promise<string | null>>(async () => null),
 }));
 vi.mock("../../ipc/dialogs", () => dialogs);
+const appIpc = vi.hoisted(() => ({
+  listApplications: vi.fn<() => Promise<string[]>>(async () => []),
+}));
+vi.mock("../../ipc/app", () => appIpc);
 
 const section: SettingsSectionContribution = {
   label: "Run",
@@ -184,7 +189,7 @@ describe("PluginSettingsSection — the application-picker add flow", () => {
     );
   const addButton = () =>
     [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-      (b) => b.textContent === "Add application…",
+      (b) => b.textContent === "Browse…",
     )!;
 
   const mount = async () => {
@@ -197,6 +202,8 @@ describe("PluginSettingsSection — the application-picker add flow", () => {
         }),
       );
     });
+    // Flush the installed-apps scan into the combobox options.
+    await act(async () => {});
   };
 
   beforeEach(() => {
@@ -211,23 +218,51 @@ describe("PluginSettingsSection — the application-picker add flow", () => {
     resetSettingsManager();
   });
 
-  it("replaces the free input with the picker button", async () => {
+  const combo = () =>
+    document.querySelector<HTMLInputElement>(
+      'input[aria-label="Add Open in applications"]',
+    )!;
+  const menuOptions = () =>
+    [...document.querySelectorAll(".dropdown__option")].map(
+      (n) => n.textContent,
+    );
+
+  it("offers the installed apps minus what's already listed", async () => {
+    appIpc.listApplications.mockResolvedValue([
+      "Android Studio",
+      "IntelliJ IDEA",
+      "Visual Studio Code",
+    ]);
     await mount();
-    expect(addButton()).not.toBeUndefined();
-    expect(document.querySelector("input")).toBeNull();
+    act(() => combo().focus());
+    // "Visual Studio Code" already sits in the list — the menu skips it.
+    expect(menuOptions()).toEqual(["Android Studio", "IntelliJ IDEA"]);
   });
 
-  it("a picked bundle enters the list by its display name", async () => {
+  it("picking an app from the menu adds it and clears the field", async () => {
+    appIpc.listApplications.mockResolvedValue(["Android Studio"]);
+    await mount();
+    act(() => combo().focus());
+    act(() =>
+      [...document.querySelectorAll<HTMLButtonElement>(".dropdown__option")]
+        .find((b) => b.textContent === "Android Studio")!
+        .click(),
+    );
+    expect(entries()).toEqual(["Visual Studio Code", "Android Studio"]);
+    expect(
+      getSettings()?.plugins.values["keepdeck.run"]?.openApps,
+    ).toEqual(["Visual Studio Code", "Android Studio"]);
+    expect(combo().value).toBe("");
+  });
+
+  it("Browse… falls back to the OS picker and adds the bundle's display name", async () => {
     dialogs.pickApplication.mockResolvedValue("/Applications/IntelliJ IDEA.app");
     await mount();
     await act(async () => addButton().click());
     expect(entries()).toEqual(["Visual Studio Code", "IntelliJ IDEA"]);
-    expect(
-      getSettings()?.plugins.values["keepdeck.run"]?.openApps,
-    ).toEqual(["Visual Studio Code", "IntelliJ IDEA"]);
   });
 
-  it("a cancelled picker adds nothing", async () => {
+  it("a cancelled Browse… adds nothing", async () => {
     dialogs.pickApplication.mockResolvedValue(null);
     await mount();
     await act(async () => addButton().click());

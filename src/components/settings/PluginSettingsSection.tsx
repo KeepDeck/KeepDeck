@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   SettingsField,
   SettingsSectionContribution,
 } from "@keepdeck/plugin-api";
+import { listApplications } from "../../ipc/app";
 import { pickApplication } from "../../ipc/dialogs";
 import { getSettings, updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
+import { Combobox } from "../../ui/Combobox";
 import { Dropdown } from "../../ui/Dropdown";
 import { noAutoCorrect } from "../../ui/inputProps";
 
@@ -163,11 +165,6 @@ function StringListField({
     if (!entry) return;
     if (!value.includes(entry)) onWrite([...value, entry]);
   };
-  const addFromPicker = () => {
-    void pickApplication().then((path) => {
-      if (path) add(appNameFromPath(path));
-    });
-  };
   return (
     <div className="settings__field">
       <span className="form__label">{field.label}</span>
@@ -186,13 +183,7 @@ function StringListField({
         </div>
       ))}
       {field.picker === "application" ? (
-        <button
-          type="button"
-          className="settings__list-add-btn settings__list-add-btn--picker"
-          onClick={addFromPicker}
-        >
-          Add application…
-        </button>
+        <ApplicationAdd label={field.label} listed={value} onAdd={add} />
       ) : (
         <div className="settings__list-add">
           <input
@@ -222,6 +213,71 @@ function StringListField({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The application add flow: a fuzzy-search combobox over the INSTALLED
+ * applications (scanned host-side across the standard app folders, including
+ * `~/Applications` — the native dialog never surfaces that one unprompted),
+ * plus a Browse… fallback to the OS picker for bundles living anywhere else.
+ * Picking either way stores the display name — the `open -a` argument. */
+function ApplicationAdd({
+  label,
+  listed,
+  onAdd,
+}: {
+  label: string;
+  listed: string[];
+  onAdd(app: string): void;
+}) {
+  const [installed, setInstalled] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+  useEffect(() => {
+    let alive = true;
+    listApplications()
+      .then((apps) => {
+        if (alive) setInstalled(apps);
+      })
+      // A failed scan degrades to Browse…-only; nothing to tell the user.
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // What's already listed drops out of the menu — adding it again is a no-op.
+  const options = installed.filter((app) => !listed.includes(app));
+  return (
+    <div className="settings__list-add">
+      <Combobox
+        className="settings__list-combo"
+        options={options}
+        value={draft}
+        onChange={(next) => {
+          // A pick (or a typed exact name) adds immediately and clears the
+          // field for the next one; anything else is just the filter text.
+          if (options.includes(next)) {
+            onAdd(next);
+            setDraft("");
+          } else {
+            setDraft(next);
+          }
+        }}
+        ariaLabel={`Add ${label}`}
+        placeholder="Search applications…"
+      />
+      <button
+        type="button"
+        className="settings__list-add-btn"
+        onClick={() =>
+          void pickApplication().then((path) => {
+            if (path) onAdd(appNameFromPath(path));
+          })
+        }
+      >
+        Browse…
+      </button>
     </div>
   );
 }

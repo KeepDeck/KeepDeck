@@ -32,3 +32,9 @@ export function openPathWith(path: string, application: string): Promise<void> {
   return invoke("open_path_with", { path, application });
 }
 
+
+/** Installed applications — `.app` bundle display names out of the standard
+ * application folders — for the settings' application picker. */
+export function listApplications(): Promise<string[]> {
+  return invoke<string[]>("list_applications");
+}

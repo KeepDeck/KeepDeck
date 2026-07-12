@@ -232,10 +232,16 @@
   cursor: default;
 }
 
-/* Picker mode: the whole add row is one button (the OS dialog does the rest). */
-.settings__list-add-btn--picker {
-  align-self: flex-start;
-  padding: 6px 14px;
+/* Picker mode: the combobox takes the input's slot in the add row. */
+.settings__list-combo {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings__list-combo .form__input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0;
 }
 
 /* A plugin page's rescan lives on the nav group header; fixed square so the
