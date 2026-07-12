@@ -51,3 +51,30 @@ describe("ci workflow", () => {
     expect(tests).toBeGreaterThan(frontend);
   });
 });
+
+describe("build-macos workflow", () => {
+  const build = workflow("build-macos.yml");
+
+  it("is call-only and builds the exact requested ref", () => {
+    expect(Object.keys(build.on)).toEqual(["workflow_call"]);
+    expect(build.on.workflow_call.inputs.ref.required).toBe(true);
+    expect(build.jobs.build.steps[0].with.ref).toBe("${{ inputs.ref }}");
+  });
+
+  it("builds both supported architectures natively", () => {
+    expect(build.jobs.build.strategy["fail-fast"]).toBe(false);
+    expect(build.jobs.build.strategy.matrix.include).toEqual([
+      { runner: "macos-latest", asset: "KeepDeck-macos-arm64.zip" },
+      { runner: "macos-15-intel", asset: "KeepDeck-macos-x64.zip" },
+    ]);
+  });
+
+  it("fails loudly when a leg produces no asset", () => {
+    const upload = build.jobs.build.steps.at(-1);
+    expect(upload.with).toMatchObject({
+      name: "${{ matrix.asset }}",
+      path: "${{ matrix.asset }}",
+      "if-no-files-found": "error",
+    });
+  });
+});

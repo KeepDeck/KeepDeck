@@ -1,0 +1,60 @@
+# Reusable macOS build: produces the per-arch app bundle zips for an exact
+# ref, natively on each architecture (no fragile cross-compile). Called by
+# release.yml; artifacts land in the caller's run.
+name: Build macOS
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to build"
+        type: string
+        required: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest # Apple Silicon (arm64)
+            asset: KeepDeck-macos-arm64.zip
+          - runner: macos-15-intel # Intel (x86_64)
+            asset: KeepDeck-macos-x64.zip
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24 (matches local dev): scripts/build-plugins.mjs imports the
+          # workspace's TypeScript entry (@keepdeck/plugin-api → src/index.ts).
+          # Node < 22.18 can't load .ts and fails with ERR_UNKNOWN_FILE_EXTENSION.
+          node-version: 24
+          cache: pnpm
+
+      # Cache compiled Rust deps so repeat builds only recompile our own crates.
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and package the app (native to this runner's arch)
+        run: |
+          source scripts/macos-app.sh
+          build_keepdeck_app
+          app="$(locate_keepdeck_app)"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+          overwrite: true
