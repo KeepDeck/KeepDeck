@@ -119,3 +119,43 @@ describe("release workflow", () => {
     expect(publish.run).toContain("gh release upload latest assets/*.zip --clobber");
   });
 });
+
+describe("version-bump workflow", () => {
+  const bump = workflow("version-bump.yml");
+
+  it("queues runs and exposes every manual bump kind", () => {
+    expect(bump.concurrency).toEqual({ group: "version-bump", queue: "max" });
+    expect(bump.on.workflow_dispatch.inputs.bump.options).toEqual([
+      "patch",
+      "minor",
+      "major",
+    ]);
+  });
+
+  it("only accounts for versions — no builds, no publishing", () => {
+    expect(Object.keys(bump.jobs)).toEqual(["bump"]);
+    expect(bump.jobs.bump["runs-on"]).toBe("ubuntu-latest");
+    expect(JSON.stringify(bump)).not.toContain("macos");
+  });
+
+  it("pushes the bump immediately and chains a release for release-class bumps", () => {
+    // Dispatching another workflow with GITHUB_TOKEN needs actions: write.
+    expect(bump.permissions).toEqual({ contents: "write", actions: "write" });
+
+    const push = bump.jobs.bump.steps.find(
+      (s) => s.name === "Commit and push the bump",
+    );
+    expect(push.if).toBe("steps.bump.outputs.version != ''");
+    expect(push.run).toContain("git push origin HEAD:main");
+
+    const chain = bump.jobs.bump.steps.find(
+      (s) => s.name === "Start the release for this bump",
+    );
+    expect(chain.if).toBe("steps.bump.outputs.release == 'true'");
+    // The release must build the exact bump commit, not whatever main is by
+    // the time the release run starts.
+    expect(chain.run).toBe(
+      "gh workflow run release.yml -f ref=${{ steps.push.outputs.sha }}",
+    );
+  });
+});
