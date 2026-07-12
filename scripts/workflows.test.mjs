@@ -111,13 +111,22 @@ describe("release workflow", () => {
     });
   });
 
+  it("pins the requested ref once and hands every job the same commit", () => {
+    // Without pinning, a manual run's "main" would re-resolve per job — a
+    // push landing mid-run would hand tests and builds different code.
+    const PINNED = "${{ needs.pin.outputs.sha }}";
+    expect(release.jobs.pin.outputs.sha).toBe("${{ steps.pin.outputs.sha }}");
+    expect(release.jobs.test.needs).toBe("pin");
+    expect(release.jobs.test.with.ref).toBe(PINNED);
+    expect(release.jobs.build.with.ref).toBe(PINNED);
+    expect(release.jobs.publish.steps[0].with.ref).toBe(PINNED);
+  });
+
   it("gates the build on tests and the upload on the publish switch", () => {
     expect(release.jobs.test.uses).toBe("./.github/workflows/ci.yml");
-    expect(release.jobs.test.with.ref).toBe("${{ inputs.ref }}");
-    expect(release.jobs.build.needs).toBe("test");
+    expect(release.jobs.build.needs).toEqual(["pin", "test"]);
     expect(release.jobs.build.uses).toBe("./.github/workflows/build-macos.yml");
-    expect(release.jobs.build.with.ref).toBe("${{ inputs.ref }}");
-    expect(release.jobs.publish.needs).toBe("build");
+    expect(release.jobs.publish.needs).toEqual(["pin", "build"]);
     expect(release.jobs.publish.if).toBe("inputs.publish");
   });
 
