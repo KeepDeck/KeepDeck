@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Shared helpers for building and locating the KeepDeck release .app bundle on
-# macOS. Sourced by build-macos.sh (local dmg) and the release job in
-# .github/workflows/version-bump.yml, so the build/find details live in one
+# macOS. Sourced by build-macos.sh (local dmg) and the build job in
+# .github/workflows/build-macos.yml, so the build/find details live in one
 # place. Every function assumes the caller has already `cd`-ed to the repo root.
 
 # Build the release .app bundle. Extra args (e.g. --target universal-apple-darwin)
@@ -27,4 +27,18 @@ locate_keepdeck_app() {
     return 1
   fi
   printf '%s\n' "$app_path"
+}
+
+# Echo the path to the updater payload (.app.tar.gz) built next to the .app
+# when bundle.createUpdaterArtifacts is on; its minisign signature sits at the
+# same path plus ".sig". Returns non-zero if the payload is missing.
+locate_keepdeck_updater_payload() {
+  local app_path payload
+  app_path="$(locate_keepdeck_app)" || return 1
+  payload="${app_path}.tar.gz"
+  if [[ ! -f "$payload" ]]; then
+    echo "error: no updater payload found at $payload" >&2
+    return 1
+  fi
+  printf '%s\n' "$payload"
 }

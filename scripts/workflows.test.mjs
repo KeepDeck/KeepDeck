@@ -64,18 +64,35 @@ describe("build-macos workflow", () => {
   it("builds both supported architectures natively", () => {
     expect(build.jobs.build.strategy["fail-fast"]).toBe(false);
     expect(build.jobs.build.strategy.matrix.include).toEqual([
-      { runner: "macos-latest", asset: "KeepDeck-macos-arm64.zip" },
-      { runner: "macos-15-intel", asset: "KeepDeck-macos-x64.zip" },
+      { runner: "macos-latest", arch: "arm64" },
+      { runner: "macos-15-intel", arch: "x64" },
     ]);
   });
 
-  it("fails loudly when a leg produces no asset", () => {
-    const upload = build.jobs.build.steps.at(-1);
-    expect(upload.with).toMatchObject({
-      name: "${{ matrix.asset }}",
-      path: "${{ matrix.asset }}",
-      "if-no-files-found": "error",
+  it("signs updater payloads with the key from the caller's secrets", () => {
+    expect(build.on.workflow_call.secrets.TAURI_SIGNING_PRIVATE_KEY.required).toBe(
+      true,
+    );
+    const step = build.jobs.build.steps.find((s) =>
+      s.name?.startsWith("Build and package"),
+    );
+    expect(step.env).toEqual({
+      TAURI_SIGNING_PRIVATE_KEY: "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}",
     });
+    expect(step.run).toContain("--config src-tauri/tauri.release.conf.json");
+  });
+
+  it("ships the zip, the updater payload and its signature per arch", () => {
+    const upload = build.jobs.build.steps.at(-1);
+    expect(upload.with.name).toBe("KeepDeck-macos-${{ matrix.arch }}");
+    expect(upload.with.path.trim().split("\n")).toEqual([
+      "KeepDeck-macos-${{ matrix.arch }}.zip",
+      "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz",
+      "KeepDeck-macos-${{ matrix.arch }}.app.tar.gz.sig",
+    ]);
+    expect(upload.with["if-no-files-found"]).toBe("error");
   });
 });
 
@@ -110,13 +127,37 @@ describe("release workflow", () => {
     expect(JSON.stringify(release)).not.toContain("git push");
   });
 
-  it("publishes every downloaded asset to the rolling latest release", () => {
-    const download = release.jobs.publish.steps.find(
-      (s) => s.uses === "actions/download-artifact@v4",
+  it("builds the updater manifest for both platforms", () => {
+    const manifest = release.jobs.publish.steps.find(
+      (s) => s.name === "Build the updater manifest",
     );
-    expect(download.with.pattern).toBe("KeepDeck-macos-*");
+    expect(manifest.run).toContain("scripts/release-manifest.mjs");
+    expect(manifest.run).toContain(
+      "--payload darwin-aarch64=assets/KeepDeck-macos-arm64.app.tar.gz",
+    );
+    expect(manifest.run).toContain(
+      "--payload darwin-x86_64=assets/KeepDeck-macos-x64.app.tar.gz",
+    );
+  });
+
+  it("uploads payloads before the manifest, and the manifest last", () => {
     const publish = release.jobs.publish.steps.at(-1);
-    expect(publish.run).toContain("gh release upload latest assets/*.zip --clobber");
+    const lines = publish.run.split("\n");
+    const payloadUpload = lines.findIndex((l) =>
+      l.includes("gh release upload latest \\"),
+    );
+    const manifestUpload = lines.findIndex((l) =>
+      l.includes("gh release upload latest assets/latest.json --clobber"),
+    );
+    expect(payloadUpload).toBeGreaterThanOrEqual(0);
+    expect(manifestUpload).toBeGreaterThan(payloadUpload);
+    // Every asset the manifest points at is uploaded in the first batch.
+    const batch = publish.run.slice(0, publish.run.indexOf("latest.json"));
+    for (const arch of ["arm64", "x64"]) {
+      expect(batch).toContain(`assets/KeepDeck-macos-${arch}.zip`);
+      expect(batch).toContain(`assets/KeepDeck-macos-${arch}.app.tar.gz`);
+      expect(batch).toContain(`assets/KeepDeck-macos-${arch}.app.tar.gz.sig`);
+    }
   });
 });
 
