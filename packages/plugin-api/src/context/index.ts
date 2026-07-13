@@ -53,6 +53,12 @@ export type {
   PluginSpawnOptions,
 } from "./services.ts";
 export type {
+  PluginVoice,
+  VoiceDownloadProgress,
+  VoiceModelInfo,
+  VoiceTranscript,
+} from "./voice.ts";
+export type {
   PluginSettings,
   SettingsField,
   SettingsSectionContribution,

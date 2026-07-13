@@ -39,6 +39,14 @@ function fakeDeps() {
     global: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
   };
   const services: PluginServices = {
+    voice: {
+      models: vi.fn(async () => []),
+      downloadModel: vi.fn(async () => {}),
+      deleteModel: vi.fn(async () => {}),
+      startCapture: vi.fn(async () => {}),
+      stopCapture: vi.fn(async () => ({ text: "", silence: true })),
+      cancelCapture: vi.fn(async () => {}),
+    },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },

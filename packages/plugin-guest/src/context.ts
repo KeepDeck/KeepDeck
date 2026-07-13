@@ -390,6 +390,17 @@ export function buildGuestContext(
           >,
         watch: (repo, onChange) => remoteWatch("git", repo, onChange),
       },
+      voice: {
+        // Capture and downloads need push channels across the realm (level
+        // meter, progress) — external voice waits for its first consumer,
+        // like commands.register. Fail loudly, not silently.
+        models: () => Promise.reject(unavailableVoice()),
+        downloadModel: () => Promise.reject(unavailableVoice()),
+        deleteModel: () => Promise.reject(unavailableVoice()),
+        startCapture: () => Promise.reject(unavailableVoice()),
+        stopCapture: () => Promise.reject(unavailableVoice()),
+        cancelCapture: () => Promise.reject(unavailableVoice()),
+      },
     },
 
     host: {
@@ -403,6 +414,12 @@ export function buildGuestContext(
       error: (message) => void rpc.call("log.error", [message]).catch(noop),
     },
   };
+
+  function unavailableVoice(): Error {
+    return new Error(
+      "the voice service is not yet available to external plugins",
+    );
+  }
 
   /** Run one host-requested agent hook and post the mutated output back. */
   async function runHook(callId: number, payload: unknown): Promise<void> {

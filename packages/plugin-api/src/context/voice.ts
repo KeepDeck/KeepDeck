@@ -1,0 +1,56 @@
+/**
+ * Local voice services — microphone capture and on-device speech-to-text,
+ * gated by the `mic` capability (consent names the microphone explicitly).
+ *
+ * The shape is push-to-talk: `startCapture` opens the mic (the OS consent
+ * prompt fires here on first use), `stopCapture` closes it and returns the
+ * whole utterance transcribed by a LOCAL whisper model — audio never leaves
+ * the machine. Models are downloaded on demand through the same service and
+ * shared by every plugin; nothing is bundled.
+ */
+export interface VoiceModelInfo {
+  id: string;
+  label: string;
+  sizeMb: number;
+  installed: boolean;
+}
+
+export interface VoiceDownloadProgress {
+  received: number;
+  /** Total bytes when the server said; null while unknown. */
+  total: number | null;
+}
+
+export interface VoiceTranscript {
+  text: string;
+  /** The utterance was dropped as silence before inference — say "didn't
+   * catch that", don't act on the empty text. */
+  silence: boolean;
+}
+
+export interface PluginVoice {
+  /** The downloadable model registry with per-model install state. */
+  models(): Promise<VoiceModelInfo[]>;
+  /** Download one model with streamed progress; resolves when installed.
+   * Already-installed ids resolve immediately. */
+  downloadModel(
+    id: string,
+    onProgress?: (p: VoiceDownloadProgress) => void,
+  ): Promise<void>;
+  deleteModel(id: string): Promise<void>;
+  /** Open the mic and start accumulating one utterance. `onLevel` receives
+   * a coarse RMS reading (~30 fps) for a live meter. One capture at a time,
+   * app-wide. */
+  startCapture(onLevel?: (rms: number) => void): Promise<void>;
+  /** Close the mic and transcribe the utterance with `model`. `language`
+   * pins a whisper code ("en", "ru"); omit for auto-detect. `prompt` biases
+   * recognition toward known vocabulary — pass workspace/branch names and
+   * command words. */
+  stopCapture(opts: {
+    model: string;
+    language?: string;
+    prompt?: string;
+  }): Promise<VoiceTranscript>;
+  /** Drop the capture without transcribing. */
+  cancelCapture(): Promise<void>;
+}

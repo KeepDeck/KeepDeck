@@ -213,6 +213,9 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
       case "open":
         out.push({ kind: "open" });
         return;
+      case "mic":
+        out.push({ kind: "mic" });
+        return;
       case "commands":
         if (!isStringArray(cap.execute) || cap.execute.length === 0)
           errors.push(`${at}: commands needs a non-empty "execute" string array`);

@@ -233,6 +233,14 @@ export function createFakeHost(
       },
     },
     services: {
+      voice: {
+        models: async () => [],
+        downloadModel: async () => {},
+        deleteModel: async () => {},
+        startCapture: async () => {},
+        stopCapture: async () => ({ text: "", silence: true }),
+        cancelCapture: async () => {},
+      },
       sessions: {
         spawn: async (_opts, onEvent) => {
           const id = `s${sessions.length + 1}`;

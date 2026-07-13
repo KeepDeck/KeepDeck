@@ -71,6 +71,14 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       onDeckChanged: () => disposable,
     },
     services: {
+      voice: {
+        models: async () => [],
+        downloadModel: async () => {},
+        deleteModel: async () => {},
+        startCapture: async () => {},
+        stopCapture: async () => ({ text: "", silence: true }),
+        cancelCapture: async () => {},
+      },
       sessions: {
         spawn: async () => ({
           id: "s1",

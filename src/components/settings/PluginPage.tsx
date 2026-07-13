@@ -162,5 +162,7 @@ function describe(cap: Capability): string {
       return "open links & files";
     case "commands":
       return `drive the deck (${cap.execute.join(", ")})`;
+    case "mic":
+      return "use the microphone (local speech-to-text)";
   }
 }

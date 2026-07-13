@@ -16,6 +16,7 @@ import type {
   PluginPorts,
   PluginServices,
   PluginSessions,
+  PluginVoice,
 } from "@keepdeck/plugin-api";
 import { execCovers } from "./execCovers";
 
@@ -74,6 +75,7 @@ export interface ServiceBackends {
   opener: PluginOpener;
   fs: FsBackend;
   git: GitBackend;
+  voice: PluginVoice;
 }
 
 /**
@@ -245,7 +247,55 @@ export function createCapabilityGate(
         return backend.git.watch(repo, gitScope(manifest.capabilities), onChange);
       },
     },
+    voice: {
+      models() {
+        admit(
+          hasMicCapability(manifest.capabilities),
+          `voice.models requires a "mic" capability, which the manifest does not declare`,
+        );
+        return backend.voice.models();
+      },
+      downloadModel(id, onProgress) {
+        admit(
+          hasMicCapability(manifest.capabilities),
+          `voice.downloadModel: "${id}" requires a "mic" capability, which the manifest does not declare`,
+        );
+        return backend.voice.downloadModel(id, onProgress);
+      },
+      deleteModel(id) {
+        admit(
+          hasMicCapability(manifest.capabilities),
+          `voice.deleteModel: "${id}" requires a "mic" capability, which the manifest does not declare`,
+        );
+        return backend.voice.deleteModel(id);
+      },
+      startCapture(onLevel) {
+        admit(
+          hasMicCapability(manifest.capabilities),
+          `voice.startCapture requires a "mic" capability, which the manifest does not declare`,
+        );
+        return backend.voice.startCapture(onLevel);
+      },
+      stopCapture(opts) {
+        admit(
+          hasMicCapability(manifest.capabilities),
+          `voice.stopCapture requires a "mic" capability, which the manifest does not declare`,
+        );
+        return backend.voice.stopCapture(opts);
+      },
+      cancelCapture() {
+        admit(
+          hasMicCapability(manifest.capabilities),
+          `voice.cancelCapture requires a "mic" capability, which the manifest does not declare`,
+        );
+        return backend.voice.cancelCapture();
+      },
+    },
   };
+}
+
+function hasMicCapability(capabilities: Capability[]): boolean {
+  return capabilities.some((capability) => capability.kind === "mic");
 }
 
 function hasPortsCapability(capabilities: Capability[]): boolean {
