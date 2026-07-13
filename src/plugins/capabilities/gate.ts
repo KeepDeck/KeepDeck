@@ -262,6 +262,13 @@ export function createCapabilityGate(
         );
         return backend.voice.downloadModel(id, onProgress);
       },
+      cancelDownload(id) {
+        admit(
+          hasMicCapability(manifest.capabilities),
+          `voice.cancelDownload: "${id}" requires a "mic" capability, which the manifest does not declare`,
+        );
+        return backend.voice.cancelDownload(id);
+      },
       deleteModel(id) {
         admit(
           hasMicCapability(manifest.capabilities),

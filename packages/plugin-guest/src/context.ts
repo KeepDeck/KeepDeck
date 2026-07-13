@@ -405,6 +405,7 @@ export function buildGuestContext(
         // like commands.register. Fail loudly, not silently.
         models: () => Promise.reject(unavailableVoice()),
         downloadModel: () => Promise.reject(unavailableVoice()),
+        cancelDownload: () => Promise.reject(unavailableVoice()),
         deleteModel: () => Promise.reject(unavailableVoice()),
         startCapture: () => Promise.reject(unavailableVoice()),
         stopCapture: () => Promise.reject(unavailableVoice()),

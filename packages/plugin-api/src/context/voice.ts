@@ -13,6 +13,9 @@ export interface VoiceModelInfo {
   label: string;
   sizeMb: number;
   installed: boolean;
+  /** No working source anymore: an existing install keeps transcribing and
+   * can be deleted, but nothing can be downloaded — hide it when absent. */
+  retired: boolean;
 }
 
 export interface VoiceDownloadProgress {
@@ -43,6 +46,11 @@ export interface PluginVoice {
     id: string,
     onProgress?: (p: VoiceDownloadProgress) => void,
   ): Promise<void>;
+  /** Stop an in-flight download; the partial file stays and the next
+   * `downloadModel` resumes where it stopped. The pending `downloadModel`
+   * promise rejects with the message `"cancelled"` — a quiet reset, not an
+   * error to paint red. */
+  cancelDownload(id: string): Promise<void>;
   deleteModel(id: string): Promise<void>;
   /** Open the mic and start accumulating one utterance. `onLevel` receives
    * a coarse RMS reading (~30 fps) for a live meter. One capture at a time,

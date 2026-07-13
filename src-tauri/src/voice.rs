@@ -49,23 +49,33 @@ enum Payload {
 }
 
 /// The downloadable model registry — every entry is MULTILINGUAL with
-/// Russian covered.
+/// Russian covered. Sources live on blob.handy.computer: HF's Xet CDN
+/// answers anonymous downloads with 403 (verified with plain curl on both
+/// the parakeet and whisper repos), so the HF route is closed to an app
+/// without user tokens.
 struct ModelSpec {
     id: &'static str,
     label: &'static str,
     size_mb: u32,
     engine: EngineType,
+    /// A retired entry has no working source anymore: an existing install
+    /// keeps transcribing and can be deleted, but it is never offered for
+    /// download and hides from the picker when absent.
+    retired: bool,
     payload: Payload,
 }
 
 const MODELS: &[ModelSpec] = &[
+    // Retired: these q5 files were served per-file from HF before the Xet
+    // 403 wall went up, and no mirror carries them.
     ModelSpec {
         id: "whisper-base-q5_1",
         label: "Whisper Base — fastest, good for short commands",
         size_mb: 60,
         engine: EngineType::Whisper,
+        retired: true,
         payload: Payload::File {
-            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+            url: "",
             name: "ggml-base-q5_1.bin",
             bytes: 60_000_000,
         },
@@ -75,10 +85,23 @@ const MODELS: &[ModelSpec] = &[
         label: "Whisper Small — balanced",
         size_mb: 190,
         engine: EngineType::Whisper,
+        retired: true,
         payload: Payload::File {
-            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+            url: "",
             name: "ggml-small-q5_1.bin",
             bytes: 190_000_000,
+        },
+    },
+    ModelSpec {
+        id: "whisper-small",
+        label: "Whisper Small — good for short commands",
+        size_mb: 465,
+        engine: EngineType::Whisper,
+        retired: false,
+        payload: Payload::File {
+            url: "https://blob.handy.computer/ggml-small.bin",
+            name: "ggml-small.bin",
+            bytes: 487_601_967,
         },
     },
     ModelSpec {
@@ -86,10 +109,11 @@ const MODELS: &[ModelSpec] = &[
         label: "Whisper Large v3 Turbo — best accuracy, for dictation",
         size_mb: 574,
         engine: EngineType::Whisper,
+        retired: false,
         payload: Payload::File {
-            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+            url: "https://blob.handy.computer/ggml-large-v3-turbo-q5_0.bin",
             name: "ggml-large-v3-turbo-q5_0.bin",
-            bytes: 574_000_000,
+            bytes: 574_041_195,
         },
     },
     // The istupakov ONNX export, bundled by Handy — HF's Xet CDN answers
@@ -100,6 +124,7 @@ const MODELS: &[ModelSpec] = &[
         label: "Parakeet TDT 0.6B v3 — fast and accurate, commands and dictation",
         size_mb: 456,
         engine: EngineType::Parakeet,
+        retired: false,
         payload: Payload::Archive {
             url: "https://blob.handy.computer/parakeet-v3-int8.tar.gz",
             bytes: 478_517_071,
@@ -212,6 +237,30 @@ impl Clone for CachedEngine {
 pub struct VoiceState {
     capture: Mutex<Option<ActiveCapture>>,
     engine: Mutex<Option<(String, CachedEngine)>>,
+    /// Model ids whose in-flight download should stop. Shared with the
+    /// blocking transfer loop; a cancelled transfer KEEPS its .part so the
+    /// next attempt resumes instead of starting over.
+    cancels: Arc<Mutex<std::collections::HashSet<String>>>,
+}
+
+/// The error string a cancelled download returns — the UI treats it as a
+/// quiet reset, not a failure to paint red.
+pub const DOWNLOAD_CANCELLED: &str = "cancelled";
+
+/// One human sentence out of a transfer failure — the raw ureq error drags
+/// the entire signed CDN URL into the UI.
+fn humanize_http(e: ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(code, _) => match code {
+            403 => "the server refused the download (HTTP 403) — try again later".into(),
+            404 => "the file is gone from the server (HTTP 404)".into(),
+            429 => "rate-limited by the server (HTTP 429) — try again later".into(),
+            _ => format!("the server refused the download (HTTP {code})"),
+        },
+        ureq::Error::Transport(t) => {
+            format!("network error{}", t.message().map(|m| format!(": {m}")).unwrap_or_default())
+        }
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -221,6 +270,9 @@ pub struct VoiceModelDto {
     label: String,
     size_mb: u32,
     installed: bool,
+    /// No working source anymore: an install keeps working, but there is
+    /// nothing to download — the picker hides it when absent.
+    retired: bool,
 }
 
 #[tauri::command]
@@ -233,6 +285,7 @@ pub fn voice_model_list() -> Result<Vec<VoiceModelDto>, String> {
                 label: m.label.to_string(),
                 size_mb: m.size_mb,
                 installed: installed(m)?,
+                retired: m.retired,
             })
         })
         .collect()
@@ -246,25 +299,57 @@ pub struct DownloadProgress {
 }
 
 /// Stream one URL to `dest` with progress against `total`, returning the
-/// byte count and the running SHA-256. Writes go to the path verbatim — the
-/// caller owns .part naming and the rename/extract that makes the result
-/// count as installed.
+/// byte count and the SHA-256 of the WHOLE file. An existing `dest` resumes
+/// via a Range request (existing bytes are re-hashed first; a server that
+/// ignores Range restarts from zero). A cancel — `cancels` gaining `id` —
+/// stops the transfer but KEEPS the partial file for the next resume;
+/// truncated transfers are kept for the same reason, reported as errors.
 fn fetch_to(
     url: &str,
     dest: &std::path::Path,
     total: u64,
+    id: &str,
+    cancels: &Mutex<std::collections::HashSet<String>>,
     on_progress: &Channel<DownloadProgress>,
 ) -> Result<(u64, String), String> {
     use sha2::{Digest, Sha256};
 
-    let response = ureq::get(url).call().map_err(|e| e.to_string())?;
+    let mut offset = fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+    let mut request = ureq::get(url);
+    if offset > 0 {
+        request = request.set("Range", &format!("bytes={offset}-"));
+    }
+    let response = request.call().map_err(humanize_http)?;
+
+    let mut hasher = Sha256::new();
+    let file;
+    if offset > 0 && response.status() == 206 {
+        // Resuming: the hash must still cover the whole file.
+        let mut existing = fs::File::open(dest).map_err(|e| e.to_string())?;
+        let mut buf = [0u8; 64 * 1024];
+        loop {
+            let n = existing.read(&mut buf).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        file = fs::OpenOptions::new()
+            .append(true)
+            .open(dest)
+            .map_err(|e| e.to_string());
+    } else {
+        offset = 0;
+        file = fs::File::create(dest).map_err(|e| e.to_string());
+    }
+    let mut file = file?;
+
     let expected = response
         .header("Content-Length")
-        .and_then(|v| v.parse::<u64>().ok());
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|len| offset + len);
     let mut reader = response.into_reader();
-    let mut file = fs::File::create(dest).map_err(|e| e.to_string())?;
-    let mut hasher = Sha256::new();
-    let mut received: u64 = 0;
+    let mut received: u64 = offset;
     let mut last_reported: u64 = 0;
     let mut buf = [0u8; 64 * 1024];
     loop {
@@ -276,9 +361,13 @@ fn fetch_to(
         hasher.update(&buf[..n]);
         received += n as u64;
         // ~every 512 KiB: often enough for a live bar, rare enough to stay
-        // off the IPC hot path.
+        // off the IPC hot path — and the natural place to notice a cancel.
         if received - last_reported >= 512 * 1024 {
             last_reported = received;
+            if cancels.lock().expect("poisoned").remove(id) {
+                let _ = file.flush();
+                return Err(DOWNLOAD_CANCELLED.into());
+            }
             let _ = on_progress.send(DownloadProgress {
                 received,
                 total: Some(total),
@@ -287,13 +376,13 @@ fn fetch_to(
     }
     file.flush().map_err(|e| e.to_string())?;
     drop(file);
-    // A truncated body (connection cut) must not survive: when the server
-    // told us the size, hold the transfer to it.
+    // A cut connection leaves a resumable .part behind; just say so.
     if let Some(expected) = expected {
         if received != expected {
-            let _ = fs::remove_file(dest);
             return Err(format!(
-                "download incomplete: {received} of {expected} bytes"
+                "connection dropped at {} of {} MB — Download resumes where it stopped",
+                received / 1_000_000,
+                expected / 1_000_000
             ));
         }
     }
@@ -308,20 +397,28 @@ fn fetch_to(
 pub async fn voice_model_download(
     id: String,
     on_progress: Channel<DownloadProgress>,
+    state: tauri::State<'_, VoiceState>,
 ) -> Result<(), String> {
     let m = spec(&id)?;
+    if m.retired {
+        return Err("this model is retired — its source is gone; pick another".into());
+    }
     if installed(m)? {
         return Ok(());
     }
     let dir = install_dir(m)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let cancels = state.cancels.clone();
+    // A stale cancel from a previous attempt must not kill this one.
+    cancels.lock().expect("poisoned").remove(&id);
 
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         match &m.payload {
             Payload::File { url, name, bytes } => {
                 let final_path = dir.join(name);
                 let part_path = final_path.with_extension("part");
-                let (received, _) = fetch_to(url, &part_path, *bytes, &on_progress)?;
+                let (received, _) =
+                    fetch_to(url, &part_path, *bytes, m.id, &cancels, &on_progress)?;
                 fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
                 let _ = on_progress.send(DownloadProgress {
                     received,
@@ -336,11 +433,13 @@ pub async fn voice_model_download(
             } => {
                 let archive_path = dir.join("payload.tar.gz.part");
                 let (received, digest) =
-                    fetch_to(url, &archive_path, *bytes, &on_progress)?;
+                    fetch_to(url, &archive_path, *bytes, m.id, &cancels, &on_progress)?;
                 if digest != *sha256 {
+                    // Corrupt is the one case a .part must NOT survive —
+                    // resuming onto bad bytes can never produce a good file.
                     let _ = fs::remove_file(&archive_path);
                     return Err(format!(
-                        "checksum mismatch for {}: got {digest}",
+                        "checksum mismatch for {} — the download was corrupted, try again",
                         m.id
                     ));
                 }
@@ -361,6 +460,17 @@ pub async fn voice_model_download(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Stop an in-flight download. The partial file stays — the next Download
+/// resumes where it stopped.
+#[tauri::command]
+pub fn voice_model_download_cancel(
+    id: String,
+    state: tauri::State<'_, VoiceState>,
+) -> Result<(), String> {
+    state.cancels.lock().expect("poisoned").insert(id);
+    Ok(())
 }
 
 #[tauri::command]

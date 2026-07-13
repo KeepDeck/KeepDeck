@@ -44,6 +44,7 @@ import {
   voiceCaptureStart,
   voiceCaptureStop,
   voiceModelDelete,
+  voiceModelDownloadCancel,
   voiceModelDownload,
   voiceModelList,
 } from "../ipc/voice";
@@ -277,6 +278,7 @@ const serviceBackend: ServiceBackends = {
     models: () => voiceModelList(),
     downloadModel: (id, onProgress) =>
       voiceModelDownload(id, (p) => onProgress?.(p)),
+    cancelDownload: (id) => voiceModelDownloadCancel(id),
     deleteModel: (id) => voiceModelDelete(id),
     startCapture: (onLevel) => voiceCaptureStart((rms) => onLevel?.(rms)),
     stopCapture: (opts) => voiceCaptureStop(opts),

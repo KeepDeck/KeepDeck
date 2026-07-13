@@ -74,6 +74,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       voice: {
         models: async () => [],
         downloadModel: async () => {},
+        cancelDownload: async () => {},
         deleteModel: async () => {},
         startCapture: async () => {},
         stopCapture: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),

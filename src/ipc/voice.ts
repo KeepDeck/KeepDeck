@@ -8,6 +8,9 @@ export interface VoiceModelDto {
   label: string;
   sizeMb: number;
   installed: boolean;
+  /** No working source anymore: an install keeps working, but there is
+   * nothing to download — hide it when absent. */
+  retired: boolean;
 }
 
 export interface DownloadProgressDto {
@@ -34,6 +37,10 @@ export function voiceModelDownload(
   const channel = new Channel<DownloadProgressDto>();
   channel.onmessage = onProgress;
   return invoke("voice_model_download", { id, onProgress: channel });
+}
+
+export function voiceModelDownloadCancel(id: string): Promise<void> {
+  return invoke("voice_model_download_cancel", { id });
 }
 
 export function voiceModelDelete(id: string): Promise<void> {

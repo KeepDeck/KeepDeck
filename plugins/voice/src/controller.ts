@@ -26,10 +26,10 @@ export interface VoiceSnapshot {
   history: readonly HistoryEntry[];
 }
 
-/** The stored model choice; the registry's smallest model as the fallback
- * keeps first-run friction at one download. */
+/** The stored model choice. With no pick persisted, the controller prefers
+ * whatever is actually installed before falling back to this id. */
 export const MODEL_KEY = "model";
-export const DEFAULT_MODEL = "whisper-base-q5_1";
+export const DEFAULT_MODEL = "whisper-small";
 
 const HISTORY_CAP = 100;
 
@@ -203,10 +203,19 @@ export function createVoiceController(
         // — the global KV is still a stub, and a choice that silently
         // evaporates on restart is worse than none.
         const values = await ctx.settings.read();
-        const model =
+        let model =
           typeof values[MODEL_KEY] === "string"
             ? (values[MODEL_KEY] as string)
-            : DEFAULT_MODEL;
+            : null;
+        if (!model) {
+          // No pick yet: whatever is actually installed beats a default
+          // that would answer "not downloaded".
+          const models = await ctx.services.voice.models().catch(() => []);
+          model =
+            models.find((m) => m.installed && !m.retired)?.id ??
+            models.find((m) => m.installed)?.id ??
+            DEFAULT_MODEL;
+        }
 
         // No language pin: whisper's auto-detect handles per-utterance
         // language switching better than any setting the user must remember.

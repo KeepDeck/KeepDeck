@@ -69,6 +69,7 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
   }, []);
 
   const download = (id: string) => {
+    setError(null);
     setProgress((p) => ({ ...p, [id]: 0 }));
     void ctx.services.voice
       .downloadModel(id, ({ received, total }) => {
@@ -78,7 +79,12 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
         }));
       })
       .then(() => refresh())
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : String(e);
+        // A cancel is a quiet reset, not a failure — the partial file stays
+        // and the next Download resumes it.
+        if (message !== "cancelled") setError(message);
+      })
       .finally(() =>
         setProgress((p) => {
           const { [id]: _done, ...rest } = p;
@@ -87,12 +93,17 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
       );
   };
 
+  const cancel = (id: string) => void ctx.services.voice.cancelDownload(id);
+
   const pick = (id: string) => write(MODEL_KEY, id);
 
   return (
     <div className="voice-models">
       {error && <div className="voice-models__error">{error}</div>}
       {models?.map((m) => {
+        // Retired = the source is gone: an install keeps working (and shows
+        // a Legacy badge), an absent one has nothing to offer — hide it.
+        if (m.retired && !m.installed) return null;
         const meta = CARD_META[m.id];
         const isActive = active === m.id;
         const downloading = progress[m.id] !== undefined;
@@ -109,6 +120,11 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                 {shortName(m.label)}
                 {isActive && m.installed && (
                   <span className="voice-models__badge">✓ Active</span>
+                )}
+                {m.retired && (
+                  <span className="voice-models__badge voice-models__badge--legacy">
+                    Legacy
+                  </span>
                 )}
               </span>
               <Rating label="accuracy" value={meta?.accuracy ?? 0.5} />
@@ -133,8 +149,21 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                     Delete
                   </button>
                 ) : downloading ? (
-                  <span className="voice-models__progress">{progress[m.id]}%</span>
-                ) : (
+                  <>
+                    <span className="voice-models__progress">{progress[m.id]}%</span>
+                    <button
+                      type="button"
+                      className="voice-models__act voice-models__act--delete"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        cancel(m.id);
+                      }}
+                      title="Stop — the next Download resumes from here"
+                    >
+                      ✕
+                    </button>
+                  </>
+                ) : m.retired ? null : (
                   <button
                     type="button"
                     className="voice-models__act"

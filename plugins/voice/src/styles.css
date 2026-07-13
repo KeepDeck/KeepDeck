@@ -207,6 +207,15 @@
 .voice-models__error {
   color: #e0806f;
   font-size: 12px;
+  /* A humanized message stays short, but nothing that lands here may ever
+     explode the settings column sideways again. */
+  overflow-wrap: anywhere;
+}
+
+.voice-models__badge--legacy {
+  background: #1c2230;
+  color: #9aa3af;
+  border-color: #2a3346;
 }
 
 .voice-models__card {

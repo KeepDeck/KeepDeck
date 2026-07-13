@@ -42,6 +42,7 @@ function fakeDeps() {
     voice: {
       models: vi.fn(async () => []),
       downloadModel: vi.fn(async () => {}),
+      cancelDownload: vi.fn(async () => {}),
       deleteModel: vi.fn(async () => {}),
       startCapture: vi.fn(async () => {}),
       stopCapture: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),

@@ -146,6 +146,7 @@ pub fn run() {
             sessions::session_spawn_context,
             voice::voice_model_list,
             voice::voice_model_download,
+            voice::voice_model_download_cancel,
             voice::voice_model_delete,
             voice::voice_capture_start,
             voice::voice_capture_stop,

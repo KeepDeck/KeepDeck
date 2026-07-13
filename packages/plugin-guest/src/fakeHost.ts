@@ -236,6 +236,7 @@ export function createFakeHost(
       voice: {
         models: async () => [],
         downloadModel: async () => {},
+        cancelDownload: async () => {},
         deleteModel: async () => {},
         startCapture: async () => {},
         stopCapture: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
