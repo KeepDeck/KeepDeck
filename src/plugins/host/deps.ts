@@ -1,4 +1,9 @@
 import type {
+  CommandArgs,
+  CommandInfo,
+  CommandResult,
+  Disposable,
+  PluginCommandSpec,
   PluginEvents,
   PluginHostFacts,
   PluginLogger,
@@ -9,6 +14,18 @@ import type {
   PluginStorage,
 } from "@keepdeck/plugin-api";
 import type { PluginSource } from "../model/installed";
+
+/** One plugin's window onto the command registry, already bound to its
+ * identity: `register` lands specs under the plugin's namespace (the dep
+ * derives the full id — a plugin cannot register into someone else's), and
+ * `execute` carries the plugin as the journaled source and refuses ids its
+ * manifest's `commands` capability does not cover (own namespace always
+ * passes). */
+export interface PluginCommandsPort {
+  register(spec: PluginCommandSpec): Disposable;
+  execute(id: string, args: CommandArgs): Promise<CommandResult>;
+  list(): Promise<CommandInfo[]>;
+}
 
 /**
  * The ports the plugin core needs from the app — dependency inversion in one
@@ -40,6 +57,10 @@ export interface PluginHostDeps {
    * plugin never declared; `source` picks the gate's TIER — a trusted
    * built-in warns on a violation, an untrusted external throws (enforce). */
   services(manifest: PluginManifest, source: PluginSource): PluginServices;
+  /** This plugin's command-registry window (see `PluginCommandsPort`). The
+   * manifest is threaded for the execute-permission patterns; `source` for
+   * tier-specific handling, mirroring `services`. */
+  commands(manifest: PluginManifest, source: PluginSource): PluginCommandsPort;
   /** This plugin's bundle resources (absolute on-disk paths). `source`
    * picks the backing: built-ins resolve inside the app bundle, externals
    * inside their install folder. */

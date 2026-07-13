@@ -129,6 +129,21 @@ export function buildPluginContext(
       read: () => settingsPort.read(),
       onChange: (cb) => track(settingsPort.onChange(cb)),
     },
+    commands: (() => {
+      // Bound lazily-enough: the port is built once per context, and the
+      // context enforces the DECLARATION half (manifest lists the entry id)
+      // while the port enforces identity + execute permissions.
+      const port = deps.commands(manifest, source);
+      return {
+        register: (spec: Parameters<typeof port.register>[0]) => {
+          declared("commands", spec.id);
+          return track(port.register(spec));
+        },
+        execute: (id: string, args: Parameters<typeof port.execute>[1]) =>
+          port.execute(id, args),
+        list: () => port.list(),
+      };
+    })(),
     agents: {
       register: (agent) => {
         declared("agents", agent.id);

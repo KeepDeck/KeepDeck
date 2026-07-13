@@ -195,6 +195,16 @@ export function createHostDispatch(
     "events.unsubscribe": ([channel]) =>
       subscriptions.unsubscribe(asDeckChannel(channel)),
 
+    // ---- commands: execute/list are plain calls; register stays guest-side
+    // unsupported until its first external consumer (`run` needs the
+    // host→realm call cycle the agent hooks use) ----
+    "commands.execute": ([id, args]) =>
+      ctx.commands.execute(
+        id as string,
+        args as Parameters<typeof ctx.commands.execute>[1],
+      ),
+    "commands.list": () => ctx.commands.list(),
+
     // ---- ui: register the ENTRY MINUS functions; synthesise the run push ----
     "ui.registerDockTab": ([regId, entry]) =>
       retain(regId as number, ctx.ui.registerDockTab(entry as DockTabContribution)),

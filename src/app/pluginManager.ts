@@ -13,6 +13,7 @@ import {
 } from "../plugins";
 import {
   createCapabilityGate,
+  createPluginCommandsPort,
   type FsScope,
   type ServiceBackends,
 } from "../plugins/capabilities";
@@ -33,6 +34,7 @@ import {
   projectGitUnwatch,
   projectGitWatch,
 } from "../ipc/projectGit";
+import { commands as commandRegistry } from "./commandRegistry";
 import { enabledByPolicy } from "../plugins/host/enabledPolicy";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
@@ -340,6 +342,8 @@ export const pluginHost = new PluginHost(
         mode: source === "external" ? "enforce" : "warn",
         log: loggerFor(manifest.id),
       }),
+    commands: (manifest) =>
+      createPluginCommandsPort(manifest, commandRegistry, loggerFor(manifest.id)),
     resources: (manifest, source) => ({
       async path(relative: string) {
         // Plain /-separated segments only — a resource name, not a path

@@ -8,6 +8,16 @@ export type {
   SpawnPlanInput,
   SpawnPlanOutput,
 } from "./agents.ts";
+export type {
+  CommandArgSpec,
+  CommandArgType,
+  CommandArgs,
+  CommandError,
+  CommandInfo,
+  CommandResult,
+  PluginCommandSpec,
+  PluginCommands,
+} from "./commands.ts";
 export type { PluginContext } from "./context.ts";
 export type { Disposable } from "./disposable.ts";
 export type { PluginEvents } from "./events.ts";

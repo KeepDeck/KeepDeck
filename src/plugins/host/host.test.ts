@@ -67,6 +67,11 @@ function fakeDeps() {
     })),
     events,
     services: vi.fn(() => services),
+    commands: vi.fn(() => ({
+      register: vi.fn(spyDisposable),
+      execute: vi.fn(async () => ({ ok: true, value: null }) as const),
+      list: vi.fn(async () => []),
+    })),
     resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
     ui: { revealDockTab: vi.fn(), setOverlayVisible: vi.fn() },
     log: vi.fn(() => logger),

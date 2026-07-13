@@ -1,5 +1,7 @@
 import type {
   AgentHooks,
+  CommandInfo,
+  CommandResult,
   Disposable,
   FileOpenRequest,
   FsEntry,
@@ -253,6 +255,20 @@ export function buildGuestContext(
         ),
     },
 
+    commands: {
+      // Registering needs a host→realm call cycle for `run` (the agents-hook
+      // pattern); it lands with its first external consumer — the built-in
+      // tier already has the full surface. Executing and listing are plain
+      // calls and work today.
+      register: () => {
+        throw new Error(
+          "commands.register is not yet available to external plugins — the built-in tier has it; executing commands works on both",
+        );
+      },
+      execute: (id, args) =>
+        rpc.call("commands.execute", [id, args]) as Promise<CommandResult>,
+      list: () => rpc.call("commands.list", []) as Promise<CommandInfo[]>,
+    },
     agents: {
       // Identity crosses as data; the hooks stay in this realm and the host
       // invokes them per spawn through `hook:<id>` pushes.

@@ -47,6 +47,9 @@ export interface PluginManifest {
      * plugin is active, independent of dock/panel state. */
     overlays?: ContributionSummary[];
     agents?: ContributionSummary[];
+    /** Commands the plugin registers in the command registry. Entry ids are
+     * plain tokens; the registry id becomes `<pluginId>.<entryId>`. */
+    commands?: ContributionSummary[];
     /** The plugin registers a host-rendered settings section. */
     settings?: boolean;
   };
@@ -87,6 +90,13 @@ const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?
 /** A contribution id — a plain token safe as both a URL path component and a
  * registry key. No dots/slashes/whitespace. */
 const CONTRIB_ID = /^[a-zA-Z0-9_-]+$/;
+
+/** A `commands` execute pattern: a full dotted registry id, or a namespace
+ * with a trailing `.*`. Mirrors the registry's own id grammar (lowercase
+ * first character per segment, hyphens allowed) so a declared pattern can
+ * actually match something. */
+const COMMAND_PATTERN =
+  /^[a-z][a-zA-Z0-9-]*(\.[a-z][a-zA-Z0-9-]*)+$|^[a-z][a-zA-Z0-9-]*(\.[a-z][a-zA-Z0-9-]*)*\.\*$/;
 
 /**
  * Validate an untrusted manifest value. Collects EVERY problem instead of
@@ -203,6 +213,15 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
       case "open":
         out.push({ kind: "open" });
         return;
+      case "commands":
+        if (!isStringArray(cap.execute) || cap.execute.length === 0)
+          errors.push(`${at}: commands needs a non-empty "execute" string array`);
+        else if (cap.execute.some((p) => !COMMAND_PATTERN.test(p)))
+          errors.push(
+            `${at}: commands execute patterns must be dotted ids like "agent.spawn" or namespace wildcards like "agent.*" (a bare "*" is not allowed)`,
+          );
+        else out.push({ kind: "commands", execute: cap.execute });
+        return;
       default:
         errors.push(
           `${at}: unknown kind "${cap.kind}" (known: ${CAPABILITY_KINDS.join(", ")})`,
@@ -247,6 +266,8 @@ function readContributes(
   if (overlays) out.overlays = overlays;
   const agents = readSummaries(value.agents, "agents", errors);
   if (agents) out.agents = agents;
+  const commands = readSummaries(value.commands, "commands", errors);
+  if (commands) out.commands = commands;
   if (value.settings !== undefined) {
     if (typeof value.settings !== "boolean")
       errors.push("contributes.settings: must be a boolean");

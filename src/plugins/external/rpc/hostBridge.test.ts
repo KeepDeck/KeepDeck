@@ -41,6 +41,11 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       setOverlayVisible: () => {},
     },
     openers: { register: () => disposable },
+    commands: {
+      register: () => disposable,
+      execute: async () => ({ ok: true, value: null }),
+      list: async () => [],
+    },
     settings: {
       registerSection: () => disposable,
       read: async () => ({}),

@@ -1,4 +1,5 @@
 import type { PluginAgents } from "./agents.ts";
+import type { PluginCommands } from "./commands.ts";
 import type { PluginEvents } from "./events.ts";
 import type { PluginHostFacts } from "./hostFacts.ts";
 import type { PluginLogger } from "./log.ts";
@@ -31,6 +32,7 @@ export interface PluginContext {
   readonly openers: PluginFileOpeners;
   readonly settings: PluginSettings;
   readonly agents: PluginAgents;
+  readonly commands: PluginCommands;
   readonly storage: PluginStorage;
   readonly resources: PluginResources;
   readonly events: PluginEvents;

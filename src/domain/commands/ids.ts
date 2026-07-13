@@ -1,9 +1,11 @@
 /** A command id is dot-separated namespace segments: `agent.spawn`,
  * `run.launch`, `keepdeck.voice.listen`. Each segment starts lowercase;
- * camelCase is allowed after the first character. At least two segments —
- * a bare name would collide across contributors, and the first segment IS
- * the owner's namespace (core sets like `agent.*`, a plugin's own id). */
-const SEGMENT = /^[a-z][a-zA-Z0-9]*$/;
+ * camelCase and hyphens are allowed after the first character (plugin ids
+ * like `dev.example-preview` become namespaces verbatim). At least two
+ * segments — a bare name would collide across contributors, and the first
+ * segment IS the owner's namespace (core sets like `agent.*`, a plugin's
+ * own id). */
+const SEGMENT = /^[a-z][a-zA-Z0-9-]*$/;
 
 export function isValidCommandId(id: string): boolean {
   const segments = id.split(".");

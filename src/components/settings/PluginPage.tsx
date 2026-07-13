@@ -160,5 +160,7 @@ function describe(cap: Capability): string {
       return "allocate ports";
     case "open":
       return "open links & files";
+    case "commands":
+      return `drive the deck (${cap.execute.join(", ")})`;
   }
 }

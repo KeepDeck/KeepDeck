@@ -12,6 +12,8 @@ describe("isValidCommandId", () => {
     expect(isValidCommandId("workspace.switch")).toBe(true);
     expect(isValidCommandId("keepdeck.voice.listen")).toBe(true);
     expect(isValidCommandId("pane.writeText")).toBe(true);
+    // A hyphenated plugin id is a namespace verbatim.
+    expect(isValidCommandId("dev.example-preview.open")).toBe(true);
   });
 
   it("rejects bare names — the first segment is the owner's namespace", () => {
