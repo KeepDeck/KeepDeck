@@ -60,6 +60,13 @@ tauri-plugin-macos-permissions = "2"
 # system TLS surprises across macOS versions.
 ureq = "2"
 
+# Our own AVCaptureDevice request with a REAL completion block (the plugin's
+# request passes a nil handler, which fails to raise the prompt in dev):
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = "0.3"
+
 [dev-dependencies]
 tempfile = "3"
 

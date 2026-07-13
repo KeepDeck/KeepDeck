@@ -2354,6 +2354,7 @@ dependencies = [
 name = "keepdeck"
 version = "0.12.14"
 dependencies = [
+ "block2",
  "image",
  "infer",
  "keepdeck-env",
@@ -2362,6 +2363,8 @@ dependencies = [
  "keepdeck-voice",
  "log",
  "notify",
+ "objc2",
+ "objc2-foundation",
  "serde",
  "serde_json",
  "tauri",

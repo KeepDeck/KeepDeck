@@ -397,6 +397,34 @@ pub fn voice_capture_cancel(state: tauri::State<'_, VoiceState>) -> Result<(), S
     Ok(())
 }
 
+/// Fire the AVCaptureDevice access request with a REAL completion block —
+/// a nil completion handler (what the permissions plugin passes) fails to
+/// raise the TCC dialog at least under a dev launch. The outcome lands in
+/// the log so a granted/denied decision is visible without the Settings app.
+#[cfg(target_os = "macos")]
+fn request_microphone_access() {
+    use block2::StackBlock;
+    use objc2::runtime::Bool;
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSString;
+
+    let media_type = NSString::from_str("soun");
+    let handler = StackBlock::new(move |granted: Bool| {
+        log::info!(
+            "voice: microphone access request completed, granted={}",
+            granted.as_bool()
+        );
+    })
+    .copy();
+    unsafe {
+        let _: () = msg_send![
+            class!(AVCaptureDevice),
+            requestAccessForMediaType: &*media_type,
+            completionHandler: &*handler
+        ];
+    }
+}
+
 fn take_capture(state: &tauri::State<'_, VoiceState>) -> Result<ActiveCapture, String> {
     state
         .capture
