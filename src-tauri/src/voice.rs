@@ -216,9 +216,13 @@ pub async fn voice_capture_start(
     if !tauri_plugin_macos_permissions::check_microphone_permission().await {
         request_microphone_access();
         return Err(
-            "microphone permission is not granted — macOS should be asking now; \
-             allow it (or enable the app in System Settings → Privacy & Security → \
-             Microphone) and hold the key again"
+            "microphone permission is not granted. macOS attributes the request \
+             to the app that LAUNCHED this process — if you started dev from \
+             inside another app (including KeepDeck itself), that app must carry \
+             NSMicrophoneUsageDescription or macOS denies silently. Launch dev \
+             from a terminal once (the prompt will name the terminal), or allow \
+             it in System Settings → Privacy & Security → Microphone, then hold \
+             the key again"
                 .into(),
         );
     }
