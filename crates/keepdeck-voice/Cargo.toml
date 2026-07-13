@@ -1,0 +1,16 @@
+[package]
+name = "keepdeck-voice"
+version = "0.1.0"
+edition = "2021"
+description = "Local voice capture and speech-to-text for KeepDeck: cpal microphone capture, resampling, and whisper.cpp inference."
+
+[dependencies]
+cpal = "0.16"
+
+# whisper.cpp via FFI; Metal keeps inference on the GPU on Apple Silicon.
+# (whisper-rs lives on Codeberg now — the GitHub mirror is archived.)
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+whisper-rs = "0.16"
