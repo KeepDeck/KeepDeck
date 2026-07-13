@@ -10,9 +10,10 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use keepdeck_voice::{
     is_silence, resample, rms, ParakeetEngine, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE,
@@ -233,14 +234,52 @@ impl Clone for CachedEngine {
     }
 }
 
+/// The ONE loaded engine, with the model it holds and when it was last used.
+struct CachedModel {
+    id: String,
+    engine: CachedEngine,
+    last_used: Instant,
+}
+
+/// Drop the loaded engine after this long unused. A large model (turbo,
+/// parakeet) is 0.5–2 GB resident; nobody expects the app to hold that after
+/// a morning's dictation. Reloading on the next utterance costs a few seconds.
+const ENGINE_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
 #[derive(Default)]
 pub struct VoiceState {
     capture: Mutex<Option<ActiveCapture>>,
-    engine: Mutex<Option<(String, CachedEngine)>>,
+    /// At most ONE engine instance, shared with the idle-reaper thread.
+    engine: Arc<Mutex<Option<CachedModel>>>,
+    /// Serializes transcription: one utterance is processed at a time and the
+    /// rest queue on this lock, so rapid-fire requests never spin up a second
+    /// inference on the single engine.
+    processing: Arc<Mutex<()>>,
+    /// Whether the idle-reaper thread is running (spawned once, on first load).
+    reaper: Arc<AtomicBool>,
     /// Model ids whose in-flight download should stop. Shared with the
     /// blocking transfer loop; a cancelled transfer KEEPS its .part so the
     /// next attempt resumes instead of starting over.
     cancels: Arc<Mutex<std::collections::HashSet<String>>>,
+}
+
+/// Start the idle reaper once: every 30s it drops the cached engine if it has
+/// gone `ENGINE_IDLE_TIMEOUT` unused, freeing the model's memory.
+fn ensure_reaper(state: &VoiceState) {
+    if state.reaper.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let engine = state.engine.clone();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(30));
+        let mut slot = engine.lock().expect("poisoned");
+        let idle = slot
+            .as_ref()
+            .is_some_and(|m| m.last_used.elapsed() >= ENGINE_IDLE_TIMEOUT);
+        if idle {
+            *slot = None;
+        }
+    });
 }
 
 /// The error string a cancelled download returns — the UI treats it as a
@@ -482,7 +521,7 @@ pub fn voice_model_delete(
     // Drop a cached engine holding this model before unlinking it.
     {
         let mut engine = state.engine.lock().expect("poisoned");
-        if engine.as_ref().is_some_and(|(cached, _)| *cached == m.id) {
+        if engine.as_ref().is_some_and(|cached| cached.id == m.id) {
             *engine = None;
         }
     }
@@ -622,18 +661,12 @@ pub async fn voice_capture_stop(
         return Err(format!("voice model \"{model}\" is not downloaded"));
     };
     let capture = take_capture(&state)?;
+    ensure_reaper(&state);
+    let engine_slot = state.engine.clone();
+    let processing = state.processing.clone();
 
-    // Reuse the cached engine when it already holds this model.
-    let cached = {
-        let engine = state.engine.lock().expect("poisoned");
-        engine
-            .as_ref()
-            .filter(|(id, _)| *id == m.id)
-            .map(|(_, e)| e.clone())
-    };
-
-    let (transcript, engine_used) = tauri::async_runtime::spawn_blocking(
-        move || -> Result<(TranscriptDto, Option<(String, CachedEngine)>), String> {
+    let transcript = tauri::async_runtime::spawn_blocking(
+        move || -> Result<TranscriptDto, String> {
             capture
                 .cmd_tx
                 .send(CaptureCmd::Stop)
@@ -643,46 +676,62 @@ pub async fn voice_capture_stop(
                 .recv()
                 .map_err(|_| "capture thread died".to_string())?
             else {
-                return Ok((
-                    TranscriptDto {
-                        text: String::new(),
-                        silence: true,
-                        seconds: 0.0,
-                        level: 0.0,
-                    },
-                    None,
-                ));
+                return Ok(TranscriptDto {
+                    text: String::new(),
+                    silence: true,
+                    seconds: 0.0,
+                    level: 0.0,
+                });
             };
 
             let samples = resample(&samples, rate, WHISPER_SAMPLE_RATE);
             let seconds = samples.len() as f32 / WHISPER_SAMPLE_RATE as f32;
             let level = rms(&samples);
             if is_silence(&samples) {
-                return Ok((
-                    TranscriptDto {
-                        text: String::new(),
-                        silence: true,
-                        seconds,
-                        level,
-                    },
-                    None,
-                ));
+                return Ok(TranscriptDto {
+                    text: String::new(),
+                    silence: true,
+                    seconds,
+                    level,
+                });
             }
 
-            let (engine, fresh) = match cached {
-                Some(e) => (e, None),
-                None => {
-                    let e = match m.engine {
-                        EngineType::Whisper => CachedEngine::Whisper(Arc::new(
-                            WhisperEngine::load(&load_path).map_err(|e| e.to_string())?,
-                        )),
-                        EngineType::Parakeet => CachedEngine::Parakeet(Arc::new(Mutex::new(
-                            ParakeetEngine::load(&load_path).map_err(|e| e.to_string())?,
-                        ))),
-                    };
-                    (e.clone(), Some((m.id.to_string(), e)))
+            // The processing gate: one transcription at a time. A burst of
+            // requests queues here instead of loading a second engine or
+            // running two inferences on the one instance.
+            let _turn = processing.lock().expect("poisoned");
+
+            // Reuse the single cached engine, or load it (and cache it) —
+            // holding the engine lock only around the swap, never across
+            // inference, so `delete` and the reaper aren't blocked by a long
+            // transcription.
+            let engine = {
+                let mut slot = engine_slot.lock().expect("poisoned");
+                let reusable = slot
+                    .as_ref()
+                    .filter(|cached| cached.id == m.id)
+                    .map(|cached| cached.engine.clone());
+                match reusable {
+                    Some(e) => e,
+                    None => {
+                        let e = match m.engine {
+                            EngineType::Whisper => CachedEngine::Whisper(Arc::new(
+                                WhisperEngine::load(&load_path).map_err(|e| e.to_string())?,
+                            )),
+                            EngineType::Parakeet => CachedEngine::Parakeet(Arc::new(Mutex::new(
+                                ParakeetEngine::load(&load_path).map_err(|e| e.to_string())?,
+                            ))),
+                        };
+                        *slot = Some(CachedModel {
+                            id: m.id.to_string(),
+                            engine: e.clone(),
+                            last_used: Instant::now(),
+                        });
+                        e
+                    }
                 }
             };
+
             let text = match &engine {
                 CachedEngine::Whisper(whisper) => whisper
                     .transcribe(&samples, language.as_deref(), prompt.as_deref())
@@ -693,23 +742,29 @@ pub async fn voice_capture_stop(
                     .transcribe(&samples)
                     .map_err(|e| e.to_string())?,
             };
-            Ok((
-                TranscriptDto {
-                    silence: text.is_empty(),
-                    text,
-                    seconds,
-                    level,
-                },
-                fresh,
-            ))
+
+            // Mark it fresh so the reaper measures idle from the LAST use, not
+            // from load. A model deleted mid-transcription won't be re-cached.
+            if let Some(cached) = engine_slot
+                .lock()
+                .expect("poisoned")
+                .as_mut()
+                .filter(|cached| cached.id == m.id)
+            {
+                cached.last_used = Instant::now();
+            }
+
+            Ok(TranscriptDto {
+                silence: text.is_empty(),
+                text,
+                seconds,
+                level,
+            })
         },
     )
     .await
     .map_err(|e| e.to_string())??;
 
-    if let Some(fresh) = engine_used {
-        *state.engine.lock().expect("poisoned") = Some(fresh);
-    }
     Ok(transcript)
 }
 
