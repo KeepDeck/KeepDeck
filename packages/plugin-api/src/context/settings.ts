@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import type { Disposable } from "./disposable.ts";
 
 /**
@@ -53,4 +54,15 @@ export type SettingsField =
        * applications instead of free text; the picked app's display name
        * (the macOS `open -a` argument) enters the list. */
       picker?: "application";
+    }
+  | {
+      /** BUILT-IN TIER ONLY: a plugin-owned React body rendered inside the
+       * host settings page — for surfaces the declarative vocabulary can't
+       * express (the Voice plugin's model manager with live download
+       * progress). A component cannot cross the sandbox boundary, so the
+       * external tier rejects this kind at registration; `key` only keys the
+       * React list — the component owns its own state and storage. */
+      kind: "custom";
+      key: string;
+      Component: ComponentType;
     };

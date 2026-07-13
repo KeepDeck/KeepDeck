@@ -30,8 +30,6 @@ export interface VoiceSnapshot {
  * keeps first-run friction at one download. */
 export const MODEL_KEY = "model";
 export const DEFAULT_MODEL = "whisper-base-q5_1";
-/** Settings key for the pinned transcription language. */
-export const LANGUAGE_KEY = "language";
 
 const HISTORY_CAP = 100;
 
@@ -201,17 +199,13 @@ export function createVoiceController(
       notify();
       try {
         const rows = await workspaces().catch(() => [] as WorkspaceRow[]);
-        const values = await ctx.settings.read();
-        const language =
-          typeof values[LANGUAGE_KEY] === "string" && values[LANGUAGE_KEY] !== "auto"
-            ? (values[LANGUAGE_KEY] as string)
-            : undefined;
         const model =
           (await ctx.storage.global.get<string>(MODEL_KEY)) ?? DEFAULT_MODEL;
 
+        // No language pin: whisper's auto-detect handles per-utterance
+        // language switching better than any setting the user must remember.
         const transcript = await ctx.services.voice.stopCapture({
           model,
-          ...(language ? { language } : {}),
           prompt: buildPrompt(rows),
         });
 

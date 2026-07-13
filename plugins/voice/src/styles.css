@@ -175,39 +175,6 @@
   color: #9aa3af;
 }
 
-.voice__models {
-  border-top: 1px solid #1c2230;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.voice__models-title {
-  color: #9aa3af;
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-}
-
-.voice__model {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.voice__model-pick {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.voice__model-size {
-  color: #6b7280;
-}
-
 .voice__model-btn {
   background: none;
   border: 1px solid #1c2230;
@@ -224,9 +191,133 @@
   border-color: #2a3346;
 }
 
-.voice__model-progress {
-  color: #58b368;
+/* Model manager cards (the plugin's settings section). */
+.voice-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.voice-models__error {
+  color: #e0806f;
+  font-size: 12px;
+}
+
+.voice-models__card {
+  border: 1px solid #1c2230;
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #c5c8c6;
+  cursor: pointer;
+}
+
+.voice-models__card:hover {
+  border-color: #2a3346;
+}
+
+.voice-models__card--active {
+  border-color: #2a3c31;
+  background: #101612;
+}
+
+.voice-models__head,
+.voice-models__row,
+.voice-models__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voice-models__name {
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voice-models__badge {
+  background: #12211a;
+  color: #7fb88a;
+  border: 1px solid #2a3c31;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 400;
   flex: none;
+}
+
+.voice-models__blurb {
+  color: #9aa3af;
+  min-width: 0;
+}
+
+.voice-models__foot {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.voice-models__foot-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.voice-models__act {
+  background: none;
+  border: 1px solid #1c2230;
+  color: #9aa3af;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.voice-models__act:hover {
+  color: #c5c8c6;
+  border-color: #2a3346;
+}
+
+.voice-models__act--delete:hover {
+  color: #e0806f;
+  border-color: #4a2626;
+}
+
+.voice-models__progress {
+  color: #58b368;
+}
+
+.voice-models__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.voice-models__rating-label {
+  color: #6b7280;
+  font-size: 10px;
+}
+
+.voice-models__rating-track {
+  width: 72px;
+  height: 5px;
+  border-radius: 3px;
+  background: #1c2230;
+  overflow: hidden;
+}
+
+.voice-models__rating-fill {
+  display: block;
+  height: 100%;
+  background: #58b368;
+  border-radius: 3px;
 }
 
 /* The listening pill — bottom-center of the window, above the grid. */

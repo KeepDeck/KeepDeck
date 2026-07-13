@@ -8,9 +8,10 @@
  */
 import "./styles.css";
 import type { KeepDeckPlugin, PluginContext } from "@keepdeck/plugin-api";
-import { createVoiceController, LANGUAGE_KEY } from "./controller";
+import { createVoiceController } from "./controller";
 import { installPttHotkeys } from "./hotkeys";
 import { clearRuntime, setRuntime } from "./runtime";
+import { ModelsSection } from "./components/ModelsSection";
 import { VoiceOverlay } from "./components/VoiceOverlay";
 import { VoiceTab } from "./components/VoiceTab";
 
@@ -23,21 +24,11 @@ const plugin: KeepDeckPlugin = {
 
     ctx.ui.registerDockTab({ id: "voice", label: "Voice", Component: VoiceTab });
     ctx.ui.registerOverlay({ id: "pill", Component: VoiceOverlay });
+    // The whole section is the model manager — whisper detects the language
+    // by itself, so there is nothing else to configure.
     ctx.settings.registerSection({
       label: "Voice",
-      fields: [
-        {
-          kind: "select",
-          key: LANGUAGE_KEY,
-          label: "Transcription language",
-          default: "auto",
-          options: [
-            { value: "auto", label: "Auto-detect" },
-            { value: "en", label: "English" },
-            { value: "ru", label: "Русский" },
-          ],
-        },
-      ],
+      fields: [{ kind: "custom", key: "models", Component: ModelsSection }],
     });
 
     uninstallHotkeys = installPttHotkeys(controller);

@@ -240,8 +240,17 @@ export function buildGuestContext(
     },
 
     settings: {
-      registerSection: (section) =>
-        registerRemote("settings.registerSection", section, noop),
+      registerSection: (section) => {
+        // A React component cannot cross the sandbox boundary — the custom
+        // field kind is built-in-tier only, and failing here names the rule
+        // instead of serializing a function into junk.
+        if (section.fields.some((field) => field.kind === "custom")) {
+          throw new Error(
+            'settings fields of kind "custom" are not available to external plugins — declare only data-driven fields',
+          );
+        }
+        return registerRemote("settings.registerSection", section, noop);
+      },
       read: () =>
         rpc.call("settings.read", []) as Promise<Record<string, unknown>>,
       // The settings-change feed is just another broadcast channel — ref-counted

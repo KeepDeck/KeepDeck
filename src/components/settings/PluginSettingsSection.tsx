@@ -135,6 +135,10 @@ function PluginField({
           onWrite={onWrite}
         />
       );
+    case "custom":
+      // Built-in tier only: the plugin owns this body outright — its state,
+      // its storage, its layout. The host provides the slot, nothing more.
+      return <field.Component />;
   }
 }
 
