@@ -308,6 +308,60 @@
   color: #58b368;
 }
 
+/* Cumulative progress bar under a downloading card, and the dock strip. */
+.voice-models__bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: #1c2230;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.voice-models__bar-fill {
+  display: block;
+  height: 100%;
+  background: #58b368;
+  border-radius: 2px;
+  transition: width 120ms linear;
+}
+
+.voice-models__card-error {
+  color: #e0806f;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* Dock-tab download strip — the same transfer the settings cards drive,
+   visible after settings close. */
+.voice__downloads {
+  padding: 6px 8px;
+  border-bottom: 1px solid #1c2230;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice__download {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #9aa3af;
+}
+
+.voice__download-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice__download .voice-models__bar {
+  grid-column: 1 / -1;
+}
+
 .voice-models__rating {
   display: inline-flex;
   align-items: center;

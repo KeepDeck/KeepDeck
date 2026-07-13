@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type {
   CustomSettingsFieldProps,
   VoiceModelInfo,
@@ -54,10 +54,12 @@ const CARD_META: Record<
 };
 
 export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
-  const { ctx } = runtime();
+  const { ctx, downloads } = runtime();
   const [models, setModels] = useState<VoiceModelInfo[] | null>(null);
-  const [progress, setProgress] = useState<Record<string, number>>({});
-  const [error, setError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  // Progress and download errors live in the plugin-level manager, not here —
+  // so closing settings mid-download loses neither.
+  const dl = useSyncExternalStore(downloads.subscribe, downloads.snapshot);
   // The pick lives in the plugin's persisted settings values — the same
   // on-disk bag as declarative fields, so it survives restarts.
   const active =
@@ -67,52 +69,40 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
     ctx.services.voice
       .models()
       .then(setModels)
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => setListError(e instanceof Error ? e.message : String(e)));
 
   useEffect(() => {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const download = (id: string) => {
-    setError(null);
-    setProgress((p) => ({ ...p, [id]: 0 }));
-    void ctx.services.voice
-      .downloadModel(id, ({ received, total }) => {
-        setProgress((p) => ({
-          ...p,
-          [id]: total ? Math.round((received / total) * 100) : 0,
-        }));
-      })
-      .then(() => refresh())
-      .catch((e) => {
-        const message = e instanceof Error ? e.message : String(e);
-        // A cancel is a quiet reset, not a failure — the partial file stays
-        // and the next Download resumes it.
-        if (message !== "cancelled") setError(message);
-      })
-      .finally(() =>
-        setProgress((p) => {
-          const { [id]: _done, ...rest } = p;
-          return rest;
-        }),
-      );
-  };
+  // Re-read install state whenever the set of active downloads shrinks (one
+  // finished or was cancelled) — the manager owns the transfer, the card list
+  // just reflects what landed.
+  const prevActive = useRef(0);
+  useEffect(() => {
+    const count = Object.keys(dl.active).length;
+    if (count < prevActive.current) void refresh();
+    prevActive.current = count;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dl.active]);
 
-  const cancel = (id: string) => void ctx.services.voice.cancelDownload(id);
-
+  const download = (id: string) => void downloads.start(id);
+  const cancel = (id: string) => downloads.cancel(id);
   const pick = (id: string) => write(MODEL_KEY, id);
 
   return (
     <div className="voice-models">
-      {error && <div className="voice-models__error">{error}</div>}
+      {listError && <div className="voice-models__error">{listError}</div>}
       {models?.map((m) => {
         // Retired = the source is gone: an install keeps working (and shows
         // a Legacy badge), an absent one has nothing to offer — hide it.
         if (m.retired && !m.installed) return null;
         const meta = CARD_META[m.id];
         const isActive = active === m.id;
-        const downloading = progress[m.id] !== undefined;
+        const state = dl.active[m.id];
+        const downloading = state !== undefined;
+        const error = dl.errors[m.id];
         return (
           <div
             key={m.id}
@@ -156,7 +146,9 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                   </button>
                 ) : downloading ? (
                   <>
-                    <span className="voice-models__progress">{progress[m.id]}%</span>
+                    <span className="voice-models__progress">
+                      {state.percent === null ? "…" : `${state.percent}%`}
+                    </span>
                     <button
                       type="button"
                       className="voice-models__act voice-models__act--delete"
@@ -178,11 +170,24 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                       download(m.id);
                     }}
                   >
-                    Download
+                    {error ? "Retry" : "Download"}
                   </button>
                 )}
               </span>
             </div>
+            {downloading && (
+              <span className="voice-models__bar">
+                <span
+                  className="voice-models__bar-fill"
+                  style={
+                    state.percent === null
+                      ? { width: "100%", opacity: 0.4 }
+                      : { width: `${state.percent}%` }
+                  }
+                />
+              </span>
+            )}
+            {error && <div className="voice-models__card-error">{error}</div>}
           </div>
         );
       })}

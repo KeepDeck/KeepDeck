@@ -8,8 +8,9 @@ import { HelpPopover, InfoIcon } from "./HelpPopover";
  * weights are never bundled, the picker IS the install surface).
  */
 export function VoiceTab() {
-  const { controller } = runtime();
+  const { controller, downloads } = runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
+  const dl = useSyncExternalStore(downloads.subscribe, downloads.snapshot);
   const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
   const helpBtnRef = useRef<HTMLButtonElement | null>(null);
   // Hover intent: open after a short dwell, close after a grace period so
@@ -89,6 +90,8 @@ export function VoiceTab() {
         />
       )}
 
+      <DownloadStrip active={dl.active} />
+
       <div className="voice__log" ref={logRef}>
         {snap.history.length === 0 && (
           <div className="voice__empty">
@@ -114,6 +117,59 @@ const TONE_GLYPH = {
   error: "✕",
   info: "…",
 } as const;
+
+/** A model download is running somewhere — surface it in the dock, since the
+ * transfer started in settings outlives that dialog. Cancel lives here too,
+ * so the tab is a real download surface, not just an indicator. */
+function DownloadStrip({
+  active,
+}: {
+  active: Readonly<Record<string, { percent: number | null }>>;
+}) {
+  const { downloads } = runtime();
+  const ids = Object.keys(active);
+  if (ids.length === 0) return null;
+  return (
+    <div className="voice__downloads">
+      {ids.map((id) => {
+        const percent = active[id].percent;
+        return (
+          <div key={id} className="voice__download">
+            <span className="voice__download-name">
+              Downloading {modelName(id)}…{percent !== null && ` ${percent}%`}
+            </span>
+            <button
+              type="button"
+              className="voice__model-btn"
+              onClick={() => downloads.cancel(id)}
+              title="Stop — the next Download resumes from here"
+            >
+              ✕
+            </button>
+            <span className="voice-models__bar">
+              <span
+                className="voice-models__bar-fill"
+                style={
+                  percent === null
+                    ? { width: "100%", opacity: 0.4 }
+                    : { width: `${percent}%` }
+                }
+              />
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A readable model name from its id, without threading the registry here. */
+function modelName(id: string): string {
+  if (id.startsWith("parakeet")) return "Parakeet v3";
+  if (id.includes("turbo")) return "Whisper Turbo";
+  if (id.includes("small")) return "Whisper Small";
+  return id;
+}
 
 function Meter({ level }: { level: number }) {
   // RMS of speech tops out well under 1.0 — scale so a normal voice fills

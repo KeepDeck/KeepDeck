@@ -1,25 +1,30 @@
 import type { PluginContext } from "@keepdeck/plugin-api";
 import type { VoiceController } from "./controller";
+import type { DownloadManager } from "./downloads";
 
 /**
- * The runtime holder — `activate` stashes the context and controller here,
- * the host-mounted components read them back (the Files plugin's idiom: the
- * host owns the React tree, so props can't carry plugin internals).
+ * The runtime holder — `activate` stashes the context, controller, and
+ * download manager here; the host-mounted components read them back (the
+ * Files plugin's idiom: the host owns the React tree, so props can't carry
+ * plugin internals). Everything here outlives any single component mount.
  */
-let current: { ctx: PluginContext; controller: VoiceController } | null = null;
+export interface VoiceRuntime {
+  ctx: PluginContext;
+  controller: VoiceController;
+  downloads: DownloadManager;
+}
 
-export function setRuntime(
-  ctx: PluginContext,
-  controller: VoiceController,
-): void {
-  current = { ctx, controller };
+let current: VoiceRuntime | null = null;
+
+export function setRuntime(rt: VoiceRuntime): void {
+  current = rt;
 }
 
 export function clearRuntime(): void {
   current = null;
 }
 
-export function runtime(): { ctx: PluginContext; controller: VoiceController } {
+export function runtime(): VoiceRuntime {
   if (!current) throw new Error("voice plugin is not active");
   return current;
 }

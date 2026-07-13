@@ -9,6 +9,7 @@
 import "./styles.css";
 import type { KeepDeckPlugin, PluginContext } from "@keepdeck/plugin-api";
 import { createVoiceController } from "./controller";
+import { createDownloadManager } from "./downloads";
 import { installPttHotkeys } from "./hotkeys";
 import { clearRuntime, setRuntime } from "./runtime";
 import { ModelsSection } from "./components/ModelsSection";
@@ -20,7 +21,8 @@ let uninstallHotkeys: (() => void) | null = null;
 const plugin: KeepDeckPlugin = {
   activate(ctx: PluginContext) {
     const controller = createVoiceController(ctx);
-    setRuntime(ctx, controller);
+    const downloads = createDownloadManager(ctx);
+    setRuntime({ ctx, controller, downloads });
 
     ctx.ui.registerDockTab({ id: "voice", label: "Voice", Component: VoiceTab });
     ctx.ui.registerOverlay({ id: "pill", Component: VoiceOverlay });
