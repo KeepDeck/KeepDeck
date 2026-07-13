@@ -202,11 +202,25 @@ pub fn voice_model_delete(
 
 /// Start one push-to-talk capture. Mic levels stream to `on_level` (coalesced
 /// to ~30 fps off the audio thread). Fails if a capture is already live.
+///
+/// The permission is checked EXPLICITLY first: starting a CoreAudio stream
+/// without it does not reliably fire the TCC prompt (dev builds in
+/// particular) — the OS just delivers zeros. The AVCaptureDevice request is
+/// what makes the prompt appear and the Settings entry exist.
 #[tauri::command]
-pub fn voice_capture_start(
+pub async fn voice_capture_start(
     on_level: Channel<f32>,
     state: tauri::State<'_, VoiceState>,
 ) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if !tauri_plugin_macos_permissions::check_microphone_permission().await {
+        let _ = tauri_plugin_macos_permissions::request_microphone_permission().await;
+        return Err(
+            "microphone permission is not granted — macOS should be asking now;              allow it (or enable the app in System Settings → Privacy & Security →              Microphone) and hold the key again"
+                .into(),
+        );
+    }
+
     let mut slot = state.capture.lock().expect("poisoned");
     if slot.is_some() {
         return Err("a capture is already running".into());

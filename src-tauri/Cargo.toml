@@ -52,6 +52,10 @@ zip = { version = "8.6", default-features = false }
 # Bridge run-dir names (`bridge.rs`); already in the tree transitively.
 uuid = { version = "1", features = ["v4"] }
 keepdeck-voice = { path = "../crates/keepdeck-voice" }
+# Explicit mic-permission check/request (AVCaptureDevice): in dev the OS
+# does NOT reliably prompt on CoreAudio stream start and silently delivers
+# zeros instead — the explicit request is what makes the prompt appear.
+tauri-plugin-macos-permissions = "2"
 # Voice model downloads (streaming to disk with progress); rustls, no
 # system TLS surprises across macOS versions.
 ureq = "2"
