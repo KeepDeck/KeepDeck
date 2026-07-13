@@ -147,6 +147,13 @@
   color: #6b7280;
 }
 
+.voice__help-note {
+  color: #6b7280;
+  font-style: italic;
+  border-top: 1px solid #1c2230;
+  padding-top: 6px;
+}
+
 .voice__meter,
 .voice-pill__meter {
   width: 64px;

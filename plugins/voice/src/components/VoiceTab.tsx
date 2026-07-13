@@ -122,7 +122,7 @@ export function VoiceTab() {
         {snap.history.length === 0 && (
           <div className="voice__empty">
             Try: “create an agent in KeepDeck with task run the tests” ·
-            «перейди на Website» · hold ⌥⇧Space and dictate a prompt
+            “switch to Website” · hold ⌥⇧Space and dictate a prompt
           </div>
         )}
         {snap.history.map((entry) => (

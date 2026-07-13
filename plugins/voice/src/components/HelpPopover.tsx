@@ -103,8 +103,12 @@ export function HelpPopover({
       </div>
       <div className="voice__help-ex">
         “create an agent in KeepDeck with task run the tests” · “switch to
-        Website” · “close the latest agent” · «запусти нового агента» ·
-        «перейди на KeepDeck» · «закрой последнего агента»
+        Website” · “focus reviewer” · “close the latest agent” · “spawn a new
+        agent”
+      </div>
+      <div className="voice__help-note">
+        Commands and dictation understand many languages — speak whichever you
+        like; these examples are just in English.
       </div>
       <div className="voice__help-row">
         <kbd>⌥⇧Space</kbd> hold — dictate into the focused agent, released =
