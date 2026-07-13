@@ -157,6 +157,41 @@ describe("createVoiceController", () => {
     expect(text).toContain("Privacy & Security");
   });
 
+  it("spawns in the active workspace when none was spoken", async () => {
+    const { host, controller } = setup({
+      text: "запусти нового агента",
+      silence: false,
+    });
+    await controller.start("command");
+    await controller.stop();
+    expect(host.executedCommands).toContainEqual({
+      id: "agent.spawn",
+      args: { workspace: "ws-1" },
+    });
+  });
+
+  it("resolves 'the latest agent' positionally", async () => {
+    const { host, controller } = setup({
+      text: "close the latest open agent",
+      silence: false,
+    });
+    await controller.start("command");
+    await controller.stop();
+    expect(host.executedCommands).toContainEqual({
+      id: "agent.close",
+      args: { agent: "p1" },
+    });
+  });
+
+  it("clears the history on demand", async () => {
+    const { controller } = setup({ text: "close", silence: false });
+    await controller.start("command");
+    await controller.stop();
+    expect(controller.snapshot().history.length).toBeGreaterThan(0);
+    controller.clearHistory();
+    expect(controller.snapshot().history).toEqual([]);
+  });
+
   it("surfaces a failed command as an error entry", async () => {
     const { host, controller } = setup({ text: "close", silence: false });
     host.commandResults.set("agent.close", {

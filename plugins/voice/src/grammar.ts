@@ -7,7 +7,7 @@
  * never guesses.
  */
 export type Intent =
-  | { kind: "spawn"; workspace: string; task?: string }
+  | { kind: "spawn"; workspace?: string; task?: string }
   | { kind: "switch"; workspace: string }
   | { kind: "focus"; agent: string }
   | { kind: "close"; agent?: string };
@@ -34,7 +34,7 @@ export function normalize(text: string): string {
 
 const spawn = (g: Record<string, string | undefined>): Intent => ({
   kind: "spawn",
-  workspace: g.ws ?? "",
+  ...(g.ws ? { workspace: g.ws } : {}),
   ...(g.task ? { task: g.task } : {}),
 });
 
@@ -43,7 +43,7 @@ export const EN: LocalePack = {
   rules: [
     {
       pattern:
-        /^(?:create|spawn|start|launch|add)(?: an?| a new| new)? agent (?:in|at|on) (?<ws>.+?)(?: (?:with(?: the)? task|and (?:tell|ask) (?:it|him|her|them) to) (?<task>.+))?$/,
+        /^(?:create|spawn|start|launch|add)(?: an?| a new| new)? agent(?: (?:in|at|on) (?<ws>.+?))?(?: (?:with(?: the)? task|and (?:tell|ask) (?:it|him|her|them) to) (?<task>.+))?$/,
       map: spawn,
     },
     {
@@ -70,7 +70,7 @@ export const RU: LocalePack = {
   rules: [
     {
       pattern:
-        /^(?:создай|создать|запусти|запустить|добавь|добавить|подними)(?: нового| новых)? агента (?:в|на) (?<ws>.+?)(?: (?:с задачей|и скажи (?:ему|ей)|и попроси (?:его|её)|и пусть) (?<task>.+))?$/u,
+        /^(?:создай|создать|запусти|запустить|добавь|добавить|подними)(?: нового| новых)? агента(?: (?:в|на) (?<ws>.+?))?(?: (?:с задачей|и скажи (?:ему|ей)|и попроси (?:его|её)|и пусть) (?<task>.+))?$/u,
       map: spawn,
     },
     {

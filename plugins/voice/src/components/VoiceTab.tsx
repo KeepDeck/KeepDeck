@@ -32,13 +32,26 @@ export function VoiceTab() {
         >
           {listening ? "◼ Stop" : "🎙 Listen"}
         </button>
-        <span className="voice__status">
-          {snap.phase === "idle" && "hold ⌥Space to command · ⌥⇧Space to dictate"}
+        <span
+          className="voice__status"
+          title="Hold ⌥Space and speak a command; hold ⌥⇧Space to dictate into the focused agent; Escape cancels"
+        >
+          {snap.phase === "idle" && "⌥Space command · ⌥⇧Space dictate"}
           {snap.phase === "listening" &&
-            `listening (${snap.mode}) — release to ${snap.mode === "dictation" ? "send" : "run"}`}
+            `listening — release to ${snap.mode === "dictation" ? "send" : "run"}`}
           {snap.phase === "transcribing" && "transcribing…"}
         </span>
         {listening && <Meter level={snap.level} />}
+        {snap.history.length > 0 && snap.phase === "idle" && (
+          <button
+            type="button"
+            className="voice__model-btn"
+            onClick={() => controller.clearHistory()}
+            title="Clear the history"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       <div className="voice__log" ref={logRef}>

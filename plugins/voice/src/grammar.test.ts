@@ -29,6 +29,15 @@ describe("parseCommand — english", () => {
       locale: "en",
       intent: { kind: "spawn", workspace: "keepdeck", task: "run the tests" },
     });
+    // No workspace spoken = the active one decides later.
+    expect(parseCommand("create a new agent")).toEqual({
+      locale: "en",
+      intent: { kind: "spawn" },
+    });
+    expect(parseCommand("spawn agent with task fix the header")).toEqual({
+      locale: "en",
+      intent: { kind: "spawn", task: "fix the header" },
+    });
   });
 
   it("switch", () => {
@@ -80,6 +89,10 @@ describe("parseCommand — russian", () => {
     ).toEqual({
       locale: "ru",
       intent: { kind: "spawn", workspace: "keepdeck", task: "прогнать тесты" },
+    });
+    expect(parseCommand("Запусти нового агента.")).toEqual({
+      locale: "ru",
+      intent: { kind: "spawn" },
     });
   });
 

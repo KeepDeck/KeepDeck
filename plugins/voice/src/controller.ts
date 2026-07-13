@@ -1,6 +1,6 @@
 import type { CommandArgs, PluginContext } from "@keepdeck/plugin-api";
 import { bestMatch } from "./fuzzy";
-import { parseCommand, type Intent } from "./grammar";
+import { normalize, parseCommand, type Intent } from "./grammar";
 
 /**
  * The voice controller — one push-to-talk state machine shared by the hotkey
@@ -48,6 +48,8 @@ export interface VoiceController {
   start(mode: VoiceMode): Promise<void>;
   stop(): Promise<void>;
   cancel(): Promise<void>;
+  /** Empty the heard/done log. */
+  clearHistory(): void;
 }
 
 export function createVoiceController(
@@ -98,6 +100,24 @@ export function createVoiceController(
     }
   }
 
+  /** Spoken references to "the newest one" — resolved positionally, not by
+   * name ("close the latest agent", «закрой последнего агента»). */
+  const LATEST_REF =
+    /^(?:the )?(?:latest|last|newest)(?: open(?:ed)?)?(?: agent| one)?$|^послед(?:ний|него)(?: открыт(?:ый|ого))?(?: агент(?:а)?)?$/;
+
+  /** A pane by spoken reference: positional ("latest") or fuzzy by title —
+   * refusing, never guessing, on unknowns. */
+  function resolvePane(
+    active: WorkspaceRow,
+    spoken: string,
+  ): { id: string } | null {
+    if (LATEST_REF.test(normalize(spoken))) {
+      return active.panes[active.panes.length - 1] ?? null;
+    }
+    const title = bestMatch(active.panes.map((p) => p.title), spoken);
+    return active.panes.find((p) => p.title === title) ?? null;
+  }
+
   /** Turn a parsed intent into a deck command, resolving spoken names
    * against the live deck — refusing, never guessing, on unknowns. */
   async function runIntent(intent: Intent): Promise<void> {
@@ -107,6 +127,7 @@ export function createVoiceController(
       const name = bestMatch(wsNames, spoken);
       return rows.find((w) => w.name === name) ?? null;
     };
+    const activeWs = () => rows.find((w) => w.active) ?? null;
 
     switch (intent.kind) {
       case "switch": {
@@ -115,27 +136,32 @@ export function createVoiceController(
         return execute("workspace.switch", { workspace: ws.id });
       }
       case "spawn": {
-        const ws = resolveWs(intent.workspace);
-        if (!ws) return push("error", `no workspace sounds like "${intent.workspace}"`);
+        // No spoken workspace = the one on screen («запусти нового агента»).
+        const ws = intent.workspace ? resolveWs(intent.workspace) : activeWs();
+        if (!ws)
+          return push(
+            "error",
+            intent.workspace
+              ? `no workspace sounds like "${intent.workspace}"`
+              : "no active workspace",
+          );
         return execute("agent.spawn", {
           workspace: ws.id,
           ...(intent.task ? { task: intent.task } : {}),
         });
       }
       case "focus": {
-        const active = rows.find((w) => w.active);
+        const active = activeWs();
         if (!active) return push("error", "no active workspace");
-        const title = bestMatch(active.panes.map((p) => p.title), intent.agent);
-        const pane = active.panes.find((p) => p.title === title);
+        const pane = resolvePane(active, intent.agent);
         if (!pane) return push("error", `no agent sounds like "${intent.agent}"`);
         return execute("agent.focus", { agent: pane.id });
       }
       case "close": {
         if (!intent.agent) return execute("agent.close", {});
-        const active = rows.find((w) => w.active);
+        const active = activeWs();
         if (!active) return push("error", "no active workspace");
-        const title = bestMatch(active.panes.map((p) => p.title), intent.agent);
-        const pane = active.panes.find((p) => p.title === title);
+        const pane = resolvePane(active, intent.agent);
         if (!pane) return push("error", `no agent sounds like "${intent.agent}"`);
         return execute("agent.close", { agent: pane.id });
       }
@@ -223,6 +249,11 @@ export function createVoiceController(
         level = 0;
         notify();
       }
+    },
+
+    clearHistory() {
+      history = [];
+      notify();
     },
 
     async cancel() {
