@@ -51,6 +51,10 @@ tauri-plugin-log = "2"
 zip = { version = "8.6", default-features = false }
 # Bridge run-dir names (`bridge.rs`); already in the tree transitively.
 uuid = { version = "1", features = ["v4"] }
+keepdeck-voice = { path = "../crates/keepdeck-voice" }
+# Voice model downloads (streaming to disk with progress); rustls, no
+# system TLS surprises across macOS versions.
+ureq = "2"
 
 [dev-dependencies]
 tempfile = "3"
