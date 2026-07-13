@@ -66,6 +66,12 @@
   flex: none;
 }
 
+/* Kill the inline-svg baseline gap — otherwise the glyph sits a hair high
+   inside the centered flex box. */
+.voice__info svg {
+  display: block;
+}
+
 .voice__info:hover {
   color: #c5c8c6;
   background: #161b26;

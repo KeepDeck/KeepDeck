@@ -199,8 +199,14 @@ export function createVoiceController(
       notify();
       try {
         const rows = await workspaces().catch(() => [] as WorkspaceRow[]);
+        // The pick persists in the plugin's settings values (settings.json)
+        // — the global KV is still a stub, and a choice that silently
+        // evaporates on restart is worse than none.
+        const values = await ctx.settings.read();
         const model =
-          (await ctx.storage.global.get<string>(MODEL_KEY)) ?? DEFAULT_MODEL;
+          typeof values[MODEL_KEY] === "string"
+            ? (values[MODEL_KEY] as string)
+            : DEFAULT_MODEL;
 
         // No language pin: whisper's auto-detect handles per-utterance
         // language switching better than any setting the user must remember.

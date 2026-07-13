@@ -71,15 +71,35 @@ describe("createVoiceController", () => {
     expect(controller.snapshot().phase).toBe("idle");
   });
 
-  it("passes the vocabulary prompt and stored model to stopCapture", async () => {
-    const { host, controller } = setup({ text: "close", silence: false });
-    await host.ctx.storage.global.set("model", "whisper-small-q5_1");
+  it("reads the persisted model pick from the plugin's settings values", async () => {
+    const stop = vi.fn(async () => ({
+      text: "close",
+      silence: false,
+      seconds: 1,
+      level: 0.1,
+    }));
+    const host = createFakeHost({
+      manifest: fakeManifest("keepdeck.voice"),
+      settingsValues: { model: "whisper-small-q5_1" },
+    });
+    const ctx: PluginContext = {
+      ...host.ctx,
+      services: {
+        ...host.ctx.services,
+        voice: {
+          ...host.ctx.services.voice,
+          startCapture: vi.fn(async () => {}),
+          stopCapture: stop,
+        },
+      },
+    };
+    host.commandResults.set("workspace.list", { ok: true, value: [] });
+    const controller = createVoiceController(ctx, () => 42);
     await controller.start("command");
     await controller.stop();
-
-    const voice = host.ctx.services.voice; // overridden mock reachable via ctx in setup
-    void voice;
-    expect(host.executedCommands.map((e) => e.id)).toContain("agent.close");
+    expect(stop).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "whisper-small-q5_1" }),
+    );
   });
 
   it("dictation types the transcript into the focused pane and submits", async () => {

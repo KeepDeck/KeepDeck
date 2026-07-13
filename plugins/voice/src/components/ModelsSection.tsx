@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import type { VoiceModelInfo } from "@keepdeck/plugin-api";
+import type {
+  CustomSettingsFieldProps,
+  VoiceModelInfo,
+} from "@keepdeck/plugin-api";
 import { DEFAULT_MODEL, MODEL_KEY } from "../controller";
 import { runtime } from "../runtime";
 
@@ -38,12 +41,15 @@ const CARD_META: Record<
   },
 };
 
-export function ModelsSection() {
+export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
   const { ctx } = runtime();
   const [models, setModels] = useState<VoiceModelInfo[] | null>(null);
-  const [active, setActive] = useState<string>(DEFAULT_MODEL);
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
+  // The pick lives in the plugin's persisted settings values — the same
+  // on-disk bag as declarative fields, so it survives restarts.
+  const active =
+    typeof values[MODEL_KEY] === "string" ? (values[MODEL_KEY] as string) : DEFAULT_MODEL;
 
   const refresh = () =>
     ctx.services.voice
@@ -53,9 +59,6 @@ export function ModelsSection() {
 
   useEffect(() => {
     void refresh();
-    void ctx.storage.global
-      .get<string>(MODEL_KEY)
-      .then((v) => v && setActive(v));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -78,10 +81,7 @@ export function ModelsSection() {
       );
   };
 
-  const pick = (id: string) => {
-    setActive(id);
-    void ctx.storage.global.set(MODEL_KEY, id);
-  };
+  const pick = (id: string) => write(MODEL_KEY, id);
 
   return (
     <div className="voice-models">
