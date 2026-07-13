@@ -52,15 +52,59 @@
 }
 
 .voice__info {
-  min-width: 22px;
-  font-style: italic;
-  font-family: Georgia, serif;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #6b7280;
+  cursor: pointer;
+  flex: none;
+}
+
+.voice__info:hover {
+  color: #c5c8c6;
+  background: #161b26;
 }
 
 .voice__info--on {
   color: #c5c8c6;
-  border-color: #2a3346;
   background: #161b26;
+}
+
+/* The floating help card — portaled to the body, above everything the dock
+   clips. */
+.voice__help {
+  position: fixed;
+  z-index: 80;
+  background: #0e121a;
+  border: 1px solid #2a3346;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #c5c8c6;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice__help kbd {
+  font-family: inherit;
+  background: #161b26;
+  border: 1px solid #2a3346;
+  border-radius: 3px;
+  padding: 0 5px;
+  color: #c5c8c6;
+}
+
+.voice__help-ex {
+  color: #6b7280;
 }
 
 .voice__meter,

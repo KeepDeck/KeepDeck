@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { VoiceModelInfo } from "@keepdeck/plugin-api";
 import { DEFAULT_MODEL, MODEL_KEY } from "../controller";
 import { runtime } from "../runtime";
+import { HelpPopover, InfoIcon } from "./HelpPopover";
 
 /**
  * The Voice dock tab: the chat-log of what was heard and what was done, the
@@ -11,7 +12,19 @@ import { runtime } from "../runtime";
 export function VoiceTab() {
   const { controller } = runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
-  const [showHelp, setShowHelp] = useState(false);
+  const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
+  const helpBtnRef = useRef<HTMLButtonElement | null>(null);
+  // Hover intent: open after a short dwell, close after a grace period so
+  // the cursor can travel from the button onto the card.
+  const helpTimer = useRef<number | null>(null);
+  const helpDelay = (action: () => void, ms: number) => {
+    if (helpTimer.current !== null) window.clearTimeout(helpTimer.current);
+    helpTimer.current = window.setTimeout(action, ms);
+  };
+  const helpHold = () => {
+    if (helpTimer.current !== null) window.clearTimeout(helpTimer.current);
+  };
+  useEffect(() => helpHold, []);
   const logRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -37,12 +50,19 @@ export function VoiceTab() {
         <span className="voice__spacer" />
         <button
           type="button"
-          className={`voice__model-btn voice__info${showHelp ? " voice__info--on" : ""}`}
-          onClick={() => setShowHelp((v) => !v)}
-          title="How to use voice"
+          ref={helpBtnRef}
+          className={`voice__info${helpAnchor ? " voice__info--on" : ""}`}
+          onMouseEnter={() =>
+            helpDelay(() => setHelpAnchor(helpBtnRef.current), 450)
+          }
+          onMouseLeave={() => helpDelay(() => setHelpAnchor(null), 150)}
+          onClick={() => {
+            helpHold();
+            setHelpAnchor(helpAnchor ? null : helpBtnRef.current);
+          }}
           aria-label="How to use voice"
         >
-          i
+          <InfoIcon />
         </button>
         {snap.history.length > 0 && snap.phase === "idle" && (
           <button
@@ -62,13 +82,13 @@ export function VoiceTab() {
             : "transcribing…"}
         </div>
       )}
-      {showHelp && snap.phase === "idle" && (
-        <div className="voice__status">
-          hold ⌥Space — speak a command («create agent in <b>ws</b> with task…»,
-          «switch to <b>ws</b>», «close the latest agent», «запусти агента»,
-          «перейди на <b>ws</b>») · hold ⌥⇧Space — dictate into the focused
-          agent, sent on release · Esc while holding cancels
-        </div>
+      {helpAnchor && (
+        <HelpPopover
+          anchor={helpAnchor}
+          onClose={() => setHelpAnchor(null)}
+          onPointerStay={helpHold}
+          onPointerLeave={() => helpDelay(() => setHelpAnchor(null), 150)}
+        />
       )}
 
       <div className="voice__log" ref={logRef}>
