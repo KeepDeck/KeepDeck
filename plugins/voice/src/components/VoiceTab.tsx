@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { COMMAND_DOCS } from "../commandList";
 import { runtime } from "../runtime";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
 
@@ -120,7 +119,13 @@ export function VoiceTab() {
       <DownloadStrip active={dl.active} />
 
       <div className="voice__log" ref={logRef}>
-        {snap.history.length === 0 && <CommandReference />}
+        {snap.history.length === 0 && (
+          <div className="voice__empty">
+            Hold <kbd>⌥Space</kbd> and say a command, or <kbd>⌥⇧Space</kbd> to
+            dictate. Hover <span className="voice__empty-i">ⓘ</span> for the
+            list.
+          </div>
+        )}
         {snap.history.map((entry) => (
           <div key={`${entry.at}-${entry.text}`} className={`voice__entry voice__entry--${entry.tone}`}>
             <span className="voice__tone">{TONE_GLYPH[entry.tone]}</span>
@@ -139,46 +144,6 @@ const TONE_GLYPH = {
   error: "✕",
   info: "…",
 } as const;
-
-/** The idle-state command reference: hold ⌥Space and say one of these. The
- * templates carry `<placeholders>` so nothing shows a fake concrete name;
- * the `<...>` parts render dimmed to read as fill-in slots. */
-function CommandReference() {
-  return (
-    <div className="voice__ref">
-      <div className="voice__ref-head">
-        Hold <kbd>⌥Space</kbd> and say a command
-      </div>
-      <ul className="voice__ref-list">
-        {COMMAND_DOCS.map((doc) => (
-          <li key={doc.template} className="voice__ref-item">
-            <span className="voice__ref-cmd">{renderTemplate(doc.template)}</span>
-            <span className="voice__ref-effect">{doc.effect}</span>
-          </li>
-        ))}
-      </ul>
-      <div className="voice__ref-head voice__ref-dictate">
-        Hold <kbd>⌥⇧Space</kbd> to dictate into the focused agent
-      </div>
-      <div className="voice__ref-note">
-        Understands many languages — speak whichever you like.
-      </div>
-    </div>
-  );
-}
-
-/** Render a template with its `<placeholder>` fragments dimmed. */
-function renderTemplate(template: string) {
-  return template.split(/(<[^>]+>)/).map((part, i) =>
-    part.startsWith("<") ? (
-      <span key={i} className="voice__ref-slot">
-        {part}
-      </span>
-    ) : (
-      part
-    ),
-  );
-}
 
 /** A model download is running somewhere — surface it in the dock, since the
  * transfer started in settings outlives that dialog. Cancel lives here too,

@@ -2,6 +2,20 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { COMMAND_DOCS } from "../commandList";
 
+/** A command template with its `<placeholder>` fragments dimmed as fill-in
+ * slots — shared shape for the help list. */
+function renderTemplate(template: string) {
+  return template.split(/(<[^>]+>)/).map((part, i) =>
+    part.startsWith("<") ? (
+      <span key={i} className="voice__help-slot">
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
 /** The app's stroke-icon grammar (ui-kit iconProps), drawn locally: a plugin
  * bundles no ui-kit just for one glyph. */
 export function InfoIcon() {
@@ -104,7 +118,7 @@ export function HelpPopover({
       </div>
       <ul className="voice__help-list">
         {COMMAND_DOCS.map((doc) => (
-          <li key={doc.template}>{doc.template}</li>
+          <li key={doc.template}>{renderTemplate(doc.template)}</li>
         ))}
       </ul>
       <div className="voice__help-row">

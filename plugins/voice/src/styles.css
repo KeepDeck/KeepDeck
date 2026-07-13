@@ -189,28 +189,10 @@
 
 .voice__empty {
   color: #6b7280;
-  line-height: 1.5;
+  line-height: 1.7;
 }
 
-/* Idle command reference (empty log). */
-.voice__ref {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: #9aa3af;
-}
-
-.voice__ref-head {
-  color: #c5c8c6;
-}
-
-.voice__ref-dictate {
-  margin-top: 6px;
-  border-top: 1px solid #1c2230;
-  padding-top: 8px;
-}
-
-.voice__ref kbd,
+.voice__empty kbd,
 .voice__help kbd {
   font-family: inherit;
   background: #161b26;
@@ -220,39 +202,8 @@
   color: #c5c8c6;
 }
 
-.voice__ref-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.voice__ref-item {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.voice__ref-cmd {
-  color: #c5c8c6;
-}
-
-.voice__ref-slot {
-  color: #6b7280;
-  font-style: italic;
-}
-
-.voice__ref-effect {
-  color: #6b7280;
-  font-size: 11px;
-}
-
-.voice__ref-note {
-  color: #6b7280;
-  font-style: italic;
-  margin-top: 4px;
+.voice__empty-i {
+  color: #9aa3af;
 }
 
 .voice__help-list {
@@ -262,7 +213,12 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  color: #9aa3af;
+  color: #c5c8c6;
+}
+
+.voice__help-slot {
+  color: #6b7280;
+  font-style: italic;
 }
 
 .voice__entry {
