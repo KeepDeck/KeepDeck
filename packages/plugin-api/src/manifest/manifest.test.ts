@@ -45,6 +45,16 @@ describe("readManifest", () => {
     });
   });
 
+  it("carries experimental only when explicitly true", () => {
+    const on = readManifest({ ...GOLDEN, experimental: true });
+    expect(on.ok && on.manifest.experimental).toBe(true);
+    // Absent or any non-true value = stable (the key is omitted).
+    for (const value of [undefined, false, "yes", 1]) {
+      const r = readManifest({ ...GOLDEN, experimental: value });
+      expect(r.ok && "experimental" in r.manifest).toBe(false);
+    }
+  });
+
   describe("category", () => {
     it("accepts explicit values (the golden default is pinned above)", () => {
       const cli = readManifest({

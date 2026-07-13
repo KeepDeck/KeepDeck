@@ -327,6 +327,11 @@
   color: #9aa3b2;
 }
 
+.settings__badge--experimental {
+  background: #3a2417;
+  color: #e0a06f;
+}
+
 .settings__plugin-restart {
   flex: none;
   padding: 4px 10px;

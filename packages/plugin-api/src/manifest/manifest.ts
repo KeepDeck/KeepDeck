@@ -29,6 +29,9 @@ export interface PluginManifest {
    * vice versa. */
   category: PluginCategory;
   description?: string;
+  /** Marks the plugin as experimental — the host badges it in settings so a
+   * user knows to expect rough edges. Absent = stable. */
+  experimental?: boolean;
   /** Platform access the plugin may use; empty = pure UI. */
   capabilities: Capability[];
   /** Static contribution summary — what the plugin will register when
@@ -157,6 +160,7 @@ export function readManifest(value: unknown): ManifestResult {
       ...(typeof value.description === "string" && value.description.trim()
         ? { description: value.description.trim() }
         : {}),
+      ...(value.experimental === true ? { experimental: true } : {}),
       capabilities,
       contributes,
     },

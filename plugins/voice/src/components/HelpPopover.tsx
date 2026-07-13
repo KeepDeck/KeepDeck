@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { COMMAND_DOCS } from "../commandList";
 
 /** The app's stroke-icon grammar (ui-kit iconProps), drawn locally: a plugin
  * bundles no ui-kit just for one glyph. */
@@ -101,21 +102,21 @@ export function HelpPopover({
       <div className="voice__help-row">
         <kbd>⌥Space</kbd> hold — speak a command, released = executed
       </div>
-      <div className="voice__help-ex">
-        “create an agent in KeepDeck with task run the tests” · “switch to
-        Website” · “focus reviewer” · “close the latest agent” · “spawn a new
-        agent”
-      </div>
-      <div className="voice__help-note">
-        Commands and dictation understand many languages — speak whichever you
-        like; these examples are just in English.
-      </div>
+      <ul className="voice__help-list">
+        {COMMAND_DOCS.map((doc) => (
+          <li key={doc.template}>{doc.template}</li>
+        ))}
+      </ul>
       <div className="voice__help-row">
         <kbd>⌥⇧Space</kbd> hold — dictate into the focused agent, released =
         sent
       </div>
       <div className="voice__help-row">
         <kbd>Esc</kbd> while holding — cancel
+      </div>
+      <div className="voice__help-note">
+        Understands many languages — speak whichever you like; examples are in
+        English.
       </div>
     </div>,
     document.body,

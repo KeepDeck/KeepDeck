@@ -68,6 +68,10 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
 
   return (
     <div className="voice-models">
+      <div className="voice-models__warn">
+        Extremely experimental — recognition and commands are rough, and this
+        may change or break between versions.
+      </div>
       {listError && <div className="voice-models__error">{listError}</div>}
       {models?.map((m) => {
         // Retired = the source is gone: an install keeps working (and shows
