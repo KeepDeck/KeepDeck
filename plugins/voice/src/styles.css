@@ -51,6 +51,18 @@
   flex: 1;
 }
 
+.voice__info {
+  min-width: 22px;
+  font-style: italic;
+  font-family: Georgia, serif;
+}
+
+.voice__info--on {
+  color: #c5c8c6;
+  border-color: #2a3346;
+  background: #161b26;
+}
+
 .voice__meter,
 .voice-pill__meter {
   width: 64px;

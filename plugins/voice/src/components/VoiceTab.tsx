@@ -11,6 +11,7 @@ import { runtime } from "../runtime";
 export function VoiceTab() {
   const { controller } = runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
+  const [showHelp, setShowHelp] = useState(false);
   const logRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -34,6 +35,15 @@ export function VoiceTab() {
         </button>
         {listening && <Meter level={snap.level} />}
         <span className="voice__spacer" />
+        <button
+          type="button"
+          className={`voice__model-btn voice__info${showHelp ? " voice__info--on" : ""}`}
+          onClick={() => setShowHelp((v) => !v)}
+          title="How to use voice"
+          aria-label="How to use voice"
+        >
+          i
+        </button>
         {snap.history.length > 0 && snap.phase === "idle" && (
           <button
             type="button"
@@ -45,12 +55,21 @@ export function VoiceTab() {
           </button>
         )}
       </div>
-      <div className="voice__status">
-        {snap.phase === "idle" && "hold ⌥Space — speak a command · ⌥⇧Space — dictate into the focused agent · Esc cancels"}
-        {snap.phase === "listening" &&
-          `listening — release to ${snap.mode === "dictation" ? "send" : "run"}, Esc cancels`}
-        {snap.phase === "transcribing" && "transcribing…"}
-      </div>
+      {snap.phase !== "idle" && (
+        <div className="voice__status">
+          {snap.phase === "listening"
+            ? `listening — release to ${snap.mode === "dictation" ? "send" : "run"}, Esc cancels`
+            : "transcribing…"}
+        </div>
+      )}
+      {showHelp && snap.phase === "idle" && (
+        <div className="voice__status">
+          hold ⌥Space — speak a command («create agent in <b>ws</b> with task…»,
+          «switch to <b>ws</b>», «close the latest agent», «запусти агента»,
+          «перейди на <b>ws</b>») · hold ⌥⇧Space — dictate into the focused
+          agent, sent on release · Esc while holding cancels
+        </div>
+      )}
 
       <div className="voice__log" ref={logRef}>
         {snap.history.length === 0 && (
