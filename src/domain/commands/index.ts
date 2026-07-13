@@ -16,3 +16,5 @@ export type {
   JournalEntry,
 } from "./registry";
 export { createCommandRegistry } from "./registry";
+export type { Resolved } from "./resolve";
+export { resolvePaneRef, resolveWorkspaceRef } from "./resolve";

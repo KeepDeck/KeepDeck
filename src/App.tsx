@@ -24,6 +24,7 @@ import { useAgentRestart } from "./app/useAgentRestart";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
+import { useCoreCommands } from "./app/coreCommands";
 import { bootstrapPlugins, pluginRegistries } from "./app/pluginManager";
 import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
@@ -134,6 +135,14 @@ function App() {
   const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, setError, gitHeads);
+  // The command registry's core set — spawn/focus/close/switch/write behind
+  // one executor, for every invoker (voice, MCP, a future palette). Closes go
+  // through the same confirm flow as ⌘W.
+  useCoreCommands({
+    deck,
+    agents,
+    requestCloseAgent: closeFlow.requestCloseAgent,
+  });
   // The plugin system: the bridge wires deck accessors + deck events; the
   // built-ins boot once settings settle (enabled flags live there); the
   // contribution registries drive the dock and the top bar below.
