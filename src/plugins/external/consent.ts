@@ -36,5 +36,9 @@ function canonical(cap: Capability): string {
       return "ports";
     case "open":
       return "open";
+    case "commands":
+      return `commands:${[...cap.execute].sort().join(",")}`;
+    case "mic":
+      return "mic";
   }
 }

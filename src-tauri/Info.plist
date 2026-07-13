@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the CLI-generated Info.plist (dev and bundle both). Without
+     this key macOS DENIES the microphone SILENTLY — no prompt, no error. -->
+<plist version="1.0">
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>KeepDeck uses the microphone for voice commands and dictation. Audio is transcribed locally and never leaves your machine.</string>
+</dict>
+</plist>

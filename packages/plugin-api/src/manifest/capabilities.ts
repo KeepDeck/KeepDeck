@@ -28,7 +28,15 @@ export type Capability =
   | { kind: "ports" }
   /** Open URLs in the default browser / files in their default app via the
    * opener service — outward-facing side effects on the user's machine. */
-  | { kind: "open" };
+  | { kind: "open" }
+  /** Execute OTHER namespaces' commands through the command registry.
+   * Patterns are exact registry ids (`agent.spawn`) or a namespace with a
+   * trailing wildcard (`agent.*`); a bare `*` is invalid — consent must show
+   * what it actually covers. A plugin's own commands need no declaration. */
+  | { kind: "commands"; execute: string[] }
+  /** Capture microphone audio and run LOCAL speech-to-text on it (the voice
+   * service). Consent names the microphone; audio never leaves the machine. */
+  | { kind: "mic" };
 
 /** All manifest-legal capability kinds — the validator's source of truth. */
 export const CAPABILITY_KINDS = [
@@ -38,4 +46,6 @@ export const CAPABILITY_KINDS = [
   "net",
   "ports",
   "open",
+  "commands",
+  "mic",
 ] as const;

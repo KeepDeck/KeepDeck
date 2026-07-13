@@ -21,6 +21,13 @@ export function registerPaneInput(
   };
 }
 
+/** Whether a pane currently has a live input writer — its terminal is
+ * mounted and its session spawned. The task-delivery poll reads this instead
+ * of probing with an empty write. */
+export function paneInputReady(id: string): boolean {
+  return writers.has(id);
+}
+
 /** Write text into a pane's session. Returns false if no such pane is live. */
 export function writeToPane(id: string, text: string): boolean {
   const write = writers.get(id);

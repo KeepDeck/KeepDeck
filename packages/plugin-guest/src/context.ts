@@ -1,5 +1,7 @@
 import type {
   AgentHooks,
+  CommandInfo,
+  CommandResult,
   Disposable,
   FileOpenRequest,
   FsEntry,
@@ -238,8 +240,17 @@ export function buildGuestContext(
     },
 
     settings: {
-      registerSection: (section) =>
-        registerRemote("settings.registerSection", section, noop),
+      registerSection: (section) => {
+        // A React component cannot cross the sandbox boundary — the custom
+        // field kind is built-in-tier only, and failing here names the rule
+        // instead of serializing a function into junk.
+        if (section.fields.some((field) => field.kind === "custom")) {
+          throw new Error(
+            'settings fields of kind "custom" are not available to external plugins — declare only data-driven fields',
+          );
+        }
+        return registerRemote("settings.registerSection", section, noop);
+      },
       read: () =>
         rpc.call("settings.read", []) as Promise<Record<string, unknown>>,
       // The settings-change feed is just another broadcast channel — ref-counted
@@ -253,6 +264,20 @@ export function buildGuestContext(
         ),
     },
 
+    commands: {
+      // Registering needs a host→realm call cycle for `run` (the agents-hook
+      // pattern); it lands with its first external consumer — the built-in
+      // tier already has the full surface. Executing and listing are plain
+      // calls and work today.
+      register: () => {
+        throw new Error(
+          "commands.register is not yet available to external plugins — the built-in tier has it; executing commands works on both",
+        );
+      },
+      execute: (id, args) =>
+        rpc.call("commands.execute", [id, args]) as Promise<CommandResult>,
+      list: () => rpc.call("commands.list", []) as Promise<CommandInfo[]>,
+    },
     agents: {
       // Identity crosses as data; the hooks stay in this realm and the host
       // invokes them per spawn through `hook:<id>` pushes.
@@ -374,6 +399,18 @@ export function buildGuestContext(
           >,
         watch: (repo, onChange) => remoteWatch("git", repo, onChange),
       },
+      voice: {
+        // Capture and downloads need push channels across the realm (level
+        // meter, progress) — external voice waits for its first consumer,
+        // like commands.register. Fail loudly, not silently.
+        models: () => Promise.reject(unavailableVoice()),
+        downloadModel: () => Promise.reject(unavailableVoice()),
+        cancelDownload: () => Promise.reject(unavailableVoice()),
+        deleteModel: () => Promise.reject(unavailableVoice()),
+        startCapture: () => Promise.reject(unavailableVoice()),
+        stopCapture: () => Promise.reject(unavailableVoice()),
+        cancelCapture: () => Promise.reject(unavailableVoice()),
+      },
     },
 
     host: {
@@ -387,6 +424,12 @@ export function buildGuestContext(
       error: (message) => void rpc.call("log.error", [message]).catch(noop),
     },
   };
+
+  function unavailableVoice(): Error {
+    return new Error(
+      "the voice service is not yet available to external plugins",
+    );
+  }
 
   /** Run one host-requested agent hook and post the mutated output back. */
   async function runHook(callId: number, payload: unknown): Promise<void> {

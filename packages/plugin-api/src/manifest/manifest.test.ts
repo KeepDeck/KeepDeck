@@ -15,12 +15,14 @@ const GOLDEN = {
     { kind: "net", domains: ["localhost"] },
     { kind: "ports" },
     { kind: "open" },
+    { kind: "commands", execute: ["agent.*", "workspace.switch"] },
   ],
   contributes: {
     dockTabs: [{ id: "preview", label: "Preview" }],
     topBarActions: [{ id: "open", label: "Open preview" }],
     fileOpeners: [{ id: "peek", label: "Preview peek" }],
     overlays: [{ id: "viewer", label: "Preview viewer" }],
+    commands: [{ id: "refresh", label: "Refresh the preview" }],
     settings: true,
   },
 };
@@ -41,6 +43,16 @@ describe("readManifest", () => {
         contributes: GOLDEN.contributes,
       },
     });
+  });
+
+  it("carries experimental only when explicitly true", () => {
+    const on = readManifest({ ...GOLDEN, experimental: true });
+    expect(on.ok && on.manifest.experimental).toBe(true);
+    // Absent or any non-true value = stable (the key is omitted).
+    for (const value of [undefined, false, "yes", 1]) {
+      const r = readManifest({ ...GOLDEN, experimental: value });
+      expect(r.ok && "experimental" in r.manifest).toBe(false);
+    }
   });
 
   describe("category", () => {
@@ -168,6 +180,13 @@ describe("readManifest", () => {
       [{ kind: "net", domains: ["evil\r\nX: 1"] }, "bare hostnames"],
       [{ kind: "net", domains: ["https://a.com"] }, "bare hostnames"],
       [{ kind: "net", domains: ["a.com/path"] }, "bare hostnames"],
+      [{ kind: "commands", execute: [] }, "non-empty"],
+      [{ kind: "commands" }, "non-empty"],
+      // A bare wildcard would make consent meaningless; an undotted name
+      // could never match a registry id.
+      [{ kind: "commands", execute: ["*"] }, "dotted ids"],
+      [{ kind: "commands", execute: ["spawn"] }, "dotted ids"],
+      [{ kind: "commands", execute: ["agent.*.spawn"] }, "dotted ids"],
     ];
     for (const [cap, expected] of cases) {
       const result = readManifest({ ...GOLDEN, capabilities: [cap] });

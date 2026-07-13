@@ -29,6 +29,7 @@ const declaring = (id: string): PluginManifest =>
       dockTabs: [{ id: "t", label: "T" }],
       fileOpeners: [{ id: "peek", label: "Peek" }],
       overlays: [{ id: "viewer", label: "Viewer" }],
+      commands: [{ id: "go", label: "Go" }],
       settings: true,
     },
   });
@@ -48,6 +49,15 @@ function fakeDeps() {
     onChange: vi.fn(spyDisposable),
   };
   const services: PluginServices = {
+    voice: {
+      models: vi.fn(async () => []),
+      downloadModel: vi.fn(async () => {}),
+      cancelDownload: vi.fn(async () => {}),
+      deleteModel: vi.fn(async () => {}),
+      startCapture: vi.fn(async () => {}),
+      stopCapture: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
+      cancelCapture: vi.fn(async () => {}),
+    },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
@@ -67,17 +77,23 @@ function fakeDeps() {
     onDeckChanged: vi.fn(spyDisposable),
   };
   const ui = { revealDockTab: vi.fn(), setOverlayVisible: vi.fn() };
+  const commandsPort = {
+    register: vi.fn(spyDisposable),
+    execute: vi.fn(async () => ({ ok: true, value: null }) as const),
+    list: vi.fn(async () => []),
+  };
   const deps: PluginHostDeps = {
     storage: vi.fn(() => storage),
     settings: vi.fn(() => settingsView),
     events,
     services: vi.fn(() => services),
+    commands: vi.fn(() => commandsPort),
     resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
     ui,
     log: vi.fn(() => logger),
     hostFacts: { settings: vi.fn(async () => ({ terminalScrollback: 10_000 })) },
   };
-  return { deps, logger, events, settingsView, storage, services, ui };
+  return { deps, logger, events, settingsView, storage, services, ui, commandsPort };
 }
 
 describe("buildPluginContext", () => {
@@ -131,6 +147,26 @@ describe("buildPluginContext", () => {
     expect(() =>
       ctx.ui.registerOverlay({ id: "ghost", Component: () => null }),
     ).toThrow('contribution not declared in the manifest: overlays "ghost"');
+  });
+
+  it("routes a declared command to the port and refuses an undeclared one", () => {
+    const registries = createContributionRegistries();
+    const { deps, commandsPort } = fakeDeps();
+    const { ctx } = buildPluginContext(declaring("p"), "builtin", registries, deps);
+
+    const spec = { id: "go", title: "Go", args: [], run: () => null };
+    ctx.commands.register(spec);
+    expect(commandsPort.register).toHaveBeenCalledWith(spec);
+
+    expect(() =>
+      ctx.commands.register({ id: "ghost", title: "G", args: [], run: () => null }),
+    ).toThrow('contribution not declared in the manifest: commands "ghost"');
+
+    // Execute/list forward untouched — permissions live in the port.
+    void ctx.commands.execute("agent.spawn", { workspace: "w" });
+    expect(commandsPort.execute).toHaveBeenCalledWith("agent.spawn", {
+      workspace: "w",
+    });
   });
 
   it("forwards revealDockTab and setOverlayVisible to the host UI port with the plugin's identity", () => {

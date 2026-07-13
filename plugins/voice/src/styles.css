@@ -1,0 +1,508 @@
+/* Voice plugin chrome — palette per App.css (bg #0b0e14, panel #0e121a,
+   seams #1c2230, text #c5c8c6/#9aa3af, accent #58b368). */
+
+.voice {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: #c5c8c6;
+  font-size: 12px;
+}
+
+.voice__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+/* No-model prompt — the whole tab until a model is installed. */
+.voice__setup {
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.voice__setup-title {
+  color: #c5c8c6;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.voice__setup-text {
+  color: #9aa3af;
+  line-height: 1.5;
+}
+
+.voice__setup-btn {
+  background: #12211a;
+  color: #7fb88a;
+  border: 1px solid #2a3c31;
+  border-radius: 4px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.voice__setup-btn:hover {
+  border-color: #3a5142;
+}
+
+.voice__mic {
+  background: #12211a;
+  color: #7fb88a;
+  border: 1px solid #2a3c31;
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.voice__mic--on {
+  background: #2a1515;
+  color: #e0806f;
+  border-color: #4a2626;
+}
+
+.voice__mic:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Full-width line under the bar — hints and state WRAP instead of
+   truncating in the narrow dock. */
+.voice__status {
+  color: #6b7280;
+  padding: 0 8px 8px;
+  border-bottom: 1px solid #1c2230;
+  line-height: 1.4;
+}
+
+.voice__spacer {
+  flex: 1;
+}
+
+.voice__info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #6b7280;
+  cursor: pointer;
+  flex: none;
+}
+
+/* Kill the inline-svg baseline gap — otherwise the glyph sits a hair high
+   inside the centered flex box. */
+.voice__info svg {
+  display: block;
+}
+
+.voice__info:hover {
+  color: #c5c8c6;
+  background: #161b26;
+}
+
+.voice__info--on {
+  color: #c5c8c6;
+  background: #161b26;
+}
+
+/* The floating help card — portaled to the body, above everything the dock
+   clips. */
+.voice__help {
+  position: fixed;
+  z-index: 80;
+  background: #0e121a;
+  border: 1px solid #2a3346;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #c5c8c6;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice__help kbd {
+  font-family: inherit;
+  background: #161b26;
+  border: 1px solid #2a3346;
+  border-radius: 3px;
+  padding: 0 5px;
+  color: #c5c8c6;
+}
+
+.voice__help-ex {
+  color: #6b7280;
+}
+
+.voice__help-note {
+  color: #6b7280;
+  font-style: italic;
+  border-top: 1px solid #1c2230;
+  padding-top: 6px;
+}
+
+.voice__meter,
+.voice-pill__meter {
+  width: 64px;
+  height: 6px;
+  background: #1c2230;
+  border-radius: 3px;
+  overflow: hidden;
+  flex: none;
+}
+
+.voice__meter-fill,
+.voice-pill__meter-fill {
+  display: block;
+  height: 100%;
+  background: #58b368;
+  transition: width 60ms linear;
+}
+
+.voice__log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* The app chrome disables selection globally; transcripts are MEANT to be
+     copied out. */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.voice__empty {
+  color: #6b7280;
+  line-height: 1.7;
+}
+
+.voice__empty kbd,
+.voice__help kbd {
+  font-family: inherit;
+  background: #161b26;
+  border: 1px solid #2a3346;
+  border-radius: 3px;
+  padding: 0 5px;
+  color: #c5c8c6;
+}
+
+.voice__empty-i {
+  color: #9aa3af;
+}
+
+.voice__help-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #c5c8c6;
+}
+
+.voice__help-slot {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.voice__entry {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.voice__tone {
+  flex: none;
+  width: 16px;
+  text-align: center;
+}
+
+.voice__entry--heard .voice__text {
+  color: #c5c8c6;
+}
+
+.voice__entry--done .voice__tone,
+.voice__entry--done .voice__text {
+  color: #7fb88a;
+}
+
+.voice__entry--error .voice__tone,
+.voice__entry--error .voice__text {
+  color: #e0806f;
+}
+
+.voice__entry--info .voice__text {
+  color: #9aa3af;
+}
+
+.voice__model-btn {
+  background: none;
+  border: 1px solid #1c2230;
+  color: #9aa3af;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  flex: none;
+}
+
+.voice__model-btn:hover {
+  color: #c5c8c6;
+  border-color: #2a3346;
+}
+
+/* Model manager cards (the plugin's settings section). */
+.voice-models {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.voice-models__error {
+  color: #e0806f;
+  font-size: 12px;
+  /* A humanized message stays short, but nothing that lands here may ever
+     explode the settings column sideways again. */
+  overflow-wrap: anywhere;
+}
+
+.voice-models__warn {
+  color: #e0a06f;
+  background: #3a2417;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.voice-models__badge--legacy {
+  background: #1c2230;
+  color: #9aa3af;
+  border-color: #2a3346;
+}
+
+.voice-models__card {
+  border: 1px solid #1c2230;
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #c5c8c6;
+  cursor: pointer;
+}
+
+.voice-models__card:hover {
+  border-color: #2a3346;
+}
+
+.voice-models__card--active {
+  border-color: #2a3c31;
+  background: #101612;
+}
+
+.voice-models__head,
+.voice-models__row,
+.voice-models__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voice-models__name {
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voice-models__badge {
+  background: #12211a;
+  color: #7fb88a;
+  border: 1px solid #2a3c31;
+  border-radius: 999px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 400;
+  flex: none;
+}
+
+.voice-models__blurb {
+  color: #9aa3af;
+  min-width: 0;
+}
+
+.voice-models__foot {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.voice-models__foot-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.voice-models__act {
+  background: none;
+  border: 1px solid #1c2230;
+  color: #9aa3af;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.voice-models__act:hover {
+  color: #c5c8c6;
+  border-color: #2a3346;
+}
+
+.voice-models__act--delete:hover {
+  color: #e0806f;
+  border-color: #4a2626;
+}
+
+.voice-models__progress {
+  color: #58b368;
+}
+
+/* Cumulative progress bar under a downloading card, and the dock strip. */
+.voice-models__bar {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: #1c2230;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.voice-models__bar-fill {
+  display: block;
+  height: 100%;
+  background: #58b368;
+  border-radius: 2px;
+  transition: width 120ms linear;
+}
+
+.voice-models__card-error {
+  color: #e0806f;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* Dock-tab download strip — the same transfer the settings cards drive,
+   visible after settings close. */
+.voice__downloads {
+  padding: 6px 8px;
+  border-bottom: 1px solid #1c2230;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice__download {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #9aa3af;
+}
+
+.voice__download-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice__download .voice-models__bar {
+  grid-column: 1 / -1;
+}
+
+.voice-models__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.voice-models__rating-label {
+  color: #6b7280;
+  font-size: 10px;
+}
+
+.voice-models__rating-track {
+  width: 72px;
+  height: 5px;
+  border-radius: 3px;
+  background: #1c2230;
+  overflow: hidden;
+}
+
+.voice-models__rating-fill {
+  display: block;
+  height: 100%;
+  background: #58b368;
+  border-radius: 3px;
+}
+
+/* The listening pill — bottom-center of the window, above the grid. */
+.voice-pill {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #0e121a;
+  border: 1px solid #2a3346;
+  border-radius: 999px;
+  padding: 6px 14px;
+  color: #c5c8c6;
+  font-size: 12px;
+  z-index: 60;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.voice-pill__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9aa3af;
+  flex: none;
+}
+
+.voice-pill__dot--live {
+  background: #e0806f;
+  animation: voice-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}

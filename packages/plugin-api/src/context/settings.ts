@@ -1,3 +1,4 @@
+import type { ComponentType } from "react";
 import type { Disposable } from "./disposable.ts";
 
 /**
@@ -53,4 +54,26 @@ export type SettingsField =
        * applications instead of free text; the picked app's display name
        * (the macOS `open -a` argument) enters the list. */
       picker?: "application";
+    }
+  | {
+      /** BUILT-IN TIER ONLY: a plugin-owned React body rendered inside the
+       * host settings page — for surfaces the declarative vocabulary can't
+       * express (the Voice plugin's model manager with live download
+       * progress). A component cannot cross the sandbox boundary, so the
+       * external tier rejects this kind at registration; `key` only keys the
+       * React list. The host hands the component the plugin's persisted
+       * settings VALUES and the write-through — custom state lives in the
+       * same on-disk bag as every declarative field's. */
+      kind: "custom";
+      key: string;
+      Component: ComponentType<CustomSettingsFieldProps>;
     };
+
+/** What a `custom` settings field's component receives from the host: the
+ * plugin's current settings values (defaults NOT applied — absent means
+ * unset) and a write that persists one key through the host settings store,
+ * feeding `settings.onChange` like any field. */
+export interface CustomSettingsFieldProps {
+  values: Record<string, unknown>;
+  write(key: string, value: unknown): void;
+}

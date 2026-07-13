@@ -41,6 +41,11 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       setOverlayVisible: () => {},
     },
     openers: { register: () => disposable },
+    commands: {
+      register: () => disposable,
+      execute: async () => ({ ok: true, value: null }),
+      list: async () => [],
+    },
     settings: {
       registerSection: () => disposable,
       read: async () => ({}),
@@ -66,6 +71,15 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       onDeckChanged: () => disposable,
     },
     services: {
+      voice: {
+        models: async () => [],
+        downloadModel: async () => {},
+        cancelDownload: async () => {},
+        deleteModel: async () => {},
+        startCapture: async () => {},
+        stopCapture: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
+        cancelCapture: async () => {},
+      },
       sessions: {
         spawn: async () => ({
           id: "s1",

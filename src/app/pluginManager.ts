@@ -13,6 +13,7 @@ import {
 } from "../plugins";
 import {
   createCapabilityGate,
+  createPluginCommandsPort,
   type FsScope,
   type ServiceBackends,
 } from "../plugins/capabilities";
@@ -33,10 +34,20 @@ import {
   projectGitUnwatch,
   projectGitWatch,
 } from "../ipc/projectGit";
+import { commands as commandRegistry } from "./commandRegistry";
 import { enabledByPolicy } from "../plugins/host/enabledPolicy";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
+import {
+  voiceCaptureCancel,
+  voiceCaptureStart,
+  voiceCaptureStop,
+  voiceModelDelete,
+  voiceModelDownloadCancel,
+  voiceModelDownload,
+  voiceModelList,
+} from "../ipc/voice";
 import { describeError, log } from "../ipc/log";
 import { allocatePorts } from "../ipc/ports";
 import { scanPlugins } from "../ipc/plugins";
@@ -263,6 +274,16 @@ const serviceBackend: ServiceBackends = {
     },
   },
   ports: { allocate: (key) => allocatePorts(key) },
+  voice: {
+    models: () => voiceModelList(),
+    downloadModel: (id, onProgress) =>
+      voiceModelDownload(id, (p) => onProgress?.(p)),
+    cancelDownload: (id) => voiceModelDownloadCancel(id),
+    deleteModel: (id) => voiceModelDelete(id),
+    startCapture: (onLevel) => voiceCaptureStart((rms) => onLevel?.(rms)),
+    stopCapture: (opts) => voiceCaptureStop(opts),
+    cancelCapture: () => voiceCaptureCancel(),
+  },
   opener: {
     openUrl: (url) => openUrl(url),
     openPath: (path) => openPath(path),
@@ -340,6 +361,8 @@ export const pluginHost = new PluginHost(
         mode: source === "external" ? "enforce" : "warn",
         log: loggerFor(manifest.id),
       }),
+    commands: (manifest) =>
+      createPluginCommandsPort(manifest, commandRegistry, loggerFor(manifest.id)),
     resources: (manifest, source) => ({
       async path(relative: string) {
         // Plain /-separated segments only — a resource name, not a path

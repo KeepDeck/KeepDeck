@@ -1,0 +1,17 @@
+{
+  "name": "@keepdeck-plugins/voice",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Voice built-in plugin: push-to-talk deck commands and dictation over the plugin API's voice service.",
+  "type": "module",
+  "peerDependencies": {
+    "react": "^19.1.0"
+  },
+  "dependencies": {
+    "@keepdeck/plugin-api": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "typescript": "~5.8.3"
+  }
+}

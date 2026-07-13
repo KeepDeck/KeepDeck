@@ -1,10 +1,13 @@
 import type {
   AgentContribution,
+  CommandArgs,
+  CommandResult,
   DockTabContribution,
   FileOpenHandler,
   HostSettingsSnapshot,
   OverlayContribution,
   PaneActionContribution,
+  PluginCommandSpec,
   PluginContext,
   PluginManifest,
   PluginSessionEvent,
@@ -34,6 +37,13 @@ export interface FakeHost {
   overlays: OverlayContribution[];
   settingsSections: SettingsSectionContribution[];
   agents: AgentContribution[];
+  /** Commands the plugin registered (specs verbatim, entry ids). */
+  commands: PluginCommandSpec[];
+  /** Recorded `commands.execute` calls, in order. */
+  executedCommands: { id: string; args: CommandArgs }[];
+  /** Prime a result per command id before the plugin executes it; an
+   * unprimed id resolves `{ ok: true, value: null }`. */
+  commandResults: Map<string, CommandResult>;
   /** Recorded `ui.revealDockTab` calls, in order. */
   revealedTabs: string[];
   /** Recorded `ui.setOverlayVisible` calls, in order. */
@@ -98,6 +108,9 @@ export function createFakeHost(
   const overlays: OverlayContribution[] = [];
   const settingsSections: SettingsSectionContribution[] = [];
   const agents: AgentContribution[] = [];
+  const commands: PluginCommandSpec[] = [];
+  const executedCommands: { id: string; args: CommandArgs }[] = [];
+  const commandResults = new Map<string, CommandResult>();
   const revealedTabs: string[] = [];
   const overlayVisibility: [string, boolean][] = [];
   const globalStore = new Map<string, unknown>();
@@ -162,6 +175,20 @@ export function createFakeHost(
     agents: {
       register: (agent) => record(agents, agent),
     },
+    commands: {
+      register: (spec) => record(commands, spec),
+      execute: async (id, args) => {
+        executedCommands.push({ id, args });
+        return commandResults.get(id) ?? { ok: true, value: null };
+      },
+      list: async () =>
+        commands.map((s) => ({
+          id: s.id,
+          title: s.title,
+          args: s.args,
+          destructive: s.destructive ?? false,
+        })),
+    },
     resources: { path: async () => null },
     storage: {
       workspace: (wsId) => ({
@@ -206,6 +233,15 @@ export function createFakeHost(
       },
     },
     services: {
+      voice: {
+        models: async () => [],
+        downloadModel: async () => {},
+        cancelDownload: async () => {},
+        deleteModel: async () => {},
+        startCapture: async () => {},
+        stopCapture: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
+        cancelCapture: async () => {},
+      },
       sessions: {
         spawn: async (_opts, onEvent) => {
           const id = `s${sessions.length + 1}`;
@@ -275,6 +311,9 @@ export function createFakeHost(
     overlays,
     settingsSections,
     agents,
+    commands,
+    executedCommands,
+    commandResults,
     revealedTabs,
     overlayVisibility,
     globalStore,

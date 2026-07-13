@@ -735,17 +735,13 @@ fn safe_lookup(root: &Path, relative: &str) -> Lookup {
 /// variant is consulted, so a shipped `__main__.html` is silently shadowed.
 const MAIN_HTML_PATH: &str = "__main__.html";
 
-/// The fixed entry-bundle name. A plugin's code lives in `main.js` at its
-/// root — a convention, not a declaration (the manifest carries no entry
-/// field), so an author writes zero boilerplate; a plugin with no `main.js`
-/// is pure UI and boots no realm.
-const MAIN_JS: &str = "main.js";
-
 /// The synthesized `__main__.html` body: the minimal same-origin document
 /// that loads `/main.js` as a module and boots the logic realm inside it, so
-/// authors never hand-write a wrapper. The src is a fixed, root-relative
-/// literal (no manifest input reaches this markup), resolving under the
-/// plugin's own `kdplugin://<id>` origin.
+/// authors never hand-write a wrapper. `main.js` at the plugin root is a
+/// convention, not a declaration (the manifest carries no entry field) — a
+/// plugin without one is pure UI and boots no realm. The src is a fixed,
+/// root-relative literal (no manifest input reaches this markup), resolving
+/// under the plugin's own `kdplugin://<id>` origin.
 const MAIN_HTML_BODY: &[u8] =
     b"<!doctype html><meta charset=\"utf-8\"><script type=\"module\" src=\"/main.js\"></script>";
 

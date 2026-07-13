@@ -6,3 +6,4 @@ export {
   type ServiceBackends,
 } from "./gate";
 export { execCovers } from "./execCovers";
+export { createPluginCommandsPort } from "./commandsPort";

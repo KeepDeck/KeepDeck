@@ -9,8 +9,9 @@ import { SETTINGS_SECTIONS } from "./sections";
 
 interface SettingsDialogProps {
   onClose(): void;
-  /** Open on this section instead of the first one (the bar's update chip
-   * jumps straight to Updates). Unknown ids fall back to the first section. */
+  /** Open on this section instead of the first one — the bar's update chip
+   * jumps to Updates, a plugin's `settings.open` command to its own
+   * `plugin:<id>` page. Unknown ids fall back to the first section. */
   initialSectionId?: string;
 }
 
@@ -50,7 +51,13 @@ export function SettingsDialog({ onClose, initialSectionId }: SettingsDialogProp
       ),
     }));
   const sections = [...appSections, ...pluginSections];
-  const [activeId, setActiveId] = useState(initialSectionId ?? sections[0].id);
+  // Honor a requested section only if it exists — a plugin opening its own
+  // page always will, but a stale id degrades to the first section.
+  const [activeId, setActiveId] = useState(
+    initialSectionId && sections.some((s) => s.id === initialSectionId)
+      ? initialSectionId
+      : sections[0].id,
+  );
   // An uninstalled plugin's section can vanish while open — fall back.
   const active = sections.find((s) => s.id === activeId) ?? sections[0];
 

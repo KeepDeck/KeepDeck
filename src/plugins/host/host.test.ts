@@ -39,6 +39,15 @@ function fakeDeps() {
     global: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
   };
   const services: PluginServices = {
+    voice: {
+      models: vi.fn(async () => []),
+      downloadModel: vi.fn(async () => {}),
+      cancelDownload: vi.fn(async () => {}),
+      deleteModel: vi.fn(async () => {}),
+      startCapture: vi.fn(async () => {}),
+      stopCapture: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
+      cancelCapture: vi.fn(async () => {}),
+    },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
@@ -67,6 +76,11 @@ function fakeDeps() {
     })),
     events,
     services: vi.fn(() => services),
+    commands: vi.fn(() => ({
+      register: vi.fn(spyDisposable),
+      execute: vi.fn(async () => ({ ok: true, value: null }) as const),
+      list: vi.fn(async () => []),
+    })),
     resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
     ui: { revealDockTab: vi.fn(), setOverlayVisible: vi.fn() },
     log: vi.fn(() => logger),

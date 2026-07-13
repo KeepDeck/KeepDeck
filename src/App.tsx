@@ -24,6 +24,7 @@ import { useAgentRestart } from "./app/useAgentRestart";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
+import { useCoreCommands } from "./app/coreCommands";
 import { bootstrapPlugins, pluginRegistries } from "./app/pluginManager";
 import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
@@ -123,10 +124,13 @@ function App() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   // In-app error notice (no system dialogs).
   const [error, setError] = useState<string | null>(null);
-  // The settings dialog ([F6]) — opened from the app menu (⌘,) or the gear.
+  // The settings dialog ([F6]) — opened from the app menu (⌘,), the gear, or
+  // a plugin's `openSettings`. When a plugin opens it, the target section id
+  // rides along so the dialog lands on that plugin's page.
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Which section the dialog opens on: the gear opens the first section, the
-  // top bar's update chip jumps straight to Updates.
+  // top bar's update chip jumps to Updates, and a plugin's `settings.open`
+  // command jumps to that plugin's page.
   const [settingsSection, setSettingsSection] = useState<string | undefined>();
   const provisioning = useProvisioning(deck, agents);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
@@ -134,6 +138,18 @@ function App() {
   const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, setError, gitHeads);
+  // The command registry's core set — spawn/focus/close/switch/write behind
+  // one executor, for every invoker (voice, MCP, a future palette). Closes go
+  // through the same confirm flow as ⌘W.
+  useCoreCommands({
+    deck,
+    agents,
+    requestCloseAgent: closeFlow.requestCloseAgent,
+    openSettings: (sectionId) => {
+      setSettingsSection(sectionId ?? undefined);
+      setSettingsOpen(true);
+    },
+  });
   // The plugin system: the bridge wires deck accessors + deck events; the
   // built-ins boot once settings settle (enabled flags live there); the
   // contribution registries drive the dock and the top bar below.
@@ -552,8 +568,13 @@ function App() {
 
           {settingsOpen && (
             <SettingsDialog
-              onClose={() => setSettingsOpen(false)}
               initialSectionId={settingsSection}
+              onClose={() => {
+                setSettingsOpen(false);
+                // Clear the target so the next gear open lands on the first
+                // section, not a stale plugin/Updates page.
+                setSettingsSection(undefined);
+              }}
             />
           )}
 

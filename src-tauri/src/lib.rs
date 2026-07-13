@@ -17,6 +17,7 @@ mod project_fs;
 mod project_git;
 mod session;
 mod sessions;
+mod voice;
 mod state;
 mod worktree;
 
@@ -78,6 +79,7 @@ pub fn run() {
         .manage(head_watch::HeadWatchers::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
+        .manage(voice::VoiceState::default())
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();
@@ -142,6 +144,13 @@ pub fn run() {
             project_git::project_git_watch,
             project_git::project_git_unwatch,
             sessions::session_spawn_context,
+            voice::voice_model_list,
+            voice::voice_model_download,
+            voice::voice_model_download_cancel,
+            voice::voice_model_delete,
+            voice::voice_capture_start,
+            voice::voice_capture_stop,
+            voice::voice_capture_cancel,
             worktree::worktree_inspect,
             worktree::worktree_suggest,
             worktree::worktree_probe,

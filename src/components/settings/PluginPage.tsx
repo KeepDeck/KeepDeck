@@ -47,6 +47,11 @@ export function PluginPage({
             <span className="settings__plugin-name">
               {plugin.manifest.name}
               {external?.dev && <span className="settings__badge">dev</span>}
+              {plugin.manifest.experimental && (
+                <span className="settings__badge settings__badge--experimental">
+                  experimental
+                </span>
+              )}
             </span>
             <span className="settings__hint">
               {plugin.manifest.id} · {plugin.manifest.version}
@@ -160,5 +165,9 @@ function describe(cap: Capability): string {
       return "allocate ports";
     case "open":
       return "open links & files";
+    case "commands":
+      return `drive the deck (${cap.execute.join(", ")})`;
+    case "mic":
+      return "use the microphone (local speech-to-text)";
   }
 }

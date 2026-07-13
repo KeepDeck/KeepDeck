@@ -43,14 +43,21 @@ export function PluginSettingsSection({
 
   return (
     <>
-      {section.fields.map((field) => (
-        <PluginField
-          key={field.key}
-          field={field}
-          stored={stored[field.key]}
-          onWrite={(value) => write(field.key, value)}
-        />
-      ))}
+      {section.fields.map((field) =>
+        field.kind === "custom" ? (
+          // Built-in tier only: the plugin owns this body outright. It gets
+          // the whole values bag and the write-through, so custom state
+          // persists exactly like a declarative field's.
+          <field.Component key={field.key} values={stored} write={write} />
+        ) : (
+          <PluginField
+            key={field.key}
+            field={field}
+            stored={stored[field.key]}
+            onWrite={(value) => write(field.key, value)}
+          />
+        ),
+      )}
     </>
   );
 }
@@ -62,7 +69,8 @@ function PluginField({
   stored,
   onWrite,
 }: {
-  field: SettingsField;
+  /** Declarative kinds only — `custom` renders above, never through here. */
+  field: Exclude<SettingsField, { kind: "custom" }>;
   stored: unknown;
   onWrite(value: unknown): void;
 }) {

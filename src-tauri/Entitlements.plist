@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Applied when the bundle is codesigned. Under a hardened-runtime
+     signature the microphone needs BOTH the TCC grant (Info.plist usage
+     string prompts for it) and these entitlements — a signed build without
+     them blocks audio input at the OS level regardless of the grant. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.device.microphone</key>
+	<true/>
+</dict>
+</plist>

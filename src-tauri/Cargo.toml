@@ -51,6 +51,27 @@ tauri-plugin-log = "2"
 zip = { version = "8.6", default-features = false }
 # Bridge run-dir names (`bridge.rs`); already in the tree transitively.
 uuid = { version = "1", features = ["v4"] }
+keepdeck-voice = { path = "../crates/keepdeck-voice" }
+# Explicit mic-permission check/request (AVCaptureDevice): in dev the OS
+# does NOT reliably prompt on CoreAudio stream start and silently delivers
+# zeros instead — the explicit request is what makes the prompt appear.
+tauri-plugin-macos-permissions = "2"
+# Voice model downloads (streaming to disk with progress); rustls, no
+# system TLS surprises across macOS versions.
+ureq = "2"
+# Parakeet ships as a tar.gz bundle (HF's Xet CDN 403s anonymous downloads,
+# so the archive mirror is the reliable source): gzip + tar to unpack it,
+# sha2 to hold the payload to its published checksum.
+flate2 = "1"
+tar = "0.4"
+sha2 = "0.10"
+
+# Our own AVCaptureDevice request with a REAL completion block (the plugin's
+# request passes a nil handler, which fails to raise the prompt in dev):
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
