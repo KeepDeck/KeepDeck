@@ -1,17 +1,20 @@
 import type { PluginContext } from "@keepdeck/plugin-api";
 import type { VoiceController } from "./controller";
 import type { DownloadManager } from "./downloads";
+import type { ModelsStore } from "./models";
 
 /**
- * The runtime holder — `activate` stashes the context, controller, and
- * download manager here; the host-mounted components read them back (the
- * Files plugin's idiom: the host owns the React tree, so props can't carry
- * plugin internals). Everything here outlives any single component mount.
+ * The runtime holder — `activate` stashes the context, controller, download
+ * manager, and models store here; the host-mounted components read them back
+ * (the Files plugin's idiom: the host owns the React tree, so props can't
+ * carry plugin internals). Everything here outlives any single component
+ * mount, so state shared across views survives their unmounts.
  */
 export interface VoiceRuntime {
   ctx: PluginContext;
   controller: VoiceController;
   downloads: DownloadManager;
+  models: ModelsStore;
 }
 
 let current: VoiceRuntime | null = null;

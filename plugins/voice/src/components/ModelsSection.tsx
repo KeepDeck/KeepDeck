@@ -1,8 +1,5 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type {
-  CustomSettingsFieldProps,
-  VoiceModelInfo,
-} from "@keepdeck/plugin-api";
+import { useSyncExternalStore } from "react";
+import type { CustomSettingsFieldProps } from "@keepdeck/plugin-api";
 import { DEFAULT_MODEL, MODEL_KEY } from "../controller";
 import { runtime } from "../runtime";
 
@@ -54,38 +51,16 @@ const CARD_META: Record<
 };
 
 export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
-  const { ctx, downloads } = runtime();
-  const [models, setModels] = useState<VoiceModelInfo[] | null>(null);
-  const [listError, setListError] = useState<string | null>(null);
-  // Progress and download errors live in the plugin-level manager, not here —
-  // so closing settings mid-download loses neither.
+  const { ctx, downloads, models: store } = runtime();
+  // Both the list and download progress come from plugin-level stores, so
+  // this section, the dock tab, and a download in flight all see one truth.
+  const models = useSyncExternalStore(store.subscribe, store.snapshot);
+  const listError = useSyncExternalStore(store.subscribe, store.error);
   const dl = useSyncExternalStore(downloads.subscribe, downloads.snapshot);
   // The pick lives in the plugin's persisted settings values — the same
   // on-disk bag as declarative fields, so it survives restarts.
   const active =
     typeof values[MODEL_KEY] === "string" ? (values[MODEL_KEY] as string) : DEFAULT_MODEL;
-
-  const refresh = () =>
-    ctx.services.voice
-      .models()
-      .then(setModels)
-      .catch((e) => setListError(e instanceof Error ? e.message : String(e)));
-
-  useEffect(() => {
-    void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Re-read install state whenever the set of active downloads shrinks (one
-  // finished or was cancelled) — the manager owns the transfer, the card list
-  // just reflects what landed.
-  const prevActive = useRef(0);
-  useEffect(() => {
-    const count = Object.keys(dl.active).length;
-    if (count < prevActive.current) void refresh();
-    prevActive.current = count;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dl.active]);
 
   const download = (id: string) => void downloads.start(id);
   const cancel = (id: string) => downloads.cancel(id);
@@ -139,7 +114,9 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                     className="voice-models__act voice-models__act--delete"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void ctx.services.voice.deleteModel(m.id).then(refresh);
+                      void ctx.services.voice
+                        .deleteModel(m.id)
+                        .then(() => store.refresh());
                     }}
                   >
                     Delete

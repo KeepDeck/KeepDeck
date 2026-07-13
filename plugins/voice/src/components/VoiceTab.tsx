@@ -8,18 +8,13 @@ import { HelpPopover, InfoIcon } from "./HelpPopover";
  * weights are never bundled, the picker IS the install surface).
  */
 export function VoiceTab() {
-  const { ctx, controller, downloads } = runtime();
+  const { ctx, controller, downloads, models: store } = runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
   const dl = useSyncExternalStore(downloads.subscribe, downloads.snapshot);
-  // Whether ANY model is installed — gates the whole voice UI behind a
-  // "download a model first" prompt. Re-read when downloads finish.
-  const [hasModel, setHasModel] = useState<boolean | null>(null);
-  useEffect(() => {
-    void ctx.services.voice
-      .models()
-      .then((ms) => setHasModel(ms.some((m) => m.installed)))
-      .catch(() => setHasModel(true)); // don't trap the UI on a read error
-  }, [ctx, dl.active]);
+  // Install state from the shared store — a delete in settings or a finished
+  // download refreshes it, so this prompt appears/clears without reopening.
+  const models = useSyncExternalStore(store.subscribe, store.snapshot);
+  const hasModel = models === null ? null : models.some((m) => m.installed);
   const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
   const helpBtnRef = useRef<HTMLButtonElement | null>(null);
   // Hover intent: open after a short dwell, close after a grace period so

@@ -19,11 +19,11 @@
 
 /* No-model prompt — the whole tab until a model is installed. */
 .voice__setup {
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   gap: 10px;
   padding: 24px 16px;
-  text-align: left;
+  text-align: center;
 }
 
 .voice__setup-title {

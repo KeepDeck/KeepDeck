@@ -34,7 +34,13 @@ export interface DownloadManager {
 
 const EMPTY: DownloadsSnapshot = { active: {}, errors: {} };
 
-export function createDownloadManager(ctx: PluginContext): DownloadManager {
+/** `onInstalled` fires after a download completes and the model is on disk —
+ * the models store refreshes through it, so a finished download flips the
+ * dock's "no model" prompt without anyone polling. */
+export function createDownloadManager(
+  ctx: PluginContext,
+  onInstalled: () => void = () => {},
+): DownloadManager {
   let active: Record<string, DownloadState> = {};
   let errors: Record<string, string> = {};
   let snap: DownloadsSnapshot = EMPTY;
@@ -69,6 +75,7 @@ export function createDownloadManager(ctx: PluginContext): DownloadManager {
           };
           notify();
         });
+        onInstalled();
         return true;
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
