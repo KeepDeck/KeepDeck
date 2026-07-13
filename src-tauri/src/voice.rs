@@ -214,9 +214,11 @@ pub async fn voice_capture_start(
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     if !tauri_plugin_macos_permissions::check_microphone_permission().await {
-        let _ = tauri_plugin_macos_permissions::request_microphone_permission().await;
+        request_microphone_access();
         return Err(
-            "microphone permission is not granted — macOS should be asking now;              allow it (or enable the app in System Settings → Privacy & Security →              Microphone) and hold the key again"
+            "microphone permission is not granted — macOS should be asking now; \
+             allow it (or enable the app in System Settings → Privacy & Security → \
+             Microphone) and hold the key again"
                 .into(),
         );
     }
