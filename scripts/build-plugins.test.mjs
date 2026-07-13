@@ -165,6 +165,7 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
         { id: "keepdeck.git", dir: "plugins/keepdeck.git", css: true },
         { id: "keepdeck.opencode", dir: "plugins/keepdeck.opencode" },
         { id: "keepdeck.run", dir: "plugins/keepdeck.run", css: true },
+        { id: "keepdeck.voice", dir: "plugins/keepdeck.voice", css: true },
       ],
     });
 
