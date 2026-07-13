@@ -28,76 +28,89 @@ enum EngineType {
     Parakeet,
 }
 
-/// One downloadable artifact. `bytes` feeds the multi-file progress total;
-/// completeness is still held to each response's Content-Length.
-struct FileSpec {
-    name: &'static str,
-    bytes: u64,
+/// How a model's payload arrives.
+enum Payload {
+    /// One flat file at the models root — whisper's original layout, kept
+    /// so existing installs stay installed. Completeness is held to the
+    /// response's Content-Length; `bytes` only feeds the progress bar.
+    File {
+        url: &'static str,
+        name: &'static str,
+        bytes: u64,
+    },
+    /// One tar.gz holding `contents`, unpacked into the model's folder. The
+    /// whole archive is held to `sha256` BEFORE anything is extracted.
+    Archive {
+        url: &'static str,
+        bytes: u64,
+        sha256: &'static str,
+        contents: &'static [&'static str],
+    },
 }
 
 /// The downloadable model registry — every entry is MULTILINGUAL with
-/// Russian covered. Whisper = single quantized ggml file at the models root
-/// (the original layout, kept so existing installs stay installed);
-/// Parakeet = the istupakov ONNX export, four flat files in a subfolder.
+/// Russian covered.
 struct ModelSpec {
     id: &'static str,
     label: &'static str,
     size_mb: u32,
     engine: EngineType,
-    base_url: &'static str,
-    files: &'static [FileSpec],
+    payload: Payload,
 }
-
-const HF_WHISPER: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
-const HF_PARAKEET: &str =
-    "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/";
 
 const MODELS: &[ModelSpec] = &[
     ModelSpec {
         id: "whisper-base-q5_1",
-        label: "Whisper Base — fastest, good for commands",
+        label: "Whisper Base — fastest, good for short commands",
         size_mb: 60,
         engine: EngineType::Whisper,
-        base_url: HF_WHISPER,
-        files: &[FileSpec { name: "ggml-base-q5_1.bin", bytes: 60_000_000 }],
+        payload: Payload::File {
+            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+            name: "ggml-base-q5_1.bin",
+            bytes: 60_000_000,
+        },
     },
     ModelSpec {
         id: "whisper-small-q5_1",
         label: "Whisper Small — balanced",
         size_mb: 190,
         engine: EngineType::Whisper,
-        base_url: HF_WHISPER,
-        files: &[FileSpec { name: "ggml-small-q5_1.bin", bytes: 190_000_000 }],
+        payload: Payload::File {
+            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+            name: "ggml-small-q5_1.bin",
+            bytes: 190_000_000,
+        },
     },
     ModelSpec {
         id: "whisper-large-v3-turbo-q5_0",
         label: "Whisper Large v3 Turbo — best accuracy, for dictation",
         size_mb: 574,
         engine: EngineType::Whisper,
-        base_url: HF_WHISPER,
-        files: &[FileSpec {
+        payload: Payload::File {
+            url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
             name: "ggml-large-v3-turbo-q5_0.bin",
             bytes: 574_000_000,
-        }],
+        },
     },
+    // The istupakov ONNX export, bundled by Handy — HF's Xet CDN answers
+    // anonymous downloads of the flat files with 403 (verified with plain
+    // curl), so the archive mirror is the reliable source. int8, CC-BY-4.0.
     ModelSpec {
         id: "parakeet-tdt-0.6b-v3",
         label: "Parakeet TDT 0.6B v3 — fast and accurate, commands and dictation",
-        size_mb: 671,
+        size_mb: 456,
         engine: EngineType::Parakeet,
-        base_url: HF_PARAKEET,
-        files: &[
-            FileSpec { name: "vocab.txt", bytes: 93_939 },
-            FileSpec { name: "nemo128.onnx", bytes: 139_764 },
-            FileSpec {
-                name: "encoder-model.int8.onnx",
-                bytes: 652_183_999,
-            },
-            FileSpec {
-                name: "decoder_joint-model.int8.onnx",
-                bytes: 18_202_004,
-            },
-        ],
+        payload: Payload::Archive {
+            url: "https://blob.handy.computer/parakeet-v3-int8.tar.gz",
+            bytes: 478_517_071,
+            sha256: "43d37191602727524a7d8c6da0eef11c4ba24320f5b4730f1a2497befc2efa77",
+            contents: &[
+                "vocab.txt",
+                "nemo128.onnx",
+                "encoder-model.int8.onnx",
+                "decoder_joint-model.int8.onnx",
+            ],
+        },
     },
 ];
 
@@ -117,26 +130,53 @@ fn models_dir() -> Result<PathBuf, String> {
 }
 
 /// Where a model's files live: single-file models sit flat in the models
-/// root (whisper's original layout); multi-file models get their own folder.
+/// root (whisper's original layout); archives unpack into their own folder.
 fn install_dir(m: &ModelSpec) -> Result<PathBuf, String> {
     let root = models_dir()?;
-    if m.files.len() == 1 {
-        return Ok(root);
+    match &m.payload {
+        Payload::File { .. } => Ok(root),
+        Payload::Archive { .. } => Ok(root.join(m.id)),
     }
-    Ok(root.join(m.id))
 }
 
-fn file_path(m: &ModelSpec, file: &FileSpec) -> Result<PathBuf, String> {
-    Ok(install_dir(m)?.join(file.name))
+/// The directory that actually HOLDS an archive model's contents: the
+/// install dir itself, or — when the tarball carries one wrapping folder —
+/// that single child. Checked against the payload's content list, so a
+/// half-extracted model never reads as installed.
+fn archive_root(
+    dir: &std::path::Path,
+    contents: &[&str],
+) -> Option<PathBuf> {
+    let holds_all =
+        |d: &std::path::Path| contents.iter().all(|name| d.join(name).exists());
+    if holds_all(dir) {
+        return Some(dir.to_path_buf());
+    }
+    let entries = fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && holds_all(&path) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// The path the engine loads from — a file for whisper, the content
+/// directory for parakeet. None when not (fully) installed.
+fn load_path(m: &ModelSpec) -> Result<Option<PathBuf>, String> {
+    let dir = install_dir(m)?;
+    match &m.payload {
+        Payload::File { name, .. } => {
+            let path = dir.join(name);
+            Ok(path.exists().then_some(path))
+        }
+        Payload::Archive { contents, .. } => Ok(archive_root(&dir, contents)),
+    }
 }
 
 fn installed(m: &ModelSpec) -> Result<bool, String> {
-    for file in m.files {
-        if !file_path(m, file)?.exists() {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+    Ok(load_path(m)?.is_some())
 }
 
 // ---------------------------------------------------------------- capture --
@@ -205,79 +245,118 @@ pub struct DownloadProgress {
     total: Option<u64>,
 }
 
-/// Stream a model's files to disk with one cumulative progress feed. Each
-/// file writes `<name>.part` and renames on completion, so an aborted
-/// download never masquerades as installed; already-present files are
-/// skipped (a retry resumes at file granularity).
+/// Stream one URL to `dest` with progress against `total`, returning the
+/// byte count and the running SHA-256. Writes go to the path verbatim — the
+/// caller owns .part naming and the rename/extract that makes the result
+/// count as installed.
+fn fetch_to(
+    url: &str,
+    dest: &std::path::Path,
+    total: u64,
+    on_progress: &Channel<DownloadProgress>,
+) -> Result<(u64, String), String> {
+    use sha2::{Digest, Sha256};
+
+    let response = ureq::get(url).call().map_err(|e| e.to_string())?;
+    let expected = response
+        .header("Content-Length")
+        .and_then(|v| v.parse::<u64>().ok());
+    let mut reader = response.into_reader();
+    let mut file = fs::File::create(dest).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut received: u64 = 0;
+    let mut last_reported: u64 = 0;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        hasher.update(&buf[..n]);
+        received += n as u64;
+        // ~every 512 KiB: often enough for a live bar, rare enough to stay
+        // off the IPC hot path.
+        if received - last_reported >= 512 * 1024 {
+            last_reported = received;
+            let _ = on_progress.send(DownloadProgress {
+                received,
+                total: Some(total),
+            });
+        }
+    }
+    file.flush().map_err(|e| e.to_string())?;
+    drop(file);
+    // A truncated body (connection cut) must not survive: when the server
+    // told us the size, hold the transfer to it.
+    if let Some(expected) = expected {
+        if received != expected {
+            let _ = fs::remove_file(dest);
+            return Err(format!(
+                "download incomplete: {received} of {expected} bytes"
+            ));
+        }
+    }
+    Ok((received, format!("{:x}", hasher.finalize())))
+}
+
+/// Download a model with one progress feed. A plain file lands as
+/// `<name>.part` and renames on completion; an archive is checksum-verified
+/// BEFORE extraction and deleted after — an aborted or tampered download
+/// never masquerades as installed.
 #[tauri::command]
 pub async fn voice_model_download(
     id: String,
     on_progress: Channel<DownloadProgress>,
 ) -> Result<(), String> {
     let m = spec(&id)?;
-    fs::create_dir_all(install_dir(m)?).map_err(|e| e.to_string())?;
+    if installed(m)? {
+        return Ok(());
+    }
+    let dir = install_dir(m)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        // The registry's static byte counts drive the bar; each transfer is
-        // still held to its own response's Content-Length below.
-        let total: u64 = m.files.iter().map(|f| f.bytes).sum();
-        let mut received: u64 = 0;
-        let mut last_reported: u64 = 0;
-
-        for file_spec in m.files {
-            let final_path = file_path(m, file_spec)?;
-            if final_path.exists() {
-                received += file_spec.bytes;
-                continue;
+        match &m.payload {
+            Payload::File { url, name, bytes } => {
+                let final_path = dir.join(name);
+                let part_path = final_path.with_extension("part");
+                let (received, _) = fetch_to(url, &part_path, *bytes, &on_progress)?;
+                fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
+                let _ = on_progress.send(DownloadProgress {
+                    received,
+                    total: Some(received),
+                });
             }
-            let part_path = final_path.with_extension("part");
-            let url = format!("{}{}", m.base_url, file_spec.name);
-
-            let response = ureq::get(&url).call().map_err(|e| e.to_string())?;
-            let expected = response
-                .header("Content-Length")
-                .and_then(|v| v.parse::<u64>().ok());
-            let mut reader = response.into_reader();
-            let mut file = fs::File::create(&part_path).map_err(|e| e.to_string())?;
-            let mut file_received: u64 = 0;
-            let mut buf = [0u8; 64 * 1024];
-            loop {
-                let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-                if n == 0 {
-                    break;
-                }
-                file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-                file_received += n as u64;
-                received += n as u64;
-                // ~every 512 KiB: often enough for a live bar, rare enough
-                // to stay off the IPC hot path.
-                if received - last_reported >= 512 * 1024 {
-                    last_reported = received;
-                    let _ = on_progress.send(DownloadProgress {
-                        received,
-                        total: Some(total),
-                    });
-                }
-            }
-            file.flush().map_err(|e| e.to_string())?;
-            drop(file);
-            // A truncated body (connection cut) must not become an installed
-            // file: when the server told us the size, hold it to that.
-            if let Some(expected) = expected {
-                if file_received != expected {
-                    let _ = fs::remove_file(&part_path);
+            Payload::Archive {
+                url,
+                bytes,
+                sha256,
+                contents: _,
+            } => {
+                let archive_path = dir.join("payload.tar.gz.part");
+                let (received, digest) =
+                    fetch_to(url, &archive_path, *bytes, &on_progress)?;
+                if digest != *sha256 {
+                    let _ = fs::remove_file(&archive_path);
                     return Err(format!(
-                        "download incomplete: {} — {file_received} of {expected} bytes",
-                        file_spec.name
+                        "checksum mismatch for {}: got {digest}",
+                        m.id
                     ));
                 }
+                let file = fs::File::open(&archive_path).map_err(|e| e.to_string())?;
+                let tar = flate2::read::GzDecoder::new(file);
+                // `unpack` refuses absolute paths and `..` escapes.
+                tar::Archive::new(tar)
+                    .unpack(&dir)
+                    .map_err(|e| format!("extract failed: {e}"))?;
+                let _ = fs::remove_file(&archive_path);
+                let _ = on_progress.send(DownloadProgress {
+                    received,
+                    total: Some(received),
+                });
             }
-            fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
         }
-        let _ = on_progress.send(DownloadProgress {
-            received,
-            total: Some(total),
-        });
         Ok(())
     })
     .await
@@ -297,18 +376,19 @@ pub fn voice_model_delete(
             *engine = None;
         }
     }
-    if m.files.len() > 1 {
-        // Multi-file models own their folder outright.
-        let dir = install_dir(m)?;
-        if dir.exists() {
-            fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    match &m.payload {
+        // Archive models own their folder outright.
+        Payload::Archive { .. } => {
+            let dir = install_dir(m)?;
+            if dir.exists() {
+                fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+            }
         }
-        return Ok(());
-    }
-    for file_spec in m.files {
-        let path = file_path(m, file_spec)?;
-        if path.exists() {
-            fs::remove_file(&path).map_err(|e| e.to_string())?;
+        Payload::File { name, .. } => {
+            let path = install_dir(m)?.join(name);
+            if path.exists() {
+                fs::remove_file(&path).map_err(|e| e.to_string())?;
+            }
         }
     }
     Ok(())
@@ -425,17 +505,11 @@ pub async fn voice_capture_stop(
     state: tauri::State<'_, VoiceState>,
 ) -> Result<TranscriptDto, String> {
     let m = spec(&model)?;
-    if !installed(m)? {
+    let Some(load_path) = load_path(m)? else {
         // Still tear the capture down — the mic must not stay hot behind an
         // uninstalled-model error.
         let _ = take_capture(&state).map(|c| c.cmd_tx.send(CaptureCmd::Cancel));
         return Err(format!("voice model \"{model}\" is not downloaded"));
-    }
-    let dir = install_dir(m)?;
-    let load_path = if m.files.len() == 1 {
-        dir.join(m.files[0].name)
-    } else {
-        dir
     };
     let capture = take_capture(&state)?;
 
