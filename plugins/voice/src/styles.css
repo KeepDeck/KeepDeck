@@ -15,7 +15,6 @@
   align-items: center;
   gap: 8px;
   padding: 8px;
-  border-bottom: 1px solid #1c2230;
 }
 
 .voice__mic {
@@ -39,13 +38,17 @@
   cursor: default;
 }
 
+/* Full-width line under the bar — hints and state WRAP instead of
+   truncating in the narrow dock. */
 .voice__status {
   color: #6b7280;
+  padding: 0 8px 8px;
+  border-bottom: 1px solid #1c2230;
+  line-height: 1.4;
+}
+
+.voice__spacer {
   flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .voice__meter,
