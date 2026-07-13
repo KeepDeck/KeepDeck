@@ -33,6 +33,12 @@ const CARD_META: Record<
     accuracy: 0.6,
     speed: 0.75,
   },
+  "whisper-small": {
+    blurb: "Balanced — good for short commands",
+    langs: "≈100 languages",
+    accuracy: 0.6,
+    speed: 0.8,
+  },
   "whisper-large-v3-turbo-q5_0": {
     blurb: "Best accuracy — dictation and long phrases",
     langs: "≈100 languages",
