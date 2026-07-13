@@ -17,6 +17,40 @@
   padding: 8px;
 }
 
+/* No-model prompt — the whole tab until a model is installed. */
+.voice__setup {
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px 16px;
+  text-align: left;
+}
+
+.voice__setup-title {
+  color: #c5c8c6;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.voice__setup-text {
+  color: #9aa3af;
+  line-height: 1.5;
+}
+
+.voice__setup-btn {
+  background: #12211a;
+  color: #7fb88a;
+  border: 1px solid #2a3c31;
+  border-radius: 4px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.voice__setup-btn:hover {
+  border-color: #3a5142;
+}
+
 .voice__mic {
   background: #12211a;
   color: #7fb88a;

@@ -34,6 +34,9 @@ export interface CoreCommandDeps {
   /** Open the close-confirm flow — voice/MCP closes go through the same
    * dialog as ⌘W, so the destructive step keeps its human confirmation. */
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
+  /** Open the settings dialog; `sectionId` lands it on a specific section
+   * (a plugin's `plugin:<id>`), null on the first. */
+  openSettings(sectionId: string | null): void;
 }
 
 /** How long task delivery waits for the pane's PTY writer to appear (a
@@ -318,6 +321,20 @@ export function registerCoreCommands(
         return { workspaceId: ws.id, paneId: pane.id };
       },
     }),
+
+    registry.register({
+      id: "settings.open",
+      title: "Open settings",
+      args: [],
+      run: (_args, source) => {
+        // A plugin lands on its OWN section; anyone else on the first. The
+        // section id mirrors what SettingsDialog builds per plugin.
+        deps.openSettings(
+          source.kind === "plugin" ? `plugin:${source.pluginId}` : null,
+        );
+        return { opened: true };
+      },
+    }),
   ];
 
   return () => {
@@ -332,6 +349,7 @@ export function useCoreCommands(deps: {
   deck: Deck;
   agents: AgentInfo[];
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
+  openSettings(sectionId: string | null): void;
 }): void {
   const ref = useRef(deps);
   ref.current = deps;
@@ -342,6 +360,7 @@ export function useCoreCommands(deps: {
         agents: () => ref.current.agents,
         requestCloseAgent: (wsId, paneIdToClose, label) =>
           ref.current.requestCloseAgent(wsId, paneIdToClose, label),
+        openSettings: (sectionId) => ref.current.openSettings(sectionId),
       }),
     [],
   );

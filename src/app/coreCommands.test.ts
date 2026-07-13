@@ -67,12 +67,14 @@ function setup(workspaces: Workspace[]) {
   const registry = createCommandRegistry();
   const deck = fakeDeck(workspaces);
   const requestCloseAgent = vi.fn();
+  const openSettings = vi.fn();
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
     requestCloseAgent,
+    openSettings,
   });
-  return { registry, deck, requestCloseAgent, dispose };
+  return { registry, deck, requestCloseAgent, openSettings, dispose };
 }
 
 beforeEach(() => {
@@ -254,6 +256,20 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(unaddressed.ok).toBe(false);
     if (!unaddressed.ok)
       expect(unaddressed.error.message).toBe('no agent selected in workspace "web"');
+  });
+});
+
+describe("settings.open", () => {
+  it("opens a plugin's own section, and the first section for anyone else", async () => {
+    const { registry, openSettings } = setup([workspace({})]);
+    await registry.execute("settings.open", {}, {
+      kind: "plugin",
+      pluginId: "keepdeck.voice",
+    });
+    expect(openSettings).toHaveBeenCalledWith("plugin:keepdeck.voice");
+
+    await registry.execute("settings.open", {}, HOST);
+    expect(openSettings).toHaveBeenLastCalledWith(null);
   });
 });
 

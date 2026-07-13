@@ -8,9 +8,18 @@ import { HelpPopover, InfoIcon } from "./HelpPopover";
  * weights are never bundled, the picker IS the install surface).
  */
 export function VoiceTab() {
-  const { controller, downloads } = runtime();
+  const { ctx, controller, downloads } = runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
   const dl = useSyncExternalStore(downloads.subscribe, downloads.snapshot);
+  // Whether ANY model is installed — gates the whole voice UI behind a
+  // "download a model first" prompt. Re-read when downloads finish.
+  const [hasModel, setHasModel] = useState<boolean | null>(null);
+  useEffect(() => {
+    void ctx.services.voice
+      .models()
+      .then((ms) => setHasModel(ms.some((m) => m.installed)))
+      .catch(() => setHasModel(true)); // don't trap the UI on a read error
+  }, [ctx, dl.active]);
   const [helpAnchor, setHelpAnchor] = useState<HTMLElement | null>(null);
   const helpBtnRef = useRef<HTMLButtonElement | null>(null);
   // Hover intent: open after a short dwell, close after a grace period so
@@ -29,6 +38,28 @@ export function VoiceTab() {
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [snap.history.length]);
+
+  // No model installed (and none arriving): the whole surface is a prompt to
+  // get one — voice can't do anything without a model. A download in flight
+  // shows the strip instead, so the user sees progress here too.
+  if (hasModel === false && !downloads.anyActive()) {
+    return (
+      <div className="voice voice__setup">
+        <div className="voice__setup-title">No speech model yet</div>
+        <div className="voice__setup-text">
+          Voice commands and dictation need a local speech-to-text model.
+          Download one to get started — it stays on your machine.
+        </div>
+        <button
+          type="button"
+          className="voice__setup-btn"
+          onClick={() => void ctx.commands.execute("settings.open", {})}
+        >
+          Choose a model…
+        </button>
+      </div>
+    );
+  }
 
   const listening = snap.phase === "listening";
   return (

@@ -7,7 +7,10 @@
   "description": "Voice control and dictation: hold a key, speak, release — local speech-to-text drives the deck (spawn, switch, focus, close) or types straight into the focused agent. Audio never leaves your machine.",
   "capabilities": [
     { "kind": "mic" },
-    { "kind": "commands", "execute": ["workspace.*", "agent.*", "pane.*"] }
+    {
+      "kind": "commands",
+      "execute": ["workspace.*", "agent.*", "pane.*", "settings.open"]
+    }
   ],
   "contributes": {
     "dockTabs": [{ "id": "voice", "label": "Voice" }],

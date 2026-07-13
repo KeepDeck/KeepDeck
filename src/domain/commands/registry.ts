@@ -22,9 +22,12 @@ export interface CommandSpec {
   /** Marks a command whose effect is hard to undo (close, delete). Invokers
    * decide what to do with it (confirm, badge); the registry only records it. */
   destructive?: boolean;
-  /** The effect. A returned value must be serializable — it crosses plugin
-   * RPC and external transports verbatim. Throwing reports `failed`. */
-  run(args: CommandArgs): Promise<unknown> | unknown;
+  /** The effect. `source` is who invoked it (host / a plugin / an external
+   * client) — a handler that scopes to the caller reads it (e.g. `settings.open`
+   * lands on the calling plugin's own section); most ignore it. A returned
+   * value must be serializable — it crosses plugin RPC and external
+   * transports verbatim. Throwing reports `failed`. */
+  run(args: CommandArgs, source: CommandSource): Promise<unknown> | unknown;
 }
 
 /** A command as invokers see it — the spec minus its handler. */
@@ -155,7 +158,7 @@ export function createCommandRegistry(
         return { ok: false, error };
       }
       try {
-        const value = (await spec.run(args)) ?? null;
+        const value = (await spec.run(args, source)) ?? null;
         record(source, id, args);
         return { ok: true, value };
       } catch (e) {
