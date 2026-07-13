@@ -51,7 +51,7 @@ pub fn rms(samples: &[f32]) -> f32 {
 /// for watching!") — a push-to-talk tap with no speech must be dropped before
 /// inference, not transcribed. The threshold is deliberately low: it only has
 /// to separate "nothing said" from speech, not judge loudness.
-pub const SILENCE_RMS: f32 = 0.005;
+pub const SILENCE_RMS: f32 = 0.0025;
 
 pub fn is_silence(samples: &[f32]) -> bool {
     rms(samples) < SILENCE_RMS

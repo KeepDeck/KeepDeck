@@ -190,7 +190,19 @@ export function createVoiceController(
         });
 
         if (transcript.silence || !transcript.text) {
-          push("info", "didn't catch that");
+          if (transcript.seconds > 0.3 && transcript.level < 0.0005) {
+            // A real duration at a dead-zero level is not a quiet user — the
+            // OS is delivering silence. Name the actual fix.
+            push(
+              "error",
+              `the microphone delivered silence (${transcript.seconds.toFixed(1)}s at level 0) — check System Settings → Privacy & Security → Microphone; in dev the permission belongs to the terminal that launched the app`,
+            );
+          } else {
+            push(
+              "info",
+              `didn't catch that (${transcript.seconds.toFixed(1)}s, level ${transcript.level.toFixed(3)})`,
+            );
+          }
         } else if (finished === "dictation") {
           push("heard", transcript.text);
           await execute("pane.write", { text: transcript.text, submit: true });

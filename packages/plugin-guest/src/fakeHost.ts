@@ -238,7 +238,7 @@ export function createFakeHost(
         downloadModel: async () => {},
         deleteModel: async () => {},
         startCapture: async () => {},
-        stopCapture: async () => ({ text: "", silence: true }),
+        stopCapture: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
         cancelCapture: async () => {},
       },
       sessions: {

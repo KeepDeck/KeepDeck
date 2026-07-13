@@ -8,7 +8,8 @@ import { createVoiceController } from "./controller";
 
 /** A fake host whose voice service yields scripted transcripts and whose
  * command results are primeable — the controller under real wiring. */
-function setup(transcript: VoiceTranscript) {
+function setup(partial: Partial<VoiceTranscript> & Pick<VoiceTranscript, "text" | "silence">) {
+  const transcript: VoiceTranscript = { seconds: 1.2, level: 0.05, ...partial };
   const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
   const cancelCapture = vi.fn(async () => {});
   let onLevel: ((rms: number) => void) | undefined;
@@ -133,11 +134,27 @@ describe("createVoiceController", () => {
   });
 
   it("says 'didn't catch that' on silence and never executes", async () => {
-    const { host, controller } = setup({ text: "", silence: true });
+    const { host, controller } = setup({ text: "", silence: true, seconds: 0, level: 0 });
     await controller.start("dictation");
     await controller.stop();
     expect(host.executedCommands.map((e) => e.id)).toEqual(["workspace.list"]);
-    expect(texts(controller)).toEqual([["info", "didn't catch that"]]);
+    expect(texts(controller)).toEqual([
+      ["info", "didn't catch that (0.0s, level 0.000)"],
+    ]);
+  });
+
+  it("names the mic permission when a real duration arrives at level zero", async () => {
+    const { controller } = setup({
+      text: "",
+      silence: true,
+      seconds: 2.4,
+      level: 0.0001,
+    });
+    await controller.start("command");
+    await controller.stop();
+    const [tone, text] = texts(controller)[0];
+    expect(tone).toBe("error");
+    expect(text).toContain("Privacy & Security");
   });
 
   it("surfaces a failed command as an error entry", async () => {

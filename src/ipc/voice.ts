@@ -19,6 +19,8 @@ export interface TranscriptDto {
   text: string;
   /** The utterance was dropped as silence before inference. */
   silence: boolean;
+  seconds: number;
+  level: number;
 }
 
 export function voiceModelList(): Promise<VoiceModelDto[]> {

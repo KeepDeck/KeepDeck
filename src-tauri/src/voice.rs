@@ -14,7 +14,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use keepdeck_voice::{is_silence, resample, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE};
+use keepdeck_voice::{is_silence, resample, rms, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE};
 use serde::Serialize;
 use tauri::ipc::Channel;
 
@@ -272,6 +272,11 @@ pub struct TranscriptDto {
     /// True when the utterance was dropped as silence (whisper would have
     /// hallucinated on it) — the UI can say "didn't catch that".
     silence: bool,
+    /// Captured length in seconds — 0.0 means the mic delivered nothing.
+    seconds: f32,
+    /// RMS level of the whole utterance. Persistently ~0 with a nonzero
+    /// duration = the OS is delivering silence (mic permission).
+    level: f32,
 }
 
 /// Stop the capture and transcribe it with `model`. `language` pins a
@@ -314,12 +319,30 @@ pub async fn voice_capture_stop(
                 .recv()
                 .map_err(|_| "capture thread died".to_string())?
             else {
-                return Ok((TranscriptDto { text: String::new(), silence: true }, None));
+                return Ok((
+                    TranscriptDto {
+                        text: String::new(),
+                        silence: true,
+                        seconds: 0.0,
+                        level: 0.0,
+                    },
+                    None,
+                ));
             };
 
             let samples = resample(&samples, rate, WHISPER_SAMPLE_RATE);
+            let seconds = samples.len() as f32 / WHISPER_SAMPLE_RATE as f32;
+            let level = rms(&samples);
             if is_silence(&samples) {
-                return Ok((TranscriptDto { text: String::new(), silence: true }, None));
+                return Ok((
+                    TranscriptDto {
+                        text: String::new(),
+                        silence: true,
+                        seconds,
+                        level,
+                    },
+                    None,
+                ));
             }
 
             let (engine, fresh) = match cached {
@@ -336,6 +359,8 @@ pub async fn voice_capture_stop(
                 TranscriptDto {
                     silence: text.is_empty(),
                     text,
+                    seconds,
+                    level,
                 },
                 fresh,
             ))

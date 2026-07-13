@@ -26,6 +26,12 @@ export interface VoiceTranscript {
   /** The utterance was dropped as silence before inference — say "didn't
    * catch that", don't act on the empty text. */
   silence: boolean;
+  /** Captured length in seconds; 0 means the mic delivered nothing. */
+  seconds: number;
+  /** RMS level of the utterance. A nonzero duration with a ~0 level means
+   * the OS is delivering silence — the microphone permission is the usual
+   * culprit; surface that, don't just shrug. */
+  level: number;
 }
 
 export interface PluginVoice {
