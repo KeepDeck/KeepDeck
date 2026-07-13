@@ -10,7 +10,9 @@
 pub mod audio;
 pub mod capture;
 pub mod engine;
+pub mod parakeet;
 
 pub use audio::{is_silence, mixdown, resample, rms, WHISPER_SAMPLE_RATE};
 pub use capture::{level_channel, CaptureError, LevelSender, Recorder};
 pub use engine::{EngineError, WhisperEngine};
+pub use parakeet::ParakeetEngine;

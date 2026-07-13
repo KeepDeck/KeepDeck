@@ -14,41 +14,90 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use keepdeck_voice::{is_silence, resample, rms, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE};
+use keepdeck_voice::{
+    is_silence, resample, rms, ParakeetEngine, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE,
+};
 use serde::Serialize;
 use tauri::ipc::Channel;
 
 use crate::paths;
 
-/// The downloadable model registry. All three are MULTILINGUAL (EN + RU and
-/// ~100 more); quantized ggml files from the canonical whisper.cpp mirror.
+#[derive(Clone, Copy, PartialEq)]
+enum EngineType {
+    Whisper,
+    Parakeet,
+}
+
+/// One downloadable artifact. `bytes` feeds the multi-file progress total;
+/// completeness is still held to each response's Content-Length.
+struct FileSpec {
+    name: &'static str,
+    bytes: u64,
+}
+
+/// The downloadable model registry — every entry is MULTILINGUAL with
+/// Russian covered. Whisper = single quantized ggml file at the models root
+/// (the original layout, kept so existing installs stay installed);
+/// Parakeet = the istupakov ONNX export, four flat files in a subfolder.
 struct ModelSpec {
     id: &'static str,
     label: &'static str,
     size_mb: u32,
-    file: &'static str,
+    engine: EngineType,
+    base_url: &'static str,
+    files: &'static [FileSpec],
 }
 
-const HF_BASE: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
+const HF_WHISPER: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
+const HF_PARAKEET: &str =
+    "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/";
 
 const MODELS: &[ModelSpec] = &[
     ModelSpec {
         id: "whisper-base-q5_1",
         label: "Whisper Base — fastest, good for commands",
         size_mb: 60,
-        file: "ggml-base-q5_1.bin",
+        engine: EngineType::Whisper,
+        base_url: HF_WHISPER,
+        files: &[FileSpec { name: "ggml-base-q5_1.bin", bytes: 60_000_000 }],
     },
     ModelSpec {
         id: "whisper-small-q5_1",
         label: "Whisper Small — balanced",
         size_mb: 190,
-        file: "ggml-small-q5_1.bin",
+        engine: EngineType::Whisper,
+        base_url: HF_WHISPER,
+        files: &[FileSpec { name: "ggml-small-q5_1.bin", bytes: 190_000_000 }],
     },
     ModelSpec {
         id: "whisper-large-v3-turbo-q5_0",
         label: "Whisper Large v3 Turbo — best accuracy, for dictation",
         size_mb: 574,
-        file: "ggml-large-v3-turbo-q5_0.bin",
+        engine: EngineType::Whisper,
+        base_url: HF_WHISPER,
+        files: &[FileSpec {
+            name: "ggml-large-v3-turbo-q5_0.bin",
+            bytes: 574_000_000,
+        }],
+    },
+    ModelSpec {
+        id: "parakeet-tdt-0.6b-v3",
+        label: "Parakeet TDT 0.6B v3 — fast and accurate, commands and dictation",
+        size_mb: 671,
+        engine: EngineType::Parakeet,
+        base_url: HF_PARAKEET,
+        files: &[
+            FileSpec { name: "vocab.txt", bytes: 93_939 },
+            FileSpec { name: "nemo128.onnx", bytes: 139_764 },
+            FileSpec {
+                name: "encoder-model.int8.onnx",
+                bytes: 652_183_999,
+            },
+            FileSpec {
+                name: "decoder_joint-model.int8.onnx",
+                bytes: 18_202_004,
+            },
+        ],
     },
 ];
 
@@ -67,8 +116,27 @@ fn models_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-fn model_path(m: &ModelSpec) -> Result<PathBuf, String> {
-    Ok(models_dir()?.join(m.file))
+/// Where a model's files live: single-file models sit flat in the models
+/// root (whisper's original layout); multi-file models get their own folder.
+fn install_dir(m: &ModelSpec) -> Result<PathBuf, String> {
+    let root = models_dir()?;
+    if m.files.len() == 1 {
+        return Ok(root);
+    }
+    Ok(root.join(m.id))
+}
+
+fn file_path(m: &ModelSpec, file: &FileSpec) -> Result<PathBuf, String> {
+    Ok(install_dir(m)?.join(file.name))
+}
+
+fn installed(m: &ModelSpec) -> Result<bool, String> {
+    for file in m.files {
+        if !file_path(m, file)?.exists() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 // ---------------------------------------------------------------- capture --
@@ -83,10 +151,27 @@ struct ActiveCapture {
     out_rx: Receiver<Option<(Vec<f32>, u32)>>,
 }
 
+/// The loaded engine, cached by model id — loading takes seconds and must
+/// not happen per utterance. Parakeet's decoder is stateful (`&mut`), so its
+/// arm carries the serializing lock.
+enum CachedEngine {
+    Whisper(Arc<WhisperEngine>),
+    Parakeet(Arc<Mutex<ParakeetEngine>>),
+}
+
+impl Clone for CachedEngine {
+    fn clone(&self) -> Self {
+        match self {
+            CachedEngine::Whisper(e) => CachedEngine::Whisper(e.clone()),
+            CachedEngine::Parakeet(e) => CachedEngine::Parakeet(e.clone()),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct VoiceState {
     capture: Mutex<Option<ActiveCapture>>,
-    engine: Mutex<Option<(PathBuf, Arc<WhisperEngine>)>>,
+    engine: Mutex<Option<(String, CachedEngine)>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -107,7 +192,7 @@ pub fn voice_model_list() -> Result<Vec<VoiceModelDto>, String> {
                 id: m.id.to_string(),
                 label: m.label.to_string(),
                 size_mb: m.size_mb,
-                installed: model_path(m)?.exists(),
+                installed: installed(m)?,
             })
         })
         .collect()
@@ -120,60 +205,79 @@ pub struct DownloadProgress {
     total: Option<u64>,
 }
 
-/// Stream one model file to disk with progress. Writes `<file>.part` and
-/// renames on completion, so an aborted download never masquerades as an
-/// installed model.
+/// Stream a model's files to disk with one cumulative progress feed. Each
+/// file writes `<name>.part` and renames on completion, so an aborted
+/// download never masquerades as installed; already-present files are
+/// skipped (a retry resumes at file granularity).
 #[tauri::command]
 pub async fn voice_model_download(
     id: String,
     on_progress: Channel<DownloadProgress>,
 ) -> Result<(), String> {
     let m = spec(&id)?;
-    let final_path = model_path(m)?;
-    if final_path.exists() {
-        return Ok(());
-    }
-    let part_path = final_path.with_extension("bin.part");
-    let url = format!("{HF_BASE}{}", m.file);
+    fs::create_dir_all(install_dir(m)?).map_err(|e| e.to_string())?;
 
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let response = ureq::get(&url).call().map_err(|e| e.to_string())?;
-        let total = response
-            .header("Content-Length")
-            .and_then(|v| v.parse::<u64>().ok());
-        let mut reader = response.into_reader();
-        let mut file = fs::File::create(&part_path).map_err(|e| e.to_string())?;
+        // The registry's static byte counts drive the bar; each transfer is
+        // still held to its own response's Content-Length below.
+        let total: u64 = m.files.iter().map(|f| f.bytes).sum();
         let mut received: u64 = 0;
         let mut last_reported: u64 = 0;
-        let mut buf = [0u8; 64 * 1024];
-        loop {
-            let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
+
+        for file_spec in m.files {
+            let final_path = file_path(m, file_spec)?;
+            if final_path.exists() {
+                received += file_spec.bytes;
+                continue;
             }
-            file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-            received += n as u64;
-            // ~every 512 KiB: often enough for a live bar, rare enough to
-            // stay off the IPC hot path.
-            if received - last_reported >= 512 * 1024 {
-                last_reported = received;
-                let _ = on_progress.send(DownloadProgress { received, total });
+            let part_path = final_path.with_extension("part");
+            let url = format!("{}{}", m.base_url, file_spec.name);
+
+            let response = ureq::get(&url).call().map_err(|e| e.to_string())?;
+            let expected = response
+                .header("Content-Length")
+                .and_then(|v| v.parse::<u64>().ok());
+            let mut reader = response.into_reader();
+            let mut file = fs::File::create(&part_path).map_err(|e| e.to_string())?;
+            let mut file_received: u64 = 0;
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    break;
+                }
+                file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+                file_received += n as u64;
+                received += n as u64;
+                // ~every 512 KiB: often enough for a live bar, rare enough
+                // to stay off the IPC hot path.
+                if received - last_reported >= 512 * 1024 {
+                    last_reported = received;
+                    let _ = on_progress.send(DownloadProgress {
+                        received,
+                        total: Some(total),
+                    });
+                }
             }
+            file.flush().map_err(|e| e.to_string())?;
+            drop(file);
+            // A truncated body (connection cut) must not become an installed
+            // file: when the server told us the size, hold it to that.
+            if let Some(expected) = expected {
+                if file_received != expected {
+                    let _ = fs::remove_file(&part_path);
+                    return Err(format!(
+                        "download incomplete: {} — {file_received} of {expected} bytes",
+                        file_spec.name
+                    ));
+                }
+            }
+            fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
         }
-        file.flush().map_err(|e| e.to_string())?;
-        drop(file);
-        // A truncated body (connection cut) must not become an installed
-        // model: when the server told us the size, hold it to that.
-        if let Some(expected) = total {
-            if received != expected {
-                let _ = fs::remove_file(&part_path);
-                return Err(format!(
-                    "download incomplete: {received} of {expected} bytes"
-                ));
-            }
-        }
-        fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
-        let _ = on_progress.send(DownloadProgress { received, total });
+        let _ = on_progress.send(DownloadProgress {
+            received,
+            total: Some(total),
+        });
         Ok(())
     })
     .await
@@ -186,16 +290,26 @@ pub fn voice_model_delete(
     state: tauri::State<'_, VoiceState>,
 ) -> Result<(), String> {
     let m = spec(&id)?;
-    let path = model_path(m)?;
     // Drop a cached engine holding this model before unlinking it.
     {
         let mut engine = state.engine.lock().expect("poisoned");
-        if engine.as_ref().is_some_and(|(p, _)| *p == path) {
+        if engine.as_ref().is_some_and(|(cached, _)| *cached == m.id) {
             *engine = None;
         }
     }
-    if path.exists() {
-        fs::remove_file(&path).map_err(|e| e.to_string())?;
+    if m.files.len() > 1 {
+        // Multi-file models own their folder outright.
+        let dir = install_dir(m)?;
+        if dir.exists() {
+            fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
+    for file_spec in m.files {
+        let path = file_path(m, file_spec)?;
+        if path.exists() {
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
@@ -300,23 +414,29 @@ pub struct TranscriptDto {
 }
 
 /// Stop the capture and transcribe it with `model`. `language` pins a
-/// whisper code ("en", "ru"); absent = auto-detect. `prompt` biases
-/// vocabulary (workspace/branch names, command words).
+/// whisper code ("en", "ru"); absent = auto-detect. `prompt` biases whisper
+/// vocabulary (workspace/branch names, command words) — parakeet detects its
+/// 25 languages itself and takes no prompt.
 #[tauri::command]
 pub async fn voice_capture_stop(
     model: String,
     language: Option<String>,
     prompt: Option<String>,
     state: tauri::State<'_, VoiceState>,
-    ) -> Result<TranscriptDto, String> {
+) -> Result<TranscriptDto, String> {
     let m = spec(&model)?;
-    let path = model_path(m)?;
-    if !path.exists() {
+    if !installed(m)? {
         // Still tear the capture down — the mic must not stay hot behind an
         // uninstalled-model error.
         let _ = take_capture(&state).map(|c| c.cmd_tx.send(CaptureCmd::Cancel));
         return Err(format!("voice model \"{model}\" is not downloaded"));
     }
+    let dir = install_dir(m)?;
+    let load_path = if m.files.len() == 1 {
+        dir.join(m.files[0].name)
+    } else {
+        dir
+    };
     let capture = take_capture(&state)?;
 
     // Reuse the cached engine when it already holds this model.
@@ -324,12 +444,12 @@ pub async fn voice_capture_stop(
         let engine = state.engine.lock().expect("poisoned");
         engine
             .as_ref()
-            .filter(|(p, _)| *p == path)
+            .filter(|(id, _)| *id == m.id)
             .map(|(_, e)| e.clone())
     };
 
     let (transcript, engine_used) = tauri::async_runtime::spawn_blocking(
-        move || -> Result<(TranscriptDto, Option<(PathBuf, Arc<WhisperEngine>)>), String> {
+        move || -> Result<(TranscriptDto, Option<(String, CachedEngine)>), String> {
             capture
                 .cmd_tx
                 .send(CaptureCmd::Stop)
@@ -368,13 +488,27 @@ pub async fn voice_capture_stop(
             let (engine, fresh) = match cached {
                 Some(e) => (e, None),
                 None => {
-                    let e = Arc::new(WhisperEngine::load(&path).map_err(|e| e.to_string())?);
-                    (e.clone(), Some((path, e)))
+                    let e = match m.engine {
+                        EngineType::Whisper => CachedEngine::Whisper(Arc::new(
+                            WhisperEngine::load(&load_path).map_err(|e| e.to_string())?,
+                        )),
+                        EngineType::Parakeet => CachedEngine::Parakeet(Arc::new(Mutex::new(
+                            ParakeetEngine::load(&load_path).map_err(|e| e.to_string())?,
+                        ))),
+                    };
+                    (e.clone(), Some((m.id.to_string(), e)))
                 }
             };
-            let text = engine
-                .transcribe(&samples, language.as_deref(), prompt.as_deref())
-                .map_err(|e| e.to_string())?;
+            let text = match &engine {
+                CachedEngine::Whisper(whisper) => whisper
+                    .transcribe(&samples, language.as_deref(), prompt.as_deref())
+                    .map_err(|e| e.to_string())?,
+                CachedEngine::Parakeet(parakeet) => parakeet
+                    .lock()
+                    .expect("poisoned")
+                    .transcribe(&samples)
+                    .map_err(|e| e.to_string())?,
+            };
             Ok((
                 TranscriptDto {
                     silence: text.is_empty(),

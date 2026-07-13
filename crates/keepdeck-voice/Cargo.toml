@@ -6,6 +6,10 @@ description = "Local voice capture and speech-to-text for KeepDeck: cpal microph
 
 [dependencies]
 cpal = "0.16"
+# Parakeet TDT via ONNX Runtime (ort's default features auto-download the
+# prebuilt onnxruntime binaries at build — no cmake, CPU execution; the
+# crate's author reports CoreML unstable for this model and CPU faster).
+parakeet-rs = "0.3.6"
 
 # whisper.cpp via FFI; Metal keeps inference on the GPU on Apple Silicon.
 # (whisper-rs lives on Codeberg now — the GitHub mirror is archived.)

@@ -39,6 +39,12 @@ const CARD_META: Record<
     accuracy: 0.9,
     speed: 0.5,
   },
+  "parakeet-tdt-0.6b-v3": {
+    blurb: "Fast and accurate — punctuation built in",
+    langs: "25 languages",
+    accuracy: 0.95,
+    speed: 0.9,
+  },
 };
 
 export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
