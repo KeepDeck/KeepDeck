@@ -55,6 +55,7 @@ const callbacks = {
   onStartFresh: vi.fn(),
   onRetryProvision: vi.fn(),
   onAgentExited: vi.fn(),
+  onAgentSpawnFailed: vi.fn(),
   onRestartAgent: vi.fn(() => Promise.resolve()),
 };
 

@@ -81,6 +81,8 @@ interface DeckStageProps {
   onRetryProvision(wsId: string, paneId: string): void;
   /** A pane's PTY exited (the resume-failure detector lives upstream). */
   onAgentExited(wsId: string, paneId: string, code: number | null): void;
+  /** A pane's spawn failed — feeds the notification center. */
+  onAgentSpawnFailed(wsId: string, paneId: string, message: string): void;
   /** Explicitly restart an exited pane, resuming its exact binding or fresh. */
   onRestartAgent(
     wsId: string,
@@ -132,6 +134,7 @@ export function DeckStage({
   onStartFresh,
   onRetryProvision,
   onAgentExited,
+  onAgentSpawnFailed,
   onRestartAgent,
   restartEpochs,
 }: DeckStageProps) {
@@ -282,6 +285,9 @@ export function DeckStage({
               onStartFresh={() => onStartFresh(ws.id, pane.id)}
               onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
               onExited={(code) => onAgentExited(ws.id, pane.id, code)}
+              onSpawnFailed={(message) =>
+                onAgentSpawnFailed(ws.id, pane.id, message)
+              }
               canResume={!!pane.session?.id}
               onRestart={(mode) => onRestartAgent(ws.id, pane.id, mode)}
             />

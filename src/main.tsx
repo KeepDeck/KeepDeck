@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { initSettings } from "./app/settingsManager";
 import { initUpdates } from "./app/updateManager";
+import { initUpdateNotifications } from "./app/notificationProducers";
+import { initWindowFocus } from "./app/windowFocus";
 import { initLogging } from "./ipc/log";
 import { suppressNativeContextMenu } from "./ui/contextMenu";
 
@@ -14,6 +16,10 @@ void initSettings();
 // Update checks are background-only chatter — nothing gates on them. In dev
 // builds the manager probes app_info once and stays disabled.
 void initUpdates();
+// Notifications: track OS window focus for the banner rule, and announce a
+// newly-found update version once.
+void initWindowFocus();
+initUpdateNotifications();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DeckStage } from "./components/DeckStage";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
@@ -22,6 +22,11 @@ import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
 import { usePaneSpawnSpecs } from "./app/spawnSpecs";
 import { useAgentRestart } from "./app/useAgentRestart";
+import { setSourceVisibilityProbe } from "./app/notificationCenter";
+import {
+  notifyAgentCrashed,
+  notifyAgentSpawnFailed,
+} from "./app/notificationProducers";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -163,6 +168,38 @@ function App() {
   const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
   // Runtime crash reports — they flip a plugin's tab to the failure panel.
   const crashes = useSyncExternalStore(subscribePluginCrashes, pluginCrashes);
+
+  // The banner rule's "is the source on screen" probe — kept current through a
+  // ref (the probe is registered once; re-registering per render would churn
+  // the module store). A pane is on screen when its workspace is active and
+  // the layout actually shows its body: not minimized and not covered by
+  // another pane's maximize (grid), the expanded pane (list).
+  const visibilityRef = useRef({
+    activeId: deck.activeId,
+    viewByWs: deck.viewByWs,
+    deckLayout,
+    minimizeOn,
+  });
+  visibilityRef.current = {
+    activeId: deck.activeId,
+    viewByWs: deck.viewByWs,
+    deckLayout,
+    minimizeOn,
+  };
+  useEffect(() => {
+    setSourceVisibilityProbe((source) => {
+      if (source.type !== "pane") return false;
+      const now = visibilityRef.current;
+      if (source.wsId !== now.activeId) return false;
+      const view = now.viewByWs[source.wsId];
+      if (now.deckLayout === "list") return view?.select === source.paneId;
+      if (now.minimizeOn && view?.minimized?.includes(source.paneId)) {
+        return false;
+      }
+      return view?.focus === undefined || view.focus === source.paneId;
+    });
+    return () => setSourceVisibilityProbe(null);
+  }, []);
 
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
   // ([F4]). Two sources, one delivery: an OS file drop from Finder, and an
@@ -496,7 +533,22 @@ function App() {
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
             onRetryProvision={provisioning.retryPane}
-            onAgentExited={agentRestart.recoverRejectedResume}
+            onAgentExited={(wsId, paneId, code) => {
+              // The one-shot boot-resume recovery respawns by itself — that
+              // exit is not a crash. A clean exit (code 0) is the user's own
+              // doing inside the pane; only abnormal ends notify.
+              const recovering = agentRestart.recoverRejectedResume(
+                wsId,
+                paneId,
+                code,
+              );
+              if (!recovering && code !== 0) {
+                notifyAgentCrashed(deck.workspaces, wsId, paneId, code, agents);
+              }
+            }}
+            onAgentSpawnFailed={(wsId, paneId, message) =>
+              notifyAgentSpawnFailed(deck.workspaces, wsId, paneId, message, agents)
+            }
             onRestartAgent={agentRestart.restart}
             restartEpochs={agentRestart.epochs}
           />

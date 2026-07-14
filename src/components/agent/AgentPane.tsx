@@ -85,6 +85,8 @@ interface AgentPaneProps {
   onTitle(title: string): void;
   /** The PTY process ended — the resume-failure detector listens upstream. */
   onExited?(code: number | null): void;
+  /** The spawn itself failed — feeds the notification center upstream. */
+  onSpawnFailed?(message: string): void;
   /** Whether the exited process is bound to a resumable agent session. */
   canResume?: boolean;
   /** Manually restart an exited agent, either from its binding or fresh. */
@@ -125,6 +127,7 @@ export function AgentPane({
   onRename,
   onTitle,
   onExited,
+  onSpawnFailed,
   canResume,
   onRestart,
   onStartFresh,
@@ -364,6 +367,7 @@ export function AgentPane({
               setExit({ code });
               onExited?.(code);
             }}
+            onSpawnError={onSpawnFailed}
             onTitle={onTitle}
           />
         )}

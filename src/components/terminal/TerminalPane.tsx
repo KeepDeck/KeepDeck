@@ -51,6 +51,10 @@ interface TerminalPaneProps {
   /** Called when the PTY process exits, with its exit code (null if unknown).
    * Lets the pane show an "agent exited" placeholder ([U4]). */
   onExit?: (code: number | null) => void;
+  /** Called when the spawn itself fails — there is no process. The terminal
+   * shows the error inline either way; this lets it reach the notification
+   * center too. */
+  onSpawnError?: (message: string) => void;
   /** Called when the terminal title changes (OSC 0/1/2) — drives auto-naming
    * ([F11]). */
   onTitle?: (title: string) => void;
@@ -84,6 +88,7 @@ export function TerminalPane({
   visible,
   selected,
   onExit,
+  onSpawnError,
   onTitle,
 }: TerminalPaneProps) {
   // Scrollback comes straight from the settings store ([F6]) — no prop
@@ -108,6 +113,8 @@ export function TerminalPane({
   // always calls the latest callback without re-running the effect.
   const onExitRef = useRef(onExit);
   onExitRef.current = onExit;
+  const onSpawnErrorRef = useRef(onSpawnError);
+  onSpawnErrorRef.current = onSpawnError;
   const onTitleRef = useRef(onTitle);
   onTitleRef.current = onTitle;
   // Args/env matter only at spawn time — refs keep them out of the effect
@@ -268,6 +275,7 @@ export function TerminalPane({
       onSpawnError: (message) => {
         term.writeln(`\r\n\x1b[31m[failed to start session: ${message}]\x1b[0m`);
         setLaunching(false);
+        onSpawnErrorRef.current?.(message);
       },
       // First output — the CLI has launched. Drop the overlay to reveal it.
       onLaunched: () => setLaunching(false),
