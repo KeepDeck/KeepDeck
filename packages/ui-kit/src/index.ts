@@ -10,6 +10,7 @@
  * families rooted in its own namespace and never redefining the shared
  * vocabulary.
  */
+export { AgentGlyph, type AgentGlyphIcon } from "./AgentGlyph.tsx";
 export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
 export { Combobox, fuzzyFilter } from "./Combobox.tsx";
 export { Peek, type PeekProps } from "./Peek.tsx";
