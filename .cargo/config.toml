@@ -1,0 +1,13 @@
+# whisper.cpp (bundled by whisper-rs-sys, pulled in by keepdeck-voice) now uses
+# std::filesystem, which libc++ marks available only on macOS 10.15+. The cmake
+# crate defaults the deployment target to 10.13 when MACOSX_DEPLOYMENT_TARGET is
+# unset, and under a modern Xcode/libc++ (CI runs Xcode 26.5) that fails to
+# compile ggml-backend-reg.cpp — the availability annotations reject
+# std::filesystem below 10.15. Older Xcode (16.x) does not enforce it, which is
+# why the build passes locally but breaks in CI and release.
+#
+# Pin the whole workspace's macOS deployment target to 11.0 — arm64's real floor
+# and comfortably above 10.15 — so the native voice deps build everywhere. One
+# place, and it reaches dependency build scripts (the cmake invocation reads it).
+[env]
+MACOSX_DEPLOYMENT_TARGET = "11.0"
