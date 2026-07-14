@@ -21,6 +21,7 @@ import type { MinimizeStyle, DeckLayout } from "../domain/settings";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane } from "./agent/AgentPane";
 import { MinimizedItem } from "./deck/MinimizedItem";
+import { MinimizedTray } from "./deck/MinimizedTray";
 import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
@@ -315,28 +316,39 @@ export function DeckStage({
                 </div>
               )}
             </div>
-            {!isList && minimized.length > 0 && (
-              <div className={minimizeStyle === "tray" ? "deck__tray" : "deck__folds"}>
-                {minimizeStyle === "tray" && (
-                  <span className="deck__tray-label">
-                    Minimized · {minimized.length}
-                  </span>
-                )}
-                {minimized.map((pane) => {
-                  const title = titleOf(pane);
-                  return (
-                    <MinimizedItem
-                      key={pane.id}
-                      variant={minimizeStyle === "tray" ? "chip" : "bar"}
-                      title={title}
-                      gitBadge={badgeOf(pane)}
-                      label={`Restore ${title}`}
-                      onClick={() => onToggleMinimize(ws.id, pane.id)}
-                    />
-                  );
-                })}
-              </div>
-            )}
+            {!isList && minimized.length > 0 &&
+              (minimizeStyle === "tray" ? (
+                <MinimizedTray
+                  active={isActive}
+                  entries={minimized.map((pane) => {
+                    const title = titleOf(pane);
+                    return {
+                      id: pane.id,
+                      title,
+                      gitBadge: badgeOf(pane),
+                      label: `Restore ${title}`,
+                      onRestore: () => onToggleMinimize(ws.id, pane.id),
+                    };
+                  })}
+                />
+              ) : (
+                <div className="deck__folds">
+                  {minimized.map((pane) => {
+                    const title = titleOf(pane);
+                    return (
+                      <MinimizedItem
+                        key={pane.id}
+                        variant="bar"
+                        title={title}
+                        gitBadge={badgeOf(pane)}
+                        label={`Restore ${title}`}
+                        active={isActive}
+                        onClick={() => onToggleMinimize(ws.id, pane.id)}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
           </main>
         );
       })}

@@ -30,6 +30,20 @@ const workspaces = [
   },
 ];
 
+const twoWorkspaces = [
+  ...workspaces,
+  {
+    id: "ws-2",
+    name: "Second workspace",
+    cwd: "/repo-2",
+    worktreeBaseDir: null,
+    panes: [
+      { id: "pane-3", agentType: "codex" },
+      { id: "pane-4", agentType: "codex" },
+    ],
+  },
+];
+
 const callbacks = {
   onStartWorkspace: vi.fn(),
   onSelectPane: vi.fn(),
@@ -147,5 +161,40 @@ describe("DeckStage — exited agents across layouts", () => {
       "pane-1",
       "fresh",
     );
+  });
+
+  it("removes a tray popover when a programmatic workspace switch hides its source", () => {
+    const viewByWs = { "ws-1": { minimized: ["pane-1"] } };
+    render({ workspaces: twoWorkspaces, viewByWs });
+    const trigger = document.querySelector<HTMLButtonElement>(
+      ".deck__workspace:not(.deck__workspace--hidden) .minimized-overflow__trigger",
+    )!;
+    act(() => trigger.click());
+    expect(document.querySelector("[role='dialog']")).not.toBeNull();
+
+    render({ workspaces: twoWorkspaces, viewByWs, activeId: "ws-2" });
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+  });
+
+  it("removes a tray tooltip when a programmatic workspace switch hides its source", () => {
+    const viewByWs = { "ws-1": { minimized: ["pane-1"] } };
+    render({
+      workspaces: twoWorkspaces,
+      viewByWs,
+      minimizeStyle: "strip",
+    });
+    const item = document.querySelector<HTMLButtonElement>(
+      ".deck__workspace:not(.deck__workspace--hidden) .minimized--bar",
+    )!;
+    act(() => item.focus());
+    expect(document.querySelector("[role='tooltip']")).not.toBeNull();
+
+    render({
+      workspaces: twoWorkspaces,
+      viewByWs,
+      minimizeStyle: "strip",
+      activeId: "ws-2",
+    });
+    expect(document.querySelector("[role='tooltip']")).toBeNull();
   });
 });
