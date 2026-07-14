@@ -10,9 +10,12 @@
 pub mod audio;
 pub mod capture;
 pub mod engine;
+// Parakeet (ONNX) is Apple-Silicon only — see Cargo.toml.
+#[cfg(target_arch = "aarch64")]
 pub mod parakeet;
 
 pub use audio::{is_silence, mixdown, resample, rms, WHISPER_SAMPLE_RATE};
 pub use capture::{level_channel, CaptureError, LevelSender, Recorder};
 pub use engine::{EngineError, WhisperEngine};
+#[cfg(target_arch = "aarch64")]
 pub use parakeet::ParakeetEngine;
