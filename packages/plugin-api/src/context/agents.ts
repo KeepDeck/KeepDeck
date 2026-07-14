@@ -20,9 +20,25 @@ export interface PluginAgents {
 export interface AgentContribution {
   id: string;
   label: string;
+  /** The agent's brand mark, shown wherever the host names the agent. */
+  icon?: AgentIcon;
   /** How to find the CLI on this machine. */
   detect: { bin: string };
   hooks: AgentHooks;
+}
+
+/** A brand mark as bare SVG path data — data, never markup, so a plugin
+ * cannot inject live SVG/HTML into the host chrome, and the icon crosses the
+ * external tier's RPC boundary as plain JSON. */
+export interface AgentIcon {
+  /** Coordinate space the path is drawn in, e.g. `"0 0 24 24"`. */
+  viewBox: string;
+  /** Path data; multiple subpaths are filled as one shape. */
+  path: string;
+  /** Brand tint; omit to inherit the surrounding text color (adapts to theme). */
+  color?: string;
+  /** Fill rule the artwork was authored for; omit for SVG's default nonzero. */
+  fillRule?: "evenodd";
 }
 
 export interface AgentHooks {

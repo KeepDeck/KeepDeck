@@ -3,6 +3,7 @@
 export type {
   AgentContribution,
   AgentHooks,
+  AgentIcon,
   PluginAgents,
   ResumePlanInput,
   SpawnPlanInput,
