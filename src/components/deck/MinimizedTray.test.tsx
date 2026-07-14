@@ -117,7 +117,7 @@ describe("MinimizedTray", () => {
     Reflect.deleteProperty(document.documentElement, "clientHeight");
   });
 
-  it("keeps one row, exposes hidden count, and restores from the full popover", () => {
+  it("keeps one row and exposes only the entries represented by +N", () => {
     act(() => root.render(createElement(MinimizedTray, { entries })));
 
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
@@ -130,6 +130,9 @@ describe("MinimizedTray", () => {
       ".minimized-overflow__trigger",
     )!;
     expect(overflow.textContent).toBe("+2");
+    expect(overflow.getAttribute("aria-label")).toBe(
+      "Show 2 more minimized agents",
+    );
     expect(overflow.getAttribute("aria-expanded")).toBe("false");
 
     act(() => overflow.click());
@@ -138,7 +141,11 @@ describe("MinimizedTray", () => {
     expect(popover.style.width).toBe("248px");
     expect(
       popover.querySelectorAll(".minimized-overflow__list .minimized--chip"),
-    ).toHaveLength(4);
+    ).toHaveLength(2);
+    expect(popover.textContent).not.toContain("Agent 1");
+    expect(popover.textContent).not.toContain("Agent 2");
+    expect(popover.textContent).toContain("Agent 3");
+    expect(popover.textContent).toContain("Agent 4");
     expect(overflow.getAttribute("aria-expanded")).toBe("true");
 
     act(() =>

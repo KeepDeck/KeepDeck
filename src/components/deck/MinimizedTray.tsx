@@ -215,7 +215,8 @@ function MinimizedOverflow({
 /**
  * One fixed-height minimized-agent shelf. Direct restore targets keep pane
  * order; if they do not all fit, the last slot becomes an explicit +N control
- * whose popover exposes the complete minimized set without growing the deck.
+ * whose popover exposes exactly the overflowed remainder without growing the
+ * deck.
  */
 export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -265,10 +266,12 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
       ? entries.length
       : visibleTrayItemCount(availableWidth, resolvedWidths);
   const visibleEntries = entries.slice(0, visibleCount);
+  const hiddenEntries = entries.slice(visibleCount);
   const hiddenCount = entries.length - visibleCount;
+  const hiddenWidths = resolvedWidths.slice(visibleCount);
   const popoverWidth = Math.max(
     POPOVER_MIN_WIDTH,
-    Math.max(0, ...resolvedWidths) + 16,
+    Math.max(0, ...hiddenWidths) + 16,
   );
   const closeOverflow = useCallback(() => setOverflowOpen(false), []);
 
@@ -308,7 +311,7 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
             ref={overflowRef}
             type="button"
             className="minimized-overflow__trigger"
-            aria-label={`Show all ${entries.length} minimized agents`}
+            aria-label={`Show ${hiddenCount} more minimized ${hiddenCount === 1 ? "agent" : "agents"}`}
             aria-haspopup="dialog"
             aria-expanded={overflowOpen}
             aria-controls={overflowOpen ? popoverId : undefined}
@@ -322,7 +325,7 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
         <MinimizedOverflow
           anchor={overflowRef.current}
           id={popoverId}
-          entries={entries}
+          entries={hiddenEntries}
           popoverWidth={popoverWidth}
           onClose={closeOverflow}
         />
