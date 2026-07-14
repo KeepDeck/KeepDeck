@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MinimizedTray,
   type MinimizedTrayEntry,
-  normalizedTrayItemWidth,
   visibleTrayItemCount,
 } from "./MinimizedTray";
 
@@ -13,42 +12,32 @@ import {
   true;
 
 describe("visibleTrayItemCount", () => {
-  it("shows every uniform item when the row fits exactly", () => {
-    // 3 × 272px items + 2 × 8px gaps.
-    expect(visibleTrayItemCount(832, 3)).toBe(3);
+  it("shows every natural-width item when the row fits exactly", () => {
+    // 200 + 210 + 220px items + 2 × 8px gaps.
+    expect(visibleTrayItemCount(646, [200, 210, 220])).toBe(3);
   });
 
   it("reserves the last slot for an explicit overflow control", () => {
-    expect(visibleTrayItemCount(831, 3)).toBe(2);
-    // 272px item + 8px gap + 48px overflow control.
-    expect(visibleTrayItemCount(328, 3)).toBe(1);
-    expect(visibleTrayItemCount(327, 3)).toBe(0);
+    expect(visibleTrayItemCount(645, [200, 210, 220])).toBe(2);
+    // 200px item + 8px gap + 48px overflow control.
+    expect(visibleTrayItemCount(256, [200, 210, 220])).toBe(1);
+    expect(visibleTrayItemCount(255, [200, 210, 220])).toBe(0);
   });
 
   it("handles empty and single-item trays without inventing overflow", () => {
-    expect(visibleTrayItemCount(1000, 0)).toBe(0);
-    expect(visibleTrayItemCount(272, 1)).toBe(1);
+    expect(visibleTrayItemCount(1000, [])).toBe(0);
+    expect(visibleTrayItemCount(272, [272])).toBe(1);
   });
 
-  it("uses the same capacity math for a compact shared width", () => {
-    expect(visibleTrayItemCount(640, 4, 216)).toBe(2);
-    expect(visibleTrayItemCount(888, 4, 216)).toBe(4);
-  });
-});
-
-describe("normalizedTrayItemWidth", () => {
-  it("rounds measured content to the 8px rhythm inside compact bounds", () => {
-    expect(normalizedTrayItemWidth(0)).toBe(176);
-    expect(normalizedTrayItemWidth(181)).toBe(184);
-    expect(normalizedTrayItemWidth(213)).toBe(216);
-    expect(normalizedTrayItemWidth(400)).toBe(272);
+  it("caps pathological measurements at the visual 272px maximum", () => {
+    expect(visibleTrayItemCount(328, [400, 100])).toBe(1);
   });
 });
 
 describe("MinimizedTray", () => {
   let root: Root;
   let viewportWidth: number;
-  let measuredItemWidth: number;
+  let measuredItemWidths: number[];
   let resizeCallback: ResizeObserverCallback = () => {};
   let rectSpy: ReturnType<typeof vi.spyOn>;
   const restores = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
@@ -71,7 +60,7 @@ describe("MinimizedTray", () => {
       clientHeight: { configurable: true, value: 700 },
     });
     viewportWidth = 640;
-    measuredItemWidth = 216;
+    measuredItemWidths = [208, 216, 224, 232];
     restores.forEach((restore) => restore.mockClear());
 
     rectSpy = vi
@@ -81,9 +70,13 @@ describe("MinimizedTray", () => {
           return domRect({ width: viewportWidth, right: viewportWidth });
         }
         if (this.classList.contains("minimized--measure")) {
+          const index = Array.from(this.parentElement?.children ?? []).indexOf(
+            this,
+          );
+          const width = measuredItemWidths[index] ?? 272;
           return domRect({
-            width: measuredItemWidth,
-            right: measuredItemWidth,
+            width,
+            right: width,
             height: 26,
             bottom: 26,
           });
@@ -131,11 +124,6 @@ describe("MinimizedTray", () => {
       "Minimized · 4",
     );
     expect(
-      document
-        .querySelector<HTMLElement>(".deck__tray")!
-        .style.getPropertyValue("--minimized-tray-item-width"),
-    ).toBe("216px");
-    expect(
       document.querySelectorAll(".deck__tray-items .minimized--chip"),
     ).toHaveLength(2);
     const overflow = document.querySelector<HTMLButtonElement>(
@@ -147,6 +135,7 @@ describe("MinimizedTray", () => {
     act(() => overflow.click());
     const popover = document.querySelector<HTMLElement>("[role='dialog']")!;
     expect(popover.getAttribute("aria-label")).toBe("Minimized agents");
+    expect(popover.style.width).toBe("248px");
     expect(
       popover.querySelectorAll(".minimized-overflow__list .minimized--chip"),
     ).toHaveLength(4);

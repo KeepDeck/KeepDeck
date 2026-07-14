@@ -40,7 +40,7 @@
   flex: 1 1 auto;
   display: flex;
   align-items: center;
-  gap: var(--minimized-tray-gap, 8px);
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
 }
@@ -108,9 +108,9 @@
 .minimized--chip {
   box-sizing: border-box;
   flex: none;
-  width: var(--minimized-tray-item-width, 272px);
-  min-width: var(--minimized-tray-item-width, 272px);
-  max-width: var(--minimized-tray-item-width, 272px);
+  width: max-content;
+  min-width: 0;
+  max-width: 272px;
   height: 26px;
   padding: 0 6px 0 9px;
   border-radius: 7px;
@@ -188,11 +188,6 @@
 .minimized--chip .minimized__restore {
   margin-left: auto;
 }
-.minimized--measure {
-  width: max-content;
-  min-width: 0;
-  max-width: none;
-}
 .minimized:hover .minimized__restore {
   color: #c5c8c6;
 }
@@ -202,7 +197,7 @@
 .minimized-overflow__trigger {
   box-sizing: border-box;
   flex: none;
-  width: var(--minimized-tray-overflow-width, 48px);
+  width: 48px;
   height: 26px;
   border: 1px solid #2b3547;
   border-radius: 7px;

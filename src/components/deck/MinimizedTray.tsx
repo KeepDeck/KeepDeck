@@ -5,29 +5,19 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import { createPortal } from "react-dom";
 import type { GitBadge } from "../../ui/gitBadge";
 import { MinimizedItem, MinimizedItemContent } from "./MinimizedItem";
 
-export const MINIMIZED_TRAY_ITEM_WIDTH = 272;
-export const MINIMIZED_TRAY_MIN_ITEM_WIDTH = 176;
+export const MINIMIZED_TRAY_ITEM_MAX_WIDTH = 272;
 export const MINIMIZED_TRAY_GAP = 8;
 export const MINIMIZED_TRAY_OVERFLOW_WIDTH = 48;
-export const MINIMIZED_TRAY_WIDTH_STEP = 8;
-
-function trayTokens(itemWidth: number) {
-  return {
-    "--minimized-tray-item-width": `${itemWidth}px`,
-    "--minimized-tray-gap": `${MINIMIZED_TRAY_GAP}px`,
-    "--minimized-tray-overflow-width": `${MINIMIZED_TRAY_OVERFLOW_WIDTH}px`,
-  } as CSSProperties;
-}
 
 const POPOVER_GAP = 6;
 const POPOVER_MARGIN = 8;
 const POPOVER_MAX_HEIGHT = 320;
+const POPOVER_MIN_WIDTH = 160;
 
 export interface MinimizedTrayEntry {
   id: string;
@@ -40,30 +30,34 @@ export interface MinimizedTrayEntry {
 /** How many direct restore items fit while reserving a final +N control. */
 export function visibleTrayItemCount(
   availableWidth: number,
-  itemCount: number,
-  itemWidth = MINIMIZED_TRAY_ITEM_WIDTH,
+  naturalWidths: readonly number[],
 ): number {
-  if (itemCount <= 0) return 0;
-  const allItemsWidth =
-    itemCount * itemWidth +
-    Math.max(0, itemCount - 1) * MINIMIZED_TRAY_GAP;
-  if (allItemsWidth <= availableWidth) return itemCount;
-
-  const withOverflow = Math.floor(
-    Math.max(0, availableWidth - MINIMIZED_TRAY_OVERFLOW_WIDTH) /
-      (itemWidth + MINIMIZED_TRAY_GAP),
+  const widths = naturalWidths.map((width) =>
+    Math.max(0, Math.min(MINIMIZED_TRAY_ITEM_MAX_WIDTH, width)),
   );
-  return Math.min(itemCount - 1, withOverflow);
+  if (widths.length === 0) return 0;
+  const allItemsWidth =
+    widths.reduce((sum, width) => sum + width, 0) +
+    Math.max(0, widths.length - 1) * MINIMIZED_TRAY_GAP;
+  if (allItemsWidth <= availableWidth) return widths.length;
+
+  // The overflow control sits after the visible items, so every direct item
+  // also needs the gap that separates it from its following sibling.
+  let used = MINIMIZED_TRAY_OVERFLOW_WIDTH;
+  let visible = 0;
+  for (const width of widths) {
+    const next = used + MINIMIZED_TRAY_GAP + width;
+    if (next > availableWidth) break;
+    used = next;
+    visible += 1;
+  }
+  return Math.min(widths.length - 1, visible);
 }
 
-/** Clamp a measured chip to the shared compact range and the 8px UI rhythm. */
-export function normalizedTrayItemWidth(naturalWidth: number): number {
-  const stepped =
-    Math.ceil(naturalWidth / MINIMIZED_TRAY_WIDTH_STEP) *
-    MINIMIZED_TRAY_WIDTH_STEP;
-  return Math.max(
-    MINIMIZED_TRAY_MIN_ITEM_WIDTH,
-    Math.min(MINIMIZED_TRAY_ITEM_WIDTH, stepped),
+function sameWidths(left: readonly number[], right: readonly number[]) {
+  return (
+    left.length === right.length &&
+    left.every((width, index) => width === right[index])
   );
 }
 
@@ -115,13 +109,13 @@ function MinimizedOverflow({
   anchor,
   id,
   entries,
-  itemWidth,
+  popoverWidth,
   onClose,
 }: {
   anchor: HTMLButtonElement;
   id: string;
   entries: MinimizedTrayEntry[];
-  itemWidth: number;
+  popoverWidth: number;
   onClose(): void;
 }) {
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -134,7 +128,6 @@ function MinimizedOverflow({
       document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight =
       document.documentElement.clientHeight || window.innerHeight;
-    const popoverWidth = itemWidth + 16;
     setPosition(
       popoverPosition(
         anchor.getBoundingClientRect(),
@@ -144,7 +137,7 @@ function MinimizedOverflow({
         popoverWidth,
       ),
     );
-  }, [anchor, itemWidth]);
+  }, [anchor, popoverWidth]);
 
   useLayoutEffect(() => {
     recompute();
@@ -188,8 +181,7 @@ function MinimizedOverflow({
       aria-label="Minimized agents"
       className="minimized-overflow"
       style={{
-        ...trayTokens(itemWidth),
-        width: itemWidth + 16,
+        width: popoverWidth,
         top: position?.top ?? 0,
         left: position?.left ?? 0,
         maxHeight: position?.maxHeight ?? POPOVER_MAX_HEIGHT,
@@ -230,7 +222,7 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
   const sizerRef = useRef<HTMLDivElement | null>(null);
   const overflowRef = useRef<HTMLButtonElement | null>(null);
   const [availableWidth, setAvailableWidth] = useState<number | null>(null);
-  const [itemWidth, setItemWidth] = useState(MINIMIZED_TRAY_ITEM_WIDTH);
+  const [itemWidths, setItemWidths] = useState<number[]>([]);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const popoverId = useId();
 
@@ -240,12 +232,15 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
     if (!viewport || !sizer) return;
     const measure = () => {
       setAvailableWidth(viewport.getBoundingClientRect().width);
-      const widest = Array.from(sizer.children).reduce(
-        (width, child) =>
-          Math.max(width, child.getBoundingClientRect().width),
-        0,
+      const measured = Array.from(sizer.children).map((child) => {
+        const width = child.getBoundingClientRect().width;
+        return width > 0
+          ? Math.min(MINIMIZED_TRAY_ITEM_MAX_WIDTH, width)
+          : MINIMIZED_TRAY_ITEM_MAX_WIDTH;
+      });
+      setItemWidths((current) =>
+        sameWidths(current, measured) ? current : measured,
       );
-      setItemWidth(normalizedTrayItemWidth(widest));
     };
     measure();
     const observer = window.ResizeObserver
@@ -260,12 +255,21 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
     };
   }, [entries]);
 
+  const resolvedWidths =
+    itemWidths.length === entries.length
+      ? itemWidths
+      : entries.map(() => MINIMIZED_TRAY_ITEM_MAX_WIDTH);
+
   const visibleCount =
     availableWidth === null
       ? entries.length
-      : visibleTrayItemCount(availableWidth, entries.length, itemWidth);
+      : visibleTrayItemCount(availableWidth, resolvedWidths);
   const visibleEntries = entries.slice(0, visibleCount);
   const hiddenCount = entries.length - visibleCount;
+  const popoverWidth = Math.max(
+    POPOVER_MIN_WIDTH,
+    Math.max(0, ...resolvedWidths) + 16,
+  );
   const closeOverflow = useCallback(() => setOverflowOpen(false), []);
 
   useEffect(() => {
@@ -273,7 +277,7 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
   }, [hiddenCount]);
 
   return (
-    <div className="deck__tray" style={trayTokens(itemWidth)}>
+    <div className="deck__tray">
       <span className="deck__tray-label">Minimized · {entries.length}</span>
       <div ref={sizerRef} className="deck__tray-sizer" aria-hidden>
         {entries.map((entry) => (
@@ -319,7 +323,7 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
           anchor={overflowRef.current}
           id={popoverId}
           entries={entries}
-          itemWidth={itemWidth}
+          popoverWidth={popoverWidth}
           onClose={closeOverflow}
         />
       )}
