@@ -6,13 +6,20 @@
 export type AgentType = string;
 
 /** A brand mark as bare SVG path data — the domain's structural twin of the
- *  plugin contract's icon (no plugin-api import; data, never markup). */
+ *  plugin contract's icon (no plugin-api import; data, never markup).
+ *  Multi-tone artwork is a stack of layers, painted in order. */
 export interface AgentIcon {
-  /** Coordinate space the path is drawn in, e.g. `"0 0 24 24"`. */
+  /** Coordinate space every layer is drawn in, e.g. `"0 0 24 24"`. */
   viewBox: string;
+  /** Filled shapes, painted in order; single-color marks are one layer. */
+  paths: AgentIconPath[];
+}
+
+/** One filled layer of a brand mark. */
+export interface AgentIconPath {
   /** Path data; multiple subpaths are filled as one shape. */
-  path: string;
-  /** Brand tint; omitted = inherit the surrounding text color. */
+  d: string;
+  /** This layer's fill; omitted = inherit the surrounding text color. */
   color?: string;
   /** Fill rule the artwork was authored for; omitted = SVG's nonzero. */
   fillRule?: "evenodd";

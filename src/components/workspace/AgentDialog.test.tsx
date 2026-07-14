@@ -21,7 +21,10 @@ vi.mock("../../app/useAgents", () => ({
       {
         id: "claude",
         label: "Claude Code",
-        icon: { viewBox: "0 0 24 24", path: "M0 0h24v24H0z", color: "#D97757" },
+        icon: {
+          viewBox: "0 0 24 24",
+          paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
+        },
         command: "claude",
         installed: true,
         path: null,
@@ -385,8 +388,8 @@ describe("AgentDialog agent picker", () => {
     );
     const button = document.querySelector(".form__type")!;
     expect(button.textContent).toContain("Claude Code");
-    const svg = button.querySelector("svg")!;
-    expect(svg.getAttribute("fill")).toBe("#D97757");
-    expect(svg.querySelector("path")!.getAttribute("d")).toBe("M0 0h24v24H0z");
+    const path = button.querySelector("svg path")!;
+    expect(path.getAttribute("fill")).toBe("#D97757");
+    expect(path.getAttribute("d")).toBe("M0 0h24v24H0z");
   });
 });

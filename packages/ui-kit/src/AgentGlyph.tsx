@@ -12,9 +12,11 @@
  * and the domain's `AgentIcon` without importing either. */
 export interface AgentGlyphIcon {
   viewBox: string;
-  path: string;
-  color?: string;
-  fillRule?: "evenodd";
+  paths: {
+    d: string;
+    color?: string;
+    fillRule?: "evenodd";
+  }[];
 }
 
 export function AgentGlyph({
@@ -51,11 +53,16 @@ export function AgentGlyph({
       width="1em"
       height="1em"
       className={className}
-      fill={icon.color ?? "currentColor"}
-      fillRule={icon.fillRule}
       aria-hidden
     >
-      <path d={icon.path} />
+      {icon.paths.map((layer, i) => (
+        <path
+          key={i}
+          d={layer.d}
+          fill={layer.color ?? "currentColor"}
+          fillRule={layer.fillRule}
+        />
+      ))}
     </svg>
   );
 }

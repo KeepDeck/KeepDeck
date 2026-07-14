@@ -11,8 +11,7 @@ import { WorkspacesRail, type WorkspaceItem } from "./WorkspacesRail";
 
 const claudeMark = {
   viewBox: "0 0 24 24",
-  path: "M0 0h24v24H0z",
-  color: "#D97757",
+  paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
 };
 
 const START: WorkspaceItem[] = [
@@ -220,10 +219,9 @@ describe("WorkspacesRail agent marks", () => {
   it("draws one glyph per distinct agent — brand mark or neutral fallback", () => {
     const svgs = clusterOf("b")!.querySelectorAll("svg");
     expect(svgs).toHaveLength(2);
-    expect(svgs[0].querySelector("path")!.getAttribute("d")).toBe(
-      claudeMark.path,
-    );
-    expect(svgs[0].getAttribute("fill")).toBe(claudeMark.color);
+    const brand = svgs[0].querySelector("path")!;
+    expect(brand.getAttribute("d")).toBe(claudeMark.paths[0].d);
+    expect(brand.getAttribute("fill")).toBe(claudeMark.paths[0].color);
     // The icon-less second agent gets the neutral prompt, not empty space.
     expect(svgs[1].querySelector("polyline")).not.toBeNull();
   });

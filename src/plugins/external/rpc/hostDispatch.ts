@@ -2,6 +2,7 @@ import type {
   AgentContribution,
   AgentHooks,
   AgentIcon,
+  AgentIconPath,
   Disposable,
   DockTabContribution,
   FsReadFileOptions,
@@ -442,19 +443,28 @@ function asRealmResult<T extends { ok: true }>(
 }
 
 /** Accept a realm-supplied agent icon only in the contract's exact shape —
- * plain strings bound for SVG attributes; anything off-shape drops to
- * `undefined` (no icon) rather than refusing the registration. */
+ * plain strings bound for SVG attributes; an off-shape layer drops, and an
+ * icon with nothing left drops to `undefined` (no icon) rather than refusing
+ * the registration. */
 function sanitizeAgentIcon(value: unknown): AgentIcon | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const v = value as Record<string, unknown>;
-  if (typeof v.viewBox !== "string" || typeof v.path !== "string")
+  if (typeof v.viewBox !== "string" || !Array.isArray(v.paths))
     return undefined;
-  return {
-    viewBox: v.viewBox,
-    path: v.path,
-    ...(typeof v.color === "string" ? { color: v.color } : {}),
-    ...(v.fillRule === "evenodd" ? { fillRule: v.fillRule } : {}),
-  };
+  const paths = v.paths.flatMap((layer): AgentIconPath[] => {
+    if (typeof layer !== "object" || layer === null) return [];
+    const l = layer as Record<string, unknown>;
+    if (typeof l.d !== "string") return [];
+    return [
+      {
+        d: l.d,
+        ...(typeof l.color === "string" ? { color: l.color } : {}),
+        ...(l.fillRule === "evenodd" ? { fillRule: l.fillRule } : {}),
+      },
+    ];
+  });
+  if (paths.length === 0) return undefined;
+  return { viewBox: v.viewBox, paths };
 }
 
 /** Validate a realm-returned plan output down to plain strings; `null` when

@@ -216,7 +216,7 @@ describe("DeckStage — agent identity on the pane header", () => {
     act(() => root.render(createElement(DeckStage, props(overrides))));
 
   it("draws the catalog's brand mark with the agent label as tooltip", () => {
-    const mark = { viewBox: "0 0 24 24", path: "M0 0h24v24H0z" };
+    const mark = { viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z" }] };
     render({
       agents: [
         {
@@ -233,7 +233,9 @@ describe("DeckStage — agent identity on the pane header", () => {
       "[data-pane-id='pane-1'] .pane__agent",
     )!;
     expect(slot.title).toBe("Codex");
-    expect(slot.querySelector("path")!.getAttribute("d")).toBe(mark.path);
+    expect(slot.querySelector("path")!.getAttribute("d")).toBe(
+      mark.paths[0].d,
+    );
   });
 
   it("an agent whose plugin ships no mark gets the neutral fallback", () => {

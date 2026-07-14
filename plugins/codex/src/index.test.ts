@@ -61,11 +61,11 @@ describe("codex plugin hooks", () => {
 });
 
 describe("codex plugin identity", () => {
-  it("ships the monochrome brand mark, authored for evenodd", () => {
+  it("ships the monochrome OpenAI mark, authored for evenodd", () => {
     const agent = activate(null);
     expect(agent.icon?.viewBox).toBe("0 0 24 24");
-    expect(agent.icon?.path).toBeTruthy();
-    expect(agent.icon?.color).toBeUndefined();
-    expect(agent.icon?.fillRule).toBe("evenodd");
+    expect(agent.icon?.paths).toHaveLength(1);
+    expect(agent.icon?.paths[0].color).toBeUndefined();
+    expect(agent.icon?.paths[0].fillRule).toBe("evenodd");
   });
 });

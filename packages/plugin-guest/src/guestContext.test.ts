@@ -82,8 +82,7 @@ describe("agent registration payload", () => {
     const bundle = buildGuestContext(rpc, fakeManifest());
     const icon = {
       viewBox: "0 0 24 24",
-      path: "M0 0h24v24H0z",
-      color: "#D97757",
+      paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
     };
     bundle.ctx.agents.register({
       id: "codex",

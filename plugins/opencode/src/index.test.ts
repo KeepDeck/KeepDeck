@@ -57,11 +57,12 @@ describe("opencode plugin hooks", () => {
 });
 
 describe("opencode plugin identity", () => {
-  it("ships the monochrome brand mark (the official frame + block cursor)", () => {
+  it("ships the official two-tone mark: block cursor under the frame", () => {
     const agent = activate(null);
-    expect(agent.icon?.viewBox).toBe("0 0 256 320");
-    expect(agent.icon?.path).toBeTruthy();
-    expect(agent.icon?.color).toBeUndefined();
-    expect(agent.icon?.fillRule).toBe("evenodd");
+    expect(agent.icon?.viewBox).toBe("0 0 240 300");
+    expect(agent.icon?.paths.map((p) => p.color)).toEqual([
+      "#4B4646",
+      "#F1ECEC",
+    ]);
   });
 });
