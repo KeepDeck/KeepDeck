@@ -205,6 +205,9 @@
 }
 
 .form__type {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   padding: 8px 14px;
   border: 1px solid #1c2230;
   border-radius: 8px;

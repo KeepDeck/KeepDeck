@@ -8,6 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { GitBadge } from "../../ui/gitBadge";
+import type { AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { MinimizedItem, MinimizedItemContent } from "./MinimizedItem";
 
 export const MINIMIZED_TRAY_ITEM_MAX_WIDTH = 272;
@@ -22,6 +23,8 @@ const POPOVER_MIN_WIDTH = 160;
 export interface MinimizedTrayEntry {
   id: string;
   title: string;
+  /** The agent's brand mark; absent/null draws the neutral fallback. */
+  icon?: AgentGlyphIcon | null;
   gitBadge?: GitBadge | null;
   label: string;
   onRestore(): void;
@@ -230,6 +233,7 @@ function MinimizedOverflow({
             key={entry.id}
             variant="chip"
             title={entry.title}
+            icon={entry.icon}
             gitBadge={entry.gitBadge}
             label={entry.label}
             active
@@ -335,6 +339,7 @@ export function MinimizedTray({
           >
             <MinimizedItemContent
               title={entry.title}
+              icon={entry.icon}
               gitBadge={entry.gitBadge}
             />
           </span>
@@ -346,6 +351,7 @@ export function MinimizedTray({
             key={entry.id}
             variant="chip"
             title={entry.title}
+            icon={entry.icon}
             gitBadge={entry.gitBadge}
             label={entry.label}
             active={active}

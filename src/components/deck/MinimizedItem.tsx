@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { GitBranchIcon, RestoreUpIcon } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
+import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { MinimizedDetailsTooltip } from "./MinimizedDetailsTooltip";
 
 export const MINIMIZED_TOOLTIP_DELAY_MS = 600;
@@ -10,6 +11,8 @@ interface MinimizedItemProps {
    * the strip. */
   variant: "chip" | "bar";
   title: string;
+  /** The agent's brand mark; absent/null draws the neutral fallback. */
+  icon?: AgentGlyphIcon | null;
   /** The agent's live branch badge, when its cwd is a known git HEAD. */
   gitBadge?: GitBadge | null;
   /** Accessible action label for the whole control, e.g. "Restore Claude 1". */
@@ -21,16 +24,22 @@ interface MinimizedItemProps {
 
 interface MinimizedItemContentProps {
   title: string;
+  /** The agent's brand mark; absent/null draws the neutral fallback. */
+  icon?: AgentGlyphIcon | null;
   gitBadge?: GitBadge | null;
 }
 
 /** Shared visual payload for the live control and the tray's hidden sizer. */
 export function MinimizedItemContent({
   title,
+  icon,
   gitBadge,
 }: MinimizedItemContentProps) {
   return (
     <>
+      <span className="minimized__agent" aria-hidden>
+        <AgentGlyph icon={icon} />
+      </span>
       <span className="minimized__title">{title}</span>
       {gitBadge && (
         <span className="minimized__branch" aria-hidden>
@@ -53,6 +62,7 @@ export function MinimizedItemContent({
 export function MinimizedItem({
   variant,
   title,
+  icon,
   gitBadge,
   label,
   active,
@@ -115,7 +125,7 @@ export function MinimizedItem({
         aria-label={label}
         aria-describedby={active && tooltipAnchor ? tooltipId : undefined}
       >
-        <MinimizedItemContent title={title} gitBadge={gitBadge} />
+        <MinimizedItemContent title={title} icon={icon} gitBadge={gitBadge} />
       </button>
       {active && tooltipAnchor && (
         <MinimizedDetailsTooltip

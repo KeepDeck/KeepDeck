@@ -12,12 +12,18 @@ import {
   RestoreIcon,
 } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
+import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
 
 interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
   paneId: string;
   title: string;
+  /** The agent's brand mark; absent/null draws the neutral fallback. */
+  agentIcon?: AgentGlyphIcon | null;
+  /** Catalog label for the mark's tooltip — the title can be renamed away
+   * from the agent's name, the mark still says who runs here. */
+  agentLabel?: string;
   /** Program to run; omitted/null spawns the user's shell. */
   command?: string | null;
   /** Extra CLI args for the program (session identity / resume, [F7]/[F8]). */
@@ -93,6 +99,8 @@ interface AgentPaneProps {
 export function AgentPane({
   paneId,
   title,
+  agentIcon,
+  agentLabel,
   command,
   args,
   env,
@@ -186,6 +194,9 @@ export function AgentPane({
           </button>
         )}
         <div className="pane__identity">
+          <span className="pane__agent" title={agentLabel}>
+            <AgentGlyph icon={agentIcon} />
+          </span>
           {editing ? (
             <input
               {...noAutoCorrect}
