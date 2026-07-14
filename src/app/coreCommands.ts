@@ -8,6 +8,7 @@ import {
 } from "../domain/commands";
 import {
   firstFreeWorktree,
+  paneAgentType,
   paneDisplayTitle,
   paneId,
   type Pane,
@@ -119,7 +120,7 @@ export function registerCoreCommands(
           panes: ws.panes.map((p, i) => ({
             id: p.id,
             title: paneDisplayTitle(p, i, agents),
-            agentType: p.agentType ?? "claude",
+            agentType: paneAgentType(p),
             branch: p.branch ?? null,
             cwd: p.cwd ?? ws.cwd,
           })),

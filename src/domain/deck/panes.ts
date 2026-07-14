@@ -77,6 +77,12 @@ export function paneId(seq: number): string {
   return `pane-${seq}`;
 }
 
+/** The agent a pane runs — panes minted before the field existed ran claude,
+ * so the default is part of the persisted format, not a UI convenience. */
+export function paneAgentType(pane: Pane): AgentType {
+  return pane.agentType ?? "claude";
+}
+
 /**
  * Append an already-formed `pane` (e.g. one whose worktree is provisioned),
  * unless the fleet is already at [`MAX_PANES`]. Pure: returns the same array
@@ -135,7 +141,7 @@ export function paneDisplayTitle(
   index: number,
   agents: AgentInfo[],
 ): string {
-  const agentType = pane.agentType ?? "claude";
+  const agentType = paneAgentType(pane);
   const label = agents.find((a) => a.id === agentType)?.label ?? agentType;
   return pane.name ?? cleanPaneAutoTitle(pane.autoTitle) ?? `${label} ${index + 1}`;
 }
