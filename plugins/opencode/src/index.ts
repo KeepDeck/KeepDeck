@@ -6,6 +6,7 @@
  * through the bridge, catching `/new` typed inside the TUI too.
  */
 import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
+import { icon } from "./icon";
 
 /** The per-invocation config injecting the reporter; `[]` when the reporter
  * file is missing (identity off, the spawn itself still fine). */
@@ -24,6 +25,7 @@ const plugin: KeepDeckPlugin = {
     ctx.agents.register({
       id: "opencode",
       label: "OpenCode",
+      icon,
       detect: { bin: "opencode" },
       hooks: {
         "spawn.plan": async (_input, output) => {

@@ -8,6 +8,7 @@
  * opt-in upstream).
  */
 import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
+import { icon } from "./icon";
 
 /** Quote a path for a shell command line (single quotes, `'\''` escaping) —
  * KeepDeck.app can live under a path with spaces. */
@@ -39,6 +40,7 @@ const plugin: KeepDeckPlugin = {
     ctx.agents.register({
       id: "claude",
       label: "Claude Code",
+      icon,
       detect: { bin: "claude" },
       hooks: {
         "spawn.plan": async (_input, output) => {

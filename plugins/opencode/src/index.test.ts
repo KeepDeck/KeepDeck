@@ -55,3 +55,12 @@ describe("opencode plugin hooks", () => {
     expect(out.args).toEqual([]);
   });
 });
+
+describe("opencode plugin identity", () => {
+  it("ships the monochrome brand mark", () => {
+    const agent = activate(null);
+    expect(agent.icon?.viewBox).toBe("0 0 24 24");
+    expect(agent.icon?.path).toBeTruthy();
+    expect(agent.icon?.color).toBeUndefined();
+  });
+});
