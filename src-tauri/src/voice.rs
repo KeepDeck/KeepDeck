@@ -16,8 +16,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use keepdeck_voice::{
-    is_silence, resample, rms, ParakeetEngine, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE,
+    is_silence, resample, rms, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE,
 };
+// Parakeet is Apple-Silicon only (its ONNX runtime has no Intel-macOS binary).
+#[cfg(target_arch = "aarch64")]
+use keepdeck_voice::ParakeetEngine;
 use serde::Serialize;
 use tauri::ipc::Channel;
 
@@ -26,6 +29,7 @@ use crate::paths;
 #[derive(Clone, Copy, PartialEq)]
 enum EngineType {
     Whisper,
+    #[cfg(target_arch = "aarch64")]
     Parakeet,
 }
 
@@ -66,7 +70,8 @@ struct ModelSpec {
     payload: Payload,
 }
 
-const MODELS: &[ModelSpec] = &[
+/// Whisper models — compiled from source, so both arches carry them.
+const WHISPER_MODELS: &[ModelSpec] = &[
     // Retired: these q5 files were served per-file from HF before the Xet
     // 403 wall went up, and no mirror carries them.
     ModelSpec {
@@ -117,6 +122,13 @@ const MODELS: &[ModelSpec] = &[
             bytes: 574_041_195,
         },
     },
+];
+
+/// Apple-Silicon-only models (Parakeet's ONNX runtime has no Intel-macOS
+/// binary). Empty on every other arch, so the picker never offers a model
+/// the build can't run.
+#[cfg(target_arch = "aarch64")]
+const NATIVE_MODELS: &[ModelSpec] = &[
     // The istupakov ONNX export, bundled by Handy — HF's Xet CDN answers
     // anonymous downloads of the flat files with 403 (verified with plain
     // curl), so the archive mirror is the reliable source. int8, CC-BY-4.0.
@@ -140,9 +152,17 @@ const MODELS: &[ModelSpec] = &[
     },
 ];
 
+#[cfg(not(target_arch = "aarch64"))]
+const NATIVE_MODELS: &[ModelSpec] = &[];
+
+/// Every model this build can run: whisper on all arches, plus the native
+/// (Apple-Silicon) set.
+fn models() -> impl Iterator<Item = &'static ModelSpec> {
+    WHISPER_MODELS.iter().chain(NATIVE_MODELS.iter())
+}
+
 fn spec(id: &str) -> Result<&'static ModelSpec, String> {
-    MODELS
-        .iter()
+    models()
         .find(|m| m.id == id)
         .ok_or_else(|| format!("unknown voice model \"{id}\""))
 }
@@ -222,6 +242,7 @@ struct ActiveCapture {
 /// arm carries the serializing lock.
 enum CachedEngine {
     Whisper(Arc<WhisperEngine>),
+    #[cfg(target_arch = "aarch64")]
     Parakeet(Arc<Mutex<ParakeetEngine>>),
 }
 
@@ -229,6 +250,7 @@ impl Clone for CachedEngine {
     fn clone(&self) -> Self {
         match self {
             CachedEngine::Whisper(e) => CachedEngine::Whisper(e.clone()),
+            #[cfg(target_arch = "aarch64")]
             CachedEngine::Parakeet(e) => CachedEngine::Parakeet(e.clone()),
         }
     }
@@ -316,8 +338,7 @@ pub struct VoiceModelDto {
 
 #[tauri::command]
 pub fn voice_model_list() -> Result<Vec<VoiceModelDto>, String> {
-    MODELS
-        .iter()
+    models()
         .map(|m| {
             Ok(VoiceModelDto {
                 id: m.id.to_string(),
@@ -718,6 +739,7 @@ pub async fn voice_capture_stop(
                             EngineType::Whisper => CachedEngine::Whisper(Arc::new(
                                 WhisperEngine::load(&load_path).map_err(|e| e.to_string())?,
                             )),
+                            #[cfg(target_arch = "aarch64")]
                             EngineType::Parakeet => CachedEngine::Parakeet(Arc::new(Mutex::new(
                                 ParakeetEngine::load(&load_path).map_err(|e| e.to_string())?,
                             ))),
@@ -736,6 +758,7 @@ pub async fn voice_capture_stop(
                 CachedEngine::Whisper(whisper) => whisper
                     .transcribe(&samples, language.as_deref(), prompt.as_deref())
                     .map_err(|e| e.to_string())?,
+                #[cfg(target_arch = "aarch64")]
                 CachedEngine::Parakeet(parakeet) => parakeet
                     .lock()
                     .expect("poisoned")

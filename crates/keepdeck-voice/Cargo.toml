@@ -6,9 +6,13 @@ description = "Local voice capture and speech-to-text for KeepDeck: cpal microph
 
 [dependencies]
 cpal = "0.16"
-# Parakeet TDT via ONNX Runtime (ort's default features auto-download the
-# prebuilt onnxruntime binaries at build — no cmake, CPU execution; the
-# crate's author reports CoreML unstable for this model and CPU faster).
+
+# Parakeet TDT via ONNX Runtime — Apple Silicon ONLY: ort ships no prebuilt
+# onnxruntime for x86_64-apple-darwin (the Intel release leg fails to link),
+# and building ORT from source in CI isn't worth it for a dying arch. Whisper
+# (below) compiles from source and covers Intel. `aarch64` is Apple Silicon
+# here since the app targets macOS.
+[target.'cfg(target_arch = "aarch64")'.dependencies]
 parakeet-rs = "0.3.6"
 
 # whisper.cpp via FFI; Metal keeps inference on the GPU on Apple Silicon.
