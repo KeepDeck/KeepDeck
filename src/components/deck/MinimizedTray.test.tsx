@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MinimizedTray,
   type MinimizedTrayEntry,
+  normalizedTrayItemWidth,
   visibleTrayItemCount,
 } from "./MinimizedTray";
 
@@ -28,11 +29,26 @@ describe("visibleTrayItemCount", () => {
     expect(visibleTrayItemCount(1000, 0)).toBe(0);
     expect(visibleTrayItemCount(272, 1)).toBe(1);
   });
+
+  it("uses the same capacity math for a compact shared width", () => {
+    expect(visibleTrayItemCount(640, 4, 216)).toBe(2);
+    expect(visibleTrayItemCount(888, 4, 216)).toBe(4);
+  });
+});
+
+describe("normalizedTrayItemWidth", () => {
+  it("rounds measured content to the 8px rhythm inside compact bounds", () => {
+    expect(normalizedTrayItemWidth(0)).toBe(176);
+    expect(normalizedTrayItemWidth(181)).toBe(184);
+    expect(normalizedTrayItemWidth(213)).toBe(216);
+    expect(normalizedTrayItemWidth(400)).toBe(272);
+  });
 });
 
 describe("MinimizedTray", () => {
   let root: Root;
   let viewportWidth: number;
+  let measuredItemWidth: number;
   let resizeCallback: ResizeObserverCallback = () => {};
   let rectSpy: ReturnType<typeof vi.spyOn>;
   const restores = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
@@ -55,6 +71,7 @@ describe("MinimizedTray", () => {
       clientHeight: { configurable: true, value: 700 },
     });
     viewportWidth = 640;
+    measuredItemWidth = 216;
     restores.forEach((restore) => restore.mockClear());
 
     rectSpy = vi
@@ -62,6 +79,14 @@ describe("MinimizedTray", () => {
       .mockImplementation(function (this: HTMLElement) {
         if (this.classList.contains("deck__tray-items")) {
           return domRect({ width: viewportWidth, right: viewportWidth });
+        }
+        if (this.classList.contains("minimized--measure")) {
+          return domRect({
+            width: measuredItemWidth,
+            right: measuredItemWidth,
+            height: 26,
+            bottom: 26,
+          });
         }
         if (this.classList.contains("minimized-overflow__trigger")) {
           return domRect({
@@ -105,6 +130,11 @@ describe("MinimizedTray", () => {
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
       "Minimized · 4",
     );
+    expect(
+      document
+        .querySelector<HTMLElement>(".deck__tray")!
+        .style.getPropertyValue("--minimized-tray-item-width"),
+    ).toBe("216px");
     expect(
       document.querySelectorAll(".deck__tray-items .minimized--chip"),
     ).toHaveLength(2);

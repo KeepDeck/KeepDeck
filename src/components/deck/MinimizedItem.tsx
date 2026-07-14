@@ -17,6 +17,32 @@ interface MinimizedItemProps {
   onClick(): void;
 }
 
+interface MinimizedItemContentProps {
+  title: string;
+  gitBadge?: GitBadge | null;
+}
+
+/** Shared visual payload for the live control and the tray's hidden sizer. */
+export function MinimizedItemContent({
+  title,
+  gitBadge,
+}: MinimizedItemContentProps) {
+  return (
+    <>
+      <span className="minimized__title">{title}</span>
+      {gitBadge && (
+        <span className="minimized__branch" aria-hidden>
+          <GitBranchIcon />
+          <span className="minimized__branch-label">{gitBadge.label}</span>
+        </span>
+      )}
+      <span className="minimized__restore" aria-hidden>
+        <RestoreUpIcon />
+      </span>
+    </>
+  );
+}
+
 /**
  * The stand-in a minimized agent shows below the grid — a tray chip or a folded
  * strip bar. It carries no terminal; the real pane is hidden but still mounted
@@ -82,16 +108,7 @@ export function MinimizedItem({
         aria-label={label}
         aria-describedby={tooltipAnchor ? tooltipId : undefined}
       >
-        <span className="minimized__title">{title}</span>
-        {gitBadge && (
-          <span className="minimized__branch" aria-hidden>
-            <GitBranchIcon />
-            <span className="minimized__branch-label">{gitBadge.label}</span>
-          </span>
-        )}
-        <span className="minimized__restore" aria-hidden>
-          <RestoreUpIcon />
-        </span>
+        <MinimizedItemContent title={title} gitBadge={gitBadge} />
       </button>
       {tooltipAnchor && (
         <MinimizedDetailsTooltip

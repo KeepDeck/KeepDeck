@@ -6,6 +6,7 @@
 
 /* ── Tray: a horizontal strip of chips below the grid ─────────────────── */
 .deck__tray {
+  position: relative;
   flex: none;
   display: flex;
   align-items: center;
@@ -13,6 +14,17 @@
   padding: 8px 10px;
   border-top: 1px solid #1c2230;
   background-color: #0c1119;
+}
+
+.deck__tray-sizer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .deck__tray-label {
@@ -128,7 +140,7 @@
   flex: 1 1 auto;
 }
 .minimized--chip .minimized__title {
-  flex: 0 1 96px;
+  flex: 0 1 auto;
   max-width: 96px;
 }
 
@@ -175,6 +187,11 @@
 }
 .minimized--chip .minimized__restore {
   margin-left: auto;
+}
+.minimized--measure {
+  width: max-content;
+  min-width: 0;
+  max-width: none;
 }
 .minimized:hover .minimized__restore {
   color: #c5c8c6;
