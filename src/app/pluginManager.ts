@@ -36,6 +36,8 @@ import {
 } from "../ipc/projectGit";
 import { commands as commandRegistry } from "./commandRegistry";
 import { enabledByPolicy } from "../plugins/host/enabledPolicy";
+import { createPluginNotifyPort } from "../plugins/host/notifyPort";
+import { notify } from "./notificationCenter";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
@@ -104,6 +106,19 @@ export interface DeckUiAccess {
 }
 
 let deckUi: DeckUiAccess = { revealDockTab: () => {} };
+
+/**
+ * Open the dock on the active workspace with this plugin's tab selected — a
+ * no-op when the tab isn't registered (otherwise the dock would open onto
+ * DockPanel's first-tab fallback, or onto nothing, leaving a phantom open
+ * flag). Serves `ctx.ui.revealDockTab` and a clicked plugin notification.
+ */
+export function revealPluginDockTab(pluginId: string, entryId: string): void {
+  const registered = pluginRegistries.dockTabs
+    .list()
+    .some((c) => c.pluginId === pluginId && c.entry.id === entryId);
+  if (registered) deckUi.revealDockTab(`${pluginId}:${entryId}`);
+}
 
 export function wireDeckUi(ui: DeckUiAccess): void {
   deckUi = ui;
@@ -414,15 +429,33 @@ export const pluginHost = new PluginHost(
       // the tab isn't registered": honored HERE, against the registry —
       // otherwise the dock would open onto DockPanel's first-tab fallback
       // (or onto nothing at all, leaving a phantom open flag).
-      revealDockTab: (pluginId, entryId) => {
-        const registered = pluginRegistries.dockTabs
-          .list()
-          .some((c) => c.pluginId === pluginId && c.entry.id === entryId);
-        if (registered) deckUi.revealDockTab(`${pluginId}:${entryId}`);
-      },
+      revealDockTab: (pluginId, entryId) =>
+        revealPluginDockTab(pluginId, entryId),
       setOverlayVisible: (pluginId, entryId, visible) =>
         setOverlayVisibility(`${pluginId}:${entryId}`, visible),
     },
+    notifications: (manifest, source) =>
+      createPluginNotifyPort(manifest, {
+        // Same two tiers as `services`: a built-in's violation is a logged
+        // bug, an external's is refused.
+        mode: source === "external" ? "enforce" : "warn",
+        log: loggerFor(manifest.id),
+        deliver: (d) =>
+          notify({
+            // The host names the sender — an entry can't pose as a system
+            // event (or as another plugin).
+            title: `${manifest.name} · ${d.title}`,
+            severity: d.severity,
+            source: {
+              type: "plugin",
+              pluginId: d.pluginId,
+              ...(d.wsId !== undefined ? { wsId: d.wsId } : {}),
+              ...(d.dockTab !== undefined ? { dockTab: d.dockTab } : {}),
+            },
+            ...(d.body !== undefined ? { body: d.body } : {}),
+            ...(d.tag !== undefined ? { tag: d.tag } : {}),
+          }),
+      }),
     log: loggerFor,
     hostFacts: {
       // The whitelisted read-only host facts (see PluginHostFacts): grown a

@@ -37,7 +37,11 @@ import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useCoreCommands } from "./app/coreCommands";
-import { bootstrapPlugins, pluginRegistries } from "./app/pluginManager";
+import {
+  bootstrapPlugins,
+  pluginRegistries,
+  revealPluginDockTab,
+} from "./app/pluginManager";
 import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
 import { useContributions } from "./plugins";
@@ -388,6 +392,9 @@ function App() {
       }
       case "plugin": {
         if (n.source.wsId !== undefined) handleSelectWorkspace(n.source.wsId);
+        if (n.source.dockTab !== undefined) {
+          revealPluginDockTab(n.source.pluginId, n.source.dockTab);
+        }
         break;
       }
       case "app": {

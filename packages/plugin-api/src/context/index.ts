@@ -25,6 +25,7 @@ export type { Disposable } from "./disposable.ts";
 export type { PluginEvents } from "./events.ts";
 export type { HostSettingsSnapshot, PluginHostFacts } from "./hostFacts.ts";
 export type { PluginLogger } from "./log.ts";
+export type { PluginNotify, PluginNotifyInput } from "./notifications.ts";
 export type {
   FileOpenHandler,
   FileOpenRequest,

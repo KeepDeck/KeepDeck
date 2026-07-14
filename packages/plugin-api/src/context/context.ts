@@ -3,6 +3,7 @@ import type { PluginCommands } from "./commands.ts";
 import type { PluginEvents } from "./events.ts";
 import type { PluginHostFacts } from "./hostFacts.ts";
 import type { PluginLogger } from "./log.ts";
+import type { PluginNotify } from "./notifications.ts";
 import type { PluginManifest } from "../manifest/manifest.ts";
 import type { PluginFileOpeners } from "./openers.ts";
 import type { PluginServices } from "./services.ts";
@@ -39,4 +40,6 @@ export interface PluginContext {
   readonly services: PluginServices;
   readonly host: PluginHostFacts;
   readonly log: PluginLogger;
+  /** Post a notification (requires the `notifications` capability). */
+  readonly notify: PluginNotify;
 }

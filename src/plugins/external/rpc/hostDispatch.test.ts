@@ -272,4 +272,17 @@ describe("file-open handlers over the RPC seam", () => {
     await h.dispatch.call("ui.revealDockTab", ["files"]);
     expect(h.revealed).toEqual(["files"]);
   });
+
+  it("notify passes the wire value through to ctx.notify untouched", async () => {
+    const notified: unknown[] = [];
+    const ctx = {
+      notify: (input: unknown) => notified.push(input),
+    } as unknown as PluginContext;
+    const dispatch = createHostDispatch(ctx, () => {});
+    // Raw junk stays raw — the port behind ctx.notify owns ALL validation, so
+    // the dispatch layer must not shape (or reject) the value.
+    await dispatch.call("notify", [{ title: "hi", junk: 1 }]);
+    expect(notified).toEqual([{ title: "hi", junk: 1 }]);
+    dispatch.dispose();
+  });
 });

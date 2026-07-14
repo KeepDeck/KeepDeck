@@ -90,6 +90,7 @@ function fakeDeps() {
     commands: vi.fn(() => commandsPort),
     resources: vi.fn(() => ({ path: vi.fn(async () => null) })),
     ui,
+    notifications: vi.fn(() => vi.fn()),
     log: vi.fn(() => logger),
     hostFacts: { settings: vi.fn(async () => ({ terminalScrollback: 10_000 })) },
   };
