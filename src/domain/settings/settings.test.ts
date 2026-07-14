@@ -37,6 +37,7 @@ describe("hydrateSettings", () => {
           enabled: { git: true },
           values: { git: { remote: "origin" } },
         },
+        notifications: { enabled: false, mode: "system" },
       }),
     );
     expect(doc?.settings).toEqual({
@@ -45,6 +46,7 @@ describe("hydrateSettings", () => {
       deckLayout: "list",
       minimizeStyle: "strip",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
+      notifications: { enabled: false, mode: "system", mutedPlugins: [] },
     });
   });
 
@@ -214,6 +216,65 @@ describe("hydrateSettings — plugins bag", () => {
       JSON.stringify({ plugins: { enabled: { x: "nope" } } }),
     )!;
     expect(serializeSettings(doc)).not.toContain('"plugins"');
+  });
+});
+
+describe("hydrateSettings — notifications bag", () => {
+  it("defaults when the field is absent, keeping the default's identity", () => {
+    const doc = hydrateSettings("{}")!;
+    expect(doc.settings.notifications).toBe(DEFAULT_SETTINGS.notifications);
+  });
+
+  it("reads a stored mode and enabled flag", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({ notifications: { enabled: false, mode: "app" } }),
+    );
+    expect(doc?.settings.notifications).toEqual({
+      enabled: false,
+      mode: "app",
+      mutedPlugins: [],
+    });
+  });
+
+  it("a malformed field degrades alone, keeping its siblings", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({
+        notifications: {
+          enabled: "nope",
+          mode: "system",
+          mutedPlugins: ["keepdeck.git", 7],
+        },
+      }),
+    );
+    expect(doc?.settings.notifications).toEqual({
+      enabled: true,
+      mode: "system",
+      mutedPlugins: ["keepdeck.git"],
+    });
+  });
+
+  it("an unknown mode falls back to the default", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({ notifications: { mode: "carrier-pigeon" } }),
+    )!;
+    expect(doc.settings.notifications).toBe(DEFAULT_SETTINGS.notifications);
+  });
+
+  it("an all-default bag round-trips sparsely (no synthesized key)", () => {
+    const doc = hydrateSettings(
+      JSON.stringify({ notifications: { enabled: true, mutedPlugins: [] } }),
+    )!;
+    expect(serializeSettings(doc)).not.toContain('"notifications"');
+  });
+
+  it("round-trips a changed bag losslessly", () => {
+    const doc = defaultSettingsDocument();
+    doc.settings.notifications = {
+      enabled: true,
+      mode: "system",
+      mutedPlugins: ["keepdeck.run"],
+    };
+    expect(hydrateSettings(serializeSettings(doc))).toEqual(doc);
   });
 });
 
