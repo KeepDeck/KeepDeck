@@ -10,18 +10,27 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
   padding: 8px 10px;
   border-top: 1px solid #1c2230;
   background-color: #0c1119;
 }
 
 .deck__tray-label {
+  flex: none;
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #5a6478;
   padding-right: 2px;
+}
+
+.deck__tray-items {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--minimized-tray-gap, 8px);
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* ── Strip: folded header bars stacked below the grid ─────────────────── */
@@ -85,8 +94,13 @@
 
 /* Chip: a compact rounded pill for the tray. */
 .minimized--chip {
+  box-sizing: border-box;
+  flex: none;
+  width: var(--minimized-tray-item-width, 272px);
+  min-width: var(--minimized-tray-item-width, 272px);
+  max-width: var(--minimized-tray-item-width, 272px);
   height: 26px;
-  padding: 0 6px 0 11px;
+  padding: 0 6px 0 9px;
   border-radius: 7px;
   background-color: #131a26;
   border: 1px solid #232c3b;
@@ -112,6 +126,10 @@
    exactly like a pane header; on a chip everything hugs the content. */
 .minimized--bar .minimized__title {
   flex: 1 1 auto;
+}
+.minimized--chip .minimized__title {
+  flex: 0 1 96px;
+  max-width: 96px;
 }
 
 .minimized__branch {
@@ -141,6 +159,9 @@
   white-space: nowrap;
   min-width: 0;
 }
+.minimized--chip .minimized__branch {
+  max-width: 120px;
+}
 
 .minimized__restore {
   flex: none;
@@ -152,6 +173,104 @@
   border-radius: 4px;
   color: #6b7280;
 }
+.minimized--chip .minimized__restore {
+  margin-left: auto;
+}
 .minimized:hover .minimized__restore {
   color: #c5c8c6;
+}
+
+/* The direct tray stays one row high. The final fixed slot makes overflow
+   explicit; its popover contains the complete minimized set. */
+.minimized-overflow__trigger {
+  box-sizing: border-box;
+  flex: none;
+  width: var(--minimized-tray-overflow-width, 48px);
+  height: 26px;
+  border: 1px solid #2b3547;
+  border-radius: 7px;
+  background-color: #131a26;
+  color: #8d97aa;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.minimized-overflow__trigger:hover,
+.minimized-overflow__trigger[aria-expanded="true"] {
+  border-color: #3b4962;
+  background-color: #1a2433;
+  color: #d6d9df;
+}
+
+.minimized-overflow {
+  position: fixed;
+  z-index: 92;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 288px;
+  padding: 7px;
+  border: 1px solid #2a3343;
+  border-radius: 9px;
+  background-color: #111722;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+}
+
+.minimized-overflow__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 7px;
+  color: #778195;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.minimized-overflow__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Full details stay out of the compact geometry. The 600 ms hover intent is
+   owned by MinimizedItem; this layer also opens immediately for keyboard focus. */
+.minimized-tooltip {
+  position: fixed;
+  z-index: 94;
+  box-sizing: border-box;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 7px 9px;
+  border: 1px solid #303a4c;
+  border-radius: 7px;
+  background-color: #171d28;
+  color: #d6d9df;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.48);
+  pointer-events: none;
+}
+
+.minimized-tooltip__title {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.minimized-tooltip__branch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: #9099aa;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.minimized-tooltip__branch svg {
+  flex: none;
 }
