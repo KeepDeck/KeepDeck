@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -117,8 +117,10 @@ describe("MinimizedTray", () => {
     Reflect.deleteProperty(document.documentElement, "clientHeight");
   });
 
-  it("keeps one row and exposes only the entries represented by +N", () => {
-    act(() => root.render(createElement(MinimizedTray, { entries })));
+  it("keeps one row and exposes only the entries represented by +N", async () => {
+    act(() =>
+      root.render(createElement(MinimizedTray, { entries, active: true })),
+    );
 
     expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
       "Minimized · 4",
@@ -138,6 +140,8 @@ describe("MinimizedTray", () => {
     act(() => overflow.click());
     const popover = document.querySelector<HTMLElement>("[role='dialog']")!;
     expect(popover.getAttribute("aria-label")).toBe("Minimized agents");
+    expect(popover.getAttribute("aria-modal")).toBe("false");
+    expect(document.activeElement).toBe(popover);
     expect(popover.style.width).toBe("248px");
     expect(
       popover.querySelectorAll(".minimized-overflow__list .minimized--chip"),
@@ -163,10 +167,19 @@ describe("MinimizedTray", () => {
     act(() => fourth.click());
     expect(restores[3]).toHaveBeenCalledOnce();
     expect(document.querySelector("[role='dialog']")).toBeNull();
+    await act(
+      () =>
+        new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        }),
+    );
+    expect(document.activeElement).toBe(overflow);
   });
 
   it("removes overflow when a resize makes every item fit", () => {
-    act(() => root.render(createElement(MinimizedTray, { entries })));
+    act(() =>
+      root.render(createElement(MinimizedTray, { entries, active: true })),
+    );
     expect(document.querySelector(".minimized-overflow__trigger")).not.toBeNull();
 
     viewportWidth = 1120;
@@ -176,6 +189,107 @@ describe("MinimizedTray", () => {
       document.querySelectorAll(".deck__tray-items .minimized--chip"),
     ).toHaveLength(4);
     expect(document.querySelector(".minimized-overflow__trigger")).toBeNull();
+  });
+
+  it("suppresses its portaled dialog when the source workspace deactivates", () => {
+    act(() =>
+      root.render(createElement(MinimizedTray, { entries, active: true })),
+    );
+    const overflow = document.querySelector<HTMLButtonElement>(
+      ".minimized-overflow__trigger",
+    )!;
+    act(() => overflow.click());
+    expect(document.querySelector("[role='dialog']")).not.toBeNull();
+
+    act(() =>
+      root.render(createElement(MinimizedTray, { entries, active: false })),
+    );
+    expect(document.querySelector("[role='dialog']")).toBeNull();
+    expect(overflow.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("keeps focus on a restore action while an open dialog repositions", () => {
+    act(() =>
+      root.render(createElement(MinimizedTray, { entries, active: true })),
+    );
+    const overflow = document.querySelector<HTMLButtonElement>(
+      ".minimized-overflow__trigger",
+    )!;
+    act(() => overflow.click());
+    const restore = document.querySelector<HTMLButtonElement>(
+      "[aria-label='Restore Agent 4']",
+    )!;
+    act(() => restore.focus());
+    expect(document.activeElement).toBe(restore);
+
+    measuredItemWidths = [208, 216, 224, 260];
+    const updatedEntries = entries.map((entry) =>
+      entry.id === "pane-4" ? { ...entry, title: "Renamed Agent 4" } : entry,
+    );
+    act(() =>
+      root.render(
+        createElement(MinimizedTray, {
+          entries: updatedEntries,
+          active: true,
+        }),
+      ),
+    );
+
+    expect(document.activeElement).toBe(restore);
+    expect(
+      document.querySelector<HTMLElement>("[role='dialog']")?.style.width,
+    ).toBe("276px");
+  });
+
+  it("focuses the restored pane when restoring the last hidden entry removes +N", () => {
+    viewportWidth = 0;
+    let frame: FrameRequestCallback | null = null;
+    const requestFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        frame = callback;
+        return 1;
+      });
+
+    function LastRestoreHarness() {
+      const [restored, setRestored] = useState(false);
+      const entry: MinimizedTrayEntry = {
+        id: "last-pane",
+        title: "Last agent",
+        label: "Restore last agent",
+        onRestore: () => setRestored(true),
+      };
+      return (
+        <>
+          <section
+            data-pane-id="last-pane"
+            tabIndex={-1}
+            hidden={!restored}
+          />
+          {!restored && <MinimizedTray entries={[entry]} active />}
+        </>
+      );
+    }
+
+    act(() => root.render(<LastRestoreHarness />));
+    const overflow = document.querySelector<HTMLButtonElement>(
+      ".minimized-overflow__trigger",
+    )!;
+    act(() => overflow.click());
+    const restore = document.querySelector<HTMLButtonElement>(
+      "[aria-label='Restore last agent']",
+    )!;
+    act(() => restore.click());
+
+    expect(document.querySelector(".minimized-overflow__trigger")).toBeNull();
+    const pane = document.querySelector<HTMLElement>(
+      "[data-pane-id='last-pane']",
+    )!;
+    expect(document.activeElement).not.toBe(pane);
+    act(() => frame?.(0));
+    expect(document.activeElement).toBe(pane);
+
+    requestFrame.mockRestore();
   });
 });
 

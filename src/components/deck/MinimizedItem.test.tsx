@@ -29,6 +29,7 @@ describe("MinimizedItem", () => {
             title: "fix/a-deliberately-long-branch",
           },
           label: "Restore A deliberately long agent title",
+          active: true,
           onClick,
         }),
       );

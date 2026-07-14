@@ -319,6 +319,7 @@ export function DeckStage({
             {!isList && minimized.length > 0 &&
               (minimizeStyle === "tray" ? (
                 <MinimizedTray
+                  active={isActive}
                   entries={minimized.map((pane) => {
                     const title = titleOf(pane);
                     return {
@@ -341,6 +342,7 @@ export function DeckStage({
                         title={title}
                         gitBadge={badgeOf(pane)}
                         label={`Restore ${title}`}
+                        active={isActive}
                         onClick={() => onToggleMinimize(ws.id, pane.id)}
                       />
                     );

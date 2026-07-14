@@ -9,6 +9,46 @@ const VIEWPORT_MARGIN = 8;
 interface TooltipPosition {
   top: number;
   left: number;
+  maxHeight: number;
+}
+
+interface MinimizedTooltipPlacementInput {
+  anchorRect: Pick<DOMRect, "top" | "right" | "bottom" | "left">;
+  tooltipWidth: number;
+  tooltipHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+}
+
+/** Keep even pathological runtime titles fully inside the viewport. */
+export function calculateMinimizedTooltipPosition({
+  anchorRect,
+  tooltipWidth,
+  tooltipHeight,
+  viewportWidth,
+  viewportHeight,
+}: MinimizedTooltipPlacementInput): TooltipPosition {
+  const maxWidth = Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2);
+  const maxHeight = Math.max(0, viewportHeight - VIEWPORT_MARGIN * 2);
+  const renderedWidth = Math.min(Math.max(0, tooltipWidth), maxWidth);
+  const renderedHeight = Math.min(Math.max(0, tooltipHeight), maxHeight);
+  const left = Math.max(
+    VIEWPORT_MARGIN,
+    Math.min(
+      anchorRect.left,
+      viewportWidth - renderedWidth - VIEWPORT_MARGIN,
+    ),
+  );
+  const above = anchorRect.top - GAP - renderedHeight;
+  const top =
+    above >= VIEWPORT_MARGIN
+      ? above
+      : Math.min(
+          viewportHeight - renderedHeight - VIEWPORT_MARGIN,
+          anchorRect.bottom + GAP,
+        );
+
+  return { top: Math.max(VIEWPORT_MARGIN, top), left, maxHeight };
 }
 
 interface MinimizedDetailsTooltipProps {
@@ -43,23 +83,15 @@ export function MinimizedDetailsTooltip({
       document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight =
       document.documentElement.clientHeight || window.innerHeight;
-    const left = Math.max(
-      VIEWPORT_MARGIN,
-      Math.min(
-        anchorRect.left,
-        viewportWidth - tooltipRect.width - VIEWPORT_MARGIN,
-      ),
+    setPosition(
+      calculateMinimizedTooltipPosition({
+        anchorRect,
+        tooltipWidth: tooltipRect.width,
+        tooltipHeight: tooltipRect.height,
+        viewportWidth,
+        viewportHeight,
+      }),
     );
-    const above = anchorRect.top - GAP - tooltipRect.height;
-    const top =
-      above >= VIEWPORT_MARGIN
-        ? above
-        : Math.min(
-            viewportHeight - tooltipRect.height - VIEWPORT_MARGIN,
-            anchorRect.bottom + GAP,
-          );
-
-    setPosition({ top: Math.max(VIEWPORT_MARGIN, top), left });
   }, [anchor]);
 
   useLayoutEffect(() => {
@@ -81,6 +113,7 @@ export function MinimizedDetailsTooltip({
       style={{
         top: position?.top ?? 0,
         left: position?.left ?? 0,
+        maxHeight: position?.maxHeight,
         visibility: position ? "visible" : "hidden",
       }}
     >

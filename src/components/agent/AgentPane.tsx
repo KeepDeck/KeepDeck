@@ -156,6 +156,7 @@ export function AgentPane({
   return (
     <section
       data-pane-id={paneId}
+      tabIndex={-1}
       className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       // A folded row expands only from an EXPLICIT header click (below), never

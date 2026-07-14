@@ -105,6 +105,32 @@ function popoverPosition(
   };
 }
 
+function focusAfterRestore(anchor: HTMLButtonElement, paneId: string) {
+  const ownerDocument = anchor.ownerDocument;
+  const focusTarget = () => {
+    // Do not steal focus if the user moved it elsewhere before this frame.
+    const current = ownerDocument.activeElement;
+    if (current && current !== ownerDocument.body && current.isConnected) {
+      return;
+    }
+    if (anchor.isConnected) {
+      anchor.focus({ preventScroll: true });
+      return;
+    }
+    const pane = Array.from(
+      ownerDocument.querySelectorAll<HTMLElement>("[data-pane-id]"),
+    ).find((candidate) => candidate.dataset.paneId === paneId);
+    pane?.focus({ preventScroll: true });
+  };
+
+  const view = ownerDocument.defaultView;
+  if (view) {
+    view.requestAnimationFrame(focusTarget);
+  } else {
+    focusTarget();
+  }
+}
+
 function MinimizedOverflow({
   anchor,
   id,
@@ -149,6 +175,10 @@ function MinimizedOverflow({
     };
   }, [recompute]);
 
+  useLayoutEffect(() => {
+    popoverRef.current?.focus({ preventScroll: true });
+  }, []);
+
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
@@ -178,7 +208,9 @@ function MinimizedOverflow({
       ref={popoverRef}
       id={id}
       role="dialog"
+      aria-modal={false}
       aria-label="Minimized agents"
+      tabIndex={-1}
       className="minimized-overflow"
       style={{
         width: popoverWidth,
@@ -200,9 +232,13 @@ function MinimizedOverflow({
             title={entry.title}
             gitBadge={entry.gitBadge}
             label={entry.label}
+            active
             onClick={() => {
               onClose();
               entry.onRestore();
+              // Wait for the restore commit: the overflow trigger may remain,
+              // or it may disappear when the final hidden pane returns.
+              focusAfterRestore(anchor, entry.id);
             }}
           />
         ))}
@@ -218,7 +254,13 @@ function MinimizedOverflow({
  * whose popover exposes exactly the overflowed remainder without growing the
  * deck.
  */
-export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
+export function MinimizedTray({
+  entries,
+  active,
+}: {
+  entries: MinimizedTrayEntry[];
+  active: boolean;
+}) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const sizerRef = useRef<HTMLDivElement | null>(null);
   const overflowRef = useRef<HTMLButtonElement | null>(null);
@@ -278,6 +320,9 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
   useEffect(() => {
     if (hiddenCount === 0) setOverflowOpen(false);
   }, [hiddenCount]);
+  useEffect(() => {
+    if (!active) setOverflowOpen(false);
+  }, [active]);
 
   return (
     <div className="deck__tray">
@@ -303,6 +348,7 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
             title={entry.title}
             gitBadge={entry.gitBadge}
             label={entry.label}
+            active={active}
             onClick={entry.onRestore}
           />
         ))}
@@ -313,15 +359,17 @@ export function MinimizedTray({ entries }: { entries: MinimizedTrayEntry[] }) {
             className="minimized-overflow__trigger"
             aria-label={`Show ${hiddenCount} more minimized ${hiddenCount === 1 ? "agent" : "agents"}`}
             aria-haspopup="dialog"
-            aria-expanded={overflowOpen}
-            aria-controls={overflowOpen ? popoverId : undefined}
-            onClick={() => setOverflowOpen((open) => !open)}
+            aria-expanded={active && overflowOpen}
+            aria-controls={active && overflowOpen ? popoverId : undefined}
+            onClick={() => {
+              if (active) setOverflowOpen((open) => !open);
+            }}
           >
             +{hiddenCount}
           </button>
         )}
       </div>
-      {overflowOpen && overflowRef.current && hiddenCount > 0 && (
+      {active && overflowOpen && overflowRef.current && hiddenCount > 0 && (
         <MinimizedOverflow
           anchor={overflowRef.current}
           id={popoverId}

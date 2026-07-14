@@ -14,6 +14,8 @@ interface MinimizedItemProps {
   gitBadge?: GitBadge | null;
   /** Accessible action label for the whole control, e.g. "Restore Claude 1". */
   label: string;
+  /** False while the source workspace is mounted but inactive. */
+  active: boolean;
   onClick(): void;
 }
 
@@ -53,6 +55,7 @@ export function MinimizedItem({
   title,
   gitBadge,
   label,
+  active,
   onClick,
 }: MinimizedItemProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -75,6 +78,9 @@ export function MinimizedItem({
     setTooltipAnchor(buttonRef.current);
   };
   useEffect(() => cancelHover, []);
+  useEffect(() => {
+    if (!active) closeTooltip();
+  }, [active]);
 
   return (
     <>
@@ -83,6 +89,7 @@ export function MinimizedItem({
         type="button"
         className={`minimized minimized--${variant}`}
         onMouseEnter={() => {
+          if (!active) return;
           cancelHover();
           hoverTimer.current = window.setTimeout(
             openTooltip,
@@ -95,7 +102,7 @@ export function MinimizedItem({
         }}
         onFocus={() => {
           focused.current = true;
-          openTooltip();
+          if (active) openTooltip();
         }}
         onBlur={() => {
           focused.current = false;
@@ -106,11 +113,11 @@ export function MinimizedItem({
           onClick();
         }}
         aria-label={label}
-        aria-describedby={tooltipAnchor ? tooltipId : undefined}
+        aria-describedby={active && tooltipAnchor ? tooltipId : undefined}
       >
         <MinimizedItemContent title={title} gitBadge={gitBadge} />
       </button>
-      {tooltipAnchor && (
+      {active && tooltipAnchor && (
         <MinimizedDetailsTooltip
           anchor={tooltipAnchor}
           id={tooltipId}

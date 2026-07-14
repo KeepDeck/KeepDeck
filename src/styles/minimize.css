@@ -263,6 +263,7 @@
   background-color: #171d28;
   color: #d6d9df;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.48);
+  overflow: hidden;
   pointer-events: none;
 }
 
@@ -271,6 +272,10 @@
   font-weight: 600;
   line-height: 1.35;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
 }
 
 .minimized-tooltip__branch {
@@ -285,4 +290,10 @@
 }
 .minimized-tooltip__branch svg {
   flex: none;
+}
+.minimized-tooltip__branch span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }

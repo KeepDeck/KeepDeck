@@ -80,6 +80,15 @@ describe("AgentPane — header badges", () => {
     const actions = document.querySelector(".pane__actions");
     expect(actions?.children[0]?.className).toBe("pane__branch");
   });
+
+  it("can receive restored focus without entering the tab order", () => {
+    act(() => root.render(createElement(AgentPane, baseProps)));
+
+    const pane = document.querySelector<HTMLElement>("[data-pane-id='ws:1']")!;
+    expect(pane.tabIndex).toBe(-1);
+    act(() => pane.focus());
+    expect(document.activeElement).toBe(pane);
+  });
 });
 
 describe("AgentPane — provisioning cards", () => {
