@@ -55,6 +55,64 @@ describe("agent hooks over the RPC seam", () => {
     expect(Object.keys(h.agent().hooks)).toEqual(["spawn.plan"]);
   });
 
+  it("an icon crosses in the contract's exact shape, extras stripped", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      {
+        ...entry,
+        icon: {
+          viewBox: "0 0 24 24",
+          paths: [
+            {
+              d: "M0 0h24v24H0z",
+              color: "#D97757",
+              fillRule: "evenodd",
+              onload: "alert(1)",
+            },
+          ],
+          onload: "alert(1)",
+        },
+      },
+    ]);
+    expect(h.agent().icon).toEqual({
+      viewBox: "0 0 24 24",
+      paths: [{ d: "M0 0h24v24H0z", color: "#D97757", fillRule: "evenodd" }],
+    });
+  });
+
+  it("an icon with no valid layer drops without refusing the registration", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      { ...entry, icon: { viewBox: "0 0 24 24", paths: [{ d: 42 }, "junk"] } },
+    ]);
+    expect(h.agent().icon).toBeUndefined();
+    expect(h.agent().id).toBe("gemini");
+  });
+
+  it("off-shape layers and attributes drop, the valid layers stay", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      {
+        ...entry,
+        icon: {
+          viewBox: "0 0 24 24",
+          paths: [
+            { d: "M0 0h24v24H0z", color: 0xd97757, fillRule: "inherit" },
+            { d: 42 },
+            { d: "M2 2h20v20H2z", color: "#F1ECEC" },
+          ],
+        },
+      },
+    ]);
+    expect(h.agent().icon).toEqual({
+      viewBox: "0 0 24 24",
+      paths: [{ d: "M0 0h24v24H0z" }, { d: "M2 2h20v20H2z", color: "#F1ECEC" }],
+    });
+  });
+
   it("round-trips: push out, hookResult back, output mutated in place", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);

@@ -198,3 +198,51 @@ describe("DeckStage — exited agents across layouts", () => {
     expect(document.querySelector("[role='tooltip']")).toBeNull();
   });
 });
+
+describe("DeckStage — agent identity on the pane header", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const render = (overrides: Record<string, unknown> = {}) =>
+    act(() => root.render(createElement(DeckStage, props(overrides))));
+
+  it("draws the catalog's brand mark with the agent label as tooltip", () => {
+    const mark = { viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z" }] };
+    render({
+      agents: [
+        {
+          id: "codex",
+          label: "Codex",
+          icon: mark,
+          command: "codex",
+          installed: true,
+          path: null,
+        },
+      ],
+    });
+    const slot = document.querySelector<HTMLElement>(
+      "[data-pane-id='pane-1'] .pane__agent",
+    )!;
+    expect(slot.title).toBe("Codex");
+    expect(slot.querySelector("path")!.getAttribute("d")).toBe(
+      mark.paths[0].d,
+    );
+  });
+
+  it("an agent whose plugin ships no mark gets the neutral fallback", () => {
+    render();
+    const slot = document.querySelector<HTMLElement>(
+      "[data-pane-id='pane-1'] .pane__agent",
+    )!;
+    expect(slot.querySelector("svg polyline")).not.toBeNull();
+  });
+});

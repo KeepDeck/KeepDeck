@@ -18,6 +18,7 @@ import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
 import { Combobox } from "../../ui/Combobox";
+import { AgentGlyph } from "../../ui/AgentGlyph";
 import { AttachIcon, NextIcon } from "../../ui/icons";
 
 export type { AgentDialogResult } from "../../domain/agents";
@@ -331,6 +332,7 @@ export function AgentDialog({
               className={`form__type${a.id === agentType ? " form__type--active" : ""}`}
               onClick={() => setAgentType(a.id)}
             >
+              <AgentGlyph icon={a.icon} />
               {a.label}
             </button>
           ))}

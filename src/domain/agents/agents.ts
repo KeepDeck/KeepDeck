@@ -5,11 +5,33 @@
  *  pane must surface "agent unavailable", never silently run a default. */
 export type AgentType = string;
 
+/** A brand mark as bare SVG path data — the domain's structural twin of the
+ *  plugin contract's icon (no plugin-api import; data, never markup).
+ *  Multi-tone artwork is a stack of layers, painted in order. */
+export interface AgentIcon {
+  /** Coordinate space every layer is drawn in, e.g. `"0 0 24 24"`. */
+  viewBox: string;
+  /** Filled shapes, painted in order; single-color marks are one layer. */
+  paths: AgentIconPath[];
+}
+
+/** One filled layer of a brand mark. */
+export interface AgentIconPath {
+  /** Path data; multiple subpaths are filled as one shape. */
+  d: string;
+  /** This layer's fill; omitted = inherit the surrounding text color. */
+  color?: string;
+  /** Fill rule the artwork was authored for; omitted = SVG's nonzero. */
+  fillRule?: "evenodd";
+}
+
 /** An agent from the catalog (a cli plugin's contribution annotated with
  *  install detection). */
 export interface AgentInfo {
   id: AgentType;
   label: string;
+  /** The agent's brand mark, when its plugin ships one. */
+  icon?: AgentIcon;
   /** CLI command to spawn (passed back to `session_spawn`). */
   command: string;
   /** Whether the CLI resolves on the augmented PATH. */

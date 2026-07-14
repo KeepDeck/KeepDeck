@@ -6,7 +6,7 @@ import {
   type SpawnPlan,
   type SpawnPlanContext,
 } from "../domain/agents";
-import type { Workspace } from "../domain/deck";
+import { paneAgentType, type Workspace } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { mintBridgeToken } from "./ids";
 import { postbackCount } from "./postbacks";
@@ -230,7 +230,7 @@ export function usePaneSpawnSpecs(
       for (const pane of ws.panes) {
         if (pane.dormant || pane.provisioning) continue;
         if (specs.has(pane.id) || pending.has(pane.id)) continue;
-        const agent = findAgent(pane.agentType ?? "claude");
+        const agent = findAgent(paneAgentType(pane));
         if (!agent) continue; // the unavailable card blocks the terminal
         void buildAndCache(pane.id, () =>
           buildPlan(

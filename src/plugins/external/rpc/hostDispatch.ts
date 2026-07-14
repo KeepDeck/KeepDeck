@@ -1,6 +1,8 @@
 import type {
   AgentContribution,
   AgentHooks,
+  AgentIcon,
+  AgentIconPath,
   Disposable,
   DockTabContribution,
   FsReadFileOptions,
@@ -266,7 +268,7 @@ export function createHostDispatch(
 
     // ---- agents: identity as data; hooks as host→realm proxies ----
     "agents.register": ([regId, entry]) => {
-      const { id, label, detect, hookNames } = entry as Omit<
+      const { id, label, icon, detect, hookNames } = entry as Omit<
         AgentContribution,
         "hooks"
       > & { hookNames?: string[] };
@@ -277,7 +279,16 @@ export function createHostDispatch(
         if (name !== "spawn.plan" && name !== "resume.plan") continue;
         hooks[name] = (input, output) => callHook(id, name, input, output);
       }
-      retain(regId as number, ctx.agents.register({ id, label, detect, hooks }));
+      retain(
+        regId as number,
+        ctx.agents.register({
+          id,
+          label,
+          icon: sanitizeAgentIcon(icon),
+          detect,
+          hooks,
+        }),
+      );
     },
     "agents.hookResult": ([id, result]) => {
       const settle = pendingHooks.get(id as number);
@@ -429,6 +440,31 @@ function asRealmResult<T extends { ok: true }>(
     }
   }
   return { ok: false, error: "malformed result from the realm" };
+}
+
+/** Accept a realm-supplied agent icon only in the contract's exact shape —
+ * plain strings bound for SVG attributes; an off-shape layer drops, and an
+ * icon with nothing left drops to `undefined` (no icon) rather than refusing
+ * the registration. */
+function sanitizeAgentIcon(value: unknown): AgentIcon | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  if (typeof v.viewBox !== "string" || !Array.isArray(v.paths))
+    return undefined;
+  const paths = v.paths.flatMap((layer): AgentIconPath[] => {
+    if (typeof layer !== "object" || layer === null) return [];
+    const l = layer as Record<string, unknown>;
+    if (typeof l.d !== "string") return [];
+    return [
+      {
+        d: l.d,
+        ...(typeof l.color === "string" ? { color: l.color } : {}),
+        ...(l.fillRule === "evenodd" ? { fillRule: l.fillRule } : {}),
+      },
+    ];
+  });
+  if (paths.length === 0) return undefined;
+  return { viewBox: v.viewBox, paths };
 }
 
 /** Validate a realm-returned plan output down to plain strings; `null` when

@@ -85,6 +85,18 @@
   min-width: 0;
 }
 
+/* The agent's brand mark ahead of the title — who runs here at a glance,
+   whatever the pane was renamed to. Monochrome marks and the fallback take
+   this color; brand-tinted marks carry their own. */
+.pane__agent {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: #9aa3af;
+  margin-right: 7px;
+}
+
 .pane__actions {
   display: flex;
   align-items: center;

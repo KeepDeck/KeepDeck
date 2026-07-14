@@ -59,3 +59,13 @@ describe("codex plugin hooks", () => {
     expect(resume.args).toEqual(["resume", "x"]);
   });
 });
+
+describe("codex plugin identity", () => {
+  it("ships the monochrome OpenAI mark, authored for evenodd", () => {
+    const agent = activate(null);
+    expect(agent.icon?.viewBox).toBe("0 0 24 24");
+    expect(agent.icon?.paths).toHaveLength(1);
+    expect(agent.icon?.paths[0].color).toBeUndefined();
+    expect(agent.icon?.paths[0].fillRule).toBe("evenodd");
+  });
+});

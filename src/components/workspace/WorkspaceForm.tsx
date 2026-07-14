@@ -7,6 +7,7 @@ import {
 import { useAgents } from "../../app/useAgents";
 import { useSettings } from "../../app/useSettings";
 import type { SpawnConfig } from "../../domain/deck";
+import { AgentGlyph } from "../../ui/AgentGlyph";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
@@ -231,6 +232,7 @@ export function WorkspaceForm({
             }}
             tabIndex={count === 0 ? -1 : undefined}
           >
+            <AgentGlyph icon={a.icon} />
             {a.label}
           </button>
         ))}

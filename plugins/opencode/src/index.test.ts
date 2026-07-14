@@ -55,3 +55,14 @@ describe("opencode plugin hooks", () => {
     expect(out.args).toEqual([]);
   });
 });
+
+describe("opencode plugin identity", () => {
+  it("ships the official two-tone mark: block cursor under the frame", () => {
+    const agent = activate(null);
+    expect(agent.icon?.viewBox).toBe("0 0 240 300");
+    expect(agent.icon?.paths.map((p) => p.color)).toEqual([
+      "#4B4646",
+      "#F1ECEC",
+    ]);
+  });
+});

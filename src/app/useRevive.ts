@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentInfo, SpawnPlanContext } from "../domain/agents";
-import { findWorkspace, type Pane } from "../domain/deck";
+import { findWorkspace, paneAgentType, type Pane } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
 import { buildResumeSpec } from "./spawnSpecs";
@@ -76,7 +76,7 @@ export function useRevive(
 
     /** Resolve the resume session and wake one pane. */
     const wake = async (pane: Pane, dir: string) => {
-      const agentType = pane.agentType ?? "claude";
+      const agentType = paneAgentType(pane);
       // A recorded binding is TRUSTED: it came from the pane's own process
       // (the reporter posts at session creation), so it existed. If it was
       // deleted out from under us since, the resume fails VISIBLY in the
@@ -116,7 +116,7 @@ export function useRevive(
       // for the unknown store and WIPE a binding that resumes fine once the
       // plugin returns. The pane stays dormant behind its
       // "agent unavailable" card.
-      const agentType = pane.agentType ?? "claude";
+      const agentType = paneAgentType(pane);
       if (!agentsRef.current.some((a) => a.id === agentType)) continue;
       const dir = pane.cwd ?? active.cwd;
       waking.current.add(pane.id);

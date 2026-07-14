@@ -45,6 +45,7 @@ import { usePaneDrag } from "./app/usePaneDrag";
 import {
   closeHotkeyTarget,
   DECK_STATE_VERSION,
+  distinctAgentTypes,
   findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
@@ -329,6 +330,9 @@ function App() {
     id: w.id,
     name: w.name,
     agentCount: w.panes.length,
+    agentIcons: distinctAgentTypes(w.panes).map(
+      (type) => agents.find((a) => a.id === type)?.icon ?? null,
+    ),
   }));
 
   // While the saved deck (or the spawn context, or the settings) is loading,

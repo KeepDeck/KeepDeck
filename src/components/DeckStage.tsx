@@ -7,6 +7,7 @@ import {
   gridTracks,
   paneColumnSpan,
   paneDisplayTitle,
+  paneAgentType,
   paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
@@ -235,7 +236,7 @@ export function DeckStage({
         // badge resolution lives in ONE place; `layout` carries positioning.
         const renderPane = (pane: Pane) => {
           const layout = layoutFor(pane);
-          const agentType = pane.agentType ?? "claude";
+          const agentType = paneAgentType(pane);
           const agentInfo = agents.find((a) => a.id === agentType);
           const spec = specByPane[pane.id];
           const command =
@@ -253,6 +254,8 @@ export function DeckStage({
               key={`${pane.id}#${restartEpochs.get(pane.id) ?? 0}`}
               paneId={pane.id}
               title={displayTitle}
+              agentIcon={agentInfo?.icon ?? null}
+              agentLabel={agentInfo?.label ?? agentType}
               command={command}
               args={spec?.args}
               env={spec?.env}
@@ -316,7 +319,7 @@ export function DeckStage({
                 </div>
               )}
             </div>
-            {!isList && minimized.length > 0 &&
+{!isList && minimized.length > 0 &&
               (minimizeStyle === "tray" ? (
                 <MinimizedTray
                   active={isActive}
@@ -325,6 +328,9 @@ export function DeckStage({
                     return {
                       id: pane.id,
                       title,
+                      icon:
+                        agents.find((a) => a.id === paneAgentType(pane))
+                          ?.icon ?? null,
                       gitBadge: badgeOf(pane),
                       label: `Restore ${title}`,
                       onRestore: () => onToggleMinimize(ws.id, pane.id),
@@ -340,6 +346,10 @@ export function DeckStage({
                         key={pane.id}
                         variant="bar"
                         title={title}
+                        icon={
+                          agents.find((a) => a.id === paneAgentType(pane))
+                            ?.icon ?? null
+                        }
                         gitBadge={badgeOf(pane)}
                         label={`Restore ${title}`}
                         active={isActive}

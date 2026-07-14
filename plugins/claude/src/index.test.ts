@@ -57,3 +57,13 @@ describe("claude plugin hooks", () => {
     expect(out.args).toEqual([]);
   });
 });
+
+describe("claude plugin identity", () => {
+  it("ships the brand mark in Anthropic's tint", () => {
+    const agent = activate(null);
+    expect(agent.icon?.viewBox).toBe("0 0 24 24");
+    expect(agent.icon?.paths).toHaveLength(1);
+    expect(agent.icon?.paths[0].d).toBeTruthy();
+    expect(agent.icon?.paths[0].color).toBe("#D97757");
+  });
+});

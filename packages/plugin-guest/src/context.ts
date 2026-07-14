@@ -288,6 +288,7 @@ export function buildGuestContext(
           {
             id: agent.id,
             label: agent.label,
+            icon: agent.icon,
             detect: agent.detect,
             hookNames: Object.keys(agent.hooks),
           },

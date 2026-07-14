@@ -9,11 +9,16 @@ import { WorkspacesRail, type WorkspaceItem } from "./WorkspacesRail";
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
+const claudeMark = {
+  viewBox: "0 0 24 24",
+  paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
+};
+
 const START: WorkspaceItem[] = [
-  { id: "a", name: "Alpha", agentCount: 1 },
-  { id: "b", name: "Beta", agentCount: 2 },
-  { id: "c", name: "Gamma", agentCount: 3 },
-  { id: "d", name: "Delta", agentCount: 4 },
+  { id: "a", name: "Alpha", agentCount: 1, agentIcons: [claudeMark] },
+  { id: "b", name: "Beta", agentCount: 2, agentIcons: [claudeMark, null] },
+  { id: "c", name: "Gamma", agentCount: 3, agentIcons: [] },
+  { id: "d", name: "Delta", agentCount: 4, agentIcons: [] },
 ];
 
 function pointerEvent(
@@ -189,3 +194,39 @@ function restorePrototypeProperty(
   if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
   else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
 }
+
+describe("WorkspacesRail agent marks", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => root.render(createElement(Harness)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  const clusterOf = (wsId: string) =>
+    host
+      .querySelector(`[data-ws-id="${wsId}"]`)!
+      .querySelector(".rail__agents");
+
+  it("draws one glyph per distinct agent — brand mark or neutral fallback", () => {
+    const svgs = clusterOf("b")!.querySelectorAll("svg");
+    expect(svgs).toHaveLength(2);
+    const brand = svgs[0].querySelector("path")!;
+    expect(brand.getAttribute("d")).toBe(claudeMark.paths[0].d);
+    expect(brand.getAttribute("fill")).toBe(claudeMark.paths[0].color);
+    // The icon-less second agent gets the neutral prompt, not empty space.
+    expect(svgs[1].querySelector("polyline")).not.toBeNull();
+  });
+
+  it("renders no cluster at all for a workspace without marks", () => {
+    expect(clusterOf("c")).toBeNull();
+  });
+});

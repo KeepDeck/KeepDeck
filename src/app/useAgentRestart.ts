@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { AgentRestartMode, SpawnPlanContext } from "../domain/agents";
-import { findWorkspace } from "../domain/deck";
+import { findWorkspace, paneAgentType } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { postbackCount } from "./postbacks";
 import { closePane } from "./ptyManager";
@@ -181,7 +181,7 @@ function findTarget(
   return {
     wsId,
     paneId,
-    agentType: pane.agentType ?? "claude",
+    agentType: paneAgentType(pane),
     cwd: pane.cwd ?? workspace.cwd,
     branch: pane.branch,
     sessionId: pane.session?.id ?? null,

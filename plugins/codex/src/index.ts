@@ -6,6 +6,7 @@
  * `resume` subcommand.
  */
 import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
+import { icon } from "./icon";
 import { cliArgs, shellQuote } from "./trust";
 
 /** The `-c` override args arming the SessionStart reporter; `[]` when the
@@ -23,6 +24,7 @@ const plugin: KeepDeckPlugin = {
     ctx.agents.register({
       id: "codex",
       label: "Codex",
+      icon,
       detect: { bin: "codex" },
       hooks: {
         "spawn.plan": async (_input, output) => {
