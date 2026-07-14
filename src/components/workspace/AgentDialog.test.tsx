@@ -18,7 +18,14 @@ import type {
 vi.mock("../../app/useAgents", () => ({
   useAgents: () => ({
     agents: [
-      { id: "claude", label: "Claude Code", command: "claude", installed: true, path: null },
+      {
+        id: "claude",
+        label: "Claude Code",
+        icon: { viewBox: "0 0 24 24", path: "M0 0h24v24H0z", color: "#D97757" },
+        command: "claude",
+        installed: true,
+        path: null,
+      },
     ],
     loading: false,
   }),
@@ -339,5 +346,47 @@ describe("AgentDialog worktree location flow", () => {
     await settleProbe();
     expect(branchInput()).toBeNull(); // …but the settled truth wins
     expect(baseInput()).toBeNull();
+  });
+});
+
+describe("AgentDialog agent picker", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  it("each type button carries its agent's brand mark", async () => {
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          repo: null,
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => [],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+    const button = document.querySelector(".form__type")!;
+    expect(button.textContent).toContain("Claude Code");
+    const svg = button.querySelector("svg")!;
+    expect(svg.getAttribute("fill")).toBe("#D97757");
+    expect(svg.querySelector("path")!.getAttribute("d")).toBe("M0 0h24v24H0z");
   });
 });
