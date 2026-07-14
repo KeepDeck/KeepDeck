@@ -55,6 +55,59 @@ describe("agent hooks over the RPC seam", () => {
     expect(Object.keys(h.agent().hooks)).toEqual(["spawn.plan"]);
   });
 
+  it("an icon crosses in the contract's exact shape, extras stripped", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      {
+        ...entry,
+        icon: {
+          viewBox: "0 0 24 24",
+          path: "M0 0h24v24H0z",
+          color: "#D97757",
+          fillRule: "evenodd",
+          onload: "alert(1)",
+        },
+      },
+    ]);
+    expect(h.agent().icon).toEqual({
+      viewBox: "0 0 24 24",
+      path: "M0 0h24v24H0z",
+      color: "#D97757",
+      fillRule: "evenodd",
+    });
+  });
+
+  it("an off-shape icon drops without refusing the registration", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      { ...entry, icon: { viewBox: "0 0 24 24", path: 42 } },
+    ]);
+    expect(h.agent().icon).toBeUndefined();
+    expect(h.agent().id).toBe("gemini");
+  });
+
+  it("a non-evenodd fillRule and non-string color drop, the icon stays", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      {
+        ...entry,
+        icon: {
+          viewBox: "0 0 24 24",
+          path: "M0 0h24v24H0z",
+          color: 0xd97757,
+          fillRule: "inherit",
+        },
+      },
+    ]);
+    expect(h.agent().icon).toEqual({
+      viewBox: "0 0 24 24",
+      path: "M0 0h24v24H0z",
+    });
+  });
+
   it("round-trips: push out, hookResult back, output mutated in place", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);
