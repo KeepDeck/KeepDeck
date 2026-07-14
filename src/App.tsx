@@ -27,6 +27,12 @@ import {
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
 } from "./app/notificationProducers";
+import { useNotifications } from "./app/useNotifications";
+import { NotificationBell } from "./components/notifications/NotificationBell";
+import {
+  unreadByWorkspace,
+  type Notification,
+} from "./domain/notifications";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -358,6 +364,42 @@ function App() {
     setCreating(false);
   };
 
+  // The bell's history + per-workspace unread tallies for the rail dots.
+  const notifications = useNotifications();
+  const unreadForWs = unreadByWorkspace(notifications);
+  const notificationPrefs =
+    settings?.notifications ?? DEFAULT_SETTINGS.notifications;
+  const showBell =
+    notificationPrefs.enabled && notificationPrefs.mode !== "system";
+
+  // A clicked notification navigates to its origin: a pane is selected (and
+  // restored from the minimize tray if needed), a plugin entry lands on its
+  // workspace, an app-level one opens Settings → Updates.
+  const openNotification = (n: Notification) => {
+    switch (n.source.type) {
+      case "pane": {
+        const { wsId, paneId } = n.source;
+        handleSelectWorkspace(wsId);
+        if (deck.viewOf(wsId).minimized?.includes(paneId)) {
+          deck.toggleMinimize(wsId, paneId);
+        }
+        deck.selectPane(wsId, paneId);
+        break;
+      }
+      case "plugin": {
+        if (n.source.wsId !== undefined) handleSelectWorkspace(n.source.wsId);
+        break;
+      }
+      case "app": {
+        if (!dialogOpen) {
+          setSettingsSection("updates");
+          setSettingsOpen(true);
+        }
+        break;
+      }
+    }
+  };
+
   const handleCreateWorkspace = (config: SpawnConfig) => {
     // Optimistic: the workspace (and its provisioning cards) land at once.
     provisioning.createWorkspace(config);
@@ -371,6 +413,7 @@ function App() {
     agentIcons: distinctAgentTypes(w.panes).map(
       (type) => agents.find((a) => a.id === type)?.icon ?? null,
     ),
+    unread: unreadForWs[w.id] ?? 0,
   }));
 
   // While the saved deck (or the spawn context, or the settings) is loading,
@@ -479,6 +522,7 @@ function App() {
               <DockIcon />
             </button>
           )}
+          {showBell && <NotificationBell onOpen={openNotification} />}
           <button
             type="button"
             className="bar__icon"

@@ -1,0 +1,180 @@
+/* Notification bell + anchored panel (components/notifications/). The bell
+   sits among the top bar's .bar__icon cluster; the panel drops below it. */
+
+.bell {
+  position: relative;
+  display: inline-flex;
+}
+
+.bell__button {
+  position: relative;
+}
+
+.bell__badge {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background-color: #b13c3c;
+  color: #eceff4;
+  font-size: 9px;
+  line-height: 14px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.bell__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60; /* above the deck chrome (50), below nothing that matters */
+  width: 320px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #1c2230;
+  border-radius: 10px;
+  background-color: #0e121a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.bell__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #1c2230;
+}
+
+.bell__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c5c8c6;
+}
+
+.bell__clear {
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.bell__clear:hover {
+  color: #c5c8c6;
+  background-color: #1b2230;
+}
+
+.bell__empty {
+  padding: 24px 12px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.bell__list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.bell__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa2af;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bell__item:hover {
+  background-color: #1b2230;
+}
+
+.bell__item--unread {
+  color: #c5c8c6;
+}
+
+.bell__dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.bell__dot--info {
+  background-color: #3b82a0;
+}
+
+.bell__dot--warning {
+  background-color: #c9a23c;
+}
+
+.bell__dot--error {
+  background-color: #b13c3c;
+}
+
+.bell__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.bell__item-title {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bell__item--unread .bell__item-title {
+  font-weight: 600;
+}
+
+.bell__body {
+  font-size: 11px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bell__age {
+  flex: none;
+  font-size: 10px;
+  color: #6b7280;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Per-workspace unread dot in the rail — sits on the workspace row, next to
+   the agent count; hidden on hover like .rail__count (the close button takes
+   the slot). */
+.rail__unread {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #b13c3c;
+  flex: none;
+}
+
+.rail__item:hover .rail__unread {
+  display: none;
+}
