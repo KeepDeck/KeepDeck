@@ -83,6 +83,13 @@ export function paneAgentType(pane: Pane): AgentType {
   return pane.agentType ?? "claude";
 }
 
+/** Distinct agent types across `panes`, in first-appearance order — the
+ * compact "which agents run here" summary (rail rows), not a per-pane
+ * roster. */
+export function distinctAgentTypes(panes: Pane[]): AgentType[] {
+  return [...new Set(panes.map(paneAgentType))];
+}
+
 /**
  * Append an already-formed `pane` (e.g. one whose worktree is provisioned),
  * unless the fleet is already at [`MAX_PANES`]. Pure: returns the same array

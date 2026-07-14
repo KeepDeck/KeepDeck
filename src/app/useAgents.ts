@@ -73,6 +73,7 @@ function toAgentInfo(
   return {
     id: entry.id,
     label: entry.label,
+    icon: entry.icon,
     command: entry.detect.bin,
     installed: status?.installed ?? true,
     path: status?.path ?? null,
