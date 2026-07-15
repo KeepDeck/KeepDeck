@@ -42,8 +42,12 @@ export interface PaneSpawnSpec {
 /** A view's ears: everything a session reports back to its pane. */
 export interface PaneSink {
   onOutput(bytes: Uint8Array): void;
-  /** The PTY process ended (session stays inspectable until [`closePane`]). */
-  onExit(code: number | null): void;
+  /** The PTY process ended (session stays inspectable until [`closePane`]).
+   * `replayed` distinguishes the live event from [`attachPane`]'s re-announce
+   * to a remounting view: the view needs both (the exit card must survive a
+   * remount), but reactions that must fire once per ACTUAL death — the crash
+   * notification — listen only to `replayed === false`. */
+  onExit(code: number | null, replayed: boolean): void;
   /** The spawn itself failed — there is no process. */
   onSpawnError(message: string): void;
   /** The session is live: sync the PTY size to the view now. Fires on spawn
@@ -138,7 +142,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         entry.exited = { code: event.code };
         entry.session = null;
         log.info("web:pty", `${paneId}: exited (code ${event.code ?? "?"})`);
-        entry.sink?.onExit(event.code);
+        entry.sink?.onExit(event.code, false);
       }
     },
   )
@@ -171,7 +175,7 @@ export function attachPane(paneId: string, sink: PaneSink): () => void {
   entry.sink = sink;
   for (const chunk of entry.chunks) sink.onOutput(chunk);
   if (entry.failed !== null) sink.onSpawnError(entry.failed);
-  else if (entry.exited) sink.onExit(entry.exited.code);
+  else if (entry.exited) sink.onExit(entry.exited.code, true);
   else if (entry.session) sink.onReady();
   // Already-launched session (re-attach): tell the view now, after the replay,
   // so it opens without the launch overlay instead of flashing it again.

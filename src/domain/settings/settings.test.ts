@@ -267,6 +267,16 @@ describe("hydrateSettings — notifications bag", () => {
     expect(serializeSettings(doc)).not.toContain('"notifications"');
   });
 
+  it("a non-default bag never aliases the shared default mutedPlugins array", () => {
+    // An in-place mutation of a live bag must not poison the process-wide
+    // default (readPlugins builds fresh maps for the same reason).
+    const doc = hydrateSettings(JSON.stringify({ notifications: { mode: "app" } }))!;
+    expect(doc.settings.notifications.mutedPlugins).toEqual([]);
+    expect(doc.settings.notifications.mutedPlugins).not.toBe(
+      DEFAULT_SETTINGS.notifications.mutedPlugins,
+    );
+  });
+
   it("round-trips a changed bag losslessly", () => {
     const doc = defaultSettingsDocument();
     doc.settings.notifications = {

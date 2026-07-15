@@ -381,10 +381,10 @@ describe("AgentPane — manual restart after exit", () => {
     );
   };
 
-  const reportExit = (code: number | null) => {
+  const reportExit = (code: number | null, replayed = false) => {
     const calls = vi.mocked(TerminalPane).mock.calls;
     const terminalProps = calls[calls.length - 1][0];
-    act(() => terminalProps.onExit?.(code));
+    act(() => terminalProps.onExit?.(code, replayed));
   };
 
   const actionButtons = () =>
@@ -408,6 +408,19 @@ describe("AgentPane — manual restart after exit", () => {
     expect(document.querySelector(".pane__exit")?.textContent).toContain(
       "terminated",
     );
+  });
+
+  it("a replayed exit restores the card but never re-fires onExited", () => {
+    const onExited = vi.fn();
+    mount({ onExited, onRestart: vi.fn() });
+
+    reportExit(137, true); // attachPane re-announcing after a remount
+    expect(document.querySelector(".pane__exit")).not.toBeNull();
+    expect(onExited).not.toHaveBeenCalled();
+
+    reportExit(137, false); // the actual death does reach upstream
+    expect(onExited).toHaveBeenCalledTimes(1);
+    expect(onExited).toHaveBeenCalledWith(137);
   });
 
   it("starts fresh from the primary action when no session can be resumed", () => {

@@ -160,7 +160,26 @@ describe("attachPane", () => {
     const sink = makeSink();
     attachPane("pane-1", sink);
     expect(sink.onOutput).toHaveBeenCalledWith(new Uint8Array([9]));
-    expect(sink.onExit).toHaveBeenCalledWith(1);
+    expect(sink.onExit).toHaveBeenCalledWith(1, true);
+  });
+
+  it("marks the live death and its re-announcements apart (once-per-death reactions)", async () => {
+    acquirePane("pane-1", SPEC);
+    const live = makeSink();
+    attachPane("pane-1", live);
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+    harness.spawns[0].onEvent({ type: "exit", code: 137 });
+    // The attached view hears the actual death, unreplayed.
+    expect(live.onExit).toHaveBeenCalledWith(137, false);
+
+    // A remount over the same (exited, not closed) pane: acquire reuses the
+    // entry, attach re-announces — flagged as a replay.
+    acquirePane("pane-1", SPEC);
+    const remounted = makeSink();
+    attachPane("pane-1", remounted);
+    expect(remounted.onExit).toHaveBeenCalledWith(137, true);
+    expect(remounted.onExit).toHaveBeenCalledTimes(1);
   });
 
   it("tells current and future sinks about a spawn failure", async () => {

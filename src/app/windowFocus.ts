@@ -11,20 +11,24 @@ import { onWindowFocusChanged, windowIsFocused } from "../ipc/window";
 
 let focused = true;
 
-export function initWindowFocus(): Promise<void> {
-  return Promise.all([
-    windowIsFocused().then((f) => {
+export async function initWindowFocus(): Promise<void> {
+  // Listener first, one-shot read second — a failing read must not discard
+  // an already-attached listener (it lives for the app's lifetime; there is
+  // deliberately no teardown).
+  try {
+    await onWindowFocusChanged((f) => {
       focused = f;
-    }),
-    onWindowFocusChanged((f) => {
-      focused = f;
-    }),
-  ])
-    .then(() => undefined)
-    .catch((e) => {
-      // Without the bridge (tests, plain browser) stay on the default.
-      log.warn("web:focus", `focus tracking unavailable: ${describeError(e)}`);
     });
+  } catch (e) {
+    // Without the bridge (tests, plain browser) stay on the default.
+    log.warn("web:focus", `focus tracking unavailable: ${describeError(e)}`);
+    return;
+  }
+  try {
+    focused = await windowIsFocused();
+  } catch (e) {
+    log.warn("web:focus", `focus read failed: ${describeError(e)}`);
+  }
 }
 
 export function isWindowFocused(): boolean {

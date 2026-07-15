@@ -65,6 +65,7 @@ import {
   findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
+  paneOnScreen,
   pathOccupancy,
   type SpawnConfig,
 } from "./domain/deck";
@@ -179,38 +180,6 @@ function App() {
   // Runtime crash reports — they flip a plugin's tab to the failure panel.
   const crashes = useSyncExternalStore(subscribePluginCrashes, pluginCrashes);
 
-  // The banner rule's "is the source on screen" probe — kept current through a
-  // ref (the probe is registered once; re-registering per render would churn
-  // the module store). A pane is on screen when its workspace is active and
-  // the layout actually shows its body: not minimized and not covered by
-  // another pane's maximize (grid), the expanded pane (list).
-  const visibilityRef = useRef({
-    activeId: deck.activeId,
-    viewByWs: deck.viewByWs,
-    deckLayout,
-    minimizeOn,
-  });
-  visibilityRef.current = {
-    activeId: deck.activeId,
-    viewByWs: deck.viewByWs,
-    deckLayout,
-    minimizeOn,
-  };
-  useEffect(() => {
-    setSourceVisibilityProbe((source) => {
-      if (source.type !== "pane") return false;
-      const now = visibilityRef.current;
-      if (source.wsId !== now.activeId) return false;
-      const view = now.viewByWs[source.wsId];
-      if (now.deckLayout === "list") return view?.select === source.paneId;
-      if (now.minimizeOn && view?.minimized?.includes(source.paneId)) {
-        return false;
-      }
-      return view?.focus === undefined || view.focus === source.paneId;
-    });
-    return () => setSourceVisibilityProbe(null);
-  }, []);
-
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
   // ([F4]). Two sources, one delivery: an OS file drop from Finder, and an
   // in-app pointer drag of a Files-plugin tree row.
@@ -309,6 +278,45 @@ function App() {
   // gate on this so they can't diverge (the button used to ignore modals).
   const canAddAgent = !!active && !atCap && !modalOpen;
 
+  // The banner rule's "is the source on screen" probe — kept current through a
+  // ref (the probe is registered once; re-registering per render would churn
+  // the module store). A pane is on screen when nothing modal covers the deck,
+  // its workspace is active, and the layout actually shows its body
+  // (`paneOnScreen` — the same visibility semantics DeckStage renders).
+  const visibilityRef = useRef({
+    activeId: deck.activeId,
+    workspaces: deck.workspaces,
+    viewByWs: deck.viewByWs,
+    deckLayout,
+    minimizeOn,
+    modalOpen,
+  });
+  visibilityRef.current = {
+    activeId: deck.activeId,
+    workspaces: deck.workspaces,
+    viewByWs: deck.viewByWs,
+    deckLayout,
+    minimizeOn,
+    modalOpen,
+  };
+  useEffect(() => {
+    setSourceVisibilityProbe((source) => {
+      if (source.type !== "pane") return false;
+      const now = visibilityRef.current;
+      if (now.modalOpen || source.wsId !== now.activeId) return false;
+      const ws = findWorkspace(now.workspaces, source.wsId);
+      if (!ws) return false;
+      return paneOnScreen(
+        ws.panes,
+        now.viewByWs[source.wsId],
+        now.deckLayout,
+        now.minimizeOn,
+        source.paneId,
+      );
+    });
+    return () => setSourceVisibilityProbe(null);
+  }, []);
+
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
   // ⌘W asks to close the selected pane (an empty workspace: the workspace
   // itself), ⇧⌘M toggles its maximize. A hotkey
@@ -383,6 +391,10 @@ function App() {
     switch (n.source.type) {
       case "pane": {
         const { wsId, paneId } = n.source;
+        // The history outlives workspaces (and a plugin may name a wsId we
+        // never had): activating a gone id would strand the stage on a blank
+        // active workspace — the reducer sets activeId unconditionally.
+        if (!findWorkspace(deck.workspaces, wsId)) return;
         handleSelectWorkspace(wsId);
         if (deck.viewOf(wsId).minimized?.includes(paneId)) {
           deck.toggleMinimize(wsId, paneId);
@@ -391,7 +403,12 @@ function App() {
         break;
       }
       case "plugin": {
-        if (n.source.wsId !== undefined) handleSelectWorkspace(n.source.wsId);
+        if (
+          n.source.wsId !== undefined &&
+          findWorkspace(deck.workspaces, n.source.wsId)
+        ) {
+          handleSelectWorkspace(n.source.wsId);
+        }
         if (n.source.dockTab !== undefined) {
           revealPluginDockTab(n.source.pluginId, n.source.dockTab);
         }

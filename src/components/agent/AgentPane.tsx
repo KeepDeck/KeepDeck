@@ -363,9 +363,13 @@ export function AgentPane({
             cwd={cwd}
             visible={visible}
             selected={selected}
-            onExit={(code) => {
+            onExit={(code, replayed) => {
               setExit({ code });
-              onExited?.(code);
+              // A replay is attachPane re-announcing an old death to a
+              // remounted view (plugin toggled off/on over a crashed pane) —
+              // the card must return, but upstream once-per-death reactions
+              // (crash notification, resume recovery) must not re-fire.
+              if (!replayed) onExited?.(code);
             }}
             onSpawnError={onSpawnFailed}
             onTitle={onTitle}

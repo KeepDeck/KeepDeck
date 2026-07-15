@@ -140,6 +140,43 @@ export function resolveFocus(
   return panes.some((pane) => pane.id === focusedId) ? focusedId : null;
 }
 
+/** The slice of `WorkspaceView` pane visibility depends on (structural, so
+ * this module stays independent of the reducer). */
+interface PaneVisibilityView {
+  focus?: string;
+  select?: string;
+  minimized?: string[];
+}
+
+/**
+ * Whether the pane's BODY is actually being rendered right now, given its
+ * workspace's panes, view state and the deck's display mode — the same
+ * semantics DeckStage paints (list default-expands the first pane; grid
+ * resolves a stale maximize via [`resolveFocus`]; a minimized pane only
+ * leaves the grid while the minimize styles are in force). Callers own the
+ * "is the workspace active / is a modal covering the deck" half — this
+ * answers only the layout's part. Drives banner suppression: a wrong `true`
+ * swallows a needed OS banner, a wrong `false` merely shows a redundant one.
+ */
+export function paneOnScreen(
+  panes: Pane[],
+  view: PaneVisibilityView | undefined,
+  layout: "grid" | "list",
+  minimizeOn: boolean,
+  paneId: string,
+): boolean {
+  if (layout === "list") {
+    return (view?.select ?? panes[0]?.id) === paneId;
+  }
+  const { live } = partitionPanes(
+    panes,
+    minimizeOn ? view?.minimized : undefined,
+  );
+  if (!live.some((pane) => pane.id === paneId)) return false;
+  const focused = resolveFocus(live, view?.focus);
+  return focused === null || focused === paneId;
+}
+
 /** Display title for the pane at `index`: the manual name wins, then the
  * terminal's auto title, then "<Agent label> N" from the catalog — falling back
  * to the raw agent id while the catalog is still loading ([F11]). */

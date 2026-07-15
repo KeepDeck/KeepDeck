@@ -202,9 +202,14 @@ function readNotifications(value: unknown): Settings["notifications"] | null {
   const mode = NOTIFICATION_MODES.includes(value.mode as NotificationsMode)
     ? (value.mode as NotificationsMode)
     : defaults.mode;
+  // A fresh [] rather than defaults.mutedPlugins: this bag is only returned
+  // when some field is non-default, and sharing the module-level default
+  // array into a live settings object would let any future in-place mutation
+  // poison the process-wide default (readPlugins builds fresh maps for the
+  // same reason).
   const mutedPlugins = Array.isArray(value.mutedPlugins)
     ? value.mutedPlugins.filter((id): id is string => typeof id === "string")
-    : defaults.mutedPlugins;
+    : [];
   if (
     enabled === defaults.enabled &&
     mode === defaults.mode &&

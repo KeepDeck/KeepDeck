@@ -37,8 +37,13 @@ export interface NotifyInput {
 let items: readonly Notification[] = [];
 let seq = 0;
 const listeners = new Set<() => void>();
-/** Last banner time per tag — the cooldown's memory. */
+/** Last banner time per tag — the cooldown's memory. Bounded: pane ids mint
+ * forever, so without a cap this would grow for the app's lifetime. Insertion
+ * order ≈ recency here (a tag re-banners via delete+set), so evicting the
+ * first key sheds the coldest cooldown — at worst one long-dead tag gets a
+ * redundant banner instead of a suppressed one. */
 const lastBannerAt = new Map<string, number>();
+const BANNER_TAGS_MAX = 512;
 /** Resolves whether a source is on screen right now; owned by the view root
  * (it knows the active workspace and pane visibility). Unset = not visible,
  * the direction that shows a possibly-redundant banner rather than
@@ -93,7 +98,11 @@ export function notify(input: NotifyInput): void {
     });
     if (allowed) {
       if (notification.tag !== undefined) {
+        lastBannerAt.delete(notification.tag); // re-set → back of the order
         lastBannerAt.set(notification.tag, now);
+        if (lastBannerAt.size > BANNER_TAGS_MAX) {
+          lastBannerAt.delete(lastBannerAt.keys().next().value as string);
+        }
       }
       sendSystemNotification(notification.title, notification.body);
     }

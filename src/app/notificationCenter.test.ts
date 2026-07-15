@@ -125,6 +125,19 @@ describe("notificationCenter", () => {
     expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(2);
   });
 
+  it("the cooldown memory is bounded: the coldest tag is evicted, not leaked", () => {
+    notify({ title: "first", source: paneSource, tag: "tag-first" });
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(1);
+    // 512 fresh tags push "tag-first" out of the bounded map…
+    for (let i = 0; i < 512; i += 1) {
+      notify({ title: `n${i}`, source: paneSource, tag: `tag-${i}` });
+    }
+    // …so its cooldown is forgotten: a re-banner inside the 5s window goes
+    // through (the safe failure direction — redundant, never swallowed).
+    notify({ title: "again", source: paneSource, tag: "tag-first" });
+    expect(notifyIpc.sendSystemNotification).toHaveBeenCalledTimes(514);
+  });
+
   it("mutes a plugin's notifications without touching others", () => {
     withNotificationPrefs({ mutedPlugins: ["keepdeck.git"] });
     notify({

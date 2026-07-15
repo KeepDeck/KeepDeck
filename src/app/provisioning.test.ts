@@ -184,7 +184,7 @@ describe("runProvisioning with a setup command", () => {
   });
 
   it("runs setup in the created worktree via the pane's PTY slot, then resolves", async () => {
-    setupSessionEndsWith((sink) => sink.onExit(0));
+    setupSessionEndsWith((sink) => sink.onExit(0, false));
     const onResolved = vi.fn();
     const onFailed = vi.fn();
     const onSetup = vi.fn();
@@ -213,7 +213,7 @@ describe("runProvisioning with a setup command", () => {
   it("a failed setup rolls the worktree back and lands the output tail on the card", async () => {
     setupSessionEndsWith((sink) => {
       sink.onOutput(new TextEncoder().encode("\x1b[31mnpm ERR! boom\x1b[0m\n"));
-      sink.onExit(1);
+      sink.onExit(1, false);
     });
     worktree.removeWorktree.mockResolvedValue(undefined);
     const onResolved = vi.fn();
