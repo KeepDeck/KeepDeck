@@ -81,7 +81,7 @@ export function findWorkspaceOfPane(
 }
 
 /** The pane `paneId` of workspace `workspaceId`, if both exist. */
-function findPane(
+export function findPane(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
