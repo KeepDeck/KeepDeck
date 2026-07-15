@@ -9,7 +9,7 @@
  * attribution is exact even when several agents spawn in parallel, and `/new`
  * typed inside the TUI is caught too.
  *
- * Every `session.created` in this process becomes a bridge-protocol-v1
+ * Every ROOT `session.created` in this process becomes a bridge-protocol-v1
  * `session.bound` envelope in the bridge inbox — a uniquely named file
  * (randomUUID, so parallel events never collide), written as `.tmp` and
  * renamed so the watcher never sees a torn file. Reporting is best-effort: a
@@ -33,6 +33,12 @@ export default async () => {
   return {
     event: async ({ event }) => {
       if (event?.type !== "session.created") return;
+      // Root sessions only. opencode's task/subagent tool creates CHILD
+      // sessions in this same process, each firing `session.created` with
+      // `parentID` set. Binding the pane to one would rebind it to a
+      // transient leaf, and the next restore would resume that leaf instead
+      // of the conversation the user is actually having.
+      if (event.properties?.info?.parentID) return;
       const sessionId = event.properties?.info?.id;
       if (!sessionId) return;
       try {
