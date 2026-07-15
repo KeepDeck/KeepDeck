@@ -96,6 +96,24 @@ describe("Combobox", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
+  it("announces the listbox it actually renders", () => {
+    mount();
+    expect(input().getAttribute("aria-expanded")).toBe("false");
+    expect(input().getAttribute("aria-controls")).toBeNull();
+
+    act(() => input().focus());
+    expect(input().getAttribute("aria-expanded")).toBe("true");
+    expect(input().getAttribute("aria-controls")).toBe(menu()!.id);
+
+    // Nothing matches -> no listbox is rendered, so the combobox must not
+    // claim an expanded one or point at an element that isn't there.
+    type("zzz");
+    expect(menu()).toBeNull();
+    expect(input().getAttribute("aria-expanded")).toBe("false");
+    expect(input().getAttribute("aria-controls")).toBeNull();
+    expect(input().getAttribute("aria-activedescendant")).toBeNull();
+  });
+
   it("focus opens the FULL list even when the value equals an option", () => {
     mount("main");
     expect(menu()).toBeNull();
