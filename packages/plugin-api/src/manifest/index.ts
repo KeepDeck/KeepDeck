@@ -8,6 +8,7 @@ export {
   type PluginCategory,
   type PluginManifest,
 } from "./manifest.ts";
+export { hasUnsafeText, stripUnsafeText } from "./text.ts";
 export {
   API_VERSION,
   isApiVersion,

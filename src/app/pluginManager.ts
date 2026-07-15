@@ -36,7 +36,10 @@ import {
 } from "../ipc/projectGit";
 import { commands as commandRegistry } from "./commandRegistry";
 import { enabledByPolicy } from "../plugins/host/enabledPolicy";
-import { createPluginNotifyPort } from "../plugins/host/notifyPort";
+import {
+  composePluginNotification,
+  createPluginNotifyPort,
+} from "../plugins/host/notifyPort";
 import { notify } from "./notificationCenter";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
@@ -440,21 +443,11 @@ export const pluginHost = new PluginHost(
         // bug, an external's is refused.
         mode: source === "external" ? "enforce" : "warn",
         log: loggerFor(manifest.id),
-        deliver: (d) =>
-          notify({
-            // The host names the sender — an entry can't pose as a system
-            // event (or as another plugin).
-            title: `${manifest.name} · ${d.title}`,
-            severity: d.severity,
-            source: {
-              type: "plugin",
-              pluginId: d.pluginId,
-              ...(d.wsId !== undefined ? { wsId: d.wsId } : {}),
-              ...(d.dockTab !== undefined ? { dockTab: d.dockTab } : {}),
-            },
-            ...(d.body !== undefined ? { body: d.body } : {}),
-            ...(d.tag !== undefined ? { tag: d.tag } : {}),
-          }),
+        muted: () =>
+          (
+            getSettings()?.notifications ?? DEFAULT_SETTINGS.notifications
+          ).mutedPlugins.includes(manifest.id),
+        deliver: (d) => notify(composePluginNotification(manifest.name, d)),
       }),
     log: loggerFor,
     hostFacts: {

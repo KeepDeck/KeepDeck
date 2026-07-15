@@ -15,6 +15,13 @@ import { describeError, log } from "./log";
 
 let permission: Promise<boolean> | null = null;
 
+/** Whether the OS currently lets this app post notifications — a pure read,
+ * NEVER prompts. The honest-status probe for settings UI: a prompt belongs to
+ * an explicit user action or the first real banner, not to opening a dialog. */
+export function notificationPermissionGranted(): Promise<boolean> {
+  return isPermissionGranted().catch(() => false);
+}
+
 /** Whether the OS lets this app post notifications, asking once if the user
  * was never prompted. Cached for the app's lifetime. */
 export function ensureNotificationPermission(): Promise<boolean> {

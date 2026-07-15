@@ -1,4 +1,5 @@
 import { CAPABILITY_KINDS, type Capability } from "./capabilities.ts";
+import { hasUnsafeText } from "./text.ts";
 import { isApiVersion, parseVersion } from "./version.ts";
 
 /**
@@ -85,6 +86,10 @@ export type ManifestResult =
 
 const ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 
+/** Name length cap — the name rides in front of notification titles, so it
+ * shares their "a glance, not a document" budget. */
+const NAME_MAX = 40;
+
 /** A bare hostname (dotted labels, `localhost`, IPv4) with an optional port —
  * the only shape a `net` domain may take, since each is spliced into a CSP
  * header. Deliberately excludes schemes, paths, and any separator/whitespace. */
@@ -118,8 +123,19 @@ export function readManifest(value: unknown): ManifestResult {
       `id: "${id}" must be lowercase segments separated by "." or "-"`,
     );
 
+  // The name is a TRUST SIGNAL: the host prefixes it onto every notification
+  // the plugin sends, and the plugin list shows it as the plugin's face. So
+  // it must stay one short visible line (no control/bidi restructuring), stay
+  // bounded (it is prepended AFTER other length caps), and must not claim to
+  // be the app itself.
   const name = typeof value.name === "string" ? value.name.trim() : "";
   if (!name) errors.push("name: required non-empty string");
+  else if (name.length > NAME_MAX)
+    errors.push(`name: longer than ${NAME_MAX} characters`);
+  else if (hasUnsafeText(name))
+    errors.push("name: control or bidi characters are not allowed");
+  else if (name.toLowerCase() === "keepdeck")
+    errors.push(`name: "${name}" impersonates the app`);
 
   const version = typeof value.version === "string" ? value.version : "";
   if (!parseVersion(version))

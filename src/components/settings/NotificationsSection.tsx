@@ -6,7 +6,10 @@ import {
   NOTIFICATION_MODES,
   type NotificationsMode,
 } from "../../domain/settings";
-import { ensureNotificationPermission } from "../../ipc/notify";
+import {
+  ensureNotificationPermission,
+  notificationPermissionGranted,
+} from "../../ipc/notify";
 
 /** Label + one-line explanation for each delivery mode, in picker order. */
 const MODE_OPTIONS: Record<NotificationsMode, { label: string; hint: string }> = {
@@ -33,13 +36,19 @@ const MODE_OPTIONS: Record<NotificationsMode, { label: string; hint: string }> =
 export function NotificationsSection() {
   const settings = useSettings();
   const prefs = settings?.notifications ?? DEFAULT_SETTINGS.notifications;
-  // Three states: unknown (probing), granted, denied. The probe may PROMPT on
-  // first run — that's the right moment: the user is looking at notification
-  // settings.
+  // Three states: unknown (probing), granted, not granted. The mount probe is
+  // a pure READ — every settings section stays mounted whenever the dialog
+  // opens, so prompting here would ambush a user who came for another page
+  // (and would touch the OS even in the app-only mode). The actual prompt
+  // fires only from the explicit Allow button below, or lazily on the first
+  // real banner.
   const [granted, setGranted] = useState<boolean | null>(null);
+  // The user pressed Allow and the OS still says no — the prompt was denied
+  // (now or in the past); only System Settings can flip it from here.
+  const [refused, setRefused] = useState(false);
   useEffect(() => {
     let alive = true;
-    void ensureNotificationPermission().then((g) => {
+    void notificationPermissionGranted().then((g) => {
       if (alive) setGranted(g);
     });
     return () => {
@@ -87,13 +96,30 @@ export function NotificationsSection() {
       </span>
 
       {usesSystem && granted === false && (
-        <span className="settings__hint settings__hint--warn">
-          The OS is blocking KeepDeck's notifications — allow them in System
-          Settings → Notifications
-          {prefs.mode === "system"
-            ? "; until then nothing will be shown."
-            : "; until then only the bell shows them."}
-        </span>
+        <>
+          <span className="settings__hint settings__hint--warn">
+            {refused
+              ? "The OS is blocking KeepDeck's notifications — allow them in System Settings → Notifications"
+              : "KeepDeck doesn't have the OS's permission to show banners yet"}
+            {prefs.mode === "system"
+              ? "; until then nothing will be shown."
+              : "; until then only the bell shows them."}
+          </span>
+          {!refused && (
+            <button
+              type="button"
+              className="form__cancel"
+              onClick={() =>
+                void ensureNotificationPermission().then((g) => {
+                  setGranted(g);
+                  setRefused(!g);
+                })
+              }
+            >
+              Allow notifications
+            </button>
+          )}
+        </>
       )}
     </>
   );
