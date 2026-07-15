@@ -14,6 +14,31 @@ pub fn is_git_repo(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether `path` is the ROOT of a git work tree — the only shape an agent can
+/// attach to as an existing worktree.
+///
+/// [`is_git_repo`] answers "somewhere inside a work tree", which is equally
+/// true of every SUBDIRECTORY: classifying those as attachable would silently
+/// drop an agent onto the main repo's branch with no isolation. So ask git for
+/// the work tree's root and compare.
+///
+/// Both sides are canonicalized: `--show-toplevel` already resolves symlinks
+/// (on macOS `/tmp` is really `/private/tmp`), so comparing it against a raw
+/// user-entered path would report a false negative for the root itself.
+///
+/// Returns `false` (never errors) for a non-repo path, a missing path, a bare
+/// repo, or when `git` can't be run — same collapse-to-"no" contract as
+/// [`is_git_repo`].
+pub fn is_worktree_root(path: &Path) -> bool {
+    let Ok(out) = run_git(path, &["rev-parse", "--show-toplevel"]) else {
+        return false;
+    };
+    match (Path::new(out.trim()).canonicalize(), path.canonicalize()) {
+        (Ok(top), Ok(probed)) => top == probed,
+        _ => false,
+    }
+}
+
 /// Resolve a revision (`"HEAD"`, a branch, a tag, …) to a concrete commit SHA.
 ///
 /// Used to pin the base of a batch of worktrees to one commit, so concurrently

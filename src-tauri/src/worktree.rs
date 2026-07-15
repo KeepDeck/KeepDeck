@@ -184,7 +184,10 @@ pub struct PathProbe {
 pub fn worktree_probe(path: String) -> PathProbe {
     let path = Path::new(&path);
     let exists = path.exists();
-    let is_worktree = exists && repo::is_git_repo(path);
+    // The ROOT only: a subdirectory of a repo is "inside a work tree" too, but
+    // attaching an agent there would put it on the main branch with no
+    // isolation — the opposite of what picking a worktree means.
+    let is_worktree = exists && repo::is_worktree_root(path);
     // Only relevant for an existing non-worktree dir: is it empty (usable) or not.
     let empty = exists
         && !is_worktree
