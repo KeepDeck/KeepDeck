@@ -120,6 +120,14 @@ function withTimeout<T>(
   });
 }
 
+/** The origin of a document served at `url` — `kdplugin://<plugin-id>` for a
+ * realm. Composed from the parts rather than read off `URL.origin`, which is
+ * defined to return the string `"null"` for a non-special scheme like ours. */
+function originOf(url: string): string {
+  const { protocol, host } = new URL(url);
+  return `${protocol}//${host}`;
+}
+
 /** The production realm: a hidden, sandboxed iframe running at the PLUGIN's
  * own `kdplugin://<id>` origin. `allow-same-origin` is deliberate and safe
  * here: the isolation boundary is the ORIGIN (each plugin id is a distinct
@@ -132,6 +140,10 @@ function withTimeout<T>(
 export const domRealm: RealmDom = {
   openRealm(url) {
     return new Promise((resolve, reject) => {
+      // The host-RPC port is a capability: handing it to `"*"` would offer it
+      // to whatever document happens to be in the frame. We know exactly which
+      // origin may receive it — the realm we are about to load — so name it.
+      const realmOrigin = originOf(url);
       const frame = document.createElement("iframe");
       frame.hidden = true;
       frame.sandbox.add("allow-scripts");
@@ -139,7 +151,7 @@ export const domRealm: RealmDom = {
       frame.addEventListener("load", () => {
         resolve({
           post(port) {
-            frame.contentWindow?.postMessage("kd-connect", "*", [port]);
+            frame.contentWindow?.postMessage("kd-connect", realmOrigin, [port]);
           },
           close() {
             frame.remove();
