@@ -231,10 +231,6 @@ export function createRunManager(
     // (list rows key on either — a shared namespace produced duplicate React
     // keys and phantom rows).
     const id = `rs-${++seq}`;
-    const port = await services.ports.allocate(target.worktree).catch((e) => {
-      log.warn(`port allocation failed for ${target.worktree}: ${describeError(e)}`);
-      return undefined;
-    });
     const entry: Entry = {
       session: {
         id,
@@ -244,7 +240,6 @@ export function createRunManager(
         command: request.command,
         worktree: target.worktree,
         ...(target.branch && { branch: target.branch }),
-        ...(port !== undefined && { port }),
         status: { kind: "running" },
       },
       handle: null,
@@ -254,7 +249,18 @@ export function createRunManager(
       removed: false,
       size: null,
     };
+    // Register BEFORE the first await. The dedup scan above is synchronous, so
+    // it can only see entries already in the map: with registration deferred
+    // until after port allocation, two launches of the same preset raced
+    // through the gap and both spawned.
     entries.set(id, entry);
+
+    const port = await services.ports.allocate(target.worktree).catch((e) => {
+      log.warn(`port allocation failed for ${target.worktree}: ${describeError(e)}`);
+      return undefined;
+    });
+    if (port !== undefined) entry.session = { ...entry.session, port };
+
     log.info(
       `${id}: launch "${request.command}" in ${target.worktree} (port ${port ?? "-"})`,
     );

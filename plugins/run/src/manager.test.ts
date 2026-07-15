@@ -94,6 +94,28 @@ describe("launchRun", () => {
     });
   });
 
+  /** The preset dedup scan is synchronous, so it only sees what is already in
+   * the map. Port allocation sits between the scan and the registration, and
+   * two clicks on one preset used to race straight through that gap and spawn
+   * the command twice. */
+  it("launching one preset twice while the port is still pending spawns once", async () => {
+    let releasePort: (port: number) => void = () => {};
+    ports.allocate.mockReturnValueOnce(
+      new Promise<number>((resolve) => (releasePort = resolve)),
+    );
+
+    const first = manager.launchRun("ws-1", TARGET, DEV);
+    const second = manager.launchRun("ws-1", TARGET, DEV);
+    releasePort(17_040);
+    const [firstId, secondId] = await Promise.all([first, second]);
+
+    expect(secondId).toBe(firstId);
+    expect(pty.spawned).toHaveLength(1);
+    expect(manager.getSessions()).toHaveLength(1);
+    // The winner still gets its port — registering early must not lose it.
+    expect(manager.getSessions()[0]).toMatchObject({ port: 17_040 });
+  });
+
   it("a failed port probe launches anyway, without KEEPDECK_PORT", async () => {
     ports.allocate.mockRejectedValue(new Error("exhausted"));
     await manager.launchRun("ws-1", TARGET, DEV);
