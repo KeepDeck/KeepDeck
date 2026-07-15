@@ -18,11 +18,11 @@ describe("Dropdown", () => {
   let root: Root;
   let onChange: ReturnType<typeof vi.fn>;
 
-  const mount = (value = "/wt/a") =>
+  const mount = (value = "/wt/a", options = OPTIONS) =>
     act(() =>
       root.render(
         createElement(Dropdown, {
-          options: OPTIONS,
+          options,
           value,
           onChange,
           ariaLabel: "Pick",
@@ -99,6 +99,40 @@ describe("Dropdown", () => {
     act(() => outside.focus());
     expect(menu()).toBeNull();
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps focus on the trigger after a pick", () => {
+    mount();
+    act(() => button().click());
+    const option = document.querySelectorAll<HTMLButtonElement>(
+      '[role="option"]',
+    )[1];
+
+    act(() => option.click());
+
+    // The picked option unmounts with the menu; focus must land back on the
+    // control, not on <body>.
+    expect(document.activeElement).toBe(button());
+  });
+
+  it("opens no listbox when there is nothing to pick", () => {
+    mount("/wt/a", []);
+    act(() => button().click());
+
+    expect(menu()).toBeNull();
+    // An empty option set means there is no listbox to announce or point at.
+    expect(button().getAttribute("aria-expanded")).toBe("false");
+    expect(button().getAttribute("aria-controls")).toBeNull();
+  });
+
+  it("announces the listbox it actually renders", () => {
+    mount();
+    expect(button().getAttribute("aria-expanded")).toBe("false");
+    expect(button().getAttribute("aria-controls")).toBeNull();
+
+    act(() => button().click());
+    expect(button().getAttribute("aria-expanded")).toBe("true");
+    expect(button().getAttribute("aria-controls")).toBe(menu()!.id);
   });
 
   it("Escape closes and stays local (no bubbling to modal layers)", () => {
