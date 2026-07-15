@@ -1,4 +1,4 @@
-import { useReducer } from "react";
+import { useCallback, useReducer } from "react";
 import {
   deckReducer,
   initialDeckState,
@@ -23,6 +23,12 @@ export type Deck = ReturnType<typeof useDeck>;
  */
 export function useDeck() {
   const [state, dispatch] = useReducer(deckReducer, initialDeckState);
+  // Stable because the minimize-mode effect depends on this command while it
+  // reconciles the independently-owned settings and deck state.
+  const clearMinimized = useCallback(
+    () => dispatch({ type: "clearMinimized" }),
+    [],
+  );
   return {
     ...state,
     /** The workspace's view state (maximize, selection, dock, dock tab), or the
@@ -47,6 +53,7 @@ export function useDeck() {
       dispatch({ type: "toggleFocus", wsId, paneId }),
     toggleMinimize: (wsId: string, paneId: string) =>
       dispatch({ type: "toggleMinimize", wsId, paneId }),
+    clearMinimized,
     selectPane: (wsId: string, paneId: string) =>
       dispatch({ type: "selectPane", wsId, paneId }),
     toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),

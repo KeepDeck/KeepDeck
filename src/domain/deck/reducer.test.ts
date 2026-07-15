@@ -701,3 +701,39 @@ describe("deckReducer toggleMinimize", () => {
     expect(next.viewByWs).toEqual({ a: { select: "a-2", minimized: ["a-2"] } });
   });
 });
+
+describe("deckReducer clearMinimized", () => {
+  it("clears every minimized set while preserving the rest of each workspace view", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [
+          ws("a", ["a-1", "a-2"]),
+          ws("b", ["b-1"]),
+          ws("c", ["c-1"]),
+        ],
+        activeId: "a",
+        viewByWs: {
+          a: { select: "a-1", dock: true, minimized: ["a-2"] },
+          b: { minimized: ["b-1"] },
+          c: { focus: "c-1", select: "c-1", dockTab: "git:status" },
+        },
+      }),
+      { type: "clearMinimized" },
+    );
+
+    expect(next.viewByWs).toEqual({
+      a: { select: "a-1", dock: true },
+      c: { focus: "c-1", select: "c-1", dockTab: "git:status" },
+    });
+  });
+
+  it("returns the same state when no workspace has minimized panes", () => {
+    const start = state({
+      workspaces: [ws("a", ["a-1"])],
+      activeId: "a",
+      viewByWs: { a: { select: "a-1" } },
+    });
+
+    expect(deckReducer(start, { type: "clearMinimized" })).toBe(start);
+  });
+});

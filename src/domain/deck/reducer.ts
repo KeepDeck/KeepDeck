@@ -74,6 +74,8 @@ export type DeckAction =
   | { type: "toggleFocus"; wsId: string; paneId: string }
   /** Minimize a pane out of the grid, or restore it (the tray/strip styles). */
   | { type: "toggleMinimize"; wsId: string; paneId: string }
+  /** Drop the session-only minimized set from every workspace view. */
+  | { type: "clearMinimized" }
   | { type: "selectPane"; wsId: string; paneId: string }
   /** Flip a workspace's dock (the top bar's dock button). */
   | { type: "toggleDock"; wsId: string }
@@ -346,6 +348,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           const firstLive = ws?.panes.find((p) => !next.includes(p.id))?.id;
           viewByWs = setViewField(viewByWs, wsId, "select", firstLive);
         }
+      }
+      return withView(state, viewByWs);
+    }
+    case "clearMinimized": {
+      let viewByWs = state.viewByWs;
+      for (const wsId of Object.keys(viewByWs)) {
+        viewByWs = setViewField(viewByWs, wsId, "minimized", undefined);
       }
       return withView(state, viewByWs);
     }
