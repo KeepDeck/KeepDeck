@@ -799,7 +799,7 @@ pub fn handle_request(
     };
 
     let content_type = content_type_for(relative);
-    let csp = relative.ends_with(".html").then(|| csp_for(&record.manifest_json));
+    let csp = renders_as_document(&content_type).then(|| csp_for(&record.manifest_json));
 
     respond(
         window_origin,
@@ -906,7 +906,27 @@ fn content_type_for(relative: &str) -> String {
     .to_string()
 }
 
-/// The CSP for an `.html` response — the Figma `networkAccess` model: the
+/// Whether this `Content-Type` makes the webview parse the body as a
+/// *document* — one that can run script and reach the network, and therefore
+/// must carry the plugin's CSP. Keyed on the computed type rather than the
+/// path suffix: `content_type_for` decides what the body is served AS, and
+/// that is what the webview acts on. `image/svg+xml` counts — an SVG framed
+/// or navigated to (as opposed to loaded through `<img>`, where script never
+/// runs) is a scriptable document in the plugin's own origin.
+///
+/// Parameters are stripped before matching: a `Content-Type` may legitimately
+/// carry `; charset=…`, and a missed match here silently drops the CSP.
+fn renders_as_document(content_type: &str) -> bool {
+    let essence = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    matches!(essence.as_str(), "text/html" | "image/svg+xml")
+}
+
+/// The CSP for a document response — the Figma `networkAccess` model: the
 /// plugin realm's network reach is exactly what its manifest declared, no
 /// more. `connect-src` lists the manifest's `net` capability domains as both
 /// schemes (manifests declare bare hostnames, not scheme-qualified ones) —
@@ -1585,8 +1605,14 @@ mod tests {
         assert_eq!(resp.body(), b"console.log(1)");
     }
 
+    /// Every response the webview parses as a DOCUMENT must carry the CSP —
+    /// not just the ones whose path ends in `.html`. `.htm` and `.svg` are
+    /// served as script-capable documents too, and the app-level CSP is
+    /// `null`, so a document served without one gives a plugin holding only
+    /// `fs` an unrestricted `connect-src` to exfiltrate through — the exact
+    /// bypass of the consented `net` boundary this gate exists to prevent.
     #[test]
-    fn handle_request_attaches_csp_only_for_html() {
+    fn handle_request_attaches_csp_to_every_document_response() {
         let root = temp_root();
         write(
             &root.join("demo/manifest.json"),
@@ -1594,27 +1620,50 @@ mod tests {
                 "capabilities":[{"kind":"net","domains":["api.example.com"]}]}"#,
         );
         write(&root.join("demo/index.html"), "<html></html>");
+        write(&root.join("demo/legacy.htm"), "<html></html>");
+        write(&root.join("demo/mark.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
         write(&root.join("demo/index.js"), "1");
+        // Only the extension drives the Content-Type; the bytes are irrelevant.
+        write(&root.join("demo/logo.png"), "not-really-a-png");
 
-        let html = handle_request(
-            Some(&root),
-            "tauri://localhost",
-            &get("kdplugin://demo.plugin/index.html"),
-        );
-        let js = handle_request(
-            Some(&root),
-            "tauri://localhost",
-            &get("kdplugin://demo.plugin/index.js"),
-        );
-
-        let csp = html
+        let csp_of = |relative: &str| {
+            handle_request(
+                Some(&root),
+                "tauri://localhost",
+                &get(&format!("kdplugin://demo.plugin/{relative}")),
+            )
             .headers()
             .get(header::CONTENT_SECURITY_POLICY)
-            .unwrap()
-            .to_str()
-            .unwrap();
-        assert!(csp.contains("connect-src 'self' https://api.example.com http://api.example.com"));
-        assert!(js.headers().get(header::CONTENT_SECURITY_POLICY).is_none());
+            .map(|v| v.to_str().unwrap().to_string())
+        };
+
+        for document in ["index.html", "legacy.htm", "mark.svg"] {
+            let csp = csp_of(document)
+                .unwrap_or_else(|| panic!("{document} is served as a document but carries no CSP"));
+            assert!(
+                csp.contains("connect-src 'self' https://api.example.com http://api.example.com"),
+                "{document} CSP does not confine connect-src to the declared domains: {csp}"
+            );
+        }
+
+        // Non-documents don't execute; a CSP on them would be noise.
+        assert!(csp_of("index.js").is_none());
+        assert!(csp_of("logo.png").is_none());
+    }
+
+    /// The gate keys on what the body is served AS, not on its suffix — and
+    /// tolerates a `charset` parameter, whose loss would silently un-CSP a
+    /// document.
+    #[test]
+    fn renders_as_document_covers_html_and_svg_only() {
+        assert!(renders_as_document("text/html"));
+        assert!(renders_as_document("image/svg+xml"));
+        assert!(renders_as_document("text/html; charset=utf-8"));
+        assert!(renders_as_document("TEXT/HTML"));
+
+        assert!(!renders_as_document("text/javascript"));
+        assert!(!renders_as_document("image/png"));
+        assert!(!renders_as_document("application/octet-stream"));
     }
 
     #[test]
