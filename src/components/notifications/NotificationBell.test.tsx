@@ -107,6 +107,20 @@ describe("NotificationBell", () => {
     expect(document.querySelectorAll(".bell__item")).toHaveLength(2);
   });
 
+  it("a second press on the bell button closes the panel exactly once", () => {
+    act(() => bellButton().click());
+    expect(document.querySelector(".bell__panel")).not.toBeNull();
+    // The button lives INSIDE the light-dismiss root: its pointerdown must
+    // not race the onClick toggle into a close-then-reopen.
+    act(() => {
+      bellButton().dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      bellButton().click();
+    });
+    expect(document.querySelector(".bell__panel")).toBeNull();
+  });
+
   it("Escape and an outside press both dismiss the panel", () => {
     act(() => bellButton().click());
     expect(document.querySelector(".bell__panel")).not.toBeNull();

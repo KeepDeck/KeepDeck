@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { BellIcon } from "@keepdeck/ui-kit/icons";
 import {
   markAllNotificationsRead,
@@ -36,6 +36,15 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement>(null);
   const unread = unreadCount(notifications);
+
+  // The coarse ages ("5m") drift while the panel stays open — a slow tick
+  // re-renders them; nothing else in the panel depends on wall time.
+  const [, tick] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    if (!open) return;
+    const timer = setInterval(tick, 30_000);
+    return () => clearInterval(timer);
+  }, [open]);
 
   // Light-dismiss: any pointer press outside the bell (or Escape) closes the
   // panel — the same manners as a native menu.
@@ -77,7 +86,10 @@ export function NotificationBell({ onOpen }: NotificationBellProps) {
         )}
       </button>
       {open && (
-        <div className="bell__panel" role="menu" aria-label="Notifications">
+        // Not role="menu": these are plain buttons in a disclosure, with no
+        // menuitem semantics or roving focus — a "menu" announcement would
+        // promise interactions that aren't there.
+        <div className="bell__panel" role="group" aria-label="Notifications">
           <div className="bell__head">
             <span className="bell__title">Notifications</span>
             {unread > 0 && (

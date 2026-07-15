@@ -32,7 +32,9 @@
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 60; /* above the deck chrome (50), below nothing that matters */
+  /* Above every in-deck layer (xterm's canvases max at 10, the pane exit
+     card sits at 11); below the resident plugin overlays (100). */
+  z-index: 60;
   width: 320px;
   max-height: 420px;
   display: flex;
@@ -165,8 +167,8 @@
 }
 
 /* Per-workspace unread dot in the rail — sits on the workspace row, next to
-   the agent count; hidden on hover like .rail__count (the close button takes
-   the slot). */
+   the agent count, and disappears with it: on hover AND on the active row
+   (the close button takes the slot; see .rail__count in rail.css). */
 .rail__unread {
   width: 7px;
   height: 7px;
@@ -175,6 +177,7 @@
   flex: none;
 }
 
-.rail__item:hover .rail__unread {
+.rail__item:hover .rail__unread,
+.rail__item--active .rail__unread {
   display: none;
 }

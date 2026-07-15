@@ -8,6 +8,7 @@ import {
   defaultSettingsDocument,
   hydrateSettings,
   serializeSettings,
+  withPluginMuted,
 } from "./settings";
 
 describe("hydrateSettings", () => {
@@ -285,6 +286,15 @@ describe("hydrateSettings — notifications bag", () => {
       mutedPlugins: ["keepdeck.run"],
     };
     expect(hydrateSettings(serializeSettings(doc))).toEqual(doc);
+  });
+
+  it("withPluginMuted adds once, removes cleanly, and never mutates the input", () => {
+    const prefs = { enabled: true, mode: "system-and-app" as const, mutedPlugins: ["a"] };
+    const muted = withPluginMuted(withPluginMuted(prefs, "b", true), "b", true);
+    expect(muted.mutedPlugins).toEqual(["a", "b"]); // dedup: no stacking
+    expect(withPluginMuted(muted, "b", false).mutedPlugins).toEqual(["a"]);
+    expect(withPluginMuted(prefs, "a", false).mutedPlugins).toEqual([]);
+    expect(prefs.mutedPlugins).toEqual(["a"]); // input untouched
   });
 });
 

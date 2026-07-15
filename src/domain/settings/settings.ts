@@ -142,6 +142,17 @@ export function clampScrollback(value: number): number {
   return Math.min(SCROLLBACK_MAX, Math.max(SCROLLBACK_MIN, Math.round(value)));
 }
 
+/** The notifications bag with `pluginId` (un)muted — deduplicating, so a
+ * repeated mute can't stack the id, and order-stable for everyone else. */
+export function withPluginMuted(
+  prefs: Settings["notifications"],
+  pluginId: string,
+  muted: boolean,
+): Settings["notifications"] {
+  const rest = prefs.mutedPlugins.filter((id) => id !== pluginId);
+  return { ...prefs, mutedPlugins: muted ? [...rest, pluginId] : rest };
+}
+
 /**
  * Tolerant read of the persisted plugin settings bag: `null` when there's
  * nothing to keep — an absent/malformed field, or one whose sub-parts all

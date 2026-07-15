@@ -12,7 +12,7 @@ import {
 } from "../../app/pluginManager";
 import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
-import { DEFAULT_SETTINGS } from "../../domain/settings";
+import { DEFAULT_SETTINGS, withPluginMuted } from "../../domain/settings";
 import type { Contribution } from "../../plugins/registries/contributions";
 import { PluginSettingsSection } from "./PluginSettingsSection";
 
@@ -100,19 +100,15 @@ export function PluginPage({
             <input
               type="checkbox"
               checked={!muted}
-              onChange={(e) => {
-                const rest = notificationPrefs.mutedPlugins.filter(
-                  (id) => id !== plugin.manifest.id,
-                );
+              onChange={(e) =>
                 updateSettings({
-                  notifications: {
-                    ...notificationPrefs,
-                    mutedPlugins: e.target.checked
-                      ? rest
-                      : [...rest, plugin.manifest.id],
-                  },
-                });
-              }}
+                  notifications: withPluginMuted(
+                    notificationPrefs,
+                    plugin.manifest.id,
+                    !e.target.checked,
+                  ),
+                })
+              }
               aria-label={`Allow notifications from ${plugin.manifest.name}`}
             />
             <span className="settings__toggle-text">
