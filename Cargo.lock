@@ -2572,6 +2572,7 @@ dependencies = [
 name = "keepdeck"
 version = "0.13.8"
 dependencies = [
+ "base64 0.22.1",
  "block2",
  "flate2",
  "image",
@@ -2581,6 +2582,7 @@ dependencies = [
  "keepdeck-pty",
  "keepdeck-voice",
  "log",
+ "minisign-verify",
  "notify",
  "objc2",
  "objc2-foundation",
@@ -2600,6 +2602,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "ureq 2.12.1",
+ "url",
  "uuid",
  "zip 8.6.0",
 ]

@@ -22,6 +22,17 @@ export type {
 } from "./commands.ts";
 export type { PluginContext } from "./context.ts";
 export type { Disposable } from "./disposable.ts";
+export {
+  downloadPercent,
+  type DownloadIntegrity,
+  type LegacyDownloadRequest,
+  type DownloadPhase,
+  type DownloadRequest,
+  type DownloadSource,
+  type DownloadState,
+  type DownloadTarget,
+  type PluginDownloads,
+} from "./downloads.ts";
 export type { PluginEvents } from "./events.ts";
 export type { HostSettingsSnapshot, PluginHostFacts } from "./hostFacts.ts";
 export type { PluginLogger } from "./log.ts";
@@ -55,12 +66,7 @@ export type {
   PluginSessions,
   PluginSpawnOptions,
 } from "./services.ts";
-export type {
-  PluginVoice,
-  VoiceDownloadProgress,
-  VoiceModelInfo,
-  VoiceTranscript,
-} from "./voice.ts";
+export type { PluginSpeech, SpeechEngine, SpeechTranscript } from "./speech.ts";
 export type {
   CustomSettingsFieldProps,
   PluginSettings,

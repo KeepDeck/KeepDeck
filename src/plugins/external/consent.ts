@@ -32,6 +32,8 @@ function canonical(cap: Capability): string {
       return `git:${cap.scope}`;
     case "net":
       return `net:${[...cap.domains].sort().join(",")}`;
+    case "legacyDownloads":
+      return `legacyDownloads:${[...cap.paths].sort().join(",")}`;
     case "ports":
       return "ports";
     case "open":

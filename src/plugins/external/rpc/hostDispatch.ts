@@ -4,10 +4,14 @@ import type {
   AgentIcon,
   AgentIconPath,
   Disposable,
+  DownloadRequest,
+  DownloadState,
+  DownloadTarget,
   DockTabContribution,
   FsReadFileOptions,
   GitDiffOptions,
   GitHistoryOptions,
+  LegacyDownloadRequest,
   PluginContext,
   PluginSpawnOptions,
   SettingsSectionContribution,
@@ -16,6 +20,7 @@ import type {
 import {
   actionChannel,
   DECK_EVENT_CHANNELS,
+  downloadChannel,
   fswatchChannel,
   hookChannel,
   openChannel,
@@ -144,6 +149,7 @@ export function createHostDispatch(
   const registrations = new Map<number, Disposable>();
   // Directory watches, retained by the guest-minted id that will unwatch them.
   const watches = new Map<number, Disposable>();
+  const activeDownloads = new Set<string>();
   function retain(regId: number, disposable: Disposable): void {
     registrations.set(regId, disposable);
   }
@@ -382,6 +388,37 @@ export function createHostDispatch(
       watches.get(key)?.dispose();
       watches.delete(key);
     },
+    "services.downloads.start": ([raw]) => {
+      const request = raw as DownloadRequest;
+      const stream = ctx.services.downloads.start(request);
+      activeDownloads.add(request.id);
+      void (async () => {
+        try {
+          for await (const state of stream) {
+            push(downloadChannel(request.id), state);
+          }
+        } catch (error) {
+          const failed: DownloadState = {
+            id: request.id,
+            phase: "failed",
+            received: 0,
+            total: request.integrity?.bytes ?? null,
+            error: error instanceof Error ? error.message : String(error),
+          };
+          push(downloadChannel(request.id), failed);
+        } finally {
+          activeDownloads.delete(request.id);
+        }
+      })();
+    },
+    "services.downloads.cancel": ([id]) =>
+      ctx.services.downloads.cancel(id as string),
+    "services.downloads.exists": ([target]) =>
+      ctx.services.downloads.exists(target as DownloadTarget),
+    "services.downloads.remove": ([target]) =>
+      ctx.services.downloads.remove(target as DownloadTarget),
+    "services.downloads.adoptLegacy": ([request]) =>
+      ctx.services.downloads.adoptLegacy(request as LegacyDownloadRequest),
 
     // ---- host facts ----
     "host.settings": () => ctx.host.settings(),
@@ -420,6 +457,10 @@ export function createHostDispatch(
       registrations.clear();
       for (const watcher of watches.values()) watcher.dispose();
       watches.clear();
+      for (const id of activeDownloads) {
+        void ctx.services.downloads.cancel(id).catch(() => {});
+      }
+      activeDownloads.clear();
     },
   };
 }

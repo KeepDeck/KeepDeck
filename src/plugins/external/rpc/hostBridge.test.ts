@@ -71,11 +71,15 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       onDeckChanged: () => disposable,
     },
     services: {
-      voice: {
-        models: async () => [],
-        downloadModel: async () => {},
-        cancelDownload: async () => {},
-        deleteModel: async () => {},
+      downloads: {
+        async *start() {},
+        cancel: async () => {},
+        exists: async () => false,
+        remove: async () => {},
+        adoptLegacy: async () => {},
+      },
+      speech: {
+        engines: async () => ["whisper"],
         startCapture: async () => {},
         stopCapture: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
         cancelCapture: async () => {},

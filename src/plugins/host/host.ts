@@ -1,5 +1,6 @@
 import {
   API_VERSION,
+  MIN_COMPATIBLE_API_VERSION,
   satisfiesApiFloor,
   type KeepDeckPlugin,
   type PluginManifest,
@@ -129,7 +130,7 @@ export class PluginHost {
     if (!satisfiesApiFloor(entry.manifest.minApiVersion)) {
       this.fail(
         entry,
-        `needs plugin API ${entry.manifest.minApiVersion}, host provides ${API_VERSION}`,
+        `needs plugin API ${entry.manifest.minApiVersion}, host supports ${MIN_COMPATIBLE_API_VERSION}..${API_VERSION}`,
       );
       return;
     }

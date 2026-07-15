@@ -22,7 +22,7 @@ const manifest = (
   id,
   name: id,
   version: "1.0.0",
-  minApiVersion: 1,
+  minApiVersion: API_VERSION,
   category: "deck",
   capabilities: [],
   // Declare the tab `registrar` registers — registration is manifest-gated.
@@ -39,11 +39,15 @@ function fakeDeps() {
     global: { get: vi.fn(), set: vi.fn(), delete: vi.fn() },
   };
   const services: PluginServices = {
-    voice: {
-      models: vi.fn(async () => []),
-      downloadModel: vi.fn(async () => {}),
-      cancelDownload: vi.fn(async () => {}),
-      deleteModel: vi.fn(async () => {}),
+    downloads: {
+      start: vi.fn(async function* () {}),
+      cancel: vi.fn(async () => {}),
+      exists: vi.fn(async () => false),
+      remove: vi.fn(async () => {}),
+      adoptLegacy: vi.fn(async () => {}),
+    },
+    speech: {
+      engines: vi.fn(async () => ["whisper" as const]),
       startCapture: vi.fn(async () => {}),
       stopCapture: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
       cancelCapture: vi.fn(async () => {}),
@@ -184,6 +188,21 @@ describe("PluginHost", () => {
       expect(status.reason).toContain("99");
       expect(status.reason).toContain(String(API_VERSION));
     }
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("fails a plugin older than the host's compatibility window", async () => {
+    const { deps } = fakeDeps();
+    const host = new PluginHost(deps, createContributionRegistries());
+    const load = vi.fn(async () => registrar());
+    host.install(
+      { manifest: manifest("p", { minApiVersion: API_VERSION - 1 }), load },
+      "external",
+    );
+
+    await host.activate("p");
+
+    expect(statusOf(host, "p")?.kind).toBe("failed");
     expect(load).not.toHaveBeenCalled();
   });
 

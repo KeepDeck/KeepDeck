@@ -1,6 +1,15 @@
 import { fetchAppInfo } from "../ipc/app";
 import { describeError, log } from "../ipc/log";
-import { checkForUpdate, relaunchApp, type Update } from "../ipc/updater";
+import {
+  checkForUpdate,
+  discardUpdate,
+  installUpdate,
+  relaunchApp,
+  type AvailableUpdate,
+} from "../ipc/updater";
+import type { DownloadManager } from "./downloadManager";
+
+type UpdateDownloads = Pick<DownloadManager, "start" | "cancel">;
 
 /**
  * The owner of the in-app update flow — one per app, outside React, like
@@ -57,9 +66,10 @@ function initial(): UpdateState {
 }
 
 let state: UpdateState = initial();
-/** The plugin's handle for the found update — download() and install() live
- * on it, so it is kept from `available` through `installing`. */
-let update: Update | null = null;
+/** Metadata retained by the native updater until it is installed or dismissed. */
+let update: AvailableUpdate | null = null;
+let downloads: UpdateDownloads | null = null;
+let downloadJobId: string | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let boot: Promise<void> | null = null;
 const listeners = new Set<() => void>();
@@ -73,7 +83,11 @@ function apply(patch: Partial<UpdateState>): void {
  * Probe whether this build carries the updater at all, then start the
  * periodic check loop. Idempotent: repeated calls share the first boot.
  */
-export function initUpdates(intervalMs = CHECK_INTERVAL_MS): Promise<void> {
+export function initUpdates(
+  manager: UpdateDownloads,
+  intervalMs = CHECK_INTERVAL_MS,
+): Promise<void> {
+  downloads = manager;
   boot ??= fetchAppInfo()
     .then((info) => {
       if (!info.updater) {
@@ -111,7 +125,11 @@ async function runCheck(): Promise<void> {
     }
     // Found — and STOP. Zero bytes move until the user asks for them.
     update = found;
-    apply({ phase: "available", version: found.version, checkedAt: Date.now() });
+    apply({
+      phase: found.downloaded ? "ready" : "available",
+      version: found.version,
+      checkedAt: Date.now(),
+    });
   } catch (e) {
     // Transient by assumption (offline, mid-publish window…): surface in
     // settings, retry on the next tick.
@@ -125,29 +143,45 @@ async function runCheck(): Promise<void> {
  * signature, then waits in `ready` — installing is a separate decision. */
 export async function downloadUpdate(): Promise<void> {
   const pending = update;
-  if (state.phase !== "available" || !pending) return;
+  const manager = downloads;
+  if (state.phase !== "available" || !pending || !manager) return;
   apply({ phase: "downloading", received: 0, total: null, error: null });
+  const id = crypto.randomUUID();
+  downloadJobId = id;
   try {
-    await pending.download((event) => {
-      if (event.event === "Started") {
-        apply({ total: event.data.contentLength ?? null });
-      } else if (event.event === "Progress") {
-        apply({ received: state.received + event.data.chunkLength });
+    for await (const progress of manager.start({ id, ...pending.download })) {
+      apply({ received: progress.received, total: progress.total });
+      if (progress.phase === "completed") {
+        apply({ phase: "ready" });
+      } else if (progress.phase === "cancelled") {
+        apply({ phase: "available" });
+      } else if (progress.phase === "failed") {
+        throw new Error(progress.error ?? "download failed");
       }
-    });
-    apply({ phase: "ready" });
+    }
   } catch (e) {
     // The update is still known-available; the Download button retries.
     log.warn("web:update", `update download failed: ${describeError(e)}`);
     apply({ phase: "available", error: describeError(e) });
+  } finally {
+    downloadJobId = null;
   }
+}
+
+export function cancelUpdateDownload(): void {
+  if (state.phase !== "downloading" || !downloads || !downloadJobId) return;
+  void downloads.cancel(downloadJobId).catch((error) => {
+    log.warn("web:update", `update cancel failed: ${describeError(error)}`);
+  });
 }
 
 /** Forget the found (or downloaded) update and return to `idle`. A later
  * check — periodic or manual — will offer it again. */
 export function dismissUpdate(): void {
   if (state.phase !== "available" && state.phase !== "ready") return;
+  const dismissed = update;
   update = null;
+  if (dismissed) void discardUpdate(dismissed.id).catch(() => {});
   apply({ phase: "idle", version: null, received: 0, total: null });
 }
 
@@ -157,13 +191,26 @@ export async function restartToUpdate(): Promise<void> {
   const pending = update;
   if (state.phase !== "ready" || !pending) return;
   apply({ phase: "installing" });
+  let installed = false;
   try {
-    await pending.install();
+    await installUpdate(pending.id);
+    installed = true;
     await relaunchApp();
   } catch (e) {
-    // The downloaded update is still intact — offer the restart again.
-    log.error("web:update", `update install failed: ${describeError(e)}`);
-    apply({ phase: "ready", error: describeError(e) });
+    log.error("web:update", `update restart flow failed: ${describeError(e)}`);
+    if (installed) {
+      // The bundle has already been swapped and its staging artifact cleaned.
+      // Retrying install would target missing metadata; the user only needs to
+      // restart the process manually.
+      apply({
+        phase: "installing",
+        error: `update installed, but automatic restart failed: ${describeError(e)}; quit and reopen KeepDeck`,
+      });
+    } else {
+      // Verification/installation failed before the swap; the artifact is
+      // still intact and the action can be retried.
+      apply({ phase: "ready", error: describeError(e) });
+    }
   }
 }
 
@@ -185,6 +232,8 @@ export function subscribeUpdates(listener: () => void): () => void {
 export function resetUpdateManager(): void {
   state = initial();
   update = null;
+  downloads = null;
+  downloadJobId = null;
   if (timer) clearInterval(timer);
   timer = null;
   boot = null;

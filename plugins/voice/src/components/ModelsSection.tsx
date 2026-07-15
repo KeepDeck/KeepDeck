@@ -1,5 +1,8 @@
 import { useSyncExternalStore } from "react";
-import type { CustomSettingsFieldProps } from "@keepdeck/plugin-api";
+import {
+  downloadPercent,
+  type CustomSettingsFieldProps,
+} from "@keepdeck/plugin-api";
 import { DEFAULT_MODEL, MODEL_KEY } from "../controller";
 import { runtime } from "../runtime";
 
@@ -80,6 +83,7 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
         const meta = CARD_META[m.id];
         const isActive = active === m.id;
         const state = dl.active[m.id];
+        const percent = state ? downloadPercent(state) : null;
         const downloading = state !== undefined;
         const error = dl.errors[m.id];
         return (
@@ -118,9 +122,14 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                     className="voice-models__act voice-models__act--delete"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void ctx.services.voice
-                        .deleteModel(m.id)
-                        .then(() => store.refresh());
+                      void ctx.services.downloads
+                        .remove(m.target)
+                        .then(() => store.refresh())
+                        .catch((error) =>
+                          ctx.log.warn(
+                            `model removal failed: ${error instanceof Error ? error.message : String(error)}`,
+                          ),
+                        );
                     }}
                   >
                     Delete
@@ -128,7 +137,7 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                 ) : downloading ? (
                   <>
                     <span className="voice-models__progress">
-                      {state.percent === null ? "…" : `${state.percent}%`}
+                      {percent === null ? "…" : `${percent}%`}
                     </span>
                     <button
                       type="button"
@@ -161,9 +170,9 @@ export function ModelsSection({ values, write }: CustomSettingsFieldProps) {
                 <span
                   className="voice-models__bar-fill"
                   style={
-                    state.percent === null
+                    percent === null
                       ? { width: "100%", opacity: 0.4 }
-                      : { width: `${state.percent}%` }
+                      : { width: `${percent}%` }
                   }
                 />
               </span>

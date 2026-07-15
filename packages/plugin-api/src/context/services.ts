@@ -1,5 +1,6 @@
 import type { Disposable } from "./disposable.ts";
-import type { PluginVoice } from "./voice.ts";
+import type { PluginDownloads } from "./downloads.ts";
+import type { PluginSpeech } from "./speech.ts";
 
 /**
  * Platform services. Every call is checked against the manifest's
@@ -12,8 +13,10 @@ export interface PluginServices {
   readonly opener: PluginOpener;
   readonly fs: PluginFs;
   readonly git: PluginGit;
+  /** Generic host-managed network transfers into private plugin storage. */
+  readonly downloads: PluginDownloads;
   /** Microphone capture + local speech-to-text (capability: `mic`). */
-  readonly voice: PluginVoice;
+  readonly speech: PluginSpeech;
 }
 
 export interface PluginSessions {

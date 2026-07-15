@@ -24,6 +24,9 @@ export type Capability =
   /** Network access from the plugin's own realm, enforced via the realm's
    * CSP. Domains are literal hosts; `*` is deliberately not supported. */
   | { kind: "net"; domains: string[] }
+  /** Adopt explicitly named folders created by a pre-plugin app version into
+   * this plugin's private download storage. Each path is shown in consent. */
+  | { kind: "legacyDownloads"; paths: string[] }
   /** Allocate deterministic port blocks (`ports_allocate`). */
   | { kind: "ports" }
   /** Open URLs in the default browser / files in their default app via the
@@ -49,6 +52,7 @@ export const CAPABILITY_KINDS = [
   "fs",
   "git",
   "net",
+  "legacyDownloads",
   "ports",
   "open",
   "commands",

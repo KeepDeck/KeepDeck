@@ -201,6 +201,8 @@ function describe(cap: Capability): string {
         : "read git state of project repositories";
     case "net":
       return `reach ${cap.domains.join("/")}`;
+    case "legacyDownloads":
+      return `adopt legacy downloads (${cap.paths.join(", ")})`;
     case "ports":
       return "allocate ports";
     case "open":

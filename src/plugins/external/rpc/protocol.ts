@@ -102,6 +102,7 @@ export type EventChannel =
   | `session:${string}`
   | `action:${string}`
   | `fswatch:${string}`
+  | `download:${string}`
   | `hook:${string}`
   | `open:${string}`;
 
@@ -138,6 +139,10 @@ export function actionChannel(
  * the id, the host pushes this channel (empty payload) on each change. */
 export function fswatchChannel(id: number): `fswatch:${string}` {
   return `fswatch:${id}`;
+}
+
+export function downloadChannel(id: string): `download:${string}` {
+  return `download:${id}`;
 }
 
 /** The push channel for ONE agent-hook invocation (host→guest). The host

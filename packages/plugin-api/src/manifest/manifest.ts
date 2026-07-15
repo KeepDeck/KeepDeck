@@ -95,6 +95,15 @@ const NAME_MAX = 40;
  * header. Deliberately excludes schemes, paths, and any separator/whitespace. */
 const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/i;
 
+function safeRelativePath(value: string): boolean {
+  const segments = value.split("/");
+  return (
+    value.length > 0 &&
+    !value.startsWith("/") &&
+    segments.every((segment) => segment !== "" && segment !== "." && segment !== "..")
+  );
+}
+
 /** A contribution id — a plain token safe as both a URL path component and a
  * registry key. No dots/slashes/whitespace. */
 const CONTRIB_ID = /^[a-zA-Z0-9_-]+$/;
@@ -226,6 +235,13 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
             `${at}: net domains must be bare hostnames (optionally :port), no wildcards or separators`,
           );
         else out.push({ kind: "net", domains: cap.domains });
+        return;
+      case "legacyDownloads":
+        if (!isStringArray(cap.paths) || cap.paths.length === 0)
+          errors.push(`${at}: legacyDownloads needs a non-empty "paths" string array`);
+        else if (cap.paths.some((path) => !safeRelativePath(path)))
+          errors.push(`${at}: legacyDownloads paths must be safe relative paths`);
+        else out.push({ kind: "legacyDownloads", paths: cap.paths });
         return;
       case "ports":
         out.push({ kind: "ports" });

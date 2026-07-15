@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   Capability,
+  DownloadRequest,
   PluginManifest,
   PluginSessionHandle,
   PluginSpawnOptions,
@@ -31,11 +32,15 @@ function fakeBackend() {
     close: vi.fn(),
   };
   const backend: ServiceBackends = {
-    voice: {
-      models: vi.fn(async () => []),
-      downloadModel: vi.fn(async () => {}),
-      cancelDownload: vi.fn(async () => {}),
-      deleteModel: vi.fn(async () => {}),
+    downloads: {
+      start: vi.fn(async function* () {}),
+      cancel: vi.fn(async () => {}),
+      exists: vi.fn(async () => false),
+      remove: vi.fn(async () => {}),
+      adoptLegacy: vi.fn(async () => {}),
+    },
+    speech: {
+      engines: vi.fn(async () => ["whisper" as const]),
       startCapture: vi.fn(async () => {}),
       stopCapture: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
       cancelCapture: vi.fn(async () => {}),
@@ -81,6 +86,12 @@ function fakeBackend() {
 function fakeLog() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
+
+const downloadRequest = (id = "job-1"): DownloadRequest => ({
+  id,
+  source: { url: "https://files.example.com/model.bin" },
+  target: { kind: "file", path: "models/model.bin" },
+});
 
 describe("createCapabilityGate — sessions.spawn", () => {
   it("forwards an exact-match exec call verbatim: same args, backend's own returned handle", async () => {
@@ -255,6 +266,123 @@ describe("createCapabilityGate — ports.allocate", () => {
     expect(() => gate.ports.allocate("preview-server")).toThrow(/ports/);
     expect(backend.ports.allocate).not.toHaveBeenCalled();
     expect(log.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCapabilityGate — downloads", () => {
+  it("passes plugin scope and declared domains to the shared backend", () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "net", domains: ["files.example.com"] }]),
+      backend,
+      { mode: "enforce", log: fakeLog() },
+    );
+    const request = downloadRequest();
+
+    gate.downloads.start(request);
+
+    expect(backend.downloads.start).toHaveBeenCalledWith(
+      "p",
+      request,
+      ["files.example.com"],
+      expect.any(Function),
+    );
+  });
+
+  it("rejects undeclared hosts before starting a job", () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "net", domains: ["other.example.com"] }]),
+      backend,
+      { mode: "enforce", log: fakeLog() },
+    );
+
+    expect(() => gate.downloads.start(downloadRequest())).toThrow(
+      'matching "net" capability',
+    );
+    expect(backend.downloads.start).not.toHaveBeenCalled();
+  });
+
+  it("enforces network capabilities even for trusted warn-mode plugins", () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(manifest([]), backend, {
+      mode: "warn",
+      log: fakeLog(),
+    });
+    expect(() => gate.downloads.start(downloadRequest())).toThrow(
+      'matching "net" capability',
+    );
+    expect(backend.downloads.start).not.toHaveBeenCalled();
+  });
+
+  it("honors an explicitly declared port", () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "net", domains: ["localhost:4000"] }]),
+      backend,
+      { mode: "enforce", log: fakeLog() },
+    );
+    const request = downloadRequest();
+    request.source.url = "http://localhost:4000/model.bin";
+
+    gate.downloads.start(request);
+
+    expect(backend.downloads.start).toHaveBeenCalledOnce();
+  });
+
+  it("uses the job id alone and only cancels jobs started by this plugin", () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "net", domains: ["files.example.com"] }]),
+      backend,
+      { mode: "enforce", log: fakeLog() },
+    );
+
+    gate.downloads.start(downloadRequest());
+    expect(() => gate.downloads.start(downloadRequest())).toThrow(
+      "download id already used",
+    );
+    gate.downloads.cancel("job-1");
+    expect(backend.downloads.cancel).toHaveBeenCalledWith("job-1");
+    expect(() => gate.downloads.cancel("foreign-job")).toThrow(
+      "was not started by this plugin",
+    );
+  });
+
+  it("does not grant cancel ownership when the backend rejects start", () => {
+    const { backend } = fakeBackend();
+    backend.downloads.start = vi.fn(() => {
+      throw new Error("global id collision");
+    });
+    const gate = createCapabilityGate(
+      manifest([{ kind: "net", domains: ["files.example.com"] }]),
+      backend,
+      { mode: "enforce", log: fakeLog() },
+    );
+    expect(() => gate.downloads.start(downloadRequest())).toThrow(
+      "global id collision",
+    );
+    expect(() => gate.downloads.cancel("job-1")).toThrow(
+      "was not started by this plugin",
+    );
+    expect(backend.downloads.cancel).not.toHaveBeenCalled();
+  });
+
+  it("adopts only manifest-declared legacy folders", async () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "legacyDownloads", paths: ["models"] }]),
+      backend,
+      { mode: "warn", log: fakeLog() },
+    );
+    await gate.downloads.adoptLegacy({ source: "models", target: "models" });
+    expect(backend.downloads.adoptLegacy).toHaveBeenCalledWith("p", {
+      source: "models",
+      target: "models",
+    });
+    expect(() =>
+      gate.downloads.adoptLegacy({ source: "other", target: "other" }),
+    ).toThrow('matching "legacyDownloads" capability');
   });
 });
 

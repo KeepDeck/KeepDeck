@@ -1,228 +1,45 @@
-//! Voice — the delivery layer over `keepdeck-voice`: a fixed whisper model
-//! registry with download-on-demand (weights are NEVER bundled), one active
-//! push-to-talk capture at a time, and batch transcription on stop.
+//! Native speech delivery over `keepdeck-voice`: one push-to-talk capture and
+//! batch transcription against a caller-provided engine + private model path.
+//! Model catalogs, URLs, installation and deletion deliberately live outside.
 //!
 //! cpal's input stream is !Send, so a capture runs on its own thread that
 //! OWNS the recorder; the managed state holds only the channels that command
 //! it. The loaded whisper context is cached per model path — loading
 //! large-v3-turbo takes seconds and must not happen per utterance.
 
-use std::fs;
-use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use keepdeck_voice::{
-    is_silence, resample, rms, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE,
-};
+use keepdeck_voice::{is_silence, resample, rms, Recorder, WhisperEngine, WHISPER_SAMPLE_RATE};
 // Parakeet is Apple-Silicon only (its ONNX runtime has no Intel-macOS binary).
 #[cfg(target_arch = "aarch64")]
 use keepdeck_voice::ParakeetEngine;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 
-use crate::paths;
+use crate::downloads;
 
-#[derive(Clone, Copy, PartialEq)]
-enum EngineType {
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum EngineType {
     Whisper,
     #[cfg(target_arch = "aarch64")]
     Parakeet,
 }
 
-/// How a model's payload arrives.
-enum Payload {
-    /// One flat file at the models root — whisper's original layout, kept
-    /// so existing installs stay installed. Completeness is held to the
-    /// response's Content-Length; `bytes` only feeds the progress bar.
-    File {
-        url: &'static str,
-        name: &'static str,
-        bytes: u64,
-    },
-    /// One tar.gz holding `contents`, unpacked into the model's folder. The
-    /// whole archive is held to `sha256` BEFORE anything is extracted.
-    Archive {
-        url: &'static str,
-        bytes: u64,
-        sha256: &'static str,
-        contents: &'static [&'static str],
-    },
+#[tauri::command]
+pub fn voice_engines() -> Vec<&'static str> {
+    let mut engines = vec!["whisper"];
+    #[cfg(target_arch = "aarch64")]
+    engines.push("parakeet");
+    engines
 }
 
-/// The downloadable model registry — every entry is MULTILINGUAL with
-/// Russian covered. Sources live on blob.handy.computer: HF's Xet CDN
-/// answers anonymous downloads with 403 (verified with plain curl on both
-/// the parakeet and whisper repos), so the HF route is closed to an app
-/// without user tokens.
-struct ModelSpec {
-    id: &'static str,
-    label: &'static str,
-    size_mb: u32,
-    engine: EngineType,
-    /// A retired entry has no working source anymore: an existing install
-    /// keeps transcribing and can be deleted, but it is never offered for
-    /// download and hides from the picker when absent.
-    retired: bool,
-    payload: Payload,
-}
-
-/// Whisper models — compiled from source, so both arches carry them.
-const WHISPER_MODELS: &[ModelSpec] = &[
-    // Retired: these q5 files were served per-file from HF before the Xet
-    // 403 wall went up, and no mirror carries them.
-    ModelSpec {
-        id: "whisper-base-q5_1",
-        label: "Whisper Base — fastest, good for short commands",
-        size_mb: 60,
-        engine: EngineType::Whisper,
-        retired: true,
-        payload: Payload::File {
-            url: "",
-            name: "ggml-base-q5_1.bin",
-            bytes: 60_000_000,
-        },
-    },
-    ModelSpec {
-        id: "whisper-small-q5_1",
-        label: "Whisper Small — balanced",
-        size_mb: 190,
-        engine: EngineType::Whisper,
-        retired: true,
-        payload: Payload::File {
-            url: "",
-            name: "ggml-small-q5_1.bin",
-            bytes: 190_000_000,
-        },
-    },
-    ModelSpec {
-        id: "whisper-small",
-        label: "Whisper Small — good for short commands",
-        size_mb: 465,
-        engine: EngineType::Whisper,
-        retired: false,
-        payload: Payload::File {
-            url: "https://blob.handy.computer/ggml-small.bin",
-            name: "ggml-small.bin",
-            bytes: 487_601_967,
-        },
-    },
-    ModelSpec {
-        id: "whisper-large-v3-turbo-q5_0",
-        label: "Whisper Large v3 Turbo — best accuracy, for dictation",
-        size_mb: 574,
-        engine: EngineType::Whisper,
-        retired: false,
-        payload: Payload::File {
-            url: "https://blob.handy.computer/ggml-large-v3-turbo-q5_0.bin",
-            name: "ggml-large-v3-turbo-q5_0.bin",
-            bytes: 574_041_195,
-        },
-    },
-];
-
-/// Apple-Silicon-only models (Parakeet's ONNX runtime has no Intel-macOS
-/// binary). Empty on every other arch, so the picker never offers a model
-/// the build can't run.
-#[cfg(target_arch = "aarch64")]
-const NATIVE_MODELS: &[ModelSpec] = &[
-    // The istupakov ONNX export, bundled by Handy — HF's Xet CDN answers
-    // anonymous downloads of the flat files with 403 (verified with plain
-    // curl), so the archive mirror is the reliable source. int8, CC-BY-4.0.
-    ModelSpec {
-        id: "parakeet-tdt-0.6b-v3",
-        label: "Parakeet TDT 0.6B v3 — fast and accurate, commands and dictation",
-        size_mb: 456,
-        engine: EngineType::Parakeet,
-        retired: false,
-        payload: Payload::Archive {
-            url: "https://blob.handy.computer/parakeet-v3-int8.tar.gz",
-            bytes: 478_517_071,
-            sha256: "43d37191602727524a7d8c6da0eef11c4ba24320f5b4730f1a2497befc2efa77",
-            contents: &[
-                "vocab.txt",
-                "nemo128.onnx",
-                "encoder-model.int8.onnx",
-                "decoder_joint-model.int8.onnx",
-            ],
-        },
-    },
-];
-
-#[cfg(not(target_arch = "aarch64"))]
-const NATIVE_MODELS: &[ModelSpec] = &[];
-
-/// Every model this build can run: whisper on all arches, plus the native
-/// (Apple-Silicon) set.
-fn models() -> impl Iterator<Item = &'static ModelSpec> {
-    WHISPER_MODELS.iter().chain(NATIVE_MODELS.iter())
-}
-
-fn spec(id: &str) -> Result<&'static ModelSpec, String> {
-    models()
-        .find(|m| m.id == id)
-        .ok_or_else(|| format!("unknown voice model \"{id}\""))
-}
-
-fn models_dir() -> Result<PathBuf, String> {
-    let dir = paths::keepdeck_home()
-        .ok_or("no home directory")?
-        .join("models");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
-/// Where a model's files live: single-file models sit flat in the models
-/// root (whisper's original layout); archives unpack into their own folder.
-fn install_dir(m: &ModelSpec) -> Result<PathBuf, String> {
-    let root = models_dir()?;
-    match &m.payload {
-        Payload::File { .. } => Ok(root),
-        Payload::Archive { .. } => Ok(root.join(m.id)),
-    }
-}
-
-/// The directory that actually HOLDS an archive model's contents: the
-/// install dir itself, or — when the tarball carries one wrapping folder —
-/// that single child. Checked against the payload's content list, so a
-/// half-extracted model never reads as installed.
-fn archive_root(
-    dir: &std::path::Path,
-    contents: &[&str],
-) -> Option<PathBuf> {
-    let holds_all =
-        |d: &std::path::Path| contents.iter().all(|name| d.join(name).exists());
-    if holds_all(dir) {
-        return Some(dir.to_path_buf());
-    }
-    let entries = fs::read_dir(dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() && holds_all(&path) {
-            return Some(path);
-        }
-    }
-    None
-}
-
-/// The path the engine loads from — a file for whisper, the content
-/// directory for parakeet. None when not (fully) installed.
-fn load_path(m: &ModelSpec) -> Result<Option<PathBuf>, String> {
-    let dir = install_dir(m)?;
-    match &m.payload {
-        Payload::File { name, .. } => {
-            let path = dir.join(name);
-            Ok(path.exists().then_some(path))
-        }
-        Payload::Archive { contents, .. } => Ok(archive_root(&dir, contents)),
-    }
-}
-
-fn installed(m: &ModelSpec) -> Result<bool, String> {
-    Ok(load_path(m)?.is_some())
+fn resolve_model_path(plugin_id: &str, relative: &str) -> Result<PathBuf, String> {
+    downloads::target_path(&format!("plugins/{plugin_id}/{relative}"))
 }
 
 // ---------------------------------------------------------------- capture --
@@ -279,10 +96,6 @@ pub struct VoiceState {
     processing: Arc<Mutex<()>>,
     /// Whether the idle-reaper thread is running (spawned once, on first load).
     reaper: Arc<AtomicBool>,
-    /// Model ids whose in-flight download should stop. Shared with the
-    /// blocking transfer loop; a cancelled transfer KEEPS its .part so the
-    /// next attempt resumes instead of starting over.
-    cancels: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 /// Start the idle reaper once: every 30s it drops the cached engine if it has
@@ -302,266 +115,6 @@ fn ensure_reaper(state: &VoiceState) {
             *slot = None;
         }
     });
-}
-
-/// The error string a cancelled download returns — the UI treats it as a
-/// quiet reset, not a failure to paint red.
-pub const DOWNLOAD_CANCELLED: &str = "cancelled";
-
-/// One human sentence out of a transfer failure — the raw ureq error drags
-/// the entire signed CDN URL into the UI.
-fn humanize_http(e: ureq::Error) -> String {
-    match e {
-        ureq::Error::Status(code, _) => match code {
-            403 => "the server refused the download (HTTP 403) — try again later".into(),
-            404 => "the file is gone from the server (HTTP 404)".into(),
-            429 => "rate-limited by the server (HTTP 429) — try again later".into(),
-            _ => format!("the server refused the download (HTTP {code})"),
-        },
-        ureq::Error::Transport(t) => {
-            format!("network error{}", t.message().map(|m| format!(": {m}")).unwrap_or_default())
-        }
-    }
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct VoiceModelDto {
-    id: String,
-    label: String,
-    size_mb: u32,
-    installed: bool,
-    /// No working source anymore: an install keeps working, but there is
-    /// nothing to download — the picker hides it when absent.
-    retired: bool,
-}
-
-#[tauri::command]
-pub fn voice_model_list() -> Result<Vec<VoiceModelDto>, String> {
-    models()
-        .map(|m| {
-            Ok(VoiceModelDto {
-                id: m.id.to_string(),
-                label: m.label.to_string(),
-                size_mb: m.size_mb,
-                installed: installed(m)?,
-                retired: m.retired,
-            })
-        })
-        .collect()
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct DownloadProgress {
-    received: u64,
-    total: Option<u64>,
-}
-
-/// Stream one URL to `dest` with progress against `total`, returning the
-/// byte count and the SHA-256 of the WHOLE file. An existing `dest` resumes
-/// via a Range request (existing bytes are re-hashed first; a server that
-/// ignores Range restarts from zero). A cancel — `cancels` gaining `id` —
-/// stops the transfer but KEEPS the partial file for the next resume;
-/// truncated transfers are kept for the same reason, reported as errors.
-fn fetch_to(
-    url: &str,
-    dest: &std::path::Path,
-    total: u64,
-    id: &str,
-    cancels: &Mutex<std::collections::HashSet<String>>,
-    on_progress: &Channel<DownloadProgress>,
-) -> Result<(u64, String), String> {
-    use sha2::{Digest, Sha256};
-
-    let mut offset = fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
-    let mut request = ureq::get(url);
-    if offset > 0 {
-        request = request.set("Range", &format!("bytes={offset}-"));
-    }
-    let response = request.call().map_err(humanize_http)?;
-
-    let mut hasher = Sha256::new();
-    let file;
-    if offset > 0 && response.status() == 206 {
-        // Resuming: the hash must still cover the whole file.
-        let mut existing = fs::File::open(dest).map_err(|e| e.to_string())?;
-        let mut buf = [0u8; 64 * 1024];
-        loop {
-            let n = existing.read(&mut buf).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-        }
-        file = fs::OpenOptions::new()
-            .append(true)
-            .open(dest)
-            .map_err(|e| e.to_string());
-    } else {
-        offset = 0;
-        file = fs::File::create(dest).map_err(|e| e.to_string());
-    }
-    let mut file = file?;
-
-    let expected = response
-        .header("Content-Length")
-        .and_then(|v| v.parse::<u64>().ok())
-        .map(|len| offset + len);
-    let mut reader = response.into_reader();
-    let mut received: u64 = offset;
-    let mut last_reported: u64 = 0;
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-        hasher.update(&buf[..n]);
-        received += n as u64;
-        // ~every 512 KiB: often enough for a live bar, rare enough to stay
-        // off the IPC hot path — and the natural place to notice a cancel.
-        if received - last_reported >= 512 * 1024 {
-            last_reported = received;
-            if cancels.lock().expect("poisoned").remove(id) {
-                let _ = file.flush();
-                return Err(DOWNLOAD_CANCELLED.into());
-            }
-            let _ = on_progress.send(DownloadProgress {
-                received,
-                total: Some(total),
-            });
-        }
-    }
-    file.flush().map_err(|e| e.to_string())?;
-    drop(file);
-    // A cut connection leaves a resumable .part behind; just say so.
-    if let Some(expected) = expected {
-        if received != expected {
-            return Err(format!(
-                "connection dropped at {} of {} MB — Download resumes where it stopped",
-                received / 1_000_000,
-                expected / 1_000_000
-            ));
-        }
-    }
-    Ok((received, format!("{:x}", hasher.finalize())))
-}
-
-/// Download a model with one progress feed. A plain file lands as
-/// `<name>.part` and renames on completion; an archive is checksum-verified
-/// BEFORE extraction and deleted after — an aborted or tampered download
-/// never masquerades as installed.
-#[tauri::command]
-pub async fn voice_model_download(
-    id: String,
-    on_progress: Channel<DownloadProgress>,
-    state: tauri::State<'_, VoiceState>,
-) -> Result<(), String> {
-    let m = spec(&id)?;
-    if m.retired {
-        return Err("this model is retired — its source is gone; pick another".into());
-    }
-    if installed(m)? {
-        return Ok(());
-    }
-    let dir = install_dir(m)?;
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let cancels = state.cancels.clone();
-    // A stale cancel from a previous attempt must not kill this one.
-    cancels.lock().expect("poisoned").remove(&id);
-
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        match &m.payload {
-            Payload::File { url, name, bytes } => {
-                let final_path = dir.join(name);
-                let part_path = final_path.with_extension("part");
-                let (received, _) =
-                    fetch_to(url, &part_path, *bytes, m.id, &cancels, &on_progress)?;
-                fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
-                let _ = on_progress.send(DownloadProgress {
-                    received,
-                    total: Some(received),
-                });
-            }
-            Payload::Archive {
-                url,
-                bytes,
-                sha256,
-                contents: _,
-            } => {
-                let archive_path = dir.join("payload.tar.gz.part");
-                let (received, digest) =
-                    fetch_to(url, &archive_path, *bytes, m.id, &cancels, &on_progress)?;
-                if digest != *sha256 {
-                    // Corrupt is the one case a .part must NOT survive —
-                    // resuming onto bad bytes can never produce a good file.
-                    let _ = fs::remove_file(&archive_path);
-                    return Err(format!(
-                        "checksum mismatch for {} — the download was corrupted, try again",
-                        m.id
-                    ));
-                }
-                let file = fs::File::open(&archive_path).map_err(|e| e.to_string())?;
-                let tar = flate2::read::GzDecoder::new(file);
-                // `unpack` refuses absolute paths and `..` escapes.
-                tar::Archive::new(tar)
-                    .unpack(&dir)
-                    .map_err(|e| format!("extract failed: {e}"))?;
-                let _ = fs::remove_file(&archive_path);
-                let _ = on_progress.send(DownloadProgress {
-                    received,
-                    total: Some(received),
-                });
-            }
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Stop an in-flight download. The partial file stays — the next Download
-/// resumes where it stopped.
-#[tauri::command]
-pub fn voice_model_download_cancel(
-    id: String,
-    state: tauri::State<'_, VoiceState>,
-) -> Result<(), String> {
-    state.cancels.lock().expect("poisoned").insert(id);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn voice_model_delete(
-    id: String,
-    state: tauri::State<'_, VoiceState>,
-) -> Result<(), String> {
-    let m = spec(&id)?;
-    // Drop a cached engine holding this model before unlinking it.
-    {
-        let mut engine = state.engine.lock().expect("poisoned");
-        if engine.as_ref().is_some_and(|cached| cached.id == m.id) {
-            *engine = None;
-        }
-    }
-    match &m.payload {
-        // Archive models own their folder outright.
-        Payload::Archive { .. } => {
-            let dir = install_dir(m)?;
-            if dir.exists() {
-                fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
-            }
-        }
-        Payload::File { name, .. } => {
-            let path = install_dir(m)?.join(name);
-            if path.exists() {
-                fs::remove_file(&path).map_err(|e| e.to_string())?;
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Start one push-to-talk capture. Mic levels stream to `on_level` (coalesced
@@ -663,31 +216,34 @@ pub struct TranscriptDto {
     level: f32,
 }
 
-/// Stop the capture and transcribe it with `model`. `language` pins a
+/// Stop the capture and transcribe it with the caller's engine + model path. `language` pins a
 /// whisper code ("en", "ru"); absent = auto-detect. `prompt` biases whisper
 /// vocabulary (workspace/branch names, command words) — parakeet detects its
 /// 25 languages itself and takes no prompt.
 #[tauri::command]
 pub async fn voice_capture_stop(
-    model: String,
+    plugin_id: String,
+    engine: EngineType,
+    model_path: String,
     language: Option<String>,
     prompt: Option<String>,
     state: tauri::State<'_, VoiceState>,
 ) -> Result<TranscriptDto, String> {
-    let m = spec(&model)?;
-    let Some(load_path) = load_path(m)? else {
+    let load_path = resolve_model_path(&plugin_id, &model_path)?;
+    if !load_path.exists() {
         // Still tear the capture down — the mic must not stay hot behind an
         // uninstalled-model error.
         let _ = take_capture(&state).map(|c| c.cmd_tx.send(CaptureCmd::Cancel));
-        return Err(format!("voice model \"{model}\" is not downloaded"));
-    };
+        return Err("speech model is not downloaded".into());
+    }
+    let cache_key = format!("{engine:?}:{}", load_path.display());
     let capture = take_capture(&state)?;
     ensure_reaper(&state);
     let engine_slot = state.engine.clone();
     let processing = state.processing.clone();
 
-    let transcript = tauri::async_runtime::spawn_blocking(
-        move || -> Result<TranscriptDto, String> {
+    let transcript =
+        tauri::async_runtime::spawn_blocking(move || -> Result<TranscriptDto, String> {
             capture
                 .cmd_tx
                 .send(CaptureCmd::Stop)
@@ -730,12 +286,12 @@ pub async fn voice_capture_stop(
                 let mut slot = engine_slot.lock().expect("poisoned");
                 let reusable = slot
                     .as_ref()
-                    .filter(|cached| cached.id == m.id)
+                    .filter(|cached| cached.id == cache_key)
                     .map(|cached| cached.engine.clone());
                 match reusable {
                     Some(e) => e,
                     None => {
-                        let e = match m.engine {
+                        let e = match engine {
                             EngineType::Whisper => CachedEngine::Whisper(Arc::new(
                                 WhisperEngine::load(&load_path).map_err(|e| e.to_string())?,
                             )),
@@ -745,7 +301,7 @@ pub async fn voice_capture_stop(
                             ))),
                         };
                         *slot = Some(CachedModel {
-                            id: m.id.to_string(),
+                            id: cache_key.clone(),
                             engine: e.clone(),
                             last_used: Instant::now(),
                         });
@@ -772,7 +328,7 @@ pub async fn voice_capture_stop(
                 .lock()
                 .expect("poisoned")
                 .as_mut()
-                .filter(|cached| cached.id == m.id)
+                .filter(|cached| cached.id == cache_key)
             {
                 cached.last_used = Instant::now();
             }
@@ -783,10 +339,9 @@ pub async fn voice_capture_stop(
                 seconds,
                 level,
             })
-        },
-    )
-    .await
-    .map_err(|e| e.to_string())??;
+        })
+        .await
+        .map_err(|e| e.to_string())??;
 
     Ok(transcript)
 }

@@ -233,11 +233,22 @@ export function createFakeHost(
       },
     },
     services: {
-      voice: {
-        models: async () => [],
-        downloadModel: async () => {},
-        cancelDownload: async () => {},
-        deleteModel: async () => {},
+      downloads: {
+        async *start(request) {
+          yield {
+            id: request.id,
+            phase: "completed" as const,
+            received: request.integrity?.bytes ?? 0,
+            total: request.integrity?.bytes ?? null,
+          };
+        },
+        cancel: async () => {},
+        exists: async () => false,
+      remove: async () => {},
+      adoptLegacy: async () => {},
+      },
+      speech: {
+        engines: async () => ["whisper"],
         startCapture: async () => {},
         stopCapture: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
         cancelCapture: async () => {},

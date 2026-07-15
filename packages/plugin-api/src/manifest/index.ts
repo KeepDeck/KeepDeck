@@ -15,6 +15,7 @@ export {
 export { hasUnsafeText } from "./text.ts";
 export {
   API_VERSION,
+  MIN_COMPATIBLE_API_VERSION,
   isApiVersion,
   parseVersion,
   satisfiesApiFloor,

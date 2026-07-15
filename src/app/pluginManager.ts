@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
   readManifest,
+  type DownloadRequest,
+  type DownloadTarget,
+  type LegacyDownloadRequest,
   type Disposable,
   type KeepDeckPlugin,
   type PluginCategory,
@@ -46,12 +49,9 @@ import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
 import {
   voiceCaptureCancel,
+  voiceEngines,
   voiceCaptureStart,
   voiceCaptureStop,
-  voiceModelDelete,
-  voiceModelDownloadCancel,
-  voiceModelDownload,
-  voiceModelList,
 } from "../ipc/voice";
 import { describeError, log } from "../ipc/log";
 import { allocatePorts } from "../ipc/ports";
@@ -64,6 +64,7 @@ import { ensurePluginStylesheet } from "./pluginStylesheets";
 import { clearOverlayVisibility, setOverlayVisibility } from "./overlayVisibility";
 import { clearPluginCrashes } from "./pluginHealth";
 import { mergeSectionValues } from "./pluginSettingsValues";
+import { appDownloads } from "./runtime";
 
 /**
  * The owner of the plugin system — one per app, outside React, like
@@ -303,6 +304,21 @@ const watchProjectGit = makeWatchFanout({
   stop: projectGitUnwatch,
 });
 
+function pluginTarget(pluginId: string, target: DownloadTarget): DownloadTarget {
+  return { ...target, path: `plugins/${pluginId}/${target.path}` };
+}
+
+function pluginRequest(pluginId: string, request: DownloadRequest): DownloadRequest {
+  return { ...request, target: pluginTarget(pluginId, request.target) };
+}
+
+function pluginLegacyRequest(
+  pluginId: string,
+  request: LegacyDownloadRequest,
+): LegacyDownloadRequest {
+  return { ...request, target: `plugins/${pluginId}/${request.target}` };
+}
+
 /** The ungated platform services — what the capability gate decorates. `fs`
  * is scope-aware here (the gate injects the scope it derived from the
  * manifest); this backend turns that scope into concrete roots. */
@@ -329,14 +345,24 @@ const serviceBackend: ServiceBackends = {
     },
   },
   ports: { allocate: (key) => allocatePorts(key) },
-  voice: {
-    models: () => voiceModelList(),
-    downloadModel: (id, onProgress) =>
-      voiceModelDownload(id, (p) => onProgress?.(p)),
-    cancelDownload: (id) => voiceModelDownloadCancel(id),
-    deleteModel: (id) => voiceModelDelete(id),
+  downloads: {
+    start: (pluginId, request, allowedDomains, onTerminal) =>
+      appDownloads.start(pluginRequest(pluginId, request), {
+        allowedDomains,
+        onTerminal,
+      }),
+    cancel: (id) => appDownloads.cancel(id),
+    exists: (pluginId, target) =>
+      appDownloads.exists(pluginTarget(pluginId, target)),
+    remove: (pluginId, target) =>
+      appDownloads.remove(pluginTarget(pluginId, target)),
+    adoptLegacy: (pluginId, request) =>
+      appDownloads.adoptLegacy(pluginLegacyRequest(pluginId, request)),
+  },
+  speech: {
+    engines: () => voiceEngines(),
     startCapture: (onLevel) => voiceCaptureStart((rms) => onLevel?.(rms)),
-    stopCapture: (opts) => voiceCaptureStop(opts),
+    stopCapture: (pluginId, opts) => voiceCaptureStop(pluginId, opts),
     cancelCapture: () => voiceCaptureCancel(),
   },
   opener: {

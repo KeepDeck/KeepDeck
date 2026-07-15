@@ -9,7 +9,7 @@
 import "./styles.css";
 import type { KeepDeckPlugin, PluginContext } from "@keepdeck/plugin-api";
 import { createVoiceController } from "./controller";
-import { createDownloadManager } from "./downloads";
+import { createModelDownloads } from "./downloads";
 import { createModelsStore } from "./models";
 import { installPttHotkeys } from "./hotkeys";
 import { clearRuntime, setRuntime } from "./runtime";
@@ -20,12 +20,19 @@ import { VoiceTab } from "./components/VoiceTab";
 let uninstallHotkeys: (() => void) | null = null;
 
 const plugin: KeepDeckPlugin = {
-  activate(ctx: PluginContext) {
-    const controller = createVoiceController(ctx);
+  async activate(ctx: PluginContext) {
+    await ctx.services.downloads
+      .adoptLegacy({ source: "models", target: "models", stripSingleRoots: true })
+      .catch((error) => {
+        ctx.log.warn(
+          `legacy model adoption failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
     const models = createModelsStore(ctx);
+    const controller = createVoiceController(ctx, Date.now, models.current);
     // A finished download refreshes the shared model list, so the tab's
     // "no model" prompt clears without reopening.
-    const downloads = createDownloadManager(ctx, () => void models.refresh());
+    const downloads = createModelDownloads(ctx, () => void models.refresh());
     setRuntime({ ctx, controller, downloads, models });
 
     ctx.ui.registerDockTab({ id: "voice", label: "Voice", Component: VoiceTab });

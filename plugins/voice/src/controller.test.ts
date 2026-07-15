@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginContext, VoiceTranscript } from "@keepdeck/plugin-api";
+import type { PluginContext, SpeechTranscript } from "@keepdeck/plugin-api";
 import {
   createFakeHost,
   fakeManifest,
 } from "../../../packages/plugin-guest/src/fakeHost";
 import { createVoiceController } from "./controller";
+import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 
-/** A fake host whose voice service yields scripted transcripts and whose
+const installedModels = async (): Promise<VoiceModelInfo[]> =>
+  MODEL_CATALOG.map((model) => ({ ...model, installed: true }));
+
+/** A fake host whose speech service yields scripted transcripts and whose
  * command results are primeable — the controller under real wiring. */
-function setup(partial: Partial<VoiceTranscript> & Pick<VoiceTranscript, "text" | "silence">) {
-  const transcript: VoiceTranscript = { seconds: 1.2, level: 0.05, ...partial };
+function setup(partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text" | "silence">) {
+  const transcript: SpeechTranscript = { seconds: 1.2, level: 0.05, ...partial };
   const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
   const cancelCapture = vi.fn(async () => {});
   let onLevel: ((rms: number) => void) | undefined;
@@ -17,8 +21,8 @@ function setup(partial: Partial<VoiceTranscript> & Pick<VoiceTranscript, "text" 
     ...host.ctx,
     services: {
       ...host.ctx.services,
-      voice: {
-        ...host.ctx.services.voice,
+      speech: {
+        ...host.ctx.services.speech,
         startCapture: vi.fn(async (cb) => {
           onLevel = cb;
         }),
@@ -39,7 +43,7 @@ function setup(partial: Partial<VoiceTranscript> & Pick<VoiceTranscript, "text" 
       { id: "ws-2", name: "Website", active: false, panes: [] },
     ],
   });
-  const controller = createVoiceController(ctx, () => 42);
+  const controller = createVoiceController(ctx, () => 42, installedModels);
   return { host, controller, cancelCapture, level: () => onLevel };
 }
 
@@ -86,19 +90,22 @@ describe("createVoiceController", () => {
       ...host.ctx,
       services: {
         ...host.ctx.services,
-        voice: {
-          ...host.ctx.services.voice,
+        speech: {
+          ...host.ctx.services.speech,
           startCapture: vi.fn(async () => {}),
           stopCapture: stop,
         },
       },
     };
     host.commandResults.set("workspace.list", { ok: true, value: [] });
-    const controller = createVoiceController(ctx, () => 42);
+    const controller = createVoiceController(ctx, () => 42, installedModels);
     await controller.start("command");
     await controller.stop();
     expect(stop).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "whisper-small-q5_1" }),
+      expect.objectContaining({
+        engine: "whisper",
+        modelPath: "models/ggml-small-q5_1.bin",
+      }),
     );
   });
 
@@ -121,6 +128,82 @@ describe("createVoiceController", () => {
       ["heard", "please refactor the parser"],
       ["done", "sent to the focused agent"],
     ]);
+  });
+
+  it("waits for the initial model scan before selecting an engine", async () => {
+    let release!: (models: VoiceModelInfo[]) => void;
+    const ready = new Promise<VoiceModelInfo[]>((resolve) => {
+      release = resolve;
+    });
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const stopCapture = vi.fn(async () => ({
+      text: "",
+      silence: true,
+      seconds: 0,
+      level: 0,
+    }));
+    const waiting = createVoiceController(
+      {
+        ...host.ctx,
+        services: {
+          ...host.ctx.services,
+          speech: {
+            ...host.ctx.services.speech,
+            startCapture: vi.fn(async () => {}),
+            stopCapture,
+          },
+        },
+      },
+      () => 42,
+      () => ready,
+    );
+    host.commandResults.set("workspace.list", { ok: true, value: [] });
+    await waiting.start("command");
+    const stopping = waiting.stop();
+    await Promise.resolve();
+    expect(stopCapture).not.toHaveBeenCalled();
+    release(await installedModels());
+    await stopping;
+    expect(stopCapture).toHaveBeenCalledOnce();
+    expect(waiting.snapshot().phase).toBe("idle");
+  });
+
+  it("falls back when the persisted model is stale or not installed", async () => {
+    const host = createFakeHost({
+      manifest: fakeManifest("keepdeck.voice"),
+      settingsValues: { model: "removed-model" },
+    });
+    const stopCapture = vi.fn(async () => ({
+      text: "",
+      silence: true,
+      seconds: 0,
+      level: 0,
+    }));
+    const models = (await installedModels()).map((model) => ({
+      ...model,
+      installed: model.id === "whisper-small",
+    }));
+    const controller = createVoiceController(
+      {
+        ...host.ctx,
+        services: {
+          ...host.ctx.services,
+          speech: {
+            ...host.ctx.services.speech,
+            startCapture: vi.fn(async () => {}),
+            stopCapture,
+          },
+        },
+      },
+      () => 42,
+      async () => models,
+    );
+    host.commandResults.set("workspace.list", { ok: true, value: [] });
+    await controller.start("command");
+    await controller.stop();
+    expect(stopCapture).toHaveBeenCalledWith(
+      expect.objectContaining({ modelPath: "models/ggml-small.bin" }),
+    );
   });
 
   it("refuses an unresolvable workspace instead of guessing", async () => {

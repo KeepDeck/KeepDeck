@@ -57,15 +57,16 @@ keepdeck-voice = { path = "../crates/keepdeck-voice" }
 # does NOT reliably prompt on CoreAudio stream start and silently delivers
 # zeros instead — the explicit request is what makes the prompt appear.
 tauri-plugin-macos-permissions = "2"
-# Voice model downloads (streaming to disk with progress); rustls, no
-# system TLS surprises across macOS versions.
+# Shared downloads (plugins and app updates), streaming to disk with progress;
+# rustls avoids system TLS surprises across macOS versions.
 ureq = "2"
-# Parakeet ships as a tar.gz bundle (HF's Xet CDN 403s anonymous downloads,
-# so the archive mirror is the reliable source): gzip + tar to unpack it,
-# sha2 to hold the payload to its published checksum.
+url = "2"
+# Generic archive extraction and integrity policies supported by the engine.
 flate2 = "1"
 tar = "0.4"
 sha2 = "0.10"
+base64 = "0.22"
+minisign-verify = "0.2"
 
 # Our own AVCaptureDevice request with a REAL completion block (the plugin's
 # request passes a nil handler, which fails to raise the prompt in dev):
@@ -76,4 +77,3 @@ objc2-foundation = "0.3"
 
 [dev-dependencies]
 tempfile = "3"
-

@@ -1,6 +1,7 @@
 import type { CommandArgs, PluginContext } from "@keepdeck/plugin-api";
 import { bestMatch } from "./fuzzy";
 import { normalize, parseCommand, type Intent } from "./grammar";
+import type { VoiceModelInfo } from "./modelCatalog";
 
 /**
  * The voice controller — one push-to-talk state machine shared by the hotkey
@@ -53,6 +54,7 @@ export interface VoiceController {
 export function createVoiceController(
   ctx: PluginContext,
   now: () => number = Date.now,
+  currentModels: () => Promise<readonly VoiceModelInfo[]> = async () => [],
 ): VoiceController {
   let phase: VoicePhase = "idle";
   let mode: VoiceMode | null = null;
@@ -180,7 +182,7 @@ export function createVoiceController(
       level = 0;
       notify();
       try {
-        await ctx.services.voice.startCapture((rms) => {
+        await ctx.services.speech.startCapture((rms) => {
           level = rms;
           notify();
         });
@@ -198,29 +200,30 @@ export function createVoiceController(
       phase = "transcribing";
       notify();
       try {
-        const rows = await workspaces().catch(() => [] as WorkspaceRow[]);
+        const [rows, values, models] = await Promise.all([
+          workspaces().catch(() => [] as WorkspaceRow[]),
+          ctx.settings.read(),
+          currentModels(),
+        ]);
         // The pick persists in the plugin's settings values (settings.json)
         // — the global KV is still a stub, and a choice that silently
         // evaporates on restart is worse than none.
-        const values = await ctx.settings.read();
-        let model =
+        const persisted =
           typeof values[MODEL_KEY] === "string"
             ? (values[MODEL_KEY] as string)
             : null;
-        if (!model) {
-          // No pick yet: whatever is actually installed beats a default
-          // that would answer "not downloaded".
-          const models = await ctx.services.voice.models().catch(() => []);
-          model =
-            models.find((m) => m.installed && !m.retired)?.id ??
-            models.find((m) => m.installed)?.id ??
-            DEFAULT_MODEL;
-        }
+        const selected =
+          models.find((model) => model.id === persisted && model.installed) ??
+          models.find((model) => model.installed && !model.retired) ??
+          models.find((model) => model.installed) ??
+          null;
+        if (!selected) throw new Error("no speech model is installed");
 
         // No language pin: whisper's auto-detect handles per-utterance
         // language switching better than any setting the user must remember.
-        const transcript = await ctx.services.voice.stopCapture({
-          model,
+        const transcript = await ctx.services.speech.stopCapture({
+          engine: selected.engine,
+          modelPath: selected.target.path,
           prompt: buildPrompt(rows),
         });
 
@@ -271,7 +274,7 @@ export function createVoiceController(
       mode = null;
       level = 0;
       notify();
-      await ctx.services.voice.cancelCapture().catch(() => {});
+      await ctx.services.speech.cancelCapture().catch(() => {});
     },
   };
 }

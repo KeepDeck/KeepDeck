@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import {
+  cancelUpdateDownload,
   checkForUpdatesNow,
   dismissUpdate,
   downloadUpdate,
   restartToUpdate,
 } from "../../app/updateManager";
+import { downloadPercent } from "@keepdeck/plugin-api";
 import { useUpdate } from "../../app/useUpdate";
 import { fetchAppInfo } from "../../ipc/app";
 import type { UpdateState } from "../../app/updateManager";
@@ -20,16 +22,15 @@ function describeState(state: UpdateState): string {
       if (state.error) return `Download failed: ${state.error} — try again.`;
       return `Version ${state.version ?? "?"} is available — nothing has been downloaded yet.`;
     case "downloading": {
-      const progress =
-        state.total !== null && state.total > 0
-          ? ` ${Math.round((state.received / state.total) * 100)}%`
-          : "";
+      const percent = downloadPercent(state);
+      const progress = percent === null ? "" : ` ${percent}%`;
       return `Downloading ${state.version ?? "update"}…${progress}`;
     }
     case "ready":
       if (state.error) return `Install failed: ${state.error} — try again.`;
       return `Version ${state.version ?? "?"} is downloaded — nothing changes until you restart.`;
     case "installing":
+      if (state.error) return state.error;
       return "Installing the update and restarting…";
     case "idle":
       if (state.error) return `Last check failed: ${state.error}`;
@@ -44,22 +45,30 @@ function describeState(state: UpdateState): string {
 function actions(state: UpdateState) {
   switch (state.phase) {
     case "available":
-    case "downloading":
       return [
         {
           key: "download",
-          label:
-            state.phase === "downloading" ? "Downloading…" : "Download update",
+          label: "Download update",
           active: true,
-          disabled: state.phase === "downloading",
+          disabled: false,
           onClick: () => void downloadUpdate(),
         },
         {
           key: "dismiss",
           label: "Dismiss",
           active: false,
-          disabled: state.phase === "downloading",
+          disabled: false,
           onClick: () => dismissUpdate(),
+        },
+      ];
+    case "downloading":
+      return [
+        {
+          key: "cancel",
+          label: "Cancel",
+          active: false,
+          disabled: false,
+          onClick: () => cancelUpdateDownload(),
         },
       ];
     case "ready":

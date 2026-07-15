@@ -3,6 +3,7 @@ import type {
   CommandInfo,
   CommandResult,
   Disposable,
+  DownloadState,
   FileOpenRequest,
   FsEntry,
   FsFile,
@@ -17,6 +18,56 @@ import type {
 import { describeError } from "./errors";
 import type { GuestRpc } from "./rpc";
 import type { WireHookCall, WireOpenCall, WireSessionEvent } from "./protocol";
+
+class RemoteDownloadStream implements AsyncIterable<DownloadState>, AsyncIterator<DownloadState> {
+  private value: DownloadState | null = null;
+  private readonly waiters: Array<(result: IteratorResult<DownloadState>) => void> = [];
+  private ended = false;
+
+  constructor(private readonly detach: () => void) {}
+
+  [Symbol.asyncIterator](): AsyncIterator<DownloadState> {
+    return this;
+  }
+
+  push(state: DownloadState): void {
+    if (this.ended) return;
+    const waiter = this.waiters.shift();
+    if (waiter) waiter({ done: false, value: state });
+    else this.value = state;
+    if (
+      state.phase === "completed" ||
+      state.phase === "cancelled" ||
+      state.phase === "failed"
+    ) {
+      this.ended = true;
+      for (const pending of this.waiters.splice(0)) {
+        pending({ done: true, value: undefined });
+      }
+      this.detach();
+    }
+  }
+
+  next(): Promise<IteratorResult<DownloadState>> {
+    const value = this.value;
+    if (value) {
+      this.value = null;
+      return Promise.resolve({ done: false, value });
+    }
+    if (this.ended) return Promise.resolve({ done: true, value: undefined });
+    return new Promise((resolve) => this.waiters.push(resolve));
+  }
+
+  return(): Promise<IteratorResult<DownloadState>> {
+    this.ended = true;
+    this.value = null;
+    for (const pending of this.waiters.splice(0)) {
+      pending({ done: true, value: undefined });
+    }
+    this.detach();
+    return Promise.resolve({ done: true, value: undefined });
+  }
+}
 
 /** A guest context wired to a bridge, plus the sink the connection pumps
  * host-initiated `event` pushes into. */
@@ -82,6 +133,10 @@ export function buildGuestContext(
   >();
   // One `fswatch:<id>` change callback per open directory watch.
   const watchCallbacks = new Map<string, () => void>();
+  const downloadStreams = new Map<string, RemoteDownloadStream>();
+  const recentDownloadIds = new Set<string>();
+  const recentDownloadOrder: string[] = [];
+  const recentDownloadLimit = 4096;
   let nextRegId = 1;
 
   /** Attach a broadcast-channel listener with a ref-counted host subscription:
@@ -424,17 +479,52 @@ export function buildGuestContext(
           >,
         watch: (repo, onChange) => remoteWatch("git", repo, onChange),
       },
-      voice: {
-        // Capture and downloads need push channels across the realm (level
-        // meter, progress) — external voice waits for its first consumer,
-        // like commands.register. Fail loudly, not silently.
-        models: () => Promise.reject(unavailableVoice()),
-        downloadModel: () => Promise.reject(unavailableVoice()),
-        cancelDownload: () => Promise.reject(unavailableVoice()),
-        deleteModel: () => Promise.reject(unavailableVoice()),
-        startCapture: () => Promise.reject(unavailableVoice()),
-        stopCapture: () => Promise.reject(unavailableVoice()),
-        cancelCapture: () => Promise.reject(unavailableVoice()),
+      downloads: {
+        start: (request) => {
+          if (
+            downloadStreams.has(request.id) ||
+            recentDownloadIds.has(request.id)
+          ) {
+            throw new Error(`download id already used: ${request.id}`);
+          }
+          recentDownloadIds.add(request.id);
+          recentDownloadOrder.push(request.id);
+          while (recentDownloadOrder.length > recentDownloadLimit) {
+            const expired = recentDownloadOrder.shift();
+            if (expired) recentDownloadIds.delete(expired);
+          }
+          let stream!: RemoteDownloadStream;
+          stream = new RemoteDownloadStream(() => {
+            if (downloadStreams.get(request.id) === stream) {
+              downloadStreams.delete(request.id);
+            }
+          });
+          downloadStreams.set(request.id, stream);
+          void rpc.call("services.downloads.start", [request]).catch((error) => {
+            downloadStreams.delete(request.id);
+            stream.push({
+              id: request.id,
+              phase: "failed",
+              received: 0,
+              total: request.integrity?.bytes ?? null,
+              error: describeError(error),
+            });
+          });
+          return stream;
+        },
+        cancel: (id) => rpc.call("services.downloads.cancel", [id]).then(noop),
+        exists: (target) =>
+          rpc.call("services.downloads.exists", [target]) as Promise<boolean>,
+        remove: (target) =>
+          rpc.call("services.downloads.remove", [target]).then(noop),
+        adoptLegacy: (request) =>
+          rpc.call("services.downloads.adoptLegacy", [request]).then(noop),
+      },
+      speech: {
+        engines: () => Promise.reject(unavailableSpeech()),
+        startCapture: () => Promise.reject(unavailableSpeech()),
+        stopCapture: () => Promise.reject(unavailableSpeech()),
+        cancelCapture: () => Promise.reject(unavailableSpeech()),
       },
     },
 
@@ -454,9 +544,9 @@ export function buildGuestContext(
     notify: (input) => void rpc.call("notify", [input]).catch(noop),
   };
 
-  function unavailableVoice(): Error {
+  function unavailableSpeech(): Error {
     return new Error(
-      "the voice service is not yet available to external plugins",
+      "the speech service is not yet available to external plugins",
     );
   }
 
@@ -528,6 +618,22 @@ export function buildGuestContext(
     }
     if (channel.startsWith("fswatch:")) {
       watchCallbacks.get(channel)?.();
+      return;
+    }
+    if (channel.startsWith("download:")) {
+      const id = channel.slice("download:".length);
+      const stream = downloadStreams.get(id);
+      if (stream) {
+        const state = payload as DownloadState;
+        stream.push(state);
+        if (
+          state.phase === "completed" ||
+          state.phase === "cancelled" ||
+          state.phase === "failed"
+        ) {
+          downloadStreams.delete(id);
+        }
+      }
       return;
     }
     // Deck events and the settings-change feed alike land in `channelListeners`.

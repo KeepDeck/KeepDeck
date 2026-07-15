@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { downloadPercent, type DownloadState } from "@keepdeck/plugin-api";
 import { runtime } from "../runtime";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
 
@@ -151,7 +152,7 @@ const TONE_GLYPH = {
 function DownloadStrip({
   active,
 }: {
-  active: Readonly<Record<string, { percent: number | null }>>;
+  active: Readonly<Record<string, DownloadState>>;
 }) {
   const { downloads } = runtime();
   const ids = Object.keys(active);
@@ -159,7 +160,7 @@ function DownloadStrip({
   return (
     <div className="voice__downloads">
       {ids.map((id) => {
-        const percent = active[id].percent;
+        const percent = downloadPercent(active[id]);
         return (
           <div key={id} className="voice__download">
             <span className="voice__download-name">
