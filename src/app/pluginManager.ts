@@ -458,11 +458,7 @@ export const pluginHost = new PluginHost(
       // visibility must not bring its overlays back over the window.
       clearPluginCrashes(pluginId);
       clearOverlayVisibility(pluginId);
-      const plugins = getSettings()?.plugins ?? {
-        enabled: {},
-        values: {},
-        consented: {},
-      };
+      const plugins = getSettings()?.plugins ?? DEFAULT_SETTINGS.plugins;
       const external = externalPlugins.get(pluginId);
       updateSettings({
         plugins: {

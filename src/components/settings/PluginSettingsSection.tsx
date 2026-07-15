@@ -4,6 +4,7 @@ import type {
   SettingsSectionContribution,
 } from "@keepdeck/plugin-api";
 import { listApplications } from "../../ipc/app";
+import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { getSettings, updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { Combobox } from "../../ui/Combobox";
@@ -29,7 +30,7 @@ export function PluginSettingsSection({
   // The write path re-reads the live bag imperatively (not via the hook):
   // two quick edits in one render frame must not clobber each other.
   const write = (key: string, value: unknown) => {
-    const plugins = getSettings()?.plugins ?? { enabled: {}, values: {}, consented: {} };
+    const plugins = getSettings()?.plugins ?? DEFAULT_SETTINGS.plugins;
     updateSettings({
       plugins: {
         ...plugins,
