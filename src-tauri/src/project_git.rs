@@ -229,29 +229,38 @@ pub fn project_git_history(
         Some(ref base_ref) => repo::merge_base(&repo, base_ref, rev)
             .map_err(|e| e.to_string())?
             .filter(|fork| fork != &tip),
-        None => {
-            let from_reflog = branch_name
-                // The default branch's creation entry is its clone point —
-                // meaningless as a fork; the base branch has no base.
-                .filter(|name| Some(name) != default.as_ref())
-                .and_then(|name| repo::branch_created_at(&repo, &name).ok().flatten())
-                .filter(|created| created != &tip)
-                // A rebase orphans the creation point — only an ancestor of
-                // the tip still describes this branch's history.
-                .filter(|created| {
-                    repo::merge_base(&repo, created, &tip).ok().flatten().as_deref()
-                        == Some(created.as_str())
-                });
-            match from_reflog {
-                Some(created) => Some(created),
-                None => match default {
-                    Some(ref base_ref) => repo::merge_base(&repo, base_ref, rev)
+        // No explicit base: measure against the repo's default branch — but
+        // only if one resolves. Without it (a local-only `git init`, or a repo
+        // whose only remote isn't `origin`) there is no base branch, so there
+        // is nothing this ref could have forked FROM, and every rung of the
+        // ladder needs a base to mean anything. Measuring anyway would reach
+        // the reflog and take the branch's creation entry, which in a repo
+        // with no base IS its first commit — an ancestor of the tip and not
+        // the tip, so it clears both guards and draws the branch as forked
+        // from its own root.
+        None => match default.as_deref() {
+            None => None,
+            Some(base_ref) => {
+                let from_reflog = branch_name
+                    // The default branch's creation entry is its clone point —
+                    // meaningless as a fork; the base branch has no base.
+                    .filter(|name| name != base_ref)
+                    .and_then(|name| repo::branch_created_at(&repo, &name).ok().flatten())
+                    .filter(|created| created != &tip)
+                    // A rebase orphans the creation point — only an ancestor
+                    // of the tip still describes this branch's history.
+                    .filter(|created| {
+                        repo::merge_base(&repo, created, &tip).ok().flatten().as_deref()
+                            == Some(created.as_str())
+                    });
+                match from_reflog {
+                    Some(created) => Some(created),
+                    None => repo::merge_base(&repo, base_ref, rev)
                         .map_err(|e| e.to_string())?
                         .filter(|fork| fork != &tip),
-                    None => None,
-                },
+                }
             }
-        }
+        },
     };
 
     // The FULL recent log — the ref's own commits arrive first (newest-first
@@ -848,6 +857,64 @@ mod tests {
         assert_eq!(history.ahead, None);
         assert_eq!(history.commits.len(), 1, "the init commit");
         assert_eq!(history.commits[0].subject, "init");
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    /// A local-only repo (no `fake_origin_main_here`, so no `origin/HEAD`)
+    /// has no default branch — and therefore no base anything could have
+    /// forked from. The reflog rung must not fire: a branch's creation entry
+    /// here IS the repo's first commit, which is an ancestor of the tip and
+    /// not the tip, so it clears both guards and would be reported as a fork
+    /// point above the initial commit — the branch forked from its own root.
+    #[test]
+    fn history_measures_no_fork_when_no_default_branch_resolves() {
+        let repo = init_repo();
+        git(&repo, &["checkout", "-q", "-b", "feature"]);
+        fs::write(repo.join("a.txt"), "a\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "work"]);
+
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("history");
+
+        assert_eq!(history.fork_sha, None, "no base branch means no fork");
+        assert_eq!(history.ahead, None, "nothing to be ahead OF");
+        assert_eq!(history.commits.len(), 2);
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    /// An EXPLICIT base is a real base — it doesn't depend on `origin/HEAD`
+    /// resolving, so the arm above must not swallow it.
+    #[test]
+    fn history_still_measures_an_explicit_base_without_a_default_branch() {
+        let repo = init_repo();
+        let root = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
+        git(&repo, &["checkout", "-q", "-b", "feature"]);
+        fs::write(repo.join("a.txt"), "a\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "work"]);
+
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            Some("main".to_string()),
+            None,
+            None,
+        )
+        .expect("history");
+
+        assert_eq!(history.fork_sha, Some(root));
+        assert_eq!(history.ahead, Some(1));
 
         fs::remove_dir_all(&repo).ok();
     }
