@@ -150,17 +150,22 @@ describe("attachPane", () => {
     expect(late.onReady).toHaveBeenCalledTimes(1);
   });
 
-  it("tells a late sink about an exit it missed, after the replay", async () => {
+  it("a death nobody heard reaches its FIRST listener as live; later attaches replay", async () => {
     acquirePane("pane-1", SPEC);
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
     output(0, 9);
+    // The exit lands with no sink attached (the detach/re-attach window).
     harness.spawns[0].onEvent({ type: "exit", code: 1 });
 
-    const sink = makeSink();
-    attachPane("pane-1", sink);
-    expect(sink.onOutput).toHaveBeenCalledWith(new Uint8Array([9]));
-    expect(sink.onExit).toHaveBeenCalledWith(1, true);
+    const first = makeSink();
+    attachPane("pane-1", first);
+    expect(first.onOutput).toHaveBeenCalledWith(new Uint8Array([9]));
+    expect(first.onExit).toHaveBeenCalledWith(1, false); // once-per-death fires
+
+    const second = makeSink();
+    attachPane("pane-1", second);
+    expect(second.onExit).toHaveBeenCalledWith(1, true); // now it's history
   });
 
   it("marks the live death and its re-announcements apart (once-per-death reactions)", async () => {

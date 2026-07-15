@@ -73,6 +73,11 @@ interface Entry {
   chunks: Uint8Array[];
   buffered: number;
   exited: { code: number | null } | null;
+  /** A sink actually HEARD the exit (live or first re-announce). An exit can
+   * land in the detached window between an effect's cleanup and the next
+   * attach — the first attach after such a death must announce it as live
+   * (once-per-death reactions run), not as a replay. */
+  exitAnnounced: boolean;
   failed: string | null;
   closed: boolean;
   /** The process has emitted at least one output chunk — the "CLI launched"
@@ -110,6 +115,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     chunks: [],
     buffered: 0,
     exited: null,
+    exitAnnounced: false,
     failed: null,
     closed: false,
     launched: false,
@@ -142,7 +148,10 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         entry.exited = { code: event.code };
         entry.session = null;
         log.info("web:pty", `${paneId}: exited (code ${event.code ?? "?"})`);
-        entry.sink?.onExit(event.code, false);
+        if (entry.sink) {
+          entry.exitAnnounced = true;
+          entry.sink.onExit(event.code, false);
+        }
       }
     },
   )
@@ -175,7 +184,13 @@ export function attachPane(paneId: string, sink: PaneSink): () => void {
   entry.sink = sink;
   for (const chunk of entry.chunks) sink.onOutput(chunk);
   if (entry.failed !== null) sink.onSpawnError(entry.failed);
-  else if (entry.exited) sink.onExit(entry.exited.code, true);
+  else if (entry.exited) {
+    // A death nobody heard (it landed between detach and re-attach) is
+    // announced to its first listener as LIVE; every later attach replays.
+    const replayed = entry.exitAnnounced;
+    entry.exitAnnounced = true;
+    sink.onExit(entry.exited.code, replayed);
+  }
   else if (entry.session) sink.onReady();
   // Already-launched session (re-attach): tell the view now, after the replay,
   // so it opens without the launch overlay instead of flashing it again.
