@@ -1,0 +1,19 @@
+{
+  "name": "keepdeck-session-reporter",
+  "version": "1.0.0",
+  "description": "Reports Kimi Code session identity to the KeepDeck pane that launched it.",
+  "author": "KeepDeck",
+  "interface": {
+    "displayName": "KeepDeck Session Reporter",
+    "shortDescription": "Keeps Kimi Code sessions attached to their KeepDeck panes.",
+    "longDescription": "Reports SessionStart identity only when Kimi Code was launched by KeepDeck. It is inert in every other Kimi session.",
+    "developerName": "KeepDeck"
+  },
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "/bin/sh ./kd-session-hook.sh",
+      "timeout": 5
+    }
+  ]
+}

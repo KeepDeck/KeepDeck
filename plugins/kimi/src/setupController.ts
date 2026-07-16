@@ -1,0 +1,145 @@
+import type { PluginLogger } from "@keepdeck/plugin-api";
+import {
+  COMPANION_ID,
+  COMPANION_VERSION,
+} from "./companion";
+import type {
+  KimiCompanionInstallation,
+  KimiCompanionManager,
+} from "./manager";
+
+export type SetupState =
+  | { kind: "checking"; operation: null }
+  | { kind: "not-configured"; operation: null }
+  | { kind: "configured"; operation: null; version: string }
+  | {
+      kind: "needs-attention";
+      operation: null;
+      version: string | null;
+      reason: "disabled" | "invalid" | "outdated";
+    }
+  | { kind: "error"; operation: null; message: string }
+  | {
+      kind: "working";
+      operation: "configure" | "remove";
+      previous: Exclude<SetupState, { kind: "working" }>;
+    };
+
+type StableSetupState = Exclude<SetupState, { kind: "working" }>;
+
+export interface KimiSetupController {
+  snapshot(): SetupState;
+  subscribe(listener: () => void): () => void;
+  check(): Promise<StableSetupState>;
+  configure(): Promise<void>;
+  remove(): Promise<void>;
+  dispose(): Promise<void>;
+}
+
+export function createKimiSetupController(
+  manager: KimiCompanionManager,
+  companionDirectory: string | null,
+  log: PluginLogger,
+): KimiSetupController {
+  let state: SetupState = { kind: "checking", operation: null };
+  const listeners = new Set<() => void>();
+  let disposed = false;
+
+  const publish = (next: SetupState) => {
+    if (disposed) return;
+    state = next;
+    for (const listener of listeners) listener();
+  };
+
+  async function check(): Promise<StableSetupState> {
+    publish({ kind: "checking", operation: null });
+    try {
+      const installation = await manager.inspect(COMPANION_ID);
+      const next = stateFromInstallation(installation);
+      publish(next);
+      return next;
+    } catch (caught) {
+      const message = describe(caught);
+      log.warn(`Kimi setup check failed: ${message}`);
+      const next: StableSetupState = { kind: "error", operation: null, message };
+      publish(next);
+      return next;
+    }
+  }
+
+  async function run(operation: "configure" | "remove"): Promise<void> {
+    if (state.kind === "working") return;
+    const previous = state;
+    publish({ kind: "working", operation, previous });
+    try {
+      if (operation === "configure") {
+        if (!companionDirectory) {
+          throw new Error("The bundled Kimi setup files are missing.");
+        }
+        await manager.configure(companionDirectory);
+      } else {
+        await manager.remove(COMPANION_ID);
+      }
+      await check();
+    } catch (caught) {
+      const message = describe(caught);
+      log.warn(`Kimi ${operation} failed: ${message}`);
+      publish({ kind: "error", operation: null, message });
+    }
+  }
+
+  return {
+    snapshot: () => state,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    check,
+    configure: () => run("configure"),
+    remove: () => run("remove"),
+    async dispose() {
+      disposed = true;
+      listeners.clear();
+      await manager.dispose();
+    },
+  };
+}
+
+export function stateFromInstallation(
+  installation: KimiCompanionInstallation | null,
+): StableSetupState {
+  if (!installation) return { kind: "not-configured", operation: null };
+  if (!installation.enabled) {
+    return {
+      kind: "needs-attention",
+      operation: null,
+      version: installation.version,
+      reason: "disabled",
+    };
+  }
+  if (!installation.healthy) {
+    return {
+      kind: "needs-attention",
+      operation: null,
+      version: installation.version,
+      reason: "invalid",
+    };
+  }
+  if (installation.version !== COMPANION_VERSION) {
+    return {
+      kind: "needs-attention",
+      operation: null,
+      version: installation.version,
+      reason: "outdated",
+    };
+  }
+  return {
+    kind: "configured",
+    operation: null,
+    version: COMPANION_VERSION,
+  };
+}
+
+function describe(value: unknown): string {
+  return value instanceof Error ? value.message : String(value);
+}
