@@ -7,6 +7,7 @@ import type {
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import plugin, { setupNotification } from "./index";
+import { KIMI_SETUP_SERVER_PORT } from "./serverManager";
 
 interface ActivationOptions {
   manifestPath?: string | null;
@@ -32,7 +33,7 @@ function activate(options: ActivationOptions = {}) {
           onEvent({
             type: "output",
             bytes: new TextEncoder().encode(
-              "Kimi server: http://127.0.0.1:43123/#token=test-token\r\n",
+              `Kimi server: http://127.0.0.1:${KIMI_SETUP_SERVER_PORT}/#token=test-token\r\n`,
             ),
           });
           return {

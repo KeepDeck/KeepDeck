@@ -12,11 +12,17 @@ function harness(
     Awaited<ReturnType<KimiCompanionManager["inspect"]>>
   >,
 ) {
-  const inspect = vi.fn(async () => inspectResults.shift() ?? null);
+  const next = () => inspectResults.shift() ?? null;
+  const inspect = vi.fn(async () => next());
+  const configure = vi.fn(async () => {
+    const installation = next();
+    if (!installation) throw new Error("missing configured result");
+    return installation;
+  });
   const manager: KimiCompanionManager = {
     inspect,
-    configure: vi.fn(async () => {}),
-    remove: vi.fn(async () => {}),
+    configure,
+    remove: vi.fn(async () => next()),
     dispose: vi.fn(async () => {}),
   };
   const log: PluginLogger = {
@@ -86,7 +92,7 @@ describe("Kimi setup state", () => {
     const configured = harness([healthy]);
     await configured.controller.configure();
     expect(configured.manager.configure).toHaveBeenCalledWith("/App/reporter");
-    expect(configured.inspect).toHaveBeenCalledWith();
+    expect(configured.inspect).not.toHaveBeenCalled();
     expect(configured.controller.snapshot()).toMatchObject({
       kind: "configured",
       runningSessionsNeedReload: true,
@@ -95,6 +101,7 @@ describe("Kimi setup state", () => {
     const removed = harness([null]);
     await removed.controller.remove();
     expect(removed.manager.remove).toHaveBeenCalledWith();
+    expect(removed.inspect).not.toHaveBeenCalled();
     expect(removed.controller.snapshot()).toMatchObject({
       kind: "not-configured",
       runningSessionsNeedReload: true,

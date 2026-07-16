@@ -88,15 +88,17 @@ export function createKimiSetupController(
     const previous = state;
     publish({ kind: "working", operation, previous });
     try {
+      let installation: KimiCompanionInstallation | null;
       if (operation === "configure") {
         if (!companionDirectory) {
           throw new Error("The bundled Kimi setup files are missing.");
         }
-        await manager.configure(companionDirectory);
+        installation = await manager.configure(companionDirectory);
       } else {
-        await manager.remove();
+        installation = await manager.remove();
       }
-      const checked = await check();
+      const checked = stateFromInstallation(installation);
+      publish(checked);
       // Kimi intentionally applies plugin changes to already-running TUIs
       // only after /reload or /new. /reload is the safe instruction here: it
       // preserves the active conversation and fires SessionStart again, while

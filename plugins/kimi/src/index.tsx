@@ -7,6 +7,7 @@ import {
 } from "./companion";
 import { icon } from "./icon";
 import { createKimiCompanionManager } from "./manager";
+import { createKimiServerManager } from "./serverManager";
 import {
   createKimiSetupController,
   type SetupState,
@@ -63,10 +64,8 @@ const plugin: KeepDeckPlugin = {
     const companionDirectory = companionManifest
       ? parentDirectory(companionManifest)
       : null;
-    const manager = createKimiCompanionManager(
-      ctx.services.sessions,
-      COMPANION_DESCRIPTOR,
-    );
+    const server = createKimiServerManager(ctx.services.sessions);
+    const manager = createKimiCompanionManager(server, COMPANION_DESCRIPTOR);
     const controller = createKimiSetupController(
       manager,
       companionDirectory,
