@@ -41,7 +41,12 @@ function fakeBackend() {
     speech: {
       engines: vi.fn(async () => ["whisper" as const]),
       startCapture: vi.fn(async () => ({
-        stop: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
+        stop: vi.fn(async () => ({
+          text: "",
+          silence: true,
+          seconds: 0,
+          level: 0,
+        })),
         cancel: vi.fn(async () => {}),
       })),
     },
@@ -100,7 +105,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["git"] }]),
       backend,
-      { mode: "enforce", log },
+      { diagnostics: "silent", log },
     );
     const opts = spawnOpts("git");
     const onEvent = vi.fn();
@@ -113,7 +118,8 @@ describe("createCapabilityGate — sessions.spawn", () => {
     // produced, not a rewrapped one, and it resolves to the backend's own
     // handle — never re-wrapped.
     expect(result).toBe(
-      (backend.sessions.spawn as ReturnType<typeof vi.fn>).mock.results[0].value,
+      (backend.sessions.spawn as ReturnType<typeof vi.fn>).mock.results[0]
+        .value,
     );
     expect(await result).toBe(handle);
     expect(log.warn).not.toHaveBeenCalled();
@@ -125,7 +131,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["git"] }]),
       backend,
-      { mode: "enforce", log },
+      { diagnostics: "silent", log },
     );
 
     await gate.sessions.spawn(spawnOpts("/usr/bin/git"), vi.fn());
@@ -134,13 +140,13 @@ describe("createCapabilityGate — sessions.spawn", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("requires the literal \"$SHELL\" capability for an omitted command", async () => {
+  it('requires the literal "$SHELL" capability for an omitted command', async () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["$SHELL"] }]),
       backend,
-      { mode: "enforce", log },
+      { diagnostics: "silent", log },
     );
 
     await gate.sessions.spawn(spawnOpts(undefined), vi.fn());
@@ -149,13 +155,13 @@ describe("createCapabilityGate — sessions.spawn", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("an omitted command without a \"$SHELL\" capability is a violation", () => {
+  it('an omitted command without a "$SHELL" capability is a violation', () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["git"] }]),
       backend,
-      { mode: "enforce", log },
+      { diagnostics: "silent", log },
     );
 
     expect(() => gate.sessions.spawn(spawnOpts(undefined), vi.fn())).toThrow(
@@ -164,13 +170,13 @@ describe("createCapabilityGate — sessions.spawn", () => {
     expect(backend.sessions.spawn).not.toHaveBeenCalled();
   });
 
-  it("the \"*\" wildcard covers any program", async () => {
+  it('the "*" wildcard covers any program', async () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["*"] }]),
       backend,
-      { mode: "enforce", log },
+      { diagnostics: "silent", log },
     );
 
     await gate.sessions.spawn(spawnOpts("anything-goes"), vi.fn());
@@ -179,11 +185,11 @@ describe("createCapabilityGate — sessions.spawn", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("warn mode logs exactly one precise warning and still denies the call", () => {
+  it("log diagnostics emits one precise warning and still denies the call", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
-      mode: "warn",
+      diagnostics: "log",
       log,
     });
 
@@ -198,11 +204,11 @@ describe("createCapabilityGate — sessions.spawn", () => {
     expect(backend.sessions.spawn).not.toHaveBeenCalled();
   });
 
-  it("enforce mode throws and never calls the backend", () => {
+  it("silent diagnostics throws and never calls the backend", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
-      mode: "enforce",
+      diagnostics: "silent",
       log,
     });
 
@@ -219,7 +225,7 @@ describe("createCapabilityGate — ports.allocate", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([{ kind: "ports" }]), backend, {
-      mode: "enforce",
+      diagnostics: "silent",
       log,
     });
 
@@ -234,11 +240,11 @@ describe("createCapabilityGate — ports.allocate", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("warn mode logs one precise warning and still denies the call", () => {
+  it("log diagnostics emits one precise warning and still denies the call", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
-      mode: "warn",
+      diagnostics: "log",
       log,
     });
 
@@ -255,11 +261,11 @@ describe("createCapabilityGate — ports.allocate", () => {
     expect(backend.ports.allocate).not.toHaveBeenCalled();
   });
 
-  it("enforce mode throws and never calls the backend", () => {
+  it("silent diagnostics throws and never calls the backend", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
-      mode: "enforce",
+      diagnostics: "silent",
       log,
     });
 
@@ -275,7 +281,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { mode: "enforce", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog() },
     );
     const request = downloadRequest();
 
@@ -294,7 +300,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["other.example.com"] }]),
       backend,
-      { mode: "enforce", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog() },
     );
 
     expect(() => gate.downloads.start(downloadRequest())).toThrow(
@@ -306,7 +312,7 @@ describe("createCapabilityGate — downloads", () => {
   it("enforces network capabilities even for trusted warn-mode plugins", () => {
     const { backend } = fakeBackend();
     const gate = createCapabilityGate(manifest([]), backend, {
-      mode: "warn",
+      diagnostics: "log",
       log: fakeLog(),
     });
     expect(() => gate.downloads.start(downloadRequest())).toThrow(
@@ -320,7 +326,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["localhost:4000"] }]),
       backend,
-      { mode: "enforce", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog() },
     );
     const request = downloadRequest();
     request.source.url = "http://localhost:4000/model.bin";
@@ -335,7 +341,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { mode: "enforce", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog() },
     );
 
     gate.downloads.start(downloadRequest());
@@ -357,7 +363,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { mode: "enforce", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog() },
     );
     expect(() => gate.downloads.start(downloadRequest())).toThrow(
       "global id collision",
@@ -373,7 +379,7 @@ describe("createCapabilityGate — downloads", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { mode: "enforce", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog() },
     );
     for (let index = 0; index < 8; index++) {
       gate.downloads.start(downloadRequest(`job-${index}`));
@@ -383,15 +389,14 @@ describe("createCapabilityGate — downloads", () => {
     );
     expect(backend.downloads.start).toHaveBeenCalledTimes(8);
   });
-
 });
 
 describe("createCapabilityGate — zero capabilities", () => {
-  it("a manifest with no capabilities logs and refuses every call in warn mode", () => {
+  it("a manifest with no capabilities logs and refuses every call with log diagnostics", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
-      mode: "warn",
+      diagnostics: "log",
       log,
     });
 
@@ -403,11 +408,11 @@ describe("createCapabilityGate — zero capabilities", () => {
     expect(backend.ports.allocate).not.toHaveBeenCalled();
   });
 
-  it("a manifest with no capabilities gets every call refused in \"enforce\" mode", () => {
+  it('a manifest with no capabilities gets every call refused in "enforce" mode', () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
-      mode: "enforce",
+      diagnostics: "silent",
       log,
     });
 
@@ -420,15 +425,16 @@ describe("createCapabilityGate — zero capabilities", () => {
   it("opener: allowed with the open capability, forwarded verbatim", async () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
-    const gate = createCapabilityGate(
-      manifest([{ kind: "open" }]),
-      backend,
-      { mode: "enforce", log },
-    );
+    const gate = createCapabilityGate(manifest([{ kind: "open" }]), backend, {
+      diagnostics: "silent",
+      log,
+    });
     await gate.opener.openUrl("http://localhost:3000");
     await gate.opener.openPath("/tmp/report.html");
     await gate.opener.openPathWith("/repo", "Visual Studio Code");
-    expect(backend.opener.openUrl).toHaveBeenCalledWith("http://localhost:3000");
+    expect(backend.opener.openUrl).toHaveBeenCalledWith(
+      "http://localhost:3000",
+    );
     expect(backend.opener.openPath).toHaveBeenCalledWith("/tmp/report.html");
     expect(backend.opener.openPathWith).toHaveBeenCalledWith(
       "/repo",
@@ -440,7 +446,7 @@ describe("createCapabilityGate — zero capabilities", () => {
   it("opener: missing capability is denied in both modes", () => {
     const warn = { ...fakeBackend(), log: fakeLog() };
     const warnGate = createCapabilityGate(manifest([]), warn.backend, {
-      mode: "warn",
+      diagnostics: "log",
       log: warn.log,
     });
     expect(() => warnGate.opener.openUrl("http://x")).toThrow();
@@ -450,7 +456,7 @@ describe("createCapabilityGate — zero capabilities", () => {
 
     const hard = { ...fakeBackend(), log: fakeLog() };
     const hardGate = createCapabilityGate(manifest([]), hard.backend, {
-      mode: "enforce",
+      diagnostics: "silent",
       log: hard.log,
     });
     expect(() => hardGate.opener.openPath("/etc/hosts")).toThrow(
@@ -471,7 +477,7 @@ describe("createCapabilityGate — fs", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "fs", scope: "workspace" }]),
       backend,
-      { mode: "enforce", log },
+      { diagnostics: "silent", log },
     );
 
     await gate.fs.readDir("/repo/src");
@@ -494,7 +500,7 @@ describe("createCapabilityGate — fs", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "fs", scope: "everywhere" }]),
       backend,
-      { mode: "enforce", log },
+      { diagnostics: "silent", log },
     );
 
     await gate.fs.readDir("/anywhere");
@@ -505,7 +511,7 @@ describe("createCapabilityGate — fs", () => {
   it("missing fs capability is denied in both modes", () => {
     const warn = { ...fakeBackend(), log: fakeLog() };
     const warnGate = createCapabilityGate(manifest([]), warn.backend, {
-      mode: "warn",
+      diagnostics: "log",
       log: warn.log,
     });
     expect(() => warnGate.fs.readDir("/repo")).toThrow();
@@ -515,10 +521,12 @@ describe("createCapabilityGate — fs", () => {
 
     const hard = { ...fakeBackend(), log: fakeLog() };
     const hardGate = createCapabilityGate(manifest([]), hard.backend, {
-      mode: "enforce",
+      diagnostics: "silent",
       log: hard.log,
     });
-    expect(() => hardGate.fs.readFile("/etc/passwd")).toThrow('"fs" capability');
+    expect(() => hardGate.fs.readFile("/etc/passwd")).toThrow(
+      '"fs" capability',
+    );
     expect(hard.backend.fs.readFile).not.toHaveBeenCalled();
   });
 
@@ -528,7 +536,7 @@ describe("createCapabilityGate — fs", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "fs", scope: "workspace" }]),
       backend,
-      { mode: "enforce", log },
+      { diagnostics: "silent", log },
     );
     const onChange = vi.fn();
 
@@ -542,11 +550,11 @@ describe("createCapabilityGate — fs", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("refuses fs.watch without the fs capability in enforce mode", () => {
+  it("refuses fs.watch without the fs capability with silent diagnostics", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
-      mode: "enforce",
+      diagnostics: "silent",
       log,
     });
     expect(() => gate.fs.watch("/repo", vi.fn())).toThrow('"fs" capability');
@@ -561,7 +569,7 @@ describe("createCapabilityGate — git", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "git", scope: "workspace" }]),
       backend,
-      { mode: "enforce", log },
+      { diagnostics: "silent", log },
     );
     const onChange = vi.fn();
 
@@ -576,7 +584,11 @@ describe("createCapabilityGate — git", () => {
       "workspace",
       { staged: true },
     );
-    expect(backend.git.watch).toHaveBeenCalledWith("/repo", "workspace", onChange);
+    expect(backend.git.watch).toHaveBeenCalledWith(
+      "/repo",
+      "workspace",
+      onChange,
+    );
     expect(log.warn).not.toHaveBeenCalled();
 
     // fs and git are separate grants: an fs-only manifest gets no git service.
@@ -584,7 +596,7 @@ describe("createCapabilityGate — git", () => {
     const fsOnlyGate = createCapabilityGate(
       manifest([{ kind: "fs", scope: "everywhere" }]),
       fsOnly.backend,
-      { mode: "enforce", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog() },
     );
     expect(() => fsOnlyGate.git.status("/repo")).toThrow('"git" capability');
     expect(fsOnly.backend.git.status).not.toHaveBeenCalled();
@@ -595,7 +607,7 @@ describe("createCapabilityGate — git", () => {
     const gate = createCapabilityGate(
       manifest([{ kind: "git", scope: "workspace" }]),
       backend,
-      { mode: "enforce", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog() },
     );
 
     await gate.git.history("/repo", { base: "main" });
@@ -613,7 +625,7 @@ describe("createCapabilityGate — git", () => {
 
     const bare = fakeBackend();
     const bareGate = createCapabilityGate(manifest([]), bare.backend, {
-      mode: "enforce",
+      diagnostics: "silent",
       log: fakeLog(),
     });
     expect(() => bareGate.git.history("/repo")).toThrow('"git" capability');
@@ -632,7 +644,7 @@ describe("createCapabilityGate — git", () => {
         { kind: "git", scope: "everywhere" },
       ]),
       backend,
-      { mode: "enforce", log: fakeLog() },
+      { diagnostics: "silent", log: fakeLog() },
     );
 
     await gate.git.status("/anywhere");
@@ -643,7 +655,7 @@ describe("createCapabilityGate — git", () => {
   it("missing git capability is denied in both modes", () => {
     const warn = { ...fakeBackend(), log: fakeLog() };
     const warnGate = createCapabilityGate(manifest([]), warn.backend, {
-      mode: "warn",
+      diagnostics: "log",
       log: warn.log,
     });
     expect(() => warnGate.git.status("/repo")).toThrow();
@@ -653,7 +665,7 @@ describe("createCapabilityGate — git", () => {
 
     const hard = { ...fakeBackend(), log: fakeLog() };
     const hardGate = createCapabilityGate(manifest([]), hard.backend, {
-      mode: "enforce",
+      diagnostics: "silent",
       log: hard.log,
     });
     expect(() => hardGate.git.diffFile("/repo", "a.ts")).toThrow(

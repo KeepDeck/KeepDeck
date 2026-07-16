@@ -1,8 +1,6 @@
 import type { FileOpenHandler, FileOpenRequest } from "@keepdeck/plugin-api";
 import type { Contribution } from "../plugins/registries/contributions";
-import { openPath } from "../ipc/app";
-import { describeError, log } from "../ipc/log";
-import { pluginRegistries } from "./pluginManager";
+import { describeError } from "../ipc/log";
 
 /**
  * The file-open chain — what a host surface calls when the user asks to open
@@ -22,8 +20,8 @@ export interface FileOpenOutcome {
   declined: boolean;
 }
 
-/** Factory over the live handler list + the system floor, for tests; the app
- * uses the [`fileOpenManager`] singleton bound to the plugin registries. */
+/** Factory over the live handler list + the system floor. The app composition
+ * root binds one instance to its own plugin registries. */
 export function createFileOpenManager(
   handlers: () => readonly Contribution<FileOpenHandler>[],
   systemOpen: (path: string) => Promise<void>,
@@ -50,8 +48,4 @@ export function createFileOpenManager(
   };
 }
 
-export const fileOpenManager = createFileOpenManager(
-  () => pluginRegistries.fileOpeners.list(),
-  openPath,
-  (message) => log.warn("web:file-open", message),
-);
+export type FileOpenManager = ReturnType<typeof createFileOpenManager>;

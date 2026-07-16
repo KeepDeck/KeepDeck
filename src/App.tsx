@@ -37,11 +37,7 @@ import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useCoreCommands } from "./app/coreCommands";
-import {
-  bootstrapPlugins,
-  pluginRegistries,
-  revealPluginDockTab,
-} from "./app/pluginManager";
+import { useAppRuntime } from "./app/runtimeContext";
 import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
 import { useContributions } from "./plugins";
@@ -80,6 +76,8 @@ import "./styles/index.css";
  * and file drops — to the components that render them.
  */
 function App() {
+  const { bootstrapPlugins, pluginRegistries, revealPluginDockTab } =
+    useAppRuntime().plugins;
   const [info, setInfo] = useState<AppInfo | null>(null);
   const updateState = useUpdate();
 
@@ -458,7 +456,6 @@ function App() {
   // their session identity ([F7]/[F8]), and terminals read the scrollback
   // setting at construction ([F6]).
   if (restoring || !spawnCtx || !settings) return <div className="deck" />;
-
 
   return (
     <div className="deck">

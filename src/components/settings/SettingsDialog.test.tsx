@@ -16,8 +16,9 @@ import {
 import { SettingsDialog } from "./SettingsDialog";
 
 // React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 // The dialog's sections talk to the real settings manager over a mocked IPC —
 // the tests cover the whole loop: control → store → re-render.
@@ -55,12 +56,14 @@ const pluginStore = vi.hoisted(() => {
     },
   };
 });
+const runtimeMock = vi.hoisted(() => ({ registries: null as any }));
 
-vi.mock("../../app/pluginManager", async () => {
+vi.mock("../../app/runtimeContext", async () => {
   const { createContributionRegistries } = await import(
     "../../plugins/registries/contributions"
   );
   const registries = createContributionRegistries();
+  runtimeMock.registries = registries;
   for (const [id, label] of [
     ["claude", "Claude Code"],
     ["codex", "Codex"],
@@ -74,18 +77,23 @@ vi.mock("../../app/pluginManager", async () => {
     });
   }
   return {
-    pluginRegistries: registries,
-    bootstrapPlugins: () => Promise.resolve(),
-    // Per-plugin sections render in the dialog's nav tree — the controllable
-    // store keeps it honest without pulling the real Tauri-backed manager in.
-    pluginHost: {
-      getInstalled: pluginStore.getInstalled,
-      subscribe: pluginStore.subscribe,
-      setEnabled: async () => {},
-    },
-    externalPluginInfo: () => null,
-    rescanPlugins: async () => {},
-    restartPlugin: async () => {},
+    useAppRuntime: () => ({
+      plugins: {
+        pluginRegistries: registries,
+        bootstrapPlugins: () => Promise.resolve(),
+        // Per-plugin sections render in the dialog's nav tree — the controllable
+        // store keeps it honest without pulling the real Tauri-backed manager in.
+        pluginHost: {
+          getInstalled: pluginStore.getInstalled,
+          subscribe: pluginStore.subscribe,
+          setEnabled: async () => {},
+        },
+        externalPluginInfo: () => null,
+        rescanPlugins: async () => {},
+        restartPlugin: async () => {},
+      },
+    }),
+    AppRuntimeProvider: ({ children }: { children: unknown }) => children,
   };
 });
 
@@ -159,9 +167,7 @@ describe("SettingsDialog", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     ipc.saveSettings.mockClear();
     await act(async () =>
-      root.render(
-        createElement(SettingsDialog, { onClose: () => closed++ }),
-      ),
+      root.render(createElement(SettingsDialog, { onClose: () => closed++ })),
     );
     await act(async () => {}); // flush the agent-catalog load
   };
@@ -177,7 +183,9 @@ describe("SettingsDialog", () => {
     toTerminal();
     expect(panelOf(scrollbackInput()!).hasAttribute("hidden")).toBe(false);
     expect(panelOf(button("Claude Code")).hasAttribute("hidden")).toBe(true);
-    expect(button("Terminal").className).toContain("settings__nav-item--active");
+    expect(button("Terminal").className).toContain(
+      "settings__nav-item--active",
+    );
   });
 
   it("switching sections never refetches the agent catalog", async () => {
@@ -291,7 +299,7 @@ describe("SettingsDialog", () => {
   });
 
   it("an installed plugin is its own nav section: toggle plus contributed fields", async () => {
-    const { pluginRegistries } = await import("../../app/pluginManager");
+    const pluginRegistries = runtimeMock.registries;
     pluginStore.set([FILES_PLUGIN]);
     const section = pluginRegistries.settingsSections.add("keepdeck.files", {
       label: "Files",

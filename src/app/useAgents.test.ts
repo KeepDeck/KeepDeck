@@ -4,29 +4,28 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentContribution, Disposable } from "@keepdeck/plugin-api";
 import type { BinStatus } from "../ipc/agents";
-import { pluginRegistries } from "./pluginManager";
+import { createContributionRegistries } from "../plugins/registries/contributions";
+import type { AppRuntime } from "./runtime";
+import { AppRuntimeProvider } from "./runtimeContext";
 import { resetAgentsCache, useAgents } from "./useAgents";
 
 // React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ipc = vi.hoisted(() => ({
   detectBins: vi.fn<(bins: string[]) => Promise<BinStatus[]>>(),
 }));
 vi.mock("../ipc/agents", () => ipc);
 
-// The hook reads the app's registry singleton and joins its bootstrap; the
-// mock swaps both for a fresh registry and an instantly-booted plugin system.
-vi.mock("./pluginManager", async () => {
-  const { createContributionRegistries } = await import(
-    "../plugins/registries/contributions"
-  );
-  return {
-    pluginRegistries: createContributionRegistries(),
+const pluginRegistries = createContributionRegistries();
+const runtime = {
+  plugins: {
+    pluginRegistries,
     bootstrapPlugins: () => Promise.resolve(),
-  };
-});
+  },
+} as unknown as AppRuntime;
 
 const claude: AgentContribution = {
   id: "claude",
@@ -66,7 +65,12 @@ describe("useAgents", () => {
     registered = [];
   });
 
-  const mount = () => act(async () => root.render(createElement(Probe)));
+  const mount = () =>
+    act(async () =>
+      root.render(
+        createElement(AppRuntimeProvider, { runtime }, createElement(Probe)),
+      ),
+    );
 
   it("assembles the catalog from agent contributions plus detection", async () => {
     register(claude);

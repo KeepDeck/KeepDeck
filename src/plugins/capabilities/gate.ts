@@ -21,9 +21,6 @@ import type {
   PluginSpeech,
 } from "@keepdeck/plugin-api";
 import { execCovers } from "./execCovers";
-import type { GateMode } from "./tier";
-
-export type { GateMode } from "./tier";
 
 /** The two scopes the `fs` capability may declare, as the backend consumes
  * them: the gate DERIVES this from the manifest and passes it down; the backend
@@ -113,8 +110,8 @@ export interface ServiceBackends {
  * actually stops an undeclared call at runtime — without it, capabilities
  * would be a label nobody enforces.
  *
- * Trusted built-ins additionally log violations in `"warn"` mode, but every
- * mode denies the call. Diagnostics never weaken authorization semantics.
+ * Trusted built-ins additionally log violations, but diagnostics never
+ * weaken authorization semantics: every violation is denied.
  *
  * Most services are pure decoration and forward allowed calls verbatim. The
  * download surface additionally retains a bounded set of ids so one plugin
@@ -127,19 +124,21 @@ export interface ServiceBackends {
  * `downloads` applies the declared `net` domains both before dispatch and in
  * the native transfer engine, including every redirect.
  */
+export type GateDiagnostics = "log" | "silent";
+
 export function createCapabilityGate(
   manifest: PluginManifest,
   backend: ServiceBackends,
-  opts: { mode: GateMode; log: PluginLogger },
+  opts: { diagnostics: GateDiagnostics; log: PluginLogger },
 ): PluginServices {
-  const { mode, log } = opts;
+  const { diagnostics, log } = opts;
   const maxActiveDownloads = 8;
   const activeDownloadIds = new Set<string>();
 
-  /** One authorization path. Warn mode adds diagnostics, never authority. */
+  /** One authorization path. Diagnostics add visibility, never authority. */
   function admit(ok: boolean, message: string): void {
     if (ok) return;
-    if (mode === "warn") log.warn(message);
+    if (diagnostics === "log") log.warn(message);
     throw new Error(message);
   }
 
@@ -266,7 +265,11 @@ export function createCapabilityGate(
           hasGitCapability(manifest.capabilities),
           `git.watch: "${repo}" requires a "git" capability, which the manifest does not declare`,
         );
-        return backend.git.watch(repo, gitScope(manifest.capabilities), onChange);
+        return backend.git.watch(
+          repo,
+          gitScope(manifest.capabilities),
+          onChange,
+        );
       },
     },
     downloads: {
@@ -280,10 +283,10 @@ export function createCapabilityGate(
             `plugin has too many active downloads (limit ${maxActiveDownloads})`,
           );
         }
-        if (
-          activeDownloadIds.has(request.id)
-        ) {
-          throw new Error(`download id already used by this plugin: ${request.id}`);
+        if (activeDownloadIds.has(request.id)) {
+          throw new Error(
+            `download id already used by this plugin: ${request.id}`,
+          );
         }
         // The backend can reject synchronously (for example a global id or
         // target collision). Ownership is granted only after it accepted.
@@ -332,7 +335,6 @@ export function createCapabilityGate(
     },
   };
 }
-
 
 function hasMicCapability(capabilities: Capability[]): boolean {
   return capabilities.some((capability) => capability.kind === "mic");

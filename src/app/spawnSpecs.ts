@@ -10,9 +10,15 @@ import { paneAgentType, type Workspace } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { mintBridgeToken } from "./ids";
 import { postbackCount } from "./postbacks";
-import { pluginHost, pluginRegistries } from "./pluginManager";
+import type { PluginManager } from "./pluginManager";
+import { useAppRuntime } from "./runtimeContext";
 import { execCovers } from "../plugins/capabilities/execCovers";
 import { useContributions } from "../plugins/react";
+
+export type SpawnPluginAccess = Pick<
+  PluginManager,
+  "pluginHost" | "pluginRegistries"
+>;
 
 /**
  * Spawn plans, built through the cli plugins' hooks ([F7]/[F8] v2).
@@ -69,6 +75,7 @@ async function buildAndCache(
 /** Build one plan through the agent's hook; a throwing hook degrades to a
  * bare spawn (no identity) rather than a dead pane. */
 async function buildPlan(
+  plugins: SpawnPluginAccess,
   agent: { entry: AgentContribution; pluginId: string },
   paneId: string,
   wsId: string,
@@ -89,7 +96,10 @@ async function buildPlan(
   const base = { paneId, wsId, cwd, ...(branch ? { branch } : {}) };
   try {
     if (resumeId) {
-      await entry.hooks["resume.plan"]?.({ ...base, sessionId: resumeId }, output);
+      await entry.hooks["resume.plan"]?.(
+        { ...base, sessionId: resumeId },
+        output,
+      );
     } else {
       await entry.hooks["spawn.plan"]?.(base, output);
     }
@@ -104,10 +114,13 @@ async function buildPlan(
   // warn for a trusted built-in (a bug to fix), CLAMP for an external
   // (falling back to the agent's own binary, which the registration gate
   // proved covered): a sandboxed plugin must not pick the program.
-  const owner = pluginHost
+  const owner = plugins.pluginHost
     .getInstalled()
     .find((installed) => installed.manifest.id === pluginId);
-  if (owner && !execCovers(owner.manifest.capabilities, output.command ?? "$SHELL")) {
+  if (
+    owner &&
+    !execCovers(owner.manifest.capabilities, output.command ?? "$SHELL")
+  ) {
     log.warn(
       "web:agents",
       `${entry.id}: plan command "${output.command}" is not exec-covered by ${pluginId}`,
@@ -180,6 +193,7 @@ export function dropPaneSpawnSpec(paneId: string): void {
  * or an exited pane the user explicitly restarts. Replaces any cached plan;
  * the generation reservation prevents the ordinary fresh sweep from racing. */
 export async function buildResumeSpec(
+  plugins: SpawnPluginAccess,
   agentType: string,
   paneId: string,
   wsId: string,
@@ -189,7 +203,7 @@ export async function buildResumeSpec(
   resumeId: string,
   origin: ResumeOrigin,
 ): Promise<boolean> {
-  const agent = findAgent(agentType);
+  const agent = findAgent(plugins, agentType);
   if (!agent) return false; // unavailable — the card keeps the pane dormant
   if (!agent.entry.hooks["resume.plan"]) {
     log.warn(
@@ -199,7 +213,7 @@ export async function buildResumeSpec(
     return false;
   }
   return buildAndCache(paneId, () =>
-    buildPlan(agent, paneId, wsId, cwd, branch, ctx, resumeId, origin),
+    buildPlan(plugins, agent, paneId, wsId, cwd, branch, ctx, resumeId, origin),
   );
 }
 
@@ -217,7 +231,8 @@ export function usePaneSpawnSpecs(
    * path drops a plan from the module cache, which no other dep observes. */
   rebuildKey?: unknown,
 ): Record<string, SpawnPlan> {
-  const contributions = useContributions(pluginRegistries.agents);
+  const { plugins } = useAppRuntime();
+  const contributions = useContributions(plugins.pluginRegistries.agents);
   // The cache version: bumped when a build lands, so the snapshot below
   // refreshes. (Resume plans land via `buildResumeSpec` before `revivePane`
   // flips deck state — that state change refreshes the snapshot instead.)
@@ -230,10 +245,11 @@ export function usePaneSpawnSpecs(
       for (const pane of ws.panes) {
         if (pane.dormant || pane.provisioning) continue;
         if (specs.has(pane.id) || pending.has(pane.id)) continue;
-        const agent = findAgent(paneAgentType(pane));
+        const agent = findAgent(plugins, paneAgentType(pane));
         if (!agent) continue; // the unavailable card blocks the terminal
         void buildAndCache(pane.id, () =>
           buildPlan(
+            plugins,
             agent,
             pane.id,
             ws.id,
@@ -256,7 +272,7 @@ export function usePaneSpawnSpecs(
     return () => {
       alive = false;
     };
-  }, [workspaces, ctx, agentsReady, contributions, rebuildKey]);
+  }, [workspaces, ctx, agentsReady, contributions, rebuildKey, plugins]);
 
   // A fresh snapshot object per cache change — cheap (small maps), and lets
   // consumers stay referentially honest.
@@ -285,7 +301,10 @@ export function resetPaneSpawnSpecs(): void {
 }
 
 function findAgent(
+  plugins: SpawnPluginAccess,
   agentType: string,
 ): { entry: AgentContribution; pluginId: string } | undefined {
-  return pluginRegistries.agents.list().find((c) => c.entry.id === agentType);
+  return plugins.pluginRegistries.agents
+    .list()
+    .find((c) => c.entry.id === agentType);
 }

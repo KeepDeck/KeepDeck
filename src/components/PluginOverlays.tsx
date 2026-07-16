@@ -4,7 +4,7 @@ import {
   subscribeOverlayVisibility,
 } from "../app/overlayVisibility";
 import { reportPluginCrash } from "../app/pluginHealth";
-import { pluginRegistries } from "../app/pluginManager";
+import { useAppRuntime } from "../app/runtimeContext";
 import { describeError, log } from "../ipc/log";
 import { useContributions } from "../plugins";
 import { externalPluginUrl } from "../plugins/external/url";
@@ -22,6 +22,7 @@ import { ErrorBoundary } from "../ui/ErrorBoundary";
  * (hidden, or it would swallow every click).
  */
 export function PluginOverlays() {
+  const { pluginRegistries } = useAppRuntime().plugins;
   const overlays = useContributions(pluginRegistries.overlays);
   const visibility = useSyncExternalStore(
     subscribeOverlayVisibility,

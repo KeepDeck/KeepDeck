@@ -4,14 +4,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckState } from "../domain/deck";
 import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
-import { buildResumeSpec, peekPaneSpawnSpec, resetPaneSpawnSpecs } from "./spawnSpecs";
+import {
+  buildResumeSpec,
+  peekPaneSpawnSpec,
+  resetPaneSpawnSpecs,
+} from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { useRevive, type ReviveApi } from "./useRevive";
 
 // React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ipc = vi.hoisted(() => ({
   probeWorktree: vi.fn(),
@@ -26,6 +31,7 @@ vi.mock("./spawnSpecs", () => {
   return {
     buildResumeSpec: vi.fn(
       async (
+        _plugins: unknown,
         _agentType: string,
         paneId: string,
         _wsId: string,
@@ -44,6 +50,9 @@ vi.mock("./spawnSpecs", () => {
     resetPaneSpawnSpecs: () => specs.clear(),
   };
 });
+vi.mock("./runtimeContext", () => ({
+  useAppRuntime: () => ({ plugins: {} }),
+}));
 
 let deck: Deck;
 let revive: ReviveApi;
@@ -123,6 +132,7 @@ describe("useRevive — session policy", () => {
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "old"]);
     expect(pane().session).toEqual({ id: "old", boundAt: "t" }); // kept
     expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
+      expect.anything(),
       "claude",
       "pane-1",
       "ws-1",
