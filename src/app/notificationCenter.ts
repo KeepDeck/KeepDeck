@@ -76,11 +76,11 @@ export function notify(input: NotifyInput): void {
   const notification: Notification = {
     id: `ntf-${seq}`,
     title: input.title,
+    body: input.body,
     severity: input.severity ?? "info",
     source: input.source,
+    tag: input.tag,
     at: now,
-    ...(input.body !== undefined ? { body: input.body } : {}),
-    ...(input.tag !== undefined ? { tag: input.tag } : {}),
   };
   if (prefs.mode !== "system") {
     items = addNotification(items, notification);
@@ -91,10 +91,11 @@ export function notify(input: NotifyInput): void {
       windowFocused: isWindowFocused(),
       sourceVisible: sourceVisible?.(notification.source) ?? false,
       now,
-      ...(notification.tag !== undefined &&
-      lastBannerAt.has(notification.tag)
-        ? { lastBannerAt: lastBannerAt.get(notification.tag) }
-        : {}),
+      // A miss is undefined — exactly shouldBanner's "never bannered".
+      lastBannerAt:
+        notification.tag !== undefined
+          ? lastBannerAt.get(notification.tag)
+          : undefined,
     });
     if (allowed) {
       if (notification.tag !== undefined) {

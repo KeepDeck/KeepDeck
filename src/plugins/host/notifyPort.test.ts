@@ -191,7 +191,7 @@ describe("composePluginNotification", () => {
     });
   });
 
-  it("omits absent optional fields instead of writing undefined", () => {
+  it("absent optional fields stay undefined for every consumer", () => {
     const composed = composePluginNotification("Git", {
       pluginId: "keepdeck.git",
       title: "t",
@@ -202,7 +202,8 @@ describe("composePluginNotification", () => {
       severity: "info",
       source: { type: "plugin", pluginId: "keepdeck.git" },
     });
-    expect("body" in composed).toBe(false);
-    expect("tag" in composed).toBe(false);
+    expect(composed.body).toBeUndefined();
+    expect(composed.tag).toBeUndefined();
+    expect(composed.source.wsId).toBeUndefined();
   });
 });

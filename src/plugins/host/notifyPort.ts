@@ -57,15 +57,15 @@ export function composePluginNotification(
 } {
   return {
     title: `${pluginName} · ${d.title}`,
+    body: d.body,
     severity: d.severity,
     source: {
       type: "plugin",
       pluginId: d.pluginId,
-      ...(d.wsId !== undefined ? { wsId: d.wsId } : {}),
-      ...(d.dockTab !== undefined ? { dockTab: d.dockTab } : {}),
+      wsId: d.wsId,
+      dockTab: d.dockTab,
     },
-    ...(d.body !== undefined ? { body: d.body } : {}),
-    ...(d.tag !== undefined ? { tag: d.tag } : {}),
+    tag: d.tag,
   };
 }
 
@@ -156,10 +156,9 @@ export function createPluginNotifyPort(
       warnThrottled("notify: dropped — a non-empty string title is required");
       return;
     }
-    const body =
-      typeof raw.body === "string" && stripUnsafeText(raw.body) !== ""
-        ? stripUnsafeText(raw.body).slice(0, BODY_MAX)
-        : undefined;
+    const cleanBody =
+      typeof raw.body === "string" ? stripUnsafeText(raw.body) : "";
+    const body = cleanBody !== "" ? cleanBody.slice(0, BODY_MAX) : undefined;
     const severity = SEVERITIES.includes(
       raw.severity as (typeof SEVERITIES)[number],
     )
@@ -181,11 +180,11 @@ export function createPluginNotifyPort(
     deliver({
       pluginId: manifest.id,
       title: title.slice(0, TITLE_MAX),
+      body,
       severity,
-      ...(body !== undefined ? { body } : {}),
-      ...(wsId !== undefined ? { wsId } : {}),
-      ...(dockTab !== undefined ? { dockTab } : {}),
-      ...(tag !== undefined ? { tag } : {}),
+      wsId,
+      dockTab,
+      tag,
     });
   };
 }

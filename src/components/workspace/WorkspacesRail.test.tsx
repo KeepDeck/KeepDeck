@@ -204,8 +204,8 @@ describe("WorkspacesRail unread dots", () => {
       root.render(
         createElement(WorkspacesRail, {
           workspaces: [
-            { id: "a", name: "Alpha", agentCount: 1, unread: 2 },
-            { id: "b", name: "Beta", agentCount: 2 },
+            { id: "a", name: "Alpha", agentCount: 1, agentIcons: [], unread: 2 },
+            { id: "b", name: "Beta", agentCount: 2, agentIcons: [] },
           ],
           activeId: "b",
           onSelect: vi.fn(),
