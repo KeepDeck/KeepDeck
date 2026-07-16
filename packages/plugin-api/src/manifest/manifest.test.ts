@@ -13,6 +13,10 @@ const GOLDEN = {
     { kind: "fs", scope: "workspace" },
     { kind: "git", scope: "workspace" },
     { kind: "net", domains: ["localhost"] },
+    {
+      kind: "legacyDownloads",
+      migrations: [{ source: "models", target: "models", stripSingleRoots: true }],
+    },
     { kind: "ports" },
     { kind: "open" },
     { kind: "commands", execute: ["agent.*", "workspace.switch"] },
@@ -203,6 +207,21 @@ describe("readManifest", () => {
       [{ kind: "net", domains: ["evil\r\nX: 1"] }, "bare hostnames"],
       [{ kind: "net", domains: ["https://a.com"] }, "bare hostnames"],
       [{ kind: "net", domains: ["a.com/path"] }, "bare hostnames"],
+      [{ kind: "legacyDownloads", migrations: [] }, "non-empty"],
+      [
+        {
+          kind: "legacyDownloads",
+          migrations: [{ source: "../models", target: "models" }],
+        },
+        "safe relative",
+      ],
+      [
+        {
+          kind: "legacyDownloads",
+          migrations: [{ source: "models", target: "models//old" }],
+        },
+        "safe relative",
+      ],
       [{ kind: "commands", execute: [] }, "non-empty"],
       [{ kind: "commands" }, "non-empty"],
       // A bare wildcard would make consent meaningless; an undotted name

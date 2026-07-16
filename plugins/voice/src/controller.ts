@@ -1,6 +1,11 @@
-import type { CommandArgs, PluginContext } from "@keepdeck/plugin-api";
+import type {
+  CommandArgs,
+  PluginContext,
+  SpeechCapture,
+} from "@keepdeck/plugin-api";
 import { bestMatch } from "./fuzzy";
 import { normalize, parseCommand, type Intent } from "./grammar";
+import type { VoiceModelInfo } from "./modelCatalog";
 
 /**
  * The voice controller — one push-to-talk state machine shared by the hotkey
@@ -53,10 +58,13 @@ export interface VoiceController {
 export function createVoiceController(
   ctx: PluginContext,
   now: () => number = Date.now,
+  currentModels: () => Promise<readonly VoiceModelInfo[]> = async () => [],
 ): VoiceController {
   let phase: VoicePhase = "idle";
   let mode: VoiceMode | null = null;
   let level = 0;
+  let capture: SpeechCapture | null = null;
+  let starting: Promise<SpeechCapture> | null = null;
   let history: HistoryEntry[] = [];
   const listeners = new Set<() => void>();
   // The snapshot is rebuilt only on change — useSyncExternalStore needs a
@@ -179,48 +187,71 @@ export function createVoiceController(
       mode = m;
       level = 0;
       notify();
+      const pending = ctx.services.speech.startCapture((rms) => {
+        level = rms;
+        notify();
+      });
+      starting = pending;
       try {
-        await ctx.services.voice.startCapture((rms) => {
-          level = rms;
-          notify();
-        });
+        const started = await pending;
+        if (starting !== pending) {
+          return;
+        }
+        if (phase !== "listening") {
+          await started.cancel().catch(() => {});
+        } else {
+          capture = started;
+        }
       } catch (e) {
+        if (starting !== pending || phase !== "listening") return;
         phase = "idle";
         mode = null;
         push("error", e instanceof Error ? e.message : String(e));
         notify();
+      } finally {
+        if (starting === pending) starting = null;
       }
     },
 
     async stop() {
       if (phase !== "listening") return;
       const finished = mode;
+      const activeCapture = capture;
+      capture = null;
+      if (!activeCapture) {
+        phase = "idle";
+        mode = null;
+        level = 0;
+        notify();
+        return;
+      }
       phase = "transcribing";
       notify();
       try {
-        const rows = await workspaces().catch(() => [] as WorkspaceRow[]);
+        const [rows, values, models] = await Promise.all([
+          workspaces().catch(() => [] as WorkspaceRow[]),
+          ctx.settings.read(),
+          currentModels(),
+        ]);
         // The pick persists in the plugin's settings values (settings.json)
         // — the global KV is still a stub, and a choice that silently
         // evaporates on restart is worse than none.
-        const values = await ctx.settings.read();
-        let model =
+        const persisted =
           typeof values[MODEL_KEY] === "string"
             ? (values[MODEL_KEY] as string)
             : null;
-        if (!model) {
-          // No pick yet: whatever is actually installed beats a default
-          // that would answer "not downloaded".
-          const models = await ctx.services.voice.models().catch(() => []);
-          model =
-            models.find((m) => m.installed && !m.retired)?.id ??
-            models.find((m) => m.installed)?.id ??
-            DEFAULT_MODEL;
-        }
+        const selected =
+          models.find((model) => model.id === persisted && model.installed) ??
+          models.find((model) => model.installed && !model.retired) ??
+          models.find((model) => model.installed) ??
+          null;
+        if (!selected) throw new Error("no speech model is installed");
 
         // No language pin: whisper's auto-detect handles per-utterance
         // language switching better than any setting the user must remember.
-        const transcript = await ctx.services.voice.stopCapture({
-          model,
+        const transcript = await activeCapture.stop({
+          engine: selected.engine,
+          modelPath: selected.target.path,
           prompt: buildPrompt(rows),
         });
 
@@ -251,6 +282,7 @@ export function createVoiceController(
           }
         }
       } catch (e) {
+        await activeCapture.cancel().catch(() => {});
         push("error", e instanceof Error ? e.message : String(e));
       } finally {
         phase = "idle";
@@ -266,12 +298,20 @@ export function createVoiceController(
     },
 
     async cancel() {
-      if (phase !== "listening") return;
+      const activeCapture = capture;
+      const pending = starting;
+      if (!activeCapture && !pending) return;
+      capture = null;
+      starting = null;
       phase = "idle";
       mode = null;
       level = 0;
       notify();
-      await ctx.services.voice.cancelCapture().catch(() => {});
+      if (activeCapture) {
+        await activeCapture.cancel().catch(() => {});
+      } else if (pending) {
+        await pending.then((started) => started.cancel()).catch(() => {});
+      }
     },
   };
 }

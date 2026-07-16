@@ -5,31 +5,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentContribution, Disposable } from "@keepdeck/plugin-api";
 import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "../domain/agents";
 import type { Workspace } from "../domain/deck";
-import { pluginRegistries } from "./pluginManager";
+import { createContributionRegistries } from "../plugins/registries/contributions";
+import type { AppRuntime } from "./runtime";
+import { AppRuntimeProvider } from "./runtimeContext";
 import {
   buildResumeSpec,
   dropPaneSpawnSpec,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
   resumeDiedSilently,
+  type SpawnPluginAccess,
   usePaneSpawnSpecs,
 } from "./spawnSpecs";
 
 // React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 const hostState = vi.hoisted(() => ({ installed: [] as unknown[] }));
-vi.mock("./pluginManager", async () => {
-  const { createContributionRegistries } = await import(
-    "../plugins/registries/contributions"
-  );
-  return {
-    pluginRegistries: createContributionRegistries(),
-    bootstrapPlugins: () => Promise.resolve(),
-    pluginHost: { getInstalled: () => hostState.installed },
-  };
-});
+const pluginRegistries = createContributionRegistries();
+const plugins = {
+  pluginRegistries,
+  pluginHost: { getInstalled: () => hostState.installed },
+} as unknown as SpawnPluginAccess;
+const runtime = { plugins } as unknown as AppRuntime;
 
 const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
@@ -85,7 +85,15 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
   });
 
   const mount = (workspaces: Workspace[]) =>
-    act(async () => root.render(createElement(Probe, { workspaces })));
+    act(async () =>
+      root.render(
+        createElement(
+          AppRuntimeProvider,
+          { runtime },
+          createElement(Probe, { workspaces }),
+        ),
+      ),
+    );
 
   it("builds through the hook and arms the bridge on top", async () => {
     register(adopting);
@@ -98,7 +106,11 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     // Host-owned arming: the ONE bridge var, token echoed in the plan.
     const env = Object.fromEntries(plan.env);
     const bridge = JSON.parse(env.KEEPDECK_BRIDGE);
-    expect(bridge).toMatchObject({ v: 1, dir: "/bridge/run-1", pane: "pane-1" });
+    expect(bridge).toMatchObject({
+      v: 1,
+      dir: "/bridge/run-1",
+      pane: "pane-1",
+    });
     expect(plan.token).toBe(bridge.token);
   });
 
@@ -178,6 +190,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
   it("buildResumeSpec caches a resume plan the wake can read back", async () => {
     register(adopting);
     await buildResumeSpec(
+      plugins,
       "claude",
       "pane-9",
       "ws-1",
@@ -196,9 +209,13 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
   });
 
   it("refuses to label a bare spawn as a manual resume", async () => {
-    register({ ...adopting, hooks: { "spawn.plan": adopting.hooks["spawn.plan"] } });
+    register({
+      ...adopting,
+      hooks: { "spawn.plan": adopting.hooks["spawn.plan"] },
+    });
 
     const built = await buildResumeSpec(
+      plugins,
       "claude",
       "pane-unsupported",
       "ws-1",
@@ -240,6 +257,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
 
     dropPaneSpawnSpec("pane-1");
     const manual = buildResumeSpec(
+      plugins,
       "claude",
       "pane-1",
       "ws-1",
@@ -277,6 +295,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     });
 
     const building = buildResumeSpec(
+      plugins,
       "claude",
       "pane-1",
       "ws-1",
@@ -306,9 +325,9 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     // A postback arrived — the session really started; a later exit is real.
     expect(resumeDiedSilently(restored, 3)).toBe(false);
     // A manual restart is never silently replaced with another spawn.
-    expect(
-      resumeDiedSilently({ ...restored, resumeOrigin: "manual" }, 2),
-    ).toBe(false);
+    expect(resumeDiedSilently({ ...restored, resumeOrigin: "manual" }, 2)).toBe(
+      false,
+    );
     // Fresh plans and unknown panes never retry.
     expect(resumeDiedSilently({ args: [], env: [] }, 0)).toBe(false);
     expect(resumeDiedSilently(undefined, 0)).toBe(false);

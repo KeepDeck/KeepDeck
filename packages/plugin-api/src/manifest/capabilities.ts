@@ -9,6 +9,12 @@
  * an ignorable extra — capabilities are the one place a tolerant read would
  * be a security bug.
  */
+export interface LegacyDownloadMigration {
+  source: string;
+  target: string;
+  stripSingleRoots?: boolean;
+}
+
 export type Capability =
   /** Spawn PTY sessions running the listed commands. Entries are matched
    * against the command about to run; `*` matches any single command name —
@@ -24,6 +30,9 @@ export type Capability =
   /** Network access from the plugin's own realm, enforced via the realm's
    * CSP. Domains are literal hosts; `*` is deliberately not supported. */
   | { kind: "net"; domains: string[] }
+  /** Declarative, host-run migration for artifacts created before plugins
+   * owned their private storage. Reserved for bundled plugins. */
+  | { kind: "legacyDownloads"; migrations: LegacyDownloadMigration[] }
   /** Allocate deterministic port blocks (`ports_allocate`). */
   | { kind: "ports" }
   /** Open URLs in the default browser / files in their default app via the
@@ -49,6 +58,7 @@ export const CAPABILITY_KINDS = [
   "fs",
   "git",
   "net",
+  "legacyDownloads",
   "ports",
   "open",
   "commands",

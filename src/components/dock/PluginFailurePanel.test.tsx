@@ -8,8 +8,12 @@ import { PluginFailurePanel } from "./PluginFailurePanel";
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const managerMock = vi.hoisted(() => ({ restartPlugin: vi.fn(async () => {}) }));
-vi.mock("../../app/pluginManager", () => managerMock);
+const managerMock = vi.hoisted(() => ({
+  restartPlugin: vi.fn(async () => {}),
+}));
+vi.mock("../../app/runtimeContext", () => ({
+  useAppRuntime: () => ({ plugins: managerMock }),
+}));
 const clipboardMock = vi.hoisted(() => ({
   writeText: vi.fn(async (_text: string) => {}),
 }));
@@ -66,7 +70,9 @@ describe("PluginFailurePanel", () => {
     act(() => button("Copy log").click());
     expect(clipboardMock.writeText).toHaveBeenCalledTimes(1);
     const copied = clipboardMock.writeText.mock.calls[0][0];
-    expect(copied).toBe(document.querySelector(".plugin-failure__log")!.textContent);
+    expect(copied).toBe(
+      document.querySelector(".plugin-failure__log")!.textContent,
+    );
   });
 
   it("Restart plugin asks the manager to restart THIS plugin", () => {

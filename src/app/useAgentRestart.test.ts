@@ -6,8 +6,9 @@ import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 const plans = vi.hoisted(() => {
   type Spec = {
@@ -23,6 +24,7 @@ const plans = vi.hoisted(() => {
     specs,
     buildResumeSpec: vi.fn(
       async (
+        _plugins: unknown,
         _agentType: string,
         paneId: string,
         _wsId: string,
@@ -52,6 +54,9 @@ const plans = vi.hoisted(() => {
   };
 });
 vi.mock("./spawnSpecs", () => plans);
+vi.mock("./runtimeContext", () => ({
+  useAppRuntime: () => ({ plugins: {} }),
+}));
 
 const pty = vi.hoisted(() => ({
   closePane: vi.fn<(paneId: string) => Promise<void>>(() => Promise.resolve()),
@@ -126,6 +131,7 @@ describe("useAgentRestart", () => {
     await act(async () => restart.restart("ws-1", "pane-1", "resume"));
 
     expect(plans.buildResumeSpec).toHaveBeenCalledWith(
+      expect.anything(),
       "codex",
       "pane-1",
       "ws-1",
@@ -151,7 +157,10 @@ describe("useAgentRestart", () => {
 
     expect(plans.buildResumeSpec).not.toHaveBeenCalled();
     expect(pty.closePane).toHaveBeenCalledOnce();
-    expect(pane()).toMatchObject({ cwd: "/worktree", branch: "feature/restart" });
+    expect(pane()).toMatchObject({
+      cwd: "/worktree",
+      branch: "feature/restart",
+    });
     expect(pane().session).toBeUndefined();
     expect(restart.epochs.get("pane-1")).toBe(1);
   });
@@ -190,7 +199,7 @@ describe("useAgentRestart", () => {
     seed();
     let release!: () => void;
     plans.buildResumeSpec.mockImplementationOnce(
-      async (_agent, paneId, _ws, _cwd, _branch, _ctx, resumeId) => {
+      async (_plugins, _agent, paneId, _ws, _cwd, _branch, _ctx, resumeId) => {
         await new Promise<void>((resolve) => (release = resolve));
         plans.specs.set(paneId, {
           args: ["resume", resumeId],

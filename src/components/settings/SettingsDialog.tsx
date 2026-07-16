@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { pluginHost, pluginRegistries } from "../../app/pluginManager";
+import { useAppRuntime } from "../../app/runtimeContext";
 import { useContributions, useInstalledPlugins } from "../../plugins";
 import { CloseIcon } from "../../ui/icons";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -24,7 +24,11 @@ interface SettingsDialogProps {
  * section — enable toggle, access, restart and its contributed settings in
  * one place. There is deliberately no all-plugins page (user decision).
  */
-export function SettingsDialog({ onClose, initialSectionId }: SettingsDialogProps) {
+export function SettingsDialog({
+  onClose,
+  initialSectionId,
+}: SettingsDialogProps) {
+  const { pluginHost, pluginRegistries } = useAppRuntime().plugins;
   useEscape(onClose);
   const installed = useInstalledPlugins(pluginHost);
   const contributed = useContributions(pluginRegistries.settingsSections);
@@ -37,9 +41,7 @@ export function SettingsDialog({ onClose, initialSectionId }: SettingsDialogProp
   // One section per installed plugin, cli agents first (they are what the
   // deck runs) — mirroring the old list's grouping as nav order.
   const pluginSections = [...installed]
-    .sort(
-      (a, b) => rank(a.manifest.category) - rank(b.manifest.category),
-    )
+    .sort((a, b) => rank(a.manifest.category) - rank(b.manifest.category))
     .map((plugin) => ({
       id: `plugin:${plugin.manifest.id}`,
       label: plugin.manifest.name,
@@ -127,7 +129,12 @@ export function SettingsDialog({ onClose, initialSectionId }: SettingsDialogProp
         </div>
 
         <div className="confirm__actions">
-          <button type="button" className="form__create" onClick={onClose} autoFocus>
+          <button
+            type="button"
+            className="form__create"
+            onClick={onClose}
+            autoFocus
+          >
             Done
           </button>
         </div>

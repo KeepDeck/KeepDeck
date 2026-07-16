@@ -4,6 +4,7 @@ import { findWorkspace, paneAgentType, type Pane } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
 import { buildResumeSpec } from "./spawnSpecs";
+import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
 
 /**
@@ -36,6 +37,7 @@ export function useRevive(
    * earlier would misjudge every pane's agent as unknown. */
   agentsReady: boolean,
 ): ReviveApi {
+  const { plugins } = useAppRuntime();
   const [blocked, setBlocked] = useState<Record<string, string>>({});
   // Revivals in flight — re-renders while one is pending must not double-run.
   const waking = useRef(new Set<string>());
@@ -95,6 +97,7 @@ export function useRevive(
         // Built through the agent plugin's resume.plan hook and cached
         // BEFORE the pane wakes — the mounting terminal reads it.
         await buildResumeSpec(
+          plugins,
           agentType,
           pane.id,
           active.id,
@@ -123,18 +126,24 @@ export function useRevive(
       void probeWorktree(dir)
         .then((probe) => {
           if (probe.exists) return wake(pane, dir);
-          log.warn("web:revive", `${pane.id}: directory gone ${dir} → blocked tile`);
+          log.warn(
+            "web:revive",
+            `${pane.id}: directory gone ${dir} → blocked tile`,
+          );
           setBlocked((b) => ({ ...b, [pane.id]: dir }));
         })
         // A failed probe errs on the side of waking the pane fresh — worst
         // case the spawn itself reports the broken directory in the terminal.
         .catch((e) => {
-          log.warn("web:revive", `${pane.id}: probe failed, waking fresh: ${describeError(e)}`);
+          log.warn(
+            "web:revive",
+            `${pane.id}: probe failed, waking fresh: ${describeError(e)}`,
+          );
           deckRef.current.revivePane(active.id, pane.id);
         })
         .finally(() => waking.current.delete(pane.id));
     }
-  }, [active, blocked, ctx, agentsReady, agentIds]);
+  }, [active, blocked, ctx, agentsReady, agentIds, plugins]);
 
   const startFresh = (wsId: string, paneId: string) => {
     setBlocked(({ [paneId]: _gone, ...rest }) => rest);

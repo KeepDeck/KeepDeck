@@ -1,9 +1,11 @@
 mod agents;
 mod apps;
+mod app_updater;
 mod bridge;
 mod clipboard;
 mod containment;
 mod dnd;
+mod downloads;
 mod fswatch;
 mod head_watch;
 mod links;
@@ -80,6 +82,8 @@ pub fn run() {
         .manage(head_watch::HeadWatchers::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
+        .manage(downloads::DownloadRegistry::default())
+        .manage(app_updater::AppUpdaterState::default())
         .manage(voice::VoiceState::default())
         .setup(move |app| {
             logging::install_panic_hook();
@@ -111,10 +115,18 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
+            app_updater::app_update_check,
+            app_updater::app_update_install,
+            app_updater::app_update_discard,
             agents::agents_detect,
             apps::list_applications,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,
+            downloads::download_start,
+            downloads::download_cancel,
+            downloads::download_exists,
+            downloads::download_remove,
+            downloads::plugin_adopt_legacy_downloads,
             links::open_url,
             links::open_path,
             links::open_path_with,
@@ -145,10 +157,7 @@ pub fn run() {
             project_git::project_git_watch,
             project_git::project_git_unwatch,
             sessions::session_spawn_context,
-            voice::voice_model_list,
-            voice::voice_model_download,
-            voice::voice_model_download_cancel,
-            voice::voice_model_delete,
+            voice::voice_engines,
             voice::voice_capture_start,
             voice::voice_capture_stop,
             voice::voice_capture_cancel,

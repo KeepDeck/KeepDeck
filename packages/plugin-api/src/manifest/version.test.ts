@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   API_VERSION,
+  MIN_COMPATIBLE_API_VERSION,
   isApiVersion,
   parseVersion,
   satisfiesApiFloor,
@@ -33,10 +34,11 @@ describe("isApiVersion", () => {
 });
 
 describe("satisfiesApiFloor", () => {
-  it("accepts an equal or lower floor, rejects a higher one", () => {
-    expect(satisfiesApiFloor(3, 3)).toBe(true);
-    expect(satisfiesApiFloor(2, 3)).toBe(true);
-    expect(satisfiesApiFloor(4, 3)).toBe(false);
+  it("accepts a floor inside the host's compatibility window", () => {
+    expect(satisfiesApiFloor(3, 3, 2)).toBe(true);
+    expect(satisfiesApiFloor(2, 3, 2)).toBe(true);
+    expect(satisfiesApiFloor(4, 3, 2)).toBe(false);
+    expect(satisfiesApiFloor(1, 3, 2)).toBe(false);
   });
 
   it("fails closed on non-integer versions", () => {
@@ -48,5 +50,6 @@ describe("satisfiesApiFloor", () => {
 
   it("defaults to the current API_VERSION", () => {
     expect(satisfiesApiFloor(API_VERSION)).toBe(true);
+    expect(satisfiesApiFloor(MIN_COMPATIBLE_API_VERSION - 1)).toBe(false);
   });
 });

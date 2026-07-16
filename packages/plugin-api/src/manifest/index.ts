@@ -1,6 +1,10 @@
 /** The static half of a plugin: manifest, capabilities, API floor — what the
  * host reads and validates BEFORE any plugin code runs. */
-export { CAPABILITY_KINDS, type Capability } from "./capabilities.ts";
+export {
+  CAPABILITY_KINDS,
+  type Capability,
+  type LegacyDownloadMigration,
+} from "./capabilities.ts";
 export {
   readManifest,
   type ContributionSummary,
@@ -15,6 +19,7 @@ export {
 export { hasUnsafeText } from "./text.ts";
 export {
   API_VERSION,
+  MIN_COMPATIBLE_API_VERSION,
   isApiVersion,
   parseVersion,
   satisfiesApiFloor,

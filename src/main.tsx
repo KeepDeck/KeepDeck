@@ -5,6 +5,8 @@ import { initSettings } from "./app/settingsManager";
 import { initUpdates } from "./app/updateManager";
 import { initUpdateNotifications } from "./app/notificationProducers";
 import { initWindowFocus } from "./app/windowFocus";
+import { createAppRuntime } from "./app/runtime";
+import { AppRuntimeProvider } from "./app/runtimeContext";
 import { initLogging } from "./ipc/log";
 import { suppressNativeContextMenu } from "./ui/contextMenu";
 
@@ -15,7 +17,8 @@ suppressNativeContextMenu();
 void initSettings();
 // Update checks are background-only chatter — nothing gates on them. In dev
 // builds the manager probes app_info once and stays disabled.
-void initUpdates();
+const runtime = createAppRuntime();
+void initUpdates(runtime.downloads);
 // Notifications: track OS window focus for the banner rule, and announce a
 // newly-found update version once.
 void initWindowFocus();
@@ -23,7 +26,9 @@ initUpdateNotifications();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <AppRuntimeProvider runtime={runtime}>
+      <App />
+    </AppRuntimeProvider>
   </React.StrictMode>,
 );
 

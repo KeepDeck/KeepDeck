@@ -1,5 +1,5 @@
 import { crashSurfaceLabel, type PluginCrash } from "../../app/pluginHealth";
-import { restartPlugin } from "../../app/pluginManager";
+import { useAppRuntime } from "../../app/runtimeContext";
 import { writeText } from "../../ipc/clipboard";
 
 /**
@@ -18,6 +18,7 @@ export function PluginFailurePanel({
   label: string;
   crashes: readonly PluginCrash[];
 }) {
+  const { restartPlugin } = useAppRuntime().plugins;
   const log = crashes
     .map((crash) => `[${crashSurfaceLabel(crash)}] ${crash.detail}`)
     .join("\n\n");

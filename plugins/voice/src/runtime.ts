@@ -1,6 +1,6 @@
 import type { PluginContext } from "@keepdeck/plugin-api";
 import type { VoiceController } from "./controller";
-import type { DownloadManager } from "./downloads";
+import type { ModelDownloads } from "./downloads";
 import type { ModelsStore } from "./models";
 
 /**
@@ -13,7 +13,7 @@ import type { ModelsStore } from "./models";
 export interface VoiceRuntime {
   ctx: PluginContext;
   controller: VoiceController;
-  downloads: DownloadManager;
+  downloads: ModelDownloads;
   models: ModelsStore;
 }
 

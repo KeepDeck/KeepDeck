@@ -3,6 +3,7 @@ import type {
   CommandInfo,
   CommandResult,
   Disposable,
+  DownloadState,
   FileOpenRequest,
   FsEntry,
   FsFile,
@@ -13,10 +14,89 @@ import type {
   PluginContext,
   PluginManifest,
   PluginSessionEvent,
+  SpeechCapture,
+  SpeechCaptureOptions,
 } from "@keepdeck/plugin-api";
 import { describeError } from "./errors";
 import type { GuestRpc } from "./rpc";
-import type { WireHookCall, WireOpenCall, WireSessionEvent } from "./protocol";
+import {
+  speechLevelChannel,
+  type WireHookCall,
+  type WireOpenCall,
+  type WireSessionEvent,
+} from "./protocol";
+
+class RemoteDownloadIterator implements AsyncIterator<DownloadState> {
+  private value: DownloadState | null = null;
+  private readonly waiters: Array<(result: IteratorResult<DownloadState>) => void> = [];
+  private closed = false;
+
+  constructor(private readonly detach: () => void) {}
+
+  push(state: DownloadState): void {
+    if (this.closed) return;
+    const waiter = this.waiters.shift();
+    if (waiter) waiter({ done: false, value: state });
+    else this.value = state;
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const pending of this.waiters.splice(0)) {
+      pending({ done: true, value: undefined });
+    }
+    this.detach();
+  }
+
+  next(): Promise<IteratorResult<DownloadState>> {
+    const value = this.value;
+    if (value) {
+      this.value = null;
+      return Promise.resolve({ done: false, value });
+    }
+    if (this.closed) return Promise.resolve({ done: true, value: undefined });
+    return new Promise((resolve) => this.waiters.push(resolve));
+  }
+
+  return(): Promise<IteratorResult<DownloadState>> {
+    this.value = null;
+    this.close();
+    return Promise.resolve({ done: true, value: undefined });
+  }
+}
+
+class RemoteDownloadStream implements AsyncIterable<DownloadState> {
+  private state: DownloadState | null = null;
+  private terminal = false;
+  private readonly readers = new Set<RemoteDownloadIterator>();
+
+  constructor(private readonly detach: () => void) {}
+
+  [Symbol.asyncIterator](): AsyncIterator<DownloadState> {
+    let reader!: RemoteDownloadIterator;
+    reader = new RemoteDownloadIterator(() => this.readers.delete(reader));
+    if (this.state) reader.push(this.state);
+    if (this.terminal) reader.close();
+    else this.readers.add(reader);
+    return reader;
+  }
+
+  push(state: DownloadState): void {
+    if (this.terminal) return;
+    this.state = state;
+    for (const reader of [...this.readers]) reader.push(state);
+    if (
+      state.phase === "completed" ||
+      state.phase === "cancelled" ||
+      state.phase === "failed"
+    ) {
+      this.terminal = true;
+      for (const reader of [...this.readers]) reader.close();
+      this.detach();
+    }
+  }
+}
 
 /** A guest context wired to a bridge, plus the sink the connection pumps
  * host-initiated `event` pushes into. */
@@ -82,6 +162,8 @@ export function buildGuestContext(
   >();
   // One `fswatch:<id>` change callback per open directory watch.
   const watchCallbacks = new Map<string, () => void>();
+  const downloadStreams = new Map<string, RemoteDownloadStream>();
+  const speechLevels = new Map<string, (level: number) => void>();
   let nextRegId = 1;
 
   /** Attach a broadcast-channel listener with a ref-counted host subscription:
@@ -424,17 +506,74 @@ export function buildGuestContext(
           >,
         watch: (repo, onChange) => remoteWatch("git", repo, onChange),
       },
-      voice: {
-        // Capture and downloads need push channels across the realm (level
-        // meter, progress) — external voice waits for its first consumer,
-        // like commands.register. Fail loudly, not silently.
-        models: () => Promise.reject(unavailableVoice()),
-        downloadModel: () => Promise.reject(unavailableVoice()),
-        cancelDownload: () => Promise.reject(unavailableVoice()),
-        deleteModel: () => Promise.reject(unavailableVoice()),
-        startCapture: () => Promise.reject(unavailableVoice()),
-        stopCapture: () => Promise.reject(unavailableVoice()),
-        cancelCapture: () => Promise.reject(unavailableVoice()),
+      downloads: {
+        start: (request) => {
+          if (
+            downloadStreams.has(request.id)
+          ) {
+            throw new Error(`download id already used: ${request.id}`);
+          }
+          let stream!: RemoteDownloadStream;
+          stream = new RemoteDownloadStream(() => {
+            if (downloadStreams.get(request.id) === stream) {
+              downloadStreams.delete(request.id);
+            }
+          });
+          downloadStreams.set(request.id, stream);
+          void rpc.call("services.downloads.start", [request]).catch((error) => {
+            downloadStreams.delete(request.id);
+            stream.push({
+              id: request.id,
+              phase: "failed",
+              received: 0,
+              total: request.integrity?.bytes ?? null,
+              error: describeError(error),
+            });
+          });
+          return stream;
+        },
+        cancel: (id) => rpc.call("services.downloads.cancel", [id]).then(noop),
+        exists: (target, integrity) =>
+          rpc.call("services.downloads.exists", [target, integrity]) as Promise<boolean>,
+        remove: (target) =>
+          rpc.call("services.downloads.remove", [target]).then(noop),
+      },
+      speech: {
+        engines: () =>
+          rpc.call("services.speech.engines", []) as ReturnType<
+            PluginContext["services"]["speech"]["engines"]
+          >,
+        async startCapture(onLevel) {
+          const id = nextRegId++;
+          const channel = speechLevelChannel(id);
+          if (onLevel) speechLevels.set(channel, onLevel);
+          try {
+            await rpc.call("services.speech.start", [id]);
+          } catch (error) {
+            speechLevels.delete(channel);
+            throw error;
+          }
+          let active = true;
+          const close = () => {
+            active = false;
+            speechLevels.delete(channel);
+          };
+          const capture: SpeechCapture = {
+            async stop(opts: SpeechCaptureOptions) {
+              if (!active) throw new Error("speech capture is already closed");
+              close();
+              return rpc.call("services.speech.stop", [id, opts]) as ReturnType<
+                SpeechCapture["stop"]
+              >;
+            },
+            async cancel() {
+              if (!active) return;
+              close();
+              await rpc.call("services.speech.cancel", [id]);
+            },
+          };
+          return capture;
+        },
       },
     },
 
@@ -453,12 +592,6 @@ export function buildGuestContext(
     // a refusal (missing capability) surfaces in the plugin's log, not here.
     notify: (input) => void rpc.call("notify", [input]).catch(noop),
   };
-
-  function unavailableVoice(): Error {
-    return new Error(
-      "the voice service is not yet available to external plugins",
-    );
-  }
 
   /** Run one host-requested agent hook and post the mutated output back. */
   async function runHook(callId: number, payload: unknown): Promise<void> {
@@ -528,6 +661,26 @@ export function buildGuestContext(
     }
     if (channel.startsWith("fswatch:")) {
       watchCallbacks.get(channel)?.();
+      return;
+    }
+    if (channel.startsWith("download:")) {
+      const id = channel.slice("download:".length);
+      const stream = downloadStreams.get(id);
+      if (stream) {
+        const state = payload as DownloadState;
+        stream.push(state);
+        if (
+          state.phase === "completed" ||
+          state.phase === "cancelled" ||
+          state.phase === "failed"
+        ) {
+          downloadStreams.delete(id);
+        }
+      }
+      return;
+    }
+    if (channel.startsWith("speech:")) {
+      speechLevels.get(channel)?.(payload as number);
       return;
     }
     // Deck events and the settings-change feed alike land in `channelListeners`.

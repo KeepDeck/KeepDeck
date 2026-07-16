@@ -1,17 +1,51 @@
-import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
+import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
+import type { DownloadRequest } from "@keepdeck/plugin-api";
 
-export type { DownloadEvent, Update };
-
-/** Ask the updater plugin whether the rolling release is newer than this
- * build. Resolves `null` when we're current; rejects when the plugin is not
- * registered (dev builds) or the check itself failed. */
-export function checkForUpdate(): Promise<Update | null> {
-  return check();
+interface AvailableUpdateDto {
+  id: string;
+  version: string;
+  url: string;
+  signature: string;
+  publicKey: string;
+  target: string;
+  downloaded: boolean;
 }
 
-/** Spawn a fresh app process and exit this one — the last step of an update
- * (the new bundle was already swapped into place by `Update.install`). */
+export interface AvailableUpdate {
+  id: string;
+  version: string;
+  downloaded: boolean;
+  download: Omit<DownloadRequest, "id">;
+}
+
+export async function checkForUpdate(): Promise<AvailableUpdate | null> {
+  const update = await invoke<AvailableUpdateDto | null>("app_update_check");
+  if (!update) return null;
+  return {
+    id: update.id,
+    version: update.version,
+    downloaded: update.downloaded,
+    download: {
+      source: { url: update.url },
+      target: { kind: "file", path: update.target },
+      integrity: {
+        kind: "minisign",
+        signature: update.signature,
+        publicKey: update.publicKey,
+      },
+    },
+  };
+}
+
+export function installUpdate(id: string): Promise<void> {
+  return invoke("app_update_install", { id });
+}
+
+export function discardUpdate(id: string): Promise<void> {
+  return invoke("app_update_discard", { id });
+}
+
 export function relaunchApp(): Promise<void> {
   return relaunch();
 }

@@ -30,6 +30,7 @@ import {
   type PaneHint,
 } from "@keepdeck/terminal-kit";
 import { registerTerminalLinks } from "./terminalLinks";
+import { useAppRuntime } from "../../app/runtimeContext";
 
 interface TerminalPaneProps {
   /** Pane id — routes window-level input (drag-and-drop) to this session. */
@@ -94,6 +95,7 @@ export function TerminalPane({
   onSpawnError,
   onTitle,
 }: TerminalPaneProps) {
+  const { fileOpen } = useAppRuntime();
   // Scrollback comes straight from the settings store ([F6]) — no prop
   // threading through the grid. Loaded before panes can mount (App gates the
   // first paint on it); the fallback only covers isolated test mounts.
@@ -248,10 +250,15 @@ export function TerminalPane({
 
     // Cmd+click a URL or file path in the output to open it ([F14]/[F10]) —
     // the shared linker; relative paths resolve against the pane's cwd.
-    const links = registerTerminalLinks(term, host, {
-      cwd: cwd ?? null,
-      showHint,
-    });
+    const links = registerTerminalLinks(
+      term,
+      host,
+      {
+        cwd: cwd ?? null,
+        showHint,
+      },
+      fileOpen,
+    );
 
     acquirePane(paneId, {
       command,
@@ -280,7 +287,9 @@ export function TerminalPane({
       onSpawnError: (message, replayed) => {
         // The inline error line repeats on replay for the same reason the
         // exit banner does — it lives in xterm, not the ring buffer.
-        term.writeln(`\r\n\x1b[31m[failed to start session: ${message}]\x1b[0m`);
+        term.writeln(
+          `\r\n\x1b[31m[failed to start session: ${message}]\x1b[0m`,
+        );
         setLaunching(false);
         onSpawnErrorRef.current?.(message, replayed);
       },
@@ -353,7 +362,7 @@ export function TerminalPane({
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [command, cwd, paneId, showHint]);
+  }, [command, cwd, paneId, showHint, fileOpen]);
 
   // Scrollback is a runtime xterm option — apply a settings change to the
   // live terminal ([F6]); shrinking trims the buffer, growing keeps it.

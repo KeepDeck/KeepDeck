@@ -3,13 +3,15 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initUpdates, resetUpdateManager } from "../../app/updateManager";
-import type { Update } from "../../ipc/updater";
+import type { AvailableUpdate } from "../../ipc/updater";
 import { UpdatesSection } from "./UpdatesSection";
 
 vi.mock("../../ipc/app", () => ({ fetchAppInfo: vi.fn() }));
 vi.mock("../../ipc/updater", () => ({
   checkForUpdate: vi.fn(),
-  relaunchApp: vi.fn(),
+  discardUpdate: vi.fn(async () => {}),
+  installUpdate: vi.fn(async () => {}),
+  relaunchApp: vi.fn(async () => {}),
 }));
 vi.mock("../../ipc/log", () => ({
   describeError: (e: unknown) => String(e instanceof Error ? e.message : e),
@@ -17,10 +19,24 @@ vi.mock("../../ipc/log", () => ({
 }));
 
 import { fetchAppInfo } from "../../ipc/app";
-import { checkForUpdate } from "../../ipc/updater";
+import { checkForUpdate, installUpdate } from "../../ipc/updater";
 
 const mockInfo = vi.mocked(fetchAppInfo);
 const mockCheck = vi.mocked(checkForUpdate);
+const mockInstall = vi.mocked(installUpdate);
+const downloads = {
+  start: vi.fn((request: { id: string }) => ({
+    async *[Symbol.asyncIterator]() {
+      yield {
+        id: request.id,
+        phase: "completed" as const,
+        received: 100,
+        total: 100,
+      };
+    },
+  })),
+  cancel: vi.fn(async () => {}),
+};
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -61,18 +77,22 @@ const button = (label: string) => {
 const hints = () =>
   [...host.querySelectorAll(".settings__hint")].map((el) => el.textContent).join(" ");
 
-function fakeUpdate(version: string): Update {
+function fakeUpdate(version: string): AvailableUpdate {
   return {
+    id: `update-${version}`,
     version,
-    download: vi.fn(async () => {}),
-    install: vi.fn(async () => {}),
-  } as unknown as Update;
+    downloaded: false,
+    download: {
+      source: { url: "https://example.com/update" },
+      target: { kind: "file", path: `updates/${version}.bundle` },
+    },
+  };
 }
 
 describe("UpdatesSection", () => {
   it("shows the installed version and a disabled action in a dev build", async () => {
     mockInfo.mockResolvedValue({ name: "KeepDeck", version: "9.9.9", updater: false });
-    await initUpdates();
+    await initUpdates(downloads);
     await render();
 
     expect(host.querySelector(".settings__value")!.textContent).toBe(
@@ -85,7 +105,7 @@ describe("UpdatesSection", () => {
   it("checks on demand from idle", async () => {
     mockInfo.mockResolvedValue({ name: "KeepDeck", version: "9.9.9", updater: true });
     mockCheck.mockResolvedValue(null);
-    await initUpdates();
+    await initUpdates(downloads);
     await render();
 
     expect(button("Check for updates").disabled).toBe(false);
@@ -98,16 +118,16 @@ describe("UpdatesSection", () => {
     mockInfo.mockResolvedValue({ name: "KeepDeck", version: "9.9.9", updater: true });
     const update = fakeUpdate("1.2.0");
     mockCheck.mockResolvedValue(update);
-    await initUpdates();
+    await initUpdates(downloads);
     await render();
 
     expect(hints()).toContain("Version 1.2.0 is available");
     expect(hints()).toContain("nothing has been downloaded");
-    expect(update.download).not.toHaveBeenCalled();
+    expect(downloads.start).not.toHaveBeenCalled();
 
     await act(async () => button("Download update").click());
-    expect(update.download).toHaveBeenCalledTimes(1);
-    expect(update.install).not.toHaveBeenCalled();
+    expect(downloads.start).toHaveBeenCalledTimes(1);
+    expect(mockInstall).not.toHaveBeenCalled();
     expect(hints()).toContain("nothing changes until you restart");
   });
 
@@ -115,18 +135,18 @@ describe("UpdatesSection", () => {
     mockInfo.mockResolvedValue({ name: "KeepDeck", version: "9.9.9", updater: true });
     const update = fakeUpdate("1.2.0");
     mockCheck.mockResolvedValue(update);
-    await initUpdates();
+    await initUpdates(downloads);
     await render();
     await act(async () => button("Download update").click());
 
     await act(async () => button("Restart to update").click());
-    expect(update.install).toHaveBeenCalledTimes(1);
+    expect(mockInstall).toHaveBeenCalledWith(update.id);
   });
 
   it("Dismiss backs out of a found update", async () => {
     mockInfo.mockResolvedValue({ name: "KeepDeck", version: "9.9.9", updater: true });
     mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
-    await initUpdates();
+    await initUpdates(downloads);
     await render();
 
     await act(async () => button("Dismiss").click());
@@ -137,7 +157,7 @@ describe("UpdatesSection", () => {
   it("surfaces a failed check without blocking the next one", async () => {
     mockInfo.mockResolvedValue({ name: "KeepDeck", version: "9.9.9", updater: true });
     mockCheck.mockRejectedValue(new Error("offline"));
-    await initUpdates();
+    await initUpdates(downloads);
     await render();
 
     expect(hints()).toContain("Last check failed: offline");

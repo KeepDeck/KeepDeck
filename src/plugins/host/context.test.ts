@@ -49,14 +49,18 @@ function fakeDeps() {
     onChange: vi.fn(spyDisposable),
   };
   const services: PluginServices = {
-    voice: {
-      models: vi.fn(async () => []),
-      downloadModel: vi.fn(async () => {}),
-      cancelDownload: vi.fn(async () => {}),
-      deleteModel: vi.fn(async () => {}),
-      startCapture: vi.fn(async () => {}),
-      stopCapture: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
-      cancelCapture: vi.fn(async () => {}),
+    downloads: {
+      start: vi.fn(async function* () {}),
+      cancel: vi.fn(async () => {}),
+      exists: vi.fn(async () => false),
+      remove: vi.fn(async () => {}),
+    },
+    speech: {
+      engines: vi.fn(async () => ["whisper" as const]),
+      startCapture: vi.fn(async () => ({
+        stop: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
+        cancel: vi.fn(async () => {}),
+      })),
     },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },

@@ -3,7 +3,7 @@ import type { AgentContribution } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../domain/agents";
 import { detectBins, type BinStatus } from "../ipc/agents";
 import { useContributions } from "../plugins/react";
-import { bootstrapPlugins, pluginRegistries } from "./pluginManager";
+import { useAppRuntime } from "./runtimeContext";
 
 // Last known per-bin install status. A remount seeds from it so consumers
 // never render a "nothing installed" flash while re-detection runs; detection
@@ -19,6 +19,7 @@ let lastStatus = new Map<string, BinStatus>();
  * may fail to spawn than to hide one that works.
  */
 export function useAgents(): { agents: AgentInfo[]; loading: boolean } {
+  const { bootstrapPlugins, pluginRegistries } = useAppRuntime().plugins;
   const contributions = useContributions(pluginRegistries.agents);
   const [booted, setBooted] = useState(false);
   const [status, setStatus] = useState(lastStatus);
@@ -33,7 +34,7 @@ export function useAgents(): { agents: AgentInfo[]; loading: boolean } {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [bootstrapPlugins]);
 
   const binsKey = useMemo(
     () =>

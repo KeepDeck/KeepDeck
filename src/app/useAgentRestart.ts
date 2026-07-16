@@ -10,6 +10,7 @@ import {
   peekPaneSpawnSpec,
   resumeDiedSilently,
 } from "./spawnSpecs";
+import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
 
 export interface AgentRestartApi {
@@ -45,6 +46,7 @@ export function useAgentRestart(
   deck: Deck,
   ctx: SpawnPlanContext | null,
 ): AgentRestartApi {
+  const { plugins } = useAppRuntime();
   const [epochs, setEpochs] = useState<ReadonlyMap<string, number>>(new Map());
   const inFlight = useRef(new Set<string>());
   const deckRef = useRef(deck);
@@ -78,6 +80,7 @@ export function useAgentRestart(
     // stays exited if the CLI rejects its id (manual means no auto fallback).
     dropPaneSpawnSpec(target.paneId);
     const planBuilt = await buildResumeSpec(
+      plugins,
       target.agentType,
       target.paneId,
       target.wsId,

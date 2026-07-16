@@ -1,5 +1,7 @@
 import type {
   Capability,
+  DownloadRequest,
+  DownloadTarget,
   Disposable,
   FsEntry,
   FsFile,
@@ -16,12 +18,9 @@ import type {
   PluginPorts,
   PluginServices,
   PluginSessions,
-  PluginVoice,
+  PluginSpeech,
 } from "@keepdeck/plugin-api";
 import { execCovers } from "./execCovers";
-import { makeAdmit, type GateMode } from "./tier";
-
-export type { GateMode } from "./tier";
 
 /** The two scopes the `fs` capability may declare, as the backend consumes
  * them: the gate DERIVES this from the manifest and passes it down; the backend
@@ -78,7 +77,28 @@ export interface ServiceBackends {
   opener: PluginOpener;
   fs: FsBackend;
   git: GitBackend;
-  voice: PluginVoice;
+  downloads: {
+    start(
+      pluginId: string,
+      request: DownloadRequest,
+      allowedDomains: readonly string[],
+      onTerminal: () => void,
+    ): AsyncIterable<import("@keepdeck/plugin-api").DownloadState>;
+    cancel(id: string): Promise<void>;
+    exists(
+      pluginId: string,
+      target: DownloadTarget,
+      integrity?: DownloadRequest["integrity"],
+    ): Promise<boolean>;
+    remove(pluginId: string, target: DownloadTarget): Promise<void>;
+  };
+  speech: {
+    engines: PluginSpeech["engines"];
+    startCapture(
+      pluginId: string,
+      onLevel?: Parameters<PluginSpeech["startCapture"]>[0],
+    ): ReturnType<PluginSpeech["startCapture"]>;
+  };
 }
 
 /**
@@ -90,36 +110,41 @@ export interface ServiceBackends {
  * actually stops an undeclared call at runtime — without it, capabilities
  * would be a label nobody enforces.
  *
- * v0 runs only built-in, trusted plugins, so `"warn"` mode exists to turn
- * every future contract violation into a visible tripwire in the log
- * WITHOUT taking the app down — a built-in plugin that outgrows its
- * manifest is a bug to fix, not a reason to crash a user's session. The
- * external plugin tier (untrusted, arbitrary code) will construct this gate
- * with `"enforce"` instead, where the identical violation throws.
+ * Trusted built-ins additionally log violations, but diagnostics never
+ * weaken authorization semantics: every violation is denied.
  *
- * The gate is pure decoration: it holds no state beyond `manifest`/`backend`
- * and forwards an allowed call verbatim — same arguments, same return value,
- * no re-wrapping of the session handle — so a caller cannot tell a `"warn"`
- * pass-through from a call that was never gated at all.
+ * Most services are pure decoration and forward allowed calls verbatim. The
+ * download surface additionally retains a bounded set of ids so one plugin
+ * cannot cancel another plugin's globally keyed job.
  *
  * `fs` IS gated here now (a file-reading plugin gave it a service to guard):
  * the gate admits the call only if the manifest declares an `fs` capability and
  * passes the DECLARED SCOPE to the backend, which resolves scope into the roots
- * it enforces containment against — the plugin never supplies the scope. `net`
- * still has no service to gate: it is enforced by the plugin realm's CSP, not a
- * call here, so there is deliberately no `net` branch.
+ * it enforces containment against — the plugin never supplies the scope.
+ * `downloads` applies the declared `net` domains both before dispatch and in
+ * the native transfer engine, including every redirect.
  */
+export type GateDiagnostics = "log" | "silent";
+
 export function createCapabilityGate(
   manifest: PluginManifest,
   backend: ServiceBackends,
-  opts: { mode: GateMode; log: PluginLogger },
+  opts: { diagnostics: GateDiagnostics; log: PluginLogger },
 ): PluginServices {
-  const { mode, log } = opts;
+  const { diagnostics, log } = opts;
+  const maxActiveDownloads = 8;
+  const activeDownloadIds = new Set<string>();
 
-  // The tier's single branch point (shared with the notify port via
-  // `makeAdmit`): "warn" logs and lets the call proceed below; "enforce"
-  // throws here, before the backend is ever reached.
-  const admit = makeAdmit(mode, (message) => log.warn(message));
+  /** One authorization path. Diagnostics add visibility, never authority. */
+  function admit(ok: boolean, message: string): void {
+    if (ok) return;
+    if (diagnostics === "log") log.warn(message);
+    throw new Error(message);
+  }
+
+  function finishDownload(id: string): void {
+    activeDownloadIds.delete(id);
+  }
 
   return {
     sessions: {
@@ -240,58 +265,72 @@ export function createCapabilityGate(
           hasGitCapability(manifest.capabilities),
           `git.watch: "${repo}" requires a "git" capability, which the manifest does not declare`,
         );
-        return backend.git.watch(repo, gitScope(manifest.capabilities), onChange);
+        return backend.git.watch(
+          repo,
+          gitScope(manifest.capabilities),
+          onChange,
+        );
       },
     },
-    voice: {
-      models() {
+    downloads: {
+      start(request) {
         admit(
-          hasMicCapability(manifest.capabilities),
-          `voice.models requires a "mic" capability, which the manifest does not declare`,
+          netCovers(manifest.capabilities, request.source.url),
+          `downloads.start: "${request.source.url}" requires a matching "net" capability`,
         );
-        return backend.voice.models();
+        if (activeDownloadIds.size >= maxActiveDownloads) {
+          throw new Error(
+            `plugin has too many active downloads (limit ${maxActiveDownloads})`,
+          );
+        }
+        if (activeDownloadIds.has(request.id)) {
+          throw new Error(
+            `download id already used by this plugin: ${request.id}`,
+          );
+        }
+        // The backend can reject synchronously (for example a global id or
+        // target collision). Ownership is granted only after it accepted.
+        let terminal = false;
+        const stream = backend.downloads.start(
+          manifest.id,
+          request,
+          netDomains(manifest.capabilities),
+          () => {
+            terminal = true;
+            finishDownload(request.id);
+          },
+        );
+        if (!terminal) activeDownloadIds.add(request.id);
+        return stream;
       },
-      downloadModel(id, onProgress) {
+      cancel(id) {
         admit(
-          hasMicCapability(manifest.capabilities),
-          `voice.downloadModel: "${id}" requires a "mic" capability, which the manifest does not declare`,
+          activeDownloadIds.has(id),
+          `downloads.cancel: "${id}" was not started by this plugin`,
         );
-        return backend.voice.downloadModel(id, onProgress);
+        return backend.downloads.cancel(id).then(() => finishDownload(id));
       },
-      cancelDownload(id) {
-        admit(
-          hasMicCapability(manifest.capabilities),
-          `voice.cancelDownload: "${id}" requires a "mic" capability, which the manifest does not declare`,
-        );
-        return backend.voice.cancelDownload(id);
+      exists(target, integrity) {
+        return backend.downloads.exists(manifest.id, target, integrity);
       },
-      deleteModel(id) {
+      remove(target) {
+        return backend.downloads.remove(manifest.id, target);
+      },
+    },
+    speech: {
+      engines() {
         admit(
           hasMicCapability(manifest.capabilities),
-          `voice.deleteModel: "${id}" requires a "mic" capability, which the manifest does not declare`,
+          `speech.engines requires a "mic" capability, which the manifest does not declare`,
         );
-        return backend.voice.deleteModel(id);
+        return backend.speech.engines();
       },
       startCapture(onLevel) {
         admit(
           hasMicCapability(manifest.capabilities),
-          `voice.startCapture requires a "mic" capability, which the manifest does not declare`,
+          `speech.startCapture requires a "mic" capability, which the manifest does not declare`,
         );
-        return backend.voice.startCapture(onLevel);
-      },
-      stopCapture(opts) {
-        admit(
-          hasMicCapability(manifest.capabilities),
-          `voice.stopCapture requires a "mic" capability, which the manifest does not declare`,
-        );
-        return backend.voice.stopCapture(opts);
-      },
-      cancelCapture() {
-        admit(
-          hasMicCapability(manifest.capabilities),
-          `voice.cancelCapture requires a "mic" capability, which the manifest does not declare`,
-        );
-        return backend.voice.cancelCapture();
+        return backend.speech.startCapture(manifest.id, onLevel);
       },
     },
   };
@@ -299,6 +338,24 @@ export function createCapabilityGate(
 
 function hasMicCapability(capabilities: Capability[]): boolean {
   return capabilities.some((capability) => capability.kind === "mic");
+}
+
+function netCovers(capabilities: Capability[], rawUrl: string): boolean {
+  let host: string;
+  try {
+    host = new URL(rawUrl).host;
+  } catch {
+    return false;
+  }
+  return netDomains(capabilities).some(
+    (domain) => domain.toLowerCase() === host.toLowerCase(),
+  );
+}
+
+function netDomains(capabilities: Capability[]): string[] {
+  return capabilities.flatMap((capability) =>
+    capability.kind === "net" ? capability.domains : [],
+  );
 }
 
 function hasPortsCapability(capabilities: Capability[]): boolean {

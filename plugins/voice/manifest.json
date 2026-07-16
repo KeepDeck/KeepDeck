@@ -2,12 +2,19 @@
   "id": "keepdeck.voice",
   "name": "Voice",
   "version": "0.1.0",
-  "minApiVersion": 17,
+  "minApiVersion": 18,
   "category": "deck",
   "experimental": true,
   "description": "Voice control and dictation: hold a key, speak, release — local speech-to-text drives the deck (spawn, switch, focus, close) or types straight into the focused agent. Audio never leaves your machine.",
   "capabilities": [
     { "kind": "mic" },
+    { "kind": "net", "domains": ["blob.handy.computer"] },
+    {
+      "kind": "legacyDownloads",
+      "migrations": [
+        { "source": "models", "target": "models", "stripSingleRoots": true }
+      ]
+    },
     {
       "kind": "commands",
       "execute": ["workspace.*", "agent.*", "pane.*", "settings.open"]

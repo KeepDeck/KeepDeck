@@ -4,7 +4,10 @@ import {
   type PaneHint,
 } from "@keepdeck/terminal-kit";
 import { openUrl } from "../../ipc/app";
-import { fileOpenManager, type FileOpenOutcome } from "../../app/fileOpenManager";
+import type {
+  FileOpenManager,
+  FileOpenOutcome,
+} from "../../app/fileOpenManager";
 
 /** Where link activation lands: cwd for relative paths, hints for feedback.
  * The kit's provider is ipc-inverted (it takes `openUrl`/`openPath` on the
@@ -24,7 +27,7 @@ export interface TerminalLinkTarget {
  * shared by every host xterm surface (agent panes, the Run log). The
  * behaviour lives in @keepdeck/terminal-kit; this thin adapter is the host
  * call site that binds URLs to the browser and file paths to the
- * `fileOpenManager` chain (plugin handlers first, the OS default app as the
+ * app runtime's file-open chain (plugin handlers first, the OS default app as the
  * floor). When a handler declined and the system opener took the file, the
  * click gets a hint saying so — routing never silently contradicts an
  * enabled in-app opener.
@@ -33,12 +36,12 @@ export function registerTerminalLinks(
   term: Terminal,
   host: HTMLElement,
   target: TerminalLinkTarget,
+  fileOpen: FileOpenManager,
 ): { dispose(): void } {
   return registerKitLinks(term, host, {
     ...target,
     openUrl,
-    openPath: async (path) =>
-      linkOpenNotice(await fileOpenManager.open({ path })),
+    openPath: async (path) => linkOpenNotice(await fileOpen.open({ path })),
   });
 }
 

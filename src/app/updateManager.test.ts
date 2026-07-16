@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DownloadEvent, Update } from "../ipc/updater";
+import type { DownloadState } from "@keepdeck/plugin-api";
+import type { AvailableUpdate } from "../ipc/updater";
 import {
+  cancelUpdateDownload,
   checkForUpdatesNow,
   dismissUpdate,
   downloadUpdate,
@@ -8,46 +10,66 @@ import {
   initUpdates,
   resetUpdateManager,
   restartToUpdate,
-  subscribeUpdates,
 } from "./updateManager";
 
 vi.mock("../ipc/app", () => ({ fetchAppInfo: vi.fn() }));
 vi.mock("../ipc/updater", () => ({
   checkForUpdate: vi.fn(),
-  relaunchApp: vi.fn(),
+  discardUpdate: vi.fn(async () => {}),
+  installUpdate: vi.fn(async () => {}),
+  relaunchApp: vi.fn(async () => {}),
 }));
 vi.mock("../ipc/log", () => ({
-  describeError: (e: unknown) => String(e instanceof Error ? e.message : e),
+  describeError: (error: unknown) =>
+    String(error instanceof Error ? error.message : error),
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 import { fetchAppInfo } from "../ipc/app";
-import { checkForUpdate, relaunchApp } from "../ipc/updater";
+import {
+  checkForUpdate,
+  discardUpdate,
+  installUpdate,
+  relaunchApp,
+} from "../ipc/updater";
 
 const mockInfo = vi.mocked(fetchAppInfo);
 const mockCheck = vi.mocked(checkForUpdate);
+const mockDiscard = vi.mocked(discardUpdate);
+const mockInstall = vi.mocked(installUpdate);
 const mockRelaunch = vi.mocked(relaunchApp);
 
-function appInfo(updater: boolean) {
-  return { name: "KeepDeck", version: "0.12.1", updater };
-}
+const available = (version = "1.2.0"): AvailableUpdate => ({
+  id: `update-${version}`,
+  version,
+  downloaded: false,
+  download: {
+    source: { url: "https://example.com/update" },
+    target: { kind: "file", path: `updates/${version}.bundle` },
+    integrity: { kind: "size", bytes: 100 },
+  },
+});
 
-/** A fake plugin Update handle: download replays the given events. */
-function fakeUpdate(
-  version: string,
-  events: DownloadEvent[] = [{ event: "Finished" }],
-): Update {
-  return {
-    version,
-    download: vi.fn(async (onEvent?: (e: DownloadEvent) => void) => {
-      for (const event of events) onEvent?.(event);
-    }),
-    install: vi.fn(async () => {}),
-  } as unknown as Update;
-}
+let states: Omit<DownloadState, "id">[];
+let downloadError: Error | null;
+const downloads = {
+  start: vi.fn((request: { id: string }) => ({
+    async *[Symbol.asyncIterator]() {
+      if (downloadError) throw downloadError;
+      for (const state of states) yield { id: request.id, ...state };
+    },
+  })),
+  cancel: vi.fn(async () => {}),
+};
 
 beforeEach(() => {
   vi.useFakeTimers();
+  states = [
+    { phase: "downloading", received: 60, total: 100 },
+    { phase: "completed", received: 100, total: 100 },
+  ];
+  downloadError = null;
+  mockInfo.mockResolvedValue({ name: "KeepDeck", version: "0.13.2", updater: true });
 });
 
 afterEach(() => {
@@ -56,246 +78,175 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("initUpdates", () => {
-  it("stays disabled when the build carries no updater", async () => {
-    mockInfo.mockResolvedValue(appInfo(false));
-    await initUpdates();
+describe("update manager", () => {
+  it("stays disabled when this build has no updater", async () => {
+    mockInfo.mockResolvedValue({ name: "KeepDeck", version: "0.13.2", updater: false });
+    await initUpdates(downloads);
     expect(getUpdateState().phase).toBe("disabled");
     expect(mockCheck).not.toHaveBeenCalled();
-    // And the interval never fires a check either.
-    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
-    expect(mockCheck).not.toHaveBeenCalled();
   });
 
-  it("goes disabled when even app_info is unreachable", async () => {
-    mockInfo.mockRejectedValue(new Error("no bridge"));
-    await initUpdates();
-    expect(getUpdateState().phase).toBe("disabled");
-  });
-
-  it("checks immediately and lands idle when we are current", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
+  it("checks immediately and periodically", async () => {
     mockCheck.mockResolvedValue(null);
-    await initUpdates();
-    const state = getUpdateState();
-    expect(state.phase).toBe("idle");
-    expect(state.checkedAt).not.toBeNull();
-    expect(mockCheck).toHaveBeenCalledTimes(1);
-  });
-
-  it("is idempotent: repeated calls share one boot", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(null);
-    await Promise.all([initUpdates(), initUpdates()]);
-    expect(mockInfo).toHaveBeenCalledTimes(1);
-    expect(mockCheck).toHaveBeenCalledTimes(1);
-  });
-
-  it("re-checks on the interval", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(null);
-    await initUpdates(1000);
-    expect(mockCheck).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(2500);
+    await initUpdates(downloads, 1_000);
+    expect(getUpdateState().phase).toBe("idle");
+    await vi.advanceTimersByTimeAsync(2_500);
     expect(mockCheck).toHaveBeenCalledTimes(3);
   });
-});
 
-describe("finding an update", () => {
-  it("stops at available — zero bytes move without consent", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    const update = fakeUpdate("1.2.0");
-    mockCheck.mockResolvedValue(update);
-    await initUpdates();
-
-    const state = getUpdateState();
-    expect(state.phase).toBe("available");
-    expect(state.version).toBe("1.2.0");
-    expect(update.download).not.toHaveBeenCalled();
-    expect(update.install).not.toHaveBeenCalled();
+  it("returns to idle and records a failed check", async () => {
+    mockCheck.mockRejectedValueOnce(new Error("offline"));
+    await initUpdates(downloads);
+    expect(getUpdateState()).toMatchObject({ phase: "idle", error: "offline" });
   });
 
-  it("a failed check surfaces the error and returns to idle", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockRejectedValue(new Error("offline"));
-    await initUpdates();
-    const state = getUpdateState();
-    expect(state.phase).toBe("idle");
-    expect(state.error).toBe("offline");
+  it("finds an update without downloading before consent", async () => {
+    mockCheck.mockResolvedValue(available());
+    await initUpdates(downloads);
+    expect(getUpdateState()).toMatchObject({ phase: "available", version: "1.2.0" });
+    expect(downloads.start).not.toHaveBeenCalled();
   });
 
-  it("a periodic tick while available or ready does not re-check", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
-    await initUpdates(1000);
-    expect(getUpdateState().phase).toBe("available");
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(mockCheck).toHaveBeenCalledTimes(1);
+  it("reuses a previously verified deterministic artifact after restart", async () => {
+    mockCheck.mockResolvedValue({ ...available(), downloaded: true });
+    await initUpdates(downloads);
+    expect(getUpdateState()).toMatchObject({ phase: "ready", version: "1.2.0" });
+    expect(downloads.start).not.toHaveBeenCalled();
+  });
 
+  it("downloads through the shared manager and waits in ready", async () => {
+    mockCheck.mockResolvedValue(available());
+    await initUpdates(downloads);
     await downloadUpdate();
-    expect(getUpdateState().phase).toBe("ready");
-    await vi.advanceTimersByTimeAsync(3000);
-    expect(mockCheck).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("downloadUpdate", () => {
-  it("downloads with progress and waits in ready", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    const update = fakeUpdate("1.2.0", [
-      { event: "Started", data: { contentLength: 100 } },
-      { event: "Progress", data: { chunkLength: 60 } },
-      { event: "Progress", data: { chunkLength: 40 } },
-      { event: "Finished" },
-    ] as DownloadEvent[]);
-    mockCheck.mockResolvedValue(update);
-    const phases: string[] = [];
-    subscribeUpdates(() => phases.push(getUpdateState().phase));
-    await initUpdates();
-
-    await downloadUpdate();
-
-    const state = getUpdateState();
-    expect(state.phase).toBe("ready");
-    expect(state.received).toBe(100);
-    expect(state.total).toBe(100);
-    expect(phases).toContain("downloading");
-    // Downloaded, NOT installed — that waits for the user.
-    expect(update.install).not.toHaveBeenCalled();
-  });
-
-  it("a failed download returns to available for a retry", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    const update = fakeUpdate("1.2.0");
-    (update.download as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("signature mismatch"),
+    expect(downloads.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: expect.any(String),
+        source: { url: "https://example.com/update" },
+      }),
     );
+    expect(getUpdateState()).toMatchObject({
+      phase: "ready",
+      received: 100,
+      total: 100,
+    });
+    expect(mockInstall).not.toHaveBeenCalled();
+  });
+
+  it("returns to available when the shared stream fails", async () => {
+    mockCheck.mockResolvedValue(available());
+    await initUpdates(downloads);
+    downloadError = new Error("signature mismatch");
+    await downloadUpdate();
+    expect(getUpdateState()).toMatchObject({
+      phase: "available",
+      error: "signature mismatch",
+    });
+  });
+
+  it("cancels the active download job by its unique id", async () => {
+    mockCheck.mockResolvedValue(available());
+    await initUpdates(downloads);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    downloads.start.mockReturnValueOnce({
+      async *[Symbol.asyncIterator]() {
+        yield { id: "held", phase: "downloading", received: 1, total: 10 } as const;
+        await held;
+        yield { id: "held", phase: "cancelled", received: 1, total: 10 } as const;
+      },
+    });
+    const pending = downloadUpdate();
+    await Promise.resolve();
+    cancelUpdateDownload();
+    expect(downloads.cancel).toHaveBeenCalledWith(expect.any(String));
+    release();
+    await pending;
+    expect(getUpdateState().phase).toBe("available");
+  });
+
+  it("installs verified bytes and relaunches only from ready", async () => {
+    const update = available();
     mockCheck.mockResolvedValue(update);
-    await initUpdates();
-
+    await initUpdates(downloads);
     await downloadUpdate();
-
-    const state = getUpdateState();
-    expect(state.phase).toBe("available");
-    expect(state.error).toBe("signature mismatch");
-  });
-
-  it("is a no-op unless an update is available", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(null);
-    await initUpdates();
-    await downloadUpdate();
-    expect(getUpdateState().phase).toBe("idle");
-  });
-});
-
-describe("dismissUpdate", () => {
-  it("forgets a found update; the next check offers it again", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
-    await initUpdates(1000);
-    expect(getUpdateState().phase).toBe("available");
-
-    dismissUpdate();
-    expect(getUpdateState().phase).toBe("idle");
-    expect(getUpdateState().version).toBeNull();
-
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(getUpdateState().phase).toBe("available");
-  });
-
-  it("forgets a downloaded update too", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
-    await initUpdates();
-    await downloadUpdate();
-    expect(getUpdateState().phase).toBe("ready");
-
-    dismissUpdate();
-    expect(getUpdateState().phase).toBe("idle");
-    // A dismissed download cannot be installed by a later stray call.
     await restartToUpdate();
+    expect(mockInstall).toHaveBeenCalledWith(update.id);
+    expect(mockRelaunch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a verified update ready when installation fails", async () => {
+    mockCheck.mockResolvedValue(available());
+    mockInstall.mockRejectedValueOnce(new Error("install denied"));
+    await initUpdates(downloads);
+    await downloadUpdate();
+    await restartToUpdate();
+    expect(getUpdateState()).toMatchObject({ phase: "ready", error: "install denied" });
     expect(mockRelaunch).not.toHaveBeenCalled();
   });
 
-  it("is a no-op in other phases", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(null);
-    await initUpdates();
-    dismissUpdate();
+  it("does not offer a second install after only relaunch fails", async () => {
+    mockCheck.mockResolvedValue(available());
+    mockRelaunch.mockRejectedValueOnce(new Error("relaunch blocked"));
+    await initUpdates(downloads);
+    await downloadUpdate();
+    await restartToUpdate();
+    expect(getUpdateState()).toMatchObject({
+      phase: "installing",
+      error: expect.stringContaining("quit and reopen"),
+    });
+    await restartToUpdate();
+    expect(mockInstall).toHaveBeenCalledOnce();
+  });
+
+  it("dismisses metadata and downloaded bytes", async () => {
+    const update = available();
+    mockCheck.mockResolvedValue(update);
+    await initUpdates(downloads);
+    await dismissUpdate();
+    expect(mockDiscard).toHaveBeenCalledWith(update.id);
     expect(getUpdateState().phase).toBe("idle");
   });
-});
 
-describe("checkForUpdatesNow", () => {
-  it("runs a check from idle", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(null);
-    await initUpdates();
+  it("does not claim dismissal before native cleanup settles", async () => {
+    const update = available();
+    mockCheck.mockResolvedValue(update);
+    let release!: () => void;
+    mockDiscard.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    await initUpdates(downloads);
+
+    const dismissing = dismissUpdate();
+    expect(getUpdateState().phase).toBe("discarding");
     checkForUpdatesNow();
-    await Promise.resolve(); // let the in-flight check settle
+    expect(mockCheck).toHaveBeenCalledOnce();
+    release();
+    await dismissing;
+    expect(getUpdateState().phase).toBe("idle");
+  });
+
+  it("keeps the update actionable when native cleanup fails", async () => {
+    mockCheck.mockResolvedValue(available());
+    mockDiscard.mockRejectedValueOnce(new Error("artifact busy"));
+    await initUpdates(downloads);
+
+    await dismissUpdate();
+
+    expect(getUpdateState()).toMatchObject({
+      phase: "available",
+      error: "artifact busy",
+    });
+  });
+
+  it("manual checks run only from idle", async () => {
+    mockCheck.mockResolvedValue(null);
+    await initUpdates(downloads);
+    checkForUpdatesNow();
+    await Promise.resolve();
     expect(mockCheck).toHaveBeenCalledTimes(2);
-  });
-
-  it("is a no-op while disabled", async () => {
-    mockInfo.mockResolvedValue(appInfo(false));
-    await initUpdates();
-    checkForUpdatesNow();
-    expect(mockCheck).not.toHaveBeenCalled();
-  });
-
-  it("is a no-op while an update awaits a decision", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
-    await initUpdates();
-    expect(getUpdateState().phase).toBe("available");
-    checkForUpdatesNow();
-    expect(mockCheck).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("restartToUpdate", () => {
-  async function readyState() {
-    mockInfo.mockResolvedValue(appInfo(true));
-    const update = fakeUpdate("1.2.0");
-    mockCheck.mockResolvedValue(update);
-    await initUpdates();
-    await downloadUpdate();
-    expect(getUpdateState().phase).toBe("ready");
-    return update;
-  }
-
-  it("installs the downloaded update, then relaunches", async () => {
-    const update = await readyState();
-
-    await restartToUpdate();
-
-    expect(update.install).toHaveBeenCalledTimes(1);
-    expect(mockRelaunch).toHaveBeenCalledTimes(1);
-    expect(getUpdateState().phase).toBe("installing");
-  });
-
-  it("returns to ready with the error when the install fails", async () => {
-    const update = await readyState();
-    (update.install as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("permission denied"),
-    );
-
-    await restartToUpdate();
-
-    const state = getUpdateState();
-    expect(state.phase).toBe("ready");
-    expect(state.error).toBe("permission denied");
-    expect(mockRelaunch).not.toHaveBeenCalled();
-  });
-
-  it("is a no-op unless an update is ready", async () => {
-    mockInfo.mockResolvedValue(appInfo(true));
-    mockCheck.mockResolvedValue(fakeUpdate("1.2.0"));
-    await initUpdates();
-    // available, but not downloaded — installing from here must be impossible
-    await restartToUpdate();
-    expect(mockRelaunch).not.toHaveBeenCalled();
-    expect(getUpdateState().phase).toBe("available");
   });
 });

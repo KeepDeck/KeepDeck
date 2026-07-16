@@ -1,70 +1,54 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import type {
+  SpeechCapture,
+  SpeechEngine,
+  SpeechTranscript,
+} from "@keepdeck/plugin-api";
 
-/** The delivery layer for voice: whisper model management and push-to-talk
- * capture. Mirrors `src-tauri/src/voice.rs` one-to-one. */
+/** Native speech delivery only. Model lifecycle belongs to the caller. */
 
-export interface VoiceModelDto {
-  id: string;
-  label: string;
-  sizeMb: number;
-  installed: boolean;
-  /** No working source anymore: an install keeps working, but there is
-   * nothing to download — hide it when absent. */
-  retired: boolean;
+export function voiceEngines(): Promise<SpeechEngine[]> {
+  return invoke<SpeechEngine[]>("voice_engines");
 }
 
-export interface DownloadProgressDto {
-  received: number;
-  total: number | null;
-}
-
-export interface TranscriptDto {
-  text: string;
-  /** The utterance was dropped as silence before inference. */
-  silence: boolean;
-  seconds: number;
-  level: number;
-}
-
-export function voiceModelList(): Promise<VoiceModelDto[]> {
-  return invoke<VoiceModelDto[]>("voice_model_list");
-}
-
-export function voiceModelDownload(
-  id: string,
-  onProgress: (p: DownloadProgressDto) => void,
-): Promise<void> {
-  const channel = new Channel<DownloadProgressDto>();
-  channel.onmessage = onProgress;
-  return invoke("voice_model_download", { id, onProgress: channel });
-}
-
-export function voiceModelDownloadCancel(id: string): Promise<void> {
-  return invoke("voice_model_download_cancel", { id });
-}
-
-export function voiceModelDelete(id: string): Promise<void> {
-  return invoke("voice_model_delete", { id });
-}
-
-export function voiceCaptureStart(onLevel: (rms: number) => void): Promise<void> {
+export async function voiceCaptureStart(
+  pluginId: string,
+  onLevel: (rms: number) => void,
+): Promise<SpeechCapture> {
+  const captureId = crypto.randomUUID();
   const channel = new Channel<number>();
   channel.onmessage = onLevel;
-  return invoke("voice_capture_start", { onLevel: channel });
+  await invoke("voice_capture_start", { captureId, pluginId, onLevel: channel });
+  let active = true;
+  return {
+    async stop(opts) {
+      if (!active) throw new Error("speech capture is already closed");
+      active = false;
+      return voiceCaptureStop(captureId, opts);
+    },
+    async cancel() {
+      if (!active) return;
+      active = false;
+      await voiceCaptureCancel(captureId);
+    },
+  };
 }
 
-export function voiceCaptureStop(opts: {
-  model: string;
+function voiceCaptureStop(captureId: string, opts: {
+  engine: SpeechEngine;
+  modelPath: string;
   language?: string;
   prompt?: string;
-}): Promise<TranscriptDto> {
-  return invoke<TranscriptDto>("voice_capture_stop", {
-    model: opts.model,
+}): Promise<SpeechTranscript> {
+  return invoke<SpeechTranscript>("voice_capture_stop", {
+    captureId,
+    engine: opts.engine,
+    modelPath: opts.modelPath,
     language: opts.language ?? null,
     prompt: opts.prompt ?? null,
   });
 }
 
-export function voiceCaptureCancel(): Promise<void> {
-  return invoke("voice_capture_cancel");
+function voiceCaptureCancel(captureId: string): Promise<void> {
+  return invoke("voice_capture_cancel", { captureId });
 }

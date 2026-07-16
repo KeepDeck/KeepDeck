@@ -37,11 +37,7 @@ import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useCoreCommands } from "./app/coreCommands";
-import {
-  bootstrapPlugins,
-  pluginRegistries,
-  revealPluginDockTab,
-} from "./app/pluginManager";
+import { useAppRuntime } from "./app/runtimeContext";
 import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
 import { useContributions } from "./plugins";
@@ -80,6 +76,8 @@ import "./styles/index.css";
  * and file drops — to the components that render them.
  */
 function App() {
+  const { bootstrapPlugins, pluginRegistries, revealPluginDockTab } =
+    useAppRuntime().plugins;
   const [info, setInfo] = useState<AppInfo | null>(null);
   const updateState = useUpdate();
 
@@ -459,7 +457,6 @@ function App() {
   // setting at construction ([F6]).
   if (restoring || !spawnCtx || !settings) return <div className="deck" />;
 
-
   return (
     <div className="deck">
       <header className="deck__bar">
@@ -484,6 +481,7 @@ function App() {
           {(updateState.phase === "available" ||
             updateState.phase === "downloading" ||
             updateState.phase === "ready" ||
+            updateState.phase === "discarding" ||
             updateState.phase === "installing") && (
             // The consent ladder's face in the bar: "available" only points
             // at the Updates section (nothing downloads by itself), "ready"
@@ -502,6 +500,7 @@ function App() {
               }}
               disabled={
                 updateState.phase === "downloading" ||
+                updateState.phase === "discarding" ||
                 updateState.phase === "installing"
               }
               title={
@@ -513,6 +512,7 @@ function App() {
               {updateState.phase === "available" && "Update available"}
               {updateState.phase === "downloading" && "Downloading update…"}
               {updateState.phase === "ready" && "Update ready · Restart"}
+              {updateState.phase === "discarding" && "Discarding update…"}
               {updateState.phase === "installing" && "Restarting…"}
             </button>
           )}

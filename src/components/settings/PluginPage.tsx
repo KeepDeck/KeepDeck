@@ -4,16 +4,11 @@ import type {
   SettingsSectionContribution,
 } from "@keepdeck/plugin-api";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
-import {
-  externalPluginInfo,
-  pluginHost,
-  rescanPlugins,
-  restartPlugin,
-} from "../../app/pluginManager";
+import { useAppRuntime } from "../../app/runtimeContext";
 import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS, withPluginMuted } from "../../domain/settings";
-import type { Contribution } from "../../plugins/registries/contributions";
+import type { Contribution, InstalledPlugin } from "../../plugins";
 import { PluginSettingsSection } from "./PluginSettingsSection";
 
 /**
@@ -30,9 +25,11 @@ export function PluginPage({
   plugin,
   section,
 }: {
-  plugin: ReturnType<typeof pluginHost.getInstalled>[number];
+  plugin: InstalledPlugin;
   section: SettingsSectionContribution | null;
 }) {
+  const { externalPluginInfo, pluginHost, restartPlugin } =
+    useAppRuntime().plugins;
   const external = externalPluginInfo(plugin.manifest.id);
   const notificationPrefs =
     useSettings()?.notifications ?? DEFAULT_SETTINGS.notifications;
@@ -152,6 +149,7 @@ const SPIN_MS = 700;
 /** The global "re-read the plugins folder" action — lives on the nav's
  * Plugins group header now that there is no all-plugins page. */
 export function RescanButton() {
+  const { rescanPlugins } = useAppRuntime().plugins;
   const [scanning, setScanning] = useState(false);
 
   const rescan = () => {
@@ -181,7 +179,9 @@ export function RescanButton() {
       {/* The wrapper is ALWAYS inline-flex; only the animation toggles, so
           switching scan state never changes the icon's box (which would
           nudge the whole row). */}
-      <span className={`settings__spin${scanning ? " settings__spin--on" : ""}`}>
+      <span
+        className={`settings__spin${scanning ? " settings__spin--on" : ""}`}
+      >
         <RefreshIcon />
       </span>
     </button>
@@ -194,13 +194,17 @@ function describe(cap: Capability): string {
     case "exec":
       return `run ${cap.commands.join("/")}`;
     case "fs":
-      return cap.scope === "everywhere" ? "read any file" : "read project files";
+      return cap.scope === "everywhere"
+        ? "read any file"
+        : "read project files";
     case "git":
       return cap.scope === "everywhere"
         ? "read git state of any repository"
         : "read git state of project repositories";
     case "net":
       return `reach ${cap.domains.join("/")}`;
+    case "legacyDownloads":
+      return `adopt legacy downloads (${cap.migrations.map((migration) => migration.source).join(", ")})`;
     case "ports":
       return "allocate ports";
     case "open":

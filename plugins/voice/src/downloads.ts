@@ -1,49 +1,30 @@
-import type { PluginContext } from "@keepdeck/plugin-api";
-
-/**
- * The download manager — one per plugin activation, held in the runtime so it
- * OUTLIVES any component. The settings model cards mount and unmount as the
- * settings dialog opens and closes; the Rust transfer runs in the background
- * regardless, and this manager is what keeps its progress attached to the UI
- * across that unmount. Both the settings cards and the dock tab read it, so a
- * download started in settings still shows its state after settings close.
- */
-export interface DownloadState {
-  /** 0–100 when the server sent a length, else null (indeterminate). */
-  percent: number | null;
-}
+import type { DownloadState, PluginContext } from "@keepdeck/plugin-api";
+import { modelById } from "./modelCatalog";
 
 export interface DownloadsSnapshot {
-  /** Active downloads by model id. Absent = not downloading. */
   active: Readonly<Record<string, DownloadState>>;
-  /** Last error per model id, cleared when a new download starts. A cancel
-   * is NOT an error — the partial file stays and Download resumes it. */
   errors: Readonly<Record<string, string>>;
 }
 
-export interface DownloadManager {
+/** Voice-specific projection over the host's one shared download manager. */
+export interface ModelDownloads {
   snapshot(): DownloadsSnapshot;
   subscribe(cb: () => void): () => void;
-  /** Start (or resume) a download. Idempotent per id — a second call while
-   * one is live is a no-op. Resolves true when the model is installed. */
-  start(id: string): Promise<boolean>;
-  cancel(id: string): void;
-  /** Whether anything is downloading — the dock indicator's gate. */
+  start(modelId: string): Promise<boolean>;
+  cancel(modelId: string): void;
   anyActive(): boolean;
 }
 
 const EMPTY: DownloadsSnapshot = { active: {}, errors: {} };
 
-/** `onInstalled` fires after a download completes and the model is on disk —
- * the models store refreshes through it, so a finished download flips the
- * dock's "no model" prompt without anyone polling. */
-export function createDownloadManager(
+export function createModelDownloads(
   ctx: PluginContext,
   onInstalled: () => void = () => {},
-): DownloadManager {
+): ModelDownloads {
   let active: Record<string, DownloadState> = {};
   let errors: Record<string, string> = {};
   let snap: DownloadsSnapshot = EMPTY;
+  const jobs = new Map<string, string>();
   const listeners = new Set<() => void>();
 
   function notify(): void {
@@ -59,38 +40,73 @@ export function createDownloadManager(
     },
     anyActive: () => Object.keys(active).length > 0,
 
-    async start(id) {
-      if (active[id]) return false;
-      active = { ...active, [id]: { percent: 0 } };
-      if (errors[id]) {
-        const { [id]: _gone, ...rest } = errors;
+    async start(modelId) {
+      if (active[modelId]) return false;
+      const model = modelById(modelId);
+      if (!model?.source) {
+        errors = { ...errors, [modelId]: "this model has no download source" };
+        notify();
+        return false;
+      }
+      const id = crypto.randomUUID();
+      jobs.set(modelId, id);
+      active = {
+        ...active,
+        [modelId]: {
+          id,
+          phase: "queued",
+          received: 0,
+          total: model.integrity?.bytes ?? null,
+        },
+      };
+      if (errors[modelId]) {
+        const { [modelId]: _gone, ...rest } = errors;
         errors = rest;
       }
       notify();
+      let installed = false;
       try {
-        await ctx.services.voice.downloadModel(id, ({ received, total }) => {
-          active = {
-            ...active,
-            [id]: { percent: total ? Math.round((received / total) * 100) : null },
-          };
+        for await (const state of ctx.services.downloads.start({
+          id,
+          source: model.source,
+          target: model.target,
+          integrity: model.integrity,
+        })) {
+          if (state.phase === "failed") {
+            errors = {
+              ...errors,
+              [modelId]: state.error ?? "download failed",
+            };
+          }
+          installed = state.phase === "completed";
+          if (
+            state.phase !== "completed" &&
+            state.phase !== "cancelled" &&
+            state.phase !== "failed"
+          ) {
+            active = { ...active, [modelId]: state };
+          }
           notify();
-        });
-        onInstalled();
-        return true;
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        // A cancel is a quiet reset — the partial stays, Download resumes it.
-        if (message !== "cancelled") errors = { ...errors, [id]: message };
-        return false;
+        }
+        if (installed) onInstalled();
+        return installed;
       } finally {
-        const { [id]: _done, ...rest } = active;
+        jobs.delete(modelId);
+        const { [modelId]: _done, ...rest } = active;
         active = rest;
         notify();
       }
     },
 
-    cancel(id) {
-      void ctx.services.voice.cancelDownload(id);
+    cancel(modelId) {
+      const id = jobs.get(modelId);
+      if (id) {
+        void ctx.services.downloads.cancel(id).catch((error) => {
+          ctx.log.warn(
+            `model download cancel failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+      }
     },
   };
 }

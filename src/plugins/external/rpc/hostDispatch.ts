@@ -4,21 +4,28 @@ import type {
   AgentIcon,
   AgentIconPath,
   Disposable,
+  DownloadRequest,
+  DownloadState,
+  DownloadTarget,
   DockTabContribution,
   FsReadFileOptions,
   GitDiffOptions,
   GitHistoryOptions,
   PluginContext,
   PluginSpawnOptions,
+  SpeechCapture,
+  SpeechCaptureOptions,
   SettingsSectionContribution,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
 import {
   actionChannel,
   DECK_EVENT_CHANNELS,
+  downloadChannel,
   fswatchChannel,
   hookChannel,
   openChannel,
+  speechLevelChannel,
   type WireHookCall,
   type WireOpenCall,
   type WireSpawnPlanOutput,
@@ -144,6 +151,8 @@ export function createHostDispatch(
   const registrations = new Map<number, Disposable>();
   // Directory watches, retained by the guest-minted id that will unwatch them.
   const watches = new Map<number, Disposable>();
+  const activeDownloads = new Set<string>();
+  const activeSpeechCaptures = new Map<number, SpeechCapture>();
   function retain(regId: number, disposable: Disposable): void {
     registrations.set(regId, disposable);
   }
@@ -382,6 +391,63 @@ export function createHostDispatch(
       watches.get(key)?.dispose();
       watches.delete(key);
     },
+    "services.downloads.start": ([raw]) => {
+      const request = raw as DownloadRequest;
+      const stream = ctx.services.downloads.start(request);
+      activeDownloads.add(request.id);
+      void (async () => {
+        try {
+          for await (const state of stream) {
+            push(downloadChannel(request.id), state);
+          }
+        } catch (error) {
+          const failed: DownloadState = {
+            id: request.id,
+            phase: "failed",
+            received: 0,
+            total: request.integrity?.bytes ?? null,
+            error: error instanceof Error ? error.message : String(error),
+          };
+          push(downloadChannel(request.id), failed);
+        } finally {
+          activeDownloads.delete(request.id);
+        }
+      })();
+    },
+    "services.downloads.cancel": ([id]) =>
+      ctx.services.downloads.cancel(id as string),
+    "services.downloads.exists": ([target, integrity]) =>
+      ctx.services.downloads.exists(
+        target as DownloadTarget,
+        integrity as DownloadRequest["integrity"],
+      ),
+    "services.downloads.remove": ([target]) =>
+      ctx.services.downloads.remove(target as DownloadTarget),
+    "services.speech.engines": () => ctx.services.speech.engines(),
+    "services.speech.start": async ([id]) => {
+      const key = id as number;
+      if (activeSpeechCaptures.has(key)) {
+        throw new Error(`speech capture id already active: ${key}`);
+      }
+      const capture = await ctx.services.speech.startCapture((level) =>
+        push(speechLevelChannel(key), level),
+      );
+      activeSpeechCaptures.set(key, capture);
+    },
+    "services.speech.stop": ([id, opts]) => {
+      const key = id as number;
+      const capture = activeSpeechCaptures.get(key);
+      if (!capture) throw new Error(`speech capture is not active: ${key}`);
+      activeSpeechCaptures.delete(key);
+      return capture.stop(opts as SpeechCaptureOptions);
+    },
+    "services.speech.cancel": ([id]) => {
+      const key = id as number;
+      const capture = activeSpeechCaptures.get(key);
+      if (!capture) return;
+      activeSpeechCaptures.delete(key);
+      return capture.cancel();
+    },
 
     // ---- host facts ----
     "host.settings": () => ctx.host.settings(),
@@ -420,6 +486,14 @@ export function createHostDispatch(
       registrations.clear();
       for (const watcher of watches.values()) watcher.dispose();
       watches.clear();
+      for (const id of activeDownloads) {
+        void ctx.services.downloads.cancel(id).catch(() => {});
+      }
+      activeDownloads.clear();
+      for (const capture of activeSpeechCaptures.values()) {
+        void capture.cancel().catch(() => {});
+      }
+      activeSpeechCaptures.clear();
     },
   };
 }

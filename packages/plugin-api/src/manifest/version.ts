@@ -11,18 +11,27 @@
  */
 export const API_VERSION = 19; // 19: + notifications capability & ctx.notify
 
+/** Oldest contract the current host can execute. Raise only for a breaking change. */
+export const MIN_COMPATIBLE_API_VERSION = 18;
+
 /**
- * Whether the host's API revision satisfies a manifest's `minApiVersion` floor:
- * plain `floor <= api`. Fails CLOSED — any non-integer (a malformed manifest, a
- * stray `0.0.x` string that slipped the reader) yields `false`, so it can never
- * pass the gate.
+ * Whether a manifest's floor falls inside the host's compatibility window.
+ * Fails CLOSED — any non-integer (a malformed manifest, a stray `0.0.x` string
+ * that slipped the reader) yields `false`, so it can never pass the gate.
  */
 export function satisfiesApiFloor(
   minApiVersion: number,
   apiVersion: number = API_VERSION,
+  minCompatibleVersion: number = MIN_COMPATIBLE_API_VERSION,
 ): boolean {
-  if (!isApiVersion(minApiVersion) || !isApiVersion(apiVersion)) return false;
-  return minApiVersion <= apiVersion;
+  if (
+    !isApiVersion(minApiVersion) ||
+    !isApiVersion(apiVersion) ||
+    !isApiVersion(minCompatibleVersion)
+  ) {
+    return false;
+  }
+  return minApiVersion >= minCompatibleVersion && minApiVersion <= apiVersion;
 }
 
 /** A valid API revision: a non-negative integer. */

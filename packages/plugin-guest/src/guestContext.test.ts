@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildGuestContext } from "./context";
 import { fakeManifest } from "./fakeHost";
 import { GuestRpc } from "./rpc";
+import type { DownloadRequest } from "@keepdeck/plugin-api";
 
 /**
  * Direct tests of the guest context builder — the parts worth pinning without
@@ -126,5 +127,91 @@ describe("agent registration payload", () => {
     expect(payload.icon).toEqual(icon);
     expect(payload.hookNames).toEqual(["spawn.plan"]);
     expect(payload).not.toHaveProperty("hooks");
+  });
+});
+
+describe("remote download streams", () => {
+  const request: DownloadRequest = {
+    id: "download-1",
+    source: { url: "https://example.com/file" },
+    target: { kind: "file", path: "file" },
+  };
+
+  it("rejects duplicate ids without replacing the first route", async () => {
+    const rpc = { call: vi.fn(async () => undefined) } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    const first = bundle.ctx.services.downloads.start(request);
+    expect(() => bundle.ctx.services.downloads.start(request)).toThrow(
+      "download id already used",
+    );
+    const iterator = first[Symbol.asyncIterator]();
+    bundle.dispatchEvent("download:download-1", {
+      id: "download-1",
+      phase: "downloading",
+      received: 5,
+      total: 10,
+    });
+    expect((await iterator.next()).value?.received).toBe(5);
+  });
+
+  it("conflates progress and return detaches only that reader", async () => {
+    const rpc = { call: vi.fn(async () => undefined) } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    const iterator = bundle.ctx.services.downloads
+      .start(request)
+      [Symbol.asyncIterator]();
+    bundle.dispatchEvent("download:download-1", {
+      id: "download-1",
+      phase: "downloading",
+      received: 1,
+      total: 10,
+    });
+    bundle.dispatchEvent("download:download-1", {
+      id: "download-1",
+      phase: "downloading",
+      received: 9,
+      total: 10,
+    });
+    expect((await iterator.next()).value?.received).toBe(9);
+    await iterator.return?.();
+    bundle.dispatchEvent("download:download-1", {
+      id: "download-1",
+      phase: "completed",
+      received: 10,
+      total: 10,
+    });
+    expect((await iterator.next()).done).toBe(true);
+  });
+
+  it("fans the current state out to independent readers", async () => {
+    const rpc = { call: vi.fn(async () => undefined) } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    const stream = bundle.ctx.services.downloads.start(request);
+    const first = stream[Symbol.asyncIterator]();
+    const second = stream[Symbol.asyncIterator]();
+
+    bundle.dispatchEvent("download:download-1", {
+      id: "download-1",
+      phase: "downloading",
+      received: 4,
+      total: 10,
+    });
+    expect((await first.next()).value?.received).toBe(4);
+    expect((await second.next()).value?.received).toBe(4);
+
+    await first.return?.();
+    bundle.dispatchEvent("download:download-1", {
+      id: "download-1",
+      phase: "completed",
+      received: 10,
+      total: 10,
+    });
+    expect((await first.next()).done).toBe(true);
+    expect((await second.next()).value?.phase).toBe("completed");
+    expect((await second.next()).done).toBe(true);
+
+    const late = stream[Symbol.asyncIterator]();
+    expect((await late.next()).value?.phase).toBe("completed");
+    expect((await late.next()).done).toBe(true);
   });
 });

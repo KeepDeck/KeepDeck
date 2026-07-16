@@ -95,6 +95,15 @@ const NAME_MAX = 40;
  * header. Deliberately excludes schemes, paths, and any separator/whitespace. */
 const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/i;
 
+function safeRelativePath(value: string): boolean {
+  const segments = value.split("/");
+  return (
+    value.length > 0 &&
+    !value.startsWith("/") &&
+    segments.every((segment) => segment !== "" && segment !== "." && segment !== "..")
+  );
+}
+
 /** A contribution id — a plain token safe as both a URL path component and a
  * registry key. No dots/slashes/whitespace. */
 const CONTRIB_ID = /^[a-zA-Z0-9_-]+$/;
@@ -226,6 +235,43 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
             `${at}: net domains must be bare hostnames (optionally :port), no wildcards or separators`,
           );
         else out.push({ kind: "net", domains: cap.domains });
+        return;
+      case "legacyDownloads":
+        if (!Array.isArray(cap.migrations) || cap.migrations.length === 0) {
+          errors.push(`${at}: legacyDownloads needs non-empty "migrations"`);
+        } else {
+          const migrations = cap.migrations.flatMap((raw, index) => {
+            const field = `${at}.migrations[${index}]`;
+            if (!isRecord(raw)) {
+              errors.push(`${field}: must be an object`);
+              return [];
+            }
+            if (
+              typeof raw.source !== "string" ||
+              typeof raw.target !== "string" ||
+              !safeRelativePath(raw.source) ||
+              !safeRelativePath(raw.target)
+            ) {
+              errors.push(`${field}: source and target must be safe relative paths`);
+              return [];
+            }
+            if (
+              raw.stripSingleRoots !== undefined &&
+              typeof raw.stripSingleRoots !== "boolean"
+            ) {
+              errors.push(`${field}: stripSingleRoots must be boolean`);
+              return [];
+            }
+            return [{
+              source: raw.source,
+              target: raw.target,
+              ...(raw.stripSingleRoots === true ? { stripSingleRoots: true } : {}),
+            }];
+          });
+          if (migrations.length === cap.migrations.length) {
+            out.push({ kind: "legacyDownloads", migrations });
+          }
+        }
         return;
       case "ports":
         out.push({ kind: "ports" });
