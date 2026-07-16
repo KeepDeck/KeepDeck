@@ -207,6 +207,20 @@ describe("release workflow", () => {
     expect(archive.run).not.toContain("--latest=false");
   });
 
+  it("creates releases only after an explicit REST 404", () => {
+    for (const name of [
+      'Publish the rolling "latest" release',
+      "Archive this version as its own release",
+    ]) {
+      const step = release.jobs.publish.steps.find((s) => s.name === name);
+      expect(step.run).toContain("scripts/github-release-state.mjs");
+      expect(step.run).toContain('case "$release_state" in');
+      expect(step.run).toContain("exists) ;;");
+      expect(step.run).toContain("missing)");
+      expect(step.run).not.toContain("gh release view");
+    }
+  });
+
   it("archives every version as its own release, badge and manifest stay rolling", () => {
     const archive = release.jobs.publish.steps.find(
       (s) => s.name === "Archive this version as its own release",
