@@ -5,4 +5,10 @@ edition = "2021"
 description = "Git worktree provisioning for KeepDeck agent isolation."
 
 [dependencies]
-# none — shells out to the user's `git`; pure std otherwise.
+# Shells out to the user's `git`; keepdeck-env supplies the PATH the children
+# run with (a GUI launch inherits launchd's stripped PATH — see cmd.rs).
+keepdeck-env = { path = "../keepdeck-env" }
+
+[dev-dependencies]
+# Integration tests pin the augmented PATH before mutating the process PATH.
+keepdeck-env = { path = "../keepdeck-env" }
