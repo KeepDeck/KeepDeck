@@ -29,10 +29,8 @@ import {
 } from "./app/notificationProducers";
 import { useNotifications } from "./app/useNotifications";
 import { NotificationBell } from "./components/notifications/NotificationBell";
-import {
-  unreadByWorkspace,
-  type Notification,
-} from "./domain/notifications";
+import { unreadByWorkspace, type Notification } from "./domain/notifications";
+import { settingsSectionForNotification } from "./app/notificationNavigation";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -383,7 +381,8 @@ function App() {
 
   // A clicked notification navigates to its origin: a pane is selected (and
   // restored from the minimize tray if needed), a plugin entry lands on its
-  // workspace, an app-level one opens Settings → Updates.
+  // precise workspace/dock target or falls back to that plugin's Settings,
+  // and an app-level one opens Settings → Updates.
   const openNotification = (n: Notification) => {
     switch (n.source.type) {
       case "pane": {
@@ -409,6 +408,11 @@ function App() {
         if (n.source.dockTab !== undefined) {
           revealPluginDockTab(n.source.pluginId, n.source.dockTab);
         }
+        const section = settingsSectionForNotification(n.source);
+        if (section !== null && !dialogOpen && !settingsOpen) {
+          setSettingsSection(section);
+          setSettingsOpen(true);
+        }
         break;
       }
       case "app": {
@@ -416,7 +420,9 @@ function App() {
         // section only at open, so setting it over an open dialog would
         // silently not navigate.
         if (!dialogOpen && !settingsOpen) {
-          setSettingsSection("updates");
+          setSettingsSection(
+            settingsSectionForNotification(n.source) ?? undefined,
+          );
           setSettingsOpen(true);
         }
         break;

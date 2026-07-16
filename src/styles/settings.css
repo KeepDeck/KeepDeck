@@ -287,15 +287,16 @@
   }
 }
 
-/* Category group: a muted caption over its member rows. */
-
-
-
 .settings__plugin-row {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.settings__plugin-row .settings__toggle {
+  min-width: 0;
+  flex: 1;
 }
 
 /* The plugin page's own settings fields, below a separator. */
@@ -310,10 +311,13 @@
 
 .settings__plugin-about {
   margin: 10px 0 0;
+  line-height: 1.45;
 }
 
-.settings__plugin .settings__toggle {
-  flex: 1;
+.settings__plugin-notifications {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #1c2230;
 }
 
 .settings__plugin-name {
