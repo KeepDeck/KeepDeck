@@ -2570,7 +2570,7 @@ dependencies = [
 
 [[package]]
 name = "keepdeck"
-version = "0.13.5"
+version = "0.13.6"
 dependencies = [
  "block2",
  "flate2",
