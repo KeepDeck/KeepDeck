@@ -10,17 +10,12 @@ import {
   type ElementRectSnapshot,
 } from "../../app/dragManager";
 import { railItemAtY } from "../../domain/deck";
-import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 
 /** View model for the rail (the domain `Workspace` lives in `../workspaces`). */
 export interface WorkspaceItem {
   id: string;
   name: string;
   agentCount: number;
-  /** One mark per DISTINCT agent type running here (first-appearance order),
-   * `null` where the type's plugin ships no mark — "which agents", while
-   * `agentCount` stays "how many". */
-  agentIcons: (AgentGlyphIcon | null)[];
   /** Unread notifications sourced in this workspace — 0 hides the dot. */
   unread?: number;
 }
@@ -251,13 +246,6 @@ export function WorkspacesRail({
                 <span className="rail__dot" />
                 <span className="rail__name">{ws.name}</span>
               </button>
-              {ws.agentIcons.length > 0 && (
-                <span className="rail__agents" aria-hidden>
-                  {ws.agentIcons.map((icon, i) => (
-                    <AgentGlyph key={i} icon={icon} />
-                  ))}
-                </span>
-              )}
               {(ws.unread ?? 0) > 0 && (
                 <span
                   className="rail__unread"
