@@ -1,5 +1,8 @@
 import type { AgentInfo, AgentType } from "../agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
+// Type-only, so the module graph stays acyclic at runtime (reducer's chain
+// imports this module; the types are erased).
+import type { WorkspaceView } from "./reducer";
 
 /** The agent session a pane is bound to — the resume key ([F7]/[F8]). Bound at
  * save time while the pane is alive (spawn-diff over the agent's own store),
@@ -140,13 +143,15 @@ export function resolveFocus(
   return panes.some((pane) => pane.id === focusedId) ? focusedId : null;
 }
 
-/** The slice of `WorkspaceView` pane visibility depends on (structural, so
- * this module stays independent of the reducer). */
-interface PaneVisibilityView {
-  focus?: string;
-  select?: string;
-  minimized?: string[];
-}
+/** The slice of `WorkspaceView` pane visibility depends on. A `Pick` (not a
+ * restated structural shape): every field here is optional, so a hand-rolled
+ * copy would accept ANY object and a reducer-side rename would silently feed
+ * `undefined` into visibility decisions — the type-only import keeps renames
+ * a compile error without pulling in reducer logic. */
+type PaneVisibilityView = Pick<
+  WorkspaceView,
+  "focus" | "select" | "minimized"
+>;
 
 /**
  * Whether the pane's BODY is actually being rendered right now, given its

@@ -421,6 +421,12 @@ function App() {
         }
         break;
       }
+      default: {
+        // Exhaustiveness: a new NotificationSource variant must fail to
+        // compile here instead of silently getting no navigation.
+        const unhandled: never = n.source;
+        void unhandled;
+      }
     }
   };
 

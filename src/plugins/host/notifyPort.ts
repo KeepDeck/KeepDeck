@@ -1,11 +1,12 @@
-import {
-  stripUnsafeText,
-  type PluginLogger,
-  type PluginManifest,
-  type PluginNotify,
-  type PluginNotifyInput,
+import type {
+  PluginLogger,
+  PluginManifest,
+  PluginNotify,
+  PluginNotifyInput,
 } from "@keepdeck/plugin-api";
-import type { GateMode } from "../capabilities/gate";
+import { stripUnsafeText } from "@keepdeck/plugin-api/unsafe-text";
+import { makeAdmit, type GateMode } from "../capabilities/tier";
+import { createTokenBucket } from "./tokenBucket";
 
 /** String caps — a notification is a glance, not a document. Anything longer
  * is cut, not refused: the message still reaches the user. The manifest caps
@@ -104,28 +105,17 @@ export function createPluginNotifyPort(
   const declared = manifest.capabilities.some(
     (cap) => cap.kind === "notifications",
   );
-
-  let tokens = BUCKET_BURST;
-  let lastRefillAt = 0;
-
-  function takeToken(now: number): boolean {
-    if (lastRefillAt === 0) lastRefillAt = now;
-    const refilled = Math.floor((now - lastRefillAt) / REFILL_MS);
-    if (refilled > 0) {
-      tokens = Math.min(BUCKET_BURST, tokens + refilled);
-      lastRefillAt += refilled * REFILL_MS;
-    }
-    if (tokens <= 0) return false;
-    tokens -= 1;
-    return true;
-  }
+  const bucket = createTokenBucket(BUCKET_BURST, REFILL_MS);
 
   // One complaint per refill window, whatever the reason — the counter keeps
-  // the dropped volume honest without writing a line per drop.
+  // the dropped volume honest without writing a line per drop. (The count
+  // aggregates ALL suppressed complaint kinds, deliberately: it measures
+  // dropped volume, not per-message tallies.)
   let lastWarnAt = Number.NEGATIVE_INFINITY;
   let suppressed = 0;
 
-  function warnThrottled(now: number, message: string): void {
+  function warnThrottled(message: string): void {
+    const now = Date.now();
     if (now - lastWarnAt < REFILL_MS) {
       suppressed += 1;
       return;
@@ -137,18 +127,19 @@ export function createPluginNotifyPort(
     suppressed = 0;
   }
 
+  // The same two-tier policy as the services gate, complaining through the
+  // throttle instead of a plain log line.
+  const admit = makeAdmit(mode, warnThrottled);
+
   return (input: PluginNotifyInput) => {
     if (muted?.()) return;
 
-    const now = Date.now();
-    if (!declared) {
-      const message =
-        'notify requires a "notifications" capability, which the manifest does not declare';
-      if (mode === "enforce") throw new Error(message);
-      warnThrottled(now, message);
-    }
-    if (!takeToken(now)) {
-      warnThrottled(now, "notify: rate limit — dropped");
+    admit(
+      declared,
+      'notify requires a "notifications" capability, which the manifest does not declare',
+    );
+    if (!bucket.take(Date.now())) {
+      warnThrottled("notify: rate limit — dropped");
       return;
     }
 
@@ -162,7 +153,7 @@ export function createPluginNotifyPort(
     const title =
       typeof raw.title === "string" ? stripUnsafeText(raw.title) : "";
     if (title === "") {
-      warnThrottled(now, "notify: dropped — a non-empty string title is required");
+      warnThrottled("notify: dropped — a non-empty string title is required");
       return;
     }
     const body =

@@ -5,7 +5,8 @@
   "description": "The contract KeepDeck plugins build against: manifest, context, contribution types.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./unsafe-text": "./src/manifest/text.ts"
   },
   "peerDependencies": {
     "react": "^19.1.0"
