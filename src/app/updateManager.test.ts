@@ -204,9 +204,42 @@ describe("update manager", () => {
     const update = available();
     mockCheck.mockResolvedValue(update);
     await initUpdates(downloads);
-    dismissUpdate();
+    await dismissUpdate();
     expect(mockDiscard).toHaveBeenCalledWith(update.id);
     expect(getUpdateState().phase).toBe("idle");
+  });
+
+  it("does not claim dismissal before native cleanup settles", async () => {
+    const update = available();
+    mockCheck.mockResolvedValue(update);
+    let release!: () => void;
+    mockDiscard.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    );
+    await initUpdates(downloads);
+
+    const dismissing = dismissUpdate();
+    expect(getUpdateState().phase).toBe("discarding");
+    checkForUpdatesNow();
+    expect(mockCheck).toHaveBeenCalledOnce();
+    release();
+    await dismissing;
+    expect(getUpdateState().phase).toBe("idle");
+  });
+
+  it("keeps the update actionable when native cleanup fails", async () => {
+    mockCheck.mockResolvedValue(available());
+    mockDiscard.mockRejectedValueOnce(new Error("artifact busy"));
+    await initUpdates(downloads);
+
+    await dismissUpdate();
+
+    expect(getUpdateState()).toMatchObject({
+      phase: "available",
+      error: "artifact busy",
+    });
   });
 
   it("manual checks run only from idle", async () => {

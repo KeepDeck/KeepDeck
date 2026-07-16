@@ -26,33 +26,27 @@ import {
   type WireSessionEvent,
 } from "./protocol";
 
-class RemoteDownloadStream implements AsyncIterable<DownloadState>, AsyncIterator<DownloadState> {
+class RemoteDownloadIterator implements AsyncIterator<DownloadState> {
   private value: DownloadState | null = null;
   private readonly waiters: Array<(result: IteratorResult<DownloadState>) => void> = [];
-  private ended = false;
+  private closed = false;
 
   constructor(private readonly detach: () => void) {}
 
-  [Symbol.asyncIterator](): AsyncIterator<DownloadState> {
-    return this;
-  }
-
   push(state: DownloadState): void {
-    if (this.ended) return;
+    if (this.closed) return;
     const waiter = this.waiters.shift();
     if (waiter) waiter({ done: false, value: state });
     else this.value = state;
-    if (
-      state.phase === "completed" ||
-      state.phase === "cancelled" ||
-      state.phase === "failed"
-    ) {
-      this.ended = true;
-      for (const pending of this.waiters.splice(0)) {
-        pending({ done: true, value: undefined });
-      }
-      this.detach();
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const pending of this.waiters.splice(0)) {
+      pending({ done: true, value: undefined });
     }
+    this.detach();
   }
 
   next(): Promise<IteratorResult<DownloadState>> {
@@ -61,18 +55,46 @@ class RemoteDownloadStream implements AsyncIterable<DownloadState>, AsyncIterato
       this.value = null;
       return Promise.resolve({ done: false, value });
     }
-    if (this.ended) return Promise.resolve({ done: true, value: undefined });
+    if (this.closed) return Promise.resolve({ done: true, value: undefined });
     return new Promise((resolve) => this.waiters.push(resolve));
   }
 
   return(): Promise<IteratorResult<DownloadState>> {
-    this.ended = true;
     this.value = null;
-    for (const pending of this.waiters.splice(0)) {
-      pending({ done: true, value: undefined });
-    }
-    this.detach();
+    this.close();
     return Promise.resolve({ done: true, value: undefined });
+  }
+}
+
+class RemoteDownloadStream implements AsyncIterable<DownloadState> {
+  private state: DownloadState | null = null;
+  private terminal = false;
+  private readonly readers = new Set<RemoteDownloadIterator>();
+
+  constructor(private readonly detach: () => void) {}
+
+  [Symbol.asyncIterator](): AsyncIterator<DownloadState> {
+    let reader!: RemoteDownloadIterator;
+    reader = new RemoteDownloadIterator(() => this.readers.delete(reader));
+    if (this.state) reader.push(this.state);
+    if (this.terminal) reader.close();
+    else this.readers.add(reader);
+    return reader;
+  }
+
+  push(state: DownloadState): void {
+    if (this.terminal) return;
+    this.state = state;
+    for (const reader of [...this.readers]) reader.push(state);
+    if (
+      state.phase === "completed" ||
+      state.phase === "cancelled" ||
+      state.phase === "failed"
+    ) {
+      this.terminal = true;
+      for (const reader of [...this.readers]) reader.close();
+      this.detach();
+    }
   }
 }
 
@@ -142,9 +164,6 @@ export function buildGuestContext(
   const watchCallbacks = new Map<string, () => void>();
   const downloadStreams = new Map<string, RemoteDownloadStream>();
   const speechLevels = new Map<string, (level: number) => void>();
-  const recentDownloadIds = new Set<string>();
-  const recentDownloadOrder: string[] = [];
-  const recentDownloadLimit = 4096;
   let nextRegId = 1;
 
   /** Attach a broadcast-channel listener with a ref-counted host subscription:
@@ -490,16 +509,9 @@ export function buildGuestContext(
       downloads: {
         start: (request) => {
           if (
-            downloadStreams.has(request.id) ||
-            recentDownloadIds.has(request.id)
+            downloadStreams.has(request.id)
           ) {
             throw new Error(`download id already used: ${request.id}`);
-          }
-          recentDownloadIds.add(request.id);
-          recentDownloadOrder.push(request.id);
-          while (recentDownloadOrder.length > recentDownloadLimit) {
-            const expired = recentDownloadOrder.shift();
-            if (expired) recentDownloadIds.delete(expired);
           }
           let stream!: RemoteDownloadStream;
           stream = new RemoteDownloadStream(() => {
@@ -521,12 +533,10 @@ export function buildGuestContext(
           return stream;
         },
         cancel: (id) => rpc.call("services.downloads.cancel", [id]).then(noop),
-        exists: (target) =>
-          rpc.call("services.downloads.exists", [target]) as Promise<boolean>,
+        exists: (target, integrity) =>
+          rpc.call("services.downloads.exists", [target, integrity]) as Promise<boolean>,
         remove: (target) =>
           rpc.call("services.downloads.remove", [target]).then(noop),
-        adoptLegacy: (request) =>
-          rpc.call("services.downloads.adoptLegacy", [request]).then(noop),
       },
       speech: {
         engines: () =>

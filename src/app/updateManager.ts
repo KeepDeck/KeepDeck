@@ -37,6 +37,7 @@ export type UpdatePhase =
   | "available" // a newer version exists; nothing has been downloaded
   | "downloading"
   | "ready" // downloaded and signature-verified; waiting for the user
+  | "discarding"
   | "installing"; // swapping the bundle and relaunching
 
 export interface UpdateState {
@@ -177,12 +178,21 @@ export function cancelUpdateDownload(): void {
 
 /** Forget the found (or downloaded) update and return to `idle`. A later
  * check — periodic or manual — will offer it again. */
-export function dismissUpdate(): void {
+export async function dismissUpdate(): Promise<void> {
   if (state.phase !== "available" && state.phase !== "ready") return;
   const dismissed = update;
-  update = null;
-  if (dismissed) void discardUpdate(dismissed.id).catch(() => {});
-  apply({ phase: "idle", version: null, received: 0, total: null });
+  if (!dismissed) return;
+  const previous = state.phase;
+  apply({ phase: "discarding", error: null });
+  try {
+    await discardUpdate(dismissed.id);
+    if (update === dismissed) update = null;
+    apply({ phase: "idle", version: null, received: 0, total: null });
+  } catch (error) {
+    const message = describeError(error);
+    log.warn("web:update", `update discard failed: ${message}`);
+    apply({ phase: previous, error: message });
+  }
 }
 
 /** Swap the downloaded bundle into place and relaunch. Only meaningful from

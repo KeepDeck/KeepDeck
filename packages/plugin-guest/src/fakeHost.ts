@@ -245,7 +245,6 @@ export function createFakeHost(
         cancel: async () => {},
         exists: async () => false,
       remove: async () => {},
-      adoptLegacy: async () => {},
       },
       speech: {
         engines: async () => ["whisper"],

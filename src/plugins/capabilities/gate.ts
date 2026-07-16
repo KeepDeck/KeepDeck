@@ -12,7 +12,6 @@ import type {
   GitHistory,
   GitHistoryOptions,
   GitStatus,
-  LegacyDownloadRequest,
   PluginLogger,
   PluginManifest,
   PluginOpener,
@@ -22,7 +21,7 @@ import type {
   PluginSpeech,
 } from "@keepdeck/plugin-api";
 import { execCovers } from "./execCovers";
-import { makeAdmit, type GateMode } from "./tier";
+import type { GateMode } from "./tier";
 
 export type { GateMode } from "./tier";
 
@@ -89,12 +88,12 @@ export interface ServiceBackends {
       onTerminal: () => void,
     ): AsyncIterable<import("@keepdeck/plugin-api").DownloadState>;
     cancel(id: string): Promise<void>;
-    exists(pluginId: string, target: DownloadTarget): Promise<boolean>;
-    remove(pluginId: string, target: DownloadTarget): Promise<void>;
-    adoptLegacy(
+    exists(
       pluginId: string,
-      request: LegacyDownloadRequest,
-    ): Promise<void>;
+      target: DownloadTarget,
+      integrity?: DownloadRequest["integrity"],
+    ): Promise<boolean>;
+    remove(pluginId: string, target: DownloadTarget): Promise<void>;
   };
   speech: {
     engines: PluginSpeech["engines"];
@@ -114,12 +113,8 @@ export interface ServiceBackends {
  * actually stops an undeclared call at runtime — without it, capabilities
  * would be a label nobody enforces.
  *
- * v0 runs only built-in, trusted plugins, so `"warn"` mode exists to turn
- * every future contract violation into a visible tripwire in the log
- * WITHOUT taking the app down — a built-in plugin that outgrows its
- * manifest is a bug to fix, not a reason to crash a user's session. The
- * external plugin tier (untrusted, arbitrary code) will construct this gate
- * with `"enforce"` instead, where the identical violation throws.
+ * Trusted built-ins additionally log violations in `"warn"` mode, but every
+ * mode denies the call. Diagnostics never weaken authorization semantics.
  *
  * Most services are pure decoration and forward allowed calls verbatim. The
  * download surface additionally retains a bounded set of ids so one plugin
@@ -138,32 +133,18 @@ export function createCapabilityGate(
   opts: { mode: GateMode; log: PluginLogger },
 ): PluginServices {
   const { mode, log } = opts;
+  const maxActiveDownloads = 8;
   const activeDownloadIds = new Set<string>();
-  const recentDownloadIds = new Set<string>();
-  const recentDownloadOrder: string[] = [];
-  const recentDownloadLimit = 4096;
 
-  // The tier's single branch point (shared with the notify port via
-  // `makeAdmit`): "warn" logs and lets the call proceed below; "enforce"
-  // throws here, before the backend is ever reached.
-  const admit = makeAdmit(mode, (message) => log.warn(message));
-
-  // Network and legacy-file access cross a native trust boundary. They are
-  // always enforced; warn mode remains a development aid for trusted, purely
-  // in-process capabilities only.
-  function requireCapability(ok: boolean, message: string): void {
-    if (!ok) throw new Error(message);
+  /** One authorization path. Warn mode adds diagnostics, never authority. */
+  function admit(ok: boolean, message: string): void {
+    if (ok) return;
+    if (mode === "warn") log.warn(message);
+    throw new Error(message);
   }
 
   function finishDownload(id: string): void {
     activeDownloadIds.delete(id);
-    if (recentDownloadIds.has(id)) return;
-    recentDownloadIds.add(id);
-    recentDownloadOrder.push(id);
-    while (recentDownloadOrder.length > recentDownloadLimit) {
-      const expired = recentDownloadOrder.shift();
-      if (expired) recentDownloadIds.delete(expired);
-    }
   }
 
   return {
@@ -290,13 +271,17 @@ export function createCapabilityGate(
     },
     downloads: {
       start(request) {
-        requireCapability(
+        admit(
           netCovers(manifest.capabilities, request.source.url),
           `downloads.start: "${request.source.url}" requires a matching "net" capability`,
         );
+        if (activeDownloadIds.size >= maxActiveDownloads) {
+          throw new Error(
+            `plugin has too many active downloads (limit ${maxActiveDownloads})`,
+          );
+        }
         if (
-          activeDownloadIds.has(request.id) ||
-          recentDownloadIds.has(request.id)
+          activeDownloadIds.has(request.id)
         ) {
           throw new Error(`download id already used by this plugin: ${request.id}`);
         }
@@ -316,24 +301,17 @@ export function createCapabilityGate(
         return stream;
       },
       cancel(id) {
-        requireCapability(
-          activeDownloadIds.has(id) || recentDownloadIds.has(id),
+        admit(
+          activeDownloadIds.has(id),
           `downloads.cancel: "${id}" was not started by this plugin`,
         );
         return backend.downloads.cancel(id).then(() => finishDownload(id));
       },
-      exists(target) {
-        return backend.downloads.exists(manifest.id, target);
+      exists(target, integrity) {
+        return backend.downloads.exists(manifest.id, target, integrity);
       },
       remove(target) {
         return backend.downloads.remove(manifest.id, target);
-      },
-      adoptLegacy(request) {
-        requireCapability(
-          legacyDownloadCovers(manifest.capabilities, request.source),
-          `downloads.adoptLegacy: "${request.source}" requires a matching "legacyDownloads" capability`,
-        );
-        return backend.downloads.adoptLegacy(manifest.id, request);
       },
     },
     speech: {
@@ -375,16 +353,6 @@ function netCovers(capabilities: Capability[], rawUrl: string): boolean {
 function netDomains(capabilities: Capability[]): string[] {
   return capabilities.flatMap((capability) =>
     capability.kind === "net" ? capability.domains : [],
-  );
-}
-
-function legacyDownloadCovers(
-  capabilities: Capability[],
-  source: string,
-): boolean {
-  return capabilities.some(
-    (capability) =>
-      capability.kind === "legacyDownloads" && capability.paths.includes(source),
   );
 }
 

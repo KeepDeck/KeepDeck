@@ -2,10 +2,8 @@ import type {
   DownloadRequest,
   DownloadState,
   DownloadTarget,
-  LegacyDownloadRequest,
 } from "@keepdeck/plugin-api";
 import {
-  adoptLegacyDownload,
   cancelDownload,
   downloadExists,
   removeDownload,
@@ -17,25 +15,24 @@ const TERMINAL = new Set<DownloadState["phase"]>([
   "cancelled",
   "failed",
 ]);
-const TERMINAL_JOBS_LIMIT = 128;
-const RECENT_IDS_LIMIT = 4096;
 
 export interface DownloadBackend {
   start(
     request: DownloadRequest,
     onState: (state: DownloadState) => void,
-    policy?: DownloadPolicy,
+    constraints?: TransferConstraints,
   ): Promise<void>;
   cancel(id: string): Promise<void>;
-  exists(target: DownloadTarget): Promise<boolean>;
+  exists(target: DownloadTarget, integrity?: DownloadRequest["integrity"]): Promise<boolean>;
   remove(target: DownloadTarget): Promise<void>;
-  adoptLegacy(request: LegacyDownloadRequest): Promise<void>;
 }
 
 /** Host-only transfer constraints. They are not part of the plugin request. */
-export interface DownloadPolicy {
+export interface TransferConstraints {
   allowedDomains?: readonly string[];
-  /** Internal lifecycle hook for capability ownership bookkeeping. */
+}
+
+export interface DownloadLifecycle {
   onTerminal?: (state: DownloadState) => void;
 }
 
@@ -91,17 +88,15 @@ class StateIterator implements AsyncIterator<DownloadState> {
 /** App-scoped coordinator. Construction and lifetime belong to the composition root. */
 export class DownloadManager {
   private readonly jobs = new Map<string, Job>();
-  private readonly recentIds = new Set<string>();
-  private readonly recentOrder: string[] = [];
-  private readonly terminalOrder: string[] = [];
 
   constructor(private readonly backend: DownloadBackend) {}
 
   start(
     request: DownloadRequest,
-    policy?: DownloadPolicy,
+    constraints?: TransferConstraints,
+    lifecycle?: DownloadLifecycle,
   ): AsyncIterable<DownloadState> {
-    if (this.jobs.has(request.id) || this.recentIds.has(request.id)) {
+    if (this.jobs.has(request.id)) {
       throw new Error(`download id already used: ${request.id}`);
     }
     const job: Job = {
@@ -113,7 +108,7 @@ export class DownloadManager {
       },
       readers: new Set(),
       terminal: false,
-      onTerminal: policy?.onTerminal,
+      onTerminal: lifecycle?.onTerminal,
     };
     this.jobs.set(request.id, job);
     const stream = this.view(job);
@@ -122,7 +117,7 @@ export class DownloadManager {
       started = this.backend.start(
         request,
         (state) => this.accept(job, state),
-        policy,
+        constraints,
       );
     } catch (error) {
       this.accept(job, {
@@ -154,30 +149,16 @@ export class DownloadManager {
     return stream;
   }
 
-  observe(id: string): AsyncIterable<DownloadState> | null {
-    const job = this.jobs.get(id);
-    return job ? this.view(job) : null;
-  }
-
   cancel(id: string): Promise<void> {
-    const job = this.jobs.get(id);
-    // Cancellation commonly races the terminal state delivered by the
-    // backend. Once an id is known, that race is intentionally idempotent.
-    if (job?.terminal || this.recentIds.has(id)) return Promise.resolve();
-    if (!job) return Promise.reject(new Error(`download is not active: ${id}`));
     return this.backend.cancel(id);
   }
 
-  exists(target: DownloadTarget): Promise<boolean> {
-    return this.backend.exists(target);
+  exists(target: DownloadTarget, integrity?: DownloadRequest["integrity"]): Promise<boolean> {
+    return this.backend.exists(target, integrity);
   }
 
   remove(target: DownloadTarget): Promise<void> {
     return this.backend.remove(target);
-  }
-
-  adoptLegacy(request: LegacyDownloadRequest): Promise<void> {
-    return this.backend.adoptLegacy(request);
   }
 
   private accept(job: Job, state: DownloadState): void {
@@ -187,25 +168,9 @@ export class DownloadManager {
     for (const reader of [...job.readers]) reader.push(state);
     if (job.terminal) {
       for (const reader of [...job.readers]) reader.close();
-      this.retainTerminal(state.id);
+      this.jobs.delete(state.id);
       job.onTerminal?.(state);
       job.onTerminal = undefined;
-    }
-  }
-
-  private retainTerminal(id: string): void {
-    if (!this.recentIds.has(id)) {
-      this.recentIds.add(id);
-      this.recentOrder.push(id);
-    }
-    this.terminalOrder.push(id);
-    while (this.terminalOrder.length > TERMINAL_JOBS_LIMIT) {
-      const expired = this.terminalOrder.shift();
-      if (expired) this.jobs.delete(expired);
-    }
-    while (this.recentOrder.length > RECENT_IDS_LIMIT) {
-      const expired = this.recentOrder.shift();
-      if (expired) this.recentIds.delete(expired);
     }
   }
 
@@ -228,5 +193,4 @@ export const tauriDownloadBackend: DownloadBackend = {
   cancel: cancelDownload,
   exists: downloadExists,
   remove: removeDownload,
-  adoptLegacy: adoptLegacyDownload,
 };

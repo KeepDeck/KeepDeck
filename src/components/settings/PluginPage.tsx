@@ -202,7 +202,7 @@ function describe(cap: Capability): string {
     case "net":
       return `reach ${cap.domains.join("/")}`;
     case "legacyDownloads":
-      return `adopt legacy downloads (${cap.paths.join(", ")})`;
+      return `adopt legacy downloads (${cap.migrations.map((migration) => migration.source).join(", ")})`;
     case "ports":
       return "allocate ports";
     case "open":

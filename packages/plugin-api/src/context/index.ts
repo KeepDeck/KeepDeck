@@ -25,7 +25,6 @@ export type { Disposable } from "./disposable.ts";
 export {
   downloadPercent,
   type DownloadIntegrity,
-  type LegacyDownloadRequest,
   type DownloadPhase,
   type DownloadRequest,
   type DownloadSource,

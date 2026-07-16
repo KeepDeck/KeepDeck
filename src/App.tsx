@@ -484,6 +484,7 @@ function App() {
           {(updateState.phase === "available" ||
             updateState.phase === "downloading" ||
             updateState.phase === "ready" ||
+            updateState.phase === "discarding" ||
             updateState.phase === "installing") && (
             // The consent ladder's face in the bar: "available" only points
             // at the Updates section (nothing downloads by itself), "ready"
@@ -502,6 +503,7 @@ function App() {
               }}
               disabled={
                 updateState.phase === "downloading" ||
+                updateState.phase === "discarding" ||
                 updateState.phase === "installing"
               }
               title={
@@ -513,6 +515,7 @@ function App() {
               {updateState.phase === "available" && "Update available"}
               {updateState.phase === "downloading" && "Downloading update…"}
               {updateState.phase === "ready" && "Update ready · Restart"}
+              {updateState.phase === "discarding" && "Discarding update…"}
               {updateState.phase === "installing" && "Restarting…"}
             </button>
           )}

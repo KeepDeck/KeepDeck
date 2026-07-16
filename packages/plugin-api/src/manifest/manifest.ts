@@ -237,11 +237,41 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
         else out.push({ kind: "net", domains: cap.domains });
         return;
       case "legacyDownloads":
-        if (!isStringArray(cap.paths) || cap.paths.length === 0)
-          errors.push(`${at}: legacyDownloads needs a non-empty "paths" string array`);
-        else if (cap.paths.some((path) => !safeRelativePath(path)))
-          errors.push(`${at}: legacyDownloads paths must be safe relative paths`);
-        else out.push({ kind: "legacyDownloads", paths: cap.paths });
+        if (!Array.isArray(cap.migrations) || cap.migrations.length === 0) {
+          errors.push(`${at}: legacyDownloads needs non-empty "migrations"`);
+        } else {
+          const migrations = cap.migrations.flatMap((raw, index) => {
+            const field = `${at}.migrations[${index}]`;
+            if (!isRecord(raw)) {
+              errors.push(`${field}: must be an object`);
+              return [];
+            }
+            if (
+              typeof raw.source !== "string" ||
+              typeof raw.target !== "string" ||
+              !safeRelativePath(raw.source) ||
+              !safeRelativePath(raw.target)
+            ) {
+              errors.push(`${field}: source and target must be safe relative paths`);
+              return [];
+            }
+            if (
+              raw.stripSingleRoots !== undefined &&
+              typeof raw.stripSingleRoots !== "boolean"
+            ) {
+              errors.push(`${field}: stripSingleRoots must be boolean`);
+              return [];
+            }
+            return [{
+              source: raw.source,
+              target: raw.target,
+              ...(raw.stripSingleRoots === true ? { stripSingleRoots: true } : {}),
+            }];
+          });
+          if (migrations.length === cap.migrations.length) {
+            out.push({ kind: "legacyDownloads", migrations });
+          }
+        }
         return;
       case "ports":
         out.push({ kind: "ports" });

@@ -44,7 +44,6 @@ function fakeDeps() {
       cancel: vi.fn(async () => {}),
       exists: vi.fn(async () => false),
       remove: vi.fn(async () => {}),
-      adoptLegacy: vi.fn(async () => {}),
     },
     speech: {
       engines: vi.fn(async () => ["whisper" as const]),

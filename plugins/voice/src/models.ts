@@ -32,7 +32,10 @@ export function createModelsStore(ctx: PluginContext): ModelsStore {
         const next = await Promise.all(
           available.map(async (model) => ({
             ...model,
-            installed: await ctx.services.downloads.exists(model.target),
+            installed: await ctx.services.downloads.exists(
+              model.target,
+              model.integrity,
+            ),
           })),
         );
         if (mine !== revision) return;

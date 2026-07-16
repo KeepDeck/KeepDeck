@@ -28,6 +28,10 @@ export const MODEL_CATALOG: readonly VoiceModelSpec[] = [
     engine: "whisper",
     retired: true,
     target: { kind: "file", path: "models/ggml-base-q5_1.bin" },
+    integrity: {
+      kind: "sha256",
+      digest: "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
+    },
   },
   {
     id: "whisper-small-q5_1",
@@ -36,6 +40,10 @@ export const MODEL_CATALOG: readonly VoiceModelSpec[] = [
     engine: "whisper",
     retired: true,
     target: { kind: "file", path: "models/ggml-small-q5_1.bin" },
+    integrity: {
+      kind: "sha256",
+      digest: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
+    },
   },
   {
     id: "whisper-small",
@@ -45,7 +53,11 @@ export const MODEL_CATALOG: readonly VoiceModelSpec[] = [
     retired: false,
     source: { url: "https://blob.handy.computer/ggml-small.bin" },
     target: { kind: "file", path: "models/ggml-small.bin" },
-    integrity: { kind: "size", bytes: 487_601_967 },
+    integrity: {
+      kind: "sha256",
+      digest: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+      bytes: 487_601_967,
+    },
   },
   {
     id: "whisper-large-v3-turbo-q5_0",
@@ -60,7 +72,11 @@ export const MODEL_CATALOG: readonly VoiceModelSpec[] = [
       kind: "file",
       path: "models/ggml-large-v3-turbo-q5_0.bin",
     },
-    integrity: { kind: "size", bytes: 574_041_195 },
+    integrity: {
+      kind: "sha256",
+      digest: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+      bytes: 574_041_195,
+    },
   },
   {
     id: "parakeet-tdt-0.6b-v3",

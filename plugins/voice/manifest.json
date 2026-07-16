@@ -9,7 +9,12 @@
   "capabilities": [
     { "kind": "mic" },
     { "kind": "net", "domains": ["blob.handy.computer"] },
-    { "kind": "legacyDownloads", "paths": ["models"] },
+    {
+      "kind": "legacyDownloads",
+      "migrations": [
+        { "source": "models", "target": "models", "stripSingleRoots": true }
+      ]
+    },
     {
       "kind": "commands",
       "execute": ["workspace.*", "agent.*", "pane.*", "settings.open"]

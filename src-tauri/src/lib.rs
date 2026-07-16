@@ -126,7 +126,7 @@ pub fn run() {
             downloads::download_cancel,
             downloads::download_exists,
             downloads::download_remove,
-            downloads::download_adopt_legacy,
+            downloads::plugin_adopt_legacy_downloads,
             links::open_url,
             links::open_path,
             links::open_path_with,

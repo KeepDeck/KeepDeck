@@ -37,7 +37,6 @@ function fakeBackend() {
       cancel: vi.fn(async () => {}),
       exists: vi.fn(async () => false),
       remove: vi.fn(async () => {}),
-      adoptLegacy: vi.fn(async () => {}),
     },
     speech: {
       engines: vi.fn(async () => ["whisper" as const]),
@@ -180,7 +179,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("warn mode logs exactly one precise warning naming the subject, and still forwards the call", async () => {
+  it("warn mode logs exactly one precise warning and still denies the call", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
@@ -188,7 +187,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
       log,
     });
 
-    await gate.sessions.spawn(spawnOpts("curl"), vi.fn());
+    expect(() => gate.sessions.spawn(spawnOpts("curl"), vi.fn())).toThrow();
 
     expect(log.warn).toHaveBeenCalledTimes(1);
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("curl"));
@@ -196,7 +195,7 @@ describe("createCapabilityGate — sessions.spawn", () => {
     expect(log.warn).toHaveBeenCalledWith(
       expect.stringContaining("sessions.spawn"),
     );
-    expect(backend.sessions.spawn).toHaveBeenCalledTimes(1);
+    expect(backend.sessions.spawn).not.toHaveBeenCalled();
   });
 
   it("enforce mode throws and never calls the backend", () => {
@@ -235,7 +234,7 @@ describe("createCapabilityGate — ports.allocate", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("warn mode logs one precise warning and still forwards the call", async () => {
+  it("warn mode logs one precise warning and still denies the call", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
@@ -243,7 +242,7 @@ describe("createCapabilityGate — ports.allocate", () => {
       log,
     });
 
-    await gate.ports.allocate("preview-server");
+    expect(() => gate.ports.allocate("preview-server")).toThrow();
 
     expect(log.warn).toHaveBeenCalledTimes(1);
     expect(log.warn).toHaveBeenCalledWith(
@@ -253,7 +252,7 @@ describe("createCapabilityGate — ports.allocate", () => {
     expect(log.warn).toHaveBeenCalledWith(
       expect.stringContaining("ports.allocate"),
     );
-    expect(backend.ports.allocate).toHaveBeenCalledTimes(1);
+    expect(backend.ports.allocate).not.toHaveBeenCalled();
   });
 
   it("enforce mode throws and never calls the backend", () => {
@@ -369,26 +368,26 @@ describe("createCapabilityGate — downloads", () => {
     expect(backend.downloads.cancel).not.toHaveBeenCalled();
   });
 
-  it("adopts only manifest-declared legacy folders", async () => {
+  it("bounds one plugin's active downloads", () => {
     const { backend } = fakeBackend();
     const gate = createCapabilityGate(
-      manifest([{ kind: "legacyDownloads", paths: ["models"] }]),
+      manifest([{ kind: "net", domains: ["files.example.com"] }]),
       backend,
-      { mode: "warn", log: fakeLog() },
+      { mode: "enforce", log: fakeLog() },
     );
-    await gate.downloads.adoptLegacy({ source: "models", target: "models" });
-    expect(backend.downloads.adoptLegacy).toHaveBeenCalledWith("p", {
-      source: "models",
-      target: "models",
-    });
-    expect(() =>
-      gate.downloads.adoptLegacy({ source: "other", target: "other" }),
-    ).toThrow('matching "legacyDownloads" capability');
+    for (let index = 0; index < 8; index++) {
+      gate.downloads.start(downloadRequest(`job-${index}`));
+    }
+    expect(() => gate.downloads.start(downloadRequest("overflow"))).toThrow(
+      "too many active downloads",
+    );
+    expect(backend.downloads.start).toHaveBeenCalledTimes(8);
   });
+
 });
 
 describe("createCapabilityGate — zero capabilities", () => {
-  it("a manifest with no capabilities gets every call warned in \"warn\" mode", async () => {
+  it("a manifest with no capabilities logs and refuses every call in warn mode", () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
     const gate = createCapabilityGate(manifest([]), backend, {
@@ -396,12 +395,12 @@ describe("createCapabilityGate — zero capabilities", () => {
       log,
     });
 
-    await gate.sessions.spawn(spawnOpts("git"), vi.fn());
-    await gate.ports.allocate("k");
+    expect(() => gate.sessions.spawn(spawnOpts("git"), vi.fn())).toThrow();
+    expect(() => gate.ports.allocate("k")).toThrow();
 
     expect(log.warn).toHaveBeenCalledTimes(2);
-    expect(backend.sessions.spawn).toHaveBeenCalledTimes(1);
-    expect(backend.ports.allocate).toHaveBeenCalledTimes(1);
+    expect(backend.sessions.spawn).not.toHaveBeenCalled();
+    expect(backend.ports.allocate).not.toHaveBeenCalled();
   });
 
   it("a manifest with no capabilities gets every call refused in \"enforce\" mode", () => {
@@ -438,16 +437,16 @@ describe("createCapabilityGate — zero capabilities", () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it("opener: missing capability warns-and-forwards in warn mode, throws in enforce", async () => {
+  it("opener: missing capability is denied in both modes", () => {
     const warn = { ...fakeBackend(), log: fakeLog() };
     const warnGate = createCapabilityGate(manifest([]), warn.backend, {
       mode: "warn",
       log: warn.log,
     });
-    await warnGate.opener.openUrl("http://x");
+    expect(() => warnGate.opener.openUrl("http://x")).toThrow();
     expect(warn.log.warn).toHaveBeenCalledTimes(1);
     expect(warn.log.warn.mock.calls[0][0]).toContain('"open" capability');
-    expect(warn.backend.opener.openUrl).toHaveBeenCalledTimes(1);
+    expect(warn.backend.opener.openUrl).not.toHaveBeenCalled();
 
     const hard = { ...fakeBackend(), log: fakeLog() };
     const hardGate = createCapabilityGate(manifest([]), hard.backend, {
@@ -503,18 +502,16 @@ describe("createCapabilityGate — fs", () => {
     expect(backend.fs.readDir).toHaveBeenCalledWith("/anywhere", "everywhere");
   });
 
-  it("missing fs capability warns-and-forwards in warn mode, throws in enforce", async () => {
+  it("missing fs capability is denied in both modes", () => {
     const warn = { ...fakeBackend(), log: fakeLog() };
     const warnGate = createCapabilityGate(manifest([]), warn.backend, {
       mode: "warn",
       log: warn.log,
     });
-    // A warn-mode call with no fs capability still proceeds, but is contained
-    // to the safe default scope — never silently promoted to everywhere.
-    await warnGate.fs.readDir("/repo");
+    expect(() => warnGate.fs.readDir("/repo")).toThrow();
     expect(warn.log.warn).toHaveBeenCalledTimes(1);
     expect(warn.log.warn.mock.calls[0][0]).toContain('"fs" capability');
-    expect(warn.backend.fs.readDir).toHaveBeenCalledWith("/repo", "workspace");
+    expect(warn.backend.fs.readDir).not.toHaveBeenCalled();
 
     const hard = { ...fakeBackend(), log: fakeLog() };
     const hardGate = createCapabilityGate(manifest([]), hard.backend, {
@@ -643,16 +640,16 @@ describe("createCapabilityGate — git", () => {
     expect(backend.git.status).toHaveBeenCalledWith("/anywhere", "everywhere");
   });
 
-  it("missing git capability warns-and-forwards in warn mode with the safe scope, throws in enforce", async () => {
+  it("missing git capability is denied in both modes", () => {
     const warn = { ...fakeBackend(), log: fakeLog() };
     const warnGate = createCapabilityGate(manifest([]), warn.backend, {
       mode: "warn",
       log: warn.log,
     });
-    await warnGate.git.status("/repo");
+    expect(() => warnGate.git.status("/repo")).toThrow();
     expect(warn.log.warn).toHaveBeenCalledTimes(1);
     expect(warn.log.warn.mock.calls[0][0]).toContain('"git" capability');
-    expect(warn.backend.git.status).toHaveBeenCalledWith("/repo", "workspace");
+    expect(warn.backend.git.status).not.toHaveBeenCalled();
 
     const hard = { ...fakeBackend(), log: fakeLog() };
     const hardGate = createCapabilityGate(manifest([]), hard.backend, {

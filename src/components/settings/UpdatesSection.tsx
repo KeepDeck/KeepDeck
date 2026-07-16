@@ -32,6 +32,8 @@ function describeState(state: UpdateState): string {
     case "installing":
       if (state.error) return state.error;
       return "Installing the update and restarting…";
+    case "discarding":
+      return "Discarding the downloaded update…";
     case "idle":
       if (state.error) return `Last check failed: ${state.error}`;
       return state.checkedAt
@@ -58,7 +60,7 @@ function actions(state: UpdateState) {
           label: "Dismiss",
           active: false,
           disabled: false,
-          onClick: () => dismissUpdate(),
+          onClick: () => void dismissUpdate(),
         },
       ];
     case "downloading":
@@ -73,21 +75,26 @@ function actions(state: UpdateState) {
       ];
     case "ready":
     case "installing":
+    case "discarding":
       return [
         {
           key: "restart",
           label:
-            state.phase === "installing" ? "Restarting…" : "Restart to update",
+            state.phase === "installing"
+              ? "Restarting…"
+              : state.phase === "discarding"
+                ? "Discarding…"
+                : "Restart to update",
           active: true,
-          disabled: state.phase === "installing",
+          disabled: state.phase === "installing" || state.phase === "discarding",
           onClick: () => void restartToUpdate(),
         },
         {
           key: "dismiss",
           label: "Dismiss",
           active: false,
-          disabled: state.phase === "installing",
-          onClick: () => dismissUpdate(),
+          disabled: state.phase === "installing" || state.phase === "discarding",
+          onClick: () => void dismissUpdate(),
         },
       ];
     default:

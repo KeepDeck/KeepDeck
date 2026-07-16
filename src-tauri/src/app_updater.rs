@@ -2,8 +2,8 @@
 //! Artifact bytes are fetched by the shared download engine, not by a second
 //! updater-specific downloader.
 
-use std::collections::HashMap;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -13,6 +13,7 @@ use tauri_plugin_updater::{Update, UpdaterExt as _};
 use crate::downloads;
 
 struct PendingUpdate {
+    id: String,
     update: Update,
     target: String,
     signature: String,
@@ -21,7 +22,7 @@ struct PendingUpdate {
 
 #[derive(Default)]
 pub struct AppUpdaterState {
-    pending: Mutex<HashMap<String, PendingUpdate>>,
+    pending: Mutex<Option<PendingUpdate>>,
 }
 
 #[derive(Serialize)]
@@ -44,9 +45,15 @@ pub async fn app_update_check(
 ) -> Result<Option<AvailableUpdateDto>, String> {
     let updater = app.updater().map_err(|e| e.to_string())?;
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
-        registry.ensure_target_idle(&downloads::target_path("updates")?)?;
-        state.pending.lock().expect("poisoned").clear();
-        sweep_update_artifacts(None)?;
+        let directory = downloads::target_path("updates")?;
+        let lease = registry.reserve_target(directory, "update artifact sweep")?;
+        tauri::async_runtime::spawn_blocking(move || {
+            let _lease = lease;
+            sweep_update_artifacts(None)
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        *state.pending.lock().expect("poisoned") = None;
         return Ok(None);
     };
     let public_key = app
@@ -60,9 +67,18 @@ pub async fn app_update_check(
         .to_string();
     let id = artifact_id(update.download_url.as_str(), &update.signature);
     let target = format!("updates/{id}.bundle");
-    registry.ensure_target_idle(&downloads::target_path("updates")?)?;
-    sweep_update_artifacts(Some(&target))?;
-    let downloaded = verified_artifact_exists(&target, &update.signature, &public_key)?;
+    let directory = downloads::target_path("updates")?;
+    let lease = registry.reserve_target(directory, "update artifact check")?;
+    let check_target = target.clone();
+    let check_signature = update.signature.clone();
+    let check_public_key = public_key.clone();
+    let downloaded = tauri::async_runtime::spawn_blocking(move || {
+        let _lease = lease;
+        sweep_update_artifacts(Some(&check_target))?;
+        verified_artifact_exists(&check_target, &check_signature, &check_public_key)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     let dto = AvailableUpdateDto {
         id: id.clone(),
         version: update.version.clone(),
@@ -72,17 +88,13 @@ pub async fn app_update_check(
         target: target.clone(),
         downloaded,
     };
-    let mut pending = state.pending.lock().expect("poisoned");
-    pending.clear();
-    pending.insert(
+    *state.pending.lock().expect("poisoned") = Some(PendingUpdate {
         id,
-        PendingUpdate {
-            signature: update.signature.clone(),
-            public_key,
-            update,
-            target,
-        },
-    );
+        signature: update.signature.clone(),
+        public_key,
+        update,
+        target,
+    });
     Ok(Some(dto))
 }
 
@@ -95,7 +107,8 @@ pub async fn app_update_install(
     let (update, target, signature, public_key) = {
         let pending = state.pending.lock().expect("poisoned");
         let pending = pending
-            .get(&id)
+            .as_ref()
+            .filter(|pending| pending.id == id)
             .ok_or_else(|| format!("unknown update: {id}"))?;
         (
             pending.update.clone(),
@@ -105,16 +118,25 @@ pub async fn app_update_install(
         )
     };
     let path = downloads::target_path(&target)?;
-    registry.ensure_target_idle(&path)?;
-    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
-    // Verify and install this exact allocation. Reopening the path between
-    // those operations would allow a local TOCTOU replacement.
-    downloads::verify_minisign_bytes(&bytes, &signature, &public_key)?;
-    tauri::async_runtime::spawn_blocking(move || update.install(bytes).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())??;
-    state.pending.lock().expect("poisoned").remove(&id);
-    let _ = downloads::remove_relative_path(&target);
+    let lease = registry.reserve_target(path.clone(), "update install")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _lease = lease;
+        let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+        // Verify and install this exact allocation. Reopening the path between
+        // those operations would allow a local TOCTOU replacement.
+        downloads::verify_minisign_bytes(&bytes, &signature, &public_key)?;
+        update.install(bytes).map_err(|e| e.to_string())?;
+        if let Err(error) = downloads::remove_relative_path(&target) {
+            log::warn!("installed update artifact cleanup failed: {error}");
+        }
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let mut pending = state.pending.lock().expect("poisoned");
+    if pending.as_ref().is_some_and(|pending| pending.id == id) {
+        *pending = None;
+    }
     Ok(())
 }
 
@@ -146,7 +168,7 @@ fn verified_artifact_exists(
 }
 
 #[tauri::command]
-pub fn app_update_discard(
+pub async fn app_update_discard(
     id: String,
     state: tauri::State<'_, AppUpdaterState>,
     registry: tauri::State<'_, downloads::DownloadRegistry>,
@@ -155,38 +177,54 @@ pub fn app_update_discard(
         .pending
         .lock()
         .expect("poisoned")
-        .get(&id)
+        .as_ref()
+        .filter(|pending| pending.id == id)
         .map(|pending| pending.target.clone());
     let Some(target) = target else {
         return Ok(());
     };
-    registry.ensure_target_idle(&downloads::target_path(&target)?)?;
-    downloads::remove_relative_path(&target)?;
-    state.pending.lock().expect("poisoned").remove(&id);
+    let path = downloads::target_path(&target)?;
+    let lease = registry.reserve_target(path, "update discard")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _lease = lease;
+        downloads::remove_relative_path(&target)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let mut pending = state.pending.lock().expect("poisoned");
+    if pending.as_ref().is_some_and(|pending| pending.id == id) {
+        *pending = None;
+    }
     Ok(())
 }
 
 fn sweep_update_artifacts(keep_target: Option<&str>) -> Result<(), String> {
     let directory = downloads::target_path("updates")?;
     fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-    let keep = keep_target.map(downloads::target_path).transpose()?;
-    let keep_part = keep.as_ref().map(|path| {
-        let mut value = path.as_os_str().to_os_string();
-        value.push(".part");
-        std::path::PathBuf::from(value)
-    });
-    sweep_directory(&directory, keep.as_deref(), keep_part.as_deref())
+    let keep = keep_target
+        .map(downloads::target_path)
+        .transpose()?
+        .map(artifact_paths)
+        .unwrap_or_default();
+    sweep_directory(&directory, &keep)
 }
 
-fn sweep_directory(
-    directory: &std::path::Path,
-    keep: Option<&std::path::Path>,
-    keep_part: Option<&std::path::Path>,
-) -> Result<(), String> {
+fn artifact_paths(target: PathBuf) -> Vec<PathBuf> {
+    let part = sidecar(&target, ".part");
+    vec![target, part.clone(), sidecar(&part, ".meta")]
+}
+
+fn sidecar(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
+fn sweep_directory(directory: &Path, keep: &[PathBuf]) -> Result<(), String> {
     for entry in fs::read_dir(directory).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
-        if keep == Some(path.as_path()) || keep_part == Some(path.as_path()) {
+        if keep.iter().any(|candidate| candidate == &path) {
             continue;
         }
         let file_type = entry.file_type().map_err(|e| e.to_string())?;
@@ -225,10 +263,18 @@ mod tests {
         fs::write(temp.path().join("old.bundle"), b"old").unwrap();
         fs::create_dir(temp.path().join("old.unpack.part")).unwrap();
 
-        sweep_directory(temp.path(), Some(&keep), Some(&keep_part)).unwrap();
+        let keep_metadata = temp.path().join("current.bundle.part.meta");
+        fs::write(&keep_metadata, b"metadata").unwrap();
+
+        sweep_directory(
+            temp.path(),
+            &[keep.clone(), keep_part.clone(), keep_metadata.clone()],
+        )
+        .unwrap();
 
         assert!(keep.exists());
         assert!(keep_part.exists());
+        assert!(keep_metadata.exists());
         assert!(!temp.path().join("old.bundle").exists());
         assert!(!temp.path().join("old.unpack.part").exists());
     }

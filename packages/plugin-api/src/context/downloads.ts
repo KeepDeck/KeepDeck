@@ -60,17 +60,6 @@ export interface PluginDownloads {
   /** Cancels the job itself. Detaching an iterator only stops observation. */
   cancel(id: string): Promise<void>;
   /** Generic artifact primitives, scoped to the plugin's private directory. */
-  exists(target: DownloadTarget): Promise<boolean>;
+  exists(target: DownloadTarget, integrity?: DownloadIntegrity): Promise<boolean>;
   remove(target: DownloadTarget): Promise<void>;
-  /** Idempotent adoption of a manifest-declared pre-plugin artifact folder. */
-  adoptLegacy(request: LegacyDownloadRequest): Promise<void>;
-}
-
-export interface LegacyDownloadRequest {
-  /** Relative to KeepDeck's historical app-data root; must be capability-declared. */
-  source: string;
-  /** Relative to this plugin's private download directory. */
-  target: string;
-  /** Normalize archives historically unpacked into one wrapping folder. */
-  stripSingleRoots?: boolean;
 }

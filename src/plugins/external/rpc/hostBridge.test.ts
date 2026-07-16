@@ -76,7 +76,6 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         cancel: async () => {},
         exists: async () => false,
         remove: async () => {},
-        adoptLegacy: async () => {},
       },
       speech: {
         engines: async () => ["whisper"],

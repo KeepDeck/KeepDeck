@@ -21,13 +21,6 @@ let uninstallHotkeys: (() => void) | null = null;
 
 const plugin: KeepDeckPlugin = {
   async activate(ctx: PluginContext) {
-    await ctx.services.downloads
-      .adoptLegacy({ source: "models", target: "models", stripSingleRoots: true })
-      .catch((error) => {
-        ctx.log.warn(
-          `legacy model adoption failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
     const models = createModelsStore(ctx);
     const controller = createVoiceController(ctx, Date.now, models.current);
     // A finished download refreshes the shared model list, so the tab's

@@ -11,7 +11,6 @@ import type {
   FsReadFileOptions,
   GitDiffOptions,
   GitHistoryOptions,
-  LegacyDownloadRequest,
   PluginContext,
   PluginSpawnOptions,
   SpeechCapture,
@@ -417,12 +416,13 @@ export function createHostDispatch(
     },
     "services.downloads.cancel": ([id]) =>
       ctx.services.downloads.cancel(id as string),
-    "services.downloads.exists": ([target]) =>
-      ctx.services.downloads.exists(target as DownloadTarget),
+    "services.downloads.exists": ([target, integrity]) =>
+      ctx.services.downloads.exists(
+        target as DownloadTarget,
+        integrity as DownloadRequest["integrity"],
+      ),
     "services.downloads.remove": ([target]) =>
       ctx.services.downloads.remove(target as DownloadTarget),
-    "services.downloads.adoptLegacy": ([request]) =>
-      ctx.services.downloads.adoptLegacy(request as LegacyDownloadRequest),
     "services.speech.engines": () => ctx.services.speech.engines(),
     "services.speech.start": async ([id]) => {
       const key = id as number;

@@ -18,13 +18,12 @@ function setup() {
     cancel: vi.fn(async () => {}),
     exists: vi.fn(async () => false),
     remove: vi.fn(async () => {}),
-    adoptLegacy: vi.fn(async () => {}),
   };
   return { manager: new DownloadManager(backend), backend, emit: (s: DownloadState) => emit(s) };
 }
 
 describe("DownloadManager", () => {
-  it("starts immediately, replays state and fans updates to late observers", async () => {
+  it("starts immediately, replays state and fans updates to late readers", async () => {
     const { manager, backend, emit } = setup();
     const stream = manager.start(request());
     expect(backend.start).toHaveBeenCalledOnce();
@@ -33,8 +32,8 @@ describe("DownloadManager", () => {
 
     emit({ id: "job-1", phase: "downloading", received: 5, total: 10 });
     expect((await first.next()).value?.received).toBe(5);
-    const late = manager.observe("job-1")?.[Symbol.asyncIterator]();
-    expect((await late?.next())?.value?.received).toBe(5);
+    const late = stream[Symbol.asyncIterator]();
+    expect((await late.next()).value?.received).toBe(5);
   });
 
   it("uses id as the sole unique key", () => {
@@ -68,7 +67,7 @@ describe("DownloadManager", () => {
     expect((await iterator.next()).value?.received).toBe(7);
   });
 
-  it("bounds terminal snapshots while retaining recent id protection", async () => {
+  it("drops terminal jobs and delegates historical id rejection to the backend", async () => {
     const backend: DownloadBackend = {
       start: vi.fn(async (item, onState) => {
         onState({
@@ -81,16 +80,13 @@ describe("DownloadManager", () => {
       cancel: vi.fn(async () => {}),
       exists: vi.fn(async () => false),
       remove: vi.fn(async () => {}),
-      adoptLegacy: vi.fn(async () => {}),
     };
     const manager = new DownloadManager(backend);
-    for (let index = 0; index < 129; index++) {
-      manager.start(request(`job-${index}`));
-    }
-    expect(manager.observe("job-0")).toBeNull();
-    expect(manager.observe("job-128")).not.toBeNull();
-    expect(() => manager.start(request("job-0"))).toThrow("already used");
-    await expect(manager.cancel("job-0")).resolves.toBeUndefined();
+    manager.start(request("job-0"));
+    expect(() => manager.start(request("job-0"))).not.toThrow();
+    expect(backend.start).toHaveBeenCalledTimes(2);
+    await manager.cancel("job-0");
+    expect(backend.cancel).toHaveBeenCalledWith("job-0");
   });
 
   it("turns a synchronous backend refusal into a terminal stream", async () => {
@@ -101,7 +97,6 @@ describe("DownloadManager", () => {
       cancel: vi.fn(async () => {}),
       exists: vi.fn(async () => false),
       remove: vi.fn(async () => {}),
-      adoptLegacy: vi.fn(async () => {}),
     };
     const iterator = new DownloadManager(backend)
       .start(request())

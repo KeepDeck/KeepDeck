@@ -3,7 +3,6 @@ import {
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
-  type LegacyDownloadRequest,
   type Disposable,
   type KeepDeckPlugin,
   type PluginCategory,
@@ -63,6 +62,10 @@ import { clearOverlayVisibility, setOverlayVisibility } from "./overlayVisibilit
 import { clearPluginCrashes } from "./pluginHealth";
 import { mergeSectionValues } from "./pluginSettingsValues";
 import { appDownloads } from "./runtime";
+import {
+  applyBuiltinDownloadMigrations,
+  hasBuiltinOnlyDownloadMigrations,
+} from "./pluginMigrations";
 
 /**
  * The owner of the plugin system — one per app, outside React, like
@@ -310,13 +313,6 @@ function pluginRequest(pluginId: string, request: DownloadRequest): DownloadRequ
   return { ...request, target: pluginTarget(pluginId, request.target) };
 }
 
-function pluginLegacyRequest(
-  pluginId: string,
-  request: LegacyDownloadRequest,
-): LegacyDownloadRequest {
-  return { ...request, target: `plugins/${pluginId}/${request.target}` };
-}
-
 /** The ungated platform services — what the capability gate decorates. `fs`
  * is scope-aware here (the gate injects the scope it derived from the
  * manifest); this backend turns that scope into concrete roots. */
@@ -347,15 +343,12 @@ const serviceBackend: ServiceBackends = {
     start: (pluginId, request, allowedDomains, onTerminal) =>
       appDownloads.start(pluginRequest(pluginId, request), {
         allowedDomains,
-        onTerminal,
-      }),
+      }, { onTerminal }),
     cancel: (id) => appDownloads.cancel(id),
-    exists: (pluginId, target) =>
-      appDownloads.exists(pluginTarget(pluginId, target)),
+    exists: (pluginId, target, integrity) =>
+      appDownloads.exists(pluginTarget(pluginId, target), integrity),
     remove: (pluginId, target) =>
       appDownloads.remove(pluginTarget(pluginId, target)),
-    adoptLegacy: (pluginId, request) =>
-      appDownloads.adoptLegacy(pluginLegacyRequest(pluginId, request)),
   },
   speech: {
     engines: () => voiceEngines(),
@@ -433,9 +426,8 @@ export const pluginHost = new PluginHost(
     },
     services: (manifest, source) =>
       createCapabilityGate(manifest, serviceBackend, {
-        // A trusted built-in warns on an undeclared call (a bug to fix); an
-        // untrusted external plugin is refused (enforce) — the manifest's
-        // declaration is the boundary the user consented to.
+        // Both tiers enforce the manifest. Built-ins additionally log a
+        // diagnostic because a violation there is our own packaging bug.
         mode: source === "external" ? "enforce" : "warn",
         log: loggerFor(manifest.id),
       }),
@@ -605,6 +597,7 @@ export function bootstrapPlugins(): Promise<void> {
       : await discoverBuiltPlugins();
     for (const install of builtins) {
       builtinCategories.set(install.manifest.id, install.manifest.category);
+      await applyBuiltinDownloadMigrations(install.manifest, loggerFor(install.manifest.id));
       pluginHost.install(install, "builtin");
     }
     await syncExternalPlugins();
@@ -672,6 +665,12 @@ async function syncExternalPlugins(): Promise<boolean> {
   for (const record of records) {
     const manifest = validate(record.dirName, safeJson(record.manifestJson));
     if (!manifest || scanned.has(manifest.id)) continue;
+    if (hasBuiltinOnlyDownloadMigrations(manifest)) {
+      loggerFor(manifest.id).error(
+        "legacyDownloads migrations are reserved for bundled plugins",
+      );
+      continue;
+    }
     scanned.set(manifest.id, {
       manifest,
       dev: record.source === "dev",
