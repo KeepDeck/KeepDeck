@@ -11,6 +11,16 @@ use crate::error::GitError;
 /// `AsRef<OsStr>` so callers can pass paths losslessly — a `to_string_lossy`
 /// would corrupt a non-UTF-8 path (real on Linux). A non-zero exit becomes
 /// [`GitError::Command`] carrying the args and stderr.
+///
+/// The child runs with [`keepdeck_env::augmented_path`], not the inherited
+/// `PATH`: a GUI-launched app gets launchd's stripped `PATH`
+/// (`/usr/bin:/bin:/usr/sbin:/sbin`), under which "git" resolves to Apple's
+/// copy instead of the user's, and — worse — git's OWN children inherit that
+/// `PATH`, so a repo whose config names a bare `git-lfs filter-process`
+/// (`filter.lfs.required=true`) fails every checkout with exit 128. Setting
+/// `PATH` on the command also directs the program lookup itself (documented
+/// std behavior), so both git and its subprocesses resolve like they do in the
+/// user's terminal.
 pub(crate) fn run_git<I, S>(dir: &Path, args: I) -> Result<String, GitError>
 where
     I: IntoIterator<Item = S>,
@@ -18,6 +28,7 @@ where
 {
     let args: Vec<S> = args.into_iter().collect();
     let output = Command::new("git")
+        .env("PATH", keepdeck_env::augmented_path())
         .arg("-C")
         .arg(dir)
         .args(&args)
