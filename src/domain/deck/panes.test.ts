@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
 import {
   appendPane,
-  distinctAgentTypes,
   makePanes,
   makeProvisioningPanes,
   paneDisplayTitle,
@@ -152,24 +151,6 @@ describe("paneDisplayTitle", () => {
 
   it("defaults a type-less pane to claude", () => {
     expect(paneDisplayTitle({ id: "pane-1" }, 1, agents)).toBe("Claude Code 2");
-  });
-});
-
-describe("distinctAgentTypes", () => {
-  it("dedupes to first-appearance order, type-less panes counting as claude", () => {
-    expect(
-      distinctAgentTypes([
-        { id: "pane-1", agentType: "codex" },
-        { id: "pane-2" },
-        { id: "pane-3", agentType: "codex" },
-        { id: "pane-4", agentType: "opencode" },
-        { id: "pane-5", agentType: "claude" },
-      ]),
-    ).toEqual(["codex", "claude", "opencode"]);
-  });
-
-  it("is empty for an empty workspace", () => {
-    expect(distinctAgentTypes([])).toEqual([]);
   });
 });
 

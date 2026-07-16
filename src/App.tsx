@@ -57,7 +57,6 @@ import { usePaneDrag } from "./app/usePaneDrag";
 import {
   closeHotkeyTarget,
   DECK_STATE_VERSION,
-  distinctAgentTypes,
   findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
@@ -441,9 +440,6 @@ function App() {
     id: w.id,
     name: w.name,
     agentCount: w.panes.length,
-    agentIcons: distinctAgentTypes(w.panes).map(
-      (type) => agents.find((a) => a.id === type)?.icon ?? null,
-    ),
     // The dots belong to the bell: without it (system-only mode, or a
     // mid-session switch to it) there is nothing to open or mark read, so a
     // populated runtime list must not leave unclearable dots behind.

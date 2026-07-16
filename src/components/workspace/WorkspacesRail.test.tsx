@@ -9,16 +9,11 @@ import { WorkspacesRail, type WorkspaceItem } from "./WorkspacesRail";
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const claudeMark = {
-  viewBox: "0 0 24 24",
-  paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
-};
-
 const START: WorkspaceItem[] = [
-  { id: "a", name: "Alpha", agentCount: 1, agentIcons: [claudeMark] },
-  { id: "b", name: "Beta", agentCount: 2, agentIcons: [claudeMark, null] },
-  { id: "c", name: "Gamma", agentCount: 3, agentIcons: [] },
-  { id: "d", name: "Delta", agentCount: 4, agentIcons: [] },
+  { id: "a", name: "Alpha", agentCount: 1 },
+  { id: "b", name: "Beta", agentCount: 2 },
+  { id: "c", name: "Gamma", agentCount: 3 },
+  { id: "d", name: "Delta", agentCount: 4 },
 ];
 
 function pointerEvent(
@@ -204,8 +199,8 @@ describe("WorkspacesRail unread dots", () => {
       root.render(
         createElement(WorkspacesRail, {
           workspaces: [
-            { id: "a", name: "Alpha", agentCount: 1, agentIcons: [], unread: 2 },
-            { id: "b", name: "Beta", agentCount: 2, agentIcons: [] },
+            { id: "a", name: "Alpha", agentCount: 1, unread: 2 },
+            { id: "b", name: "Beta", agentCount: 2 },
           ],
           activeId: "b",
           onSelect: vi.fn(),
@@ -233,7 +228,7 @@ function restorePrototypeProperty(
   else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
 }
 
-describe("WorkspacesRail agent marks", () => {
+describe("WorkspacesRail workspace metadata", () => {
   let host: HTMLDivElement;
   let root: Root;
 
@@ -249,22 +244,9 @@ describe("WorkspacesRail agent marks", () => {
     host.remove();
   });
 
-  const clusterOf = (wsId: string) =>
-    host
-      .querySelector(`[data-ws-id="${wsId}"]`)!
-      .querySelector(".rail__agents");
-
-  it("draws one glyph per distinct agent — brand mark or neutral fallback", () => {
-    const svgs = clusterOf("b")!.querySelectorAll("svg");
-    expect(svgs).toHaveLength(2);
-    const brand = svgs[0].querySelector("path")!;
-    expect(brand.getAttribute("d")).toBe(claudeMark.paths[0].d);
-    expect(brand.getAttribute("fill")).toBe(claudeMark.paths[0].color);
-    // The icon-less second agent gets the neutral prompt, not empty space.
-    expect(svgs[1].querySelector("polyline")).not.toBeNull();
-  });
-
-  it("renders no cluster at all for a workspace without marks", () => {
-    expect(clusterOf("c")).toBeNull();
+  it("shows only the numeric agent count, without a model-icon cluster", () => {
+    const item = host.querySelector(`[data-ws-id="b"]`)!;
+    expect(item.querySelector(".rail__count")?.textContent).toBe("2");
+    expect(item.querySelector(".rail__agents")).toBeNull();
   });
 });
