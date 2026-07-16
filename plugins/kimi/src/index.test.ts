@@ -111,14 +111,12 @@ describe("Kimi CLI plugin", () => {
     expect(settings.fields[0]).toMatchObject({ kind: "custom", key: "setup" });
   });
 
-  it("ships the official outline-and-eyes mark as path-only data", async () => {
+  it("ships the official K-and-blue-accent product mark as path-only data", async () => {
     const { agent } = await activate();
-    expect(agent.icon?.viewBox).toBe("0 0 24 24");
-    expect(agent.icon?.paths).toHaveLength(3);
-    expect(agent.icon?.paths[0].fillRule).toBe("evenodd");
-    expect(agent.icon?.paths.every((path: { color?: string }) => path.color === undefined)).toBe(
-      true,
-    );
+    expect(agent.icon?.viewBox).toBe("0 0 24 20");
+    expect(agent.icon?.paths).toHaveLength(2);
+    expect(agent.icon?.paths[0].color).toBeUndefined();
+    expect(agent.icon?.paths[1].color).toBe("#1783FF");
   });
 
   it("notifies on launch when Kimi confirms the companion is absent", async () => {
