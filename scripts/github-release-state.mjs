@@ -4,7 +4,14 @@
 // explicit 404 (safe to create), and every other failure (unsafe to hide).
 // `gh release view` also probes draft releases through GraphQL, so it is a
 // broader and less reliable existence check than this endpoint.
+//
+// Transient failures — network errors and 5xx/429 responses, the shape of a
+// GitHub availability incident — are retried with exponential backoff before
+// giving up. Deterministic 4xx failures (401, 403, …) stay immediately fatal:
+// repeating a rejected request cannot change the answer.
 import { pathToFileURL } from "node:url";
+
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 export function parseArgs(argv) {
   const args = {};
@@ -48,12 +55,44 @@ async function responseDetail(response) {
   }
 }
 
+async function probe({ endpoint, repo, tag, token, request }) {
+  let response;
+  try {
+    response = await request(endpoint, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "User-Agent": "KeepDeck-release-workflow",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const failure = new Error(`GitHub release lookup failed: ${message}`);
+    failure.retryable = true;
+    throw failure;
+  }
+
+  if (response.ok) return "exists";
+  if (response.status === 404) return "missing";
+
+  const detail = await responseDetail(response);
+  const failure = new Error(
+    `GitHub release lookup failed for ${repo}@${tag}: HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
+  );
+  failure.retryable = RETRYABLE_STATUSES.has(response.status);
+  throw failure;
+}
+
 export async function lookupRelease({
   repo,
   tag,
   token,
   apiUrl = "https://api.github.com",
   request = fetch,
+  attempts = 4,
+  backoffMs = 2000,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
   if (!token) throw new Error("GH_TOKEN is required");
   const [owner, name] = repositoryParts(repo);
@@ -67,28 +106,20 @@ export async function lookupRelease({
     "releases/tags",
     encodeURIComponent(tag),
   ].join("/");
-  let response;
-  try {
-    response = await request(endpoint, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "User-Agent": "KeepDeck-release-workflow",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`GitHub release lookup failed: ${message}`);
+
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await probe({ endpoint, repo, tag, token, request });
+    } catch (error) {
+      if (!error.retryable || attempt >= attempts) throw error;
+      const delay = backoffMs * 2 ** (attempt - 1);
+      // Stderr only: the workflow captures stdout as the release state.
+      console.error(
+        `${error.message}; retrying in ${delay / 1000}s (attempt ${attempt}/${attempts})`,
+      );
+      await sleep(delay);
+    }
   }
-
-  if (response.ok) return "exists";
-  if (response.status === 404) return "missing";
-
-  const detail = await responseDetail(response);
-  throw new Error(
-    `GitHub release lookup failed for ${repo}@${tag}: HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
-  );
 }
 
 export async function main(

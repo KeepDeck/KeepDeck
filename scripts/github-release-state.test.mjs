@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { lookupRelease, parseArgs } from "./github-release-state.mjs";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function response(status, body = "") {
   return new Response(body, { status });
@@ -56,26 +60,67 @@ describe("lookupRelease", () => {
   it.each([
     [401, "Bad credentials"],
     [403, "Resource not accessible by integration"],
-    [500, "Server Error"],
   ])(
-    "surfaces HTTP %i instead of allowing release creation",
+    "fails immediately on HTTP %i without retrying",
     async (status, message) => {
       const request = vi
         .fn()
         .mockResolvedValue(response(status, JSON.stringify({ message })));
+      const sleep = vi.fn();
 
-      await expect(lookupRelease({ ...options, request })).rejects.toThrow(
-        `HTTP ${status}: ${message}`,
-      );
+      await expect(
+        lookupRelease({ ...options, request, sleep }),
+      ).rejects.toThrow(`HTTP ${status}: ${message}`);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(sleep).not.toHaveBeenCalled();
     },
   );
 
-  it("surfaces transport failures", async () => {
-    const request = vi.fn().mockRejectedValue(new Error("socket closed"));
+  it("retries a transient 5xx with exponential backoff until it clears", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(response(503, "<!DOCTYPE html>Unicorn!"))
+      .mockResolvedValueOnce(response(502, ""))
+      .mockResolvedValueOnce(response(200, "{}"));
+    const sleep = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await expect(lookupRelease({ ...options, request })).rejects.toThrow(
-      "GitHub release lookup failed: socket closed",
-    );
+    await expect(
+      lookupRelease({ ...options, request, sleep }),
+    ).resolves.toBe("exists");
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls).toEqual([[2000], [4000]]);
+  });
+
+  it("retries transport failures and still trusts a later 404", async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("socket closed"))
+      .mockResolvedValueOnce(response(404, '{"message":"Not Found"}'));
+    const sleep = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      lookupRelease({ ...options, request, sleep }),
+    ).resolves.toBe("missing");
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after the attempt budget and surfaces the last failure", async () => {
+    // A fresh Response per call: each attempt reads the body for its detail.
+    const request = vi
+      .fn()
+      .mockImplementation(async () =>
+        response(503, '{"message":"Service Unavailable"}'),
+      );
+    const sleep = vi.fn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      lookupRelease({ ...options, request, sleep }),
+    ).rejects.toThrow("HTTP 503: Service Unavailable");
+    expect(request).toHaveBeenCalledTimes(4);
+    expect(sleep.mock.calls).toEqual([[2000], [4000], [8000]]);
   });
 
   it("requires a token and a well-formed repository", async () => {
