@@ -7,7 +7,7 @@ interface SetupPresentation {
   tone: "checking" | "pending" | "ready" | "update" | "error";
   title: string;
   detail: string;
-  action: "configure" | "remove" | null;
+  action: "check" | "configure" | "remove" | null;
   actionLabel: string | null;
   busy: boolean;
 }
@@ -74,6 +74,17 @@ export function setupPresentation(state: SetupState): SetupPresentation {
         busy: false,
       };
     case "needs-attention": {
+      if (state.reason === "collision") {
+        return {
+          tone: "error",
+          title: "Plugin ID conflict",
+          detail:
+            "A different Kimi plugin uses the KeepDeck reporter ID. Remove that conflicting plugin in Kimi Code before configuring this integration.",
+          action: null,
+          actionLabel: null,
+          busy: false,
+        };
+      }
       const reason =
         state.reason === "disabled"
           ? "The KeepDeck integration is disabled in Kimi Code."
@@ -92,10 +103,20 @@ export function setupPresentation(state: SetupState): SetupPresentation {
     case "error":
       return {
         tone: "error",
-        title: "Setup check failed",
+        title:
+          state.failedOperation === "check"
+            ? "Setup check failed"
+            : state.failedOperation === "configure"
+              ? "Configuration failed"
+              : "Removal failed",
         detail: state.message,
-        action: "configure",
-        actionLabel: "Configure",
+        action: state.failedOperation,
+        actionLabel:
+          state.failedOperation === "check"
+            ? "Retry"
+            : state.failedOperation === "configure"
+              ? "Retry configure"
+              : "Retry remove",
         busy: false,
       };
   }
@@ -114,6 +135,7 @@ export function createSetupSection(
     );
     const view = setupPresentation(state);
     const invoke = () => {
+      if (view.action === "check") void controller.check();
       if (view.action === "configure") void controller.configure();
       if (view.action === "remove") void controller.remove();
     };

@@ -99,4 +99,47 @@ describe("Kimi setup presentation", () => {
       busy: true,
     });
   });
+
+  it("retries the operation that actually failed", () => {
+    expect(
+      setupPresentation({
+        kind: "error",
+        operation: null,
+        message: "temporary failure",
+        failedOperation: "remove",
+      }),
+    ).toMatchObject({
+      title: "Removal failed",
+      action: "remove",
+      actionLabel: "Retry remove",
+    });
+    expect(
+      setupPresentation({
+        kind: "error",
+        operation: null,
+        message: "temporary failure",
+        failedOperation: "check",
+      }),
+    ).toMatchObject({
+      title: "Setup check failed",
+      action: "check",
+      actionLabel: "Retry",
+    });
+  });
+
+  it("offers no destructive action for a plugin id collision", () => {
+    expect(
+      setupPresentation({
+        kind: "needs-attention",
+        operation: null,
+        version: "1.0.0",
+        reason: "collision",
+      }),
+    ).toMatchObject({
+      tone: "error",
+      title: "Plugin ID conflict",
+      action: null,
+      actionLabel: null,
+    });
+  });
 });

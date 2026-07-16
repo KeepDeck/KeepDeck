@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PluginLogger } from "@keepdeck/plugin-api";
-import { COMPANION_ID, COMPANION_VERSION } from "./companion";
+import { COMPANION_VERSION } from "./companion";
 import type { KimiCompanionManager } from "./manager";
 import {
   createKimiSetupController,
@@ -43,6 +43,7 @@ describe("Kimi setup state", () => {
         version: COMPANION_VERSION,
         enabled: true,
         healthy: true,
+        owned: true,
       }),
     ).toEqual({
       kind: "configured",
@@ -54,6 +55,7 @@ describe("Kimi setup state", () => {
         version: COMPANION_VERSION,
         enabled: false,
         healthy: true,
+        owned: true,
       }),
     ).toMatchObject({ kind: "needs-attention", reason: "disabled" });
     expect(
@@ -61,8 +63,17 @@ describe("Kimi setup state", () => {
         version: "0.9.0",
         enabled: true,
         healthy: true,
+        owned: true,
       }),
     ).toMatchObject({ kind: "needs-attention", reason: "outdated" });
+    expect(
+      stateFromInstallation({
+        version: COMPANION_VERSION,
+        enabled: true,
+        healthy: true,
+        owned: false,
+      }),
+    ).toMatchObject({ kind: "needs-attention", reason: "collision" });
   });
 
   it("re-checks Kimi after configure and remove", async () => {
@@ -70,11 +81,12 @@ describe("Kimi setup state", () => {
       version: COMPANION_VERSION,
       enabled: true,
       healthy: true,
+      owned: true,
     };
     const configured = harness([healthy]);
     await configured.controller.configure();
     expect(configured.manager.configure).toHaveBeenCalledWith("/App/reporter");
-    expect(configured.inspect).toHaveBeenCalledWith(COMPANION_ID);
+    expect(configured.inspect).toHaveBeenCalledWith();
     expect(configured.controller.snapshot()).toMatchObject({
       kind: "configured",
       runningSessionsNeedReload: true,
@@ -82,7 +94,7 @@ describe("Kimi setup state", () => {
 
     const removed = harness([null]);
     await removed.controller.remove();
-    expect(removed.manager.remove).toHaveBeenCalledWith(COMPANION_ID);
+    expect(removed.manager.remove).toHaveBeenCalledWith();
     expect(removed.controller.snapshot()).toMatchObject({
       kind: "not-configured",
       runningSessionsNeedReload: true,
@@ -97,9 +109,24 @@ describe("Kimi setup state", () => {
       kind: "error",
       operation: null,
       message: "kimi not found",
+      failedOperation: "check",
     });
     expect(log.warn).toHaveBeenCalledWith(
       "Kimi setup check failed: kimi not found",
     );
+  });
+
+  it("preserves the failed operation so Remove can be retried", async () => {
+    const { controller, manager } = harness([]);
+    vi.mocked(manager.remove).mockRejectedValueOnce(new Error("temporary"));
+
+    await controller.remove();
+
+    expect(controller.snapshot()).toEqual({
+      kind: "error",
+      operation: null,
+      message: "temporary",
+      failedOperation: "remove",
+    });
   });
 });

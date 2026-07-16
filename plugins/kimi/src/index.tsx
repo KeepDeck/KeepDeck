@@ -1,6 +1,7 @@
 import "./styles.css";
 import type { KeepDeckPlugin } from "@keepdeck/plugin-api";
 import {
+  COMPANION_DESCRIPTOR,
   COMPANION_MANIFEST_RESOURCE,
   parentDirectory,
 } from "./companion";
@@ -62,7 +63,10 @@ const plugin: KeepDeckPlugin = {
     const companionDirectory = companionManifest
       ? parentDirectory(companionManifest)
       : null;
-    const manager = createKimiCompanionManager(ctx.services.sessions);
+    const manager = createKimiCompanionManager(
+      ctx.services.sessions,
+      COMPANION_DESCRIPTOR,
+    );
     const controller = createKimiSetupController(
       manager,
       companionDirectory,

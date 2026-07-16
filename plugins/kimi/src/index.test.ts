@@ -161,6 +161,7 @@ describe("Kimi CLI plugin", () => {
         kind: "error",
         operation: null,
         message: "kimi not found",
+        failedOperation: "check",
       }),
     ).toBeNull();
   });

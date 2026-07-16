@@ -1,8 +1,5 @@
 import type { PluginLogger } from "@keepdeck/plugin-api";
-import {
-  COMPANION_ID,
-  COMPANION_VERSION,
-} from "./companion";
+import { COMPANION_VERSION } from "./companion";
 import type {
   KimiCompanionInstallation,
   KimiCompanionManager,
@@ -25,9 +22,14 @@ export type SetupState =
       kind: "needs-attention";
       operation: null;
       version: string | null;
-      reason: "disabled" | "invalid" | "outdated";
+      reason: "disabled" | "invalid" | "outdated" | "collision";
     }
-  | { kind: "error"; operation: null; message: string }
+  | {
+      kind: "error";
+      operation: null;
+      message: string;
+      failedOperation: "check" | "configure" | "remove";
+    }
   | {
       kind: "working";
       operation: "configure" | "remove";
@@ -63,14 +65,19 @@ export function createKimiSetupController(
   async function check(): Promise<StableSetupState> {
     publish({ kind: "checking", operation: null });
     try {
-      const installation = await manager.inspect(COMPANION_ID);
+      const installation = await manager.inspect();
       const next = stateFromInstallation(installation);
       publish(next);
       return next;
     } catch (caught) {
       const message = describe(caught);
       log.warn(`Kimi setup check failed: ${message}`);
-      const next: StableSetupState = { kind: "error", operation: null, message };
+      const next: StableSetupState = {
+        kind: "error",
+        operation: null,
+        message,
+        failedOperation: "check",
+      };
       publish(next);
       return next;
     }
@@ -87,7 +94,7 @@ export function createKimiSetupController(
         }
         await manager.configure(companionDirectory);
       } else {
-        await manager.remove(COMPANION_ID);
+        await manager.remove();
       }
       const checked = await check();
       // Kimi intentionally applies plugin changes to already-running TUIs
@@ -103,7 +110,12 @@ export function createKimiSetupController(
     } catch (caught) {
       const message = describe(caught);
       log.warn(`Kimi ${operation} failed: ${message}`);
-      publish({ kind: "error", operation: null, message });
+      publish({
+        kind: "error",
+        operation: null,
+        message,
+        failedOperation: operation,
+      });
     }
   }
 
@@ -128,6 +140,14 @@ export function stateFromInstallation(
   installation: KimiCompanionInstallation | null,
 ): StableSetupState {
   if (!installation) return { kind: "not-configured", operation: null };
+  if (!installation.owned) {
+    return {
+      kind: "needs-attention",
+      operation: null,
+      version: installation.version,
+      reason: "collision",
+    };
+  }
   if (!installation.enabled) {
     return {
       kind: "needs-attention",

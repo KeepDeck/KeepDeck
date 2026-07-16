@@ -192,9 +192,22 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
       "resources",
       "keepdeck-session-reporter",
     );
+    const sourceKimiCompanion = JSON.parse(
+      readFileSync(
+        join(
+          REPO_ROOT,
+          "plugins",
+          "kimi",
+          "resources",
+          "keepdeck-session-reporter",
+          "kimi.plugin.json",
+        ),
+        "utf8",
+      ),
+    );
     expect(
       JSON.parse(readFileSync(join(kimiCompanion, "kimi.plugin.json"), "utf8")),
-    ).toMatchObject({ name: "keepdeck-session-reporter", version: "1.0.0" });
+    ).toEqual(sourceKimiCompanion);
     expect(
       readFileSync(join(kimiCompanion, "kd-session-hook.sh"), "utf8"),
     ).toContain('"type":"session.bound"');
