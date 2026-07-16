@@ -96,11 +96,12 @@ export interface ServiceBackends {
       request: LegacyDownloadRequest,
     ): Promise<void>;
   };
-  speech: Omit<PluginSpeech, "stopCapture"> & {
-    stopCapture(
+  speech: {
+    engines: PluginSpeech["engines"];
+    startCapture(
       pluginId: string,
-      opts: Parameters<PluginSpeech["stopCapture"]>[0],
-    ): ReturnType<PluginSpeech["stopCapture"]>;
+      onLevel?: Parameters<PluginSpeech["startCapture"]>[0],
+    ): ReturnType<PluginSpeech["startCapture"]>;
   };
 }
 
@@ -348,21 +349,7 @@ export function createCapabilityGate(
           hasMicCapability(manifest.capabilities),
           `speech.startCapture requires a "mic" capability, which the manifest does not declare`,
         );
-        return backend.speech.startCapture(onLevel);
-      },
-      stopCapture(opts) {
-        admit(
-          hasMicCapability(manifest.capabilities),
-          `speech.stopCapture requires a "mic" capability, which the manifest does not declare`,
-        );
-        return backend.speech.stopCapture(manifest.id, opts);
-      },
-      cancelCapture() {
-        admit(
-          hasMicCapability(manifest.capabilities),
-          `speech.cancelCapture requires a "mic" capability, which the manifest does not declare`,
-        );
-        return backend.speech.cancelCapture();
+        return backend.speech.startCapture(manifest.id, onLevel);
       },
     },
   };

@@ -41,9 +41,10 @@ function fakeBackend() {
     },
     speech: {
       engines: vi.fn(async () => ["whisper" as const]),
-      startCapture: vi.fn(async () => {}),
-      stopCapture: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
-      cancelCapture: vi.fn(async () => {}),
+      startCapture: vi.fn(async () => ({
+        stop: vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 })),
+        cancel: vi.fn(async () => {}),
+      })),
     },
     sessions: { spawn: vi.fn(async () => handle) },
     opener: {

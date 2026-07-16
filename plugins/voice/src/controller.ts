@@ -1,4 +1,8 @@
-import type { CommandArgs, PluginContext } from "@keepdeck/plugin-api";
+import type {
+  CommandArgs,
+  PluginContext,
+  SpeechCapture,
+} from "@keepdeck/plugin-api";
 import { bestMatch } from "./fuzzy";
 import { normalize, parseCommand, type Intent } from "./grammar";
 import type { VoiceModelInfo } from "./modelCatalog";
@@ -59,6 +63,8 @@ export function createVoiceController(
   let phase: VoicePhase = "idle";
   let mode: VoiceMode | null = null;
   let level = 0;
+  let capture: SpeechCapture | null = null;
+  let starting: Promise<SpeechCapture> | null = null;
   let history: HistoryEntry[] = [];
   const listeners = new Set<() => void>();
   // The snapshot is rebuilt only on change — useSyncExternalStore needs a
@@ -181,22 +187,44 @@ export function createVoiceController(
       mode = m;
       level = 0;
       notify();
+      const pending = ctx.services.speech.startCapture((rms) => {
+        level = rms;
+        notify();
+      });
+      starting = pending;
       try {
-        await ctx.services.speech.startCapture((rms) => {
-          level = rms;
-          notify();
-        });
+        const started = await pending;
+        if (starting !== pending) {
+          return;
+        }
+        if (phase !== "listening") {
+          await started.cancel().catch(() => {});
+        } else {
+          capture = started;
+        }
       } catch (e) {
+        if (starting !== pending || phase !== "listening") return;
         phase = "idle";
         mode = null;
         push("error", e instanceof Error ? e.message : String(e));
         notify();
+      } finally {
+        if (starting === pending) starting = null;
       }
     },
 
     async stop() {
       if (phase !== "listening") return;
       const finished = mode;
+      const activeCapture = capture;
+      capture = null;
+      if (!activeCapture) {
+        phase = "idle";
+        mode = null;
+        level = 0;
+        notify();
+        return;
+      }
       phase = "transcribing";
       notify();
       try {
@@ -221,7 +249,7 @@ export function createVoiceController(
 
         // No language pin: whisper's auto-detect handles per-utterance
         // language switching better than any setting the user must remember.
-        const transcript = await ctx.services.speech.stopCapture({
+        const transcript = await activeCapture.stop({
           engine: selected.engine,
           modelPath: selected.target.path,
           prompt: buildPrompt(rows),
@@ -254,6 +282,7 @@ export function createVoiceController(
           }
         }
       } catch (e) {
+        await activeCapture.cancel().catch(() => {});
         push("error", e instanceof Error ? e.message : String(e));
       } finally {
         phase = "idle";
@@ -269,12 +298,20 @@ export function createVoiceController(
     },
 
     async cancel() {
-      if (phase !== "listening") return;
+      const activeCapture = capture;
+      const pending = starting;
+      if (!activeCapture && !pending) return;
+      capture = null;
+      starting = null;
       phase = "idle";
       mode = null;
       level = 0;
       notify();
-      await ctx.services.speech.cancelCapture().catch(() => {});
+      if (activeCapture) {
+        await activeCapture.cancel().catch(() => {});
+      } else if (pending) {
+        await pending.then((started) => started.cancel()).catch(() => {});
+      }
     },
   };
 }

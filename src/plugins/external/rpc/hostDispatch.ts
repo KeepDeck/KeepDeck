@@ -14,6 +14,8 @@ import type {
   LegacyDownloadRequest,
   PluginContext,
   PluginSpawnOptions,
+  SpeechCapture,
+  SpeechCaptureOptions,
   SettingsSectionContribution,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
@@ -24,6 +26,7 @@ import {
   fswatchChannel,
   hookChannel,
   openChannel,
+  speechLevelChannel,
   type WireHookCall,
   type WireOpenCall,
   type WireSpawnPlanOutput,
@@ -150,6 +153,7 @@ export function createHostDispatch(
   // Directory watches, retained by the guest-minted id that will unwatch them.
   const watches = new Map<number, Disposable>();
   const activeDownloads = new Set<string>();
+  const activeSpeechCaptures = new Map<number, SpeechCapture>();
   function retain(regId: number, disposable: Disposable): void {
     registrations.set(regId, disposable);
   }
@@ -419,6 +423,31 @@ export function createHostDispatch(
       ctx.services.downloads.remove(target as DownloadTarget),
     "services.downloads.adoptLegacy": ([request]) =>
       ctx.services.downloads.adoptLegacy(request as LegacyDownloadRequest),
+    "services.speech.engines": () => ctx.services.speech.engines(),
+    "services.speech.start": async ([id]) => {
+      const key = id as number;
+      if (activeSpeechCaptures.has(key)) {
+        throw new Error(`speech capture id already active: ${key}`);
+      }
+      const capture = await ctx.services.speech.startCapture((level) =>
+        push(speechLevelChannel(key), level),
+      );
+      activeSpeechCaptures.set(key, capture);
+    },
+    "services.speech.stop": ([id, opts]) => {
+      const key = id as number;
+      const capture = activeSpeechCaptures.get(key);
+      if (!capture) throw new Error(`speech capture is not active: ${key}`);
+      activeSpeechCaptures.delete(key);
+      return capture.stop(opts as SpeechCaptureOptions);
+    },
+    "services.speech.cancel": ([id]) => {
+      const key = id as number;
+      const capture = activeSpeechCaptures.get(key);
+      if (!capture) return;
+      activeSpeechCaptures.delete(key);
+      return capture.cancel();
+    },
 
     // ---- host facts ----
     "host.settings": () => ctx.host.settings(),
@@ -461,6 +490,10 @@ export function createHostDispatch(
         void ctx.services.downloads.cancel(id).catch(() => {});
       }
       activeDownloads.clear();
+      for (const capture of activeSpeechCaptures.values()) {
+        void capture.cancel().catch(() => {});
+      }
+      activeSpeechCaptures.clear();
     },
   };
 }

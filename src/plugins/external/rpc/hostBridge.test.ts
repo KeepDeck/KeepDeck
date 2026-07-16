@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginContext, PluginManifest } from "@keepdeck/plugin-api";
 import { createHostBridge } from "./hostBridge";
 import type {
@@ -80,9 +80,10 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       },
       speech: {
         engines: async () => ["whisper"],
-        startCapture: async () => {},
-        stopCapture: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
-        cancelCapture: async () => {},
+        startCapture: async () => ({
+          stop: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
+          cancel: async () => {},
+        }),
       },
       sessions: {
         spawn: async () => ({
@@ -230,5 +231,50 @@ describe("createHostBridge", () => {
     const result = results().find((r) => r.id === 7);
     expect(result).toMatchObject({ ok: false });
     expect(result?.ok === false && result.error).toMatch(/disposed/);
+  });
+
+  it("proxies speech as an owned handle and cancels it on disposal", async () => {
+    const { ctx } = makeStub();
+    const stop = vi.fn(async () => ({
+      text: "hello",
+      silence: false,
+      seconds: 1,
+      level: 0.1,
+    }));
+    const cancel = vi.fn(async () => {});
+    let emitLevel: ((level: number) => void) | undefined;
+    ctx.services.speech.startCapture = vi.fn(async (onLevel) => {
+      emitLevel = onLevel;
+      return { stop, cancel };
+    });
+    const { bridge, inbox, send, results } = driver(ctx);
+
+    send({ kind: "call", id: 1, path: "services.speech.start", args: [7] });
+    await flush();
+    expect(results()).toContainEqual({ kind: "result", id: 1, ok: true });
+    emitLevel?.(0.4);
+    await flush();
+    expect(inbox).toContainEqual({ kind: "event", channel: "speech:7", payload: 0.4 });
+
+    send({
+      kind: "call",
+      id: 2,
+      path: "services.speech.stop",
+      args: [7, { engine: "whisper", modelPath: "models/a.bin" }],
+    });
+    await flush();
+    expect(stop).toHaveBeenCalledOnce();
+    expect(results()).toContainEqual({
+      kind: "result",
+      id: 2,
+      ok: true,
+      value: { text: "hello", silence: false, seconds: 1, level: 0.1 },
+    });
+
+    send({ kind: "call", id: 3, path: "services.speech.start", args: [8] });
+    await flush();
+    bridge.dispose();
+    await flush();
+    expect(cancel).toHaveBeenCalledOnce();
   });
 });

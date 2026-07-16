@@ -16,6 +16,7 @@ function setup(partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text
   const transcript: SpeechTranscript = { seconds: 1.2, level: 0.05, ...partial };
   const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
   const cancelCapture = vi.fn(async () => {});
+  const stopCapture = vi.fn(async () => transcript);
   let onLevel: ((rms: number) => void) | undefined;
   const ctx: PluginContext = {
     ...host.ctx,
@@ -25,9 +26,8 @@ function setup(partial: Partial<SpeechTranscript> & Pick<SpeechTranscript, "text
         ...host.ctx.services.speech,
         startCapture: vi.fn(async (cb) => {
           onLevel = cb;
+          return { stop: stopCapture, cancel: cancelCapture };
         }),
-        stopCapture: vi.fn(async () => transcript),
-        cancelCapture,
       },
     },
   };
@@ -92,8 +92,10 @@ describe("createVoiceController", () => {
         ...host.ctx.services,
         speech: {
           ...host.ctx.services.speech,
-          startCapture: vi.fn(async () => {}),
-          stopCapture: stop,
+          startCapture: vi.fn(async () => ({
+            stop,
+            cancel: vi.fn(async () => {}),
+          })),
         },
       },
     };
@@ -149,8 +151,10 @@ describe("createVoiceController", () => {
           ...host.ctx.services,
           speech: {
             ...host.ctx.services.speech,
-            startCapture: vi.fn(async () => {}),
-            stopCapture,
+            startCapture: vi.fn(async () => ({
+              stop: stopCapture,
+              cancel: vi.fn(async () => {}),
+            })),
           },
         },
       },
@@ -190,8 +194,10 @@ describe("createVoiceController", () => {
           ...host.ctx.services,
           speech: {
             ...host.ctx.services.speech,
-            startCapture: vi.fn(async () => {}),
-            stopCapture,
+            startCapture: vi.fn(async () => ({
+              stop: stopCapture,
+              cancel: vi.fn(async () => {}),
+            })),
           },
         },
       },
@@ -313,6 +319,61 @@ describe("createVoiceController", () => {
     expect(controller.snapshot().phase).toBe("idle");
     expect(cancelCapture).toHaveBeenCalledOnce();
     expect(controller.snapshot().history).toEqual([]);
+  });
+
+  it("cancels the native capture when model selection fails", async () => {
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const cancel = vi.fn(async () => {});
+    const controller = createVoiceController(
+      {
+        ...host.ctx,
+        services: {
+          ...host.ctx.services,
+          speech: {
+            ...host.ctx.services.speech,
+            startCapture: vi.fn(async () => ({
+              stop: vi.fn(),
+              cancel,
+            })),
+          },
+        },
+      },
+      () => 42,
+      async () => [],
+    );
+
+    await controller.start("command");
+    await controller.stop();
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(controller.snapshot().phase).toBe("idle");
+  });
+
+  it("cancels a capture that finishes starting during deactivation", async () => {
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const cancel = vi.fn(async () => {});
+    let release!: (capture: Awaited<ReturnType<PluginContext["services"]["speech"]["startCapture"]>>) => void;
+    const pending = new Promise<Awaited<ReturnType<PluginContext["services"]["speech"]["startCapture"]>>>((resolve) => {
+      release = resolve;
+    });
+    const controller = createVoiceController({
+      ...host.ctx,
+      services: {
+        ...host.ctx.services,
+        speech: {
+          ...host.ctx.services.speech,
+          startCapture: vi.fn(() => pending),
+        },
+      },
+    });
+
+    const start = controller.start("command");
+    const closing = controller.cancel();
+    release({ stop: vi.fn(), cancel });
+    await Promise.all([start, closing]);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(controller.snapshot().phase).toBe("idle");
   });
 
   it("feeds mic levels into the snapshot while listening", async () => {

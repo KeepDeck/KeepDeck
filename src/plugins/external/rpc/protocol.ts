@@ -87,6 +87,10 @@ export interface RpcInit {
 
 export type HostToGuestMessage = RpcResult | RpcEvent | RpcInit;
 
+export function speechLevelChannel(id: number): string {
+  return `speech:${id}`;
+}
+
 // ------------------------------------------------------------------ channels
 
 /**

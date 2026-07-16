@@ -50,6 +50,8 @@ enum CaptureCmd {
 }
 
 struct ActiveCapture {
+    id: String,
+    plugin_id: String,
     cmd_tx: Sender<CaptureCmd>,
     out_rx: Receiver<Option<(Vec<f32>, u32)>>,
 }
@@ -126,6 +128,8 @@ fn ensure_reaper(state: &VoiceState) {
 /// what makes the prompt appear and the Settings entry exist.
 #[tauri::command]
 pub async fn voice_capture_start(
+    capture_id: String,
+    plugin_id: String,
     on_level: Channel<f32>,
     state: tauri::State<'_, VoiceState>,
 ) -> Result<(), String> {
@@ -145,6 +149,9 @@ pub async fn voice_capture_start(
     }
 
     let mut slot = state.capture.lock().expect("poisoned");
+    if capture_id.trim().is_empty() {
+        return Err("capture id must not be empty".into());
+    }
     if slot.is_some() {
         return Err("a capture is already running".into());
     }
@@ -198,7 +205,12 @@ pub async fn voice_capture_start(
     ready_rx
         .recv()
         .map_err(|_| "capture thread died".to_string())??;
-    *slot = Some(ActiveCapture { cmd_tx, out_rx });
+    *slot = Some(ActiveCapture {
+        id: capture_id,
+        plugin_id,
+        cmd_tx,
+        out_rx,
+    });
     Ok(())
 }
 
@@ -222,22 +234,22 @@ pub struct TranscriptDto {
 /// 25 languages itself and takes no prompt.
 #[tauri::command]
 pub async fn voice_capture_stop(
-    plugin_id: String,
+    capture_id: String,
     engine: EngineType,
     model_path: String,
     language: Option<String>,
     prompt: Option<String>,
     state: tauri::State<'_, VoiceState>,
 ) -> Result<TranscriptDto, String> {
-    let load_path = resolve_model_path(&plugin_id, &model_path)?;
+    let capture = take_capture(&state, &capture_id)?;
+    let load_path = resolve_model_path(&capture.plugin_id, &model_path)?;
     if !load_path.exists() {
         // Still tear the capture down — the mic must not stay hot behind an
         // uninstalled-model error.
-        let _ = take_capture(&state).map(|c| c.cmd_tx.send(CaptureCmd::Cancel));
+        let _ = capture.cmd_tx.send(CaptureCmd::Cancel);
         return Err("speech model is not downloaded".into());
     }
     let cache_key = format!("{engine:?}:{}", load_path.display());
-    let capture = take_capture(&state)?;
     ensure_reaper(&state);
     let engine_slot = state.engine.clone();
     let processing = state.processing.clone();
@@ -348,8 +360,11 @@ pub async fn voice_capture_stop(
 
 /// Abandon the capture without transcribing (Escape during the hold).
 #[tauri::command]
-pub fn voice_capture_cancel(state: tauri::State<'_, VoiceState>) -> Result<(), String> {
-    let capture = take_capture(&state)?;
+pub fn voice_capture_cancel(
+    capture_id: String,
+    state: tauri::State<'_, VoiceState>,
+) -> Result<(), String> {
+    let capture = take_capture(&state, &capture_id)?;
     let _ = capture.cmd_tx.send(CaptureCmd::Cancel);
     Ok(())
 }
@@ -382,11 +397,39 @@ fn request_microphone_access() {
     }
 }
 
-fn take_capture(state: &tauri::State<'_, VoiceState>) -> Result<ActiveCapture, String> {
-    state
-        .capture
-        .lock()
-        .expect("poisoned")
-        .take()
-        .ok_or_else(|| "no capture is running".to_string())
+fn take_capture(state: &VoiceState, capture_id: &str) -> Result<ActiveCapture, String> {
+    let mut slot = state.capture.lock().expect("poisoned");
+    match slot.as_ref() {
+        Some(capture) if capture.id == capture_id => {
+            Ok(slot.take().expect("capture checked above"))
+        }
+        Some(_) => Err("speech capture does not belong to this handle".into()),
+        None => Err("no capture is running".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_handle_cannot_take_another_capture() {
+        let state = VoiceState::default();
+        let (cmd_tx, _cmd_rx) = channel();
+        let (_out_tx, out_rx) = channel();
+        *state.capture.lock().unwrap() = Some(ActiveCapture {
+            id: "capture-a".into(),
+            plugin_id: "plugin-a".into(),
+            cmd_tx,
+            out_rx,
+        });
+
+        assert!(take_capture(&state, "capture-b").is_err());
+        assert!(state.capture.lock().unwrap().is_some());
+        assert_eq!(
+            take_capture(&state, "capture-a").unwrap().plugin_id,
+            "plugin-a"
+        );
+        assert!(state.capture.lock().unwrap().is_none());
+    }
 }

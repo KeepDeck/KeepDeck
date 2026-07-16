@@ -8,16 +8,22 @@ export interface SpeechTranscript {
   level: number;
 }
 
+export interface SpeechCaptureOptions {
+  engine: SpeechEngine;
+  /** Relative path in this plugin's private download directory. */
+  modelPath: string;
+  language?: string;
+  prompt?: string;
+}
+
+export interface SpeechCapture {
+  stop(opts: SpeechCaptureOptions): Promise<SpeechTranscript>;
+  cancel(): Promise<void>;
+}
+
 export interface PluginSpeech {
   /** Engines compiled into this host build; carries no model catalog. */
   engines(): Promise<SpeechEngine[]>;
-  startCapture(onLevel?: (rms: number) => void): Promise<void>;
-  stopCapture(opts: {
-    engine: SpeechEngine;
-    /** Relative path in this plugin's private download directory. */
-    modelPath: string;
-    language?: string;
-    prompt?: string;
-  }): Promise<SpeechTranscript>;
-  cancelCapture(): Promise<void>;
+  /** The returned handle is the sole authority over this capture. */
+  startCapture(onLevel?: (rms: number) => void): Promise<SpeechCapture>;
 }

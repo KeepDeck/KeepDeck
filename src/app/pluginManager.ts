@@ -48,10 +48,8 @@ import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
 import {
-  voiceCaptureCancel,
   voiceEngines,
   voiceCaptureStart,
-  voiceCaptureStop,
 } from "../ipc/voice";
 import { describeError, log } from "../ipc/log";
 import { allocatePorts } from "../ipc/ports";
@@ -361,9 +359,8 @@ const serviceBackend: ServiceBackends = {
   },
   speech: {
     engines: () => voiceEngines(),
-    startCapture: (onLevel) => voiceCaptureStart((rms) => onLevel?.(rms)),
-    stopCapture: (pluginId, opts) => voiceCaptureStop(pluginId, opts),
-    cancelCapture: () => voiceCaptureCancel(),
+    startCapture: (pluginId, onLevel) =>
+      voiceCaptureStart(pluginId, (rms) => onLevel?.(rms)),
   },
   opener: {
     openUrl: (url) => openUrl(url),

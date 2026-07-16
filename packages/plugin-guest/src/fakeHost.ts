@@ -249,9 +249,10 @@ export function createFakeHost(
       },
       speech: {
         engines: async () => ["whisper"],
-        startCapture: async () => {},
-        stopCapture: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
-        cancelCapture: async () => {},
+        startCapture: async () => ({
+          stop: async () => ({ text: "", silence: true, seconds: 0, level: 0 }),
+          cancel: async () => {},
+        }),
       },
       sessions: {
         spawn: async (_opts, onEvent) => {

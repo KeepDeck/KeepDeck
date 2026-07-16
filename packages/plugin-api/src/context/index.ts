@@ -66,7 +66,13 @@ export type {
   PluginSessions,
   PluginSpawnOptions,
 } from "./services.ts";
-export type { PluginSpeech, SpeechEngine, SpeechTranscript } from "./speech.ts";
+export type {
+  PluginSpeech,
+  SpeechCapture,
+  SpeechCaptureOptions,
+  SpeechEngine,
+  SpeechTranscript,
+} from "./speech.ts";
 export type {
   CustomSettingsFieldProps,
   PluginSettings,

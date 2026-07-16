@@ -12,7 +12,7 @@ import { createVoiceController } from "./controller";
 import { createModelDownloads } from "./downloads";
 import { createModelsStore } from "./models";
 import { installPttHotkeys } from "./hotkeys";
-import { clearRuntime, setRuntime } from "./runtime";
+import { clearRuntime, runtime, setRuntime } from "./runtime";
 import { ModelsSection } from "./components/ModelsSection";
 import { VoiceOverlay } from "./components/VoiceOverlay";
 import { VoiceTab } from "./components/VoiceTab";
@@ -47,11 +47,20 @@ const plugin: KeepDeckPlugin = {
     uninstallHotkeys = installPttHotkeys(controller);
   },
 
-  deactivate() {
+  async deactivate() {
     uninstallHotkeys?.();
     uninstallHotkeys = null;
+    await runtimeController()?.cancel();
     clearRuntime();
   },
 };
+
+function runtimeController() {
+  try {
+    return runtime().controller;
+  } catch {
+    return null;
+  }
+}
 
 export default plugin;

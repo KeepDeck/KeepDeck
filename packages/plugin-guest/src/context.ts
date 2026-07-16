@@ -14,10 +14,17 @@ import type {
   PluginContext,
   PluginManifest,
   PluginSessionEvent,
+  SpeechCapture,
+  SpeechCaptureOptions,
 } from "@keepdeck/plugin-api";
 import { describeError } from "./errors";
 import type { GuestRpc } from "./rpc";
-import type { WireHookCall, WireOpenCall, WireSessionEvent } from "./protocol";
+import {
+  speechLevelChannel,
+  type WireHookCall,
+  type WireOpenCall,
+  type WireSessionEvent,
+} from "./protocol";
 
 class RemoteDownloadStream implements AsyncIterable<DownloadState>, AsyncIterator<DownloadState> {
   private value: DownloadState | null = null;
@@ -134,6 +141,7 @@ export function buildGuestContext(
   // One `fswatch:<id>` change callback per open directory watch.
   const watchCallbacks = new Map<string, () => void>();
   const downloadStreams = new Map<string, RemoteDownloadStream>();
+  const speechLevels = new Map<string, (level: number) => void>();
   const recentDownloadIds = new Set<string>();
   const recentDownloadOrder: string[] = [];
   const recentDownloadLimit = 4096;
@@ -521,10 +529,41 @@ export function buildGuestContext(
           rpc.call("services.downloads.adoptLegacy", [request]).then(noop),
       },
       speech: {
-        engines: () => Promise.reject(unavailableSpeech()),
-        startCapture: () => Promise.reject(unavailableSpeech()),
-        stopCapture: () => Promise.reject(unavailableSpeech()),
-        cancelCapture: () => Promise.reject(unavailableSpeech()),
+        engines: () =>
+          rpc.call("services.speech.engines", []) as ReturnType<
+            PluginContext["services"]["speech"]["engines"]
+          >,
+        async startCapture(onLevel) {
+          const id = nextRegId++;
+          const channel = speechLevelChannel(id);
+          if (onLevel) speechLevels.set(channel, onLevel);
+          try {
+            await rpc.call("services.speech.start", [id]);
+          } catch (error) {
+            speechLevels.delete(channel);
+            throw error;
+          }
+          let active = true;
+          const close = () => {
+            active = false;
+            speechLevels.delete(channel);
+          };
+          const capture: SpeechCapture = {
+            async stop(opts: SpeechCaptureOptions) {
+              if (!active) throw new Error("speech capture is already closed");
+              close();
+              return rpc.call("services.speech.stop", [id, opts]) as ReturnType<
+                SpeechCapture["stop"]
+              >;
+            },
+            async cancel() {
+              if (!active) return;
+              close();
+              await rpc.call("services.speech.cancel", [id]);
+            },
+          };
+          return capture;
+        },
       },
     },
 
@@ -543,12 +582,6 @@ export function buildGuestContext(
     // a refusal (missing capability) surfaces in the plugin's log, not here.
     notify: (input) => void rpc.call("notify", [input]).catch(noop),
   };
-
-  function unavailableSpeech(): Error {
-    return new Error(
-      "the speech service is not yet available to external plugins",
-    );
-  }
 
   /** Run one host-requested agent hook and post the mutated output back. */
   async function runHook(callId: number, payload: unknown): Promise<void> {
@@ -634,6 +667,10 @@ export function buildGuestContext(
           downloadStreams.delete(id);
         }
       }
+      return;
+    }
+    if (channel.startsWith("speech:")) {
+      speechLevels.get(channel)?.(payload as number);
       return;
     }
     // Deck events and the settings-change feed alike land in `channelListeners`.
