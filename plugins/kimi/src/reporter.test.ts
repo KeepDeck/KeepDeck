@@ -1,9 +1,12 @@
 import { execFileSync } from "node:child_process";
 import {
+  closeSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,26 +33,43 @@ function scratch(): string {
   return dir;
 }
 
+// Stdin comes from a file, not execFileSync's `input` pipe: the hook's inert
+// path exits without ever reading stdin, and a pipe writer racing that exit
+// gets EPIPE on loaded CI runners. A file-backed stdin has no writer to break.
+function runHook(payload: unknown, env: Record<string, string>): void {
+  const file = join(scratch(), "payload.json");
+  writeFileSync(file, JSON.stringify(payload));
+  const stdin = openSync(file, "r");
+  try {
+    execFileSync("/bin/sh", [SCRIPT], {
+      stdio: [stdin, "pipe", "pipe"],
+      env,
+    });
+  } finally {
+    closeSync(stdin);
+  }
+}
+
 describe("Kimi SessionStart reporter", () => {
   it("is inert outside a KeepDeck-spawned Kimi process", () => {
     const dir = scratch();
-    execFileSync("/bin/sh", [SCRIPT], {
-      input: JSON.stringify({ session_id: "session_outside" }),
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
-    });
+    runHook(
+      { session_id: "session_outside" },
+      { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+    );
     expect(readdirSync(dir)).toEqual([]);
   });
 
   it("publishes one atomic bridge-v1 session binding", () => {
     const dir = scratch();
-    execFileSync("/bin/sh", [SCRIPT], {
-      input: JSON.stringify({
+    runHook(
+      {
         hook_event_name: "SessionStart",
         session_id: "session_24f9c57a",
         cwd: "/repo",
         source: "resume",
-      }),
-      env: {
+      },
+      {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
         KEEPDECK_BRIDGE: JSON.stringify({
           v: 1,
@@ -58,7 +78,7 @@ describe("Kimi SessionStart reporter", () => {
           token: "token-kimi",
         }),
       },
-    });
+    );
 
     const files = readdirSync(dir);
     expect(files).toHaveLength(1);
