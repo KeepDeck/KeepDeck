@@ -1,19 +1,16 @@
-/** The official Kimi Code mascot mark, converted from the outlined 24px SVG
- * shipped in MoonshotAI/kimi-code into filled path data. The frame is the
- * original 1.6px rounded-rectangle stroke expressed as an even-odd shape;
- * the two rounded eyes remain separate filled layers. */
+/** The official Kimi product mark. The K path is copied verbatim from the
+ * light/dark wordmark SVGs shipped by MoonshotAI/kimi-code; `currentColor`
+ * selects the matching theme variant. The blue accent is retained from the
+ * official Kimi app/storefront icon. */
 export const icon = {
-  viewBox: "0 0 24 24",
+  viewBox: "0 0 24 20",
   paths: [
     {
-      d: "M5.2 3.7h13.6a3 3 0 0 1 3 3v8.8a3 3 0 0 1-3 3H5.2a3 3 0 0 1-3-3V6.7a3 3 0 0 1 3-3Zm0 1.6a1.4 1.4 0 0 0-1.4 1.4v8.8a1.4 1.4 0 0 0 1.4 1.4h13.6a1.4 1.4 0 0 0 1.4-1.4V6.7a1.4 1.4 0 0 0-1.4-1.4H5.2Z",
-      fillRule: "evenodd" as const,
+      d: "M9.5491 9.27327L17.6651 0.70805C17.9184 0.440692 17.7289 0 17.3606 0H13.5836C13.4716 0 13.3643 0.044742 13.2856 0.124271L3.9835 9.51434C3.8391 9.66039 3.62564 9.53018 3.62564 9.29615V0.419507C3.62564 0.18782 3.43782 0 3.20614 0H0.419507C0.18782 0 0 0.18782 0 0.419507V19.5805C0 19.8122 0.18782 20 0.419507 20H3.20614C3.43782 20 3.62564 19.8122 3.62564 19.5805V15.7593C3.62564 15.6748 3.65547 15.5939 3.70726 15.5411L6.57795 12.6095C6.64701 12.5392 6.74276 12.5286 6.81966 12.5814L14.4979 18.397C15.6207 19.1749 17.0503 19.6847 18.3594 19.8976C18.6062 19.9378 18.8235 19.7427 18.8235 19.4927C18.8235 18.2378 18.8235 16.8429 18.8235 16.0317C18.8235 15.8258 18.6739 15.6519 18.4726 15.6086C17.7133 15.4451 16.8692 15.1352 16.2291 14.6912L9.58206 9.73781C9.44394 9.64279 9.42667 9.3982 9.5491 9.27327Z",
     },
     {
-      d: "M10.05 8h.5a.45.45 0 0 1 .45.45v1.7a.45.45 0 0 1-.45.45h-.5a.45.45 0 0 1-.45-.45v-1.7A.45.45 0 0 1 10.05 8Z",
-    },
-    {
-      d: "M16.05 8h.5a.45.45 0 0 1 .45.45v1.7a.45.45 0 0 1-.45.45h-.5a.45.45 0 0 1-.45-.45v-1.7A.45.45 0 0 1 16.05 8Z",
+      d: "M21.5.5A2.5 2.5 0 0 1 24 3v.25A2.75 2.75 0 0 1 21.25 6H18.5V3.5a3 3 0 0 1 3-3Z",
+      color: "#1783FF",
     },
   ],
 };
