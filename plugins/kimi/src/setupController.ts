@@ -10,8 +10,17 @@ import type {
 
 export type SetupState =
   | { kind: "checking"; operation: null }
-  | { kind: "not-configured"; operation: null }
-  | { kind: "configured"; operation: null; version: string }
+  | {
+      kind: "not-configured";
+      operation: null;
+      runningSessionsNeedReload?: boolean;
+    }
+  | {
+      kind: "configured";
+      operation: null;
+      version: string;
+      runningSessionsNeedReload?: boolean;
+    }
   | {
       kind: "needs-attention";
       operation: null;
@@ -80,7 +89,17 @@ export function createKimiSetupController(
       } else {
         await manager.remove(COMPANION_ID);
       }
-      await check();
+      const checked = await check();
+      // Kimi intentionally applies plugin changes to already-running TUIs
+      // only after /reload or /new. /reload is the safe instruction here: it
+      // preserves the active conversation and fires SessionStart again, while
+      // restarting an unbound pane could lose KeepDeck's route to that session.
+      if (operation === "configure" && checked.kind === "configured") {
+        publish({ ...checked, runningSessionsNeedReload: true });
+      }
+      if (operation === "remove" && checked.kind === "not-configured") {
+        publish({ ...checked, runningSessionsNeedReload: true });
+      }
     } catch (caught) {
       const message = describe(caught);
       log.warn(`Kimi ${operation} failed: ${message}`);

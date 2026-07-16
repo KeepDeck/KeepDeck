@@ -77,6 +77,7 @@ describe("Kimi setup state", () => {
     expect(configured.inspect).toHaveBeenCalledWith(COMPANION_ID);
     expect(configured.controller.snapshot()).toMatchObject({
       kind: "configured",
+      runningSessionsNeedReload: true,
     });
 
     const removed = harness([null]);
@@ -84,6 +85,7 @@ describe("Kimi setup state", () => {
     expect(removed.manager.remove).toHaveBeenCalledWith(COMPANION_ID);
     expect(removed.controller.snapshot()).toMatchObject({
       kind: "not-configured",
+      runningSessionsNeedReload: true,
     });
   });
 

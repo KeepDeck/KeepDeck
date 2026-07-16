@@ -33,6 +33,17 @@ export function setupPresentation(state: SetupState): SetupPresentation {
         busy: true,
       };
     case "not-configured":
+      if (state.runningSessionsNeedReload) {
+        return {
+          tone: "update",
+          title: "Removed — reload running sessions",
+          detail:
+            "The KeepDeck integration has been removed. Run /reload once in each already-running Kimi pane to unload it; no process restart is needed.",
+          action: "configure",
+          actionLabel: "Configure",
+          busy: false,
+        };
+      }
       return {
         tone: "pending",
         title: "Not configured",
@@ -43,6 +54,17 @@ export function setupPresentation(state: SetupState): SetupPresentation {
         busy: false,
       };
     case "configured":
+      if (state.runningSessionsNeedReload) {
+        return {
+          tone: "update",
+          title: "Configured — reload running sessions",
+          detail:
+            "New Kimi sessions are ready. Run /reload once in each already-running Kimi pane to enable session restore there; no process restart is needed.",
+          action: "remove",
+          actionLabel: "Remove",
+          busy: false,
+        };
+      }
       return {
         tone: "ready",
         title: "Configured",
