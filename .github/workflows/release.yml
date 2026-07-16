@@ -120,9 +120,17 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if ! gh release view latest >/dev/null 2>&1; then
-            gh release create latest --title "KeepDeck latest" --notes-file rolling-notes.md --latest=false
-          fi
+          release_state="$(node scripts/github-release-state.mjs --repo "$GH_REPO" --tag latest)"
+          case "$release_state" in
+            exists) ;;
+            missing)
+              gh release create latest --title "KeepDeck latest" --notes-file rolling-notes.md --latest=false
+              ;;
+            *)
+              echo "Unexpected release state: $release_state" >&2
+              exit 1
+              ;;
+          esac
           # Payloads and zips first; the manifest goes LAST so a client that
           # polls mid-publish never sees it point at assets still being
           # replaced (worst case: a clean signature mismatch, retried on the
@@ -153,11 +161,19 @@ jobs:
         # and never the "Latest" badge, which stays on the rolling release.
         # Idempotent: a republish updates the same archive entry.
         run: |
-          if ! gh release view "$VERSION" >/dev/null 2>&1; then
-            gh release create "$VERSION" \
-              --target "${{ needs.pin.outputs.sha }}" \
-              --title "KeepDeck $VERSION" --notes-file notes.md --latest
-          fi
+          release_state="$(node scripts/github-release-state.mjs --repo "$GH_REPO" --tag "$VERSION")"
+          case "$release_state" in
+            exists) ;;
+            missing)
+              gh release create "$VERSION" \
+                --target "${{ needs.pin.outputs.sha }}" \
+                --title "KeepDeck $VERSION" --notes-file notes.md --latest
+              ;;
+            *)
+              echo "Unexpected release state: $release_state" >&2
+              exit 1
+              ;;
+          esac
           gh release upload "$VERSION" \
             assets/KeepDeck-macos-arm64.zip \
             assets/KeepDeck-macos-x64.zip \
