@@ -424,6 +424,10 @@ export function buildGuestContext(
       warn: (message) => void rpc.call("log.warn", [message]).catch(noop),
       error: (message) => void rpc.call("log.error", [message]).catch(noop),
     },
+
+    // Fire-and-forget like log.*: the host's port validates and rate-limits;
+    // a refusal (missing capability) surfaces in the plugin's log, not here.
+    notify: (input) => void rpc.call("notify", [input]).catch(noop),
   };
 
   function unavailableVoice(): Error {

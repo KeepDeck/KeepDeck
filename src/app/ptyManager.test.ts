@@ -150,30 +150,74 @@ describe("attachPane", () => {
     expect(late.onReady).toHaveBeenCalledTimes(1);
   });
 
-  it("tells a late sink about an exit it missed, after the replay", async () => {
+  it("a death nobody heard reaches its FIRST listener as live; later attaches replay", async () => {
     acquirePane("pane-1", SPEC);
     harness.spawns[0].resolve(harness.makeSession());
     await settle();
     output(0, 9);
+    // The exit lands with no sink attached (the detach/re-attach window).
     harness.spawns[0].onEvent({ type: "exit", code: 1 });
 
-    const sink = makeSink();
-    attachPane("pane-1", sink);
-    expect(sink.onOutput).toHaveBeenCalledWith(new Uint8Array([9]));
-    expect(sink.onExit).toHaveBeenCalledWith(1);
+    const first = makeSink();
+    attachPane("pane-1", first);
+    expect(first.onOutput).toHaveBeenCalledWith(new Uint8Array([9]));
+    expect(first.onExit).toHaveBeenCalledWith(1, false); // once-per-death fires
+
+    const second = makeSink();
+    attachPane("pane-1", second);
+    expect(second.onExit).toHaveBeenCalledWith(1, true); // now it's history
   });
 
-  it("tells current and future sinks about a spawn failure", async () => {
+  it("marks the live death and its re-announcements apart (once-per-death reactions)", async () => {
+    acquirePane("pane-1", SPEC);
+    const live = makeSink();
+    attachPane("pane-1", live);
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+    harness.spawns[0].onEvent({ type: "exit", code: 137 });
+    // The attached view hears the actual death, unreplayed.
+    expect(live.onExit).toHaveBeenCalledWith(137, false);
+
+    // A remount over the same (exited, not closed) pane: acquire reuses the
+    // entry, attach re-announces — flagged as a replay.
+    acquirePane("pane-1", SPEC);
+    const remounted = makeSink();
+    attachPane("pane-1", remounted);
+    expect(remounted.onExit).toHaveBeenCalledWith(137, true);
+    expect(remounted.onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells current and future sinks about a spawn failure — live once, replays after", async () => {
     acquirePane("pane-1", SPEC);
     const sink = makeSink();
     attachPane("pane-1", sink);
     harness.spawns[0].reject(new Error("no such command"));
     await settle();
-    expect(sink.onSpawnError).toHaveBeenCalledWith("Error: no such command");
+    expect(sink.onSpawnError).toHaveBeenCalledWith(
+      "Error: no such command",
+      false,
+    );
 
     const late = makeSink();
     attachPane("pane-1", late);
-    expect(late.onSpawnError).toHaveBeenCalledWith("Error: no such command");
+    expect(late.onSpawnError).toHaveBeenCalledWith(
+      "Error: no such command",
+      true,
+    );
+  });
+
+  it("a spawn failure nobody heard is live for its first listener", async () => {
+    acquirePane("pane-1", SPEC);
+    harness.spawns[0].reject(new Error("boom"));
+    await settle(); // fails with no sink attached — the detached window
+
+    const first = makeSink();
+    attachPane("pane-1", first);
+    expect(first.onSpawnError).toHaveBeenCalledWith("Error: boom", false);
+
+    const second = makeSink();
+    attachPane("pane-1", second);
+    expect(second.onSpawnError).toHaveBeenCalledWith("Error: boom", true);
   });
 
   it("a stale detach does not disconnect the newer sink (StrictMode order)", () => {

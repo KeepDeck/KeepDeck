@@ -167,6 +167,7 @@ export function buildPluginContext(
     services: deps.services(manifest, source),
     host: deps.hostFacts,
     log,
+    notify: deps.notifications(manifest, source),
   };
 
   return { ctx, disposeAll };

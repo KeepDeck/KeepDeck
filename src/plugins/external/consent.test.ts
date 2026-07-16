@@ -83,4 +83,13 @@ describe("capabilityFingerprint", () => {
     expect(cli).not.toBe(deck);
   });
 
+  it("an update that starts asking for notifications changes the fingerprint", () => {
+    // The re-consent gate for the notify surface: a stored consent without
+    // the capability must not admit a manifest that gained it.
+    const before = capabilityFingerprint(manifest([{ kind: "exec", commands: ["git"] }]));
+    const after = capabilityFingerprint(
+      manifest([{ kind: "exec", commands: ["git"] }, { kind: "notifications" }]),
+    );
+    expect(after).not.toBe(before);
+  });
 });

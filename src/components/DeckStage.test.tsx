@@ -55,6 +55,7 @@ const callbacks = {
   onStartFresh: vi.fn(),
   onRetryProvision: vi.fn(),
   onAgentExited: vi.fn(),
+  onAgentSpawnFailed: vi.fn(),
   onRestartAgent: vi.fn(() => Promise.resolve()),
 };
 
@@ -116,7 +117,7 @@ describe("DeckStage — exited agents across layouts", () => {
     const hidden = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
     expect(hidden.classList.contains("pane--hidden")).toBe(true);
 
-    act(() => terminalProps("pane-1").onExit?.(0));
+    act(() => terminalProps("pane-1").onExit?.(0, false));
     render({ viewByWs: { "ws-1": {} } });
     const revealed = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
     expect(revealed.classList.contains("pane--hidden")).toBe(false);
@@ -145,7 +146,7 @@ describe("DeckStage — exited agents across layouts", () => {
     render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-2" } } });
     const folded = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
     expect(folded.classList.contains("pane--folded")).toBe(true);
-    act(() => terminalProps("pane-1").onExit?.(1));
+    act(() => terminalProps("pane-1").onExit?.(1, false));
 
     render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-1" } } });
     const expanded = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;

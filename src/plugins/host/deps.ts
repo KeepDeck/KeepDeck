@@ -7,6 +7,7 @@ import type {
   PluginEvents,
   PluginHostFacts,
   PluginLogger,
+  PluginNotify,
   PluginResources,
   PluginManifest,
   PluginServices,
@@ -73,6 +74,10 @@ export interface PluginHostDeps {
     /** Show/hide one of this plugin's overlays (see `PluginUi`). */
     setOverlayVisible(pluginId: string, entryId: string, visible: boolean): void;
   };
+  /** This plugin's `ctx.notify` — capability-checked (tier from `source`,
+   * mirroring `services`), sanitized, rate-limited and attributed by the
+   * host (see `createPluginNotifyPort`). */
+  notifications(manifest: PluginManifest, source: PluginSource): PluginNotify;
   /** This plugin's logger — lines land in the shared log namespaced by id. */
   log(pluginId: string): PluginLogger;
   /** Read-only whitelisted host facts, shared by every plugin. */

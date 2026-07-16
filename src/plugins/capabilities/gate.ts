@@ -19,6 +19,9 @@ import type {
   PluginVoice,
 } from "@keepdeck/plugin-api";
 import { execCovers } from "./execCovers";
+import { makeAdmit, type GateMode } from "./tier";
+
+export type { GateMode } from "./tier";
 
 /** The two scopes the `fs` capability may declare, as the backend consumes
  * them: the gate DERIVES this from the manifest and passes it down; the backend
@@ -106,8 +109,6 @@ export interface ServiceBackends {
  * still has no service to gate: it is enforced by the plugin realm's CSP, not a
  * call here, so there is deliberately no `net` branch.
  */
-export type GateMode = "warn" | "enforce";
-
 export function createCapabilityGate(
   manifest: PluginManifest,
   backend: ServiceBackends,
@@ -115,15 +116,10 @@ export function createCapabilityGate(
 ): PluginServices {
   const { mode, log } = opts;
 
-  /** The single branch point between the two modes, so a violation can
-   * never carry two different messages down two paths: `"warn"` logs and
-   * returns (the call proceeds below); `"enforce"` throws here, before the
-   * backend is ever reached. */
-  function admit(ok: boolean, message: string): void {
-    if (ok) return;
-    if (mode === "enforce") throw new Error(message);
-    log.warn(message);
-  }
+  // The tier's single branch point (shared with the notify port via
+  // `makeAdmit`): "warn" logs and lets the call proceed below; "enforce"
+  // throws here, before the backend is ever reached.
+  const admit = makeAdmit(mode, (message) => log.warn(message));
 
   return {
     sessions: {

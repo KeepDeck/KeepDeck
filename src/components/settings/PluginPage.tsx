@@ -10,6 +10,9 @@ import {
   rescanPlugins,
   restartPlugin,
 } from "../../app/pluginManager";
+import { updateSettings } from "../../app/settingsManager";
+import { useSettings } from "../../app/useSettings";
+import { DEFAULT_SETTINGS, withPluginMuted } from "../../domain/settings";
 import type { Contribution } from "../../plugins/registries/contributions";
 import { PluginSettingsSection } from "./PluginSettingsSection";
 
@@ -31,6 +34,12 @@ export function PluginPage({
   section: SettingsSectionContribution | null;
 }) {
   const external = externalPluginInfo(plugin.manifest.id);
+  const notificationPrefs =
+    useSettings()?.notifications ?? DEFAULT_SETTINGS.notifications;
+  const canNotify = plugin.manifest.capabilities.some(
+    (cap) => cap.kind === "notifications",
+  );
+  const muted = notificationPrefs.mutedPlugins.includes(plugin.manifest.id);
   return (
     <>
       <div className="settings__plugin-row">
@@ -81,6 +90,37 @@ export function PluginPage({
         <p className="settings__hint settings__plugin-about">
           {plugin.manifest.description}
         </p>
+      )}
+
+      {canNotify && plugin.status.kind !== "disabled" && (
+        // Mute this one plugin's notifications without disabling the plugin —
+        // the flip side of the `notifications` capability it declared.
+        <div className="settings__plugin-row">
+          <label className="settings__toggle">
+            <input
+              type="checkbox"
+              checked={!muted}
+              onChange={(e) =>
+                updateSettings({
+                  notifications: withPluginMuted(
+                    notificationPrefs,
+                    plugin.manifest.id,
+                    !e.target.checked,
+                  ),
+                })
+              }
+              aria-label={`Allow notifications from ${plugin.manifest.name}`}
+            />
+            <span className="settings__toggle-text">
+              <span>Notifications</span>
+              <span className="settings__hint">
+                {muted
+                  ? "Muted — the plugin runs, its notifications are dropped."
+                  : "The plugin may post to the notification center."}
+              </span>
+            </span>
+          </label>
+        </div>
       )}
 
       {section && plugin.status.kind === "active" && (
@@ -169,5 +209,7 @@ function describe(cap: Capability): string {
       return `drive the deck (${cap.execute.join(", ")})`;
     case "mic":
       return "use the microphone (local speech-to-text)";
+    case "notifications":
+      return "send notifications";
   }
 }

@@ -187,6 +187,44 @@ describe("WorkspacesRail drag reorder", () => {
   });
 });
 
+describe("WorkspacesRail unread dots", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("shows a dot only for workspaces with unread notifications", () => {
+    act(() => {
+      root.render(
+        createElement(WorkspacesRail, {
+          workspaces: [
+            { id: "a", name: "Alpha", agentCount: 1, agentIcons: [], unread: 2 },
+            { id: "b", name: "Beta", agentCount: 2, agentIcons: [] },
+          ],
+          activeId: "b",
+          onSelect: vi.fn(),
+          onAdd: vi.fn(),
+          onClose: vi.fn(),
+          onRename: vi.fn(),
+          onReorder: vi.fn(),
+        }),
+      );
+    });
+    const items = [...document.querySelectorAll(".rail__item")];
+    expect(items[0].querySelector(".rail__unread")).not.toBeNull();
+    expect(items[0].querySelector(".rail__unread")?.getAttribute("title")).toBe(
+      "2 unread notifications",
+    );
+    expect(items[1].querySelector(".rail__unread")).toBeNull();
+  });
+});
+
 function restorePrototypeProperty(
   name: "offsetTop" | "offsetLeft" | "offsetWidth" | "offsetHeight",
   descriptor: PropertyDescriptor | undefined,

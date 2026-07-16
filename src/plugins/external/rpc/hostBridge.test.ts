@@ -124,6 +124,7 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
       warn: () => {},
       error: () => {},
     },
+    notify: () => {},
   };
   return { ctx, infos };
 }

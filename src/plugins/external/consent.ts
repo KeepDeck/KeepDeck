@@ -40,5 +40,7 @@ function canonical(cap: Capability): string {
       return `commands:${[...cap.execute].sort().join(",")}`;
     case "mic":
       return "mic";
+    case "notifications":
+      return "notifications";
   }
 }

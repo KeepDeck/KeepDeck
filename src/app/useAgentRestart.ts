@@ -20,11 +20,13 @@ export interface AgentRestartApi {
   restart(wsId: string, paneId: string, mode: AgentRestartMode): Promise<void>;
   /** Preserve the existing one-shot recovery for a rejected BOOT resume.
    * Ordinary exits and manual resumes are ineligible and remain visible. */
+  /** Returns whether this exit IS the one-shot boot-resume recovery (a fresh
+   * respawn is being handled here) — callers treat a `true` as "not a crash". */
   recoverRejectedResume(
     wsId: string,
     paneId: string,
     code: number | null,
-  ): void;
+  ): boolean;
 }
 
 interface RestartTarget {
@@ -146,12 +148,12 @@ export function useAgentRestart(
     wsId: string,
     paneId: string,
     code: number | null,
-  ) => {
+  ): boolean => {
     const spec = peekPaneSpawnSpec(paneId);
-    if (!resumeDiedSilently(spec, postbackCount(paneId))) return;
-    if (inFlight.current.has(paneId)) return;
+    if (!resumeDiedSilently(spec, postbackCount(paneId))) return false;
+    if (inFlight.current.has(paneId)) return true;
     const target = findTarget(deckRef.current, wsId, paneId);
-    if (!target) return;
+    if (!target) return false;
 
     inFlight.current.add(paneId);
     log.warn(
@@ -165,6 +167,7 @@ export function useAgentRestart(
         if (findTarget(deckRef.current, wsId, paneId)) bumpEpoch(paneId);
       })
       .finally(() => inFlight.current.delete(paneId));
+    return true;
   };
 
   return { epochs, restart, recoverRejectedResume };

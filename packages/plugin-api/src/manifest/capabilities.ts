@@ -36,7 +36,12 @@ export type Capability =
   | { kind: "commands"; execute: string[] }
   /** Capture microphone audio and run LOCAL speech-to-text on it (the voice
    * service). Consent names the microphone; audio never leaves the machine. */
-  | { kind: "mic" };
+  | { kind: "mic" }
+  /** Post notifications through the host's notification center (`ctx.notify`)
+   * — including OS banners, per the user's delivery settings. The host
+   * attributes every entry with the plugin's name and rate-limits the flow;
+   * the user can mute one plugin without disabling it. */
+  | { kind: "notifications" };
 
 /** All manifest-legal capability kinds — the validator's source of truth. */
 export const CAPABILITY_KINDS = [
@@ -48,4 +53,5 @@ export const CAPABILITY_KINDS = [
   "open",
   "commands",
   "mic",
+  "notifications",
 ] as const;

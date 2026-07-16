@@ -142,6 +142,29 @@ describe("readManifest", () => {
     });
   });
 
+  it("rejects a name that could forge trust: overlong, control/bidi chars, or the app's own", () => {
+    const base = {
+      id: "x.y",
+      version: "1.0.0",
+      minApiVersion: 1,
+      category: "deck",
+      capabilities: [],
+      contributes: {},
+    };
+    const errorFor = (name: string) => {
+      const result = readManifest({ ...base, name });
+      return result.ok ? null : result.errors.join("; ");
+    };
+    expect(errorFor("n".repeat(41))).toContain("longer than 40");
+    expect(errorFor("Git\nTools")).toContain("control or bidi");
+    expect(errorFor("Git‮Tools")).toContain("control or bidi");
+    expect(errorFor("KeepDeck")).toContain("impersonates the app");
+    expect(errorFor(" keepdeck ")).toContain("impersonates the app");
+    // The boundary cases stay legal.
+    expect(errorFor("n".repeat(40))).toBeNull();
+    expect(errorFor("KeepDeck Git Tools")).toBeNull();
+  });
+
   it("collects every error instead of stopping at the first", () => {
     const result = readManifest({
       id: "Bad_Id",

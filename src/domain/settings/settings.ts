@@ -52,6 +52,19 @@ export type MinimizeStyle = "tray" | "strip" | "none";
  * allow-list a stored value is validated against. */
 export const MINIMIZE_STYLES: readonly MinimizeStyle[] = ["tray", "strip", "none"];
 
+/** Which delivery channels notifications use:
+ * - `system-and-app` — OS banners plus the in-app bell/center;
+ * - `system` — OS banners only, no bell in the chrome;
+ * - `app` — the bell only, the OS is never touched. */
+export type NotificationsMode = "system-and-app" | "system" | "app";
+
+/** Every notifications mode, in picker order; also the stored-value allow-list. */
+export const NOTIFICATION_MODES: readonly NotificationsMode[] = [
+  "system-and-app",
+  "system",
+  "app",
+];
+
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete
    * agent; if it isn't installed, the pickers snap to the first one that
@@ -79,6 +92,14 @@ export interface Settings {
      * even across app restarts. */
     consented: Record<string, string>;
   };
+  /** Notification delivery. `mutedPlugins` silences individual plugins'
+   * notifications without disabling the plugin (only meaningful for plugins
+   * holding the `notifications` capability). */
+  notifications: {
+    enabled: boolean;
+    mode: NotificationsMode;
+    mutedPlugins: string[];
+  };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -87,6 +108,7 @@ export const DEFAULT_SETTINGS: Settings = {
   deckLayout: "grid",
   minimizeStyle: "tray",
   plugins: { enabled: {}, values: {}, consented: {} },
+  notifications: { enabled: true, mode: "system-and-app", mutedPlugins: [] },
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -118,6 +140,17 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
 /** Clamp a raw scrollback to a sane whole number of lines. */
 export function clampScrollback(value: number): number {
   return Math.min(SCROLLBACK_MAX, Math.max(SCROLLBACK_MIN, Math.round(value)));
+}
+
+/** The notifications bag with `pluginId` (un)muted — deduplicating, so a
+ * repeated mute can't stack the id, and order-stable for everyone else. */
+export function withPluginMuted(
+  prefs: Settings["notifications"],
+  pluginId: string,
+  muted: boolean,
+): Settings["notifications"] {
+  const rest = prefs.mutedPlugins.filter((id) => id !== pluginId);
+  return { ...prefs, mutedPlugins: muted ? [...rest, pluginId] : rest };
 }
 
 /**
@@ -164,6 +197,40 @@ function readPlugins(value: unknown): Settings["plugins"] | null {
   return { enabled, values, consented };
 }
 
+/**
+ * Tolerant read of the notifications bag, per-field like everything else:
+ * a malformed field falls back to its own default without dragging the
+ * siblings down. `null` when the result IS the default — hydration then keeps
+ * `settings.notifications` pointing at `DEFAULT_SETTINGS.notifications` so
+ * the sparse-write `!==`-against-default check stays correct (the same
+ * object-identity contract as [`readPlugins`]).
+ */
+function readNotifications(value: unknown): Settings["notifications"] | null {
+  if (!isRecord(value)) return null;
+  const defaults = DEFAULT_SETTINGS.notifications;
+  const enabled =
+    typeof value.enabled === "boolean" ? value.enabled : defaults.enabled;
+  const mode = NOTIFICATION_MODES.includes(value.mode as NotificationsMode)
+    ? (value.mode as NotificationsMode)
+    : defaults.mode;
+  // A fresh [] rather than defaults.mutedPlugins: this bag is only returned
+  // when some field is non-default, and sharing the module-level default
+  // array into a live settings object would let any future in-place mutation
+  // poison the process-wide default (readPlugins builds fresh maps for the
+  // same reason).
+  const mutedPlugins = Array.isArray(value.mutedPlugins)
+    ? value.mutedPlugins.filter((id): id is string => typeof id === "string")
+    : [];
+  if (
+    enabled === defaults.enabled &&
+    mode === defaults.mode &&
+    mutedPlugins.length === 0
+  ) {
+    return null;
+  }
+  return { enabled, mode, mutedPlugins };
+}
+
 
 /**
  * Restore settings from stored JSON. Returns `null` only for a document that
@@ -205,6 +272,8 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   if (MINIMIZE_STYLES.includes(doc.minimizeStyle as MinimizeStyle)) {
     settings.minimizeStyle = doc.minimizeStyle as MinimizeStyle;
   }
+  const notifications = readNotifications(doc.notifications);
+  if (notifications) settings.notifications = notifications;
   const plugins = readPlugins(doc.plugins);
   // Only replace the default's object reference when there's genuinely
   // something to keep — otherwise `settings.plugins` stays pointing at

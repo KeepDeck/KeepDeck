@@ -42,10 +42,16 @@ export interface PaneSpawnSpec {
 /** A view's ears: everything a session reports back to its pane. */
 export interface PaneSink {
   onOutput(bytes: Uint8Array): void;
-  /** The PTY process ended (session stays inspectable until [`closePane`]). */
-  onExit(code: number | null): void;
-  /** The spawn itself failed — there is no process. */
-  onSpawnError(message: string): void;
+  /** The PTY process ended (session stays inspectable until [`closePane`]).
+   * `replayed` distinguishes the live event from [`attachPane`]'s re-announce
+   * to a remounting view: the view needs both (the exit card must survive a
+   * remount), but reactions that must fire once per ACTUAL death — the crash
+   * notification — listen only to `replayed === false`. */
+  onExit(code: number | null, replayed: boolean): void;
+  /** The spawn itself failed — there is no process. Same `replayed` contract
+   * as [`onExit`]: the view renders the failure either way, once-per-failure
+   * reactions (the notification) listen only to `replayed === false`. */
+  onSpawnError(message: string, replayed: boolean): void;
   /** The session is live: sync the PTY size to the view now. Fires on spawn
    * resolution and on attach to an already-live session. */
   onReady(): void;
@@ -69,7 +75,15 @@ interface Entry {
   chunks: Uint8Array[];
   buffered: number;
   exited: { code: number | null } | null;
+  /** A sink actually HEARD the exit (live or first re-announce). An exit can
+   * land in the detached window between an effect's cleanup and the next
+   * attach — the first attach after such a death must announce it as live
+   * (once-per-death reactions run), not as a replay. */
+  exitAnnounced: boolean;
   failed: string | null;
+  /** [`exitAnnounced`]'s mirror for spawn failures — same detached-window
+   * reasoning, same once-per-failure guarantee. */
+  failedAnnounced: boolean;
   closed: boolean;
   /** The process has emitted at least one output chunk — the "CLI launched"
    * signal. Lives on the entry (not the view) so it survives a re-attach: a
@@ -106,7 +120,9 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     chunks: [],
     buffered: 0,
     exited: null,
+    exitAnnounced: false,
     failed: null,
+    failedAnnounced: false,
     closed: false,
     launched: false,
   };
@@ -138,7 +154,10 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         entry.exited = { code: event.code };
         entry.session = null;
         log.info("web:pty", `${paneId}: exited (code ${event.code ?? "?"})`);
-        entry.sink?.onExit(event.code);
+        if (entry.sink) {
+          entry.exitAnnounced = true;
+          entry.sink.onExit(event.code, false);
+        }
       }
     },
   )
@@ -156,7 +175,10 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       if (entry.closed) return;
       entry.failed = describeError(err);
       log.error("web:pty", `${paneId}: spawn failed: ${entry.failed}`);
-      entry.sink?.onSpawnError(entry.failed);
+      if (entry.sink) {
+        entry.failedAnnounced = true;
+        entry.sink.onSpawnError(entry.failed, false);
+      }
     });
 }
 
@@ -170,8 +192,19 @@ export function attachPane(paneId: string, sink: PaneSink): () => void {
   if (!entry) return () => {};
   entry.sink = sink;
   for (const chunk of entry.chunks) sink.onOutput(chunk);
-  if (entry.failed !== null) sink.onSpawnError(entry.failed);
-  else if (entry.exited) sink.onExit(entry.exited.code);
+  if (entry.failed !== null) {
+    // Same once-per-failure contract as exits below: a failure nobody heard
+    // is live for its first listener, history for every later one.
+    const replayed = entry.failedAnnounced;
+    entry.failedAnnounced = true;
+    sink.onSpawnError(entry.failed, replayed);
+  } else if (entry.exited) {
+    // A death nobody heard (it landed between detach and re-attach) is
+    // announced to its first listener as LIVE; every later attach replays.
+    const replayed = entry.exitAnnounced;
+    entry.exitAnnounced = true;
+    sink.onExit(entry.exited.code, replayed);
+  }
   else if (entry.session) sink.onReady();
   // Already-launched session (re-attach): tell the view now, after the replay,
   // so it opens without the launch overlay instead of flashing it again.

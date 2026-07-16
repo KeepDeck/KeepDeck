@@ -6,6 +6,7 @@ import {
   makePanes,
   makeProvisioningPanes,
   paneDisplayTitle,
+  paneOnScreen,
   partitionPanes,
   removePane,
   resolveFocus,
@@ -193,5 +194,56 @@ describe("partitionPanes", () => {
     const { live, minimized } = partitionPanes(panes, ["pane-2", "pane-99"]);
     expect(live.map((p) => p.id)).toEqual(["pane-1"]);
     expect(minimized.map((p) => p.id)).toEqual(["pane-2"]);
+  });
+});
+
+describe("paneOnScreen", () => {
+  const panes = seed(3); // pane-1..3
+
+  it("grid, plainly tiled: every live pane is on screen", () => {
+    expect(paneOnScreen(panes, undefined, "grid", true, "pane-2")).toBe(true);
+  });
+
+  it("grid: a minimized pane is off screen — but only while minimize is in force", () => {
+    const view = { minimized: ["pane-2"] };
+    expect(paneOnScreen(panes, view, "grid", true, "pane-2")).toBe(false);
+    expect(paneOnScreen(panes, view, "grid", true, "pane-1")).toBe(true);
+    // minimizeStyle "none" / list mode ignore the stored minimized set,
+    // exactly as DeckStage renders it.
+    expect(paneOnScreen(panes, view, "grid", false, "pane-2")).toBe(true);
+  });
+
+  it("grid with a maximize: only the maximized pane is on screen", () => {
+    const view = { focus: "pane-1" };
+    expect(paneOnScreen(panes, view, "grid", true, "pane-1")).toBe(true);
+    expect(paneOnScreen(panes, view, "grid", true, "pane-2")).toBe(false);
+  });
+
+  it("grid: a STALE maximize (its pane gone) resolves to none, like resolveFocus", () => {
+    const view = { focus: "pane-gone" };
+    expect(paneOnScreen(panes, view, "grid", true, "pane-2")).toBe(true);
+  });
+
+  it("grid: a maximize on a solo pane is a no-op — the lone tile is on screen", () => {
+    expect(paneOnScreen(seed(1), { focus: "pane-1" }, "grid", true, "pane-1")).toBe(
+      true,
+    );
+  });
+
+  it("list: only the expanded pane is on screen; empty select expands the first", () => {
+    expect(paneOnScreen(panes, { select: "pane-2" }, "list", false, "pane-2")).toBe(
+      true,
+    );
+    expect(paneOnScreen(panes, { select: "pane-2" }, "list", false, "pane-1")).toBe(
+      false,
+    );
+    // DeckStage's default: view?.select ?? panes[0]
+    expect(paneOnScreen(panes, undefined, "list", false, "pane-1")).toBe(true);
+    expect(paneOnScreen(panes, undefined, "list", false, "pane-2")).toBe(false);
+  });
+
+  it("an unknown pane is never on screen", () => {
+    expect(paneOnScreen(panes, undefined, "grid", true, "pane-99")).toBe(false);
+    expect(paneOnScreen([], undefined, "list", false, "pane-1")).toBe(false);
   });
 });

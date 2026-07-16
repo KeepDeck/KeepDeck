@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DeckStage } from "./components/DeckStage";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
@@ -22,11 +22,26 @@ import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
 import { usePaneSpawnSpecs } from "./app/spawnSpecs";
 import { useAgentRestart } from "./app/useAgentRestart";
+import { setSourceVisibilityProbe } from "./app/notificationCenter";
+import {
+  notifyAgentCrashed,
+  notifyAgentSpawnFailed,
+} from "./app/notificationProducers";
+import { useNotifications } from "./app/useNotifications";
+import { NotificationBell } from "./components/notifications/NotificationBell";
+import {
+  unreadByWorkspace,
+  type Notification,
+} from "./domain/notifications";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useCoreCommands } from "./app/coreCommands";
-import { bootstrapPlugins, pluginRegistries } from "./app/pluginManager";
+import {
+  bootstrapPlugins,
+  pluginRegistries,
+  revealPluginDockTab,
+} from "./app/pluginManager";
 import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
 import { useContributions } from "./plugins";
@@ -50,6 +65,7 @@ import {
   findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
+  paneOnScreen,
   pathOccupancy,
   type SpawnConfig,
 } from "./domain/deck";
@@ -262,6 +278,45 @@ function App() {
   // gate on this so they can't diverge (the button used to ignore modals).
   const canAddAgent = !!active && !atCap && !modalOpen;
 
+  // The banner rule's "is the source on screen" probe — kept current through a
+  // ref (the probe is registered once; re-registering per render would churn
+  // the module store). A pane is on screen when nothing modal covers the deck,
+  // its workspace is active, and the layout actually shows its body
+  // (`paneOnScreen` — the same visibility semantics DeckStage renders).
+  const visibilityRef = useRef({
+    activeId: deck.activeId,
+    workspaces: deck.workspaces,
+    viewByWs: deck.viewByWs,
+    deckLayout,
+    minimizeOn,
+    modalOpen,
+  });
+  visibilityRef.current = {
+    activeId: deck.activeId,
+    workspaces: deck.workspaces,
+    viewByWs: deck.viewByWs,
+    deckLayout,
+    minimizeOn,
+    modalOpen,
+  };
+  useEffect(() => {
+    setSourceVisibilityProbe((source) => {
+      if (source.type !== "pane") return false;
+      const now = visibilityRef.current;
+      if (now.modalOpen || source.wsId !== now.activeId) return false;
+      const ws = findWorkspace(now.workspaces, source.wsId);
+      if (!ws) return false;
+      return paneOnScreen(
+        ws.panes,
+        now.viewByWs[source.wsId],
+        now.deckLayout,
+        now.minimizeOn,
+        source.paneId,
+      );
+    });
+    return () => setSourceVisibilityProbe(null);
+  }, []);
+
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
   // ⌘W asks to close the selected pane (an empty workspace: the workspace
   // itself), ⇧⌘M toggles its maximize. A hotkey
@@ -321,6 +376,63 @@ function App() {
     setCreating(false);
   };
 
+  // The bell's history + per-workspace unread tallies for the rail dots.
+  const notifications = useNotifications();
+  const unreadForWs = unreadByWorkspace(notifications);
+  const notificationPrefs =
+    settings?.notifications ?? DEFAULT_SETTINGS.notifications;
+  const showBell =
+    notificationPrefs.enabled && notificationPrefs.mode !== "system";
+
+  // A clicked notification navigates to its origin: a pane is selected (and
+  // restored from the minimize tray if needed), a plugin entry lands on its
+  // workspace, an app-level one opens Settings → Updates.
+  const openNotification = (n: Notification) => {
+    switch (n.source.type) {
+      case "pane": {
+        const { wsId, paneId } = n.source;
+        // The history outlives workspaces (and a plugin may name a wsId we
+        // never had): activating a gone id would strand the stage on a blank
+        // active workspace — the reducer sets activeId unconditionally.
+        if (!findWorkspace(deck.workspaces, wsId)) return;
+        handleSelectWorkspace(wsId);
+        if (deck.viewOf(wsId).minimized?.includes(paneId)) {
+          deck.toggleMinimize(wsId, paneId);
+        }
+        deck.selectPane(wsId, paneId);
+        break;
+      }
+      case "plugin": {
+        if (
+          n.source.wsId !== undefined &&
+          findWorkspace(deck.workspaces, n.source.wsId)
+        ) {
+          handleSelectWorkspace(n.source.wsId);
+        }
+        if (n.source.dockTab !== undefined) {
+          revealPluginDockTab(n.source.pluginId, n.source.dockTab);
+        }
+        break;
+      }
+      case "app": {
+        // Same guard as the top bar's update chip: the dialog reads its
+        // section only at open, so setting it over an open dialog would
+        // silently not navigate.
+        if (!dialogOpen && !settingsOpen) {
+          setSettingsSection("updates");
+          setSettingsOpen(true);
+        }
+        break;
+      }
+      default: {
+        // Exhaustiveness: a new NotificationSource variant must fail to
+        // compile here instead of silently getting no navigation.
+        const unhandled: never = n.source;
+        void unhandled;
+      }
+    }
+  };
+
   const handleCreateWorkspace = (config: SpawnConfig) => {
     // Optimistic: the workspace (and its provisioning cards) land at once.
     provisioning.createWorkspace(config);
@@ -334,6 +446,10 @@ function App() {
     agentIcons: distinctAgentTypes(w.panes).map(
       (type) => agents.find((a) => a.id === type)?.icon ?? null,
     ),
+    // The dots belong to the bell: without it (system-only mode, or a
+    // mid-session switch to it) there is nothing to open or mark read, so a
+    // populated runtime list must not leave unclearable dots behind.
+    unread: showBell ? (unreadForWs[w.id] ?? 0) : 0,
   }));
 
   // While the saved deck (or the spawn context, or the settings) is loading,
@@ -442,6 +558,7 @@ function App() {
               <DockIcon />
             </button>
           )}
+          {showBell && <NotificationBell onOpen={openNotification} />}
           <button
             type="button"
             className="bar__icon"
@@ -496,7 +613,22 @@ function App() {
             specByPane={specByPane}
             onStartFresh={revive.startFresh}
             onRetryProvision={provisioning.retryPane}
-            onAgentExited={agentRestart.recoverRejectedResume}
+            onAgentExited={(wsId, paneId, code) => {
+              // The one-shot boot-resume recovery respawns by itself — that
+              // exit is not a crash. A clean exit (code 0) is the user's own
+              // doing inside the pane; only abnormal ends notify.
+              const recovering = agentRestart.recoverRejectedResume(
+                wsId,
+                paneId,
+                code,
+              );
+              if (!recovering && code !== 0) {
+                notifyAgentCrashed(deck.workspaces, wsId, paneId, code, agents);
+              }
+            }}
+            onAgentSpawnFailed={(wsId, paneId, message) =>
+              notifyAgentSpawnFailed(deck.workspaces, wsId, paneId, message, agents)
+            }
             onRestartAgent={agentRestart.restart}
             restartEpochs={agentRestart.epochs}
           />

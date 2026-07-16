@@ -21,6 +21,8 @@ export interface WorkspaceItem {
    * `null` where the type's plugin ships no mark — "which agents", while
    * `agentCount` stays "how many". */
   agentIcons: (AgentGlyphIcon | null)[];
+  /** Unread notifications sourced in this workspace — 0 hides the dot. */
+  unread?: number;
 }
 
 interface WorkspacesRailProps {
@@ -255,6 +257,12 @@ export function WorkspacesRail({
                     <AgentGlyph key={i} icon={icon} />
                   ))}
                 </span>
+              )}
+              {(ws.unread ?? 0) > 0 && (
+                <span
+                  className="rail__unread"
+                  title={`${ws.unread} unread notification${ws.unread === 1 ? "" : "s"}`}
+                />
               )}
               <span className="rail__count">{ws.agentCount}</span>
               <button

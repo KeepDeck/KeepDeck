@@ -300,6 +300,7 @@ export function createFakeHost(
       warn: (m) => void logs.warn.push(m),
       error: (m) => void logs.error.push(m),
     },
+    notify: () => {},
   };
 
   return {

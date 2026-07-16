@@ -113,6 +113,11 @@
   color: #6b7280;
 }
 
+/* An honest warning line (e.g. the OS is blocking notifications). */
+.settings__hint--warn {
+  color: #c9a23c;
+}
+
 .settings__number {
   width: 140px;
 }

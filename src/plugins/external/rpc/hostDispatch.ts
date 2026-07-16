@@ -233,6 +233,12 @@ export function createHostDispatch(
       );
     },
     "ui.revealDockTab": ([id]) => ctx.ui.revealDockTab(id as string),
+
+    // ---- notifications: fire-and-forget; the port behind ctx.notify does
+    // ALL validation (capability, sanitize, rate limit) — the raw wire value
+    // passes through as-is, exactly the unknown the port is built to eat ----
+    "notify": ([input]) =>
+      ctx.notify(input as Parameters<typeof ctx.notify>[0]),
     "ui.registerOverlay": ([regId, entry]) => {
       const { id, iframe } = entry as { id: string; iframe: unknown };
       // Only the iframe variant may arrive over the wire — a Component can't
