@@ -11,7 +11,8 @@
     "./Dropdown": "./src/Dropdown.tsx",
     "./Combobox": "./src/Combobox.tsx",
     "./Peek": "./src/Peek.tsx",
-    "./inputProps": "./src/inputProps.ts"
+    "./inputProps": "./src/inputProps.ts",
+    "./paths": "./src/paths.ts"
   },
   "peerDependencies": {
     "react": "^19.1.0",

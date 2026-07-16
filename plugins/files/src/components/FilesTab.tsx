@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { RefreshIcon } from "@keepdeck/ui-kit/icons";
+import { shortPath } from "@keepdeck/ui-kit/paths";
 import { useFileTree } from "./useFileTree";
 import { requestOpen } from "../openRequests";
 import { visibleRows, type TreeNode } from "../domain/tree";
@@ -179,8 +180,3 @@ const ARROW_KEYS: Record<string, ArrowKey | undefined> = {
   ArrowLeft: "left",
   ArrowRight: "right",
 };
-
-/** Last two path segments — enough to tell worktrees apart in the dropdown. */
-function shortPath(path: string): string {
-  return path.split("/").filter(Boolean).slice(-2).join("/");
-}

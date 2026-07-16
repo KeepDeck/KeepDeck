@@ -15,6 +15,7 @@ import { usePresets } from "./usePresets";
 import { useRunSessions } from "./useRunSessions";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { noAutoCorrect } from "@keepdeck/ui-kit/inputProps";
+import { shortPath } from "@keepdeck/ui-kit/paths";
 import {
   CloseIcon,
   EditIcon,
@@ -576,9 +577,4 @@ function metaBad(s: RunSession | undefined): boolean {
     s.status.kind === "failed" ||
     (s.status.kind === "exited" && s.status.code !== 0 && s.status.code !== null)
   );
-}
-
-/** Last two path segments — enough to tell worktrees apart in a list. */
-function shortPath(path: string): string {
-  return path.split("/").filter(Boolean).slice(-2).join("/");
 }

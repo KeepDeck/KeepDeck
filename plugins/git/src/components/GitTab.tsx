@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
+import { shortPath } from "@keepdeck/ui-kit/paths";
 import { useGitStatus } from "./useGitStatus";
 import {
   baseName,
@@ -233,11 +234,6 @@ function Section({
       ))}
     </div>
   );
-}
-
-/** Last two path segments — enough to tell worktrees apart in the dropdown. */
-function shortPath(path: string): string {
-  return path.split("/").filter(Boolean).slice(-2).join("/");
 }
 
 /** The folder's own name. */

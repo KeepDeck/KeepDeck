@@ -177,7 +177,7 @@ function fsRoots(scope: FsScope): string[] {
  * after the last), fanned out to every callback watching it — so two panes
  * browsing the same folder share one OS watcher. The single subscription to
  * the backend's change event attaches lazily on first use. */
-function makeWatchFanout(backend: {
+export function makeWatchFanout(backend: {
   label: string;
   subscribe: (handler: (path: string) => void) => Promise<() => void>;
   start: (path: string, roots: string[], everywhere: boolean) => Promise<void>;
@@ -194,7 +194,21 @@ function makeWatchFanout(backend: {
     changeListener ??= backend
       .subscribe((changed) => {
         const cbs = watchCbs.get(changed);
-        if (cbs) for (const cb of [...cbs]) cb();
+        if (!cbs) return;
+        // One throwing subscriber must not strand the rest: this single
+        // module-lifetime listener feeds the WHOLE family, so an escaping
+        // error would abort the loop and drop this change for every later
+        // subscriber — on every watched path, not just this one.
+        for (const cb of [...cbs]) {
+          try {
+            cb();
+          } catch (e) {
+            log.warn(
+              "web:plugins",
+              `${backend.label} subscriber for ${changed} threw: ${describeError(e)}`,
+            );
+          }
+        }
       })
       .catch((e) => {
         log.warn(
@@ -444,11 +458,7 @@ export const pluginHost = new PluginHost(
       // visibility must not bring its overlays back over the window.
       clearPluginCrashes(pluginId);
       clearOverlayVisibility(pluginId);
-      const plugins = getSettings()?.plugins ?? {
-        enabled: {},
-        values: {},
-        consented: {},
-      };
+      const plugins = getSettings()?.plugins ?? DEFAULT_SETTINGS.plugins;
       const external = externalPlugins.get(pluginId);
       updateSettings({
         plugins: {

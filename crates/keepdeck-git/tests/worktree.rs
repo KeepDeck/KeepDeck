@@ -64,6 +64,42 @@ fn detects_repo_and_resolves_head() {
     fs::remove_dir_all(&non_repo).ok();
 }
 
+/// Only a work tree's ROOT is attachable. `is_git_repo` says "true" for every
+/// subdirectory of a repo, so classifying on it would offer to attach an agent
+/// to `<repo>/src` — landing it on the main branch with no isolation at all.
+#[test]
+fn only_the_worktree_root_counts_as_a_worktree() {
+    let repo_dir = init_repo();
+    let subdir = repo_dir.join("src");
+    fs::create_dir_all(&subdir).unwrap();
+
+    assert!(repo::is_worktree_root(&repo_dir), "the root itself");
+    assert!(
+        repo::is_git_repo(&subdir),
+        "a subdir IS inside the work tree — the trap this guards"
+    );
+    assert!(!repo::is_worktree_root(&subdir), "but it is not the root");
+
+    // A linked worktree has its own root, and that root is attachable.
+    let linked = unique_dir("linked");
+    let wt = linked.join("wt-1");
+    let base = repo::resolve_commit(&repo_dir, "HEAD").unwrap();
+    worktree::add(&repo_dir, &wt, "kd/probe-root", &base).expect("add worktree");
+    assert!(repo::is_worktree_root(&wt), "a linked worktree's root");
+    assert!(!repo::is_worktree_root(&linked), "its parent is not a repo");
+
+    let plain = unique_dir("plain");
+    assert!(!repo::is_worktree_root(&plain), "a non-repo dir");
+    assert!(
+        !repo::is_worktree_root(&plain.join("nope")),
+        "a path that does not exist"
+    );
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&linked).ok();
+    fs::remove_dir_all(&plain).ok();
+}
+
 #[test]
 fn adds_lists_then_removes_a_worktree() {
     let repo_dir = init_repo();

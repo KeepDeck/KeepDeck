@@ -106,6 +106,9 @@ export function Combobox({
   // clamping here beats effect-syncing state that render already derives.
   const cursor = Math.min(highlight, Math.max(filtered.length - 1, 0));
   const optionId = (index: number) => `${listId}-option-${index}`;
+  // What the user can actually see: an open combobox whose filter matches
+  // nothing renders no listbox, so the aria pair below must not announce one.
+  const menuOpen = open && filtered.length > 0;
 
   const openMenu = () => {
     setOpen(true);
@@ -156,12 +159,10 @@ export function Combobox({
         {...noAutoCorrect}
         className="form__input combobox__input"
         role="combobox"
-        aria-expanded={open}
+        aria-expanded={menuOpen}
         aria-autocomplete="list"
-        aria-controls={listId}
-        aria-activedescendant={
-          open && filtered.length ? optionId(cursor) : undefined
-        }
+        aria-controls={menuOpen ? listId : undefined}
+        aria-activedescendant={menuOpen ? optionId(cursor) : undefined}
         aria-label={ariaLabel}
         value={value}
         placeholder={placeholder}
@@ -188,7 +189,7 @@ export function Combobox({
       >
         <ChevronDownIcon />
       </button>
-      {open && filtered.length > 0 && (
+      {menuOpen && (
         <FloatingListbox
           anchorRef={rootRef}
           listRef={menuRef}

@@ -37,7 +37,14 @@ export function Dropdown({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLUListElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   const listId = useId();
+
+  // An empty option set has no menu to show: a `role="listbox"` with no
+  // options is a dead layer to a pointer and a lie to a screen reader. This
+  // is also what the aria pair below reports, so `aria-expanded` never claims
+  // a listbox that isn't rendered and `aria-controls` never dangles.
+  const menuOpen = open && options.length > 0;
 
   // Pointer-away closes before the outside control acts; focus-away covers
   // keyboard Tab now that the list is portaled out of the local DOM order.
@@ -76,18 +83,19 @@ export function Dropdown({
       }}
     >
       <button
+        ref={buttonRef}
         type="button"
         className="form__input dropdown__button"
         aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={listId}
+        aria-expanded={menuOpen}
+        aria-controls={menuOpen ? listId : undefined}
         aria-label={ariaLabel}
         onClick={() => setOpen((o) => !o)}
       >
         <span className="dropdown__label">{current?.label ?? value}</span>
         <ChevronDownIcon />
       </button>
-      {open && (
+      {menuOpen && (
         <FloatingListbox
           anchorRef={rootRef}
           listRef={menuRef}
@@ -104,6 +112,10 @@ export function Dropdown({
                 onClick={() => {
                   onChange(o.value);
                   setOpen(false);
+                  // The picked option is being unmounted with the menu; without
+                  // this, focus falls to <body> and the keyboard user loses
+                  // their place in the form.
+                  buttonRef.current?.focus();
                 }}
               >
                 {o.label}
