@@ -330,6 +330,28 @@ describe("SettingsDialog", () => {
     }
   });
 
+  it("visually separates a plugin description from its notification control", async () => {
+    pluginStore.set([
+      {
+        ...FILES_PLUGIN,
+        manifest: {
+          ...FILES_PLUGIN.manifest,
+          description: "A description that may wrap across multiple lines.",
+          capabilities: [{ kind: "notifications" }],
+        },
+      },
+    ]);
+    await mount();
+    act(() => button("Files").click());
+
+    const about = document.querySelector(".settings__plugin-about")!;
+    const notifications = document.querySelector(
+      ".settings__plugin-notifications",
+    )!;
+    expect(about.nextElementSibling).toBe(notifications);
+    expect(notifications.classList).toContain("settings__plugin-row");
+  });
+
   it("falls back to the first section when the open plugin section vanishes", async () => {
     pluginStore.set([FILES_PLUGIN]);
     await mount();

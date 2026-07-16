@@ -92,7 +92,7 @@ export function PluginPage({
       {canNotify && plugin.status.kind !== "disabled" && (
         // Mute this one plugin's notifications without disabling the plugin —
         // the flip side of the `notifications` capability it declared.
-        <div className="settings__plugin-row">
+        <div className="settings__plugin-row settings__plugin-notifications">
           <label className="settings__toggle">
             <input
               type="checkbox"

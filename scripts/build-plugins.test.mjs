@@ -163,6 +163,7 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
         { id: "keepdeck.codex", dir: "plugins/keepdeck.codex" },
         { id: "keepdeck.files", dir: "plugins/keepdeck.files", css: true },
         { id: "keepdeck.git", dir: "plugins/keepdeck.git", css: true },
+        { id: "keepdeck.kimi", dir: "plugins/keepdeck.kimi", css: true },
         { id: "keepdeck.opencode", dir: "plugins/keepdeck.opencode" },
         { id: "keepdeck.run", dir: "plugins/keepdeck.run", css: true },
         { id: "keepdeck.voice", dir: "plugins/keepdeck.voice", css: true },
@@ -180,6 +181,36 @@ describe("build pipeline (e2e against the real plugins/run)", () => {
     expect(
       existsSync(join(distRoot, "plugins", "keepdeck.claude", "index.css")),
     ).toBe(false);
+
+    // A CLI plugin may own a nested companion package. The build copies the
+    // whole resources tree verbatim; Kimi's one-click setup installs this
+    // directory through Kimi's own management API.
+    const kimiCompanion = join(
+      distRoot,
+      "plugins",
+      "keepdeck.kimi",
+      "resources",
+      "keepdeck-session-reporter",
+    );
+    const sourceKimiCompanion = JSON.parse(
+      readFileSync(
+        join(
+          REPO_ROOT,
+          "plugins",
+          "kimi",
+          "resources",
+          "keepdeck-session-reporter",
+          "kimi.plugin.json",
+        ),
+        "utf8",
+      ),
+    );
+    expect(
+      JSON.parse(readFileSync(join(kimiCompanion, "kimi.plugin.json"), "utf8")),
+    ).toEqual(sourceKimiCompanion);
+    expect(
+      readFileSync(join(kimiCompanion, "kd-session-hook.sh"), "utf8"),
+    ).toContain('"type":"session.bound"');
   });
 
   it("is a no-op that still writes an empty index.json when plugins/ has none", () => {

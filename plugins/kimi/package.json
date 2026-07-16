@@ -1,0 +1,17 @@
+{
+  "name": "@keepdeck-plugins/kimi",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Kimi Code CLI built-in plugin: PTY lifecycle, session identity, and one-click companion setup.",
+  "type": "module",
+  "peerDependencies": {
+    "react": "^19.1.0"
+  },
+  "dependencies": {
+    "@keepdeck/plugin-api": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "typescript": "~5.8.3"
+  }
+}

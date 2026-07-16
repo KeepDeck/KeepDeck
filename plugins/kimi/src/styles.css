@@ -1,0 +1,125 @@
+.kimi-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #c5c8c6;
+  font-size: 12px;
+}
+
+.kimi-setup__status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #493a22;
+  border-radius: 5px;
+  background: #1c1811;
+  padding: 9px 10px;
+}
+
+.kimi-setup__status--checking {
+  border-color: #303640;
+  background: #15191f;
+}
+
+.kimi-setup__status--ready {
+  border-color: #294331;
+  background: #111d16;
+}
+
+.kimi-setup__status--error {
+  border-color: #51312e;
+  background: #211514;
+}
+
+.kimi-setup__status--update {
+  border-color: #493a22;
+  background: #1c1811;
+}
+
+.kimi-setup__status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border-radius: 50%;
+  background: #6f542e;
+  color: #f0cf91;
+  font-weight: 700;
+}
+
+.kimi-setup__status--ready .kimi-setup__status-icon {
+  background: #58b368;
+  color: #0b1510;
+}
+
+.kimi-setup__status--checking .kimi-setup__status-icon {
+  background: #343b46;
+  color: #aab3c0;
+}
+
+.kimi-setup__status--error .kimi-setup__status-icon {
+  background: #704038;
+  color: #f0aaa0;
+}
+
+.kimi-setup__status-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  color: #8f98a5;
+  line-height: 1.35;
+}
+
+.kimi-setup__status-copy strong {
+  color: #e0bd7a;
+  font-weight: 600;
+}
+
+.kimi-setup__status--ready .kimi-setup__status-copy strong {
+  color: #83c98f;
+}
+
+.kimi-setup__status--checking .kimi-setup__status-copy strong {
+  color: #aab3c0;
+}
+
+.kimi-setup__status--error .kimi-setup__status-copy strong {
+  color: #e99587;
+}
+
+.kimi-setup__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.kimi-setup__button {
+  border: 1px solid #2a3c31;
+  border-radius: 4px;
+  background: #12211a;
+  color: #7fb88a;
+  padding: 5px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.kimi-setup__button:hover:not(:disabled) {
+  border-color: #3a5142;
+}
+
+.kimi-setup__button--remove {
+  border-color: #3d2929;
+  background: #211515;
+  color: #c77b70;
+}
+
+.kimi-setup__button--remove:hover:not(:disabled) {
+  border-color: #5a3434;
+}
+
+.kimi-setup__button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

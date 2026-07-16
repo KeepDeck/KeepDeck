@@ -243,6 +243,22 @@ importers:
         specifier: ~5.8.3
         version: 5.8.3
 
+  plugins/kimi:
+    dependencies:
+      '@keepdeck/plugin-api':
+        specifier: workspace:*
+        version: link:../../packages/plugin-api
+      react:
+        specifier: ^19.1.0
+        version: 19.2.7
+    devDependencies:
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.17
+      typescript:
+        specifier: ~5.8.3
+        version: 5.8.3
+
   plugins/opencode:
     dependencies:
       '@keepdeck/plugin-api':
