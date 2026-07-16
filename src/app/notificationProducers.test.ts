@@ -12,6 +12,15 @@ const center = vi.hoisted(() => ({
 }));
 vi.mock("./notificationCenter", () => center);
 
+const settings = vi.hoisted(() => ({
+  enabled: true,
+}));
+vi.mock("./settingsManager", () => ({
+  getSettings: () => ({
+    notifications: { enabled: settings.enabled, mode: "system-and-app", mutedPlugins: [] },
+  }),
+}));
+
 const updates = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   return {
@@ -98,7 +107,22 @@ describe("pane producers", () => {
 describe("update producer", () => {
   beforeEach(() => {
     center.notify.mockClear();
+    settings.enabled = true;
     resetUpdateNotifications();
+  });
+
+  it("a version found while notifications are off is announced after re-enabling", () => {
+    const stop = initUpdateNotifications();
+    settings.enabled = false;
+    updates.fire("available", "1.2.3");
+    expect(center.notify).not.toHaveBeenCalled();
+
+    // Re-enabled: the version was NOT burned as announced — the next check
+    // (periodic or manual) surfaces it.
+    settings.enabled = true;
+    updates.fire("available", "1.2.3");
+    expect(center.notify).toHaveBeenCalledTimes(1);
+    stop();
   });
 
   it("announces a found version once across repeated checks", () => {

@@ -415,7 +415,10 @@ function App() {
         break;
       }
       case "app": {
-        if (!dialogOpen) {
+        // Same guard as the top bar's update chip: the dialog reads its
+        // section only at open, so setting it over an open dialog would
+        // silently not navigate.
+        if (!dialogOpen && !settingsOpen) {
           setSettingsSection("updates");
           setSettingsOpen(true);
         }
@@ -443,7 +446,10 @@ function App() {
     agentIcons: distinctAgentTypes(w.panes).map(
       (type) => agents.find((a) => a.id === type)?.icon ?? null,
     ),
-    unread: unreadForWs[w.id] ?? 0,
+    // The dots belong to the bell: without it (system-only mode, or a
+    // mid-session switch to it) there is nothing to open or mark read, so a
+    // populated runtime list must not leave unclearable dots behind.
+    unread: showBell ? (unreadForWs[w.id] ?? 0) : 0,
   }));
 
   // While the saved deck (or the spawn context, or the settings) is loading,

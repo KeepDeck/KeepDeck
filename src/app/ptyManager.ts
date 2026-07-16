@@ -48,8 +48,10 @@ export interface PaneSink {
    * remount), but reactions that must fire once per ACTUAL death — the crash
    * notification — listen only to `replayed === false`. */
   onExit(code: number | null, replayed: boolean): void;
-  /** The spawn itself failed — there is no process. */
-  onSpawnError(message: string): void;
+  /** The spawn itself failed — there is no process. Same `replayed` contract
+   * as [`onExit`]: the view renders the failure either way, once-per-failure
+   * reactions (the notification) listen only to `replayed === false`. */
+  onSpawnError(message: string, replayed: boolean): void;
   /** The session is live: sync the PTY size to the view now. Fires on spawn
    * resolution and on attach to an already-live session. */
   onReady(): void;
@@ -79,6 +81,9 @@ interface Entry {
    * (once-per-death reactions run), not as a replay. */
   exitAnnounced: boolean;
   failed: string | null;
+  /** [`exitAnnounced`]'s mirror for spawn failures — same detached-window
+   * reasoning, same once-per-failure guarantee. */
+  failedAnnounced: boolean;
   closed: boolean;
   /** The process has emitted at least one output chunk — the "CLI launched"
    * signal. Lives on the entry (not the view) so it survives a re-attach: a
@@ -117,6 +122,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     exited: null,
     exitAnnounced: false,
     failed: null,
+    failedAnnounced: false,
     closed: false,
     launched: false,
   };
@@ -169,7 +175,10 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       if (entry.closed) return;
       entry.failed = describeError(err);
       log.error("web:pty", `${paneId}: spawn failed: ${entry.failed}`);
-      entry.sink?.onSpawnError(entry.failed);
+      if (entry.sink) {
+        entry.failedAnnounced = true;
+        entry.sink.onSpawnError(entry.failed, false);
+      }
     });
 }
 
@@ -183,8 +192,13 @@ export function attachPane(paneId: string, sink: PaneSink): () => void {
   if (!entry) return () => {};
   entry.sink = sink;
   for (const chunk of entry.chunks) sink.onOutput(chunk);
-  if (entry.failed !== null) sink.onSpawnError(entry.failed);
-  else if (entry.exited) {
+  if (entry.failed !== null) {
+    // Same once-per-failure contract as exits below: a failure nobody heard
+    // is live for its first listener, history for every later one.
+    const replayed = entry.failedAnnounced;
+    entry.failedAnnounced = true;
+    sink.onSpawnError(entry.failed, replayed);
+  } else if (entry.exited) {
     // A death nobody heard (it landed between detach and re-attach) is
     // announced to its first listener as LIVE; every later attach replays.
     const replayed = entry.exitAnnounced;

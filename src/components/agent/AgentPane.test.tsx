@@ -423,6 +423,20 @@ describe("AgentPane — manual restart after exit", () => {
     expect(onExited).toHaveBeenCalledWith(137);
   });
 
+  it("a replayed spawn failure never re-fires onSpawnFailed — live only", () => {
+    const onSpawnFailed = vi.fn();
+    mount({ onSpawnFailed });
+    const calls = vi.mocked(TerminalPane).mock.calls;
+    const terminalProps = calls[calls.length - 1][0];
+
+    act(() => terminalProps.onSpawnError?.("ENOENT", true)); // remount replay
+    expect(onSpawnFailed).not.toHaveBeenCalled();
+
+    act(() => terminalProps.onSpawnError?.("ENOENT", false)); // the real failure
+    expect(onSpawnFailed).toHaveBeenCalledTimes(1);
+    expect(onSpawnFailed).toHaveBeenCalledWith("ENOENT");
+  });
+
   it("starts fresh from the primary action when no session can be resumed", () => {
     const onRestart = vi.fn();
     mount({ onRestart });

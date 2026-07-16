@@ -234,7 +234,7 @@ describe("runProvisioning with a setup command", () => {
   });
 
   it("a spawn error (no shell) fails the card like a nonzero exit", async () => {
-    setupSessionEndsWith((sink) => sink.onSpawnError("spawn failed"));
+    setupSessionEndsWith((sink) => sink.onSpawnError("spawn failed", false));
     worktree.removeWorktree.mockResolvedValue(undefined);
     const onFailed = vi.fn();
 

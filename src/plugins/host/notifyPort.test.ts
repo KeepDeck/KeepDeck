@@ -10,7 +10,7 @@ function manifest(withCapability = true): PluginManifest {
     id: "keepdeck.git",
     name: "Git",
     version: "1.0.0",
-    minApiVersion: 18,
+    minApiVersion: 19, // notifications arrived at API revision 19
     category: "deck",
     capabilities: withCapability ? [{ kind: "notifications" }] : [],
     contributes: {},
@@ -162,6 +162,34 @@ describe("createPluginNotifyPort", () => {
     notify({ title: "dry" }); // dry again → next window's single warn
     expect(log.warn).toHaveBeenCalledTimes(2);
     expect(log.warn.mock.calls[1][0]).toContain("+49 more suppressed");
+  });
+});
+
+describe("cross-plugin isolation", () => {
+  it("a plugin can neither forge another's identity nor enter its tag namespace", () => {
+    const deliver = vi.fn();
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const portFor = (id: string) =>
+      createPluginNotifyPort(
+        { ...manifest(), id } as never,
+        { mode: "enforce", log, deliver },
+      );
+    // Both plugins send the SAME input, including a forged pluginId field
+    // (not part of the contract — must be ignored, the manifest is the only
+    // identity source) and the same tag.
+    const forged = { title: "t", tag: "x", pluginId: "keepdeck.other" };
+    portFor("keepdeck.a")(forged as never);
+    portFor("keepdeck.b")(forged as never);
+    expect(deliver.mock.calls[0][0]).toMatchObject({
+      pluginId: "keepdeck.a",
+      tag: "plugin:keepdeck.a:x",
+    });
+    expect(deliver.mock.calls[1][0]).toMatchObject({
+      pluginId: "keepdeck.b",
+      tag: "plugin:keepdeck.b:x",
+    });
+    // Distinct namespaced tags: B's entry can never replace A's in the center.
+    expect(deliver.mock.calls[0][0].tag).not.toBe(deliver.mock.calls[1][0].tag);
   });
 });
 

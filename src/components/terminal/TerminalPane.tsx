@@ -55,8 +55,9 @@ interface TerminalPaneProps {
   onExit?: (code: number | null, replayed: boolean) => void;
   /** Called when the spawn itself fails — there is no process. The terminal
    * shows the error inline either way; this lets it reach the notification
-   * center too. */
-  onSpawnError?: (message: string) => void;
+   * center too. `replayed` mirrors `onExit`'s contract: true for attachPane's
+   * re-announce to a remounted view. */
+  onSpawnError?: (message: string, replayed: boolean) => void;
   /** Called when the terminal title changes (OSC 0/1/2) — drives auto-naming
    * ([F11]). */
   onTitle?: (title: string) => void;
@@ -276,10 +277,12 @@ export function TerminalPane({
         setLaunching(false);
         onExitRef.current?.(code, replayed);
       },
-      onSpawnError: (message) => {
+      onSpawnError: (message, replayed) => {
+        // The inline error line repeats on replay for the same reason the
+        // exit banner does — it lives in xterm, not the ring buffer.
         term.writeln(`\r\n\x1b[31m[failed to start session: ${message}]\x1b[0m`);
         setLaunching(false);
-        onSpawnErrorRef.current?.(message);
+        onSpawnErrorRef.current?.(message, replayed);
       },
       // First output — the CLI has launched. Drop the overlay to reveal it.
       onLaunched: () => setLaunching(false),

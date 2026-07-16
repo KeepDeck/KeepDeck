@@ -55,21 +55,27 @@ describe("NotificationsSection permission handling", () => {
   const mount = () =>
     act(() => root.render(createElement(NotificationsSection)));
 
-  it("NEVER prompts on mount — the probe is the non-prompting read", async () => {
+  it("NEVER prompts on mount, and app-only/off modes never even read the OS", async () => {
     // The dialog mounts every section on any settings open; a mount-time
-    // prompt would ambush a user who came for a different page.
-    for (const prefs of [
-      {},
-      { enabled: false },
-      { mode: "app" as const },
-      { mode: "system" as const },
-    ]) {
+    // prompt would ambush a user who came for a different page — and the
+    // app-only mode's contract is that the OS isn't touched at all.
+    for (const prefs of [{ enabled: false }, { mode: "app" as const }]) {
       withPrefs(prefs);
       mount();
       await flush();
     }
     expect(notifyIpc.ensureNotificationPermission).not.toHaveBeenCalled();
-    expect(notifyIpc.notificationPermissionGranted).toHaveBeenCalled();
+    expect(notifyIpc.notificationPermissionGranted).not.toHaveBeenCalled();
+
+    for (const prefs of [{}, { mode: "system" as const }]) {
+      withPrefs(prefs);
+      mount();
+      await flush();
+    }
+    expect(notifyIpc.ensureNotificationPermission).not.toHaveBeenCalled();
+    // One probe: it fires on the app-only→system-facing TRANSITION and stays
+    // quiet while the mode remains system-facing (same mounted section).
+    expect(notifyIpc.notificationPermissionGranted).toHaveBeenCalledTimes(1);
   });
 
   it("the explicit Allow button is what requests permission", async () => {

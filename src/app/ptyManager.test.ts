@@ -187,17 +187,37 @@ describe("attachPane", () => {
     expect(remounted.onExit).toHaveBeenCalledTimes(1);
   });
 
-  it("tells current and future sinks about a spawn failure", async () => {
+  it("tells current and future sinks about a spawn failure — live once, replays after", async () => {
     acquirePane("pane-1", SPEC);
     const sink = makeSink();
     attachPane("pane-1", sink);
     harness.spawns[0].reject(new Error("no such command"));
     await settle();
-    expect(sink.onSpawnError).toHaveBeenCalledWith("Error: no such command");
+    expect(sink.onSpawnError).toHaveBeenCalledWith(
+      "Error: no such command",
+      false,
+    );
 
     const late = makeSink();
     attachPane("pane-1", late);
-    expect(late.onSpawnError).toHaveBeenCalledWith("Error: no such command");
+    expect(late.onSpawnError).toHaveBeenCalledWith(
+      "Error: no such command",
+      true,
+    );
+  });
+
+  it("a spawn failure nobody heard is live for its first listener", async () => {
+    acquirePane("pane-1", SPEC);
+    harness.spawns[0].reject(new Error("boom"));
+    await settle(); // fails with no sink attached — the detached window
+
+    const first = makeSink();
+    attachPane("pane-1", first);
+    expect(first.onSpawnError).toHaveBeenCalledWith("Error: boom", false);
+
+    const second = makeSink();
+    attachPane("pane-1", second);
+    expect(second.onSpawnError).toHaveBeenCalledWith("Error: boom", true);
   });
 
   it("a stale detach does not disconnect the newer sink (StrictMode order)", () => {

@@ -4,7 +4,9 @@ import {
   type Workspace,
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
+import { DEFAULT_SETTINGS } from "../domain/settings";
 import { notify } from "./notificationCenter";
+import { getSettings } from "./settingsManager";
 import { getUpdateState, subscribeUpdates } from "./updateManager";
 
 /**
@@ -77,13 +79,18 @@ let notifiedUpdateVersion: string | null = null;
  * Watch the update flow and announce each newly-found version once. The
  * 4-hourly re-check keeps landing on `available` for the same version —
  * remembering the announced one is what keeps this quiet; a dismissed update
- * is not re-announced until a NEWER version appears.
+ * is not re-announced until a NEWER version appears. The memory is
+ * deliberately per-run: a still-pending update earns one fresh reminder per
+ * launch. A version found while notifications are OFF is not recorded — a
+ * later re-enable lets the next check announce it.
  */
 export function initUpdateNotifications(): () => void {
   return subscribeUpdates(() => {
     const state = getUpdateState();
     if (state.phase !== "available" || state.version === null) return;
     if (state.version === notifiedUpdateVersion) return;
+    const prefs = getSettings()?.notifications ?? DEFAULT_SETTINGS.notifications;
+    if (!prefs.enabled) return;
     notifiedUpdateVersion = state.version;
     notify({
       title: `KeepDeck ${state.version} is available`,

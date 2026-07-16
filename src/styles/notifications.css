@@ -172,6 +172,7 @@
 .rail__unread {
   width: 7px;
   height: 7px;
+  margin-left: 4px; /* breathing room after the agent marks (.rail__agents) */
   border-radius: 50%;
   background-color: #b13c3c;
   flex: none;

@@ -371,7 +371,11 @@ export function AgentPane({
               // (crash notification, resume recovery) must not re-fire.
               if (!replayed) onExited?.(code);
             }}
-            onSpawnError={onSpawnFailed}
+            onSpawnError={(message, replayed) => {
+              // Replays restore the inline error for a remounted view; the
+              // once-per-failure notification hears only the live event.
+              if (!replayed) onSpawnFailed?.(message);
+            }}
             onTitle={onTitle}
           />
         )}

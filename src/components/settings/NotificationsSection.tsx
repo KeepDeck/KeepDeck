@@ -46,7 +46,12 @@ export function NotificationsSection() {
   // The user pressed Allow and the OS still says no — the prompt was denied
   // (now or in the past); only System Settings can flip it from here.
   const [refused, setRefused] = useState(false);
+  const usesSystem = prefs.enabled && prefs.mode !== "app";
   useEffect(() => {
+    // Only the system-facing modes probe: app-only's contract is that the OS
+    // is never touched — not even this read — and the status line it would
+    // feed is hidden anyway. Re-probes when the mode turns system-facing.
+    if (!usesSystem) return;
     let alive = true;
     void notificationPermissionGranted().then((g) => {
       if (alive) setGranted(g);
@@ -54,9 +59,7 @@ export function NotificationsSection() {
     return () => {
       alive = false;
     };
-  }, []);
-
-  const usesSystem = prefs.enabled && prefs.mode !== "app";
+  }, [usesSystem]);
 
   return (
     <>
