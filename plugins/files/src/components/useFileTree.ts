@@ -29,14 +29,28 @@ export function useFileTree(rootPath: string) {
   // One live watcher per loaded directory, plus its pending debounced re-read.
   const watchesRef = useRef<Map<string, Disposable>>(new Map());
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Which tree the live state belongs to; bumped on every re-root. A load
+  // reads it before its first await and rechecks after: the path alone can't
+  // tell, since subdirectories load too, and the same path can be legitimate
+  // under two different roots.
+  const generationRef = useRef(0);
 
   /** Fetch (or re-fetch) one directory's children, then watch it: a structural
    * change on disk schedules a debounced re-read, so the tree stays current. */
   const load = useCallback(async (path: string) => {
     const { services, log } = getRuntime();
+    const generation = generationRef.current;
     setState((current) => setLoading(current, path));
     try {
       const entries = await services.fs.readDir(path);
+      // A re-root while readDir was in flight abandons this load: its
+      // directory belongs to a tree that no longer exists. The pure model
+      // needs no guarding (it ignores a path it doesn't know), but the
+      // watcher below is platform state — the cleanup has already cleared
+      // the map, so one registered now would stay live until the NEXT
+      // re-root, re-reading an abandoned directory into the tree that
+      // replaced it.
+      if (generationRef.current !== generation) return;
       setState((current) => setChildren(current, path, entries));
       if (!watchesRef.current.has(path)) {
         watchesRef.current.set(
@@ -65,6 +79,7 @@ export function useFileTree(rootPath: string) {
   // Re-root when the target changes; tear down every watcher and pending reload
   // on re-root or unmount.
   useEffect(() => {
+    generationRef.current += 1;
     setState(initTree(rootPath));
     void load(rootPath);
     const watches = watchesRef.current;
