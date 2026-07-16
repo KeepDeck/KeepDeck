@@ -204,6 +204,32 @@ export function makeWatchFanout(backend: {
   const watchCbs = new Map<string, Set<() => void>>();
   let changeListener: Promise<() => void> | null = null;
 
+  // One serialized chain of backend calls per path. `start` is async while
+  // `stop` is not, so issuing them unchained lets them land out of order:
+  // stop-before-start strands an OS watcher nobody will ever close, and a
+  // stop that overtakes a re-watch's start kills a watcher that should be
+  // live. Both are reachable from a subscribe-then-immediately-dispose —
+  // StrictMode's mount/cleanup/mount, or a fast toggle.
+  const chains = new Map<string, Promise<void>>();
+
+  /** Queue one backend call behind whatever is already in flight for `path`. */
+  function enqueue(path: string, what: string, op: () => Promise<void>): void {
+    const next = (chains.get(path) ?? Promise.resolve())
+      .then(op)
+      .catch((e) =>
+        log.warn(
+          "web:plugins",
+          `${backend.label} ${what} ${path} failed: ${describeError(e)}`,
+        ),
+      )
+      .finally(() => {
+        // Nothing queued behind us: drop the chain so the map holds live
+        // work only, instead of a settled promise per path ever watched.
+        if (chains.get(path) === next) chains.delete(path);
+      });
+    chains.set(path, next);
+  }
+
   return function watchPath(
     path: string,
     scope: FsScope,
@@ -240,11 +266,8 @@ export function makeWatchFanout(backend: {
     if (!set) {
       set = new Set();
       watchCbs.set(path, set);
-      void backend.start(path, fsRoots(scope), scope === "everywhere").catch((e) =>
-        log.warn(
-          "web:plugins",
-          `${backend.label} watch ${path} failed: ${describeError(e)}`,
-        ),
+      enqueue(path, "watch", () =>
+        backend.start(path, fsRoots(scope), scope === "everywhere"),
       );
     }
     set.add(onChange);
@@ -259,7 +282,7 @@ export function makeWatchFanout(backend: {
         current.delete(onChange);
         if (current.size === 0) {
           watchCbs.delete(path);
-          void backend.stop(path).catch(() => {});
+          enqueue(path, "unwatch", () => backend.stop(path));
         }
       },
     };
