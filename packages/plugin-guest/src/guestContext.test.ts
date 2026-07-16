@@ -73,6 +73,32 @@ describe("registration outcomes fail loud", () => {
     bundle.ctx.settings.registerSection({ label: "S", fields: [] });
     await expect(bundle.registrationsSettled()).resolves.toBeUndefined();
   });
+
+  /** Activation is long over by the time the documented register-while-on /
+   * dispose-when-off pattern fires, so a refusal there has no activation left
+   * to fail — and nothing awaiting it. It must be reported rather than left as
+   * a bare rejection in the realm, and it must not be retained: one settled
+   * promise per user toggle, kept for the life of the realm, is the leak. */
+  it("reports a post-activation refusal instead of retaining it", async () => {
+    const call = vi.fn((path: string, ..._args: unknown[]) =>
+      path === "settings.registerSection"
+        ? Promise.reject(new Error("settings not declared"))
+        : Promise.resolve(undefined),
+    );
+    const rpc = { call } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    await bundle.registrationsSettled();
+
+    bundle.ctx.settings.registerSection({ label: "S", fields: [] });
+
+    const warned = () => call.mock.calls.find(([path]) => path === "log.warn");
+    await vi.waitFor(() => expect(warned()).toBeDefined());
+    const [message] = warned()![1] as string[];
+    expect(message).toContain("settings not declared");
+    // Retained, that refusal would resurface here — and, unhandled, would
+    // reach the realm as an unhandled rejection.
+    await expect(bundle.registrationsSettled()).resolves.toBeUndefined();
+  });
 });
 
 describe("agent registration payload", () => {

@@ -116,9 +116,23 @@ export function buildGuestContext(
     };
   }
 
-  // Registration outcomes, awaited by `registrationsSettled` — a refused
-  // contribution FAILS activation instead of vanishing silently.
-  const registrations: Promise<unknown>[] = [];
+  // The ACTIVATION batch: what `registrationsSettled` reads, so a refused
+  // contribution FAILS activation instead of vanishing silently. It is read
+  // once — `activate` has returned by then — and closed. Registrations made
+  // after that (the documented register-while-on / dispose-when-off pattern)
+  // have no activation left to fail, so they report themselves rather than
+  // being retained: one settled promise per user toggle, kept for the life of
+  // the realm, is a leak.
+  let activationBatch: Promise<unknown>[] | null = [];
+
+  /** A registration the host refused once activation is over. Nothing can fail
+   * anymore, but the plugin is now missing a contribution it believes it has —
+   * so say so through the host's log rather than swallowing it. */
+  function warnRefused(path: string, cause: unknown): void {
+    void rpc
+      .call("log.warn", [`${path} was refused: ${describeError(cause)}`])
+      .catch(noop);
+  }
 
   /** Register a contribution over the wire and hand back a `Disposable` that
    * both runs local cleanup and asks the host to retire the registration. */
@@ -128,7 +142,17 @@ export function buildGuestContext(
     localCleanup: () => void,
   ): Disposable {
     const regId = nextRegId++;
-    registrations.push(rpc.call(path, [regId, entry]));
+    // The outcome is captured AT THE SOURCE — a refusal is a value here, never
+    // a bare rejecting promise — so it cannot surface as an unhandled
+    // rejection in the realm no matter what happens to the activation around
+    // it (a plugin that registers and then throws never reaches
+    // `registrationsSettled` at all).
+    const refusal = rpc.call(path, [regId, entry]).then(
+      () => null,
+      (cause: unknown) => cause ?? new Error(`${path} was refused`),
+    );
+    if (activationBatch) activationBatch.push(refusal);
+    else void refusal.then((cause) => cause && warnRefused(path, cause));
     let live = true;
     return {
       dispose() {
@@ -514,7 +538,14 @@ export function buildGuestContext(
   return {
     ctx,
     dispatchEvent,
-    registrationsSettled: () => Promise.all(registrations).then(noop),
+    registrationsSettled: async () => {
+      const batch = activationBatch ?? [];
+      // Closed for good: `activate` has returned, so nothing registered from
+      // here on has an activation to fail.
+      activationBatch = null;
+      const refusal = (await Promise.all(batch)).find(Boolean);
+      if (refusal) throw refusal;
+    },
   };
 }
 
