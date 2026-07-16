@@ -5,12 +5,13 @@ import type { NotificationSource } from "../domain/notifications";
  * plugin notification cannot redirect to another plugin's page. */
 export function settingsSectionForNotification(
   source: NotificationSource,
+  preciseTargetResolved = true,
 ): string | null {
   if (source.type === "app") return "updates";
   if (
     source.type === "plugin" &&
-    source.wsId === undefined &&
-    source.dockTab === undefined
+    ((source.wsId === undefined && source.dockTab === undefined) ||
+      !preciseTargetResolved)
   ) {
     return `plugin:${source.pluginId}`;
   }

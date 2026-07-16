@@ -399,16 +399,24 @@ function App() {
         break;
       }
       case "plugin": {
+        let preciseTargetResolved = true;
         if (
           n.source.wsId !== undefined &&
           findWorkspace(deck.workspaces, n.source.wsId)
         ) {
           handleSelectWorkspace(n.source.wsId);
+        } else if (n.source.wsId !== undefined) {
+          preciseTargetResolved = false;
         }
         if (n.source.dockTab !== undefined) {
-          revealPluginDockTab(n.source.pluginId, n.source.dockTab);
+          preciseTargetResolved =
+            revealPluginDockTab(n.source.pluginId, n.source.dockTab) &&
+            preciseTargetResolved;
         }
-        const section = settingsSectionForNotification(n.source);
+        const section = settingsSectionForNotification(
+          n.source,
+          preciseTargetResolved,
+        );
         if (section !== null && !dialogOpen && !settingsOpen) {
           setSettingsSection(section);
           setSettingsOpen(true);

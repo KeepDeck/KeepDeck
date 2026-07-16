@@ -215,14 +215,16 @@ export function createPluginManager(appDownloads: DownloadManager) {
     deckUi = ui;
   }
 
-  function revealPluginDockTab(pluginId: string, entryId: string): void {
+  function revealPluginDockTab(pluginId: string, entryId: string): boolean {
     const registered = pluginRegistries.dockTabs
       .list()
       .some(
         (contribution) =>
           contribution.pluginId === pluginId && contribution.entry.id === entryId,
       );
-    if (registered) deckUi.revealDockTab(`${pluginId}:${entryId}`);
+    if (!registered) return false;
+    deckUi.revealDockTab(`${pluginId}:${entryId}`);
+    return true;
   }
 
   // ------------------------------------------------------------- deck events

@@ -35,6 +35,29 @@ describe("settingsSectionForNotification", () => {
     ).toBeNull();
   });
 
+  it("falls back to plugin settings when a precise target is stale", () => {
+    expect(
+      settingsSectionForNotification(
+        {
+          type: "plugin",
+          pluginId: "keepdeck.git",
+          wsId: "gone-workspace",
+        },
+        false,
+      ),
+    ).toBe("plugin:keepdeck.git");
+    expect(
+      settingsSectionForNotification(
+        {
+          type: "plugin",
+          pluginId: "keepdeck.git",
+          dockTab: "gone-tab",
+        },
+        false,
+      ),
+    ).toBe("plugin:keepdeck.git");
+  });
+
   it("keeps app notifications mapped to Updates", () => {
     expect(settingsSectionForNotification({ type: "app" })).toBe("updates");
   });
