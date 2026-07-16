@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   API_VERSION,
+  MIN_COMPATIBLE_API_VERSION,
   type KeepDeckPlugin,
   type PluginContext,
   type PluginManifest,
@@ -196,7 +197,12 @@ describe("PluginHost", () => {
     const host = new PluginHost(deps, createContributionRegistries());
     const load = vi.fn(async () => registrar());
     host.install(
-      { manifest: manifest("p", { minApiVersion: API_VERSION - 1 }), load },
+      {
+        manifest: manifest("p", {
+          minApiVersion: MIN_COMPATIBLE_API_VERSION - 1,
+        }),
+        load,
+      },
       "external",
     );
 
