@@ -259,6 +259,54 @@ describe("GitTab", () => {
     ).toContain("notes.md");
   });
 
+  it("arrow keys walk the peek rail: up/down by file, left/right by directory", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus({
+      entries: [
+        { path: "src/app.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
+        { path: "src/util.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
+        { path: "notes.md", origPath: null, staged: ".", unstaged: ".", untracked: true, conflicted: false },
+      ],
+    }));
+    const ctx = makeCtx(git);
+    setRuntime(ctx);
+
+    await render();
+    const row = [...host.querySelectorAll("button.git__row")].find((el) =>
+      el.textContent?.includes("app.ts"),
+    ) as HTMLButtonElement;
+    await act(async () => row.click());
+
+    const marked = () =>
+      host.querySelector(".peek__aside .git__row--on")?.textContent;
+    const press = (key: string) =>
+      act(async () => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key, cancelable: true }),
+        );
+      });
+
+    // Down: the next file in the rail's order.
+    await press("ArrowDown");
+    expect(marked()).toContain("util.ts");
+    expect(git.diffFile).toHaveBeenLastCalledWith("/repo", "src/util.ts", {
+      staged: false,
+    });
+
+    // Right: the first file of the next directory group (src/ → root).
+    await press("ArrowRight");
+    expect(marked()).toContain("notes.md");
+    expect(ctx.services.fs.readFile).toHaveBeenCalledWith("/repo/notes.md");
+
+    // Left: back to the previous group's FIRST file.
+    await press("ArrowLeft");
+    expect(marked()).toContain("app.ts");
+
+    // Up at the top clamps — the selection stays put.
+    await press("ArrowUp");
+    expect(marked()).toContain("app.ts");
+  });
+
   it("an untracked row renders the file's content as all-added, via fs", async () => {
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus({
