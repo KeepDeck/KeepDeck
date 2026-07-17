@@ -41,8 +41,12 @@ pub struct DownloadSource {
     pub headers: HashMap<String, String>,
 }
 
+// `rename_all` on an enum only renames the variant tags; `rename_all_fields`
+// is what maps the fields inside each variant to the camelCase the TypeScript
+// API sends. Without it, `#[serde(default)]` fields silently deserialize to
+// their defaults and required ones reject the request outright.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DownloadTarget {
     File {
         path: String,
@@ -74,7 +78,7 @@ pub struct LegacyDownloadMigration {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DownloadIntegrity {
     Sha256 {
         digest: String,
@@ -1222,6 +1226,54 @@ mod tests {
         assert!(safe_relative("../secret").is_err());
         assert!(safe_relative("/absolute").is_err());
         assert!(safe_relative("models/good.bin").is_ok());
+    }
+
+    #[test]
+    fn wire_requests_deserialize_from_the_typescript_camel_case_shape() {
+        // The exact shape @keepdeck/plugin-api clients and the updater send
+        // over IPC; this pins the field casing inside tagged enum variants.
+        let request: DownloadRequest = serde_json::from_str(
+            r#"{
+                "id": "voice-model",
+                "source": { "url": "https://example.test/model.tar.gz" },
+                "target": {
+                    "kind": "tarGz",
+                    "path": "models/parakeet",
+                    "expectedFiles": ["model.onnx"],
+                    "stripSingleRoot": true
+                },
+                "integrity": {
+                    "kind": "minisign",
+                    "signature": "untrusted comment: sig",
+                    "publicKey": "base64-key"
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let DownloadTarget::TarGz {
+            path,
+            expected_files,
+            strip_single_root,
+        } = request.target
+        else {
+            panic!("expected a tarGz target");
+        };
+        assert_eq!(path, "models/parakeet");
+        assert_eq!(expected_files, ["model.onnx"]);
+        assert!(strip_single_root);
+
+        let Some(DownloadIntegrity::Minisign {
+            signature,
+            public_key,
+            bytes,
+        }) = request.integrity
+        else {
+            panic!("expected minisign integrity");
+        };
+        assert_eq!(signature, "untrusted comment: sig");
+        assert_eq!(public_key, "base64-key");
+        assert_eq!(bytes, None);
     }
 
     #[test]
