@@ -26,6 +26,31 @@ export function sinceForkRange(forkSha: string, rev?: string): GitRange {
   return rev ? { from: forkSha, to: rev } : { from: forkSha };
 }
 
+/** Which drilled-in change set a History diff belongs to: one commit, or
+ * everything since the fork point. A union, not optional fields — the two
+ * carry different facts (a commit its subject, the fork sweep its ref pin,
+ * where `rev` omitted = the checkout, reaching the working tree). */
+export type HistoryScope =
+  | { kind: "commit"; sha: string; subject: string }
+  | { kind: "fork"; forkSha: string; rev?: string };
+
+/** The revision range a scope's file list and diffs cover. */
+export function scopeRange(scope: HistoryScope): GitRange {
+  return scope.kind === "commit"
+    ? commitRange(scope.sha)
+    : sinceForkRange(scope.forkSha, scope.rev);
+}
+
+/** The scope's one-line label — the drill header and the peek's provenance. */
+export function scopeLabel(scope: HistoryScope): string {
+  return scope.kind === "commit" ? scope.subject : "Since fork";
+}
+
+/** The sha identifying the scope: the commit itself, or the fork point. */
+export function scopeSha(scope: HistoryScope): string {
+  return scope.kind === "commit" ? scope.sha : scope.forkSha;
+}
+
 /** First seven characters — how git itself abbreviates in one-line logs. */
 export function shortSha(sha: string): string {
   return sha.slice(0, 7);

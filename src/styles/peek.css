@@ -156,12 +156,33 @@
   white-space: nowrap;
 }
 
+/* The body row: the scrolling content plus the optional right-hand rail.
+   Each side scrolls on its own — the rail must not ride along with a long
+   diff, nor push the panel wider. */
+.peek__main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
 .peek__body {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   background-color: #0b0e14;
   outline: none;
+}
+
+/* The rail: a fixed-width column on the panel's own (lighter) background,
+   so it reads as chrome beside the content. */
+.peek__aside {
+  flex: none;
+  width: 280px;
+  overflow-y: auto;
+  border-left: 1px solid #1c2230;
+  background-color: #0e121a;
+  padding: 8px;
 }
 
 /* Inline body messages: loading, errors, binary notes. */

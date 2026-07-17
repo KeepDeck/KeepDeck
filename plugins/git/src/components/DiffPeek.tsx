@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
@@ -11,7 +11,8 @@ import {
   type FileDiff,
 } from "../domain/diff";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
-import type { GitRange } from "../domain/history";
+import { scopeRange } from "../domain/history";
+import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
 
 /**
  * One change's diff, inside the shared `Peek` overlay (ui-kit) — the shell is
@@ -34,18 +35,23 @@ import type { GitRange } from "../domain/history";
 export function DiffPeek({
   repo,
   row,
-  range,
+  changeSet,
   version,
+  onSelect,
   onClose,
 }: {
   repo: string;
   row: ChangeRow;
-  /** Present for History rows: diff across this revision range instead of
-   * against the index (`to` omitted = up to the working tree). */
-  range?: GitRange;
+  /** The change set the row belongs to — the rail lists its files, and a
+   * History scope's range is diffed instead of the index. */
+  changeSet: ChangeSet;
   version: number;
+  /** Switch the peek to another row of the same change set. */
+  onSelect: (row: ChangeRow) => void;
   onClose: () => void;
 }) {
+  const range =
+    changeSet.kind === "history" ? scopeRange(changeSet.scope) : undefined;
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Joined flat text compares by VALUE in the hook's deps, so rebuilding the
@@ -57,7 +63,16 @@ export function DiffPeek({
   );
   const offsets = showsCode ? hunkOffsets(diff) : [];
 
+  // A version bump refreshes the open diff IN PLACE; switching to another
+  // file clears it first, so the old hunks never show under the new name.
+  const diffKeyRef = useRef("");
   useEffect(() => {
+    const key = `${row.kind}:${row.path}:${range?.from ?? ""}:${range?.to ?? ""}`;
+    if (diffKeyRef.current !== key) {
+      diffKeyRef.current = key;
+      setDiff(null);
+      setError(null);
+    }
     let cancelled = false;
     const { services, log } = getRuntime();
     const read = range
@@ -100,10 +115,22 @@ export function DiffPeek({
       meta={
         <span className={`git__badge git__badge--${row.kind}`}>
           {codeLabel(row.code)}
-          {row.kind === "staged" ? " · staged" : ""}
         </span>
       }
       path={row.origPath ? `${row.origPath} → ${row.path}` : row.path}
+      aside={
+        // No rail before the status has ever loaded — an empty column says
+        // nothing (a loaded-then-empty worktree still shows its clean note).
+        changeSet.kind === "worktree" && !changeSet.groups ? undefined : (
+          <PeekSiblings
+            repo={repo}
+            changeSet={changeSet}
+            current={row}
+            version={version}
+            onSelect={onSelect}
+          />
+        )
+      }
       onClose={onClose}
     >
       {!diff && !error && <p className="peek__note">Loading…</p>}

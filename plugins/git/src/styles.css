@@ -17,7 +17,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .git__root {
@@ -100,17 +100,19 @@
   display: none;
 }
 
-/* The view toggle: Changes | History — a compact segmented pair. */
+/* The view toggle: Changes | History — its own row under the repo picker,
+   the two halves splitting the dock's width. */
 .git__mode {
-  flex: none;
   display: flex;
   gap: 2px;
   padding: 2px;
   border-radius: 6px;
   background-color: #151a24;
+  margin-bottom: 8px;
 }
 
 .git__modebtn {
+  flex: 1;
   border: 0;
   border-radius: 4px;
   background: transparent;
@@ -417,6 +419,41 @@
 
 /* The peek's shell is the shared .peek (peek.css / ui-kit Peek); below is
    only the diff content that fills it. */
+
+/* The peek rail's heading: the change set the open diff belongs to — the
+   drilled commit's subject and sha, or "Since fork". Worktree diffs need no
+   heading; their section heads (Staged / Changes / …) already say it. */
+.git__scopehead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 2px 8px;
+  border-bottom: 1px solid #1c2230;
+  margin-bottom: 6px;
+}
+
+.git__scopename {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #c5c8c6;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.git__scopesha {
+  flex: none;
+  margin-left: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* The rail row whose diff the peek is showing. */
+.git__row--on {
+  background-color: #1a2233;
+}
 
 /* The change-kind badge in the peek header's meta slot. */
 .git__badge {
