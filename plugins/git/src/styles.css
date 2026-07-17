@@ -17,7 +17,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .git__root {
@@ -100,17 +100,19 @@
   display: none;
 }
 
-/* The view toggle: Changes | History — a compact segmented pair. */
+/* The view toggle: Changes | History — its own row under the repo picker,
+   the two halves splitting the dock's width. */
 .git__mode {
-  flex: none;
   display: flex;
   gap: 2px;
   padding: 2px;
   border-radius: 6px;
   background-color: #151a24;
+  margin-bottom: 8px;
 }
 
 .git__modebtn {
+  flex: 1;
   border: 0;
   border-radius: 4px;
   background: transparent;

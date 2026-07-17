@@ -95,24 +95,25 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           onChange={setTarget}
           ariaLabel="Repository to show changes for"
         />
-        <div className="git__mode" role="group" aria-label="View">
-          <button
-            type="button"
-            className={`git__modebtn${mode === "changes" ? " git__modebtn--on" : ""}`}
-            onClick={() => setMode("changes")}
-            aria-pressed={mode === "changes"}
-          >
-            Changes
-          </button>
-          <button
-            type="button"
-            className={`git__modebtn${mode === "history" ? " git__modebtn--on" : ""}`}
-            onClick={() => setMode("history")}
-            aria-pressed={mode === "history"}
-          >
-            History
-          </button>
-        </div>
+      </div>
+
+      <div className="git__mode" role="group" aria-label="View">
+        <button
+          type="button"
+          className={`git__modebtn${mode === "changes" ? " git__modebtn--on" : ""}`}
+          onClick={() => setMode("changes")}
+          aria-pressed={mode === "changes"}
+        >
+          Changes
+        </button>
+        <button
+          type="button"
+          className={`git__modebtn${mode === "history" ? " git__modebtn--on" : ""}`}
+          onClick={() => setMode("history")}
+          aria-pressed={mode === "history"}
+        >
+          History
+        </button>
       </div>
 
       {status && (
