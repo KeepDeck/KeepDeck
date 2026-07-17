@@ -66,7 +66,9 @@ describe("DiffPeek", () => {
         createElement(DiffPeek, {
           repo: "/repo",
           row,
+          changeSet: { kind: "worktree", groups: null },
           version: 1,
+          onSelect: vi.fn(),
           onClose: vi.fn(),
         }),
       );

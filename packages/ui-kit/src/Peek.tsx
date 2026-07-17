@@ -25,6 +25,9 @@ export interface PeekProps {
   actions?: ReactNode;
   /** The second header line — a breadcrumb, a rename trail. Omitted = no line. */
   path?: ReactNode;
+  /** An optional right-hand rail beside the body — a sibling list, an
+   * outline. Scrolls on its own; the body's scrolling is untouched. */
+  aside?: ReactNode;
   onClose: () => void;
   /** The scrollable body content. */
   children: ReactNode;
@@ -36,6 +39,7 @@ export function Peek({
   meta,
   actions,
   path,
+  aside,
   onClose,
   children,
 }: PeekProps) {
@@ -95,8 +99,11 @@ export function Peek({
           {actions}
         </div>
         {path != null && path !== "" && <div className="peek__path">{path}</div>}
-        <div className="peek__body" ref={bodyRef} tabIndex={0}>
-          {children}
+        <div className="peek__main">
+          <div className="peek__body" ref={bodyRef} tabIndex={0}>
+            {children}
+          </div>
+          {aside != null && <aside className="peek__aside">{aside}</aside>}
         </div>
       </div>
     </div>

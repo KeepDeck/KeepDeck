@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
@@ -11,13 +11,8 @@ import {
   type FileDiff,
 } from "../domain/diff";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
-import {
-  scopeLabel,
-  scopeRange,
-  scopeSha,
-  shortSha,
-  type HistoryScope,
-} from "../domain/history";
+import { scopeRange } from "../domain/history";
+import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
 
 /**
  * One change's diff, inside the shared `Peek` overlay (ui-kit) — the shell is
@@ -40,19 +35,23 @@ import {
 export function DiffPeek({
   repo,
   row,
-  scope,
+  changeSet,
   version,
+  onSelect,
   onClose,
 }: {
   repo: string;
   row: ChangeRow;
-  /** Present for History rows: the drilled change set the file belongs to —
-   * its range is diffed instead of the index, and the header names it. */
-  scope?: HistoryScope;
+  /** The change set the row belongs to — the rail lists its files, and a
+   * History scope's range is diffed instead of the index. */
+  changeSet: ChangeSet;
   version: number;
+  /** Switch the peek to another row of the same change set. */
+  onSelect: (row: ChangeRow) => void;
   onClose: () => void;
 }) {
-  const range = scope && scopeRange(scope);
+  const range =
+    changeSet.kind === "history" ? scopeRange(changeSet.scope) : undefined;
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Joined flat text compares by VALUE in the hook's deps, so rebuilding the
@@ -64,7 +63,16 @@ export function DiffPeek({
   );
   const offsets = showsCode ? hunkOffsets(diff) : [];
 
+  // A version bump refreshes the open diff IN PLACE; switching to another
+  // file clears it first, so the old hunks never show under the new name.
+  const diffKeyRef = useRef("");
   useEffect(() => {
+    const key = `${row.kind}:${row.path}:${range?.from ?? ""}:${range?.to ?? ""}`;
+    if (diffKeyRef.current !== key) {
+      diffKeyRef.current = key;
+      setDiff(null);
+      setError(null);
+    }
     let cancelled = false;
     const { services, log } = getRuntime();
     const read = range
@@ -105,14 +113,24 @@ export function DiffPeek({
       ariaLabel={`Diff of ${baseName(row.path)}`}
       name={baseName(row.path)}
       meta={
-        <>
-          <Provenance row={row} scope={scope} />
-          <span className={`git__badge git__badge--${row.kind}`}>
-            {codeLabel(row.code)}
-          </span>
-        </>
+        <span className={`git__badge git__badge--${row.kind}`}>
+          {codeLabel(row.code)}
+        </span>
       }
       path={row.origPath ? `${row.origPath} → ${row.path}` : row.path}
+      aside={
+        // No rail before the status has ever loaded — an empty column says
+        // nothing (a loaded-then-empty worktree still shows its clean note).
+        changeSet.kind === "worktree" && !changeSet.groups ? undefined : (
+          <PeekSiblings
+            repo={repo}
+            changeSet={changeSet}
+            current={row}
+            version={version}
+            onSelect={onSelect}
+          />
+        )
+      }
       onClose={onClose}
     >
       {!diff && !error && <p className="peek__note">Loading…</p>}
@@ -160,32 +178,5 @@ export function DiffPeek({
         </div>
       )}
     </Peek>
-  );
-}
-
-/**
- * Which change set the peeked file belongs to, right of the title: the
- * drilled commit (subject · sha), the since-fork sweep, or the index side
- * (Staged / Unstaged). The pill next door says WHAT happened to the file;
- * this says WHERE. Untracked and conflicted rows render nothing — there the
- * state IS the pill.
- */
-function Provenance({ row, scope }: { row: ChangeRow; scope?: HistoryScope }) {
-  if (scope) {
-    return (
-      <span
-        className="git__origin"
-        title={`${scopeLabel(scope)} — ${scopeSha(scope)}`}
-      >
-        <span className="git__originlabel">{scopeLabel(scope)}</span>
-        <span className="git__originsha">{shortSha(scopeSha(scope))}</span>
-      </span>
-    );
-  }
-  if (row.kind !== "staged" && row.kind !== "unstaged") return null;
-  return (
-    <span className="git__origin">
-      {row.kind === "staged" ? "Staged" : "Unstaged"}
-    </span>
   );
 }

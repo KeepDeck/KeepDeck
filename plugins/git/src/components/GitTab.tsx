@@ -3,15 +3,9 @@ import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { shortPath } from "@keepdeck/ui-kit/paths";
 import { useGitStatus } from "./useGitStatus";
-import {
-  baseName,
-  codeLabel,
-  dirName,
-  groupEntries,
-  headline,
-  type ChangeRow,
-} from "../domain/status";
+import { groupEntries, headline, type ChangeRow } from "../domain/status";
 import { DiffPeek } from "./DiffPeek";
+import { FileSection } from "./FileRows";
 import { HistoryView } from "./HistoryView";
 import type { HistoryScope } from "../domain/history";
 import { BranchIcon } from "../icons";
@@ -159,18 +153,22 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
             )}
             {groups && (
               <>
-                <Section
+                <FileSection
                   label="Conflicts"
                   rows={groups.conflicted}
                   onOpen={openRow}
                 />
-                <Section label="Staged" rows={groups.staged} onOpen={openRow} />
-                <Section
+                <FileSection
+                  label="Staged"
+                  rows={groups.staged}
+                  onOpen={openRow}
+                />
+                <FileSection
                   label="Changes"
                   rows={groups.unstaged}
                   onOpen={openRow}
                 />
-                <Section
+                <FileSection
                   label="Untracked"
                   rows={groups.untracked}
                   onOpen={openRow}
@@ -185,55 +183,16 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
         <DiffPeek
           repo={target}
           row={peek.row}
-          scope={peek.scope}
+          changeSet={
+            peek.scope
+              ? { kind: "history", scope: peek.scope }
+              : { kind: "worktree", groups }
+          }
           version={version}
+          onSelect={(row) => setPeek((prev) => (prev ? { ...prev, row } : prev))}
           onClose={() => setPeek(null)}
         />
       )}
-    </div>
-  );
-}
-
-/** One section (Staged / Changes / …): a header with the count, then rows.
- * Renders nothing when empty — absent sections don't take up rail space. */
-function Section({
-  label,
-  rows,
-  onOpen,
-}: {
-  label: string;
-  rows: ChangeRow[];
-  onOpen: (row: ChangeRow) => void;
-}) {
-  if (rows.length === 0) return null;
-  return (
-    <div className="git__section">
-      <div className="git__sechead">
-        {label}
-        <span className="git__seccount">{rows.length}</span>
-      </div>
-      {rows.map((row) => (
-        <button
-          type="button"
-          className="git__row"
-          key={`${row.kind}:${row.path}`}
-          onClick={() => onOpen(row)}
-          title={`${row.path} — ${codeLabel(row.code)}`}
-        >
-          <span
-            className={`git__code git__code--${row.kind === "conflicted" ? "conflicted" : row.code === "D" ? "del" : row.kind}`}
-            aria-hidden
-          >
-            {row.code}
-          </span>
-          <span className="git__file">
-            {dirName(row.path) && (
-              <span className="git__dir">{dirName(row.path)}</span>
-            )}
-            <span className="git__base">{baseName(row.path)}</span>
-          </span>
-        </button>
-      ))}
     </div>
   );
 }

@@ -420,31 +420,39 @@
 /* The peek's shell is the shared .peek (peek.css / ui-kit Peek); below is
    only the diff content that fills it. */
 
-/* Where the peeked change belongs — left of the kind pill: the drilled
-   commit's subject and sha, "Since fork", or Staged / Unstaged. The subject
-   ellipsizes; the sha never does. */
-.git__origin {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
+/* The peek rail's heading: the change set the open diff belongs to — the
+   drilled commit's subject and sha, or "Since fork". Worktree diffs need no
+   heading; their section heads (Staged / Changes / …) already say it. */
+.git__scopehead {
+  display: flex;
+  align-items: baseline;
   gap: 6px;
-  min-width: 0;
-  max-width: 40%;
-  color: #8b93a3;
-  font-size: 11px;
+  padding: 2px 2px 8px;
+  border-bottom: 1px solid #1c2230;
+  margin-bottom: 6px;
 }
 
-.git__originlabel {
+.git__scopename {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #c5c8c6;
+  font-size: 12px;
+  font-weight: 600;
 }
 
-.git__originsha {
+.git__scopesha {
   flex: none;
+  margin-left: auto;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
   color: #6b7280;
+}
+
+/* The rail row whose diff the peek is showing. */
+.git__row--on {
+  background-color: #1a2233;
 }
 
 /* The change-kind badge in the peek header's meta slot. */

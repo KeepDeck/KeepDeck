@@ -11,7 +11,8 @@ import {
   shortSha,
   type HistoryScope,
 } from "../domain/history";
-import { baseName, codeLabel, dirName, type ChangeRow } from "../domain/status";
+import type { ChangeRow } from "../domain/status";
+import { FileRow } from "./FileRows";
 import { BackIcon, CheckIcon } from "../icons";
 
 /**
@@ -274,26 +275,11 @@ export function HistoryView({
         <div className="git__empty">Nothing changed here.</div>
       )}
       {files?.map((file) => (
-        <button
-          type="button"
-          className="git__row"
+        <FileRow
           key={file.path}
-          onClick={() => onOpen(historyRow(file), shownDrill)}
-          title={`${file.path} — ${codeLabel(file.code)}`}
-        >
-          <span
-            className={`git__code git__code--${file.code === "D" ? "del" : "history"}`}
-            aria-hidden
-          >
-            {file.code}
-          </span>
-          <span className="git__file">
-            {dirName(file.path) && (
-              <span className="git__dir">{dirName(file.path)}</span>
-            )}
-            <span className="git__base">{baseName(file.path)}</span>
-          </span>
-        </button>
+          row={historyRow(file)}
+          onOpen={(row) => onOpen(row, shownDrill)}
+        />
       ))}
     </div>
   );

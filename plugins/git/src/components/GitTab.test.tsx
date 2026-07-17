@@ -218,9 +218,11 @@ describe("GitTab", () => {
     git.statuses.set("/repo", cleanStatus({
       entries: [
         { path: "src/app.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
+        { path: "notes.md", origPath: null, staged: ".", unstaged: ".", untracked: true, conflicted: false },
       ],
     }));
-    setRuntime(makeCtx(git));
+    const ctx = makeCtx(git);
+    setRuntime(ctx);
 
     await render();
     const row = [...host.querySelectorAll("button.git__row")].find((el) =>
@@ -236,8 +238,25 @@ describe("GitTab", () => {
     });
     expect(host.querySelector(".peek")).toBeTruthy();
     expect(host.textContent).toContain("goodbye");
-    // The header names the index side the change sits on.
-    expect(host.querySelector(".git__origin")?.textContent).toBe("Unstaged");
+
+    // The rail lists the whole working-tree set, the open row marked.
+    const aside = host.querySelector(".peek__aside")!;
+    expect(aside.textContent).toContain("app.ts");
+    expect(aside.textContent).toContain("notes.md");
+    expect(aside.querySelector(".git__row--on")?.textContent).toContain(
+      "app.ts",
+    );
+
+    // Clicking a sibling switches the peek to ITS diff in place.
+    const sibling = [...aside.querySelectorAll("button.git__row")].find((el) =>
+      el.textContent?.includes("notes.md"),
+    ) as HTMLButtonElement;
+    await act(async () => sibling.click());
+    expect(ctx.services.fs.readFile).toHaveBeenCalledWith("/repo/notes.md");
+    expect(host.textContent).toContain("brand new");
+    expect(
+      host.querySelector(".peek__aside .git__row--on")?.textContent,
+    ).toContain("notes.md");
   });
 
   it("an untracked row renders the file's content as all-added, via fs", async () => {
@@ -347,10 +366,13 @@ describe("GitTab", () => {
     });
     expect(host.querySelector(".peek")).toBeTruthy();
     expect(host.textContent).toContain("goodbye");
-    // The header names the commit the file belongs to — subject and sha.
-    const origin = host.querySelector(".peek .git__origin");
-    expect(origin?.textContent).toContain("add feature");
-    expect(origin?.textContent).toContain("a1a1a1a");
+    // The rail names the commit and lists its files, the open one marked.
+    const aside = host.querySelector(".peek__aside")!;
+    expect(aside.textContent).toContain("add feature");
+    expect(aside.textContent).toContain("a1a1a1a");
+    expect(aside.querySelector(".git__row--on")?.textContent).toContain(
+      "feature.ts",
+    );
 
     // Backing out of the drill returns to the commit list.
     await act(async () => {
@@ -395,7 +417,8 @@ describe("GitTab", () => {
     expect(git.changedFiles).toHaveBeenCalledWith("/repo", fork, undefined);
     expect(host.textContent).toContain("net.ts");
 
-    // Opening a file from the sweep tags its peek with the since-fork scope.
+    // Opening a file from the sweep peeks its range diff; the rail names the
+    // sweep and lists its files.
     const fileRow = [...host.querySelectorAll("button.git__row")].find((el) =>
       el.textContent?.includes("net.ts"),
     ) as HTMLButtonElement;
@@ -404,9 +427,12 @@ describe("GitTab", () => {
       from: fork,
       to: undefined,
     });
-    const origin = host.querySelector(".peek .git__origin");
-    expect(origin?.textContent).toContain("Since fork");
-    expect(origin?.textContent).toContain("f0f0f0f");
+    const aside = host.querySelector(".peek__aside")!;
+    expect(aside.textContent).toContain("Since fork");
+    expect(aside.textContent).toContain("f0f0f0f");
+    expect(aside.querySelector(".git__row--on")?.textContent).toContain(
+      "net.ts",
+    );
   });
 
   it("without a fork point History is a plain log with no since-fork row", async () => {
