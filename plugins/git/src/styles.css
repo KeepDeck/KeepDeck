@@ -420,6 +420,33 @@
 /* The peek's shell is the shared .peek (peek.css / ui-kit Peek); below is
    only the diff content that fills it. */
 
+/* Where the peeked change belongs — left of the kind pill: the drilled
+   commit's subject and sha, "Since fork", or Staged / Unstaged. The subject
+   ellipsizes; the sha never does. */
+.git__origin {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 40%;
+  color: #8b93a3;
+  font-size: 11px;
+}
+
+.git__originlabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git__originsha {
+  flex: none;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: #6b7280;
+}
+
 /* The change-kind badge in the peek header's meta slot. */
 .git__badge {
   flex: none;

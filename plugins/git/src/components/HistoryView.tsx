@@ -4,12 +4,12 @@ import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { getRuntime } from "../runtime";
 import { useGitHistory } from "./useGitHistory";
 import {
-  commitRange,
   historyRow,
   relativeTime,
+  scopeLabel,
+  scopeRange,
   shortSha,
-  sinceForkRange,
-  type GitRange,
+  type HistoryScope,
 } from "../domain/history";
 import { baseName, codeLabel, dirName, type ChangeRow } from "../domain/status";
 import { BackIcon, CheckIcon } from "../icons";
@@ -27,11 +27,6 @@ import { BackIcon, CheckIcon } from "../icons";
  * one sliding track — drilling slides forward, backing out slides back; the
  * outgoing pane keeps its content through the transition so nothing blinks.
  */
-interface Drill {
-  label: string;
-  range: GitRange;
-}
-
 export function HistoryView({
   repo,
   version,
@@ -41,7 +36,9 @@ export function HistoryView({
   /** The status feed's revision — bumping it re-reads history and any open
    * drill, so the view follows commits as they land. */
   version: number;
-  onOpen: (row: ChangeRow, range: GitRange) => void;
+  /** Lift a file's diff into the peek, tagged with the drilled scope it
+   * belongs to — the peek shows the commit (or fork sweep) as provenance. */
+  onOpen: (row: ChangeRow, scope: HistoryScope) => void;
 }) {
   // Which ref the walk starts from: null = the working tree's checkout.
   // Any local branch can be browsed without being checked out anywhere.
@@ -53,10 +50,10 @@ export function HistoryView({
     true,
     rev,
   );
-  const [drill, setDrill] = useState<Drill | null>(null);
+  const [drill, setDrill] = useState<HistoryScope | null>(null);
   // The drill pane renders THIS through the slide-back, after `drill` is
   // already null — the outgoing screen must not blank mid-animation.
-  const lastDrillRef = useRef<Drill | null>(null);
+  const lastDrillRef = useRef<HistoryScope | null>(null);
   const sliderRef = useRef<HTMLDivElement>(null);
   const [files, setFiles] = useState<GitChangedFile[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
@@ -95,7 +92,8 @@ export function HistoryView({
   const drillKeyRef = useRef("");
   useEffect(() => {
     if (!drill) return; // keep the outgoing content for the slide-back
-    const key = `${drill.range.from}..${drill.range.to ?? ""}`;
+    const range = scopeRange(drill);
+    const key = `${range.from}..${range.to ?? ""}`;
     if (drillKeyRef.current !== key) {
       drillKeyRef.current = key;
       setFiles(null);
@@ -104,7 +102,7 @@ export function HistoryView({
     let cancelled = false;
     const { services, log } = getRuntime();
     services.git
-      .changedFiles(repo, drill.range.from, drill.range.to)
+      .changedFiles(repo, range.from, range.to)
       .then((next) => {
         if (cancelled) return;
         setFiles(next);
@@ -143,7 +141,7 @@ export function HistoryView({
     sliderRef.current?.closest(".git__list")?.scrollTo({ top: 0 });
   }, [drill]);
 
-  const openDrill = (next: Drill) => {
+  const openDrill = (next: HistoryScope) => {
     lastDrillRef.current = next;
     setDrill(next);
   };
@@ -192,8 +190,9 @@ export function HistoryView({
           className="git__row git__row--pin"
           onClick={() =>
             openDrill({
-              label: "Since fork",
-              range: sinceForkRange(history.forkSha!, rev ?? undefined),
+              kind: "fork",
+              forkSha: history.forkSha!,
+              rev: rev ?? undefined,
             })
           }
           title={`Everything since ${shortSha(history.forkSha)}${rev ? "" : ", working tree included"}`}
@@ -223,7 +222,11 @@ export function HistoryView({
             type="button"
             className="git__row"
             onClick={() =>
-              openDrill({ label: commit.subject, range: commitRange(commit.sha) })
+              openDrill({
+                kind: "commit",
+                sha: commit.sha,
+                subject: commit.subject,
+              })
             }
             title={`${commit.subject} — ${commit.author}`}
           >
@@ -259,8 +262,8 @@ export function HistoryView({
         title="Back to the commit list"
       >
         <BackIcon />
-        <span className="git__drilllabel" title={shownDrill.label}>
-          {shownDrill.label}
+        <span className="git__drilllabel" title={scopeLabel(shownDrill)}>
+          {scopeLabel(shownDrill)}
         </span>
       </button>
       {filesError && (
@@ -275,7 +278,7 @@ export function HistoryView({
           type="button"
           className="git__row"
           key={file.path}
-          onClick={() => onOpen(historyRow(file), shownDrill.range)}
+          onClick={() => onOpen(historyRow(file), shownDrill)}
           title={`${file.path} — ${codeLabel(file.code)}`}
         >
           <span

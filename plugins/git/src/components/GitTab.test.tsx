@@ -236,6 +236,8 @@ describe("GitTab", () => {
     });
     expect(host.querySelector(".peek")).toBeTruthy();
     expect(host.textContent).toContain("goodbye");
+    // The header names the index side the change sits on.
+    expect(host.querySelector(".git__origin")?.textContent).toBe("Unstaged");
   });
 
   it("an untracked row renders the file's content as all-added, via fs", async () => {
@@ -345,6 +347,10 @@ describe("GitTab", () => {
     });
     expect(host.querySelector(".peek")).toBeTruthy();
     expect(host.textContent).toContain("goodbye");
+    // The header names the commit the file belongs to — subject and sha.
+    const origin = host.querySelector(".peek .git__origin");
+    expect(origin?.textContent).toContain("add feature");
+    expect(origin?.textContent).toContain("a1a1a1a");
 
     // Backing out of the drill returns to the commit list.
     await act(async () => {
@@ -388,6 +394,19 @@ describe("GitTab", () => {
     await act(async () => pin.click());
     expect(git.changedFiles).toHaveBeenCalledWith("/repo", fork, undefined);
     expect(host.textContent).toContain("net.ts");
+
+    // Opening a file from the sweep tags its peek with the since-fork scope.
+    const fileRow = [...host.querySelectorAll("button.git__row")].find((el) =>
+      el.textContent?.includes("net.ts"),
+    ) as HTMLButtonElement;
+    await act(async () => fileRow.click());
+    expect(git.diffFile).toHaveBeenCalledWith("/repo", "net.ts", {
+      from: fork,
+      to: undefined,
+    });
+    const origin = host.querySelector(".peek .git__origin");
+    expect(origin?.textContent).toContain("Since fork");
+    expect(origin?.textContent).toContain("f0f0f0f");
   });
 
   it("without a fork point History is a plain log with no since-fork row", async () => {

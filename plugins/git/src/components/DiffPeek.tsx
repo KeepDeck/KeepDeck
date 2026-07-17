@@ -11,7 +11,13 @@ import {
   type FileDiff,
 } from "../domain/diff";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
-import type { GitRange } from "../domain/history";
+import {
+  scopeLabel,
+  scopeRange,
+  scopeSha,
+  shortSha,
+  type HistoryScope,
+} from "../domain/history";
 
 /**
  * One change's diff, inside the shared `Peek` overlay (ui-kit) — the shell is
@@ -34,18 +40,19 @@ import type { GitRange } from "../domain/history";
 export function DiffPeek({
   repo,
   row,
-  range,
+  scope,
   version,
   onClose,
 }: {
   repo: string;
   row: ChangeRow;
-  /** Present for History rows: diff across this revision range instead of
-   * against the index (`to` omitted = up to the working tree). */
-  range?: GitRange;
+  /** Present for History rows: the drilled change set the file belongs to —
+   * its range is diffed instead of the index, and the header names it. */
+  scope?: HistoryScope;
   version: number;
   onClose: () => void;
 }) {
+  const range = scope && scopeRange(scope);
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Joined flat text compares by VALUE in the hook's deps, so rebuilding the
@@ -98,10 +105,12 @@ export function DiffPeek({
       ariaLabel={`Diff of ${baseName(row.path)}`}
       name={baseName(row.path)}
       meta={
-        <span className={`git__badge git__badge--${row.kind}`}>
-          {codeLabel(row.code)}
-          {row.kind === "staged" ? " · staged" : ""}
-        </span>
+        <>
+          <Provenance row={row} scope={scope} />
+          <span className={`git__badge git__badge--${row.kind}`}>
+            {codeLabel(row.code)}
+          </span>
+        </>
       }
       path={row.origPath ? `${row.origPath} → ${row.path}` : row.path}
       onClose={onClose}
@@ -151,5 +160,32 @@ export function DiffPeek({
         </div>
       )}
     </Peek>
+  );
+}
+
+/**
+ * Which change set the peeked file belongs to, right of the title: the
+ * drilled commit (subject · sha), the since-fork sweep, or the index side
+ * (Staged / Unstaged). The pill next door says WHAT happened to the file;
+ * this says WHERE. Untracked and conflicted rows render nothing — there the
+ * state IS the pill.
+ */
+function Provenance({ row, scope }: { row: ChangeRow; scope?: HistoryScope }) {
+  if (scope) {
+    return (
+      <span
+        className="git__origin"
+        title={`${scopeLabel(scope)} — ${scopeSha(scope)}`}
+      >
+        <span className="git__originlabel">{scopeLabel(scope)}</span>
+        <span className="git__originsha">{shortSha(scopeSha(scope))}</span>
+      </span>
+    );
+  }
+  if (row.kind !== "staged" && row.kind !== "unstaged") return null;
+  return (
+    <span className="git__origin">
+      {row.kind === "staged" ? "Staged" : "Unstaged"}
+    </span>
   );
 }

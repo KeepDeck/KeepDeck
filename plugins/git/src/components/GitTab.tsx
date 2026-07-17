@@ -13,7 +13,7 @@ import {
 } from "../domain/status";
 import { DiffPeek } from "./DiffPeek";
 import { HistoryView } from "./HistoryView";
-import type { GitRange } from "../domain/history";
+import type { HistoryScope } from "../domain/history";
 import { BranchIcon } from "../icons";
 
 /**
@@ -45,9 +45,10 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
 
   const { status, error, version } = useGitStatus(target);
   const [mode, setMode] = useState<"changes" | "history">("changes");
-  const [peek, setPeek] = useState<{ row: ChangeRow; range?: GitRange } | null>(
-    null,
-  );
+  const [peek, setPeek] = useState<{
+    row: ChangeRow;
+    scope?: HistoryScope;
+  } | null>(null);
 
   // A new root starts fresh — drop any open diff (the mode survives: "I'm
   // reviewing history" holds across pane clicks).
@@ -147,7 +148,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           <HistoryView
             repo={target}
             version={version}
-            onOpen={(row, range) => setPeek({ row, range })}
+            onOpen={(row, scope) => setPeek({ row, scope })}
           />
         ) : (
           <>
@@ -184,7 +185,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
         <DiffPeek
           repo={target}
           row={peek.row}
-          range={peek.range}
+          scope={peek.scope}
           version={version}
           onClose={() => setPeek(null)}
         />

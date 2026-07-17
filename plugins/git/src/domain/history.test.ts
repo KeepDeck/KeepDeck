@@ -3,8 +3,12 @@ import {
   commitRange,
   historyRow,
   relativeTime,
+  scopeLabel,
+  scopeRange,
+  scopeSha,
   shortSha,
   sinceForkRange,
+  type HistoryScope,
 } from "./history";
 
 describe("ranges", () => {
@@ -12,6 +16,31 @@ describe("ranges", () => {
     expect(commitRange("abc123")).toEqual({ from: "abc123^", to: "abc123" });
     // No `to`: the diff reaches the WORKING TREE, so uncommitted work counts.
     expect(sinceForkRange("fork456")).toEqual({ from: "fork456" });
+  });
+});
+
+describe("scopes", () => {
+  const commit: HistoryScope = {
+    kind: "commit",
+    sha: "abc123",
+    subject: "add feature",
+  };
+  const fork: HistoryScope = { kind: "fork", forkSha: "fork456" };
+
+  it("a commit scope diffs parent-to-itself and names its subject and sha", () => {
+    expect(scopeRange(commit)).toEqual({ from: "abc123^", to: "abc123" });
+    expect(scopeLabel(commit)).toBe("add feature");
+    expect(scopeSha(commit)).toBe("abc123");
+  });
+
+  it("a fork scope reaches the working tree on the checkout, the ref when pinned", () => {
+    expect(scopeRange(fork)).toEqual({ from: "fork456" });
+    expect(scopeRange({ ...fork, rev: "kd/side/1" })).toEqual({
+      from: "fork456",
+      to: "kd/side/1",
+    });
+    expect(scopeLabel(fork)).toBe("Since fork");
+    expect(scopeSha(fork)).toBe("fork456");
   });
 });
 
