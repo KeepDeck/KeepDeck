@@ -10,6 +10,7 @@ import { composeSkillFile, type SkillDraft, type SkillScope } from "../domain/sk
 import {
   deleteSkill,
   listSkills,
+  renameSkill,
   saveSkill,
   type StoredSkill,
 } from "../ipc/skills";
@@ -22,6 +23,7 @@ export interface SkillsLibrary {
   /** The last failed operation, human-readable; cleared by the next success. */
   error: string | null;
   save(scope: SkillScope, draft: SkillDraft): Promise<boolean>;
+  rename(scope: SkillScope, from: string, to: string): Promise<boolean>;
   remove(scope: SkillScope, name: string): Promise<boolean>;
 }
 
@@ -60,6 +62,20 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     [refresh],
   );
 
+  const rename = useCallback(
+    async (scope: SkillScope, from: string, to: string) => {
+      try {
+        await renameSkill(scope, from, to);
+        await refresh();
+        return true;
+      } catch (e) {
+        setError(`Rename failed: ${describeError(e)}`);
+        return false;
+      }
+    },
+    [refresh],
+  );
+
   const remove = useCallback(
     async (scope: SkillScope, name: string) => {
       try {
@@ -74,5 +90,5 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     [refresh],
   );
 
-  return { skills, error, save, remove };
+  return { skills, error, save, rename, remove };
 }

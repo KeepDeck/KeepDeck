@@ -13,6 +13,7 @@ const lib = vi.hoisted(() => ({
   skills: [] as StoredSkill[] | null,
   error: null as string | null,
   save: vi.fn(async () => true),
+  rename: vi.fn(async () => true),
   remove: vi.fn(async () => true),
 }));
 vi.mock("../../app/useSkills", () => ({
@@ -20,6 +21,7 @@ vi.mock("../../app/useSkills", () => ({
     skills: lib.skills,
     error: lib.error,
     save: lib.save,
+    rename: lib.rename,
     remove: lib.remove,
   }),
 }));
@@ -72,6 +74,8 @@ describe("SkillsDialog", () => {
     lib.error = null;
     lib.save.mockClear();
     lib.save.mockResolvedValue(true);
+    lib.rename.mockClear();
+    lib.rename.mockResolvedValue(true);
     lib.remove.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -111,19 +115,49 @@ describe("SkillsDialog", () => {
     expect(buttonByTitle("New global skill")).not.toBeNull();
   });
 
-  it("selecting a skill fills the editor; the name lives in the title", async () => {
+  it("selecting a skill fills the editor, name included", async () => {
     lib.skills = [skill("review")];
     await mount();
     act(() => row("review")!.click());
 
-    // No name input in edit mode — the name is immutable and reads as the
-    // editor's heading instead.
-    expect(document.querySelector("#skill-name")).toBeNull();
     expect(
       document.querySelector(".skills__editor-title")!.textContent,
     ).toContain("review");
+    expect(input("skill-name").value).toBe("review");
+    expect(input("skill-name").disabled).toBe(false);
     expect(input("skill-description").value).toBe("About review");
     expect(textarea().value).toBe("Body of review\n");
+  });
+
+  it("editing the name renames first, then saves under the new name", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-name"), "deep-review");
+    await act(async () => button("Save")!.click());
+
+    expect(lib.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review");
+    expect(lib.save).toHaveBeenCalledWith(
+      { kind: "global" },
+      expect.objectContaining({ name: "deep-review" }),
+    );
+  });
+
+  it("renaming onto another skill in the scope is blocked; keeping your own name is not", async () => {
+    lib.skills = [skill("review"), skill("deploy")];
+    await mount();
+    act(() => row("review")!.click());
+
+    type(input("skill-name"), "deploy");
+    expect(button("Save")!.disabled).toBe(true);
+    expect(document.body.textContent).toContain("already exists");
+
+    type(input("skill-name"), "review");
+    type(input("skill-description"), "Edited description");
+    expect(button("Save")!.disabled).toBe(false);
+    await act(async () => button("Save")!.click());
+    // Same name — an ordinary save, no rename call.
+    expect(lib.rename).not.toHaveBeenCalled();
   });
 
   it("the library rows preview each skill's description", async () => {
@@ -132,22 +166,6 @@ describe("SkillsDialog", () => {
     expect(
       document.querySelector(".skills__item-desc")!.textContent,
     ).toBe("About review");
-  });
-
-  it("shows every agent's invocation form next to a saved skill", async () => {
-    lib.skills = [skill("review")];
-    await mount();
-    act(() => row("review")!.click());
-
-    const strip = document.querySelector(".skills__run")!;
-    expect(strip.textContent).toContain("/keepdeck-skills:review");
-    expect(strip.textContent).toContain("Claude Code");
-    expect(strip.textContent).toContain("Kimi Code");
-    expect(strip.textContent).toContain("OpenCode");
-    expect(strip.textContent).toContain("Codex");
-    // Creating a NEW skill shows no strip — nothing to run yet.
-    act(() => buttonByTitle("New global skill")!.click());
-    expect(document.querySelector(".skills__run")).toBeNull();
   });
 
   it("⌘S saves when the draft is valid", async () => {

@@ -45,30 +45,20 @@ const scopeOf = (skill: StoredSkill): SkillScope =>
     ? { kind: "global" }
     : { kind: "workspace", wsId: skill.wsId ?? "" };
 
-/** Where a saved skill shows up in each CLI — the strip's whole point is
- * that this differs per agent and nobody should rediscover it in a pane. */
-const runForms = (name: string) => [
-  { agent: "Claude Code", form: `/keepdeck-skills:${name}` },
-  { agent: "Kimi Code", form: `/${name}` },
-  { agent: "OpenCode", form: `/${name}` },
-  { agent: "Codex", form: "worktree panes, automatic" },
-];
-
 /**
  * The shared-skills manager — a full-screen editor over the library ([skills]):
  * one SKILL.md authored here reaches every CLI at its next spawn. Left: the
  * library, grouped Global / This workspace, each row naming the skill and
- * previewing its description. Right: the editor, with a per-agent "How to
- * run it" strip so the invocation forms live where the skill is written.
- * Destructive steps (delete, discarding edits) confirm in-app, per the
- * no-system-dialogs rule.
+ * previewing its description. Right: the editor. Renaming = editing the name
+ * field of a saved skill (the directory moves, assets and all). Destructive
+ * steps (delete, discarding edits) confirm in-app, per the no-system-dialogs
+ * rule.
  */
 export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
-  const { skills, error, save, remove } = useSkillsLibrary(true);
+  const { skills, error, save, rename, remove } = useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
   // A destructive step awaiting confirmation.
   const [confirm, setConfirm] = useState<
     | { kind: "delete"; scope: SkillScope; name: string }
@@ -132,8 +122,11 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   });
 
   const creating = selection?.mode === "create";
+  // Taken = another skill in this scope holds the name. Keeping your OWN
+  // name is not a collision — that's just an ordinary save.
   const nameTaken =
-    creating &&
+    selection !== null &&
+    !(selection.mode === "edit" && selection.name === form.name) &&
     (skills ?? []).some(
       (s) => s.name === form.name && sameScope(scopeOf(s), selection.scope),
     );
@@ -148,6 +141,11 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
 
   const submit = async () => {
     if (!selection || !canSave) return;
+    // An edited name moves the directory first (assets travel), then the
+    // ordinary save lands the content under the new name.
+    if (selection.mode === "edit" && form.name !== selection.name) {
+      if (!(await rename(selection.scope, selection.name, form.name))) return;
+    }
     const draft: SkillDraft = { ...form };
     if (await save(selection.scope, draft)) {
       setSelection({ mode: "edit", scope: selection.scope, name: form.name });
@@ -167,12 +165,6 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
-
-  const copyForm = (agent: string, form: string) => {
-    navigator.clipboard?.writeText(form).catch(() => {});
-    setCopied(agent);
-    window.setTimeout(() => setCopied((c) => (c === agent ? null : c)), 1200);
-  };
 
   const field =
     (key: "name" | "description" | "body") =>
@@ -290,31 +282,27 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
                 </div>
 
                 <div className="skills__meta">
-                  {creating && (
-                    <>
-                      <label className="form__label" htmlFor="skill-name">
-                        Name
-                      </label>
-                      <input
-                        id="skill-name"
-                        className="form__input"
-                        value={form.name}
-                        onChange={(e) => field("name")(e.target.value)}
-                        placeholder="kebab-case-name"
-                        spellCheck={false}
-                        autoFocus
-                      />
-                      {form.name !== "" && !nameOk && (
-                        <div className="form__error">
-                          Lowercase letters, digits and hyphens only
-                        </div>
-                      )}
-                      {nameTaken && (
-                        <div className="form__error">
-                          A skill with this name already exists in this scope
-                        </div>
-                      )}
-                    </>
+                  <label className="form__label" htmlFor="skill-name">
+                    Name
+                  </label>
+                  <input
+                    id="skill-name"
+                    className="form__input"
+                    value={form.name}
+                    onChange={(e) => field("name")(e.target.value)}
+                    placeholder="kebab-case-name"
+                    spellCheck={false}
+                    autoFocus={creating}
+                  />
+                  {form.name !== "" && !nameOk && (
+                    <div className="form__error">
+                      Lowercase letters, digits and hyphens only
+                    </div>
+                  )}
+                  {nameTaken && (
+                    <div className="form__error">
+                      A skill with this name already exists in this scope
+                    </div>
                   )}
 
                   <label className="form__label" htmlFor="skill-description">
@@ -335,27 +323,6 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
                     </div>
                   )}
                 </div>
-
-                {!creating && (
-                  <div className="skills__run" aria-label="How to run it">
-                    <span className="skills__run-label">Run it</span>
-                    {runForms(selection.name).map(({ agent, form: invocation }) => (
-                      <button
-                        key={agent}
-                        type="button"
-                        className="skills__chip"
-                        onClick={() => copyForm(agent, invocation)}
-                        title={`${agent} — click to copy`}
-                      >
-                        <span className="skills__chip-agent">{agent}</span>
-                        <code className="skills__chip-form">
-                          {copied === agent ? "Copied" : invocation}
-                        </code>
-                      </button>
-                    ))}
-                    <span className="skills__run-note">New sessions only</span>
-                  </div>
-                )}
 
                 <label className="form__label skills__body-label" htmlFor="skill-body">
                   Instructions · Markdown

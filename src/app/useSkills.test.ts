@@ -13,6 +13,7 @@ const wire = vi.hoisted(() => ({
   listSkills: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
   saveSkill: vi.fn(async () => {}),
   deleteSkill: vi.fn(async () => {}),
+  renameSkill: vi.fn(async () => {}),
 }));
 vi.mock("../ipc/skills", () => wire);
 
@@ -32,6 +33,7 @@ describe("the skills library hook", () => {
     wire.listSkills.mockClear();
     wire.saveSkill.mockClear();
     wire.deleteSkill.mockClear();
+    wire.renameSkill.mockClear();
     staging.invalidateSkillsStaging.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -92,6 +94,35 @@ describe("the skills library hook", () => {
 
     expect(ok).toBe(false);
     expect(lib.error).toContain("disk full");
+    expect(staging.invalidateSkillsStaging).not.toHaveBeenCalled();
+  });
+
+  it("rename moves the skill, invalidates staging, reloads", async () => {
+    await mount();
+    let ok = false;
+    await act(async () => {
+      ok = await lib.rename({ kind: "global" }, "review", "deep-review");
+    });
+
+    expect(ok).toBe(true);
+    expect(wire.renameSkill).toHaveBeenCalledWith(
+      { kind: "global" },
+      "review",
+      "deep-review",
+    );
+    expect(staging.invalidateSkillsStaging).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed rename surfaces the error and leaves staging alone", async () => {
+    wire.renameSkill.mockRejectedValueOnce(new Error("already exists"));
+    await mount();
+    let ok = true;
+    await act(async () => {
+      ok = await lib.rename({ kind: "global" }, "a", "b");
+    });
+
+    expect(ok).toBe(false);
+    expect(lib.error).toContain("already exists");
     expect(staging.invalidateSkillsStaging).not.toHaveBeenCalled();
   });
 
