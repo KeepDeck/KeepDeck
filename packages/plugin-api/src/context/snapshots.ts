@@ -8,8 +8,8 @@
 /** Serializable identity of one workspace lifetime. The public `id` may be
  * reused after close; `instance` never is. */
 export interface WorkspaceRef {
-  id: string;
-  instance: string;
+  readonly id: string;
+  readonly instance: string;
 }
 
 export interface WorkspaceSnapshot extends WorkspaceRef {

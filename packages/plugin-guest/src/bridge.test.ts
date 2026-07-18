@@ -122,14 +122,19 @@ describe("external plugin bridge", () => {
   it("keeps a captured workspace handle bound to its exact lifetime", async () => {
     const { ctxReady } = wireCapturingCtx();
     const ctx = await ctxReady;
-    const stale = ctx.storage.workspace(W1);
+    const callerOwned = { ...W1 };
+    const stale = ctx.storage.workspace(callerOwned);
     const replacement = { ...W1, instance: "replacement-instance" };
 
     await stale.set("value", "old lifetime");
     await ctx.storage.workspace(replacement).set("value", "replacement");
+    // Runtime JavaScript can still mutate an object whose TypeScript surface
+    // is readonly. The handle must retain the value captured at construction.
+    callerOwned.instance = replacement.instance;
     await stale.set("late", true);
 
     expect(await stale.get("value")).toBe("old lifetime");
+    expect(await stale.get("late")).toBe(true);
     expect(await ctx.storage.workspace(replacement).get("value")).toBe(
       "replacement",
     );

@@ -411,18 +411,24 @@ export function buildGuestContext(
         rpc.call("resources.path", [relative]) as Promise<string | null>,
     },
     storage: {
-      workspace: (workspace) => ({
-        get: <T>(key: string): Promise<T | undefined> =>
-          rpc.call("storage.workspace.get", [workspace, key]) as Promise<
-            T | undefined
-          >,
-        set: (key, value) =>
-          rpc
-            .call("storage.workspace.set", [workspace, key, value])
-            .then(noop),
-        delete: (key) =>
-          rpc.call("storage.workspace.delete", [workspace, key]).then(noop),
-      }),
+      workspace: ({ id, instance }) => {
+        // Snapshot the identity when the handle is created. The built-in tier
+        // has the same value semantics; later mutation of a caller-owned
+        // object must not retarget an existing external handle.
+        const workspace: WorkspaceRef = { id, instance };
+        return {
+          get: <T>(key: string): Promise<T | undefined> =>
+            rpc.call("storage.workspace.get", [workspace, key]) as Promise<
+              T | undefined
+            >,
+          set: (key, value) =>
+            rpc
+              .call("storage.workspace.set", [workspace, key, value])
+              .then(noop),
+          delete: (key) =>
+            rpc.call("storage.workspace.delete", [workspace, key]).then(noop),
+        };
+      },
       global: {
         get: <T>(key: string): Promise<T | undefined> =>
           rpc.call("storage.global.get", [key]) as Promise<T | undefined>,
