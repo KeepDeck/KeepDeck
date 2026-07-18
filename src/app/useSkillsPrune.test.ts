@@ -101,8 +101,8 @@ describe("the skills prune sweep", () => {
     await mount([ws("ws-1", "One", [shared("p1")])], true);
     expect(wire.disarmSkills).not.toHaveBeenCalledWith(["/repo"]);
     expect(
-      wire.disarmSkills.mock.calls.some(([roots]) =>
-        (roots as string[]).includes("/repo"),
+      (wire.disarmSkills.mock.calls as unknown as string[][][]).some((call) =>
+        call[0]?.includes("/repo"),
       ),
     ).toBe(false);
   });

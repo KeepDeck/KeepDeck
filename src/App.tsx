@@ -701,7 +701,7 @@ function App() {
                   // Esc must peel one layer at a time: while the settings
                   // dialog is above this form, the form's own Esc yields
                   // (an undefined onCancel also hides the covered button).
-                  onCancel={settingsOpen ? undefined : () => setCreating(false)}
+                  onCancel={settingsOpen || skillsOpen ? undefined : () => setCreating(false)}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
                 />
