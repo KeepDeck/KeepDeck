@@ -11,9 +11,18 @@ const HOST = { kind: "host" } as const;
 
 // Repo inspection is per-test switchable; suggestions follow the real Rust
 // naming (kd/<ws>/<i> ↔ kd-<ws>-<i>); probes report every path free.
-const repoMode = vi.hoisted(() => ({ isRepo: false }));
+const repoMode = vi.hoisted(() => ({
+  isRepo: false,
+  inspect: null as null | (() => Promise<{
+    isRepo: boolean;
+    head: string;
+    branch: string;
+  }>),
+}));
 vi.mock("../ipc/worktree", () => ({
-  inspectRepo: async () => ({ isRepo: repoMode.isRepo, head: "abc", branch: "main" }),
+  inspectRepo: () =>
+    repoMode.inspect?.() ??
+    Promise.resolve({ isRepo: repoMode.isRepo, head: "abc", branch: "main" }),
   suggestWorktree: async (workspace: string, index: number) => ({
     branch: `kd/${workspace}/${index}`,
     folder: `kd-${workspace}-${index}`,
@@ -86,6 +95,7 @@ function setup(workspaces: Workspace[]) {
 
 beforeEach(() => {
   repoMode.isRepo = false;
+  repoMode.inspect = null;
   settingsState.current = null;
 });
 afterEach(() => {
@@ -205,6 +215,40 @@ describe("agent.spawn", () => {
       ok: false,
       error: { code: "failed", message: 'unknown agent type "gemini"' },
     });
+  });
+
+  it("does not attach a delayed spawn to a replacement with the same id", async () => {
+    let finishInspect!: (value: {
+      isRepo: boolean;
+      head: string;
+      branch: string;
+    }) => void;
+    repoMode.inspect = () =>
+      new Promise((resolve) => {
+        finishInspect = resolve;
+      });
+    const workspaces = [workspace({})];
+    const { registry, deck } = setup(workspaces);
+
+    const pending = registry.execute(
+      "agent.spawn",
+      { workspace: "web", agentType: "codex" },
+      HOST,
+    );
+    const replacement = workspace({ name: "replacement", cwd: "/replacement" });
+    workspaces.splice(0, 1, replacement);
+    finishInspect({ isRepo: false, head: "abc", branch: "main" });
+
+    await expect(pending).resolves.toEqual({
+      ok: false,
+      error: {
+        code: "failed",
+        message: "workspace was closed while spawning the agent",
+      },
+    });
+    expect(replacement.panes).toEqual([]);
+    expect(deck.addAgentPane).not.toHaveBeenCalled();
+    expect(deck.selectWorkspace).not.toHaveBeenCalled();
   });
 
   it("delivers the task into the pane once its writer is live", async () => {
