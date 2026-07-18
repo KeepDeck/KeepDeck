@@ -4,7 +4,11 @@
      stylesheets still carrying the same values as literals predate the tokens
      and migrate as they're touched. The -strong pair is for small colored
      text on dark tints, where the base tone drops below comfortable
-     contrast. */
+     contrast. --kd-bg is not a status color: it's here because opaque
+     color mixes must track the real page background. The other recurring
+     surface literals (text, muted, seams, hovers) stay literal for now —
+     when they tokenize, they become their own tier, not more entries
+     here. */
   --kd-bg: #0b0e14;
   --kd-ok: #58b368;
   --kd-ok-strong: #6fd07f;
