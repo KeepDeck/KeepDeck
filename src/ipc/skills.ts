@@ -51,26 +51,27 @@ export async function renameSkill(scope: SkillScope, from: string, to: string): 
 
 /** Rebuild and fetch a workspace's staged views; `null` = nothing to inject
  * (empty library, or staging failed — a pane spawns fine without skills).
- * `worktreeRoots` (the workspace's worktree pane roots) get the codex-facing
- * `.agents/skills` symlink armed while skills exist. */
+ * `roots` (the workspace's pane spawn cwds — the Rust command's exact wire
+ * key) get the codex-facing `.agents/skills` symlink armed while skills
+ * exist. */
 export async function stageSkills(
   wsId: string,
-  worktreeRoots: string[],
+  roots: string[],
 ): Promise<SkillsStagingViews | null> {
   try {
-    return await invoke<SkillsStagingViews | null>("skills_stage", { wsId, worktreeRoots });
+    return await invoke<SkillsStagingViews | null>("skills_stage", { wsId, roots });
   } catch (e) {
     log.warn("web:skills", `skills_stage failed; spawning without skills: ${describeError(e)}`);
     return null;
   }
 }
 
-/** Remove KeepDeck's `.agents/skills` symlinks from the given worktree
- * roots (a closing workspace's worktrees). Best-effort. */
-export async function disarmSkills(worktreeRoots: string[]): Promise<void> {
-  if (worktreeRoots.length === 0) return;
+/** Remove KeepDeck's `.agents/skills` symlinks from the given spawn cwds
+ * (a closing workspace's directories). Best-effort. */
+export async function disarmSkills(roots: string[]): Promise<void> {
+  if (roots.length === 0) return;
   try {
-    await invoke("skills_disarm", { worktreeRoots });
+    await invoke("skills_disarm", { roots });
   } catch (e) {
     log.warn("web:skills", `skills_disarm failed: ${describeError(e)}`);
   }
