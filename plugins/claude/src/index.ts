@@ -7,7 +7,11 @@
  * carries the self-minted id). Resume REUSES the recorded id (forking is
  * opt-in upstream).
  */
-import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
+import type {
+  KeepDeckPlugin,
+  PluginResources,
+  SpawnSkillsInput,
+} from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 
 /** Quote a path for a shell command line (single quotes, `'\''` escaping) —
@@ -40,6 +44,13 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
 const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-skip-permissions"] : [];
 
+/** The staged shared skills, loaded as a per-session LOCAL plugin —
+ * `--plugin-dir` is additive next to the user's installed plugins and
+ * writes nothing into `~/.claude` (probe-verified on 2.1.214: skills load
+ * with no consent prompt, named `keepdeck-skills:<name>`). */
+const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
+  skills ? ["--plugin-dir", skills.claudePluginDir] : [];
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -52,12 +63,14 @@ const plugin: KeepDeckPlugin = {
         "spawn.plan": async (input, output) => {
           output.args = [
             ...(await hookArgs(ctx.resources)),
+            ...skillsArgs(input.skills),
             ...yoloArgs(input.yolo),
           ];
         },
         "resume.plan": async (input, output) => {
           output.args = [
             ...(await hookArgs(ctx.resources)),
+            ...skillsArgs(input.skills),
             ...yoloArgs(input.yolo),
             "--resume",
             input.sessionId,

@@ -181,6 +181,9 @@ export interface WireSpawnPlanOutput {
   command: string | null;
   args: string[];
   env: [string, string][];
+  /** Env pairs applied only when not already inherited (plugin API 22) —
+   * a guest hook's additions must survive the copy-back. */
+  envDefaults?: [string, string][];
 }
 
 /** The payload of one `hook:<id>` push: which agent, which hook, and the

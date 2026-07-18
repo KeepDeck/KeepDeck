@@ -9,7 +9,7 @@
  * package.json version (that one is just an npm semver so the workspace
  * resolves the package). This is the load-bearing one.
  */
-export const API_VERSION = 21; // 21: workspace-scoped APIs use exact lifetime refs
+export const API_VERSION = 23; // 23: + env defaults (SpawnPlanOutput.envDefaults); 22: + staged shared skills (SpawnPlanInput.skills)
 
 /** Oldest contract the current host can execute. Raise only for a breaking change. */
 export const MIN_COMPATIBLE_API_VERSION = 21;

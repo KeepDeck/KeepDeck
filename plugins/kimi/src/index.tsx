@@ -1,5 +1,5 @@
 import "./styles.css";
-import type { KeepDeckPlugin } from "@keepdeck/plugin-api";
+import type { KeepDeckPlugin, SpawnSkillsInput } from "@keepdeck/plugin-api";
 import {
   COMPANION_DESCRIPTOR,
   COMPANION_MANIFEST_RESOURCE,
@@ -15,6 +15,15 @@ import {
 import { createSetupSection } from "./SetupSection";
 
 let activeController: ReturnType<typeof createKimiSetupController> | null = null;
+
+/** The staged shared skills via `--skills-dir`. CAVEAT (kimi 0.27,
+ * `--help`-verified): the flag REPLACES kimi's auto-discovered user and
+ * project skill directories rather than adding to them — so it is passed
+ * only when the user actually has KeepDeck skills, and such panes see the
+ * KeepDeck library instead of `~/.kimi`-style discovery. Revisit if kimi
+ * grows an additive flag (its `extra_skill_dirs` is config-file-only). */
+const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
+  skills ? ["--skills-dir", skills.skillsDir] : [];
 
 export function setupNotification(state: SetupState): {
   title: string;
@@ -51,10 +60,14 @@ const plugin: KeepDeckPlugin = {
       supportsYolo: true,
       hooks: {
         "spawn.plan": (input, output) => {
-          output.args = input.yolo ? ["--yolo"] : [];
+          output.args = [
+            ...skillsArgs(input.skills),
+            ...(input.yolo ? ["--yolo"] : []),
+          ];
         },
         "resume.plan": (input, output) => {
           output.args = [
+            ...skillsArgs(input.skills),
             ...(input.yolo ? ["--yolo"] : []),
             "--session",
             input.sessionId,

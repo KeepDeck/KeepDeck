@@ -19,6 +19,7 @@ mod project_fs;
 mod project_git;
 mod session;
 mod sessions;
+mod skills;
 mod voice;
 mod state;
 mod worktree;
@@ -79,6 +80,7 @@ pub fn run() {
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
+        .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
@@ -140,6 +142,13 @@ pub fn run() {
             state::settings_load,
             state::settings_save,
             state::settings_quarantine,
+            skills::skills_list,
+            skills::skills_save,
+            skills::skills_delete,
+            skills::skills_rename,
+            skills::skills_stage,
+            skills::skills_prune,
+            skills::skills_disarm,
             ports::ports_allocate,
             plugins_fs::plugins_scan,
             plugins_fs::plugins_resolve_dir,

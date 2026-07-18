@@ -24,6 +24,14 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
 const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-bypass-approvals-and-sandbox"] : [];
 
+// Shared skills need NO code here: codex has no flag/env/config door
+// (openai/codex#15149, #22869), but it reads `.agents/skills` from its
+// starting cwd at session start — and the host's staging arms every pane
+// spawn cwd with a symlink to the staged view before the spawn
+// (src-tauri/src/skills.rs, arm_roots). The filesystem is the delivery;
+// argv/env stay untouched. `input.skills` still arrives for the day codex
+// grows a real injection flag.
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AgentContribution,
   Disposable,
+  SpawnSkillsInput,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "../domain/agents";
@@ -13,6 +14,7 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createContributionRegistries } from "../plugins/registries/contributions";
 import type { AppRuntime } from "./runtime";
 import { AppRuntimeProvider } from "./runtimeContext";
+import { invalidateSkillsStaging } from "./skillsStaging";
 import {
   buildResumeSpec,
   dropPaneSpawnSpec,
@@ -29,6 +31,15 @@ import {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const hostState = vi.hoisted(() => ({ installed: [] as unknown[] }));
+
+// Staged skills are a host fact fetched through the staging memo; the wire
+// behind it is stubbed so tests pick what the "library" holds.
+const skillsState = vi.hoisted(() => ({
+  views: null as SpawnSkillsInput | null,
+}));
+vi.mock("../ipc/skills", () => ({
+  stageSkills: vi.fn(async () => skillsState.views),
+}));
 const pluginRegistries = createContributionRegistries();
 const plugins = {
   pluginRegistries,
@@ -87,6 +98,8 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
   beforeEach(() => {
     resetPaneSpawnSpecs();
     hostState.installed = [];
+    skillsState.views = null;
+    invalidateSkillsStaging();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -158,6 +171,52 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     // Armed pane spawns with it, plain pane WITHOUT it (absent, not false —
     // the wire shape stays sparse), and a resume carries it the same way.
     expect(inputs.sort()).toEqual([true, true, undefined]);
+  });
+
+  it("staged skills reach the hook input on spawn AND resume", async () => {
+    skillsState.views = {
+      claudePluginDir: "/home/skills/staging/ws-1/claude-plugin",
+      opencodeConfigDir: "/home/skills/staging/ws-1/opencode",
+      skillsDir: "/home/skills/staging/ws-1/skills",
+    };
+    const inputs: Array<SpawnSkillsInput | undefined> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          inputs.push(input.skills);
+        },
+        "resume.plan": (input) => {
+          inputs.push(input.skills);
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    await buildResumeSpec(
+      plugins,
+      "claude",
+      { paneId: "pane-9", workspace: W1, cwd: "/repo" },
+      ctx,
+      "old-id",
+      "restore",
+    );
+    expect(inputs).toEqual([skillsState.views, skillsState.views]);
+  });
+
+  it("an empty library leaves the hook input sparse — no skills key at all", async () => {
+    const sawKey: boolean[] = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          sawKey.push("skills" in input);
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(sawKey).toEqual([false]);
   });
 
   it("builds each pane ONCE — a re-render must not re-mint", async () => {
@@ -320,7 +379,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
   });
 
   it("does not install an async resume plan invalidated while it was building", async () => {
-    let releaseResume!: () => void;
+    let releaseResume: (() => void) | undefined;
     register({
       ...adopting,
       hooks: {
@@ -339,8 +398,13 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
       "old-id",
       "manual",
     );
+    // The plan build awaits host facts (staged skills) before entering the
+    // hook — wait for the hook to be mid-flight, then invalidate under it.
+    await vi.waitFor(() => {
+      if (!releaseResume) throw new Error("hook not entered yet");
+    });
     dropPaneSpawnSpec("pane-1");
-    releaseResume();
+    releaseResume!();
     await building;
 
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();

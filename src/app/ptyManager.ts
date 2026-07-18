@@ -34,6 +34,7 @@ export interface PaneSpawnSpec {
   args?: string[];
   /** Read once at spawn time, like `args`. */
   env?: [string, string][];
+  envDefaults?: [string, string][];
   cwd?: string | null;
   cols: number;
   rows: number;
@@ -134,6 +135,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       command: spec.command,
       args: spec.args,
       env: spec.env,
+      envDefaults: spec.envDefaults,
       cwd: spec.cwd,
       cols: spec.cols,
       rows: spec.rows,

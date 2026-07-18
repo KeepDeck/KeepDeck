@@ -588,9 +588,21 @@ function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
     )
   )
     return null;
+  const pairs = (val: unknown): val is [string, string][] =>
+    Array.isArray(val) &&
+    val.every(
+      (pair) =>
+        Array.isArray(pair) &&
+        pair.length === 2 &&
+        pair.every((x) => typeof x === "string"),
+    );
+  if (v.envDefaults !== undefined && !pairs(v.envDefaults)) return null;
   return {
     command: v.command as string | null,
     args: v.args as string[],
     env: v.env as [string, string][],
+    ...(v.envDefaults !== undefined
+      ? { envDefaults: v.envDefaults as [string, string][] }
+      : {}),
   };
 }

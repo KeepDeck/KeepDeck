@@ -142,6 +142,7 @@ describe("useAgentRestart", () => {
         cwd: "/worktree",
         branch: "feature/restart",
         yolo: true,
+        wsSkillRoots: ["/worktree"],
       },
       ctx,
       "session-old",

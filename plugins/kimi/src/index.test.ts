@@ -108,6 +108,42 @@ describe("Kimi CLI plugin", () => {
     expect(out.args).toEqual(["--session", "session_123"]);
   });
 
+  it("staged skills add --skills-dir on spawn and resume, absent otherwise", async () => {
+    const { agent } = await activate();
+    const skills = {
+      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
+      opencodeConfigDir: "/kd/staging/ws-1/opencode",
+      skillsDir: "/kd/staging/ws-1/skills",
+    };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, skills }, spawn);
+    expect(spawn.args).toEqual(["--skills-dir", "/kd/staging/ws-1/skills"]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, skills, sessionId: "session_123" },
+      resume,
+    );
+    expect(resume.args).toEqual([
+      "--skills-dir",
+      "/kd/staging/ws-1/skills",
+      "--session",
+      "session_123",
+    ]);
+
+    // The "absent otherwise" half: no skills means the flag must not appear
+    // at all — kimi's --skills-dir REPLACES its auto-discovery, so an empty
+    // one would hide the user's own skills.
+    const bareSpawn = output();
+    await agent.hooks["spawn.plan"]!(input, bareSpawn);
+    expect(bareSpawn.args).not.toContain("--skills-dir");
+
+    const bareResume = output();
+    await agent.hooks["resume.plan"]!({ ...input, sessionId: "session_123" }, bareResume);
+    expect(bareResume.args).toEqual(["--session", "session_123"]);
+  });
+
   it("YOLO adds --yolo on spawn and resume alike", async () => {
     const { agent } = await activate();
     expect(agent.supportsYolo).toBe(true);

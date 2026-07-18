@@ -262,6 +262,7 @@ export function DeckStage({
               command={command}
               args={spec?.args}
               env={spec?.env}
+              envDefaults={spec?.envDefaults}
               planPending={planPending}
               cwd={executionCwd}
               gitBadge={badge}

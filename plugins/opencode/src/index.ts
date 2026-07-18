@@ -5,7 +5,11 @@
  * user's config; nothing is installed on their side) reports it back
  * through the bridge, catching `/new` typed inside the TUI too.
  */
-import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
+import type {
+  KeepDeckPlugin,
+  PluginResources,
+  SpawnSkillsInput,
+} from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 
 /** The per-invocation config injecting the reporter; `[]` when the reporter
@@ -25,6 +29,19 @@ async function reporterEnv(
 const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-skip-permissions"] : [];
 
+/** The staged shared skills as an EXTRA config directory — opencode loads
+ * `OPENCODE_CONFIG_DIR` on top of the global and project ones (additive,
+ * probe-verified on 1.18.3), and it composes fine with the reporter's
+ * `OPENCODE_CONFIG_CONTENT` above. The host hands us a STABLE per-workspace
+ * dir here, never a wiped staging one: opencode treats its config dir as a
+ * writable home (plugin node_modules, account/state files — field-verified),
+ * so pointing it at a rebuilt-from-scratch directory would destroy those.
+ * Delivered as an env DEFAULT, not an override: `OPENCODE_CONFIG_DIR` is a
+ * variable the user may legitimately own (their custom config home), and a
+ * user-set value must win over skills delivery. */
+const skillsEnvDefaults = (skills: SpawnSkillsInput | undefined): [string, string][] =>
+  skills ? [["OPENCODE_CONFIG_DIR", skills.opencodeConfigDir]] : [];
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -36,10 +53,12 @@ const plugin: KeepDeckPlugin = {
       hooks: {
         "spawn.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
+          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
           output.args = yoloArgs(input.yolo);
         },
         "resume.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
+          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
           output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
         },
       },

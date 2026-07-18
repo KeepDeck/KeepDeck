@@ -4,6 +4,7 @@ import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
+import { SkillsDialog } from "./components/skills/SkillsDialog";
 import { fetchAppInfo, type AppInfo } from "./ipc/app";
 import { restartToUpdate } from "./app/updateManager";
 import { useUpdate } from "./app/useUpdate";
@@ -13,6 +14,7 @@ import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
 import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
+import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useSettings } from "./app/useSettings";
@@ -109,6 +111,10 @@ function App() {
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);
+  // Skills housekeeping: drop dead workspaces' derived skill dirs at boot
+  // and on every close. Never while restoring/frozen — an unhydrated deck
+  // reads as "no workspaces" and would sweep the live dirs too.
+  useSkillsPrune(deck.workspaces, !restoring && !frozen);
   const [frozenAck, setFrozenAck] = useState(false);
   // Per-install spawn-plan constants (bridge inbox, reporter activation) — the
   // deck's first paint waits for it ([F7]/[F8] session identity v2).
@@ -149,6 +155,8 @@ function App() {
   // a plugin's `openSettings`. When a plugin opens it, the target section id
   // rides along so the dialog lands on that plugin's page.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The shared-skills library editor ([skills]) — opened from the top bar.
+  const [skillsOpen, setSkillsOpen] = useState(false);
   // Which section the dialog opens on: the gear opens the first section, the
   // top bar's update chip jumps to Updates, and a plugin's `settings.open`
   // command jumps to that plugin's page.
@@ -279,7 +287,7 @@ function App() {
     frozen && !frozenAck ? frozen : null,
   ];
   const dialogOpen = transactions.some((t) => t !== null);
-  const modalOpen = showForm || dialogOpen || settingsOpen;
+  const modalOpen = showForm || dialogOpen || settingsOpen || skillsOpen;
   // The single "can add an agent" rule — a workspace is active, room under the
   // cap, and nothing modal is up. Both the ⌘T hotkey and the + Agent button
   // gate on this so they can't diverge (the button used to ignore modals).
@@ -370,8 +378,9 @@ function App() {
       // The create form is a passive surface, not a transaction — settings
       // open over it (on first run the form is the only screen there is, so
       // blocking would make settings unreachable). Its Esc yields while the
-      // settings dialog is on top.
-      if (dialogOpen || settingsOpen) return;
+      // settings dialog is on top. The Skills dialog DOES block: stacking
+      // Settings over it would give one Escape two layers to peel.
+      if (dialogOpen || settingsOpen || skillsOpen) return;
       setSettingsSection(undefined);
       setSettingsOpen(true);
     },
@@ -602,6 +611,17 @@ function App() {
           <button
             type="button"
             className="bar__icon"
+            onClick={() => setSkillsOpen(true)}
+            // Same modal etiquette as the gear: one dialog at a time.
+            disabled={dialogOpen || settingsOpen || skillsOpen}
+            title="Skills"
+            aria-label="Open skills"
+          >
+            <SkillsIcon />
+          </button>
+          <button
+            type="button"
+            className="bar__icon"
             onClick={() => {
               setSettingsSection(undefined);
               setSettingsOpen(true);
@@ -609,7 +629,7 @@ function App() {
             // Mirrors the ⌘, guard. The create form does NOT disable this:
             // on first run it's the only screen, and settings must stay
             // reachable over it (e.g. to pick the default agent first).
-            disabled={dialogOpen || settingsOpen}
+            disabled={dialogOpen || settingsOpen || skillsOpen}
             title="Settings"
             aria-label="Open settings"
           >
@@ -682,7 +702,7 @@ function App() {
                   // Esc must peel one layer at a time: while the settings
                   // dialog is above this form, the form's own Esc yields
                   // (an undefined onCancel also hides the covered button).
-                  onCancel={settingsOpen ? undefined : () => setCreating(false)}
+                  onCancel={settingsOpen || skillsOpen ? undefined : () => setCreating(false)}
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
                 />
@@ -756,6 +776,13 @@ function App() {
             />
           )}
 
+          {skillsOpen && (
+            <SkillsDialog
+              activeWs={active ? { id: active.id, name: active.name } : null}
+              onClose={() => setSkillsOpen(false)}
+            />
+          )}
+
           {closeFlow.closing && (
             <ConfirmDialog
               title={
@@ -816,6 +843,26 @@ function App() {
           independent of the dock. What they render is theirs. */}
       <PluginOverlays />
     </div>
+  );
+}
+
+function SkillsIcon() {
+  // An open book — the skills library.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z" />
+      <path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" />
+    </svg>
   );
 }
 

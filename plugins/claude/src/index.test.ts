@@ -44,6 +44,36 @@ describe("claude plugin hooks", () => {
     expect(out.args).toHaveLength(2);
   });
 
+  it("staged skills load as a local plugin via --plugin-dir", async () => {
+    const agent = activate("/App/resources/kd-session-hook.sh");
+    const skills = {
+      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
+      opencodeConfigDir: "/kd/staging/ws-1/opencode",
+      skillsDir: "/kd/staging/ws-1/skills",
+    };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, skills }, spawn);
+    expect(spawn.args.slice(2)).toEqual([
+      "--plugin-dir",
+      "/kd/staging/ws-1/claude-plugin",
+    ]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...input, skills, sessionId: "s" }, resume);
+    expect(resume.args.slice(2)).toEqual([
+      "--plugin-dir",
+      "/kd/staging/ws-1/claude-plugin",
+      "--resume",
+      "s",
+    ]);
+
+    // No skills staged — the flag must not appear at all.
+    const bare = output();
+    await agent.hooks["spawn.plan"]!(input, bare);
+    expect(bare.args).not.toContain("--plugin-dir");
+  });
+
   it("resume reuses the recorded id and keeps the reporter armed", async () => {
     const agent = activate("/App/resources/kd-session-hook.sh");
     const out = output();

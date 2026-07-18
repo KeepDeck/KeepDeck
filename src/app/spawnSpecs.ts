@@ -10,10 +10,11 @@ import {
   type SpawnPlan,
   type SpawnPlanContext,
 } from "../domain/agents";
-import { paneAgentType, type Workspace } from "../domain/deck";
+import { paneAgentType, skillRootsOf, type Workspace } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { mintBridgeToken } from "./ids";
 import { postbackCount } from "./postbacks";
+import { stagedSkillsFor } from "./skillsStaging";
 import type { PluginManager } from "./pluginManager";
 import { useAppRuntime } from "./runtimeContext";
 import { execCovers } from "../plugins/capabilities/execCovers";
@@ -78,7 +79,14 @@ async function buildAndCache(
 
 /** The pane-side facts a plan is built from — the hook input's shape minus
  * the resume session (that arrives with the resume request, not the pane). */
-export type PaneSpawnFacts = SpawnPlanInput;
+export interface PaneSpawnFacts extends SpawnPlanInput {
+  /** Every spawn cwd of the WORKSPACE's panes — staging arms each with the
+   * codex-facing `.agents/skills` symlink ("skills live in the launched
+   * CLI's cwd, period"). Workspace-level data riding on pane facts so every
+   * build path feeds the same staging call (and kept OFF the hook input:
+   * `base` below lists its fields explicitly). */
+  wsSkillRoots?: string[];
+}
 
 /** Build one plan through the agent's hook; a throwing hook degrades to a
  * bare spawn (no identity) rather than a dead pane. */
@@ -98,13 +106,24 @@ async function buildPlan(
     command: entry.detect.bin,
     args: [],
     env: [],
+    envDefaults: [],
   };
+  // Staged shared skills are a host fact like the bridge — but delivered as
+  // hook INPUT, because loading them is per-CLI dialect (a flag here, an env
+  // var there), and dialects are exactly what hooks own. The full workspace
+  // REF goes in: the memo keys on the never-reused instance (see
+  // skillsStaging), the disk on the durable id.
+  const skills = await stagedSkillsFor(
+    facts.workspace,
+    facts.wsSkillRoots ?? [],
+  );
   const base: SpawnPlanInput = {
     paneId,
     workspace: facts.workspace,
     cwd: facts.cwd,
     ...(facts.branch ? { branch: facts.branch } : {}),
     ...(facts.yolo ? { yolo: true } : {}),
+    ...(skills ? { skills } : {}),
   };
   try {
     if (resumeId) {
@@ -141,6 +160,7 @@ async function buildPlan(
       output.command = entry.detect.bin;
       output.args = [];
       output.env = [];
+      output.envDefaults = [];
     }
   }
   // Bridge arming is host business: reporters read this var; hooks only
@@ -164,6 +184,7 @@ async function buildPlan(
     command: output.command,
     args: output.args,
     env,
+    ...(output.envDefaults?.length ? { envDefaults: output.envDefaults } : {}),
     ...(token ? { token } : {}),
     ...(resumeId && resumeOrigin
       ? {
@@ -251,6 +272,7 @@ export function usePaneSpawnSpecs(
     if (!ctx || !agentsReady) return;
     let alive = true;
     for (const ws of workspaces) {
+      const wsSkillRoots = skillRootsOf(ws);
       for (const pane of ws.panes) {
         if (pane.dormant || pane.provisioning) continue;
         if (specs.has(pane.id) || pending.has(pane.id)) continue;
@@ -266,6 +288,7 @@ export function usePaneSpawnSpecs(
               cwd: pane.cwd ?? ws.cwd,
               branch: pane.branch,
               yolo: pane.yolo,
+              wsSkillRoots,
             },
             ctx,
           ),

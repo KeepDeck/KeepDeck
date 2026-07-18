@@ -4,6 +4,7 @@ import {
   findWorkspace,
   findWorkspaceByRef,
   paneAgentType,
+  skillRootsOf,
   type Workspace,
 } from "../domain/deck";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
@@ -86,6 +87,10 @@ export function useAgentRestart(
     // Remove the old token immediately, then prepare a plan that explicitly
     // stays exited if the CLI rejects its id (manual means no auto fallback).
     dropPaneSpawnSpec(target.paneId);
+    const targetWs = findWorkspaceByRef(
+      deckRef.current.workspaces,
+      target.workspace,
+    );
     const planBuilt = await buildResumeSpec(
       plugins,
       target.agentType,
@@ -95,6 +100,7 @@ export function useAgentRestart(
         cwd: target.cwd,
         branch: target.branch,
         yolo: target.yolo,
+        ...(targetWs ? { wsSkillRoots: skillRootsOf(targetWs) } : {}),
       },
       spawnCtx,
       target.sessionId,

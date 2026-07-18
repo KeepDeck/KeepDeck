@@ -18,13 +18,20 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
 /// Request DTO for [`session_spawn`]. `command` defaults to the user's shell.
+/// camelCase like every multi-word wire DTO: Tauri's own case conversion
+/// covers command PARAMETER names only — struct FIELDS are raw serde, and a
+/// missing rename here once made `envDefaults` silently deserialize to an
+/// empty default (opencode skills died without a single error).
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SpawnSpec {
     pub command: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
     pub env: Vec<(String, String)>,
+    #[serde(default)]
+    pub env_defaults: Vec<(String, String)>,
     pub cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
@@ -158,6 +165,7 @@ pub fn session_spawn(
         command,
         args: spec.args,
         env: spec.env,
+        env_defaults: spec.env_defaults,
         cwd: spec.cwd.map(PathBuf::from),
         size: TermSize {
             cols: spec.cols,
@@ -227,6 +235,45 @@ pub fn session_close(registry: State<SessionRegistry>, id: String) -> Result<(),
 mod tests {
     use super::*;
     use keepdeck_pty::ExitInfo;
+
+    /// The webview sends camelCase keys; the FIELD names are raw serde (no
+    /// Tauri conversion) — this pins the wire shape end to end, especially
+    /// the multi-word `envDefaults`. MIRROR: src/ipc/session.test.ts pins
+    /// the same shape from the sending side — change both together.
+    #[test]
+    fn spawn_spec_deserializes_the_webviews_camel_case_wire() {
+        let spec: SpawnSpec = serde_json::from_str(
+            r#"{
+                "command": "opencode",
+                "args": ["-s", "x"],
+                "env": [["A", "1"]],
+                "envDefaults": [["OPENCODE_CONFIG_DIR", "/kd/opencode/ws-1"]],
+                "cwd": "/repo",
+                "cols": 80,
+                "rows": 24
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            spec.env_defaults,
+            vec![("OPENCODE_CONFIG_DIR".to_string(), "/kd/opencode/ws-1".to_string())],
+        );
+        // And the snake_case spelling must NOT be accepted silently.
+        let wrong: SpawnSpec = serde_json::from_str(
+            r#"{"command": null, "args": [], "env": [],
+                "env_defaults": [["K", "V"]], "cwd": null, "cols": 1, "rows": 1}"#,
+        )
+        .unwrap_or_else(|_| SpawnSpec {
+            command: None,
+            args: vec![],
+            env: vec![],
+            env_defaults: vec![],
+            cwd: None,
+            cols: 1,
+            rows: 1,
+        });
+        assert!(wrong.env_defaults.is_empty());
+    }
 
     #[test]
     fn explicit_command_wins() {

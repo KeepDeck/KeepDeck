@@ -11,6 +11,7 @@ fn spec(command: &str, args: &[&str]) -> PtySpec {
         command: command.to_string(),
         args: args.iter().map(|s| s.to_string()).collect(),
         env: Vec::new(),
+        env_defaults: Vec::new(),
         cwd: None,
         size: TermSize::default(),
     }
@@ -146,3 +147,4 @@ fn missing_command_is_handled() {
         }
     }
 }
+

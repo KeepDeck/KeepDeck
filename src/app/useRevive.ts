@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentInfo, SpawnPlanContext } from "../domain/agents";
-import { findWorkspace, paneAgentType, type Pane } from "../domain/deck";
+import { findWorkspace, paneAgentType, skillRootsOf, type Pane } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
 import { buildResumeSpec } from "./spawnSpecs";
@@ -105,6 +105,7 @@ export function useRevive(
             cwd: dir,
             branch: pane.branch,
             yolo: pane.yolo,
+            wsSkillRoots: skillRootsOf(active),
           },
           ctxRef.current,
           sessionId,

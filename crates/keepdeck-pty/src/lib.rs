@@ -51,6 +51,11 @@ pub struct PtySpec {
     pub args: Vec<String>,
     /// Extra environment for the child, on top of the inherited environment.
     pub env: Vec<(String, String)>,
+    /// Environment DEFAULTS: applied only when the key is absent from the
+    /// inherited environment, so a value the user set themselves (shell
+    /// profile, launchctl) is never silently overridden. Applied before
+    /// `env`, which always wins.
+    pub env_defaults: Vec<(String, String)>,
     /// Working directory; defaults to the host process's cwd when `None`.
     pub cwd: Option<PathBuf>,
     /// Initial terminal size.
@@ -64,6 +69,7 @@ impl PtySpec {
             command: command.into(),
             args: Vec::new(),
             env: Vec::new(),
+            env_defaults: Vec::new(),
             cwd: None,
             size,
         }
@@ -142,6 +148,11 @@ impl PtySession {
         // treat text as MacRoman and garble every non-ASCII copy.
         if let Some(lang) = keepdeck_env::utf8_lang() {
             cmd.env("LANG", lang);
+        }
+        for (key, value) in &spec.env_defaults {
+            if std::env::var_os(key).is_none() {
+                cmd.env(key, value);
+            }
         }
         for (key, value) in &spec.env {
             cmd.env(key, value);

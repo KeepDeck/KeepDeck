@@ -52,6 +52,7 @@ fn spawn_sh(script: &str) -> (PtySession, Receiver<PtyEvent>) {
         command: "/bin/sh".into(),
         args: vec!["-c".into(), script.into()],
         env: Vec::new(),
+        env_defaults: Vec::new(),
         cwd: None,
         size: TermSize::default(),
     })
