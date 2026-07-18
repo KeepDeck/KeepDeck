@@ -120,7 +120,9 @@ pub struct RemoveSpec {
     /// provenance — see `keepdeck_git::provenance`): the close dialog's delete
     /// intent covers the agent's side branches, not just the tracked one. A
     /// created branch that meanwhile moved to another worktree is in use, not
-    /// litter, and is kept.
+    /// litter, and is kept. Designed for FORCED closes — the one product
+    /// caller always sends `force` — since a non-force reap surfaces safe
+    /// `-d` refusals for every unmerged side branch.
     #[serde(default)]
     pub reap_created_branches: bool,
 }
@@ -456,44 +458,49 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
 /// message for every branch that resisted — one stubborn branch must not hide
 /// the rest.
 ///
-/// An extra that moved on to ANOTHER worktree since its birth here is in use,
-/// not litter — deleting (or failing loudly) would both be wrong, so it's kept
-/// with only a log line. When the adoption info itself is unavailable
-/// (`worktree list` failed) EVERY extra is kept for the same reason; only the
-/// tracked branch — explicit close intent — is still attempted, which is
-/// exactly the pre-reap contract.
+/// A branch that some OTHER worktree now holds is in use, not litter —
+/// deleting (or failing loudly) would both be wrong, so it's kept with only a
+/// log line. That in-use info comes from `worktree list`, consulted only when
+/// extras exist, with three deliberate consequences: with no extras the
+/// tracked branch is always attempted, exactly the pre-reap contract (a
+/// held tracked branch fails loudly there); with extras present the keep
+/// guard shields the tracked branch too; and when the list itself fails,
+/// every extra is kept unswept while the tracked branch is still attempted.
 fn reap_branches(
     repo_path: &Path,
     primary: Option<&str>,
     created: &[String],
     force: bool,
 ) -> Vec<String> {
-    let extras: Vec<&str> = created
+    let mut extras: Vec<&str> = created
         .iter()
         .map(String::as_str)
         .filter(|b| Some(*b) != primary)
         .collect();
-    let adopted: Option<HashSet<String>> = if extras.is_empty() {
-        Some(HashSet::new())
+    let adopted: HashSet<String> = if extras.is_empty() {
+        HashSet::new()
     } else {
         match worktree::list(repo_path) {
-            Ok(list) => Some(list.into_iter().filter_map(|w| w.branch).collect()),
+            Ok(list) => list.into_iter().filter_map(|w| w.branch).collect(),
             Err(e) => {
+                // Without the in-use info, sweeping extras could hit an
+                // adopted branch; keep them all and sweep only the tracked
+                // branch, unguarded — the pre-reap contract.
                 log::warn!(
                     "worktree: can't tell which branches are in use in {} ({e}); \
                      keeping {} created branch(es)",
                     repo_path.display(),
                     extras.len()
                 );
-                None
+                extras.clear();
+                HashSet::new()
             }
         }
     };
-    let extra_sweep: &[&str] = if adopted.is_some() { &extras } else { &[] };
 
     let mut failures = Vec::new();
-    for branch in primary.iter().copied().chain(extra_sweep.iter().copied()) {
-        if adopted.as_ref().is_some_and(|set| set.contains(branch)) {
+    for branch in primary.iter().copied().chain(extras) {
+        if adopted.contains(branch) {
             log::warn!(
                 "worktree: branch '{branch}' is checked out in another worktree of {}; keeping it",
                 repo_path.display()
@@ -925,8 +932,9 @@ mod tests {
     #[test]
     fn remove_with_reap_recovers_branches_of_an_externally_deleted_worktree() {
         // The dir vanished behind KeepDeck's back, but the admin record still
-        // holds the provenance until prune — the reap must ride the same
-        // fallthrough that already saves the registration and tracked branch.
+        // holds the provenance until prune — the reap must survive the same
+        // external deletion that the registration/tracked-branch fallthrough
+        // (a distinct, older mechanism in remove_worktree) already handles.
         let (repo, wt, branch) = repo_with_worktree("reap-gone");
         git(&wt, &["switch", "-q", "-c", "kd/side-branch"]);
         git(&wt, &["switch", "-q", &branch]);
