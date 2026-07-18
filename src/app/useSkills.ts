@@ -15,7 +15,7 @@ import {
   saveSkill,
   type StoredSkill,
 } from "../ipc/skills";
-import { describeError } from "../ipc/log";
+import { describeError, log } from "../ipc/log";
 import { invalidateSkillsStaging } from "./skillsStaging";
 
 export interface SkillsLibrary {
@@ -50,7 +50,14 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
 
   const refresh = useCallback(async () => {
     invalidateSkillsStaging();
-    setSkills(await listSkills());
+    try {
+      setSkills(await fetchSkills());
+    } catch (e) {
+      // The operation itself succeeded; only the re-read failed. Keep the
+      // stale list — blanking it right after a successful write reads as
+      // data loss (the same rule the failed-save path follows).
+      log.warn("web:skills", `library reload failed; keeping the stale list: ${describeError(e)}`);
+    }
     setError(null);
   }, []);
 

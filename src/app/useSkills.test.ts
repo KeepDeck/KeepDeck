@@ -79,9 +79,33 @@ describe("the skills library hook", () => {
       "deploy",
       "---\nname: deploy\ndescription: Ships it\nlicense: MIT\n---\nSteps\n",
     );
-    // The spawn side re-stages on the next spawn, and the list is fresh.
+    // The spawn side re-stages on the next spawn, and the list is fresh —
+    // via the STRICT read, so a transient error keeps the stale list
+    // instead of blanking a library the user just successfully wrote to.
     expect(staging.invalidateSkillsStaging).toHaveBeenCalledTimes(1);
-    expect(wire.listSkills).toHaveBeenCalledTimes(2);
+    expect(wire.fetchSkills).toHaveBeenCalledTimes(1);
+    expect(wire.listSkills).toHaveBeenCalledTimes(1); // the initial load only
+  });
+
+  it("a successful save whose reload fails keeps the stale list too", async () => {
+    wire.listSkills.mockResolvedValue([
+      { scope: "global", wsId: null, name: "review", content: "x" },
+    ]);
+    await mount();
+    expect(lib.skills).toHaveLength(1);
+
+    wire.fetchSkills.mockRejectedValueOnce(new Error("transient"));
+    let ok = false;
+    await act(async () => {
+      ok = await lib.save(
+        { kind: "global" },
+        { name: "x", description: "d", body: "", extraFrontmatter: [] },
+      );
+    });
+
+    expect(ok).toBe(true); // the write itself landed
+    expect(lib.skills).toHaveLength(1); // stale beats blank
+    expect(lib.error).toBeNull();
   });
 
   it("a failed save surfaces the error and does NOT invalidate staging", async () => {

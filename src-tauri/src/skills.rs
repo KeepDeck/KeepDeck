@@ -37,8 +37,17 @@
 //! exclude). A symlink pointing into KeepDeck's home is provably OURS — a
 //! real directory there is the user's and is never touched.
 //!
+//! Every cwd armed with a symlink is recorded in an `armed/<wsId>` manifest —
+//! stage is its only writer, prune its only reader — so a workspace that
+//! dies in a crash can still be disarmed at the next boot. A cwd claimed by
+//! another (possibly dead-but-unpruned) manifest is spared; a link spared on
+//! a DEAD claimer's account stays dangling until boot prune — bounded
+//! staleness, accepted.
+//!
 //! Frontmatter and schema knowledge stay in TS (`src/domain/skills`), next to
-//! the model; this adapter only moves bytes: list, save, delete, stage.
+//! the model; this adapter moves bytes — list, save, delete, stage — plus ONE
+//! pinned single-line exception: `frontmatter_line` lifts `description:` for
+//! the generated opencode command (coupling pinned on both language sides).
 
 use serde::Serialize;
 use std::collections::HashMap;
@@ -362,15 +371,15 @@ fn stage(
     for (name, source, content) in &sources {
         // A source deleted between collection and here is SKIPPED outright —
         // re-materializing it from the collected bytes would resurrect a
-        // deleted skill for one stage. (An empty dest dir from an earlier
-        // view iteration is harmless: a dir without SKILL.md is not a skill
-        // to any CLI, and the next stage drops it.)
-        let mut present = true;
-        for view in [
+        // deleted skill for one stage. Views copied BEFORE the vanish are
+        // wiped too, so no view carries the ghost the later ones dropped.
+        let views = [
             claude_plugin.join("skills"),
             tmp.join("skills"),
             opencode_tmp.clone(),
-        ] {
+        ];
+        let mut present = true;
+        for view in &views {
             let dest = view.join(name);
             if !copy_dir(source, &dest)? {
                 present = false;
@@ -383,6 +392,9 @@ fn stage(
             write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
         }
         if !present {
+            for view in &views {
+                let _ = fs::remove_dir_all(view.join(name));
+            }
             continue;
         }
         // The user-facing half of the opencode view: a /name command whose

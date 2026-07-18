@@ -28,7 +28,12 @@ pub struct OwningRepo {
 /// Resolve the repo owning `path` by walking ancestors for a `.git` entry —
 /// a directory (ordinary checkout) or a file (`gitdir:` pointer of a linked
 /// worktree, whose gitdir may carry a `commondir` back-pointer to the main
-/// `.git`). `None` when no ancestor is a git checkout.
+/// `.git`). `None` when no ancestor is a git checkout. An ancestor that is
+/// itself a regular FILE makes the `.git` read fail with ENOTDIR, which
+/// propagates as an error rather than walking past — unreachable for real
+/// cwds (every ancestor of a directory is a directory), deliberate for the
+/// degenerate case: resolving PAST a broken component could land in the
+/// wrong parent repo.
 pub fn owning_repo(path: &Path) -> io::Result<Option<OwningRepo>> {
     for ancestor in path.ancestors() {
         let dotgit = ancestor.join(".git");
