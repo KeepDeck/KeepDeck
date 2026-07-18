@@ -57,6 +57,29 @@ describe("compose/parse round-trip", () => {
     }
   });
 
+  it("quotes YAML-reserved and numeric-looking scalars so real parsers keep strings", () => {
+    // Our regex round-trip can't tell — but the CLIs parse this frontmatter
+    // with real YAML parsers, where bare true/null/123 stop being strings.
+    for (const value of ["true", "False", "null", "~", "123", "3.14", "-5", "1e3", "no"]) {
+      const file = composeSkillFile({
+        name: "x",
+        description: value,
+        body: "b",
+        extraFrontmatter: [],
+      });
+      expect(file, value).toContain(`description: "${value}"`);
+      expect(parseSkillFile(file).description, value).toBe(value);
+    }
+    // An ordinary sentence stays unquoted — no needless churn.
+    const plain = composeSkillFile({
+      name: "x",
+      description: "Ships the release",
+      body: "b",
+      extraFrontmatter: [],
+    });
+    expect(plain).toContain("description: Ships the release");
+  });
+
   it("preserves hand-added frontmatter lines a form save must not eat", () => {
     const stored =
       "---\nname: deploy\ndescription: Ships it\nallowed-tools: Bash\nlicense: MIT\n---\nBody\n";

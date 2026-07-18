@@ -670,7 +670,10 @@ fn opencode_command(name: &str, content: &str, staged_skill: &Path) -> String {
 /// scalars, this lift breaks — the pin test below and the note on the TS
 /// validator mark the contract on both sides.
 fn frontmatter_line(content: &str, key: &str) -> Option<String> {
-    let rest = content.strip_prefix("---\n")?;
+    // CRLF-tolerant like the TS parser (the coupling pin's other side): a
+    // hand-edited Windows-style file must not lose its description here.
+    let normalized = content.replace("\r\n", "\n");
+    let rest = normalized.strip_prefix("---\n")?;
     let fence = rest.find("\n---\n")?;
     rest[..fence].lines().find_map(|line| {
         line.strip_prefix(key)?
@@ -1142,6 +1145,11 @@ mod tests {
         );
         let command = opencode_command("x", content, Path::new("/staged/SKILL.md"));
         assert!(command.starts_with("---\ndescription: \"Use when: it's risky\"\n---\n"));
+
+        // CRLF row of the pin: the lift must read Windows-style files the
+        // way the TS parser does, not return an empty description.
+        let crlf = "---\r\nname: x\r\ndescription: Ships it\r\n---\r\nB\r\n";
+        assert_eq!(frontmatter_line(crlf, "description").as_deref(), Some("Ships it"));
     }
 
     #[test]

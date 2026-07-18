@@ -88,9 +88,20 @@ function frontmatterBlock(content: string): { lines: string[]; body: string } | 
   };
 }
 
-/** Quote a value only when YAML would misread it plain. */
+/** Quote a value only when YAML would misread it plain. Beyond the risky
+ * characters, YAML's core schema turns bare `true`/`null`/`123`-style
+ * scalars into booleans/numbers — real CLIs parse this frontmatter with
+ * real YAML parsers, so those must be quoted to stay strings (our own
+ * regex round-trip would never notice). */
 function scalar(value: string): string {
-  const risky = value === "" || /[:#"'\\{}[\],&*?|<>=!%@`]/.test(value) || /^\s|\s$|^-/.test(value);
+  const reserved = /^(?:true|false|null|yes|no|on|off|~)$/i.test(value);
+  const numeric = /^[+-]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value);
+  const risky =
+    value === "" ||
+    reserved ||
+    numeric ||
+    /[:#"'\\{}[\],&*?|<>=!%@`]/.test(value) ||
+    /^\s|\s$|^-/.test(value);
   return risky ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value;
 }
 
