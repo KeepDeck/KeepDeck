@@ -61,6 +61,15 @@ describe("hydrateSettings", () => {
     );
   });
 
+  it("serializes usageDisplay only when it left the default", () => {
+    const doc = hydrateSettings('{"usageDisplay":"left"}')!;
+    expect(JSON.parse(serializeSettings(doc)).usageDisplay).toBe("left");
+    const untouched = hydrateSettings("{}")!;
+    expect(JSON.parse(serializeSettings(untouched))).not.toHaveProperty(
+      "usageDisplay",
+    );
+  });
+
   it("defaults deckLayout to grid and minimizeStyle to tray when absent", () => {
     const s = hydrateSettings("{}")?.settings;
     expect(s?.deckLayout).toBe("grid");

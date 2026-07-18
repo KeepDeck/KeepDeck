@@ -1,13 +1,56 @@
 import { describe, expect, it } from "vitest";
 import {
+  chipWindows,
   contextLevel,
   formatAge,
   formatCountdown,
   formatPct,
   limitLevel,
+  panelWindows,
   usageStale,
   windowLabel,
 } from "./format";
+import type { AccountUsage, UsageWindow } from "./usage";
+
+const account = (windows: UsageWindow[]): AccountUsage => ({
+  kind: "reported",
+  windows,
+  reportedAt: 0,
+  sourcePaneId: "",
+});
+
+const FIVE_H = { usedPct: 10, resetsAt: null, windowMinutes: 300 };
+const WEEKLY = { usedPct: 20, resetsAt: null, windowMinutes: 10_080 };
+const PLAN = { usedPct: 30, resetsAt: null, windowMinutes: null };
+const QUOTA = { usedPct: 40, resetsAt: null, windowMinutes: null, scope: "quota" };
+
+describe("chipWindows / panelWindows", () => {
+  it("gives the chip up to two account-wide windows, shortest first", () => {
+    expect(chipWindows(account([QUOTA, PLAN, WEEKLY, FIVE_H]))).toEqual([
+      FIVE_H,
+      WEEKLY,
+    ]);
+    expect(chipWindows(account([PLAN]))).toEqual([PLAN]);
+  });
+
+  it("gives the panel everything, scoped windows last", () => {
+    expect(panelWindows(account([QUOTA, WEEKLY, FIVE_H]))).toEqual([
+      FIVE_H,
+      WEEKLY,
+      QUOTA,
+    ]);
+  });
+
+  it("yields nothing for a non-reported account", () => {
+    const unavailable: AccountUsage = {
+      kind: "unavailable",
+      reason: "api-key",
+      reportedAt: 0,
+    };
+    expect(chipWindows(unavailable)).toEqual([]);
+    expect(panelWindows(unavailable)).toEqual([]);
+  });
+});
 
 describe("levels", () => {
   it("account windows go amber at 60 and red at 80", () => {

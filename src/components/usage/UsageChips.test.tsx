@@ -51,11 +51,17 @@ const limitsReport = (usedPct: number): { agent: string; result: NormalizedUsage
   },
 });
 
-const unavailableReport = (): { agent: string; result: NormalizedUsage } => ({
+const paneReport = (): { agent: string; result: NormalizedUsage } => ({
   agent: "claude",
   result: {
-    account: { kind: "unavailable", reason: "api-key", reportedAt: 0 },
-    pane: null,
+    account: null,
+    pane: {
+      agent: "claude",
+      model: "Opus",
+      context: { usedPct: 62 },
+      costUsd: 4.128,
+      reportedAt: 0,
+    },
   },
 });
 
@@ -87,8 +93,10 @@ describe("UsageChips", () => {
     vi.useRealTimers();
   });
 
-  const render = () =>
-    act(() => root.render(createElement(UsageChips, { agents: [CLAUDE] })));
+  const render = (paneNames: ReadonlyMap<string, string> = new Map()) =>
+    act(() =>
+      root.render(createElement(UsageChips, { agents: [CLAUDE], paneNames })),
+    );
 
   it("renders nothing before the first report", () => {
     render();
@@ -113,12 +121,26 @@ describe("UsageChips", () => {
     expect(host.querySelector(".usage-level--critical")).not.toBeNull();
   });
 
-  it("dims an API-key account to --", () => {
-    reportUsage("pane-1", unavailableReport(), AT);
+  it("renders no chip for a provider without a REPORTED account", () => {
+    // Pane-only data (tokens/context) is not an account claim — the chip
+    // waits for windows; the contract's "unavailable" arm has no producer.
+    reportUsage("pane-1", paneReport(), AT);
     render();
-    const chip = host.querySelector(".usage-chip")!;
-    expect(chip.className).toContain("usage-chip--dim");
-    expect(chip.textContent).toContain("--");
+    expect(host.querySelector(".usage-chip")).toBeNull();
+  });
+
+  it("lists live session rows in the panel", () => {
+    reportUsage("pane-1", limitsReport(42), AT);
+    reportUsage("pane-1", paneReport(), AT);
+    render(new Map([["pane-1", "auth-refactor"]]));
+    act(() => {
+      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+    });
+    const row = host.querySelector(".usage-session")!;
+    expect(row.textContent).toContain("auth-refactor");
+    expect(row.textContent).toContain("Opus");
+    expect(row.textContent).toContain("ctx 62%");
+    expect(row.textContent).toContain("$4.13");
   });
 
   it("marks stale data instead of showing confident numbers", () => {
@@ -133,10 +155,12 @@ describe("UsageChips", () => {
   it("opens the panel with countdowns and flips the display setting", () => {
     reportUsage("pane-1", limitsReport(42), AT);
     render();
+    const chip = host.querySelector(".usage-chip")!;
+    expect(chip.getAttribute("aria-controls")).toBe("usage-panel");
     act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+      (chip as HTMLButtonElement).click();
     });
-    const panel = host.querySelector(".usage-panel")!;
+    const panel = host.querySelector("#usage-panel")!;
     expect(panel.textContent).toContain("Claude Code");
     expect(panel.textContent).toContain("Updated now");
     expect(panel.textContent).toContain("resets in 2h 0m");

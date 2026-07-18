@@ -1,4 +1,4 @@
-import type { UsageWindow } from "./usage";
+import type { AccountUsage, UsageWindow } from "./usage";
 
 /**
  * Presentation rules for usage data — pure, time-injected. The chips stay
@@ -19,6 +19,28 @@ export function contextLevel(usedPct: number): UsageLevel {
   if (usedPct >= 90) return "critical";
   if (usedPct >= 75) return "warn";
   return "ok";
+}
+
+/** Account-wide windows for the CHIP: scoped windows stay in the panel,
+ * shortest window first, at most `max` — the chip is a glance, not a
+ * report. Product rules, so they live (and are tested) here, not in the
+ * component. */
+export function chipWindows(account: AccountUsage, max = 2): UsageWindow[] {
+  if (account.kind !== "reported") return [];
+  return [...account.windows]
+    .filter((w) => w.scope === undefined)
+    .sort((a, b) => (a.windowMinutes ?? Infinity) - (b.windowMinutes ?? Infinity))
+    .slice(0, max);
+}
+
+/** Every window for the PANEL, scoped ones after account-wide. */
+export function panelWindows(account: AccountUsage): UsageWindow[] {
+  if (account.kind !== "reported") return [];
+  return [...account.windows].sort(
+    (a, b) =>
+      Number(a.scope !== undefined) - Number(b.scope !== undefined) ||
+      (a.windowMinutes ?? Infinity) - (b.windowMinutes ?? Infinity),
+  );
 }
 
 /** The label a window earns from its LENGTH — never from field position

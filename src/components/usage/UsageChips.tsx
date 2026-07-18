@@ -2,10 +2,14 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type { AgentInfo } from "../../domain/agents";
 import { DEFAULT_SETTINGS, type UsageDisplay } from "../../domain/settings";
 import {
+  chipWindows,
+  contextLevel,
+  contextPct,
   formatAge,
   formatCountdown,
   formatPct,
   limitLevel,
+  panelWindows,
   usageStale,
   windowExpired,
   windowLabel,
@@ -18,36 +22,18 @@ import { useUsage } from "../../app/useUsage";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 
 /**
- * The top-bar usage cluster: one chip per provider with account state,
- * calm by default — color only at the 60/80 thresholds. Clicking any chip
- * opens one anchored panel (the bell's manners) detailing every provider's
- * windows with client-side reset countdowns; idle panes stop reporting but
- * the clock keeps ticking from the absolute `resetsAt`.
+ * The top-bar usage cluster: one chip per provider with REPORTED account
+ * state, calm by default — color only at the 60/80 thresholds. Clicking
+ * any chip opens the one anchored panel (the bell's manners) detailing
+ * every provider's windows with client-side reset countdowns, plus the
+ * live per-pane session rows (model, context, cost). Idle panes stop
+ * reporting but the countdown clocks keep ticking from the absolute
+ * `resetsAt`.
  *
- * A provider without state contributes NO chip — the cluster is invisible
- * until the first report lands.
+ * A provider without reported state contributes NO chip — the cluster is
+ * invisible until the first report lands. Which windows a chip shows (and
+ * in what order) is domain policy: [`chipWindows`]/[`panelWindows`].
  */
-
-/** Account-wide windows, shortest first — the chip shows up to two;
- * model-scoped windows appear only in the panel. */
-function accountWindows(account: AccountUsage): UsageWindow[] {
-  if (account.kind !== "reported") return [];
-  return [...account.windows]
-    .filter((w) => w.scope === undefined)
-    .sort(
-      (a, b) => (a.windowMinutes ?? Infinity) - (b.windowMinutes ?? Infinity),
-    );
-}
-
-/** Every window for the panel, scoped ones after account-wide. */
-function panelWindows(account: AccountUsage): UsageWindow[] {
-  if (account.kind !== "reported") return [];
-  return [...account.windows].sort(
-    (a, b) =>
-      Number(a.scope !== undefined) - Number(b.scope !== undefined) ||
-      (a.windowMinutes ?? Infinity) - (b.windowMinutes ?? Infinity),
-  );
-}
 
 function WindowValue({
   window,
@@ -60,13 +46,26 @@ function WindowValue({
 }) {
   const expired = windowExpired(window, now);
   const level = limitLevel(window.usedPct);
-  const cls =
-    expired || level === "ok" ? "" : ` usage-level--${level}`;
+  const cls = expired || level === "ok" ? "" : ` usage-level--${level}`;
   return (
     <span
       className={`usage-window__value${cls}${expired ? " usage-window--expired" : ""}`}
     >
       {formatPct(window.usedPct, display)}
+    </span>
+  );
+}
+
+function Bar({ window, now, row }: { window: UsageWindow; now: number; row?: boolean }) {
+  const level = limitLevel(window.usedPct);
+  return (
+    <span className={`usage-bar${row ? " usage-bar--row" : ""}`} aria-hidden>
+      <i
+        className={
+          windowExpired(window, now) || level === "ok" ? "" : `usage-level--${level}`
+        }
+        style={{ width: `${Math.round(window.usedPct)}%` }}
+      />
     </span>
   );
 }
@@ -87,49 +86,34 @@ function Chip({
   open: boolean;
 }) {
   const stale = usageStale(account.reportedAt, now);
-  const windows = accountWindows(account).slice(0, 2);
-  const title =
-    account.kind === "unavailable"
-      ? `${agent.label}: API-key billing — no plan windows`
-      : stale
-        ? `${agent.label}: showing data from ${formatAge(account.reportedAt, now)}`
-        : `${agent.label} usage`;
+  const windows = chipWindows(account);
+  const title = stale
+    ? `${agent.label}: showing data from ${formatAge(account.reportedAt, now)}`
+    : `${agent.label} usage`;
   return (
     <button
       type="button"
-      className={`usage-chip${stale || account.kind === "unavailable" ? " usage-chip--dim" : ""}`}
+      className={`usage-chip${stale ? " usage-chip--dim" : ""}`}
       onClick={onToggle}
       title={title}
       aria-expanded={open}
+      aria-controls="usage-panel"
     >
       <span className="usage-chip__glyph" aria-hidden>
         <AgentGlyph icon={agent.icon} />
       </span>
-      {account.kind === "unavailable" ? (
-        <span className="usage-chip__na">--</span>
-      ) : windows.length === 0 ? (
+      {windows.length === 0 ? (
         <span className="usage-chip__na">···</span>
       ) : (
         windows.map((window, i) => (
           <span key={i} className="usage-chip__win">
             <span className="usage-chip__label">{windowLabel(window)}</span>
-            {i === 0 && (
-              <span className="usage-bar" aria-hidden>
-                <i
-                  className={
-                    windowExpired(window, now) || limitLevel(window.usedPct) === "ok"
-                      ? ""
-                      : `usage-level--${limitLevel(window.usedPct)}`
-                  }
-                  style={{ width: `${Math.round(window.usedPct)}%` }}
-                />
-              </span>
-            )}
+            {i === 0 && <Bar window={window} now={now} />}
             <WindowValue window={window} display={display} now={now} />
           </span>
         ))
       )}
-      {stale && account.kind === "reported" && (
+      {stale && (
         <span className="usage-chip__stale" aria-hidden>
           ⚠
         </span>
@@ -138,8 +122,15 @@ function Chip({
   );
 }
 
-export function UsageChips({ agents }: { agents: AgentInfo[] }) {
-  const { accounts } = useUsage();
+export function UsageChips({
+  agents,
+  paneNames,
+}: {
+  agents: AgentInfo[];
+  /** Pane id → display title, for the panel's session rows. */
+  paneNames: ReadonlyMap<string, string>;
+}) {
+  const { accounts, panes } = useUsage();
   const settings = useSettings();
   const display = settings?.usageDisplay ?? DEFAULT_SETTINGS.usageDisplay;
   const [open, setOpen] = useState(false);
@@ -171,11 +162,14 @@ export function UsageChips({ agents }: { agents: AgentInfo[] }) {
     };
   }, [open]);
 
-  // Catalog order keeps the cluster stable; providers without state
-  // contribute nothing.
-  const providers = agents.filter((agent) => accounts.has(agent.id));
+  // Catalog order keeps the cluster stable; only REPORTED accounts earn a
+  // chip (the contract's "unavailable" arm has no producer today).
+  const providers = agents.filter(
+    (agent) => accounts.get(agent.id)?.kind === "reported",
+  );
   if (providers.length === 0) return null;
   const now = Date.now();
+  const sessions = [...panes.entries()].sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <span className="usage" ref={rootRef}>
@@ -191,7 +185,7 @@ export function UsageChips({ agents }: { agents: AgentInfo[] }) {
         />
       ))}
       {open && (
-        <div className="usage-panel" role="group" aria-label="Usage">
+        <div className="usage-panel" id="usage-panel" role="group" aria-label="Usage">
           <div className="usage-panel__head">
             <span className="usage-panel__title">Usage</span>
             <button
@@ -215,46 +209,68 @@ export function UsageChips({ agents }: { agents: AgentInfo[] }) {
                     Updated {formatAge(account.reportedAt, now)}
                   </span>
                 </div>
-                {account.kind === "unavailable" ? (
-                  <div className="usage-panel__na">
-                    API-key billing — no plan windows
-                  </div>
-                ) : (
-                  panelWindows(account).map((window, i) => {
-                    const expired = windowExpired(window, now);
-                    const countdown = formatCountdown(window.resetsAt, now);
-                    return (
-                      <div key={i} className="usage-window">
-                        <span className="usage-window__label">
-                          {windowLabel(window)}
-                        </span>
-                        <span className="usage-bar usage-bar--row" aria-hidden>
-                          <i
-                            className={
-                              expired || limitLevel(window.usedPct) === "ok"
-                                ? ""
-                                : `usage-level--${limitLevel(window.usedPct)}`
-                            }
-                            style={{ width: `${Math.round(window.usedPct)}%` }}
-                          />
-                        </span>
-                        <span className="usage-window__detail">
-                          <WindowValue window={window} display={display} now={now} />
-                          <small>
-                            {expired
-                              ? "reset passed · awaiting report"
-                              : countdown
-                                ? `resets in ${countdown}`
-                                : "reset unknown"}
-                          </small>
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
+                {panelWindows(account).map((window, i) => {
+                  const expired = windowExpired(window, now);
+                  const countdown = formatCountdown(window.resetsAt, now);
+                  return (
+                    <div key={i} className="usage-window">
+                      <span className="usage-window__label">
+                        {windowLabel(window)}
+                      </span>
+                      <Bar window={window} now={now} row />
+                      <span className="usage-window__detail">
+                        <WindowValue window={window} display={display} now={now} />
+                        <small>
+                          {expired
+                            ? "reset passed · awaiting report"
+                            : countdown
+                              ? `resets in ${countdown}`
+                              : "reset unknown"}
+                        </small>
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
+          {sessions.length > 0 && (
+            <div className="usage-panel__section">
+              <div className="usage-panel__provider">
+                <b>Sessions</b>
+                <span className="usage-panel__ago">live</span>
+              </div>
+              {sessions.map(([paneId, usage]) => {
+                const ctx = contextPct(usage.context);
+                return (
+                  <div key={paneId} className="usage-session">
+                    <span className="usage-session__name">
+                      {paneNames.get(paneId) || usage.model || usage.agent}
+                    </span>
+                    {usage.model && (
+                      <span className="usage-session__model">{usage.model}</span>
+                    )}
+                    <span className="usage-session__stats">
+                      {ctx !== undefined && (
+                        <span
+                          className={
+                            contextLevel(ctx) === "ok"
+                              ? ""
+                              : `usage-level--${contextLevel(ctx)}`
+                          }
+                        >
+                          ctx {Math.ceil(ctx)}%
+                        </span>
+                      )}
+                      {usage.costUsd !== undefined && (
+                        <span>${usage.costUsd.toFixed(2)}</span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </span>

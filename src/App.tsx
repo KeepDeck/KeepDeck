@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DeckStage } from "./components/DeckStage";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
@@ -66,6 +66,7 @@ import {
   findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
+  paneDisplayTitle,
   paneOnScreen,
   pathOccupancy,
   type SpawnConfig,
@@ -144,6 +145,16 @@ function App() {
   // Wire bridge usage reports into the usage store (single mount) and prune
   // pane usage as panes close; the chips read the store on their own.
   useUsageChannel(deck);
+  // Pane display titles for the usage panel's session rows.
+  const usagePaneNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const ws of deck.workspaces) {
+      ws.panes.forEach((pane, index) => {
+        names.set(pane.id, paneDisplayTitle(pane, index, agents));
+      });
+    }
+    return names;
+  }, [deck.workspaces, agents]);
   // Runtime git HEAD observations for pane badges and worktree close cleanup.
   const gitHeads = useGitHead(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).
@@ -572,7 +583,7 @@ function App() {
           )}
           {/* Provider limit chips — visible before the hand reaches for
               another agent; nothing renders until a first report lands. */}
-          <UsageChips agents={agents} />
+          <UsageChips agents={agents} paneNames={usagePaneNames} />
           <button
             type="button"
             className="bar__action"
