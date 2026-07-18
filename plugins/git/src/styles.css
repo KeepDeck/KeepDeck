@@ -475,8 +475,8 @@
   color: var(--kd-err);
 }
 
-/* The diff itself: two number gutters (old / new), a marker column, the line.
-   Sized to the widest line so long lines scroll horizontally; the gutters stay
+/* The diff itself: two number gutters (old / new), then the line. Sized to
+   the widest line so long lines scroll horizontally; the gutters stay
    pinned left through the scroll. */
 .git__diff {
   width: max-content;
@@ -522,28 +522,22 @@
   left: 40px;
 }
 
-.git__linemark {
-  flex: none;
-  width: 16px;
-  text-align: center;
-  user-select: none;
-  -webkit-user-select: none;
-  color: #6b7280;
-}
-
 .git__linetext {
   flex: 1 1 auto;
   color: #c5c8c6;
   white-space: pre;
-  padding-right: 16px;
+  /* The left gap stands in for the ± marker column the diff used to carry —
+     the tinted rows say what happened, the glyphs just repeated it. */
+  padding: 0 16px;
 }
 
 /* Add/del rows must read on dim panels and without hue perception, so the
-   signal is layered: a row wash, a stronger gutter tint — the gutters pin
-   through horizontal scroll, so they double as the row's always-visible
-   colored edge — and a bold ± mark in the -strong tone (the glyph itself
-   is the hue-free cue). Gutter mixes go over --kd-bg, never transparent:
-   a sticky gutter must stay opaque to cover the text scrolling under it. */
+   signal is layered: a row wash plus a stronger gutter tint — the gutters
+   pin through horizontal scroll, so they double as the row's always-visible
+   colored edge. Which gutter holds a number is the hue-free cue: dels keep
+   only the old number, adds only the new. Gutter mixes go over --kd-bg,
+   never transparent: a sticky gutter must stay opaque to cover the text
+   scrolling under it. */
 .git__diffrow--add {
   background-color: color-mix(in srgb, var(--kd-ok) 15%, transparent);
 }
@@ -553,11 +547,6 @@
   color: color-mix(in srgb, var(--kd-ok-strong) 60%, var(--kd-bg));
 }
 
-.git__diffrow--add .git__linemark {
-  color: var(--kd-ok-strong);
-  font-weight: 700;
-}
-
 .git__diffrow--del {
   background-color: color-mix(in srgb, var(--kd-err) 15%, transparent);
 }
@@ -565,11 +554,6 @@
 .git__diffrow--del .git__lineno {
   background-color: color-mix(in srgb, var(--kd-err) 18%, var(--kd-bg));
   color: color-mix(in srgb, var(--kd-err-strong) 60%, var(--kd-bg));
-}
-
-.git__diffrow--del .git__linemark {
-  color: var(--kd-err-strong);
-  font-weight: 700;
 }
 
 .git__diffrow--meta .git__linetext {

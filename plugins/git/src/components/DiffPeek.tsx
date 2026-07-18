@@ -162,9 +162,6 @@ export function DiffPeek({
                     <span className="git__lineno" aria-hidden>
                       {line.newNo ?? ""}
                     </span>
-                    <span className="git__linemark" aria-hidden>
-                      {line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}
-                    </span>
                     {/* A space keeps an empty line's row height under
                         white-space: pre. */}
                     <span className="git__linetext">
