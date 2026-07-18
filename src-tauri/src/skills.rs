@@ -45,22 +45,27 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use crate::state::write_atomic;
 
-/// One mutex per workspace id. Overlapping `stage()` calls for the SAME
-/// workspace share the `.tmp-<ws>` build dir and a multi-step swap — without
-/// serialization the loser can delete the winner's published staging and
-/// leave the workspace with no views and a dangling codex symlink. Commands
-/// run on plain pool threads (no await inside), so holding a std mutex for
-/// the duration is fine. A poisoned lock (a panicked stage) is recovered —
-/// the next stage rebuilds from scratch anyway.
-fn ws_lock(ws_id: &str) -> Arc<Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
-    let map = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut map = map.lock().unwrap_or_else(|p| p.into_inner());
-    map.entry(ws_id.to_string()).or_default().clone()
+/// Per-workspace locks that serialize `stage()`. Tauri managed state, the
+/// `RepoLocks` idiom: overlapping stagings for the SAME workspace share the
+/// `.tmp-<ws>` build dir and a multi-step swap — without serialization the
+/// loser can delete the winner's published staging and leave a dangling
+/// codex symlink. App-scoped (not a process static) so tests get isolated
+/// instances. A poisoned lock (a panicked stage) is recovered — the next
+/// stage rebuilds from scratch anyway.
+#[derive(Default, Clone)]
+pub struct SkillsLocks {
+    inner: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+}
+
+impl SkillsLocks {
+    fn for_ws(&self, ws_id: &str) -> Arc<Mutex<()>> {
+        let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        map.entry(ws_id.to_string()).or_default().clone()
+    }
 }
 
 const SKILL_FILE: &str = "SKILL.md";
@@ -147,12 +152,13 @@ pub fn skills_rename(
 /// `.agents/skills` symlink armed (or disarmed when empty).
 #[tauri::command(async)]
 pub fn skills_stage(
+    locks: tauri::State<'_, SkillsLocks>,
     ws_id: String,
     roots: Vec<String>,
 ) -> Result<Option<SkillStagingDto>, String> {
     let root = skills_root()?;
     require_safe(&ws_id, "workspace id")?;
-    stage(&root, &ws_id, &roots).map_err(|e| e.to_string())
+    stage(&locks, &root, &ws_id, &roots).map_err(|e| e.to_string())
 }
 
 /// Remove KeepDeck's `.agents/skills` symlinks from the given spawn cwds —
@@ -286,6 +292,7 @@ fn rename(scope_dir: &Path, from: &str, to: &str) -> io::Result<()> {
 }
 
 fn stage(
+    locks: &SkillsLocks,
     root: &Path,
     ws_id: &str,
     spawn_roots: &[String],
@@ -298,7 +305,7 @@ fn stage(
     let opencode_dir = root.join("opencode").join(ws_id);
 
     // Overlapping same-ws stagings share tmp dirs and the swap — serialize.
-    let lock = ws_lock(ws_id);
+    let lock = locks.for_ws(ws_id);
     let _staging = lock.lock().unwrap_or_else(|p| p.into_inner());
 
     let sources = collect_sources(&library, ws_id);
@@ -347,7 +354,13 @@ fn stage(
             tmp.join("skills"),
             opencode_tmp.clone(),
         ] {
-            copy_dir(source, &view.join(name))?;
+            let dest = view.join(name);
+            copy_dir(source, &dest)?;
+            // The staged SKILL.md is written from the content read at
+            // collection time — the same bytes the generated command's
+            // description came from. A save racing this loop can no longer
+            // make the staged file and its command diverge.
+            write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
         }
         // The user-facing half of the opencode view: a /name command whose
         // palette description is the skill's own, pointing the agent at the
@@ -510,7 +523,9 @@ fn arm_one(root: &Path, staged_skills: &Path, wt: &Path) -> io::Result<bool> {
 }
 
 /// Remove OUR symlinks (and a `.agents` dir they leave empty) from the
-/// given spawn cwds. Anything not provably ours stays.
+/// given spawn cwds, drop the matching `info/exclude` lines arming added,
+/// and update the armed manifests so they keep describing what is actually
+/// armed. Anything not provably ours stays.
 fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()> {
     for wt in spawn_roots {
         let agents = Path::new(wt).join(".agents");
@@ -520,11 +535,75 @@ fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()> {
                 fs::remove_file(&link)?;
                 // Only vanishes when the link was its sole content.
                 let _ = fs::remove_dir(&agents);
+                // Symmetry with ensure_excluded: the repo must not keep an
+                // ignore line for an arming that no longer exists.
+                if let Err(e) = remove_excluded(Path::new(wt)) {
+                    log::warn!("skills: exclude cleanup for {wt} failed: {e}");
+                }
             }
             _ => {}
         }
     }
+    drop_from_manifests(root, spawn_roots);
     Ok(())
+}
+
+/// Remove the exact anchored `/…/.agents/` line arming appended — nothing
+/// else in the user's exclude file is touched.
+fn remove_excluded(armed_root: &Path) -> io::Result<()> {
+    let Some((exclude, line)) = git_exclusion(armed_root)? else {
+        return Ok(());
+    };
+    let current = match fs::read_to_string(&exclude) {
+        Ok(text) => text,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    if !current.lines().any(|l| l.trim() == line) {
+        return Ok(());
+    }
+    let kept: Vec<&str> = current.lines().filter(|l| l.trim() != line).collect();
+    let mut text = kept.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    write_atomic(&exclude, text.as_bytes())
+}
+
+/// Keep every armed manifest truthful after a disarm: the removed cwds are
+/// filtered out of each; an emptied manifest is deleted. Best-effort — the
+/// manifests are crash-recovery hints, and a stale entry only costs one
+/// idempotent re-disarm at the next boot.
+fn drop_from_manifests(root: &Path, removed: &[String]) {
+    if removed.is_empty() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(root.join("armed")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Some(mut roots) = fs::read(entry.path())
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
+        else {
+            continue;
+        };
+        let before = roots.len();
+        roots.retain(|r| !removed.contains(r));
+        if roots.len() == before {
+            continue;
+        }
+        let result = if roots.is_empty() {
+            fs::remove_file(entry.path())
+        } else {
+            serde_json::to_vec(&roots)
+                .map_err(io::Error::other)
+                .and_then(|json| write_atomic(&entry.path(), &json))
+        };
+        if let Err(e) = result {
+            log::warn!("skills: manifest update after disarm failed: {e}");
+        }
+    }
 }
 
 /// A link is ours iff it points inside KeepDeck's skills root.
@@ -623,7 +702,11 @@ fn prune(root: &Path, live: &[String]) -> io::Result<()> {
             if live.iter().any(|l| l == id) {
                 continue;
             }
-            fs::remove_dir_all(&dir)?;
+            // Best-effort per dir: one stubborn/racing directory must not
+            // abort the sweep before the manifest disarms below run.
+            if let Err(e) = fs::remove_dir_all(&dir) {
+                log::warn!("skills: pruning {} failed: {e}", dir.display());
+            }
         }
     }
     let manifests = match fs::read_dir(root.join("armed")) {
@@ -636,10 +719,18 @@ fn prune(root: &Path, live: &[String]) -> io::Result<()> {
         if live.iter().any(|l| l == &ws) {
             continue;
         }
-        let roots: Vec<String> = fs::read(entry.path())
+        // A manifest that won't parse is EVIDENCE of armed cwds we can no
+        // longer locate — keep it (and warn) rather than silently deleting
+        // the only record; a later fixed pass may still act on it.
+        let Some(roots) = fs::read(entry.path())
             .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+            .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
+        else {
+            log::warn!(
+                "skills: armed manifest for {ws} is unreadable — kept, not disarmed",
+            );
+            continue;
+        };
         if let Err(e) = disarm_roots(root, &roots) {
             log::warn!("skills: disarming dead workspace {ws} failed: {e}");
         }
@@ -689,7 +780,14 @@ fn frontmatter_line(content: &str, key: &str) -> Option<String> {
 /// a concurrent save) is skipped rather than failing the whole stage.
 fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
     fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)?.flatten() {
+    let entries = match fs::read_dir(from) {
+        Ok(entries) => entries,
+        // The whole skill dir vanished mid-stage (a racing delete): stage
+        // the rest — the next staging reflects the deletion properly.
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    for entry in entries.flatten() {
         if entry.file_name().to_string_lossy() == "SKILL.md.tmp" {
             continue;
         }
@@ -809,7 +907,7 @@ mod tests {
         // An asset rides along with its skill.
         fs::write(global(&root).join("deploy").join("notes.txt"), "asset").unwrap();
 
-        let views = stage(&root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
         let claude = PathBuf::from(&views.claude_plugin_dir);
         let manifest = fs::read_to_string(claude.join(".claude-plugin").join("plugin.json")).unwrap();
         assert!(manifest.contains("keepdeck-skills"));
@@ -835,7 +933,7 @@ mod tests {
         save(&global(&root), "review", content).unwrap();
         save(&ws(&root, "ws-1"), "review", "---\ndescription: Ws wins\n---\nB\n").unwrap();
 
-        let views = stage(&root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
         let oc = PathBuf::from(&views.opencode_config_dir);
         let command = fs::read_to_string(oc.join("command").join("review.md")).unwrap();
         // The palette description is the WINNING skill's, quoted verbatim,
@@ -850,7 +948,7 @@ mod tests {
     fn opencodes_own_files_survive_restaging_and_emptying() {
         let (_tmp, root) = root();
         save(&global(&root), "review", "x").unwrap();
-        let views = stage(&root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
 
         // opencode treats its config dir as writable (node_modules, account
         // files) — plant a stand-in next to the skills subtree.
@@ -858,7 +956,7 @@ mod tests {
         fs::write(oc.join("antigravity-accounts.json"), "precious").unwrap();
 
         save(&global(&root), "deploy", "y").unwrap();
-        stage(&root, "ws-1", &[]).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
         assert_eq!(
             fs::read_to_string(oc.join("antigravity-accounts.json")).unwrap(),
             "precious",
@@ -868,7 +966,7 @@ mod tests {
         // An emptied library removes ONLY KeepDeck's subtrees.
         delete(&global(&root), "review").unwrap();
         delete(&global(&root), "deploy").unwrap();
-        assert_eq!(stage(&root, "ws-1", &[]).unwrap(), None);
+        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap(), None);
         assert!(!oc.join("skills").exists());
         assert!(!oc.join("command").exists());
         assert_eq!(
@@ -882,10 +980,10 @@ mod tests {
         let (_tmp, root) = root();
         save(&global(&root), "review", "x").unwrap();
         save(&global(&root), "deploy", "x").unwrap();
-        let views = stage(&root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
 
         delete(&global(&root), "deploy").unwrap();
-        stage(&root, "ws-1", &[]).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
         let skills = PathBuf::from(&views.skills_dir);
         assert!(skills.join("review").exists());
         assert!(!skills.join("deploy").exists());
@@ -894,12 +992,12 @@ mod tests {
     #[test]
     fn empty_library_stages_nothing_and_clears_stale_views() {
         let (_tmp, root) = root();
-        assert_eq!(stage(&root, "ws-1", &[]).unwrap(), None);
+        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap(), None);
 
         save(&ws(&root, "ws-1"), "review", "x").unwrap();
-        stage(&root, "ws-1", &[]).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
         delete(&ws(&root, "ws-1"), "review").unwrap();
-        assert_eq!(stage(&root, "ws-1", &[]).unwrap(), None);
+        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap(), None);
         assert!(!root.join("staging").join("ws-1").exists());
     }
 
@@ -925,7 +1023,7 @@ mod tests {
         save(&global(&root), "review", "x").unwrap();
 
         let roots = vec![wt.to_string_lossy().into_owned()];
-        let views = stage(&root, "ws-1", &roots).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
 
         let link = wt.join(".agents").join("skills");
         assert_eq!(
@@ -937,7 +1035,7 @@ mod tests {
 
         // The exclude line lands in the COMMON git dir, exactly once even
         // after restaging.
-        stage(&root, "ws-1", &roots).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
         let exclude = root
             .parent()
             .unwrap()
@@ -956,7 +1054,7 @@ mod tests {
         fs::create_dir_all(repo.join(".git")).unwrap();
         save(&global(&root), "review", "x").unwrap();
 
-        stage(&root, "ws-1", &[repo.to_string_lossy().into_owned()])
+        stage(&SkillsLocks::default(), &root, "ws-1", &[repo.to_string_lossy().into_owned()])
             .unwrap()
             .unwrap();
 
@@ -976,7 +1074,7 @@ mod tests {
         fs::create_dir_all(&cwd).unwrap();
         save(&global(&root), "review", "x").unwrap();
 
-        stage(&root, "ws-1", &[cwd.to_string_lossy().into_owned()])
+        stage(&SkillsLocks::default(), &root, "ws-1", &[cwd.to_string_lossy().into_owned()])
             .unwrap()
             .unwrap();
 
@@ -997,13 +1095,13 @@ mod tests {
         save(&global(&root), "review", "x").unwrap();
 
         let roots = vec![wt.to_string_lossy().into_owned()];
-        stage(&root, "ws-1", &roots).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
         assert!(theirs.join("their-skill").exists());
         assert!(!fs::symlink_metadata(&theirs).unwrap().file_type().is_symlink());
 
         // Emptying the library leaves it alone too.
         delete(&global(&root), "review").unwrap();
-        assert_eq!(stage(&root, "ws-1", &roots).unwrap(), None);
+        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap(), None);
         assert!(theirs.join("their-skill").exists());
     }
 
@@ -1013,10 +1111,10 @@ mod tests {
         let wt = fake_worktree(root.parent().unwrap());
         save(&global(&root), "review", "x").unwrap();
         let roots = vec![wt.to_string_lossy().into_owned()];
-        stage(&root, "ws-1", &roots).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
 
         delete(&global(&root), "review").unwrap();
-        assert_eq!(stage(&root, "ws-1", &roots).unwrap(), None);
+        assert_eq!(stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap(), None);
         assert!(!wt.join(".agents").exists());
     }
 
@@ -1043,11 +1141,14 @@ mod tests {
         let (_tmp, root) = root();
         save(&global(&root), "review", "x").unwrap();
         let root = std::sync::Arc::new(root);
+        // ONE lock instance shared by both threads — the app's managed state.
+        let locks = SkillsLocks::default();
         for _ in 0..8 {
             let a = std::sync::Arc::clone(&root);
             let b = std::sync::Arc::clone(&root);
-            let ta = std::thread::spawn(move || stage(&a, "ws-1", &[]).unwrap().unwrap());
-            let tb = std::thread::spawn(move || stage(&b, "ws-1", &[]).unwrap().unwrap());
+            let (la, lb) = (locks.clone(), locks.clone());
+            let ta = std::thread::spawn(move || stage(&la, &a, "ws-1", &[]).unwrap().unwrap());
+            let tb = std::thread::spawn(move || stage(&lb, &b, "ws-1", &[]).unwrap().unwrap());
             ta.join().unwrap();
             tb.join().unwrap();
             // Whatever the interleaving, the published staging is complete.
@@ -1068,7 +1169,7 @@ mod tests {
         save(&global(&root), "bad", "x").unwrap();
         fs::write(global(&root).join("bad").join(SKILL_FILE), [0xff, 0xfe, 0x00]).unwrap();
 
-        let views = stage(&root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
         let skills = PathBuf::from(&views.skills_dir);
         assert!(skills.join("good").exists());
         assert!(!skills.join("bad").exists());
@@ -1101,9 +1202,66 @@ mod tests {
             with_file.to_string_lossy().into_owned(),
             with_link.to_string_lossy().into_owned(),
         ];
-        stage(&root, "ws-1", &roots).unwrap().unwrap(); // no error
+        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap(); // no error
         assert_eq!(fs::read_to_string(with_file.join(".agents")).unwrap(), "not a dir");
         assert!(!their_tree.join("skills").exists()); // nothing planted in their tree
+    }
+
+    #[test]
+    fn disarm_removes_the_exclude_line_and_keeps_the_users_lines() {
+        let (_tmp, root) = root();
+        let wt = fake_worktree(root.parent().unwrap());
+        let exclude = root
+            .parent()
+            .unwrap()
+            .join("main")
+            .join(".git")
+            .join("info")
+            .join("exclude");
+        fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+        fs::write(&exclude, "*.log\n").unwrap();
+        save(&global(&root), "review", "x").unwrap();
+        let roots = vec![wt.to_string_lossy().into_owned()];
+        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
+        assert!(fs::read_to_string(&exclude).unwrap().contains("/.agents/"));
+
+        disarm_roots(&root, &roots).unwrap();
+        let text = fs::read_to_string(&exclude).unwrap();
+        assert!(!text.contains("/.agents/"));
+        assert!(text.contains("*.log")); // the user's own line survives
+    }
+
+    #[test]
+    fn disarm_keeps_the_armed_manifests_truthful() {
+        let (_tmp, root) = root();
+        let base = root.parent().unwrap();
+        let (a, b) = (base.join("cwd-a"), base.join("cwd-b"));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        save(&global(&root), "review", "x").unwrap();
+        let roots = vec![
+            a.to_string_lossy().into_owned(),
+            b.to_string_lossy().into_owned(),
+        ];
+        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
+
+        disarm_roots(&root, &roots[..1].to_vec()).unwrap();
+        let left: Vec<String> =
+            serde_json::from_slice(&fs::read(armed_manifest(&root, "ws-1")).unwrap()).unwrap();
+        assert_eq!(left, roots[1..].to_vec());
+
+        disarm_roots(&root, &roots[1..].to_vec()).unwrap();
+        assert!(!armed_manifest(&root, "ws-1").exists()); // emptied → gone
+    }
+
+    #[test]
+    fn an_unreadable_armed_manifest_is_kept_as_evidence() {
+        let (_tmp, root) = root();
+        fs::create_dir_all(root.join("armed")).unwrap();
+        fs::write(root.join("armed").join("ws-dead"), "not json").unwrap();
+
+        prune(&root, &["ws-1".into()]).unwrap();
+        assert!(root.join("armed").join("ws-dead").exists());
     }
 
     #[test]
@@ -1112,7 +1270,7 @@ mod tests {
         let wt = fake_worktree(root.parent().unwrap());
         save(&global(&root), "review", "x").unwrap();
         let roots = vec![wt.to_string_lossy().into_owned()];
-        stage(&root, "ws-9", &roots).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-9", &roots).unwrap().unwrap();
         assert!(wt.join(".agents").join("skills").exists());
 
         // Boot after a crash: ws-9 is not in the restored deck.
@@ -1127,7 +1285,7 @@ mod tests {
         save(&global(&root), "review", "x").unwrap();
         fs::write(global(&root).join("review").join("SKILL.md.tmp"), "torn").unwrap();
 
-        let views = stage(&root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
         let staged = PathBuf::from(&views.skills_dir).join("review");
         assert!(staged.join(SKILL_FILE).exists());
         assert!(!staged.join("SKILL.md.tmp").exists());
@@ -1157,8 +1315,8 @@ mod tests {
         let (_tmp, root) = root();
         save(&global(&root), "review", "x").unwrap();
         save(&ws(&root, "ws-dead"), "gone", "x").unwrap();
-        stage(&root, "ws-live", &[]).unwrap().unwrap();
-        stage(&root, "ws-dead", &[]).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-live", &[]).unwrap().unwrap();
+        stage(&SkillsLocks::default(), &root, "ws-dead", &[]).unwrap().unwrap();
         // A crash leftover of a dead workspace's build.
         fs::create_dir_all(root.join("staging").join(".tmp-ws-dead")).unwrap();
 
@@ -1185,7 +1343,7 @@ mod tests {
         save(&ws(&root, "ws-1"), "mine", "x").unwrap();
         save(&ws(&root, "ws-2"), "theirs", "x").unwrap();
 
-        let views = stage(&root, "ws-1", &[]).unwrap().unwrap();
+        let views = stage(&SkillsLocks::default(), &root, "ws-1", &[]).unwrap().unwrap();
         let skills = PathBuf::from(&views.skills_dir);
         assert!(skills.join("mine").exists());
         assert!(!skills.join("theirs").exists());

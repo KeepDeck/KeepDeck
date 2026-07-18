@@ -80,6 +80,7 @@ pub fn run() {
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
+        .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
