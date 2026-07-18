@@ -11,11 +11,11 @@
 //! frontend, which holds each agent's `worktreePath`/`branch`; these commands
 //! are the stateless primitives it drives.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use keepdeck_git::{branch, repo, worktree};
+use keepdeck_git::{branch, provenance, repo, worktree};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -114,6 +114,13 @@ pub struct RemoveSpec {
     /// happens here, after the removal, under the same per-repo lock.
     #[serde(default)]
     pub branch: Option<String>,
+    /// Also delete every branch CREATED inside this worktree (reflog
+    /// provenance — see `keepdeck_git::provenance`): the close dialog's delete
+    /// intent covers the agent's side branches, not just the tracked one. A
+    /// created branch that meanwhile moved to another worktree is in use, not
+    /// litter, and is kept.
+    #[serde(default)]
+    pub reap_created_branches: bool,
 }
 
 /// Pick the branch to create: an explicit non-blank name (sanitized per
@@ -384,6 +391,26 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
     // fail to lock or have its admin-state pruned mid-write.
     let lock = locks.for_repo(&repo_path);
     let _guard = lock.lock().expect("repo lock poisoned");
+
+    // Branches born in this worktree are enumerated BEFORE the removal: the
+    // evidence is the worktree's private HEAD reflog, which `git worktree
+    // remove` destroys with the administrative dir. A failed scan degrades to
+    // "reap nothing extra" — the close itself must not hinge on provenance.
+    let created = if spec.reap_created_branches && path.exists() {
+        match provenance::created_branches(&repo_path, &path) {
+            Ok(branches) => branches,
+            Err(e) => {
+                log::warn!(
+                    "worktree: created-branch scan failed in {}: {e}",
+                    path.display()
+                );
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
     match worktree::remove(&repo_path, &path, spec.force) {
         Ok(()) => {}
         // Git refuses to `remove` a worktree whose dir is already gone; only a
@@ -397,33 +424,72 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
         log::warn!("worktree: prune after remove failed in {}: {e}", repo_path.display());
     }
     // Branch removal is separate: a branch can't be deleted while its worktree
-    // is checked out, so it only runs now that the worktree is gone. If the
-    // branch is already gone (e.g. the user deleted it manually), we treat that
-    // as already-cleaned rather than a failure.
-    if let Some(branch) = spec.branch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        match repo::branch_exists(&repo_path, branch) {
-            Ok(true) => {
-                repo::delete_branch(&repo_path, branch, spec.force).map_err(|e| {
-                    format!(
-                        "Couldn’t delete branch '{branch}' after removing the worktree. \
-                         You may need to delete it manually. Reason: {e}"
-                    )
-                })?;
-            }
-            Ok(false) => {
-                log::warn!(
-                    "worktree: branch '{branch}' was already gone in {}; skipping branch delete",
-                    repo_path.display()
-                );
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Couldn’t check whether branch '{branch}' exists: {e}"
-                ));
-            }
+    // is checked out, so it only runs now that the worktree is gone — the
+    // tracked branch first, then the worktree-born extras (minus the overlap:
+    // the tracked branch usually IS one of them).
+    let primary = spec
+        .branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let extras: Vec<&str> = created
+        .iter()
+        .map(String::as_str)
+        .filter(|b| Some(*b) != primary)
+        .collect();
+    // An extra that moved on to ANOTHER worktree since its birth here is in
+    // use, not litter — deleting (or failing loudly) would both be wrong, so
+    // it's kept with only a log line. The tracked branch never trips this:
+    // it was checked out HERE, and this worktree is gone.
+    let checked_out_elsewhere: HashSet<String> = if extras.is_empty() {
+        HashSet::new()
+    } else {
+        worktree::list(&repo_path)
+            .map(|list| list.into_iter().filter_map(|w| w.branch).collect())
+            .unwrap_or_default()
+    };
+
+    let mut failures = Vec::new();
+    for branch in primary.into_iter().chain(extras) {
+        if checked_out_elsewhere.contains(branch) {
+            log::warn!(
+                "worktree: branch '{branch}' is checked out in another worktree of {}; keeping it",
+                repo_path.display()
+            );
+            continue;
         }
+        failures.extend(delete_branch_if_present(&repo_path, branch, spec.force));
     }
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("\n"))
+    }
+}
+
+/// Delete `branch` unless it's already gone — someone beating us to it means
+/// already-cleaned, not failed. Returns the user-facing message on failure so
+/// the caller can keep going and report every branch that resisted, instead of
+/// aborting the sweep at the first one.
+fn delete_branch_if_present(repo_path: &Path, branch: &str, force: bool) -> Option<String> {
+    match repo::branch_exists(repo_path, branch) {
+        Ok(true) => repo::delete_branch(repo_path, branch, force).err().map(|e| {
+            format!(
+                "Couldn’t delete branch '{branch}' after removing the worktree. \
+                 You may need to delete it manually. Reason: {e}"
+            )
+        }),
+        Ok(false) => {
+            log::warn!(
+                "worktree: branch '{branch}' was already gone in {}; skipping branch delete",
+                repo_path.display()
+            );
+            None
+        }
+        Err(e) => Some(format!(
+            "Couldn’t check whether branch '{branch}' exists: {e}"
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -609,6 +675,23 @@ mod tests {
         (repo, wt, branch)
     }
 
+    /// Like [`git`], but with the committer date — and so every reflog entry
+    /// the command writes — pinned to `ts`. Provenance pairs creation
+    /// timestamps with checkout entries, so a test must keep "created
+    /// elsewhere" out of the same second as "checked out here": unpinned,
+    /// this whole setup runs inside one second and manufactures the exact
+    /// collision the attribution declines to resolve.
+    fn git_at(dir: &Path, ts: u64, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .env("GIT_COMMITTER_DATE", format!("{ts} +0000"))
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .status()
+            .expect("run git");
+        assert!(status.success(), "git {args:?} failed in {}", dir.display());
+    }
+
     /// Stdout of a git query in `repo` (assertion helper).
     fn git_out(repo: &Path, args: &[&str]) -> String {
         let out = std::process::Command::new("git")
@@ -636,6 +719,7 @@ mod tests {
                 path: wt.to_string_lossy().into_owned(),
                 force: true,
                 branch: Some(branch.clone()),
+                reap_created_branches: false,
             },
         )
         .expect("a gone dir must not abort the removal");
@@ -662,6 +746,7 @@ mod tests {
                 path: wt.to_string_lossy().into_owned(),
                 force: false,
                 branch: Some(branch.clone()),
+                reap_created_branches: false,
             },
         )
         .expect("a gone dir has nothing to lose — the safe path must proceed");
@@ -686,6 +771,7 @@ mod tests {
                 path: wt.to_string_lossy().into_owned(),
                 force: true,
                 branch: Some(branch.clone()),
+                reap_created_branches: false,
             },
         )
         .expect("removal must succeed when the branch is already gone");
@@ -712,6 +798,7 @@ mod tests {
                 path: wt.to_string_lossy().into_owned(),
                 force: false,
                 branch: Some(branch),
+                reap_created_branches: false,
             },
         );
 
@@ -723,6 +810,69 @@ mod tests {
         assert!(!wt.exists(), "worktree dir must still be removed");
         let _ = std::fs::remove_dir_all(&repo);
         let _ = std::fs::remove_dir_all(&wt);
+    }
+
+    #[test]
+    fn remove_with_reap_deletes_branches_born_in_the_worktree() {
+        // The agent made a side branch during its session; closing with the
+        // delete checkbox must sweep it along with the tracked branch, while a
+        // branch that merely VISITED the worktree stays.
+        let (repo, wt, branch) = repo_with_worktree("reap-created");
+        git_at(&repo, 1_700_000_000, &["branch", "visitor"]);
+        git(&wt, &["switch", "-q", "-c", "kd/side-branch"]);
+        git(&wt, &["switch", "-q", "visitor"]);
+
+        remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: true,
+                branch: Some(branch.clone()),
+                reap_created_branches: true,
+            },
+        )
+        .expect("remove with reap");
+
+        for gone in [branch.as_str(), "kd/side-branch"] {
+            let out = git_out(&repo, &["branch", "--list", gone]);
+            assert!(out.trim().is_empty(), "branch leaked: {gone}");
+        }
+        let visitor = git_out(&repo, &["branch", "--list", "visitor"]);
+        assert!(!visitor.trim().is_empty(), "the visiting branch was reaped");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn remove_with_reap_keeps_a_created_branch_now_checked_out_elsewhere() {
+        // A branch born here but since adopted by another worktree is in use —
+        // it must survive, and without failing the close.
+        let (repo, wt, branch) = repo_with_worktree("reap-adopted");
+        git(&wt, &["switch", "-q", "-c", "kd/adopted"]);
+        git(&wt, &["switch", "-q", &branch]);
+        let other = repo.with_file_name(format!(
+            "{}-other",
+            repo.file_name().unwrap().to_string_lossy()
+        ));
+        let _ = std::fs::remove_dir_all(&other);
+        git(&repo, &["worktree", "add", "-q", other.to_str().unwrap(), "kd/adopted"]);
+
+        remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: true,
+                branch: Some(branch),
+                reap_created_branches: true,
+            },
+        )
+        .expect("an adopted branch must not fail the close");
+
+        let adopted = git_out(&repo, &["branch", "--list", "kd/adopted"]);
+        assert!(!adopted.trim().is_empty(), "the adopted branch was reaped");
+        let _ = std::fs::remove_dir_all(&repo);
+        let _ = std::fs::remove_dir_all(&other);
     }
 
     #[test]
@@ -738,6 +888,7 @@ mod tests {
                 path: wt.to_string_lossy().into_owned(),
                 force: false,
                 branch: Some(branch),
+                reap_created_branches: false,
             },
         );
 
