@@ -69,7 +69,9 @@ pub struct CreateSpec {
     pub agent_id: String,
     /// Explicit branch name to create; auto-generated when absent/blank.
     pub branch: Option<String>,
-    /// Pinned base commit/rev; defaults to `HEAD` resolved now.
+    /// Base commit/rev; ALWAYS resolved to a commit sha at create time
+    /// (defaults to `HEAD`), so the whole batch pins to one commit and the
+    /// branch's creation reflog records a sha — a source provenance trusts.
     pub base: Option<String>,
     /// Workspace name, used only for the auto branch name.
     #[serde(default)]
@@ -287,10 +289,19 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
         return Err(format!("not a git repository: {}", spec.repo));
     }
 
-    let base = match spec.base.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(rev) => rev.to_string(),
-        None => repo::resolve_commit(&repo_path, "HEAD").map_err(|e| e.to_string())?,
-    };
+    // The base is ALWAYS pinned to a commit sha here — a picked branch NAME
+    // must not flow into `worktree add -b` verbatim: git would record a
+    // name-sourced creation, which reflog provenance deliberately refuses to
+    // trust, and the born branch would never be attributed back to this
+    // worktree at close time. Pinning also keeps a whole batch on one commit
+    // even if the base moves mid-batch.
+    let base_rev = spec.base.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let base = repo::resolve_commit(&repo_path, base_rev.unwrap_or("HEAD")).map_err(|e| {
+        match base_rev {
+            Some(rev) => format!("cannot resolve base '{rev}': {e}"),
+            None => e.to_string(),
+        }
+    })?;
 
     let chosen_branch = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
 
@@ -869,6 +880,45 @@ mod tests {
         }
         let visitor = git_out(&repo, &["branch", "--list", "visitor"]);
         assert!(!visitor.trim().is_empty(), "the visiting branch was reaped");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn create_resolves_a_branch_name_base_so_provenance_trusts_the_birth() {
+        // The "+ Agent" dialog sends the base as a branch NAME. Passed through
+        // verbatim it would be recorded as a name-sourced creation — untrusted
+        // by provenance — and the born branch would never be attributed back.
+        let repo = init_repo("name-base");
+        let current = git_out(&repo, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .trim()
+            .to_string();
+        let base_dir = repo.with_file_name(format!(
+            "{}-wts",
+            repo.file_name().unwrap().to_string_lossy()
+        ));
+        let _ = std::fs::remove_dir_all(&base_dir);
+
+        let record = create_worktree(
+            &RepoLocks::default(),
+            CreateSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                base_dir: base_dir.to_string_lossy().into_owned(),
+                agent_id: "pane-1".to_string(),
+                branch: None,
+                base: Some(current),
+                workspace: "ws".to_string(),
+                index: 1,
+                dir: None,
+                path: None,
+            },
+        )
+        .expect("create with a branch-name base");
+
+        let created =
+            provenance::created_branches(&repo, Path::new(&record.path)).expect("provenance");
+        assert_eq!(created, [record.branch.clone()], "birth branch not attributed");
+
+        let _ = std::fs::remove_dir_all(&base_dir);
         let _ = std::fs::remove_dir_all(&repo);
     }
 
