@@ -51,10 +51,10 @@
 }
 
 /* Chips are numbers-only (bars live in the panel) — a soft dot keeps the
-   window pairs legible without them. */
+   window pairs legible without them. No margin of its own: the chip's gap
+   before it and the win's gap after it are already the full spacing. */
 .usage-chip__win + .usage-chip__win::before {
   content: "·";
-  margin-right: 6px;
   color: #3b4658;
 }
 
