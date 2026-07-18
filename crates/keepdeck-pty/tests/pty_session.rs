@@ -11,6 +11,7 @@ fn spec(command: &str, args: &[&str]) -> PtySpec {
         command: command.to_string(),
         args: args.iter().map(|s| s.to_string()).collect(),
         env: Vec::new(),
+        env_defaults: Vec::new(),
         cwd: None,
         size: TermSize::default(),
     }
@@ -145,4 +146,24 @@ fn missing_command_is_handled() {
             assert!(!exit.success, "a missing command must not report success");
         }
     }
+}
+
+#[test]
+fn env_defaults_yield_to_the_inherited_environment() {
+    // A key the user's environment already carries must survive a default;
+    // a key it lacks must receive one. Unique names keep parallel tests
+    // honest (set_var mutates the whole process).
+    std::env::set_var("KD_PTY_TEST_PRESET", "user-value");
+    let mut spec = spec(
+        "/bin/sh",
+        &["-c", "echo ${KD_PTY_TEST_PRESET}:${KD_PTY_TEST_FRESH}"],
+    );
+    spec.env_defaults = vec![
+        ("KD_PTY_TEST_PRESET".into(), "default-loses".into()),
+        ("KD_PTY_TEST_FRESH".into(), "default-wins".into()),
+    ];
+    let (_session, rx) = PtySession::spawn(spec).expect("spawn sh");
+    let (out, _exit) = run_to_exit(&rx, Duration::from_secs(5));
+    let text = String::from_utf8_lossy(&out);
+    assert!(text.contains("user-value:default-wins"), "got: {text}");
 }

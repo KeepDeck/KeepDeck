@@ -43,6 +43,7 @@ interface TerminalPaneProps {
   /** Extra environment for the program — reporter activation ([F7]/[F8]).
    * Read once at spawn time, like `args`. */
   env?: [string, string][];
+  envDefaults?: [string, string][];
   /** Working directory for the session; omitted uses the app's cwd. */
   cwd?: string | null;
   /** Whether this pane is currently on screen (active workspace, not hidden). */
@@ -88,6 +89,7 @@ export function TerminalPane({
   command,
   args,
   env,
+  envDefaults,
   cwd,
   visible,
   selected,
@@ -128,6 +130,8 @@ export function TerminalPane({
   argsRef.current = args;
   const envRef = useRef(env);
   envRef.current = env;
+  const envDefaultsRef = useRef(envDefaults);
+  envDefaultsRef.current = envDefaults;
   // Scrollback seeds construction through a ref for the same reason; a live
   // change is applied by its own effect below, not by a terminal rebuild.
   const scrollbackRef = useRef(scrollback);
@@ -264,6 +268,7 @@ export function TerminalPane({
       command,
       args: argsRef.current,
       env: envRef.current,
+      envDefaults: envDefaultsRef.current,
       cwd,
       cols: term.cols,
       rows: term.rows,

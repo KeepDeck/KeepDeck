@@ -25,6 +25,8 @@ pub struct SpawnSpec {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: Vec<(String, String)>,
+    #[serde(default)]
+    pub env_defaults: Vec<(String, String)>,
     pub cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
@@ -158,6 +160,7 @@ pub fn session_spawn(
         command,
         args: spec.args,
         env: spec.env,
+        env_defaults: spec.env_defaults,
         cwd: spec.cwd.map(PathBuf::from),
         size: TermSize {
             cols: spec.cols,

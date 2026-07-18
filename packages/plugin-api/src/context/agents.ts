@@ -107,4 +107,11 @@ export interface SpawnPlanOutput {
   command: string | null;
   args: string[];
   env: [string, string][];
+  /** Environment DEFAULTS: applied only when the spawned process would not
+   * already inherit the key — a value the user set themselves (shell
+   * profile, launchctl) always wins over a default. Use for config-home
+   * style variables a user may legitimately own; plain `env` always
+   * overrides. Prefilled `[]` on hosts of API 23+; push via
+   * `(output.envDefaults ??= []).push(...)` to stay safe on older hosts. */
+  envDefaults?: [string, string][];
 }

@@ -37,6 +37,9 @@ export interface SpawnPlan {
   command?: string | null;
   args: string[];
   env: [string, string][];
+  /** Env pairs applied only when the key is NOT already inherited — a
+   * user-owned variable beats a plugin's default (see SpawnPlanOutput). */
+  envDefaults?: [string, string][];
   /** The per-spawn bridge secret. A reporter must echo it in its postback;
    * the binding hook refuses postbacks whose token doesn't match — writing a
    * file into the inbox is not enough to bind a pane. */

@@ -31,6 +31,7 @@ interface AgentPaneProps {
   args?: string[];
   /** Extra environment for the program (reporter activation, [F7]/[F8]). */
   env?: [string, string][];
+  envDefaults?: [string, string][];
   /** Working directory for the session. */
   cwd?: string | null;
   /** Runtime git badge derived from this pane's effective cwd. */
@@ -110,6 +111,7 @@ export function AgentPane({
   command,
   args,
   env,
+  envDefaults,
   cwd,
   gitBadge,
   yolo,
@@ -374,6 +376,7 @@ export function AgentPane({
             command={command}
             args={args}
             env={env}
+            envDefaults={envDefaults}
             cwd={cwd}
             visible={visible}
             selected={selected}

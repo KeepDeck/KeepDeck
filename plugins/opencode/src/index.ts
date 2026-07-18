@@ -35,8 +35,11 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
  * `OPENCODE_CONFIG_CONTENT` above. The host hands us a STABLE per-workspace
  * dir here, never a wiped staging one: opencode treats its config dir as a
  * writable home (plugin node_modules, account/state files — field-verified),
- * so pointing it at a rebuilt-from-scratch directory would destroy those. */
-const skillsEnv = (skills: SpawnSkillsInput | undefined): [string, string][] =>
+ * so pointing it at a rebuilt-from-scratch directory would destroy those.
+ * Delivered as an env DEFAULT, not an override: `OPENCODE_CONFIG_DIR` is a
+ * variable the user may legitimately own (their custom config home), and a
+ * user-set value must win over skills delivery. */
+const skillsEnvDefaults = (skills: SpawnSkillsInput | undefined): [string, string][] =>
   skills ? [["OPENCODE_CONFIG_DIR", skills.opencodeConfigDir]] : [];
 
 const plugin: KeepDeckPlugin = {
@@ -50,12 +53,12 @@ const plugin: KeepDeckPlugin = {
       hooks: {
         "spawn.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
-          output.env.push(...skillsEnv(input.skills));
+          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
           output.args = yoloArgs(input.yolo);
         },
         "resume.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
-          output.env.push(...skillsEnv(input.skills));
+          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
           output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
         },
       },

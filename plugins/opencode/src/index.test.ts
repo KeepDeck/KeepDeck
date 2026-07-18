@@ -42,7 +42,7 @@ describe("opencode plugin hooks", () => {
     });
   });
 
-  it("staged skills ride OPENCODE_CONFIG_DIR next to the reporter's config", async () => {
+  it("staged skills ride OPENCODE_CONFIG_DIR as an env DEFAULT, never an override", async () => {
     const agent = activate("/App/resources/session-reporter.js");
     const skills = {
       claudePluginDir: "/kd/staging/ws-1/claude-plugin",
@@ -52,22 +52,30 @@ describe("opencode plugin hooks", () => {
     const out = output();
     await agent.hooks["spawn.plan"]!({ ...input, skills }, out);
 
+    // A default, not plain env: the variable is opencode's whole config
+    // home, and a user-set value must win over skills delivery.
+    expect(Object.fromEntries(out.envDefaults ?? [])).toEqual({
+      OPENCODE_CONFIG_DIR: "/kd/staging/ws-1/opencode",
+    });
     const env = Object.fromEntries(out.env);
-    expect(env.OPENCODE_CONFIG_DIR).toBe("/kd/staging/ws-1/opencode");
-    // Both doors stay open: the reporter's config content is untouched.
+    expect(env.OPENCODE_CONFIG_DIR).toBeUndefined();
+    // The reporter's own door is untouched.
     expect(env.OPENCODE_CONFIG_CONTENT).toBeDefined();
 
     const resume = output();
     await agent.hooks["resume.plan"]!({ ...input, skills, sessionId: "s" }, resume);
-    expect(Object.fromEntries(resume.env).OPENCODE_CONFIG_DIR).toBe(
+    expect(Object.fromEntries(resume.envDefaults ?? []).OPENCODE_CONFIG_DIR).toBe(
       "/kd/staging/ws-1/opencode",
     );
 
-    // No skills, no env var — a pane must not point opencode at a dir that
-    // was never staged.
-    const bare = output();
-    await agent.hooks["spawn.plan"]!(input, bare);
-    expect(Object.fromEntries(bare.env).OPENCODE_CONFIG_DIR).toBeUndefined();
+    // No skills — no default, on spawn AND resume alike.
+    const bareSpawn = output();
+    await agent.hooks["spawn.plan"]!(input, bareSpawn);
+    expect(bareSpawn.envDefaults ?? []).toEqual([]);
+    const bareResume = output();
+    await agent.hooks["resume.plan"]!({ ...input, sessionId: "s" }, bareResume);
+    expect(bareResume.envDefaults ?? []).toEqual([]);
+    expect(Object.fromEntries(bareResume.env).OPENCODE_CONFIG_DIR).toBeUndefined();
   });
 
   it("resumes with -s and still arms the reporter (catches /new)", async () => {

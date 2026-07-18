@@ -12,6 +12,9 @@ export interface SpawnOptions {
   /** Extra environment on top of the inherited one (the [F7]/[F8] session
    * identity plan: the KEEPDECK_BRIDGE var, reporter activation). */
   env?: [string, string][];
+  /** Env pairs applied only when the key is NOT already inherited — a
+   * user-owned variable beats a default (mirrors PtySpec.env_defaults). */
+  envDefaults?: [string, string][];
   cwd?: string | null;
   cols: number;
   rows: number;
@@ -43,6 +46,7 @@ export async function spawnSession(
       command: opts.command ?? null,
       args: opts.args ?? [],
       env: opts.env ?? [],
+      envDefaults: opts.envDefaults ?? [],
       cwd: opts.cwd ?? null,
       cols: opts.cols,
       rows: opts.rows,
