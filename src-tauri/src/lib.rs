@@ -17,6 +17,7 @@ mod plugins_fs;
 mod ports;
 mod project_fs;
 mod project_git;
+mod rollout_tail;
 mod session;
 mod sessions;
 mod skills;
@@ -82,6 +83,7 @@ pub fn run() {
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
+        .manage(rollout_tail::UsageTails::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
         .manage(downloads::DownloadRegistry::default())
@@ -178,6 +180,8 @@ pub fn run() {
             worktree::worktree_remove,
             head_watch::worktree_watch,
             head_watch::worktree_unwatch,
+            rollout_tail::usage_watch_rollout,
+            rollout_tail::usage_unwatch_rollout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

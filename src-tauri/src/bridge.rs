@@ -85,6 +85,11 @@ pub struct SessionBound {
     pub pane_id: String,
     pub session_id: String,
     pub token: String,
+    /// The session's transcript/rollout file, when the reporter knows it —
+    /// what the codex usage tailer follows. Optional: older reporters and
+    /// hook payloads without one still bind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript_path: Option<String>,
 }
 
 /// The `usage.report` wire event (see `src/ipc/usage.ts`). The payload stays
@@ -329,10 +334,17 @@ fn interpret(content: &str) -> Result<Inbound, String> {
             if envelope.pane_id.is_empty() || envelope.token.is_empty() || session_id.is_empty() {
                 return Err("session.bound with empty fields".into());
             }
+            let transcript_path = envelope
+                .payload
+                .get("transcriptPath")
+                .and_then(|v| v.as_str())
+                .filter(|p| !p.is_empty())
+                .map(str::to_string);
             Ok(Inbound::SessionBound(SessionBound {
                 pane_id: envelope.pane_id,
                 session_id: session_id.to_string(),
                 token: envelope.token,
+                transcript_path,
             }))
         }
         "usage.report" => {
@@ -381,10 +393,21 @@ mod tests {
     }
 
     #[test]
-    fn interprets_a_session_bound_envelope_ignoring_extras() {
+    fn interprets_a_session_bound_envelope_with_optional_transcript() {
+        // Bare binding: no transcript, unknown envelope extras ignored.
         let mut value: serde_json::Value =
             serde_json::from_str(&envelope(1, "session.bound", "pane-3", "tok", "abc")).unwrap();
         value["agent"] = "codex".into();
+        assert_eq!(
+            interpret(&value.to_string()),
+            Ok(Inbound::SessionBound(SessionBound {
+                pane_id: "pane-3".into(),
+                session_id: "abc".into(),
+                token: "tok".into(),
+                transcript_path: None,
+            }))
+        );
+        // With a transcript path — what the codex usage tailer follows.
         value["payload"]["transcriptPath"] = "/x/y.jsonl".into();
         assert_eq!(
             interpret(&value.to_string()),
@@ -392,8 +415,15 @@ mod tests {
                 pane_id: "pane-3".into(),
                 session_id: "abc".into(),
                 token: "tok".into(),
+                transcript_path: Some("/x/y.jsonl".into()),
             }))
         );
+        // An empty path is as good as none.
+        value["payload"]["transcriptPath"] = "".into();
+        let Ok(Inbound::SessionBound(bound)) = interpret(&value.to_string()) else {
+            panic!("expected a binding");
+        };
+        assert_eq!(bound.transcript_path, None);
     }
 
     // The payload must ride through VERBATIM — the webview's normalizers own
@@ -442,19 +472,29 @@ mod tests {
         assert!(interpret(&envelope(1, "session.bound", "p", "t", "")).is_err());
     }
 
-    // The webview listens for this exact wire shape — pin it.
+    // The webview listens for this exact wire shape — pin it. Absent
+    // transcript stays absent (not null) so older listeners see no change.
     #[test]
     fn session_bound_serializes_camel_case() {
         let json = serde_json::to_value(SessionBound {
             pane_id: "pane-3".into(),
             session_id: "abc".into(),
             token: "tok".into(),
+            transcript_path: None,
         })
         .unwrap();
         assert_eq!(
             json,
             serde_json::json!({ "paneId": "pane-3", "sessionId": "abc", "token": "tok" })
         );
+        let json = serde_json::to_value(SessionBound {
+            pane_id: "pane-3".into(),
+            session_id: "abc".into(),
+            token: "tok".into(),
+            transcript_path: Some("/x/y.jsonl".into()),
+        })
+        .unwrap();
+        assert_eq!(json["transcriptPath"], "/x/y.jsonl");
     }
 
     // Same pin for the usage wire shape (`src/ipc/usage.ts`).
@@ -537,6 +577,7 @@ mod tests {
                 pane_id: "pane-1".into(),
                 session_id: "sid".into(),
                 token: "tok".into(),
+                transcript_path: None,
             }))
         );
 

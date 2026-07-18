@@ -35,9 +35,19 @@ sid=$(printf '%s' "$payload" \
   | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
   | head -n 1)
 [ -n "$sid" ] || exit 0
+# The transcript/rollout path rides along when the hook payload carries one —
+# codex usage tailing needs it; plain absolute paths, sed-safe like the id.
+transcript=$(printf '%s' "$payload" \
+  | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+  | head -n 1)
+if [ -n "$transcript" ]; then
+  body=$(printf '{"sessionId":"%s","transcriptPath":"%s"}' "$sid" "$transcript")
+else
+  body=$(printf '{"sessionId":"%s"}' "$sid")
+fi
 
 # mktemp = the unique name AND the tmp stage; the rename to .json publishes.
 f=$(mktemp "$dir/session.bound-XXXXXXXX") || exit 0
-printf '{"v":1,"type":"session.bound","paneId":"%s","token":"%s","payload":{"sessionId":"%s"}}' \
-  "$pane" "$token" "$sid" > "$f" && mv "$f" "$f.json"
+printf '{"v":1,"type":"session.bound","paneId":"%s","token":"%s","payload":%s}' \
+  "$pane" "$token" "$body" > "$f" && mv "$f" "$f.json"
 exit 0
