@@ -91,11 +91,121 @@ fn attributes_only_branches_born_in_the_worktree() {
     // HEAD log, and shares its second with the switch above: the documented
     // unattributable case, kept on purpose.
     git_at(&wt, INSIDE, &["branch", "no-checkout"]);
+    // Created inside via two-step `branch` + `switch` — the checkout pairs up,
+    // but the creation is NAME-sourced ("Created from switched-inside"), which
+    // the trust guard rejects: a documented safe-direction miss.
+    git_at(&wt, INSIDE, &["branch", "two-step"]);
+    git_at(&wt, INSIDE, &["switch", "-q", "two-step"]);
     // Visiting a foreign branch must not adopt it.
     git_at(&wt, LATER, &["switch", "-q", "pre-existing"]);
 
     let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
     assert_eq!(created, ["born-with-wt", "switched-inside"]);
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
+/// KeepDeck's own create shape: `worktree add -b <branch> <path> <sha>` records
+/// the pinned base sha as the creation source — it must stay attributable.
+#[test]
+fn a_pinned_base_birth_branch_is_claimed() {
+    let repo_dir = init_repo();
+    let sha = {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&repo_dir)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .expect("rev-parse");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("agent-1");
+    git_at(
+        &repo_dir,
+        BIRTH,
+        &["worktree", "add", "-q", "-b", "kd/pinned/1", wt.to_str().unwrap(), &sha],
+    );
+
+    let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
+    assert_eq!(created, ["kd/pinned/1"]);
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
+/// The reproduced false-claim, attach arm: `git branch X && git worktree add
+/// wt X` inside ONE second. The attach's birth reflog is byte-identical to a
+/// `-b` creation's — the trust guard (X is name-sourced) is what rejects it.
+#[test]
+fn a_same_second_attach_is_not_claimed() {
+    let repo_dir = init_repo();
+    git_at(&repo_dir, BIRTH, &["branch", "adopted"]);
+
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("agent-1");
+    git_at(
+        &repo_dir,
+        BIRTH,
+        &["worktree", "add", "-q", wt.to_str().unwrap(), "adopted"],
+    );
+
+    let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
+    assert!(created.is_empty(), "claimed a same-second attach: {created:?}");
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
+/// The reproduced false-claim, visit arm: a branch created elsewhere and
+/// switched-to here inside the same second pairs by timestamp AND name — only
+/// its name-sourced creation record tells it apart.
+#[test]
+fn a_same_second_visit_is_not_claimed() {
+    let repo_dir = init_repo();
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("agent-1");
+    git_at(
+        &repo_dir,
+        BIRTH,
+        &["worktree", "add", "-q", "-b", "born-with-wt", wt.to_str().unwrap()],
+    );
+
+    git_at(&repo_dir, INSIDE, &["branch", "foreign"]);
+    git_at(&wt, INSIDE, &["switch", "-q", "foreign"]);
+
+    let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
+    assert_eq!(created, ["born-with-wt"], "the visited branch was claimed");
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
+/// An externally-deleted worktree DIRECTORY doesn't destroy the evidence: the
+/// admin record keeps the HEAD reflog until a prune, and attribution keeps
+/// working through it. After the prune, nothing is claimed.
+#[test]
+fn a_gone_directory_stays_attributable_until_prune() {
+    let repo_dir = init_repo();
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("agent-1");
+    git_at(
+        &repo_dir,
+        BIRTH,
+        &["worktree", "add", "-q", "-b", "born-with-wt", wt.to_str().unwrap()],
+    );
+    git_at(&wt, INSIDE, &["switch", "-q", "-c", "switched-inside"]);
+
+    fs::remove_dir_all(&wt).unwrap();
+
+    let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
+    assert_eq!(created, ["born-with-wt", "switched-inside"]);
+
+    git(&repo_dir, &["worktree", "prune"]);
+    let after = provenance::created_branches(&repo_dir, &wt).expect("provenance");
+    assert!(after.is_empty(), "claimed after prune: {after:?}");
 
     fs::remove_dir_all(&repo_dir).ok();
     fs::remove_dir_all(&wt_root).ok();
