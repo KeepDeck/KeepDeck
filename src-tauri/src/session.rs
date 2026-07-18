@@ -238,7 +238,8 @@ mod tests {
 
     /// The webview sends camelCase keys; the FIELD names are raw serde (no
     /// Tauri conversion) — this pins the wire shape end to end, especially
-    /// the multi-word `envDefaults`.
+    /// the multi-word `envDefaults`. MIRROR: src/ipc/session.test.ts pins
+    /// the same shape from the sending side — change both together.
     #[test]
     fn spawn_spec_deserializes_the_webviews_camel_case_wire() {
         let spec: SpawnSpec = serde_json::from_str(

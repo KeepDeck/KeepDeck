@@ -87,8 +87,10 @@ export interface SpawnSkillsInput {
   /** Claude-plugin layout (`.claude-plugin/plugin.json` + `skills/`) —
    * made for `claude --plugin-dir`. */
   claudePluginDir: string;
-  /** OpenCode config-directory layout (`skills/` subdir) — made for the
-   * `OPENCODE_CONFIG_DIR` env var. */
+  /** OpenCode config-directory layout — made for the `OPENCODE_CONFIG_DIR`
+   * env var. Carries `skills/` AND a generated `command/` subdir (each
+   * skill's user-facing `/name` palette command); treat both as the host's
+   * to replace, everything else in the dir as opencode's own. */
   opencodeConfigDir: string;
   /** Bare standard layout (`<skill>/SKILL.md` at the top level) — kimi's
    * `--skills-dir`; the shape codex's `.agents/skills` would take once its

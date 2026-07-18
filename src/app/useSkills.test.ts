@@ -11,6 +11,7 @@ import { useSkillsLibrary, type SkillsLibrary } from "./useSkills";
 
 const wire = vi.hoisted(() => ({
   listSkills: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
+  fetchSkills: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
   saveSkill: vi.fn(async () => {}),
   deleteSkill: vi.fn(async () => {}),
   renameSkill: vi.fn(async () => {}),
@@ -31,6 +32,8 @@ describe("the skills library hook", () => {
 
   beforeEach(() => {
     wire.listSkills.mockClear();
+    wire.fetchSkills.mockClear();
+    wire.fetchSkills.mockResolvedValue([]);
     wire.saveSkill.mockClear();
     wire.deleteSkill.mockClear();
     wire.renameSkill.mockClear();
@@ -126,6 +129,27 @@ describe("the skills library hook", () => {
     expect(ok).toBe(false);
     expect(lib.error).toContain("already exists");
     expect(staging.invalidateSkillsStaging).not.toHaveBeenCalled();
+  });
+
+  it("a failed save whose reload also fails keeps the stale list", async () => {
+    wire.listSkills.mockResolvedValue([
+      { scope: "global", wsId: null, name: "review", content: "x" },
+    ]);
+    await mount();
+    expect(lib.skills).toHaveLength(1);
+
+    wire.saveSkill.mockRejectedValueOnce(new Error("down"));
+    wire.fetchSkills.mockRejectedValueOnce(new Error("still down"));
+    await act(async () => {
+      await lib.save(
+        { kind: "global" },
+        { name: "x", description: "d", body: "", extraFrontmatter: [] },
+      );
+    });
+
+    // Stale beats an empty lie: the library must NOT blank out.
+    expect(lib.skills).toHaveLength(1);
+    expect(lib.error).toContain("down");
   });
 
   it("remove deletes, invalidates staging, reloads", async () => {

@@ -360,18 +360,30 @@ fn stage(
         }
     }
     for (name, source, content) in &sources {
+        // A source deleted between collection and here is SKIPPED outright —
+        // re-materializing it from the collected bytes would resurrect a
+        // deleted skill for one stage. (An empty dest dir from an earlier
+        // view iteration is harmless: a dir without SKILL.md is not a skill
+        // to any CLI, and the next stage drops it.)
+        let mut present = true;
         for view in [
             claude_plugin.join("skills"),
             tmp.join("skills"),
             opencode_tmp.clone(),
         ] {
             let dest = view.join(name);
-            copy_dir(source, &dest)?;
+            if !copy_dir(source, &dest)? {
+                present = false;
+                break;
+            }
             // The staged SKILL.md is written from the content read at
             // collection time — the same bytes the generated command's
             // description came from. A save racing this loop can no longer
             // make the staged file and its command diverge.
             write_atomic(&dest.join(SKILL_FILE), content.as_bytes())?;
+        }
+        if !present {
+            continue;
         }
         // The user-facing half of the opencode view: a /name command whose
         // palette description is the skill's own, pointing the agent at the
@@ -779,18 +791,18 @@ fn frontmatter_line(content: &str, key: &str) -> Option<String> {
     })
 }
 
-/// Copy a skill directory tree (assets included). Symlinks are followed —
-/// the library is KeepDeck-authored, a link is the author's own doing.
-/// `write_atomic`'s transient `SKILL.md.tmp` sibling is excluded, and an
-/// entry that vanishes mid-copy (that same transient being renamed away by
-/// a concurrent save) is skipped rather than failing the whole stage.
-fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
+/// Copy a skill directory tree (assets included); `Ok(false)` = the whole
+/// source vanished mid-stage (a racing delete) and nothing was copied.
+/// Symlinks are followed — the library is KeepDeck-authored, a link is the
+/// author's own doing. `write_atomic`'s transient `SKILL.md.tmp` sibling is
+/// excluded, and an entry that vanishes mid-copy (that same transient being
+/// renamed away by a concurrent save) is skipped rather than failing the
+/// whole stage.
+fn copy_dir(from: &Path, to: &Path) -> io::Result<bool> {
     fs::create_dir_all(to)?;
     let entries = match fs::read_dir(from) {
         Ok(entries) => entries,
-        // The whole skill dir vanished mid-stage (a racing delete): stage
-        // the rest — the next staging reflects the deletion properly.
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(false),
         Err(e) => return Err(e),
     };
     for entry in entries.flatten() {
@@ -799,7 +811,7 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
         }
         let target = to.join(entry.file_name());
         if entry.path().is_dir() {
-            copy_dir(&entry.path(), &target)?;
+            let _ = copy_dir(&entry.path(), &target)?;
         } else {
             match fs::copy(entry.path(), &target) {
                 Err(e) if e.kind() == ErrorKind::NotFound => continue,
@@ -809,7 +821,7 @@ fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
             }
         }
     }
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]

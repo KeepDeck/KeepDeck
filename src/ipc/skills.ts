@@ -29,11 +29,18 @@ const wire = (scope: SkillScope) =>
     ? { scope: "global", wsId: null }
     : { scope: "workspace", wsId: scope.wsId };
 
+/** The raw library read — THROWS on a backend error, for callers that must
+ * tell "empty" from "unreachable" (a failed-save reload keeps its stale
+ * list rather than showing an empty lie). */
+export async function fetchSkills(): Promise<StoredSkill[]> {
+  return await invoke<StoredSkill[]>("skills_list");
+}
+
 /** Every stored skill. Degrades to an empty library if the backend errors —
  * the editor then starts blank rather than dead. */
 export async function listSkills(): Promise<StoredSkill[]> {
   try {
-    return await invoke<StoredSkill[]>("skills_list");
+    return await fetchSkills();
   } catch (e) {
     log.warn("web:skills", `skills_list failed; empty library: ${describeError(e)}`);
     return [];

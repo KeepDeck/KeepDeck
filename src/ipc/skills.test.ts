@@ -7,7 +7,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * (`worktreeRoots` vs `roots`: every stage call failed, panes spawned
  * without skills). Same guard idiom as notify.test.ts: mock the tauri
  * boundary, run the real module, pin the exact wire calls. Keys here are
- * the camelCase forms Tauri maps onto the Rust params (wsId → ws_id).
+ * the camelCase forms Tauri maps onto the Rust params (wsId → ws_id) —
+ * skills commands take TOP-LEVEL params (Tauri converts case), unlike
+ * session_spawn's spec STRUCT (raw serde), whose pins live in
+ * session.test.ts + session.rs. Copy the matching pattern when adding a
+ * command.
  */
 const tauri = vi.hoisted(() => ({ invoke: vi.fn(async (): Promise<unknown> => null) }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
@@ -15,6 +19,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 import {
   deleteSkill,
   disarmSkills,
+  fetchSkills,
   listSkills,
   pruneSkills,
   renameSkill,
@@ -79,6 +84,12 @@ describe("the skills invoke-key contract", () => {
     expect(await stageSkills("ws-1", [])).toBeNull();
     await disarmSkills(["/x"]); // must not throw
     await pruneSkills(["ws-1"]); // must not throw
+  });
+
+  it("fetchSkills THROWS where listSkills degrades — callers rely on it", async () => {
+    tauri.invoke.mockRejectedValue(new Error("boom"));
+    await expect(fetchSkills()).rejects.toThrow("boom");
+    expect(await listSkills()).toEqual([]);
   });
 
   it("save, delete and rename surface their failures", async () => {

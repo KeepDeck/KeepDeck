@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { composeSkillFile, type SkillDraft, type SkillScope } from "../domain/skills";
 import {
   deleteSkill,
+  fetchSkills,
   listSkills,
   renameSkill,
   saveSkill,
@@ -63,8 +64,14 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
         setError(`Save failed: ${describeError(e)}`);
         // The disk may still have moved under this action (a rename that
         // preceded the failed save): reload so the list stays truthful,
-        // WITHOUT clearing the error the user is reading.
-        setSkills(await listSkills());
+        // WITHOUT clearing the error the user is reading. If the reload
+        // itself fails (backend down), keep the stale list — stale beats
+        // an empty library the user would read as data loss.
+        try {
+          setSkills(await fetchSkills());
+        } catch {
+          // keep whatever we last showed
+        }
         return false;
       }
     },
