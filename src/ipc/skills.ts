@@ -43,6 +43,12 @@ export async function deleteSkill(scope: SkillScope, name: string): Promise<void
   await invoke("skills_delete", { ...wire(scope), name });
 }
 
+/** Rename one skill by moving its directory — assets travel along. Throws
+ * on failure (a name collision included). */
+export async function renameSkill(scope: SkillScope, from: string, to: string): Promise<void> {
+  await invoke("skills_rename", { ...wire(scope), from, to });
+}
+
 /** Rebuild and fetch a workspace's staged views; `null` = nothing to inject
  * (empty library, or staging failed — a pane spawns fine without skills).
  * `worktreeRoots` (the workspace's worktree pane roots) get the codex-facing

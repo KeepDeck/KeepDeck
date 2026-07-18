@@ -28,14 +28,14 @@
 //!   everything else in it must survive every rebuild.
 //!
 //! CODEX has no injection door at all (no flag, no env, no config key), but
-//! it reads the STANDARD project location `.agents/skills` at a repo root —
-//! so skills become a property of KeepDeck-managed worktrees: staging arms
-//! each of the workspace's worktree roots with a SYMLINK
-//! `<worktree>/.agents/skills` → the staged bare view, and a `/.agents/`
-//! line in the repo's shared `info/exclude` keeps git blind to it. A
-//! symlink pointing into KeepDeck's home is provably OURS — a real
-//! directory there is the user's and is never touched. Panes running in
-//! the user's main checkout stay uninjected on purpose.
+//! it reads the STANDARD location `.agents/skills` at its starting cwd (and
+//! up to the repo root) once, at session start. So — per the user's rule
+//! "skills live in the launched CLI's cwd, period" — staging arms EVERY
+//! pane spawn cwd of the workspace with a SYMLINK `.agents/skills` → the
+//! staged bare view, and a `/.agents/` line in the nearest repo's shared
+//! `info/exclude` keeps git blind to it (a non-git cwd just skips the
+//! exclude). A symlink pointing into KeepDeck's home is provably OURS — a
+//! real directory there is the user's and is never touched.
 //!
 //! Frontmatter and schema knowledge stay in TS (`src/domain/skills`), next to
 //! the model; this adapter only moves bytes: list, save, delete, stage.
@@ -110,27 +110,42 @@ pub fn skills_delete(scope: String, ws_id: Option<String>, name: String) -> Resu
     delete(&dir, &name).map_err(|e| e.to_string())
 }
 
+/// Rename one skill by moving its whole directory — assets travel with it,
+/// which a save-new-delete-old dance would silently drop. Refuses to move
+/// onto an existing skill.
+#[tauri::command(async)]
+pub fn skills_rename(
+    scope: String,
+    ws_id: Option<String>,
+    from: String,
+    to: String,
+) -> Result<(), String> {
+    let root = skills_root()?;
+    let dir = scope_dir(&root, &scope, ws_id.as_deref())?;
+    rename(&dir, &from, &to).map_err(|e| e.to_string())
+}
+
 /// Rebuild and return the staged views for one workspace — `None` when the
 /// library holds nothing for it (callers then inject no skills at all).
-/// `worktree_roots` are the workspace's worktree pane roots: each gets the
-/// codex-facing `.agents/skills` symlink armed (or disarmed when empty).
+/// `roots` are the workspace's pane spawn cwds: each gets the codex-facing
+/// `.agents/skills` symlink armed (or disarmed when empty).
 #[tauri::command(async)]
 pub fn skills_stage(
     ws_id: String,
-    worktree_roots: Vec<String>,
+    roots: Vec<String>,
 ) -> Result<Option<SkillStagingDto>, String> {
     let root = skills_root()?;
     require_safe(&ws_id, "workspace id")?;
-    stage(&root, &ws_id, &worktree_roots).map_err(|e| e.to_string())
+    stage(&root, &ws_id, &roots).map_err(|e| e.to_string())
 }
 
-/// Remove KeepDeck's `.agents/skills` symlinks from the given worktree
-/// roots — the closing workspace's worktrees must not keep dangling links
-/// once their staging is pruned. Only provably-ours links are touched.
+/// Remove KeepDeck's `.agents/skills` symlinks from the given spawn cwds —
+/// a closing workspace's directories must not keep dangling links once its
+/// staging is pruned. Only provably-ours links are touched.
 #[tauri::command(async)]
-pub fn skills_disarm(worktree_roots: Vec<String>) -> Result<(), String> {
+pub fn skills_disarm(roots: Vec<String>) -> Result<(), String> {
     let root = skills_root()?;
-    disarm_worktrees(&root, &worktree_roots).map_err(|e| e.to_string())
+    disarm_roots(&root, &roots).map_err(|e| e.to_string())
 }
 
 /// Drop the DERIVED per-workspace dirs (staging views, opencode config
@@ -244,10 +259,20 @@ fn delete(scope_dir: &Path, name: &str) -> io::Result<()> {
     }
 }
 
+fn rename(scope_dir: &Path, from: &str, to: &str) -> io::Result<()> {
+    require_safe(from, "skill name").map_err(io::Error::other)?;
+    require_safe(to, "skill name").map_err(io::Error::other)?;
+    let target = scope_dir.join(to);
+    if target.exists() {
+        return Err(io::Error::other(format!("a skill named {to:?} already exists")));
+    }
+    fs::rename(scope_dir.join(from), target)
+}
+
 fn stage(
     root: &Path,
     ws_id: &str,
-    worktree_roots: &[String],
+    spawn_roots: &[String],
 ) -> io::Result<Option<SkillStagingDto>> {
     let library = root.join("library");
     let final_dir = root.join("staging").join(ws_id);
@@ -283,7 +308,7 @@ fn stage(
                 other => other?,
             }
         }
-        disarm_worktrees(root, worktree_roots)?;
+        disarm_roots(root, spawn_roots)?;
         return Ok(None);
     }
 
@@ -345,7 +370,7 @@ fn stage(
     }
     fs::rename(&opencode_cmd_tmp, &opencode_commands)?;
 
-    arm_worktrees(root, &final_dir.join("skills"), worktree_roots)?;
+    arm_roots(root, &final_dir.join("skills"), spawn_roots)?;
 
     let abs = |dir: &Path| dir.to_string_lossy().into_owned();
     Ok(Some(SkillStagingDto {
@@ -355,13 +380,13 @@ fn stage(
     }))
 }
 
-/// The codex-facing arm: `<worktree>/.agents/skills` → the staged bare view.
-/// A real (non-symlink) entry there is the user's own and is left alone; a
-/// foreign symlink (target outside KeepDeck's skills root) likewise. The
-/// exclude line is best-effort — a repo whose metadata can't be resolved
-/// still gets the skills, just with an untracked `.agents/` in its status.
-fn arm_worktrees(root: &Path, staged_skills: &Path, worktree_roots: &[String]) -> io::Result<()> {
-    for wt in worktree_roots {
+/// The codex-facing arm: `<cwd>/.agents/skills` → the staged bare view, for
+/// every pane spawn cwd. A real (non-symlink) entry there is the user's own
+/// and is left alone; a foreign symlink (target outside KeepDeck's skills
+/// root) likewise. The exclude line is best-effort — a dir whose repo can't
+/// be resolved still gets the skills, just with an untracked `.agents/`.
+fn arm_roots(root: &Path, staged_skills: &Path, spawn_roots: &[String]) -> io::Result<()> {
+    for wt in spawn_roots {
         let wt = Path::new(wt);
         if !wt.is_dir() {
             continue;
@@ -394,9 +419,9 @@ fn arm_worktrees(root: &Path, staged_skills: &Path, worktree_roots: &[String]) -
 }
 
 /// Remove OUR symlinks (and a `.agents` dir they leave empty) from the
-/// given worktree roots. Anything not provably ours stays.
-fn disarm_worktrees(root: &Path, worktree_roots: &[String]) -> io::Result<()> {
-    for wt in worktree_roots {
+/// given spawn cwds. Anything not provably ours stays.
+fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()> {
+    for wt in spawn_roots {
         let agents = Path::new(wt).join(".agents");
         let link = agents.join("skills");
         match fs::symlink_metadata(&link) {
@@ -426,13 +451,15 @@ fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
 }
 
-/// Idempotently append `/.agents/` to the repo's SHARED `info/exclude` so
-/// the armed dir never shows up in git status or a commit. The exclude file
-/// lives in the common git dir — resolved through the worktree's `.git`
-/// file and its `commondir` pointer.
-fn ensure_excluded(worktree_root: &Path) -> io::Result<()> {
-    const LINE: &str = "/.agents/";
-    let Some(exclude) = git_info_exclude(worktree_root)? else {
+/// Idempotently append the armed dir to the owning repo's SHARED
+/// `info/exclude` so it never shows up in git status or a commit. The
+/// exclude file lives in the common git dir — the nearest `.git` up from
+/// the armed cwd, resolved through a worktree's `.git` file and its
+/// `commondir` pointer when applicable. The pattern is anchored to the
+/// armed cwd relative to the repo root, so a subdir cwd's `.agents` is
+/// excluded without hiding same-named dirs elsewhere in the repo.
+fn ensure_excluded(armed_root: &Path) -> io::Result<()> {
+    let Some((exclude, line)) = git_exclusion(armed_root)? else {
         return Ok(());
     };
     let current = match fs::read_to_string(&exclude) {
@@ -440,37 +467,52 @@ fn ensure_excluded(worktree_root: &Path) -> io::Result<()> {
         Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
         Err(e) => return Err(e),
     };
-    if current.lines().any(|l| l.trim() == LINE) {
+    if current.lines().any(|l| l.trim() == line) {
         return Ok(());
     }
     let sep = if current.is_empty() || current.ends_with('\n') { "" } else { "\n" };
-    write_atomic(&exclude, format!("{current}{sep}{LINE}\n").as_bytes())
+    write_atomic(&exclude, format!("{current}{sep}{line}\n").as_bytes())
 }
 
-/// The `info/exclude` of the repo a worktree belongs to, or `None` when the
-/// root isn't recognizably a git checkout.
-fn git_info_exclude(worktree_root: &Path) -> io::Result<Option<PathBuf>> {
-    let dotgit = worktree_root.join(".git");
-    if dotgit.is_dir() {
-        return Ok(Some(dotgit.join("info").join("exclude")));
+/// The owning repo's `info/exclude` plus the anchored ignore pattern for an
+/// armed cwd, or `None` when no ancestor is a git checkout. The nearest
+/// `.git` up from the cwd wins — an armed SUBDIR of a repo excludes
+/// `/<subdir>/.agents/` in that repo.
+fn git_exclusion(armed_root: &Path) -> io::Result<Option<(PathBuf, String)>> {
+    for ancestor in armed_root.ancestors() {
+        let dotgit = ancestor.join(".git");
+        let common = if dotgit.is_dir() {
+            dotgit
+        } else {
+            let pointer = match fs::read_to_string(&dotgit) {
+                Ok(text) => text,
+                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            };
+            let Some(gitdir) = pointer.trim().strip_prefix("gitdir:") else {
+                continue;
+            };
+            let gitdir = ancestor.join(gitdir.trim());
+            // A linked worktree's gitdir carries a `commondir` pointer to
+            // the main `.git`; without one, the gitdir IS the common dir.
+            match fs::read_to_string(gitdir.join("commondir")) {
+                Ok(rel) => gitdir.join(rel.trim()),
+                Err(e) if e.kind() == ErrorKind::NotFound => gitdir,
+                Err(e) => return Err(e),
+            }
+        };
+        let below = armed_root
+            .strip_prefix(ancestor)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let line = if below.is_empty() {
+            "/.agents/".to_string()
+        } else {
+            format!("/{below}/.agents/")
+        };
+        return Ok(Some((common.join("info").join("exclude"), line)));
     }
-    let pointer = match fs::read_to_string(&dotgit) {
-        Ok(text) => text,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let Some(gitdir) = pointer.trim().strip_prefix("gitdir:") else {
-        return Ok(None);
-    };
-    let gitdir = worktree_root.join(gitdir.trim());
-    // A linked worktree's gitdir carries a `commondir` pointer to the main
-    // `.git`; without one, the gitdir IS the common dir.
-    let common = match fs::read_to_string(gitdir.join("commondir")) {
-        Ok(rel) => gitdir.join(rel.trim()),
-        Err(e) if e.kind() == ErrorKind::NotFound => gitdir,
-        Err(e) => return Err(e),
-    };
-    Ok(Some(common.join("info").join("exclude")))
+    Ok(None)
 }
 
 /// `.tmp-<id>` build leftovers follow the same liveness rule as the dirs
@@ -587,6 +629,29 @@ mod tests {
         assert!(scope_dir(&root, "workspace", Some("../up")).is_err());
         assert!(scope_dir(&root, "workspace", None).is_err());
         assert!(scope_dir(&root, "other", None).is_err());
+    }
+
+    #[test]
+    fn rename_moves_the_whole_directory_and_refuses_collisions() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", "content").unwrap();
+        fs::write(global(&root).join("review").join("notes.txt"), "asset").unwrap();
+        save(&global(&root), "deploy", "other").unwrap();
+
+        rename(&global(&root), "review", "deep-review").unwrap();
+        let moved = global(&root).join("deep-review");
+        assert_eq!(fs::read_to_string(moved.join(SKILL_FILE)).unwrap(), "content");
+        assert_eq!(fs::read_to_string(moved.join("notes.txt")).unwrap(), "asset");
+        assert!(!global(&root).join("review").exists());
+
+        // Onto an existing skill — refused, both survive untouched.
+        assert!(rename(&global(&root), "deep-review", "deploy").is_err());
+        assert!(moved.exists());
+        assert_eq!(
+            fs::read_to_string(global(&root).join("deploy").join(SKILL_FILE)).unwrap(),
+            "other",
+        );
+        assert!(rename(&global(&root), "deep-review", "../up").is_err());
     }
 
     #[test]
@@ -751,6 +816,45 @@ mod tests {
     }
 
     #[test]
+    fn arms_a_plain_main_checkout_cwd() {
+        let (_tmp, root) = root();
+        let repo = root.parent().unwrap().join("checkout");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        save(&global(&root), "review", "x").unwrap();
+
+        stage(&root, "ws-1", &[repo.to_string_lossy().into_owned()])
+            .unwrap()
+            .unwrap();
+
+        let link = repo.join(".agents").join("skills");
+        assert!(link.join("review").join(SKILL_FILE).exists());
+        let exclude =
+            fs::read_to_string(repo.join(".git").join("info").join("exclude")).unwrap();
+        assert!(exclude.contains("/.agents/"));
+    }
+
+    #[test]
+    fn a_subdir_cwd_is_armed_with_an_anchored_exclude_in_the_owning_repo() {
+        let (_tmp, root) = root();
+        let repo = root.parent().unwrap().join("checkout");
+        let cwd = repo.join("packages").join("app");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        fs::create_dir_all(&cwd).unwrap();
+        save(&global(&root), "review", "x").unwrap();
+
+        stage(&root, "ws-1", &[cwd.to_string_lossy().into_owned()])
+            .unwrap()
+            .unwrap();
+
+        // The link sits AT the cwd (codex reads its starting cwd first),
+        // and the exclude anchors that exact path in the repo's exclude.
+        assert!(cwd.join(".agents").join("skills").join("review").exists());
+        let exclude =
+            fs::read_to_string(repo.join(".git").join("info").join("exclude")).unwrap();
+        assert!(exclude.lines().any(|l| l == "/packages/app/.agents/"));
+    }
+
+    #[test]
     fn a_users_real_agents_dir_is_never_touched() {
         let (_tmp, root) = root();
         let wt = fake_worktree(root.parent().unwrap());
@@ -795,7 +899,7 @@ mod tests {
         symlink_dir(&elsewhere, &agents.join("skills")).unwrap();
         fs::write(agents.join("notes.txt"), "keep").unwrap();
 
-        disarm_worktrees(&root, &[wt.to_string_lossy().into_owned()]).unwrap();
+        disarm_roots(&root, &[wt.to_string_lossy().into_owned()]).unwrap();
         assert!(agents.join("skills").exists());
         assert!(agents.join("notes.txt").exists());
     }

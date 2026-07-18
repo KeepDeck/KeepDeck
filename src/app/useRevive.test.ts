@@ -46,7 +46,7 @@ vi.mock("./spawnSpecs", () => {
     peekPaneSpawnSpec: (id: string) =>
       specs.get(id) as { args: string[] } | undefined,
     resetPaneSpawnSpecs: () => specs.clear(),
-    worktreeRootsOf: () => [],
+    skillRootsOf: () => [],
   };
 });
 vi.mock("./runtimeContext", () => ({
@@ -144,7 +144,7 @@ describe("useRevive — session policy", () => {
         cwd: "/repo",
         branch: undefined,
         yolo: undefined,
-        wsWorktreeRoots: [],
+        wsSkillRoots: [],
       },
       expect.anything(),
       "old",

@@ -15,7 +15,7 @@ import {
   dropPaneSpawnSpec,
   peekPaneSpawnSpec,
   resumeDiedSilently,
-  worktreeRootsOf,
+  skillRootsOf,
 } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
@@ -97,7 +97,7 @@ export function useAgentRestart(
         cwd: target.cwd,
         branch: target.branch,
         yolo: target.yolo,
-        ...(targetWs ? { wsWorktreeRoots: worktreeRootsOf(targetWs) } : {}),
+        ...(targetWs ? { wsSkillRoots: skillRootsOf(targetWs) } : {}),
       },
       spawnCtx,
       target.sessionId,

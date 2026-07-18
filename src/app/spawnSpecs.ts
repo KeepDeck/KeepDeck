@@ -80,19 +80,22 @@ async function buildAndCache(
 /** The pane-side facts a plan is built from — the hook input's shape minus
  * the resume session (that arrives with the resume request, not the pane). */
 export interface PaneSpawnFacts extends SpawnPlanInput {
-  /** The WORKSPACE's worktree pane roots — staging arms each with the
-   * codex-facing `.agents/skills` symlink. Workspace-level data riding on
-   * pane facts so every build path feeds the same staging call (and kept
-   * OFF the hook input: `base` below lists its fields explicitly). */
-  wsWorktreeRoots?: string[];
+  /** Every spawn cwd of the WORKSPACE's panes — staging arms each with the
+   * codex-facing `.agents/skills` symlink ("skills live in the launched
+   * CLI's cwd, period"). Workspace-level data riding on pane facts so every
+   * build path feeds the same staging call (and kept OFF the hook input:
+   * `base` below lists its fields explicitly). */
+  wsSkillRoots?: string[];
 }
 
-/** The workspace's worktree pane roots: panes that live in their own
- * worktree (cwd + branch) and actually have a directory already. */
-export function worktreeRootsOf(ws: Workspace): string[] {
-  return ws.panes
-    .filter((p) => !p.provisioning && p.branch && p.cwd)
-    .map((p) => p.cwd as string);
+/** The workspace's pane spawn cwds, deduped: worktree roots and the
+ * workspace cwd alike — wherever a CLI actually starts. */
+export function skillRootsOf(ws: Workspace): string[] {
+  return [
+    ...new Set(
+      ws.panes.filter((p) => !p.provisioning).map((p) => p.cwd ?? ws.cwd),
+    ),
+  ];
 }
 
 /** Build one plan through the agent's hook; a throwing hook degrades to a
@@ -121,7 +124,7 @@ async function buildPlan(
   // are, so a reborn id can never inherit a dead workspace's staging.
   const skills = await stagedSkillsFor(
     facts.workspace.instance,
-    facts.wsWorktreeRoots ?? [],
+    facts.wsSkillRoots ?? [],
   );
   const base: SpawnPlanInput = {
     paneId,
@@ -276,7 +279,7 @@ export function usePaneSpawnSpecs(
     if (!ctx || !agentsReady) return;
     let alive = true;
     for (const ws of workspaces) {
-      const wsWorktreeRoots = worktreeRootsOf(ws);
+      const wsSkillRoots = skillRootsOf(ws);
       for (const pane of ws.panes) {
         if (pane.dormant || pane.provisioning) continue;
         if (specs.has(pane.id) || pending.has(pane.id)) continue;
@@ -292,7 +295,7 @@ export function usePaneSpawnSpecs(
               cwd: pane.cwd ?? ws.cwd,
               branch: pane.branch,
               yolo: pane.yolo,
-              wsWorktreeRoots,
+              wsSkillRoots,
             },
             ctx,
           ),
