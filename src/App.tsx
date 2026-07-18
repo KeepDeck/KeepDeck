@@ -757,8 +757,8 @@ function App() {
                   />
                   <span className="confirm__option-text">
                     {closeFlow.closing.targets.length === 1
-                      ? "Also delete the worktree and branch"
-                      : `Also delete all ${closeFlow.closing.targets.length} worktrees and branches`}
+                      ? "Also delete the worktree and its branches"
+                      : `Also delete all ${closeFlow.closing.targets.length} worktrees and their branches`}
                     <span className="confirm__option-note">
                       Discards any uncommitted work.
                     </span>

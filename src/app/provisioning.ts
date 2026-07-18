@@ -234,9 +234,11 @@ function runSetup(
 }
 
 /**
- * Tear down each target's git worktree and branch when the close dialog's delete
- * checkbox was ticked. Always forced — the checkbox is explicit intent, so a
- * dirty worktree / unmerged branch is discarded per the user's decision. Never
+ * Tear down each target's git worktree and branches when the close dialog's
+ * delete checkbox was ticked. Always forced — the checkbox is explicit intent,
+ * so a dirty worktree / unmerged branch is discarded per the user's decision;
+ * the same intent covers every branch the agent CREATED in the worktree, not
+ * just the tracked one (side branches would otherwise pile up dead). Never
  * throws: a failing target is collected so one bad worktree doesn't strand the
  * rest, and the messages surface in the error dialog.
  */
@@ -246,7 +248,11 @@ export async function discardWorktrees(
   const failures: string[] = [];
   for (const t of targets) {
     try {
-      await removeWorktree(t.repo, t.path, { force: true, branch: t.branch });
+      await removeWorktree(t.repo, t.path, {
+        force: true,
+        branch: t.branch,
+        reapCreatedBranches: true,
+      });
     } catch (e) {
       log.warn("web:provisioning", `worktree discard failed for ${t.path}: ${describeError(e)}`);
       failures.push(`${t.branch ?? t.path}: ${e}`);

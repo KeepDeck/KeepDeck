@@ -68,7 +68,7 @@ pub fn parse_head(content: &str) -> Option<Head> {
 }
 
 /// A full object id: 40 hex chars (SHA-1) or 64 (SHA-256 repos).
-fn is_commit_sha(s: &str) -> bool {
+pub(crate) fn is_commit_sha(s: &str) -> bool {
     (s.len() == 40 || s.len() == 64) && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 

@@ -29,7 +29,10 @@ export interface CreateWorktreeArgs {
   agentId: string;
   /** Explicit branch; auto-generated (`kd/<ws>/<n>`) when omitted/blank. */
   branch?: string | null;
-  /** Pinned base commit/rev; defaults to HEAD resolved at create time. */
+  /** Base commit/rev — a branch NAME is fine: the Rust side ALWAYS resolves
+   *  it to a commit sha at create time (defaults to HEAD), pinning the batch
+   *  to one commit and giving the born branch a sha-sourced creation reflog,
+   *  which branch provenance trusts at close-time reaping. */
   base?: string | null;
   workspace?: string;
   index?: number;
@@ -83,6 +86,10 @@ export interface RemoveWorktreeOptions {
   force?: boolean;
   /** Also delete this branch once the worktree is gone; left intact when unset. */
   branch?: string | null;
+  /** Also delete every branch CREATED inside the worktree (reflog provenance,
+   *  resolved on the Rust side): the agent's side branches go with it. A created
+   *  branch since checked out in another worktree is in use and is kept. */
+  reapCreatedBranches?: boolean;
 }
 
 /** Remove an agent's worktree, and — when `branch` is given — delete that branch
@@ -93,7 +100,13 @@ export function removeWorktree(
   opts: RemoveWorktreeOptions = {},
 ): Promise<void> {
   return invoke("worktree_remove", {
-    spec: { repo, path, force: opts.force ?? false, branch: opts.branch ?? null },
+    spec: {
+      repo,
+      path,
+      force: opts.force ?? false,
+      branch: opts.branch ?? null,
+      reapCreatedBranches: opts.reapCreatedBranches ?? false,
+    },
   });
 }
 
