@@ -130,7 +130,7 @@ describe("retainUsagePanes", () => {
 });
 
 describe("catch-up reports", () => {
-  it("fill gaps but never overwrite live data", () => {
+  it("never overwrite LIVE data of this run", () => {
     const live = fake(reported(10));
     reportUsage("pane-live", { agent: "fake" });
     live();
@@ -141,19 +141,54 @@ describe("catch-up reports", () => {
       pane: { agent: "fake", model: "stale", reportedAt: 99 },
     });
     reportUsage("pane-new", { agent: "fake", catchUp: true });
+    replay();
     expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
       reportedAt: 10,
       sourcePaneId: "pane-live",
     });
-    // The NEW pane had no data of its own — the replay fills that gap.
+    // The NEW pane had no live data of its own — the replay fills that gap.
     expect(getUsageSnapshot().panes.get("pane-new")).toMatchObject({
       model: "stale",
     });
-    // A second replay for the same pane no longer fills anything.
-    reportUsage("pane-new", { agent: "fake", catchUp: true });
+  });
+
+  it("merge complementary replay events — one arm is several partials", () => {
+    // The tailer deliberately splits catch-up into context-first partials
+    // (codex: turn_context then token_count). Both must land and merge.
+    const model = fake({
+      account: null,
+      pane: { agent: "fake", model: "gpt-x", reportedAt: 1 },
+    });
+    reportUsage("pane-1", { agent: "fake", catchUp: true });
+    model();
+    const numbers = fake({
+      account: null,
+      pane: { agent: "fake", context: { usedPct: 40 }, reportedAt: 2 },
+    });
+    reportUsage("pane-1", { agent: "fake", catchUp: true });
+    numbers();
+    expect(getUsageSnapshot().panes.get("pane-1")).toEqual({
+      agent: "fake",
+      model: "gpt-x",
+      context: { usedPct: 40 },
+      reportedAt: 2,
+    });
+  });
+
+  it("beat a hydrated snapshot — replays are fresher than yesterday's cache", () => {
+    // Boot hydration is NOT live provenance: a catch-up replay from the
+    // actual session file must be allowed to update it.
+    setAccountUsage("fake", {
+      kind: "reported",
+      windows: [],
+      reportedAt: 1,
+      sourcePaneId: "",
+    });
+    const replay = fake(reported(50));
+    reportUsage("pane-1", { agent: "fake", catchUp: true });
     replay();
-    expect(getUsageSnapshot().panes.get("pane-new")).toMatchObject({
-      reportedAt: 99,
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 50,
     });
   });
 

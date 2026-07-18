@@ -33,6 +33,13 @@ let accounts: ReadonlyMap<string, AccountUsage> = new Map();
 let panes: ReadonlyMap<string, PaneUsage> = new Map();
 let snapshot: UsageSnapshot = { accounts, panes };
 const listeners = new Set<() => void>();
+/** Provenance: keys that received LIVE (non-replay) data this run. A
+ * catch-up replay merges like any report — the tailer deliberately splits
+ * one arm into complementary partial events — but must never beat what a
+ * live source already said. Gating on map membership instead of provenance
+ * once dropped the second half of every replay (review finding). */
+const liveAccounts = new Set<string>();
+const livePanes = new Set<string>();
 
 const normalizers = new Map<string, UsageNormalizer>();
 
@@ -61,8 +68,9 @@ export function registerUsageNormalizer(
  * a replay of the EXISTING session file at arm time. Replays are stamped
  * with RECEIPT time like everything else, so without the mark a stale
  * snapshot from a freshly-armed pane would outrank genuinely fresher live
- * data under freshest-wins; marked reports only FILL GAPS — they never
- * overwrite an account or pane that already has data. */
+ * data under freshest-wins; marked reports apply (and MERGE — one arm is
+ * several complementary partial events) unless the target already carries
+ * LIVE data from this run. */
 export function reportUsage(
   paneId: string,
   payload: unknown,
@@ -77,7 +85,8 @@ export function reportUsage(
   const catchUp = payload.catchUp === true;
 
   let changed = false;
-  if (result.account && !(catchUp && accounts.has(provider))) {
+  if (result.account && !(catchUp && liveAccounts.has(provider))) {
+    if (!catchUp) liveAccounts.add(provider);
     const claimed: AccountUsage =
       result.account.kind === "reported"
         ? { ...result.account, sourcePaneId: paneId }
@@ -89,7 +98,8 @@ export function reportUsage(
       changed = true;
     }
   }
-  if (result.pane && !(catchUp && panes.has(paneId))) {
+  if (result.pane && !(catchUp && livePanes.has(paneId))) {
+    if (!catchUp) livePanes.add(paneId);
     // Merged, not replaced: codex splits model and numbers across events.
     panes = new Map(panes).set(
       paneId,
@@ -113,6 +123,9 @@ export function setAccountUsage(provider: string, account: AccountUsage): void {
 /** Drop pane usage for panes that no longer exist. Account state stays —
  * the windows describe the account, not the pane that reported them. */
 export function retainUsagePanes(liveIds: ReadonlySet<string>): void {
+  for (const id of [...livePanes]) {
+    if (!liveIds.has(id)) livePanes.delete(id);
+  }
   if (![...panes.keys()].some((id) => !liveIds.has(id))) return;
   const next = new Map<string, PaneUsage>();
   for (const [id, usage] of panes) {
@@ -143,4 +156,6 @@ export function resetUsageManager(): void {
   snapshot = { accounts, panes };
   normalizers.clear();
   listeners.clear();
+  liveAccounts.clear();
+  livePanes.clear();
 }
