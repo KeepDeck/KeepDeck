@@ -161,7 +161,14 @@ function App() {
   const usageLiveAgents = useMemo(() => {
     const ids = new Set<string>();
     for (const ws of deck.workspaces) {
-      for (const pane of ws.panes) ids.add(paneAgentType(pane));
+      for (const pane of ws.panes) {
+        // Dormant/provisioning panes have no running process — counting
+        // them gave background workspaces eternal "waiting" chips (revive
+        // only wakes the active workspace). Same filter as the tail and
+        // polling lanes.
+        if (pane.dormant || pane.provisioning) continue;
+        ids.add(paneAgentType(pane));
+      }
     }
     return ids;
   }, [deck.workspaces]);

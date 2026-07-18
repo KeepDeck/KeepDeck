@@ -131,6 +131,27 @@ describe("agent registration payload", () => {
     expect(payload).not.toHaveProperty("supportsYolo");
   });
 
+  it("warns loudly when an agent declares usage — the tier cannot carry it", async () => {
+    const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
+    const rpc = { call } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    bundle.ctx.agents.register({
+      id: "codex",
+      label: "Codex",
+      detect: { bin: "codex" },
+      hooks: {},
+      usage: { normalize: () => null },
+    });
+    await bundle.registrationsSettled();
+    const warn = call.mock.calls.find(([path]) => path === "log.warn");
+    expect(warn).toBeDefined();
+    expect(String((warn![1] as string[])[0])).toContain("usage contributions");
+    // And the declaration still never rides the wire (functions can't).
+    const register = call.mock.calls.find(([path]) => path === "agents.register");
+    const [, payload] = register![1] as [number, Record<string, unknown>];
+    expect(payload).not.toHaveProperty("usage");
+  });
+
   it("carries a declared supportsYolo onto the wire", async () => {
     const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
     const rpc = { call } as unknown as GuestRpc;
