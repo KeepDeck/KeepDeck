@@ -535,24 +535,33 @@
    signal is layered: a row wash plus a stronger gutter tint — the gutters
    pin through horizontal scroll, so they double as the row's always-visible
    colored edge. Which gutter holds a number is the hue-free cue: dels keep
-   only the old number, adds only the new. Gutter mixes go over --kd-bg,
-   never transparent: a sticky gutter must stay opaque to cover the text
-   scrolling under it. */
+   only the old number, adds only the new (DiffPeek renders it that way for
+   this reason). Gutter mixes go over --kd-bg, never transparent: a sticky
+   gutter must stay opaque to cover the text scrolling under it. Each mix
+   rides on its pre-blended literal: color-mix needs WebKit 16.2 and the
+   bundle's floor is macOS 11, whose Safari ends at 16.1 — older engines
+   drop the mix line and keep the literal. */
 .git__diffrow--add {
+  background-color: rgba(88, 179, 104, 0.15);
   background-color: color-mix(in srgb, var(--kd-ok) 15%, transparent);
 }
 
 .git__diffrow--add .git__lineno {
+  background-color: #192c23;
   background-color: color-mix(in srgb, var(--kd-ok) 18%, var(--kd-bg));
+  color: #478254;
   color: color-mix(in srgb, var(--kd-ok-strong) 60%, var(--kd-bg));
 }
 
 .git__diffrow--del {
+  background-color: rgba(229, 115, 111, 0.15);
   background-color: color-mix(in srgb, var(--kd-err) 15%, transparent);
 }
 
 .git__diffrow--del .git__lineno {
+  background-color: #322024;
   background-color: color-mix(in srgb, var(--kd-err) 18%, var(--kd-bg));
+  color: #965959;
   color: color-mix(in srgb, var(--kd-err-strong) 60%, var(--kd-bg));
 }
 
