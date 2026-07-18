@@ -9,11 +9,15 @@ import { useSkillsPrune } from "./useSkillsPrune";
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const wire = vi.hoisted(() => ({ pruneSkills: vi.fn(async () => {}) }));
+const wire = vi.hoisted(() => ({
+  pruneSkills: vi.fn(async () => {}),
+  disarmSkills: vi.fn(async () => {}),
+  stageSkills: vi.fn(async () => null),
+}));
 vi.mock("../ipc/skills", () => wire);
 
-const ws = (id: string, name = id): Workspace =>
-  ({ id, name, cwd: "/repo", worktreeBaseDir: null, panes: [] }) as Workspace;
+const ws = (id: string, name = id, panes: Workspace["panes"] = []): Workspace =>
+  ({ id, name, cwd: "/repo", worktreeBaseDir: null, panes }) as Workspace;
 
 function Probe({ workspaces, ready }: { workspaces: Workspace[]; ready: boolean }) {
   useSkillsPrune(workspaces, ready);
@@ -25,6 +29,7 @@ describe("the skills prune sweep", () => {
 
   beforeEach(() => {
     wire.pruneSkills.mockClear();
+    wire.disarmSkills.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -61,5 +66,17 @@ describe("the skills prune sweep", () => {
     await mount(before, true);
     await mount([ws("ws-1", "New name")], true);
     expect(wire.pruneSkills).toHaveBeenCalledTimes(1);
+  });
+
+  it("a closing workspace's worktrees are disarmed, even late-added ones", async () => {
+    const wt = (id: string, cwd: string) =>
+      ({ id, agentType: "codex", cwd, branch: "kd/x" }) as Workspace["panes"][number];
+    await mount([ws("ws-1", "One", [wt("p1", "/wt/a")])], true);
+    // A worktree pane lands AFTER the boot sweep…
+    await mount([ws("ws-1", "One", [wt("p1", "/wt/a"), wt("p2", "/wt/b")])], true);
+    // …and the close still disarms BOTH of the workspace's worktrees.
+    await mount([], true);
+    expect(wire.disarmSkills).toHaveBeenLastCalledWith(["/wt/a", "/wt/b"]);
+    expect(wire.pruneSkills).toHaveBeenLastCalledWith([]);
   });
 });

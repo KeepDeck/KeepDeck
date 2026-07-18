@@ -44,13 +44,29 @@ export async function deleteSkill(scope: SkillScope, name: string): Promise<void
 }
 
 /** Rebuild and fetch a workspace's staged views; `null` = nothing to inject
- * (empty library, or staging failed — a pane spawns fine without skills). */
-export async function stageSkills(wsId: string): Promise<SkillsStagingViews | null> {
+ * (empty library, or staging failed — a pane spawns fine without skills).
+ * `worktreeRoots` (the workspace's worktree pane roots) get the codex-facing
+ * `.agents/skills` symlink armed while skills exist. */
+export async function stageSkills(
+  wsId: string,
+  worktreeRoots: string[],
+): Promise<SkillsStagingViews | null> {
   try {
-    return await invoke<SkillsStagingViews | null>("skills_stage", { wsId });
+    return await invoke<SkillsStagingViews | null>("skills_stage", { wsId, worktreeRoots });
   } catch (e) {
     log.warn("web:skills", `skills_stage failed; spawning without skills: ${describeError(e)}`);
     return null;
+  }
+}
+
+/** Remove KeepDeck's `.agents/skills` symlinks from the given worktree
+ * roots (a closing workspace's worktrees). Best-effort. */
+export async function disarmSkills(worktreeRoots: string[]): Promise<void> {
+  if (worktreeRoots.length === 0) return;
+  try {
+    await invoke("skills_disarm", { worktreeRoots });
+  } catch (e) {
+    log.warn("web:skills", `skills_disarm failed: ${describeError(e)}`);
   }
 }
 

@@ -15,6 +15,7 @@ import {
   dropPaneSpawnSpec,
   peekPaneSpawnSpec,
   resumeDiedSilently,
+  worktreeRootsOf,
 } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
@@ -86,6 +87,7 @@ export function useAgentRestart(
     // Remove the old token immediately, then prepare a plan that explicitly
     // stays exited if the CLI rejects its id (manual means no auto fallback).
     dropPaneSpawnSpec(target.paneId);
+    const targetWs = findWorkspace(deckRef.current.workspaces, target.wsId);
     const planBuilt = await buildResumeSpec(
       plugins,
       target.agentType,
@@ -95,6 +97,7 @@ export function useAgentRestart(
         cwd: target.cwd,
         branch: target.branch,
         yolo: target.yolo,
+        ...(targetWs ? { wsWorktreeRoots: worktreeRootsOf(targetWs) } : {}),
       },
       spawnCtx,
       target.sessionId,

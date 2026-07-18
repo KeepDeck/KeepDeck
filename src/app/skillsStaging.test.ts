@@ -3,7 +3,8 @@ import type { SkillsStagingViews } from "../ipc/skills";
 import { invalidateSkillsStaging, stagedSkillsFor } from "./skillsStaging";
 
 const wire = vi.hoisted(() => ({
-  stageSkills: vi.fn<(wsId: string) => Promise<SkillsStagingViews | null>>(),
+  stageSkills:
+    vi.fn<(wsId: string, roots: string[]) => Promise<SkillsStagingViews | null>>(),
 }));
 vi.mock("../ipc/skills", () => ({ stageSkills: wire.stageSkills }));
 
@@ -37,6 +38,20 @@ describe("the staged-skills memo", () => {
     await stagedSkillsFor("ws-1");
     invalidateSkillsStaging();
     await stagedSkillsFor("ws-1");
+    expect(wire.stageSkills).toHaveBeenCalledTimes(2);
+  });
+
+  it("a changed worktree set re-stages — a new worktree must be armed now", async () => {
+    await stagedSkillsFor("ws-1", ["/wt/a"]);
+    await stagedSkillsFor("ws-1", ["/wt/a"]);
+    expect(wire.stageSkills).toHaveBeenCalledTimes(1);
+
+    await stagedSkillsFor("ws-1", ["/wt/a", "/wt/b"]);
+    expect(wire.stageSkills).toHaveBeenCalledTimes(2);
+    expect(wire.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"]);
+
+    // Order and duplicates don't matter — the set does.
+    await stagedSkillsFor("ws-1", ["/wt/b", "/wt/a", "/wt/b"]);
     expect(wire.stageSkills).toHaveBeenCalledTimes(2);
   });
 

@@ -3,7 +3,7 @@ import type { AgentInfo, SpawnPlanContext } from "../domain/agents";
 import { findWorkspace, paneAgentType, type Pane } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
-import { buildResumeSpec } from "./spawnSpecs";
+import { buildResumeSpec, worktreeRootsOf } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
 
@@ -105,6 +105,7 @@ export function useRevive(
             cwd: dir,
             branch: pane.branch,
             yolo: pane.yolo,
+            wsWorktreeRoots: worktreeRootsOf(active),
           },
           ctxRef.current,
           sessionId,

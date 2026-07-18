@@ -79,7 +79,21 @@ async function buildAndCache(
 
 /** The pane-side facts a plan is built from — the hook input's shape minus
  * the resume session (that arrives with the resume request, not the pane). */
-export type PaneSpawnFacts = SpawnPlanInput;
+export interface PaneSpawnFacts extends SpawnPlanInput {
+  /** The WORKSPACE's worktree pane roots — staging arms each with the
+   * codex-facing `.agents/skills` symlink. Workspace-level data riding on
+   * pane facts so every build path feeds the same staging call (and kept
+   * OFF the hook input: `base` below lists its fields explicitly). */
+  wsWorktreeRoots?: string[];
+}
+
+/** The workspace's worktree pane roots: panes that live in their own
+ * worktree (cwd + branch) and actually have a directory already. */
+export function worktreeRootsOf(ws: Workspace): string[] {
+  return ws.panes
+    .filter((p) => !p.provisioning && p.branch && p.cwd)
+    .map((p) => p.cwd as string);
+}
 
 /** Build one plan through the agent's hook; a throwing hook degrades to a
  * bare spawn (no identity) rather than a dead pane. */
@@ -105,7 +119,10 @@ async function buildPlan(
   // var there), and dialects are exactly what hooks own. Keyed by the
   // workspace INSTANCE — ids may be reused after a close, instances never
   // are, so a reborn id can never inherit a dead workspace's staging.
-  const skills = await stagedSkillsFor(facts.workspace.instance);
+  const skills = await stagedSkillsFor(
+    facts.workspace.instance,
+    facts.wsWorktreeRoots ?? [],
+  );
   const base: SpawnPlanInput = {
     paneId,
     workspace: facts.workspace,
@@ -259,6 +276,7 @@ export function usePaneSpawnSpecs(
     if (!ctx || !agentsReady) return;
     let alive = true;
     for (const ws of workspaces) {
+      const wsWorktreeRoots = worktreeRootsOf(ws);
       for (const pane of ws.panes) {
         if (pane.dormant || pane.provisioning) continue;
         if (specs.has(pane.id) || pending.has(pane.id)) continue;
@@ -274,6 +292,7 @@ export function usePaneSpawnSpecs(
               cwd: pane.cwd ?? ws.cwd,
               branch: pane.branch,
               yolo: pane.yolo,
+              wsWorktreeRoots,
             },
             ctx,
           ),
