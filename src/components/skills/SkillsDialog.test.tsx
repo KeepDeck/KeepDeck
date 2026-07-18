@@ -302,6 +302,57 @@ describe("SkillsDialog", () => {
     expect(lib.rename).toHaveBeenCalledTimes(1);
   });
 
+  it("keystrokes typed DURING a save stay dirty — never silently dropped", async () => {
+    lib.skills = [skill("review")];
+    let releaseSave!: (ok: boolean) => void;
+    lib.save.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (releaseSave = resolve)),
+    );
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-description"), "first edit");
+    await act(async () => button("Save")!.click());
+
+    // The save is in flight; the user keeps typing.
+    type(input("skill-description"), "first edit plus more");
+    await act(async () => releaseSave(true));
+
+    // The newer text is on screen, NOT on disk — Save must stay available.
+    expect(input("skill-description").value).toBe("first edit plus more");
+    expect(button("Save")!.disabled).toBe(false);
+    expect(lib.save).toHaveBeenCalledWith(
+      { kind: "global" },
+      expect.objectContaining({ description: "first edit" }),
+    );
+  });
+
+  it("a submit completing after navigation does not yank the user back", async () => {
+    lib.skills = [skill("review"), skill("deploy")];
+    let releaseSave!: (ok: boolean) => void;
+    lib.save.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (releaseSave = resolve)),
+    );
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-description"), "edited");
+    await act(async () => button("Save")!.click());
+
+    // While the save is pending, the user moves to another skill (the form
+    // is still dirty → discard confirm → Discard).
+    act(() => row("deploy")!.click());
+    act(() => button("Discard")!.click());
+    expect(
+      document.querySelector(".skills__editor-title")!.textContent,
+    ).toContain("deploy");
+
+    await act(async () => releaseSave(true));
+    // The completed submit must NOT pull the selection back to "review".
+    expect(
+      document.querySelector(".skills__editor-title")!.textContent,
+    ).toContain("deploy");
+    expect(input("skill-description").value).toBe("About deploy");
+  });
+
   it("⌘S saves when the draft is valid", async () => {
     await mount();
     act(() => buttonByTitle("New global skill")!.click());

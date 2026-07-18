@@ -60,6 +60,15 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   const [form, setForm] = useState<SkillFormState>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
   const submitting = useRef(false);
+  // Navigation generation: bumped by every apply(). An in-flight submit
+  // compares against it so its completion never clobbers a selection the
+  // user moved somewhere else during the awaits.
+  const navEpoch = useRef(0);
+  // The live form object per render — an in-flight submit compares its
+  // captured draft against this to tell whether the user typed during the
+  // awaits (identity changes on every keystroke).
+  const formRef = useRef(form);
+  formRef.current = form;
   // A destructive step awaiting confirmation.
   const [confirm, setConfirm] = useState<
     | { kind: "delete"; scope: SkillScope; name: string }
@@ -112,6 +121,8 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
       onClose();
       return;
     }
+    // The user moved: any in-flight submit's terminal writes are stale now.
+    navEpoch.current += 1;
     // A stale error belongs to the skill it happened on, not to wherever
     // the user navigates next.
     clearError();
@@ -173,6 +184,11 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
 
   const performSubmit = async (selection: Selection) => {
     const scope = selection.scope;
+    // Staleness anchors: `nav` catches navigation during the awaits (the
+    // completion must not yank the user back), `draftSource` catches typing
+    // (newer keystrokes were NOT saved and must stay dirty).
+    const nav = navEpoch.current;
+    const draftSource = form;
     // An edited name moves the directory first (assets travel), then the
     // ordinary save lands the content under the new name.
     if (selection.mode === "edit" && form.name !== selection.name) {
@@ -180,12 +196,23 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
       // From here the skill IS form.name on disk — the selection must say
       // so even if the content save below fails, or `nameTaken` would
       // treat our own new name as a collision and dead-end the editor.
-      setSelection({ mode: "edit", scope, name: form.name });
+      // (Skipped only if the user navigated away — the list reload after
+      // the save carries the disk truth instead.)
+      if (navEpoch.current === nav) {
+        setSelection({ mode: "edit", scope, name: form.name });
+      }
     }
     const draft: SkillDraft = { ...form };
     if (await save(scope, draft)) {
-      setSelection({ mode: "edit", scope, name: form.name });
-      setDirty(false);
+      if (navEpoch.current === nav) {
+        setSelection({ mode: "edit", scope, name: draft.name });
+        // Keystrokes typed DURING the save are on screen but not on disk —
+        // marking them clean would silently drop them at the next
+        // navigation. Identity check: any setForm produced a new object.
+        if (formRef.current === draftSource) {
+          setDirty(false);
+        }
+      }
     }
   };
 
