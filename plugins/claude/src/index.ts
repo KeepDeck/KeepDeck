@@ -18,24 +18,36 @@ import { icon } from "./icon";
  * KeepDeck.app can live under a path with spaces. */
 const shellQuote = (path: string) => `'${path.split("'").join(`'\\''`)}'`;
 
-/** The `--settings` args arming the SessionStart reporter; `[]` when the
- * script is missing (identity off, the spawn itself still fine). The inline
- * JSON MERGES with the user's settings (hooks merge per event; verified on
- * 2.1.198), and SessionStart fires on startup/resume/clear/compact. */
+/** The `--settings` args arming both reporters — the SessionStart identity
+ * hook and the statusLine usage reporter; each degrades independently when
+ * its script is missing (`[]` only when neither resolves). The inline JSON
+ * MERGES with the user's settings (hooks merge per event; verified on
+ * 2.1.198); a user-configured statusLine is overridden INSIDE KeepDeck panes
+ * only — the flag never touches config on disk. SessionStart fires on
+ * startup/resume/clear/compact; the statusLine command runs event-driven on
+ * every status update (rate_limits, cost, context_window on stdin). */
 async function hookArgs(resources: PluginResources): Promise<string[]> {
-  const script = await resources.path("kd-session-hook.sh");
-  if (!script) return [];
-  const settings = {
-    hooks: {
+  const session = await resources.path("kd-session-hook.sh");
+  const usage = await resources.path("kd-usage-statusline.sh");
+  const settings: Record<string, unknown> = {};
+  if (session) {
+    settings.hooks = {
       SessionStart: [
         {
           hooks: [
-            { type: "command", command: `/bin/sh ${shellQuote(script)}` },
+            { type: "command", command: `/bin/sh ${shellQuote(session)}` },
           ],
         },
       ],
-    },
-  };
+    };
+  }
+  if (usage) {
+    settings.statusLine = {
+      type: "command",
+      command: `/bin/sh ${shellQuote(usage)}`,
+    };
+  }
+  if (Object.keys(settings).length === 0) return [];
   return ["--settings", JSON.stringify(settings)];
 }
 

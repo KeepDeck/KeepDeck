@@ -6,16 +6,27 @@ import type {
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
 
-/** Activate against a minimal fake ctx; returns the registered agent. */
-function activate(scriptPath: string | null): AgentContribution {
+/** Activate against a minimal fake ctx; returns the registered agent.
+ * `resources` maps script name → resolved path (missing name = null), so a
+ * test can arm the two reporters independently. */
+function activate(
+  resources: Record<string, string> | null,
+): AgentContribution {
   let agent: AgentContribution | undefined;
   plugin.activate({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
-    resources: { path: async () => scriptPath },
+    resources: { path: async (name: string) => resources?.[name] ?? null },
   } as unknown as PluginContext);
   if (!agent) throw new Error("plugin registered no agent");
   return agent;
 }
+
+const SESSION_HOOK = {
+  "kd-session-hook.sh": "/App/resources/kd-session-hook.sh",
+};
+const USAGE_HOOK = {
+  "kd-usage-statusline.sh": "/App/resources/kd-usage-statusline.sh",
+};
 
 const output = (): SpawnPlanOutput => ({
   command: "claude",
@@ -31,7 +42,7 @@ const input = {
 
 describe("claude plugin hooks", () => {
   it("arms the SessionStart reporter — identity is reporter-based", async () => {
-    const agent = activate("/App/resources/kd-session-hook.sh");
+    const agent = activate(SESSION_HOOK);
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
 
@@ -40,12 +51,39 @@ describe("claude plugin hooks", () => {
     expect(settings.hooks.SessionStart[0].hooks[0].command).toBe(
       "/bin/sh '/App/resources/kd-session-hook.sh'",
     );
+    // No usage script resolved → no statusLine override rides along.
+    expect(settings.statusLine).toBeUndefined();
     // No --session-id: claude mints its own id; the hook posts it back.
     expect(out.args).toHaveLength(2);
   });
 
+  it("arms the statusLine usage reporter alongside identity", async () => {
+    const agent = activate({ ...SESSION_HOOK, ...USAGE_HOOK });
+    const out = output();
+    await agent.hooks["spawn.plan"]!(input, out);
+
+    const settings = JSON.parse(out.args[1]);
+    expect(settings.statusLine).toEqual({
+      type: "command",
+      command: "/bin/sh '/App/resources/kd-usage-statusline.sh'",
+    });
+    expect(settings.hooks.SessionStart[0].hooks[0].command).toContain(
+      "kd-session-hook.sh",
+    );
+  });
+
+  it("each reporter degrades independently when its script is missing", async () => {
+    const agent = activate(USAGE_HOOK);
+    const out = output();
+    await agent.hooks["spawn.plan"]!(input, out);
+
+    const settings = JSON.parse(out.args[1]);
+    expect(settings.hooks).toBeUndefined();
+    expect(settings.statusLine.command).toContain("kd-usage-statusline.sh");
+  });
+
   it("staged skills load as a local plugin via --plugin-dir", async () => {
-    const agent = activate("/App/resources/kd-session-hook.sh");
+    const agent = activate(SESSION_HOOK);
     const skills = {
       claudePluginDir: "/kd/staging/ws-1/claude-plugin",
       opencodeConfigDir: "/kd/staging/ws-1/opencode",
@@ -75,7 +113,7 @@ describe("claude plugin hooks", () => {
   });
 
   it("resume reuses the recorded id and keeps the reporter armed", async () => {
-    const agent = activate("/App/resources/kd-session-hook.sh");
+    const agent = activate(SESSION_HOOK);
     const out = output();
     await agent.hooks["resume.plan"]!({ ...input, sessionId: "old-id" }, out);
 
@@ -83,7 +121,7 @@ describe("claude plugin hooks", () => {
     expect(out.args.slice(2)).toEqual(["--resume", "old-id"]);
   });
 
-  it("degrades to a bare spawn when the reporter script is missing", async () => {
+  it("degrades to a bare spawn when both reporter scripts are missing", async () => {
     const agent = activate(null);
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
