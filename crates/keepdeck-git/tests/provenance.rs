@@ -265,6 +265,37 @@ fn an_attached_existing_branch_is_not_claimed() {
     fs::remove_dir_all(&wt_root).ok();
 }
 
+/// With SEVERAL gone-but-unpruned worktrees, each keeps its own branches —
+/// the admin record is matched by its gitdir pointer, never by "whatever
+/// admin dir comes first".
+#[test]
+fn each_gone_worktree_keeps_its_own_branches() {
+    let repo_dir = init_repo();
+    let wt_root = unique_dir("wt");
+    let one = wt_root.join("agent-1");
+    let two = wt_root.join("agent-2");
+    git_at(
+        &repo_dir,
+        BIRTH,
+        &["worktree", "add", "-q", "-b", "branch-one", one.to_str().unwrap()],
+    );
+    git_at(
+        &repo_dir,
+        LATER,
+        &["worktree", "add", "-q", "-b", "branch-two", two.to_str().unwrap()],
+    );
+    fs::remove_dir_all(&one).unwrap();
+    fs::remove_dir_all(&two).unwrap();
+
+    let of_one = provenance::created_branches(&repo_dir, &one).expect("provenance one");
+    let of_two = provenance::created_branches(&repo_dir, &two).expect("provenance two");
+    assert_eq!(of_one, ["branch-one"]);
+    assert_eq!(of_two, ["branch-two"]);
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
 /// Expired reflogs destroy the evidence; the answer must collapse to "nothing
 /// attributable" — never an error, never a guess.
 #[test]

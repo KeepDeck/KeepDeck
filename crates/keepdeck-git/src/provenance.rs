@@ -58,7 +58,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cmd::run_git;
 use crate::error::GitError;
-use crate::head::{self, Head};
+use crate::head;
 use crate::repo;
 
 /// One reflog entry: its unix timestamp, the commit its NEW side points to,
@@ -188,39 +188,62 @@ fn creation_ts(repo_path: &Path, branch: &str) -> Result<Option<u64>, GitError> 
 /// The worktree's HEAD reflog plus the fallback branch for [`initial_branch`],
 /// or `None` when there is no evidence to read. Two routes to the same
 /// private log: through the worktree directory while it exists, else through
-/// the admin dir's `worktrees/<id>/HEAD` ref from the main repo — which is
-/// how an externally-deleted worktree stays attributable until a prune.
+/// the admin record's `worktrees/<id>/HEAD` ref from the main repo — which is
+/// how an externally-deleted worktree stays attributable until a prune. A
+/// live read that comes back empty falls through to the admin route too: the
+/// directory may have vanished between the check and the read.
 fn head_evidence(
     repo_path: &Path,
     worktree: &Path,
 ) -> Result<Option<(Vec<ReflogEntry>, Option<String>)>, GitError> {
     if worktree.exists() {
-        let out = match run_git(
-            worktree,
-            [
-                "--no-optional-locks",
-                "log",
-                "-g",
-                "--date=unix",
-                REFLOG_FORMAT,
-                "HEAD",
-                "--",
-            ],
-        ) {
-            Ok(out) => out,
-            // A broken worktree registration; the empty-output case below is
-            // what a merely disabled/absent reflog produces (exit 0).
-            Err(GitError::Command { .. }) => return Ok(None),
-            Err(other) => return Err(other),
-        };
-        let head_log = parse_reflog(&out);
-        if head_log.is_empty() {
-            return Ok(None);
+        if let Some(evidence) = live_evidence(worktree)? {
+            return Ok(Some(evidence));
         }
-        let fallback = repo::current_branch(worktree)?;
-        return Ok(Some((head_log, fallback)));
     }
+    admin_evidence(repo_path, worktree)
+}
 
+/// [`head_evidence`]'s in-directory route. `None` — rather than an error —
+/// whenever the directory can't answer (raced away mid-read, broken
+/// registration, no reflog): the caller falls through to the admin route,
+/// which reads the same log if it still exists.
+fn live_evidence(worktree: &Path) -> Result<Option<(Vec<ReflogEntry>, Option<String>)>, GitError> {
+    let out = match run_git(
+        worktree,
+        [
+            "--no-optional-locks",
+            "log",
+            "-g",
+            "--date=unix",
+            REFLOG_FORMAT,
+            "HEAD",
+            "--",
+        ],
+    ) {
+        Ok(out) => out,
+        Err(GitError::Command { .. }) => return Ok(None),
+        Err(other) => return Err(other),
+    };
+    let head_log = parse_reflog(&out);
+    if head_log.is_empty() {
+        return Ok(None);
+    }
+    let fallback = match repo::current_branch(worktree) {
+        Ok(branch) => branch,
+        // The directory raced away between the log read and this one.
+        Err(GitError::Command { .. }) => return Ok(None),
+        Err(other) => return Err(other),
+    };
+    Ok(Some((head_log, fallback)))
+}
+
+/// [`head_evidence`]'s main-repo route over the admin record, for a worktree
+/// whose directory is gone (or raced away mid-read).
+fn admin_evidence(
+    repo_path: &Path,
+    worktree: &Path,
+) -> Result<Option<(Vec<ReflogEntry>, Option<String>)>, GitError> {
     let Some(admin) = admin_gitdir(repo_path, worktree)? else {
         return Ok(None); // already pruned (or never a linked worktree): no evidence
     };
@@ -248,11 +271,14 @@ fn head_evidence(
     if head_log.is_empty() {
         return Ok(None);
     }
-    // The admin dir still holds the worktree's HEAD file — the same fallback
-    // a live worktree would answer via `current_branch`.
-    let fallback = match head::read_head(&admin) {
-        Some(Head::Branch(name)) => Some(name),
-        _ => None,
+    // Resolve the worktree's checked-out branch THROUGH git rather than by
+    // reading the admin HEAD file: under the reftable backend that file is a
+    // `refs/heads/.invalid` stub, while the ref answers correctly on every
+    // backend. Non-zero (detached, corrupt) is an answer: no fallback branch.
+    let fallback = match run_git(repo_path, ["symbolic-ref", "--short", &head_ref]) {
+        Ok(out) => Some(out.trim().to_string()).filter(|s| !s.is_empty()),
+        Err(GitError::Command { .. }) => None,
+        Err(other) => return Err(other),
     };
     Ok(Some((head_log, fallback)))
 }
