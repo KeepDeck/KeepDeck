@@ -180,6 +180,20 @@ describe("WorkspaceForm YOLO toggle", () => {
     expect(created[0].yolo).toBe(true);
   });
 
+  it("follows a defaultYolo change from Settings while untouched; a manual tick wins", async () => {
+    await mount(false);
+    expect(checkbox()?.checked).toBe(false);
+    // Settings dialog opens over the form; flipping the default must reach it.
+    act(() => updateSettings({ defaultYolo: true }));
+    expect(checkbox()?.checked).toBe(true);
+
+    // A hand-set value survives a later preference change ([F6] contract).
+    act(() => checkbox()!.click()); // touched: now false
+    act(() => updateSettings({ defaultYolo: false }));
+    act(() => updateSettings({ defaultYolo: true }));
+    expect(checkbox()?.checked).toBe(false);
+  });
+
   it("stays sparse when off, and hides entirely without agent support", async () => {
     await mount(false);
     expect(checkbox()?.checked).toBe(false);

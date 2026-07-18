@@ -55,7 +55,11 @@ export function WorkspaceForm({
   // The batch is homogeneous, so one YOLO choice covers every spawned agent.
   // Starts at the global preference; only the SUBMITTED value is gated on the
   // selected agent's support, so switching types never loses the tick.
-  const [yolo, setYolo] = useState(settings?.defaultYolo ?? false);
+  const defaultYolo = settings?.defaultYolo ?? false;
+  const [yolo, setYolo] = useState(defaultYolo);
+  // A hand-set tick survives a defaultYolo change made in the settings
+  // dialog while this form is open — same contract as agentTouched ([F6]).
+  const [yoloTouched, setYoloTouched] = useState(false);
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
   const supportsYolo = agentSupportsYolo(agents, agentType);
@@ -114,6 +118,17 @@ export function WorkspaceForm({
     // A manual pick wins; re-derive only when the preference itself moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultAgent]);
+
+  // The YOLO default gets the same follow-a-change treatment: the settings
+  // dialog opens OVER this form (first run: the form is the only screen), so
+  // a preference flipped there must reach the already-mounted checkbox.
+  const seenDefaultYoloRef = useRef(defaultYolo);
+  useEffect(() => {
+    if (seenDefaultYoloRef.current === defaultYolo) return;
+    seenDefaultYoloRef.current = defaultYolo;
+    if (!yoloTouched) setYolo(defaultYolo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultYolo]);
 
   // Esc closes the form when there's a workspace to return to — but not while
   // the nudge is open (its own Esc handles that, so the form stays put).
@@ -255,7 +270,10 @@ export function WorkspaceForm({
           <input
             type="checkbox"
             checked={yolo}
-            onChange={(e) => setYolo(e.target.checked)}
+            onChange={(e) => {
+              setYoloTouched(true);
+              setYolo(e.target.checked);
+            }}
             tabIndex={count === 0 ? -1 : undefined}
           />
           <span className="form__yolo-text">
