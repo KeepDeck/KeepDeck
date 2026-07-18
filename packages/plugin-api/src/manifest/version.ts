@@ -9,7 +9,7 @@
  * package.json version (that one is just an npm semver so the workspace
  * resolves the package). This is the load-bearing one.
  */
-export const API_VERSION = 19; // 19: + notifications capability & ctx.notify
+export const API_VERSION = 20; // 20: + agent YOLO mode (supportsYolo, SpawnPlanInput.yolo)
 
 /** Oldest contract the current host can execute. Raise only for a breaking change. */
 export const MIN_COMPATIBLE_API_VERSION = 18;
