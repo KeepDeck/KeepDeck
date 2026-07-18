@@ -1,7 +1,9 @@
 import { isRecord } from "../domain/json";
 import {
   freshest,
+  mergePaneUsage,
   normalizeClaudeStatusline,
+  normalizeCodexRollout,
   type AccountUsage,
   type PaneUsage,
   type UsageNormalizer,
@@ -36,6 +38,7 @@ const listeners = new Set<() => void>();
 
 const normalizers = new Map<string, UsageNormalizer>([
   ["claude", normalizeClaudeStatusline],
+  ["codex", normalizeCodexRollout],
 ]);
 
 function emit(): void {
@@ -84,7 +87,11 @@ export function reportUsage(
     }
   }
   if (result.pane) {
-    panes = new Map(panes).set(paneId, result.pane);
+    // Merged, not replaced: codex splits model and numbers across events.
+    panes = new Map(panes).set(
+      paneId,
+      mergePaneUsage(panes.get(paneId), result.pane),
+    );
     changed = true;
   }
   if (changed) emit();

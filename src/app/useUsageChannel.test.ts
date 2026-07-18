@@ -13,13 +13,21 @@ import type { Deck } from "./useDeck";
 
 const ipc = vi.hoisted(() => ({
   onUsageReport: vi.fn(),
+  onSessionBound: vi.fn(),
+  watchRollout: vi.fn(),
+  unwatchRollout: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
 }));
-vi.mock("../ipc/usage", () => ({ onUsageReport: ipc.onUsageReport }));
+vi.mock("../ipc/usage", () => ({
+  onUsageReport: ipc.onUsageReport,
+  watchRollout: ipc.watchRollout,
+  unwatchRollout: ipc.unwatchRollout,
+}));
+vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
 vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: ipc.peekPaneSpawnSpec }));
 
 /** The channel only reads `deck.workspaces` — a shaped literal is enough. */
-const deckWith = (paneIds: string[]): Deck =>
+const deckWith = (panes: { id: string; agentType?: string }[]): Deck =>
   ({
     workspaces: [
       {
@@ -27,7 +35,7 @@ const deckWith = (paneIds: string[]): Deck =>
         name: "ws",
         cwd: "/repo",
         worktreeBaseDir: null,
-        panes: paneIds.map((id) => ({ id })),
+        panes,
       },
     ],
   }) as unknown as Deck;
@@ -44,9 +52,21 @@ const CLAUDE_REPORT = {
   },
 };
 
+interface Bound {
+  paneId: string;
+  token: string;
+  transcriptPath?: string;
+}
+
 describe("useUsageChannel", () => {
   let root: Root;
   let emit: (report: UsageReportEvent) => void;
+  let emitBound: (bound: Bound) => void;
+
+  const mount = async (deck: Deck) => {
+    act(() => root.render(createElement(Probe, { deck })));
+    await act(async () => {});
+  };
 
   beforeEach(async () => {
     resetUsageManager();
@@ -54,6 +74,12 @@ describe("useUsageChannel", () => {
       emit = handler;
       return Promise.resolve(() => {});
     });
+    ipc.onSessionBound.mockReset().mockImplementation((handler) => {
+      emitBound = handler;
+      return Promise.resolve(() => {});
+    });
+    ipc.watchRollout.mockReset().mockResolvedValue(undefined);
+    ipc.unwatchRollout.mockReset().mockResolvedValue(undefined);
     ipc.peekPaneSpawnSpec
       .mockReset()
       .mockImplementation((paneId: string) =>
@@ -61,8 +87,7 @@ describe("useUsageChannel", () => {
       );
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
-    act(() => root.render(createElement(Probe, { deck: deckWith(["pane-1"]) })));
-    await act(async () => {});
+    await mount(deckWith([{ id: "pane-1" }]));
   });
 
   afterEach(() => {
@@ -94,9 +119,50 @@ describe("useUsageChannel", () => {
     });
     expect(getUsageSnapshot().panes.has("pane-1")).toBe(true);
 
-    act(() => root.render(createElement(Probe, { deck: deckWith([]) })));
-    await act(async () => {});
+    await mount(deckWith([]));
     expect(getUsageSnapshot().panes.has("pane-1")).toBe(false);
     expect(getUsageSnapshot().accounts.get("claude")).toBeDefined();
+  });
+
+  it("arms the rollout tail for a codex binding carrying a transcript", async () => {
+    await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
+    await act(async () => {
+      emitBound({
+        paneId: "pane-1",
+        token: "tok-1",
+        transcriptPath: "/x/rollout.jsonl",
+      });
+    });
+    expect(ipc.watchRollout).toHaveBeenCalledWith(
+      "pane-1",
+      "/x/rollout.jsonl",
+      "tok-1",
+    );
+  });
+
+  it("never arms tails for non-codex panes, forged tokens or bare bindings", async () => {
+    // Default pane-1 is claude (no agentType) — transcript or not, no tail.
+    await act(async () => {
+      emitBound({ paneId: "pane-1", token: "tok-1", transcriptPath: "/x/r.jsonl" });
+    });
+    await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
+    await act(async () => {
+      emitBound({ paneId: "pane-1", token: "forged", transcriptPath: "/x/r.jsonl" });
+      emitBound({ paneId: "pane-1", token: "tok-1" });
+    });
+    expect(ipc.watchRollout).not.toHaveBeenCalled();
+  });
+
+  it("unwatches the tail when its pane leaves the deck", async () => {
+    await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
+    await act(async () => {
+      emitBound({
+        paneId: "pane-1",
+        token: "tok-1",
+        transcriptPath: "/x/rollout.jsonl",
+      });
+    });
+    await mount(deckWith([]));
+    expect(ipc.unwatchRollout).toHaveBeenCalledWith("pane-1");
   });
 });

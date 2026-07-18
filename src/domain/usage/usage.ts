@@ -111,6 +111,19 @@ export function freshest(
   return incoming.reportedAt > current.reportedAt ? incoming : current;
 }
 
+/** Merge a pane's usage across partial reports: codex delivers the model
+ * (`turn_context`) and the numbers (`token_count`) as separate events, and
+ * neither may erase the other. Incoming fields win; a different agent
+ * (pane respawned as another CLI) replaces wholesale. Relies on builders
+ * OMITTING absent fields rather than setting them undefined. */
+export function mergePaneUsage(
+  current: PaneUsage | undefined,
+  incoming: PaneUsage,
+): PaneUsage {
+  if (!current || current.agent !== incoming.agent) return incoming;
+  return { ...current, ...incoming };
+}
+
 /** A window whose reset instant has passed is provably outdated — its
  * percentage describes the PREVIOUS window. The UI dims it instead of
  * lying confidently. */
@@ -153,6 +166,97 @@ function tokenCounts(
 const CLAUDE_WINDOW_MINUTES: Record<string, number> = {
   five_hour: 300,
   seven_day: 10_080,
+};
+
+/** One codex rate_limits window ({used_percent, window_minutes, resets_at
+ * seconds}) → normalized, or null when the shape is off. */
+function codexWindow(value: unknown): UsageWindow | null {
+  if (!isRecord(value)) return null;
+  const usedPct = asNumber(value.used_percent);
+  if (usedPct === undefined) return null;
+  const resetsAt = asNumber(value.resets_at);
+  return {
+    usedPct: clampPct(usedPct),
+    resetsAt: resetsAt !== undefined ? resetsAt * 1000 : null,
+    windowMinutes: asNumber(value.window_minutes) ?? null,
+  };
+}
+
+/** Codex token bags share one field naming across total/last. */
+function codexTokens(value: unknown): TokenCounts | undefined {
+  if (!isRecord(value)) return undefined;
+  return tokenCounts({
+    input: value.input_tokens,
+    output: value.output_tokens,
+    cacheRead: value.cached_input_tokens,
+    cacheWrite: undefined,
+    reasoning: value.reasoning_output_tokens,
+    total: value.total_tokens,
+  });
+}
+
+/**
+ * Normalize one codex rollout event (`{agent:"codex", event}`, forwarded by
+ * the Rust tailer). `token_count` carries windows + tokens; `turn_context`
+ * carries the model — the store merges the two ([`mergePaneUsage`]).
+ *
+ * Windows come from primary/secondary WITHOUT positional meaning: on some
+ * plans primary IS the weekly window and secondary is null (verified live) —
+ * labels derive from window_minutes downstream. No `unavailable` claim here:
+ * a signed-out codex simply produces no rollout events.
+ */
+export const normalizeCodexRollout: UsageNormalizer = (payload, at) => {
+  if (!isRecord(payload)) return null;
+  const event = payload.event;
+  if (!isRecord(event)) return null;
+
+  if (event.type === "turn_context") {
+    const model = asString(event.model);
+    if (!model) return { account: null, pane: null };
+    const effort = asString(event.effort);
+    return {
+      account: null,
+      pane: {
+        agent: "codex",
+        model: effort ? `${model} ${effort}` : model,
+        reportedAt: at,
+      },
+    };
+  }
+  if (event.type !== "token_count") return null;
+
+  let account: AccountUsage | null = null;
+  const limits = isRecord(event.rate_limits) ? event.rate_limits : undefined;
+  if (limits) {
+    const windows = [limits.primary, limits.secondary]
+      .map(codexWindow)
+      .filter((w): w is UsageWindow => w !== null);
+    if (windows.length > 0) {
+      account = { kind: "reported", windows, reportedAt: at, sourcePaneId: "" };
+    }
+  }
+
+  const info = isRecord(event.info) ? event.info : undefined;
+  const windowTokens = info ? asNumber(info.model_context_window) : undefined;
+  const lastTurnTokens = info ? codexTokens(info.last_token_usage) : undefined;
+  const totalTokens = info ? codexTokens(info.total_token_usage) : undefined;
+  const inContext = lastTurnTokens?.total;
+  const pane: PaneUsage = {
+    agent: "codex",
+    ...(inContext !== undefined && windowTokens !== undefined && windowTokens > 0
+      ? {
+          context: {
+            usedPct: clampPct((inContext / windowTokens) * 100),
+            windowTokens,
+          },
+        }
+      : {}),
+    ...(totalTokens ? { totalTokens } : {}),
+    ...(lastTurnTokens ? { lastTurnTokens } : {}),
+    reportedAt: at,
+  };
+
+  return { account, pane };
 };
 
 /**

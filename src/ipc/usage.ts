@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 /**
@@ -25,4 +26,20 @@ export function onUsageReport(
   return listen<UsageReportEvent>(USAGE_REPORT_EVENT, (event) =>
     handler(event.payload),
   );
+}
+
+/** Follow a codex pane's rollout file; its token_count/turn_context events
+ * arrive as usage reports carrying `token`. Idempotent per pane — a rebind
+ * replaces the old tail. */
+export function watchRollout(
+  paneId: string,
+  path: string,
+  token: string,
+): Promise<void> {
+  return invoke("usage_watch_rollout", { paneId, path, token });
+}
+
+/** Stop following a pane's rollout (pane closed / workspace gone). */
+export function unwatchRollout(paneId: string): Promise<void> {
+  return invoke("usage_unwatch_rollout", { paneId });
 }

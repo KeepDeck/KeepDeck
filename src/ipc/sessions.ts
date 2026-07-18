@@ -17,6 +17,9 @@ export interface SessionBound {
   paneId: string;
   sessionId: string;
   token: string;
+  /** The session's transcript/rollout file when the reporter knows it —
+   * what the codex usage tailer follows. */
+  transcriptPath?: string;
 }
 
 /** Subscribe to session bindings; resolves to the unlisten function. */
