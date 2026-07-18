@@ -48,13 +48,22 @@ export function useUsageTails(
     let disposed = false;
     let unlisten: (() => void) | null = null;
     void onSessionBound(({ paneId, token, transcriptPath }) => {
-      if (!transcriptPath) return;
+      // Skips are logged at debug: a silent gate here once cost a blind
+      // debugging session ("tail broken" vs "tail never armed").
+      if (!transcriptPath) {
+        log.debug("web:usage", `${paneId}: binding carries no transcript — no tail`);
+        return;
+      }
       if (!postbackAccepted(peekPaneSpawnSpec(paneId), token)) return;
       const ws = findWorkspaceOfPane(deckRef.current.workspaces, paneId);
       const pane = ws?.panes.find((p) => p.id === paneId);
       if (!pane) return;
       const format = usageByAgentRef.current.get(paneAgentType(pane))?.tail;
-      if (!format) return;
+      if (!format) {
+        log.debug("web:usage", `${paneId}: agent declares no tail — skipped`);
+        return;
+      }
+      log.debug("web:usage", `${paneId}: arming ${format} tail from binding`);
       tailedRef.current.add(paneId);
       watchSessionFile(paneId, transcriptPath, token, format)
         .then(() => settleArm(paneId))
@@ -84,9 +93,11 @@ export function useUsageTails(
         if (!token) continue;
         const paneId = pane.id;
         tailedRef.current.add(paneId);
+        log.debug("web:usage", `${paneId}: fallback lookup for ${sessionId}`);
         findCodexRollout(sessionId)
           .then((path) => {
             if (!path) {
+              log.debug("web:usage", `${paneId}: no rollout for ${sessionId} yet`);
               tailedRef.current.delete(paneId);
               return;
             }

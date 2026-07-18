@@ -297,14 +297,28 @@ pub fn usage_watch_session_file(
     // summary is marked catchUp so a replay can never outrank them.
     let emitter = app.clone();
     let watcher = spawn_tailer(state.clone(), move |payload| {
+        log::debug!(
+            "usage tail: pane={} live {} event",
+            payload.pane_id,
+            payload.payload["event"]["type"]
+        );
         let _ = emitter.emit(USAGE_REPORT_EVENT, &payload);
     })?;
-    {
+    let caught_up = {
         let mut s = state.lock().expect("tail state poisoned");
-        for event in last_of_each(drain(&mut s), format.catch_up_order()) {
+        let events = last_of_each(drain(&mut s), format.catch_up_order());
+        let count = events.len();
+        for event in events {
             let _ = app.emit(USAGE_REPORT_EVENT, &report(&s, event, true));
         }
-    }
+        count
+    };
+    // One line per arm — the difference between "tail broken" and "tail
+    // never armed" cost a blind debugging session once.
+    log::info!(
+        "usage tail: pane={pane_id} format={format:?} file={:?} catch-up={caught_up}",
+        PathBuf::from(&path).file_name().unwrap_or_default(),
+    );
     tails.0.insert(pane_id, watcher);
     Ok(())
 }
