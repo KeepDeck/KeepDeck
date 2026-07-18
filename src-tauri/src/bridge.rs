@@ -1,5 +1,6 @@
 //! The CLI bridge — the one-way channel a pane's own agent process uses to
-//! report facts back to KeepDeck (today: its session id, [F7]/[F8] identity).
+//! report facts back to KeepDeck: its session id (identity) and its usage
+//! reports (rate-limit windows, tokens, cost).
 //!
 //! Transport: a per-RUN inbox directory. Each launch mints
 //! `<keepdeck_home>/bridge/run-<uuid>/`, holds an OS file lock on `lock`
@@ -38,6 +39,9 @@ pub const BRIDGE_PROTOCOL_VERSION: u64 = 1;
 
 /// Event delivering one session binding to the webview (`src/ipc/sessions.ts`).
 pub const SESSION_BOUND_EVENT: &str = "deck://session/bound";
+
+/// Event delivering one usage report to the webview (`src/ipc/usage.ts`).
+pub const USAGE_REPORT_EVENT: &str = "deck://usage/report";
 
 /// An envelope larger than this is dropped unread — reporters send tiny
 /// JSON, anything bigger is not ours.
@@ -81,6 +85,26 @@ pub struct SessionBound {
     pub pane_id: String,
     pub session_id: String,
     pub token: String,
+}
+
+/// The `usage.report` wire event (see `src/ipc/usage.ts`). The payload stays
+/// opaque JSON — the webview's per-agent normalizers own its schema (same
+/// division as deck.json: TS owns meaning, Rust owns transport). The bridge
+/// guarantees only correlation (pane, token) and the dispatch key
+/// (`payload.agent`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageReport {
+    pub pane_id: String,
+    pub token: String,
+    pub payload: serde_json::Value,
+}
+
+/// One interpreted envelope — the dispatch result `deliver` emits from.
+#[derive(Debug, PartialEq)]
+enum Inbound {
+    SessionBound(SessionBound),
+    UsageReport(UsageReport),
 }
 
 /// This run's live bridge — kept in Tauri managed state so the lock fd and
@@ -231,7 +255,7 @@ fn deliver(app: &AppHandle, path: &Path) {
         return; // tmp staging files, the lock, and strays
     }
     match consume_file(path) {
-        Ok(bound) => {
+        Ok(Inbound::SessionBound(bound)) => {
             log::info!(
                 "bridge: bound pane={} session={}",
                 printable(&bound.pane_id),
@@ -239,6 +263,14 @@ fn deliver(app: &AppHandle, path: &Path) {
             );
             if let Err(e) = app.emit(SESSION_BOUND_EVENT, &bound) {
                 log::warn!("bridge: emitting {SESSION_BOUND_EVENT} failed: {e}");
+            }
+        }
+        // Usage reports arrive continuously (per statusline update / turn) —
+        // debug, not info, or they'd dominate keepdeck.log.
+        Ok(Inbound::UsageReport(report)) => {
+            log::debug!("bridge: usage report pane={}", printable(&report.pane_id));
+            if let Err(e) = app.emit(USAGE_REPORT_EVENT, &report) {
+                log::warn!("bridge: emitting {USAGE_REPORT_EVENT} failed: {e}");
             }
         }
         Err(Rejected::Transient) => return,
@@ -257,7 +289,7 @@ fn deliver(app: &AppHandle, path: &Path) {
 /// it re-fires or is gone for good reason); any other IO failure is dropped
 /// like garbage, because a completed file gets no further fs events and
 /// would otherwise sit in the inbox unread forever.
-fn consume_file(path: &Path) -> Result<SessionBound, Rejected> {
+fn consume_file(path: &Path) -> Result<Inbound, Rejected> {
     let vanished_or = |e: std::io::Error, what: &str| {
         if e.kind() == std::io::ErrorKind::NotFound {
             Rejected::Transient
@@ -278,7 +310,10 @@ fn consume_file(path: &Path) -> Result<SessionBound, Rejected> {
 
 /// Parse and dispatch one envelope. The bridge is fed by shell hooks, so
 /// anything malformed degrades to a logged reason, never an error path.
-fn interpret(content: &str) -> Result<SessionBound, String> {
+/// A NEW value in the open `type` namespace is not a protocol change — v1
+/// readers consume-and-log unknown types by design; the version bumps only
+/// when the envelope fields or `KEEPDECK_BRIDGE` schema move.
+fn interpret(content: &str) -> Result<Inbound, String> {
     let envelope: Envelope =
         serde_json::from_str(content).map_err(|_| "not an envelope".to_string())?;
     if envelope.v != BRIDGE_PROTOCOL_VERSION {
@@ -294,11 +329,26 @@ fn interpret(content: &str) -> Result<SessionBound, String> {
             if envelope.pane_id.is_empty() || envelope.token.is_empty() || session_id.is_empty() {
                 return Err("session.bound with empty fields".into());
             }
-            Ok(SessionBound {
+            Ok(Inbound::SessionBound(SessionBound {
                 pane_id: envelope.pane_id,
                 session_id: session_id.to_string(),
                 token: envelope.token,
-            })
+            }))
+        }
+        "usage.report" => {
+            let agent = envelope
+                .payload
+                .get("agent")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if envelope.pane_id.is_empty() || envelope.token.is_empty() || agent.is_empty() {
+                return Err("usage.report with empty fields".into());
+            }
+            Ok(Inbound::UsageReport(UsageReport {
+                pane_id: envelope.pane_id,
+                token: envelope.token,
+                payload: envelope.payload,
+            }))
         }
         other => Err(format!("unknown type \"{}\"", printable(other))),
     }
@@ -322,6 +372,14 @@ mod tests {
         .to_string()
     }
 
+    fn usage_envelope(pane: &str, token: &str, agent: &str) -> String {
+        serde_json::json!({
+            "v": 1, "type": "usage.report", "paneId": pane, "token": token,
+            "payload": { "agent": agent, "statusline": { "rate_limits": { "five_hour": { "used_percentage": 42 } } } },
+        })
+        .to_string()
+    }
+
     #[test]
     fn interprets_a_session_bound_envelope_ignoring_extras() {
         let mut value: serde_json::Value =
@@ -330,12 +388,41 @@ mod tests {
         value["payload"]["transcriptPath"] = "/x/y.jsonl".into();
         assert_eq!(
             interpret(&value.to_string()),
-            Ok(SessionBound {
+            Ok(Inbound::SessionBound(SessionBound {
                 pane_id: "pane-3".into(),
                 session_id: "abc".into(),
                 token: "tok".into(),
-            })
+            }))
         );
+    }
+
+    // The payload must ride through VERBATIM — the webview's normalizers own
+    // its schema, and a lossy bridge would silently strip future fields.
+    #[test]
+    fn interprets_a_usage_report_passing_the_payload_through() {
+        let result = interpret(&usage_envelope("pane-7", "tok", "claude"));
+        let Ok(Inbound::UsageReport(report)) = result else {
+            panic!("expected a usage report, got {result:?}");
+        };
+        assert_eq!(report.pane_id, "pane-7");
+        assert_eq!(report.token, "tok");
+        assert_eq!(report.payload["agent"], "claude");
+        assert_eq!(
+            report.payload["statusline"]["rate_limits"]["five_hour"]["used_percentage"],
+            42
+        );
+    }
+
+    #[test]
+    fn rejects_usage_reports_with_missing_correlation_or_agent() {
+        assert!(interpret(&usage_envelope("", "tok", "claude")).is_err());
+        assert!(interpret(&usage_envelope("pane-7", "", "claude")).is_err());
+        assert!(interpret(&usage_envelope("pane-7", "tok", "")).is_err());
+        // An agent field of the wrong type is as empty as a missing one.
+        let mut value: serde_json::Value =
+            serde_json::from_str(&usage_envelope("pane-7", "tok", "claude")).unwrap();
+        value["payload"]["agent"] = 7.into();
+        assert!(interpret(&value.to_string()).is_err());
     }
 
     #[test]
@@ -367,6 +454,23 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({ "paneId": "pane-3", "sessionId": "abc", "token": "tok" })
+        );
+    }
+
+    // Same pin for the usage wire shape (`src/ipc/usage.ts`).
+    #[test]
+    fn usage_report_serializes_camel_case() {
+        let json = serde_json::to_value(UsageReport {
+            pane_id: "pane-7".into(),
+            token: "tok".into(),
+            payload: serde_json::json!({ "agent": "claude" }),
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "paneId": "pane-7", "token": "tok", "payload": { "agent": "claude" },
+            })
         );
     }
 
@@ -429,11 +533,11 @@ mod tests {
         fs::write(&ok, envelope(1, "session.bound", "pane-1", "tok", "sid")).unwrap();
         assert_eq!(
             consume_file(&ok).map_err(|_| ()),
-            Ok(SessionBound {
+            Ok(Inbound::SessionBound(SessionBound {
                 pane_id: "pane-1".into(),
                 session_id: "sid".into(),
                 token: "tok".into(),
-            })
+            }))
         );
 
         let gone = root.path().join("missing.json");
