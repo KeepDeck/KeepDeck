@@ -3,6 +3,7 @@ import type { AgentUsage } from "@keepdeck/plugin-api";
 import { useAppRuntime } from "./runtimeContext";
 import { useContributions } from "../plugins/react";
 import { useLimitsPolling } from "./useLimitsPolling";
+import { useUsageBootSweep } from "./useUsageBootSweep";
 import { useUsageNormalizers } from "./useUsageNormalizers";
 import { useUsageReports } from "./useUsageReports";
 import { useUsageRetention } from "./useUsageRetention";
@@ -20,7 +21,9 @@ import type { Deck } from "./useDeck";
  * - [`useUsageReports`]     — bridge reports, token-verified, into the store;
  * - [`useUsageTails`]       — declared session-file tails (binding-armed,
  *                             codex TUI-resume fallback, close GC);
- * - [`useLimitsPolling`]    — declared polled limit sources;
+ * - [`useLimitsPolling`]    — declared polled limit sources (plus their
+ *                             one-shot boot fetch);
+ * - [`useUsageBootSweep`]   — the newest on-disk codex rollout at boot;
  * - [`useUsageRetention`]   — store hygiene as panes close.
  *
  * Snapshot persistence is deliberately NOT a lane: it consumes nothing
@@ -43,5 +46,6 @@ export function useUsageChannel(deck: Deck): void {
   useUsageReports();
   useUsageTails(deck, usageByAgent);
   useLimitsPolling(deck, usageByAgent);
+  useUsageBootSweep(usageByAgent);
   useUsageRetention(deck);
 }

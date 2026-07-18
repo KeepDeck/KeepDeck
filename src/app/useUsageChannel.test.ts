@@ -19,6 +19,7 @@ const ipc = vi.hoisted(() => ({
   unwatchSessionFile: vi.fn(),
   fetchKimiUsages: vi.fn(),
   findCodexRollout: vi.fn(),
+  latestCodexRollout: vi.fn(),
   loadUsageCache: vi.fn(),
   saveUsageCache: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("../ipc/usage", () => ({
   unwatchSessionFile: ipc.unwatchSessionFile,
   fetchKimiUsages: ipc.fetchKimiUsages,
   findCodexRollout: ipc.findCodexRollout,
+  latestCodexRollout: ipc.latestCodexRollout,
   loadUsageCache: ipc.loadUsageCache,
   saveUsageCache: ipc.saveUsageCache,
 }));
@@ -119,6 +121,7 @@ describe("useUsageChannel", () => {
     ipc.unwatchSessionFile.mockReset().mockResolvedValue(undefined);
     ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
+    ipc.latestCodexRollout.mockReset().mockResolvedValue(null);
     ipc.loadUsageCache.mockReset().mockResolvedValue(null);
     ipc.saveUsageCache.mockReset().mockResolvedValue(undefined);
     ipc.peekPaneSpawnSpec
@@ -326,7 +329,7 @@ describe("useUsageChannel", () => {
     expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
   });
 
-  it("polls a declared limits source only while its agent has a live pane", async () => {
+  it("boot-fetches a declared limits source once, then polls only with a live pane", async () => {
     ipc.contributions = [
       ...ipc.contributions,
       {
@@ -349,16 +352,40 @@ describe("useUsageChannel", () => {
         },
       },
     ];
-    // No kimi pane (dormant doesn't count) → no fetch.
+    // No live kimi pane (dormant doesn't count) — the ONE boot fetch still
+    // lands, so the chip is current from the first frame.
     await mount(deckWith([{ id: "pane-1" }, { id: "pane-2", agentType: "kimi", dormant: true }]));
-    expect(ipc.fetchKimiUsages).not.toHaveBeenCalled();
-
-    // A live kimi pane → an immediate fetch lands in the store.
-    await mount(deckWith([{ id: "pane-2", agentType: "kimi" }]));
     await act(async () => {});
     expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(1);
     expect(getUsageSnapshot().accounts.get("kimi")).toMatchObject({
       kind: "reported",
     });
+
+    // A live kimi pane starts the polling lane (its own immediate tick);
+    // the boot fetch never repeats.
+    await mount(deckWith([{ id: "pane-2", agentType: "kimi" }]));
+    await act(async () => {});
+    expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(2);
+  });
+
+  it("sweeps the newest on-disk codex rollout at boot, stamped with the file's age", async () => {
+    ipc.latestCodexRollout.mockResolvedValue({
+      event: { type: "token_count" },
+      mtimeMs: 1_234,
+    });
+    // No codex pane anywhere — the account chip still catches up from disk.
+    await mount(deckWith([]));
+    await act(async () => {});
+    expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+      kind: "reported",
+      reportedAt: 1_234,
+    });
+    // Account state only: without a pane there is nothing to attribute.
+    expect(getUsageSnapshot().panes.size).toBe(0);
+
+    // Remounting lanes never re-sweeps.
+    await mount(deckWith([{ id: "pane-1" }]));
+    await act(async () => {});
+    expect(ipc.latestCodexRollout).toHaveBeenCalledTimes(1);
   });
 });

@@ -59,6 +59,21 @@ export function findCodexRollout(sessionId: string): Promise<string | null> {
   return invoke("usage_find_codex_rollout", { sessionId });
 }
 
+/** Mirrors the Rust `LatestRollout`: the newest on-disk usage event and the
+ * FILE's mtime — the honest age of what it says. */
+export interface LatestCodexRollout {
+  event: unknown;
+  mtimeMs: number;
+}
+
+/** The newest usage event across ALL codex rollouts on disk — the boot
+ * catch-up. Codex runs outside KeepDeck too, so its sessions dir can know
+ * fresher limits than our persisted snapshot. Null when no rollout carries
+ * usage (or codex was never used). */
+export function latestCodexRollout(): Promise<LatestCodexRollout | null> {
+  return invoke("usage_latest_codex_rollout");
+}
+
 /** The persisted usage snapshot (last-known account windows), or null on
  * first run. Schema belongs to `src/domain/usage` (the deck.json rule). */
 export function loadUsageCache(): Promise<string | null> {

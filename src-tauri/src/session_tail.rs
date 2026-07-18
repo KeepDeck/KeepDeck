@@ -350,14 +350,10 @@ pub fn usage_unwatch_session_file(tails: State<UsageTails>, pane_id: String) {
     tails.0.remove(&pane_id);
 }
 
-/// Locate a codex session's rollout by its recorded id — the fallback for
-/// TUI resumes: codex (observed on 0.144.5) fires SessionStart in `exec`
-/// and `exec resume` but NOT in the interactive `resume`, so no binding
-/// carries the path. Rollout names end `-<session_id>.jsonl` under the
-/// day-partitioned `~/.codex/sessions/YYYY/MM/DD/`; the newest match wins.
-fn find_rollout_in(root: &std::path::Path, session_id: &str) -> Option<PathBuf> {
-    let suffix = format!("-{session_id}.jsonl");
-    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+/// Every `rollout-*.jsonl` under the day-partitioned
+/// `~/.codex/sessions/YYYY/MM/DD/` tree, newest mtime first.
+fn rollouts_newest_first(root: &std::path::Path) -> Vec<(std::time::SystemTime, PathBuf)> {
+    let mut found = Vec::new();
     let days = std::fs::read_dir(root)
         .into_iter()
         .flatten()
@@ -370,23 +366,90 @@ fn find_rollout_in(root: &std::path::Path, session_id: &str) -> Option<PathBuf> 
         };
         for file in files.flatten() {
             let path = file.path();
-            let matches = path
+            let is_rollout = path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.ends_with(&suffix));
-            if !matches {
+                .is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl"));
+            if !is_rollout {
                 continue;
             }
             let modified = file
                 .metadata()
                 .and_then(|m| m.modified())
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            if newest.as_ref().is_none_or(|(t, _)| modified > *t) {
-                newest = Some((modified, path));
-            }
+            found.push((modified, path));
         }
     }
-    newest.map(|(_, path)| path)
+    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found
+}
+
+/// Locate a codex session's rollout by its recorded id — the fallback for
+/// TUI resumes: codex (observed on 0.144.5) fires SessionStart in `exec`
+/// and `exec resume` but NOT in the interactive `resume`, so no binding
+/// carries the path. Rollout names end `-<session_id>.jsonl`; the newest
+/// match wins.
+fn find_rollout_in(root: &std::path::Path, session_id: &str) -> Option<PathBuf> {
+    let suffix = format!("-{session_id}.jsonl");
+    rollouts_newest_first(root)
+        .into_iter()
+        .map(|(_, path)| path)
+        .find(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(&suffix))
+        })
+}
+
+/// The last usage event of the newest rollout on disk, plus that FILE's
+/// mtime. This is the boot catch-up: codex runs outside KeepDeck too, so
+/// its sessions dir can know fresher limits than our persisted snapshot.
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LatestRollout {
+    event: Value,
+    mtime_ms: u64,
+}
+
+/// A just-launched session writes its rollout before any turn, so the
+/// newest file may carry no usage while an older one holds the account's
+/// real last word — walk newest-first until a `token_count` shows up, but
+/// never scan an unbounded history for an account that has none.
+const BOOT_SWEEP_MAX_FILES: usize = 10;
+
+fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
+    let files = rollouts_newest_first(root);
+    for (modified, path) in files.into_iter().take(BOOT_SWEEP_MAX_FILES) {
+        let mut state = TailState {
+            path,
+            pane_id: String::new(),
+            token: String::new(),
+            format: TailFormat::Codex,
+            offset: 0,
+            partial: Vec::new(),
+            skipping: false,
+        };
+        let event = last_of_each(drain(&mut state), TailFormat::Codex.catch_up_order())
+            .into_iter()
+            .find(|e| e.get("type").and_then(|t| t.as_str()) == Some("token_count"));
+        if let Some(event) = event {
+            let mtime_ms = modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            return Some(LatestRollout { event, mtime_ms });
+        }
+    }
+    None
+}
+
+/// The boot catch-up command. `(async)` — it may read several session
+/// files. The event rides verbatim (payloads are opaque to Rust); the
+/// mtime, not receipt time, is the honest age of what it says.
+#[tauri::command(async)]
+pub fn usage_latest_codex_rollout() -> Option<LatestRollout> {
+    let home = std::env::var_os("HOME")?;
+    latest_rollout_usage_in(&PathBuf::from(home).join(".codex/sessions"))
 }
 
 /// The fallback resolver command. The id is sanitized to uuid characters —
@@ -619,6 +682,65 @@ mod tests {
 
         assert_eq!(find_rollout_in(&root, sid), Some(newest));
         assert_eq!(find_rollout_in(&root, "0000-none"), None);
+        fs::remove_dir_all(&root).ok();
+    }
+
+    /// Pin a file's mtime so newest-first ordering is deterministic even
+    /// when the test writes everything within one clock tick.
+    fn set_mtime(path: &std::path::Path, secs_after_epoch: u64) {
+        OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(
+                std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(secs_after_epoch),
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn boot_sweep_returns_the_newest_rollout_that_carries_usage() {
+        let root = temp_dir();
+        let day = root.join("2026/07/19");
+        fs::create_dir_all(&day).unwrap();
+
+        // Oldest: real usage. Newer: usage with a distinct marker. Newest:
+        // a fresh session with no token_count yet — must be walked past.
+        let oldest = day.join("rollout-2026-07-19T01-00-00-aaaa.jsonl");
+        fs::write(&oldest, format!("{TOKEN_COUNT_LINE}\n")).unwrap();
+        set_mtime(&oldest, 1_000);
+        let with_usage = day.join("rollout-2026-07-19T02-00-00-bbbb.jsonl");
+        let marked = TOKEN_COUNT_LINE.replace("75.0", "33.0");
+        fs::write(&with_usage, format!("{TURN_CONTEXT_LINE}\n{marked}\n")).unwrap();
+        set_mtime(&with_usage, 2_000);
+        let empty_of_usage = day.join("rollout-2026-07-19T03-00-00-cccc.jsonl");
+        fs::write(&empty_of_usage, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
+        set_mtime(&empty_of_usage, 3_000);
+
+        let found = latest_rollout_usage_in(&root).expect("usage found");
+        assert_eq!(found.event["type"], "token_count");
+        assert_eq!(found.event["rate_limits"]["primary"]["used_percent"], 33.0);
+        assert_eq!(found.mtime_ms, 2_000_000, "stamped with the FILE's age");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn boot_sweep_finds_nothing_in_an_empty_or_usage_free_tree() {
+        let root = temp_dir();
+        assert_eq!(latest_rollout_usage_in(&root), None);
+
+        let day = root.join("2026/07/19");
+        fs::create_dir_all(&day).unwrap();
+        fs::write(
+            day.join("rollout-2026-07-19T01-00-00-aaaa.jsonl"),
+            format!("{TURN_CONTEXT_LINE}\n"),
+        )
+        .unwrap();
+        // Non-rollout siblings never count as sessions.
+        fs::write(day.join("notes.jsonl"), format!("{TOKEN_COUNT_LINE}\n")).unwrap();
+        assert_eq!(latest_rollout_usage_in(&root), None);
+
         fs::remove_dir_all(&root).ok();
     }
 

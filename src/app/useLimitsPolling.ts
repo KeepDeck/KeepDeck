@@ -8,11 +8,11 @@ import type { Deck } from "./useDeck";
 
 /**
  * The polled-limits lane, for agents whose contribution declares
- * `limits.poll`: the named NATIVE fetcher runs on a slow interval while
- * one of that agent's panes is LIVE (kimi keeps its short-lived token
- * fresh only during activity — polling an idle machine would only 401),
- * and never while the window is hidden. Failures just let the last
- * snapshot age into staleness.
+ * `limits.poll`: one boot fetch per source regardless of panes, then the
+ * named NATIVE fetcher on a slow interval while one of that agent's panes
+ * is LIVE (kimi keeps its short-lived token fresh only during activity —
+ * polling an idle machine would only 401), and never while the window is
+ * hidden. Failures just let the last snapshot age into staleness.
  */
 
 /** How often a declared limits source is re-fetched while its agent lives. */
@@ -32,16 +32,45 @@ export function useLimitsPolling(
   const usageByAgentRef = useRef(usageByAgent);
   usageByAgentRef.current = usageByAgent;
 
-  const polledAgents = [...usageByAgent]
+  const declaredAgents = [...usageByAgent]
     .filter(([, usage]) => usage.limits)
     .map(([id]) => id)
+    .sort();
+  const polledAgents = declaredAgents
     .filter((id) =>
       deck.workspaces.some((ws) =>
         ws.panes.some((p) => paneAgentType(p) === id && !p.dormant),
       ),
     )
-    .sort()
     .join("\n");
+
+  // The boot fetch: once per declared source per app run, pane or no pane —
+  // the chip should be current the moment the window first shows, not after
+  // the user happens to open that agent. Agents with a live pane at boot
+  // are left to the polling lane below (its own immediate tick covers
+  // them); a source that 401s while its CLI is idle just stays on the aged
+  // snapshot, exactly like a failed poll.
+  const bootedRef = useRef(new Set<string>());
+  const declaredKey = declaredAgents.join("\n");
+  useEffect(() => {
+    const polling = new Set(polledAgents ? polledAgents.split("\n") : []);
+    for (const agentId of declaredKey ? declaredKey.split("\n") : []) {
+      if (bootedRef.current.has(agentId)) continue;
+      bootedRef.current.add(agentId);
+      if (polling.has(agentId)) continue;
+      const limits = usageByAgentRef.current.get(agentId)?.limits;
+      if (!limits) continue;
+      void LIMIT_SOURCES[limits.poll]()
+        .then((body) => {
+          const account = limits.normalize(body, Date.now());
+          if (account) setAccountUsage(agentId, account);
+        })
+        .catch((e) =>
+          log.debug("web:usage", `${limits.poll} boot fetch failed: ${e}`),
+        );
+    }
+  }, [declaredKey, polledAgents]);
+
   useEffect(() => {
     if (!polledAgents) return;
     const timers: ReturnType<typeof setInterval>[] = [];

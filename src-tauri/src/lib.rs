@@ -186,6 +186,7 @@ pub fn run() {
             session_tail::usage_watch_session_file,
             session_tail::usage_unwatch_session_file,
             session_tail::usage_find_codex_rollout,
+            session_tail::usage_latest_codex_rollout,
             kimi_usage::kimi_usages_fetch,
         ])
         .run(tauri::generate_context!())
