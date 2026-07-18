@@ -3,6 +3,7 @@ import type { Pane, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
+import { nextIdSequence } from "../idSequence";
 import { collectExtras, isRecord } from "../json";
 import { MAX_PANES } from "./layout";
 
@@ -32,15 +33,14 @@ export { DECK_STATE_VERSION } from "../migrations";
  * a restored in-flight provisioning so it surfaces as the failed card. */
 export const PROVISIONING_INTERRUPTED = "Worktree creation was interrupted";
 
-/** What hydration yields: the restored state plus the id-mint floors derived
- * from the highest persisted `pane-N` / `ws-N` (never stored separately — one
- * source of truth). */
+/** What hydration yields: the restored state plus the pane-id mint floor
+ * derived from the highest persisted `pane-N` (never stored separately — one
+ * source of truth). Workspace ids are derived from the live deck at create
+ * time, so they need no hydration seed. */
 export interface HydratedDeck {
   state: DeckState;
   /** Seed for the agent-seq mint: one past the highest restored pane number. */
   nextAgentSeq: number;
-  /** Seed for the workspace-seq mint: one past the highest restored ws number. */
-  nextWorkspaceSeq: number;
   /** Unknown top-level keys of the stored document (a newer revision's
    * fields) — handed back to `serializeDeck` so saves never strip them. */
   docExtras: Record<string, unknown>;
@@ -191,9 +191,10 @@ export function hydrateDeck(json: string): HydrateDeckResult {
         activeId,
         viewByWs,
       },
-      nextAgentSeq:
-        maxSeq(workspaces.flatMap((w) => w.panes.map((p) => p.id)), "pane") + 1,
-      nextWorkspaceSeq: maxSeq(workspaces.map((w) => w.id), "ws") + 1,
+      nextAgentSeq: nextIdSequence(
+        workspaces.flatMap((w) => w.panes.map((p) => p.id)),
+        "pane",
+      ),
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
     },
   };
@@ -350,15 +351,4 @@ function stripRuntime(
 ): Omit<PaneProvisioning, "error" | "phase"> {
   const { error: _error, phase: _phase, ...intent } = p;
   return intent;
-}
-
-/** Highest `<prefix>-N` among `ids` (0 when none match — seeds start at 1). */
-function maxSeq(ids: string[], prefix: string): number {
-  const re = new RegExp(`^${prefix}-(\\d+)$`);
-  let max = 0;
-  for (const id of ids) {
-    const m = re.exec(id);
-    if (m) max = Math.max(max, Number(m[1]));
-  }
-  return max;
 }

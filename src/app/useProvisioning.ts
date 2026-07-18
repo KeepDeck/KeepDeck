@@ -49,7 +49,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
     setup,
     yolo,
   }: SpawnConfig) => {
-    const wsSeq = mintWorkspaceSeq();
+    const wsSeq = mintWorkspaceSeq(deck.workspaces.map((ws) => ws.id));
     const startSeq = mintAgentSeqs(count);
     const wsName = name.trim() || `workspace-${wsSeq}`;
     const wsSetup = setup?.trim() || undefined;

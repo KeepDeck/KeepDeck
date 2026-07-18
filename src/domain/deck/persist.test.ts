@@ -70,9 +70,8 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     }
   });
 
-  it("derives the id-mint seeds from the highest persisted ids", () => {
+  it("derives the pane id-mint seed from the highest persisted id", () => {
     expect(restored.nextAgentSeq).toBe(8); // pane-7 + 1
-    expect(restored.nextWorkspaceSeq).toBe(6); // ws-5 + 1
   });
 
   it("never persists the dock state — every launch starts closed", () => {
@@ -282,7 +281,7 @@ describe("hydrateDeck — tolerated degradations", () => {
     expect(stale.state.viewByWs).toEqual({});
   });
 
-  it("seeds mints at 1 when no ids match the minted format", () => {
+  it("seeds the pane mint at 1 when no ids match the minted format", () => {
     const custom = okDeck(
       JSON.stringify({
         version: 1,
@@ -295,7 +294,6 @@ describe("hydrateDeck — tolerated degradations", () => {
       }),
     );
     expect(custom.nextAgentSeq).toBe(1);
-    expect(custom.nextWorkspaceSeq).toBe(1);
   });
 });
 
