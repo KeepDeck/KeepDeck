@@ -378,8 +378,9 @@ function App() {
       // The create form is a passive surface, not a transaction — settings
       // open over it (on first run the form is the only screen there is, so
       // blocking would make settings unreachable). Its Esc yields while the
-      // settings dialog is on top.
-      if (dialogOpen || settingsOpen) return;
+      // settings dialog is on top. The Skills dialog DOES block: stacking
+      // Settings over it would give one Escape two layers to peel.
+      if (dialogOpen || settingsOpen || skillsOpen) return;
       setSettingsSection(undefined);
       setSettingsOpen(true);
     },
@@ -628,7 +629,7 @@ function App() {
             // Mirrors the ⌘, guard. The create form does NOT disable this:
             // on first run it's the only screen, and settings must stay
             // reachable over it (e.g. to pick the default agent first).
-            disabled={dialogOpen || settingsOpen}
+            disabled={dialogOpen || settingsOpen || skillsOpen}
             title="Settings"
             aria-label="Open settings"
           >

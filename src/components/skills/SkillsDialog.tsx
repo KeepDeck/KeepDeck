@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   isValidSkillDescription,
   isValidSkillName,
@@ -59,6 +59,7 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<SkillFormState>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
+  const submitting = useRef(false);
   // A destructive step awaiting confirmation.
   const [confirm, setConfirm] = useState<
     | { kind: "delete"; scope: SkillScope; name: string }
@@ -158,7 +159,19 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
     selection !== null && dirty && nameOk && !nameTaken && descriptionOk;
 
   const submit = async () => {
-    if (!selection || !canSave) return;
+    // The rename half is not idempotent: a double ⌘S entering twice would
+    // replay rename(old→new) after the first one consumed "old" and paint
+    // a spurious "Rename failed" over a rename that worked.
+    if (submitting.current || !selection || !canSave) return;
+    submitting.current = true;
+    try {
+      await performSubmit(selection);
+    } finally {
+      submitting.current = false;
+    }
+  };
+
+  const performSubmit = async (selection: Selection) => {
     const scope = selection.scope;
     // An edited name moves the directory first (assets travel), then the
     // ordinary save lands the content under the new name.

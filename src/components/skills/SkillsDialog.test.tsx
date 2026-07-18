@@ -202,7 +202,7 @@ describe("SkillsDialog", () => {
 
     await act(async () => {
       window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "s", metaKey: true }),
+        new KeyboardEvent("keydown", { key: "s", code: "KeyS", metaKey: true }),
       );
     });
     expect(lib.save).not.toHaveBeenCalled();
@@ -260,6 +260,48 @@ describe("SkillsDialog", () => {
     ).toBe("About review");
   });
 
+  it("⌘S fires by PHYSICAL key — a Cyrillic layout saves too", async () => {
+    await mount();
+    act(() => buttonByTitle("New global skill")!.click());
+    type(input("skill-name"), "deploy");
+    type(input("skill-description"), "Ships it");
+    type(textarea(), "Steps");
+
+    await act(async () => {
+      // ЙЦУКЕН: the S key reports key "ы"; only e.code identifies it.
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ы", code: "KeyS", metaKey: true }),
+      );
+    });
+    expect(lib.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("a double ⌘S submits once — rename is not idempotent", async () => {
+    lib.skills = [skill("review")];
+    // Keep the first submit in flight until both keydowns landed.
+    let release!: (ok: boolean) => void;
+    lib.rename.mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (release = resolve)),
+    );
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-name"), "deep-review");
+
+    const chord = () =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "s", code: "KeyS", metaKey: true }),
+      );
+    await act(async () => {
+      chord();
+      chord();
+    });
+    await act(async () => {
+      release(true);
+    });
+
+    expect(lib.rename).toHaveBeenCalledTimes(1);
+  });
+
   it("⌘S saves when the draft is valid", async () => {
     await mount();
     act(() => buttonByTitle("New global skill")!.click());
@@ -269,7 +311,7 @@ describe("SkillsDialog", () => {
 
     await act(async () => {
       window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "s", metaKey: true }),
+        new KeyboardEvent("keydown", { key: "s", code: "KeyS", metaKey: true }),
       );
     });
     expect(lib.save).toHaveBeenCalledTimes(1);
