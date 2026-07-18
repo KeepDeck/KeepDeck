@@ -1,4 +1,4 @@
-import type { AccountUsage, PaneUsage } from "@keepdeck/plugin-api";
+import type { AccountUsage, PaneUsage, UsageWindow } from "@keepdeck/plugin-api";
 
 /**
  * Usage domain — the host-side rules over the usage contract. The TYPES and
@@ -84,4 +84,79 @@ export function windowExpired(
   now: number,
 ): boolean {
   return window.resetsAt !== null && now >= window.resetsAt;
+}
+
+/* ---- The usage cache: last-known account snapshots across restarts ---- *
+ * A cold-started bar showing NOTHING until each CLI happens to speak reads
+ * as broken; the last session's windows, honestly aged (stale-dimmed,
+ * "Updated Xh ago"), read as a dashboard. Pane usage deliberately does NOT
+ * persist — sessions die with their panes. */
+
+const USAGE_CACHE_VERSION = 1;
+
+/** Serialize the account map for the cache file. */
+export function serializeUsageCache(
+  accounts: ReadonlyMap<string, AccountUsage>,
+): string {
+  return JSON.stringify({
+    version: USAGE_CACHE_VERSION,
+    accounts: Object.fromEntries(accounts),
+  });
+}
+
+function readWindow(value: unknown): { window: UsageWindow } | null {
+  if (typeof value !== "object" || value === null) return null;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.usedPct !== "number" || !Number.isFinite(raw.usedPct)) return null;
+  return {
+    window: {
+      usedPct: Math.min(100, Math.max(0, raw.usedPct)),
+      resetsAt:
+        typeof raw.resetsAt === "number" && Number.isFinite(raw.resetsAt)
+          ? raw.resetsAt
+          : null,
+      windowMinutes:
+        typeof raw.windowMinutes === "number" && Number.isFinite(raw.windowMinutes)
+          ? raw.windowMinutes
+          : null,
+      ...(typeof raw.scope === "string" && raw.scope !== ""
+        ? { scope: raw.scope }
+        : {}),
+    },
+  };
+}
+
+/** Tolerant read of a cache file: entries that don't parse are dropped
+ * individually — a damaged cache costs stale chips, never a boot. Only
+ * `reported` accounts are kept (the cache exists to fill the bar). */
+export function hydrateUsageCache(json: string): Map<string, AccountUsage> {
+  const out = new Map<string, AccountUsage>();
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return out;
+  }
+  if (typeof raw !== "object" || raw === null) return out;
+  const accounts = (raw as Record<string, unknown>).accounts;
+  if (typeof accounts !== "object" || accounts === null) return out;
+  for (const [provider, entry] of Object.entries(accounts)) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const e = entry as Record<string, unknown>;
+    if (e.kind !== "reported") continue;
+    if (typeof e.reportedAt !== "number" || !Number.isFinite(e.reportedAt)) continue;
+    if (!Array.isArray(e.windows)) continue;
+    const windows = e.windows
+      .map(readWindow)
+      .filter((w): w is { window: UsageWindow } => w !== null)
+      .map((w) => w.window);
+    if (windows.length === 0) continue;
+    out.set(provider, {
+      kind: "reported",
+      windows,
+      reportedAt: e.reportedAt,
+      sourcePaneId: "",
+    });
+  }
+  return out;
 }

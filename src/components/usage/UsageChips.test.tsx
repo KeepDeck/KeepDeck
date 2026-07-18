@@ -93,14 +93,26 @@ describe("UsageChips", () => {
     vi.useRealTimers();
   });
 
-  const render = (paneNames: ReadonlyMap<string, string> = new Map()) =>
+  const render = (
+    paneNames: ReadonlyMap<string, string> = new Map(),
+    liveAgents: ReadonlySet<string> = new Set(),
+  ) =>
     act(() =>
-      root.render(createElement(UsageChips, { agents: [CLAUDE], paneNames })),
+      root.render(
+        createElement(UsageChips, { agents: [CLAUDE], liveAgents, paneNames }),
+      ),
     );
 
-  it("renders nothing before the first report", () => {
+  it("renders nothing without live agents or data", () => {
     render();
     expect(host.textContent).toBe("");
+  });
+
+  it("gives a live agent its chip immediately, waiting for data", () => {
+    render(new Map(), new Set(["claude"]));
+    const chip = host.querySelector(".usage-chip")!;
+    expect(chip.textContent).toContain("···");
+    expect(chip.getAttribute("title")).toContain("waiting");
   });
 
   it("shows both account windows, calm below the thresholds", () => {
@@ -121,9 +133,9 @@ describe("UsageChips", () => {
     expect(host.querySelector(".usage-level--critical")).not.toBeNull();
   });
 
-  it("renders no chip for a provider without a REPORTED account", () => {
-    // Pane-only data (tokens/context) is not an account claim — the chip
-    // waits for windows; the contract's "unavailable" arm has no producer.
+  it("renders no chip for a paneless provider without a REPORTED account", () => {
+    // Pane-only data (tokens/context) is not an account claim — without a
+    // live pane the chip waits for windows.
     reportUsage("pane-1", paneReport(), AT);
     render();
     expect(host.querySelector(".usage-chip")).toBeNull();

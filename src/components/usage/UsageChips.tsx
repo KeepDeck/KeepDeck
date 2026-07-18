@@ -79,17 +79,20 @@ function Chip({
   open,
 }: {
   agent: AgentInfo;
-  account: AccountUsage;
+  /** Absent = a live agent still waiting for its first report ("···"). */
+  account: AccountUsage | undefined;
   display: UsageDisplay;
   now: number;
   onToggle: () => void;
   open: boolean;
 }) {
-  const stale = usageStale(account.reportedAt, now);
-  const windows = chipWindows(account);
-  const title = stale
-    ? `${agent.label}: showing data from ${formatAge(account.reportedAt, now)}`
-    : `${agent.label} usage`;
+  const stale = account !== undefined && usageStale(account.reportedAt, now);
+  const windows = account ? chipWindows(account) : [];
+  const title = !account
+    ? `${agent.label}: waiting for the first report`
+    : stale
+      ? `${agent.label}: showing data from ${formatAge(account.reportedAt, now)}`
+      : `${agent.label} usage`;
   return (
     <button
       type="button"
@@ -124,9 +127,13 @@ function Chip({
 
 export function UsageChips({
   agents,
+  liveAgents,
   paneNames,
 }: {
   agents: AgentInfo[];
+  /** Agent ids with a pane in the deck — every one earns a chip, data or
+   * not, so the roster is stable and predictable. */
+  liveAgents: ReadonlySet<string>;
   /** Pane id → display title, for the panel's session rows. */
   paneNames: ReadonlyMap<string, string>;
 }) {
@@ -162,10 +169,13 @@ export function UsageChips({
     };
   }, [open]);
 
-  // Catalog order keeps the cluster stable; only REPORTED accounts earn a
-  // chip (the contract's "unavailable" arm has no producer today).
+  // Catalog order keeps the cluster stable. A chip exists for every agent
+  // WITH A PANE (immediately — "···" until data) and for every REPORTED
+  // account (persisted snapshots keep the bar populated after a restart,
+  // honestly aged). The "unavailable" contract arm has no producer today.
   const providers = agents.filter(
-    (agent) => accounts.get(agent.id)?.kind === "reported",
+    (agent) =>
+      liveAgents.has(agent.id) || accounts.get(agent.id)?.kind === "reported",
   );
   if (providers.length === 0) return null;
   const now = Date.now();
@@ -177,7 +187,7 @@ export function UsageChips({
         <Chip
           key={agent.id}
           agent={agent}
-          account={accounts.get(agent.id)!}
+          account={accounts.get(agent.id)}
           display={display}
           now={now}
           open={open}
@@ -200,7 +210,19 @@ export function UsageChips({
             </button>
           </div>
           {providers.map((agent) => {
-            const account = accounts.get(agent.id)!;
+            const account = accounts.get(agent.id);
+            if (!account) {
+              return (
+                <div key={agent.id} className="usage-panel__section">
+                  <div className="usage-panel__provider">
+                    <b>{agent.label}</b>
+                    <span className="usage-panel__ago">
+                      waiting for the first report
+                    </span>
+                  </div>
+                </div>
+              );
+            }
             return (
               <div key={agent.id} className="usage-panel__section">
                 <div className="usage-panel__provider">

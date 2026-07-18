@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   contextPct,
   freshest,
+  hydrateUsageCache,
   mergePaneUsage,
+  serializeUsageCache,
   windowExpired,
   type AccountUsage,
 } from "./usage";
@@ -83,6 +85,50 @@ describe("contextPct", () => {
     expect(contextPct({ usedTokens: 42 })).toBeUndefined();
     expect(contextPct({ windowTokens: 1000 })).toBeUndefined();
     expect(contextPct({ usedTokens: 42, windowTokens: 0 })).toBeUndefined();
+  });
+});
+
+describe("usage cache", () => {
+  const reported: AccountUsage = {
+    kind: "reported",
+    windows: [
+      { usedPct: 42, resetsAt: 1_738_425_600_000, windowMinutes: 300 },
+      { usedPct: 20, resetsAt: null, windowMinutes: null, scope: "quota" },
+    ],
+    reportedAt: 1_738_400_000_000,
+    sourcePaneId: "pane-7",
+  };
+
+  it("round-trips accounts, blanking the pane attribution", () => {
+    const json = serializeUsageCache(new Map([["claude", reported]]));
+    const back = hydrateUsageCache(json);
+    expect(back.get("claude")).toEqual({
+      ...reported,
+      sourcePaneId: "",
+    });
+  });
+
+  it("drops damaged entries individually and survives garbage", () => {
+    const json = JSON.stringify({
+      version: 1,
+      accounts: {
+        good: { kind: "reported", reportedAt: 5, windows: [{ usedPct: 120 }] },
+        noWindows: { kind: "reported", reportedAt: 5, windows: [] },
+        badPct: { kind: "reported", reportedAt: 5, windows: [{ usedPct: "x" }] },
+        unavailable: { kind: "unavailable", reason: "api-key", reportedAt: 5 },
+        junk: 7,
+      },
+    });
+    const back = hydrateUsageCache(json);
+    expect([...back.keys()]).toEqual(["good"]);
+    expect(back.get("good")?.kind === "reported").toBe(true);
+    if (back.get("good")?.kind === "reported") {
+      expect(back.get("good")).toMatchObject({
+        windows: [{ usedPct: 100, resetsAt: null, windowMinutes: null }],
+      });
+    }
+    expect(hydrateUsageCache("not json").size).toBe(0);
+    expect(hydrateUsageCache("{}").size).toBe(0);
   });
 });
 

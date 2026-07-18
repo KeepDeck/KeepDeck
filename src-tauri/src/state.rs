@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 
 const DECK_FILE: &str = "deck.json";
 const SETTINGS_FILE: &str = "settings.json";
+const USAGE_CACHE_FILE: &str = "usage-cache.json";
 
 /// The stored deck JSON, or `None` on first run. `(async)`, like every
 /// command here: disk IO stays off the main thread (the frontend already
@@ -36,6 +37,20 @@ pub fn deck_state_save(json: String) -> Result<(), String> {
 #[tauri::command(async)]
 pub fn deck_state_quarantine() -> Result<(), String> {
     quarantine(&state_path()?).map_err(|e| e.to_string())
+}
+
+/// The last-known usage snapshot (account rate-limit windows), or `None`.
+/// A CACHE, not a document: the webview validates tolerantly and a bad file
+/// just means an empty bar until fresh reports — no quarantine ceremony.
+#[tauri::command(async)]
+pub fn usage_cache_load() -> Result<Option<String>, String> {
+    load(&usage_cache_path()?).map_err(|e| e.to_string())
+}
+
+/// Persist the usage snapshot (already serialized by the webview).
+#[tauri::command(async)]
+pub fn usage_cache_save(json: String) -> Result<(), String> {
+    save_atomic(&usage_cache_path()?, &json).map_err(|e| e.to_string())
 }
 
 /// The stored settings JSON, or `None` on first run ([F6]).
@@ -64,6 +79,10 @@ fn state_path() -> Result<PathBuf, String> {
 
 fn settings_path() -> Result<PathBuf, String> {
     doc_path(SETTINGS_FILE)
+}
+
+fn usage_cache_path() -> Result<PathBuf, String> {
+    doc_path(USAGE_CACHE_FILE)
 }
 
 fn doc_path(file: &str) -> Result<PathBuf, String> {

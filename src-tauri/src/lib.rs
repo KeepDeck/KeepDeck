@@ -145,6 +145,8 @@ pub fn run() {
             state::settings_load,
             state::settings_save,
             state::settings_quarantine,
+            state::usage_cache_load,
+            state::usage_cache_save,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,

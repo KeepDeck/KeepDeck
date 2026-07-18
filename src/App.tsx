@@ -66,6 +66,7 @@ import {
   findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
+  paneAgentType,
   paneDisplayTitle,
   paneOnScreen,
   pathOccupancy,
@@ -145,7 +146,9 @@ function App() {
   // Wire bridge usage reports into the usage store (single mount) and prune
   // pane usage as panes close; the chips read the store on their own.
   useUsageChannel(deck);
-  // Pane display titles for the usage panel's session rows.
+  // Pane display titles for the usage panel's session rows, and the agent
+  // ids present in the deck — every one earns a chip immediately, so the
+  // usage roster is stable instead of appearing report by report.
   const usagePaneNames = useMemo(() => {
     const names = new Map<string, string>();
     for (const ws of deck.workspaces) {
@@ -155,6 +158,13 @@ function App() {
     }
     return names;
   }, [deck.workspaces, agents]);
+  const usageLiveAgents = useMemo(() => {
+    const ids = new Set<string>();
+    for (const ws of deck.workspaces) {
+      for (const pane of ws.panes) ids.add(paneAgentType(pane));
+    }
+    return ids;
+  }, [deck.workspaces]);
   // Runtime git HEAD observations for pane badges and worktree close cleanup.
   const gitHeads = useGitHead(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).
@@ -583,7 +593,11 @@ function App() {
           )}
           {/* Provider limit chips — visible before the hand reaches for
               another agent; nothing renders until a first report lands. */}
-          <UsageChips agents={agents} paneNames={usagePaneNames} />
+          <UsageChips
+            agents={agents}
+            liveAgents={usageLiveAgents}
+            paneNames={usagePaneNames}
+          />
           <button
             type="button"
             className="bar__action"

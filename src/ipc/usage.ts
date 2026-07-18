@@ -58,3 +58,14 @@ export function fetchKimiUsages(): Promise<string> {
 export function findCodexRollout(sessionId: string): Promise<string | null> {
   return invoke("usage_find_codex_rollout", { sessionId });
 }
+
+/** The persisted usage snapshot (last-known account windows), or null on
+ * first run. Schema belongs to `src/domain/usage` (the deck.json rule). */
+export function loadUsageCache(): Promise<string | null> {
+  return invoke("usage_cache_load");
+}
+
+/** Persist the usage snapshot (already serialized by the domain). */
+export function saveUsageCache(json: string): Promise<void> {
+  return invoke("usage_cache_save", { json });
+}

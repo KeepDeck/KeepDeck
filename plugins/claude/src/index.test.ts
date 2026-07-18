@@ -66,6 +66,7 @@ describe("claude plugin hooks", () => {
     expect(settings.statusLine).toEqual({
       type: "command",
       command: "/bin/sh '/App/resources/kd-usage-statusline.sh'",
+      refreshInterval: 60,
     });
     expect(settings.hooks.SessionStart[0].hooks[0].command).toContain(
       "kd-session-hook.sh",

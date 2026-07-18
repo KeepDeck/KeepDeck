@@ -46,6 +46,9 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
     settings.statusLine = {
       type: "command",
       command: `/bin/sh ${shellQuote(usage)}`,
+      // Also re-run on a timer: event-driven updates go quiet on an idle
+      // session, freezing the chip's "Updated" at the last turn.
+      refreshInterval: 60,
     };
   }
   if (Object.keys(settings).length === 0) return [];
