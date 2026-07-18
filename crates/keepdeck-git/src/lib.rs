@@ -10,6 +10,12 @@
 //! `--porcelain` parsing — as pure, unit-tested logic. Orchestration concerns
 //! (per-repo locking, the agent→worktree registry, persistence, reconcile) live
 //! in the delivery layer that consumes this crate, not here.
+//!
+//! ONE documented exception to the run_git boundary: the `exclude` module
+//! reads `.git` layout (`gitdir:`/`commondir`) and edits `info/exclude` with
+//! direct std::fs — git ships no plumbing command for editing that file, and
+//! the byte-fidelity contract (the user's file is theirs) demands we own the
+//! write.
 
 mod cmd;
 mod error;

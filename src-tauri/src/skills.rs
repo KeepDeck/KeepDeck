@@ -599,25 +599,13 @@ fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()> {
 }
 
 /// Remove the exact anchored `/…/.agents/` line arming appended — nothing
-/// else in the user's exclude file is touched.
+/// else in the user's exclude file is touched (byte-faithful removal lives
+/// in `keepdeck_git::exclude`).
 fn remove_excluded(armed_root: &Path) -> io::Result<()> {
-    let Some((exclude, line)) = git_exclusion(armed_root)? else {
-        return Ok(());
-    };
-    let current = match fs::read_to_string(&exclude) {
-        Ok(text) => text,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    if !current.lines().any(|l| l.trim() == line) {
-        return Ok(());
+    match agents_exclusion(armed_root)? {
+        Some((common_dir, line)) => keepdeck_git::exclude::remove_line(&common_dir, &line),
+        None => Ok(()),
     }
-    let kept: Vec<&str> = current.lines().filter(|l| l.trim() != line).collect();
-    let mut text = kept.join("\n");
-    if !text.is_empty() {
-        text.push('\n');
-    }
-    write_atomic(&exclude, text.as_bytes())
 }
 
 /// A link is ours iff it points inside KeepDeck's skills root.
@@ -635,68 +623,32 @@ fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
 }
 
-/// Idempotently append the armed dir to the owning repo's SHARED
-/// `info/exclude` so it never shows up in git status or a commit. The
-/// exclude file lives in the common git dir — the nearest `.git` up from
-/// the armed cwd, resolved through a worktree's `.git` file and its
-/// `commondir` pointer when applicable. The pattern is anchored to the
-/// armed cwd relative to the repo root, so a subdir cwd's `.agents` is
-/// excluded without hiding same-named dirs elsewhere in the repo.
+/// Idempotently append the armed dir's anchored line to the owning repo's
+/// SHARED `info/exclude` so it never shows up in git status or a commit
+/// (resolution and the byte-faithful edit live in `keepdeck_git::exclude`).
 fn ensure_excluded(armed_root: &Path) -> io::Result<()> {
-    let Some((exclude, line)) = git_exclusion(armed_root)? else {
-        return Ok(());
-    };
-    let current = match fs::read_to_string(&exclude) {
-        Ok(text) => text,
-        Err(e) if e.kind() == ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(e),
-    };
-    if current.lines().any(|l| l.trim() == line) {
-        return Ok(());
+    match agents_exclusion(armed_root)? {
+        Some((common_dir, line)) => keepdeck_git::exclude::ensure_line(&common_dir, &line),
+        None => Ok(()),
     }
-    let sep = if current.is_empty() || current.ends_with('\n') { "" } else { "\n" };
-    write_atomic(&exclude, format!("{current}{sep}{line}\n").as_bytes())
 }
 
-/// The owning repo's `info/exclude` plus the anchored ignore pattern for an
-/// armed cwd, or `None` when no ancestor is a git checkout. The nearest
-/// `.git` up from the cwd wins — an armed SUBDIR of a repo excludes
-/// `/<subdir>/.agents/` in that repo.
-fn git_exclusion(armed_root: &Path) -> io::Result<Option<(PathBuf, String)>> {
-    for ancestor in armed_root.ancestors() {
-        let dotgit = ancestor.join(".git");
-        let common = if dotgit.is_dir() {
-            dotgit
-        } else {
-            let pointer = match fs::read_to_string(&dotgit) {
-                Ok(text) => text,
-                Err(e) if e.kind() == ErrorKind::NotFound => continue,
-                Err(e) => return Err(e),
-            };
-            let Some(gitdir) = pointer.trim().strip_prefix("gitdir:") else {
-                continue;
-            };
-            let gitdir = ancestor.join(gitdir.trim());
-            // A linked worktree's gitdir carries a `commondir` pointer to
-            // the main `.git`; without one, the gitdir IS the common dir.
-            match fs::read_to_string(gitdir.join("commondir")) {
-                Ok(rel) => gitdir.join(rel.trim()),
-                Err(e) if e.kind() == ErrorKind::NotFound => gitdir,
-                Err(e) => return Err(e),
-            }
-        };
-        let below = armed_root
-            .strip_prefix(ancestor)
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let line = if below.is_empty() {
-            "/.agents/".to_string()
-        } else {
-            format!("/{below}/.agents/")
-        };
-        return Ok(Some((common.join("info").join("exclude"), line)));
-    }
-    Ok(None)
+/// The owning repo's COMMON git dir plus the anchored `.agents` ignore
+/// pattern for an armed cwd — `/.agents/` at the repo root,
+/// `/<subdir>/.agents/` below it (forward slashes on every platform: the
+/// pattern is git syntax) — or `None` when no ancestor is a git checkout.
+/// This module knows only the `.agents` pattern; the git plumbing is
+/// `keepdeck_git::exclude`'s.
+fn agents_exclusion(armed_root: &Path) -> io::Result<Option<(PathBuf, String)>> {
+    let Some(repo) = keepdeck_git::exclude::owning_repo(armed_root)? else {
+        return Ok(None);
+    };
+    let line = if repo.below_root.is_empty() {
+        "/.agents/".to_string()
+    } else {
+        format!("/{}/.agents/", repo.below_root)
+    };
+    Ok(Some((repo.common_dir, line)))
 }
 
 /// `.tmp-<id>`/`.old-<id>` build leftovers follow the same liveness rule as
@@ -1247,6 +1199,32 @@ mod tests {
         let text = fs::read_to_string(&exclude).unwrap();
         assert!(!text.contains("/.agents/"));
         assert!(text.contains("*.log")); // the user's own line survives
+    }
+
+    #[test]
+    fn disarm_preserves_a_crlf_exclude_files_bytes() {
+        // TRAP for the inline lines()+join removal this module once had: a
+        // CRLF exclude file must keep every carriage return through an
+        // arm/disarm cycle — only OUR line goes.
+        let (_tmp, root) = root();
+        let wt = fake_worktree(root.parent().unwrap());
+        let exclude = root
+            .parent()
+            .unwrap()
+            .join("main")
+            .join(".git")
+            .join("info")
+            .join("exclude");
+        fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+        fs::write(&exclude, "# mine\r\n*.log\r\n").unwrap();
+        save(&global(&root), "review", "x").unwrap();
+        let roots = vec![wt.to_string_lossy().into_owned()];
+        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
+
+        disarm_roots(&root, &roots).unwrap();
+        let text = fs::read_to_string(&exclude).unwrap();
+        assert!(!text.contains("/.agents/"));
+        assert!(text.starts_with("# mine\r\n*.log\r\n"), "CRLF mangled: {text:?}");
     }
 
     #[test]
