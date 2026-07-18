@@ -209,7 +209,7 @@ describe("useUsageChannel", () => {
     );
   });
 
-  it("retries the fallback later when the rollout is not found yet", async () => {
+  it("retries the fallback on membership changes — the pane stays unmarked", async () => {
     ipc.findCodexRollout.mockResolvedValue(null);
     await mount(
       deckWith([
@@ -218,7 +218,6 @@ describe("useUsageChannel", () => {
     );
     await act(async () => {});
     expect(ipc.watchSessionFile).not.toHaveBeenCalled();
-    // A later sweep may succeed — the pane must not be marked tailed.
     ipc.findCodexRollout.mockResolvedValue("/x/rollout.jsonl");
     await mount(
       deckWith([
@@ -233,6 +232,35 @@ describe("useUsageChannel", () => {
       "tok-1",
       "codex",
     );
+  });
+
+  it("retries the fallback on the slow timer while membership is static", async () => {
+    vi.useFakeTimers();
+    try {
+      ipc.findCodexRollout.mockResolvedValue(null);
+      await mount(
+        deckWith([
+          { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        ]),
+      );
+      await act(async () => {});
+      expect(ipc.watchSessionFile).not.toHaveBeenCalled();
+
+      // The rollout appears later, with NO pane-membership change — only
+      // the 20s timer can pick it up.
+      ipc.findCodexRollout.mockResolvedValue("/x/rollout.jsonl");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
+      expect(ipc.watchSessionFile).toHaveBeenCalledWith(
+        "pane-1",
+        "/x/rollout.jsonl",
+        "tok-1",
+        "codex",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("undoes an arm that lands after its pane already closed", async () => {
