@@ -16,6 +16,7 @@ mod error;
 
 pub mod branch;
 pub mod diff;
+pub mod exclude;
 pub mod head;
 pub mod log;
 pub mod provenance;

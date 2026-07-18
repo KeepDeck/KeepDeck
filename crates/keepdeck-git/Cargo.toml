@@ -12,3 +12,4 @@ keepdeck-env = { path = "../keepdeck-env" }
 [dev-dependencies]
 # Integration tests pin the augmented PATH before mutating the process PATH.
 keepdeck-env = { path = "../keepdeck-env" }
+tempfile = "3"
