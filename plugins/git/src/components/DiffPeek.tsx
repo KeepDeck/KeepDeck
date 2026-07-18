@@ -156,6 +156,11 @@ export function DiffPeek({
                     className={`git__diffrow git__diffrow--${line.kind}`}
                     key={i}
                   >
+                    {/* Only the side a line exists on carries a number —
+                        dels the old, adds the new. With the ± column gone,
+                        the diff CSS leans on this as the hue-free add/del
+                        cue; don't fill both gutters without giving that
+                        signal a new home. */}
                     <span className="git__lineno" aria-hidden>
                       {line.oldNo ?? ""}
                     </span>
