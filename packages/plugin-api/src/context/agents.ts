@@ -1,5 +1,6 @@
 import type { Disposable } from "./disposable.ts";
 import type { WorkspaceRef } from "./snapshots.ts";
+import type { AgentUsage } from "./usage.ts";
 
 /**
  * Agent contributions — teaching KeepDeck a CLI agent. Static identity is
@@ -30,6 +31,9 @@ export interface AgentContribution {
    * it; the hooks are where `input.yolo` becomes the CLI's actual flag. */
   supportsYolo?: boolean;
   hooks: AgentHooks;
+  /** How to read this agent's usage (limits, tokens, context) — see
+   * `context/usage.ts`. Absent = the agent reports no usage. */
+  usage?: AgentUsage;
 }
 
 /** A brand mark as bare SVG path data — data, never markup, so a plugin

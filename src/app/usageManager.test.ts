@@ -6,6 +6,7 @@ import {
   reportUsage,
   resetUsageManager,
   retainUsagePanes,
+  setAccountUsage,
   subscribeUsage,
 } from "./usageManager";
 
@@ -59,18 +60,24 @@ describe("reportUsage", () => {
     });
   });
 
-  it("normalizes real claude payloads through the seeded normalizer", () => {
-    reportUsage("pane-1", {
-      agent: "claude",
-      statusline: {
-        rate_limits: {
-          five_hour: { used_percentage: 42, resets_at: 1_738_425_600 },
-        },
-      },
+  it("merges partial pane reports instead of replacing them", () => {
+    const model = fake({
+      account: null,
+      pane: { agent: "fake", model: "m-1", reportedAt: 1 },
     });
-    expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
-      kind: "reported",
-      windows: [{ usedPct: 42, windowMinutes: 300 }],
+    reportUsage("pane-1", { agent: "fake" });
+    model();
+    const numbers = fake({
+      account: null,
+      pane: { agent: "fake", context: { usedTokens: 42 }, reportedAt: 2 },
+    });
+    reportUsage("pane-1", { agent: "fake" });
+    numbers();
+    expect(getUsageSnapshot().panes.get("pane-1")).toEqual({
+      agent: "fake",
+      model: "m-1",
+      context: { usedTokens: 42 },
+      reportedAt: 2,
     });
   });
 
@@ -119,6 +126,27 @@ describe("retainUsagePanes", () => {
     retainUsagePanes(new Set(["pane-1", "pane-ghost"]));
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
+  });
+});
+
+describe("setAccountUsage", () => {
+  it("applies polled documents freshest-wins alongside pane reports", () => {
+    setAccountUsage("kimi", {
+      kind: "reported",
+      windows: [],
+      reportedAt: 10,
+      sourcePaneId: "",
+    });
+    // An older poll result must not downgrade the account.
+    setAccountUsage("kimi", {
+      kind: "reported",
+      windows: [],
+      reportedAt: 3,
+      sourcePaneId: "",
+    });
+    expect(getUsageSnapshot().accounts.get("kimi")).toMatchObject({
+      reportedAt: 10,
+    });
   });
 });
 

@@ -28,18 +28,26 @@ export function onUsageReport(
   );
 }
 
-/** Follow a codex pane's rollout file; its token_count/turn_context events
- * arrive as usage reports carrying `token`. Idempotent per pane — a rebind
- * replaces the old tail. */
+/** Follow a pane's session file in the given dialect (codex rollout / kimi
+ * wire); its usage events arrive as usage reports carrying `token`.
+ * Idempotent per pane — a rebind replaces the old tail. */
 export function watchRollout(
   paneId: string,
   path: string,
   token: string,
+  format: "codex" | "kimi-wire",
 ): Promise<void> {
-  return invoke("usage_watch_rollout", { paneId, path, token });
+  return invoke("usage_watch_rollout", { paneId, path, token, format });
 }
 
-/** Stop following a pane's rollout (pane closed / workspace gone). */
+/** Stop following a pane's session file (pane closed / workspace gone). */
 export function unwatchRollout(paneId: string): Promise<void> {
   return invoke("usage_unwatch_rollout", { paneId });
+}
+
+/** One read-only GET of kimi's account usages document (the polled limits
+ * source — kimi keeps no rate windows on disk). Body rides back opaque;
+ * the kimi plugin's normalizer owns its schema. */
+export function fetchKimiUsages(): Promise<string> {
+  return invoke("kimi_usages_fetch");
 }

@@ -2,8 +2,6 @@ import { isRecord } from "../domain/json";
 import {
   freshest,
   mergePaneUsage,
-  normalizeClaudeStatusline,
-  normalizeCodexRollout,
   type AccountUsage,
   type PaneUsage,
   type UsageNormalizer,
@@ -21,9 +19,9 @@ import {
  * not blank the chip; `panes` entries die with their pane
  * ([`retainUsagePanes`]). Everything is runtime-only, never persisted.
  *
- * Normalizers are registered per agent id. The claude one is seeded here;
- * the registration surface is what a CLI plugin's usage adapter will plug
- * into once the plugin-api contract grows a usage slot.
+ * Normalizers are registered per agent id — by the channel hook, from each
+ * CLI plugin's `usage` contribution: the plugin owns its payload schema,
+ * this store owns none of it.
  */
 
 export interface UsageSnapshot {
@@ -36,10 +34,7 @@ let panes: ReadonlyMap<string, PaneUsage> = new Map();
 let snapshot: UsageSnapshot = { accounts, panes };
 const listeners = new Set<() => void>();
 
-const normalizers = new Map<string, UsageNormalizer>([
-  ["claude", normalizeClaudeStatusline],
-  ["codex", normalizeCodexRollout],
-]);
+const normalizers = new Map<string, UsageNormalizer>();
 
 function emit(): void {
   snapshot = { accounts, panes };
@@ -97,6 +92,16 @@ export function reportUsage(
   if (changed) emit();
 }
 
+/** Apply an account-level document that arrived OUTSIDE the pane pipeline —
+ * a polled limits source (kimi). Freshest-wins like every account claim. */
+export function setAccountUsage(provider: string, account: AccountUsage): void {
+  const current = accounts.get(provider);
+  const next = freshest(current, account);
+  if (next === current) return;
+  accounts = new Map(accounts).set(provider, next);
+  emit();
+}
+
 /** Drop pane usage for panes that no longer exist. Account state stays —
  * the windows describe the account, not the pane that reported them. */
 export function retainUsagePanes(liveIds: ReadonlySet<string>): void {
@@ -123,11 +128,11 @@ export function subscribeUsage(listener: () => void): () => void {
   };
 }
 
-/** Test hook: forget the state and every listener; built-in normalizers
- * stay seeded. */
+/** Test hook: forget the state, the registrations and every listener. */
 export function resetUsageManager(): void {
   accounts = new Map();
   panes = new Map();
   snapshot = { accounts, panes };
+  normalizers.clear();
   listeners.clear();
 }

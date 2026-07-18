@@ -12,6 +12,25 @@ export type {
   SpawnSkillsInput,
 } from "./agents.ts";
 export type {
+  AccountUsage,
+  AgentUsage,
+  LimitsNormalizer,
+  NormalizedUsage,
+  PaneUsage,
+  TokenCounts,
+  UsageLimitsSource,
+  UsageNormalizer,
+  UsageTailFormat,
+  UsageWindow,
+} from "./usage.ts";
+export {
+  asFiniteNumber,
+  asNonEmptyString,
+  clampPercent,
+  collectTokenCounts,
+  isJsonRecord,
+} from "./usage.ts";
+export type {
   CommandArgSpec,
   CommandArgType,
   CommandArgs,

@@ -2,8 +2,13 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { NormalizedUsage } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
-import { reportUsage, resetUsageManager } from "../../app/usageManager";
+import {
+  registerUsageNormalizer,
+  reportUsage,
+  resetUsageManager,
+} from "../../app/usageManager";
 import { UsageChips } from "./UsageChips";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -28,13 +33,29 @@ const CLAUDE: AgentInfo = {
 
 const AT = 1_738_400_000_000;
 
-const limitsReport = (usedPct: number) => ({
+/** Payloads carry the pre-normalized result — the chips are under test,
+ * not a plugin's parser (those are tested with their plugins). */
+const limitsReport = (usedPct: number): { agent: string; result: NormalizedUsage } => ({
   agent: "claude",
-  statusline: {
-    rate_limits: {
-      five_hour: { used_percentage: usedPct, resets_at: (AT + 2 * 3_600_000) / 1000 },
-      seven_day: { used_percentage: 13, resets_at: (AT + 100 * 3_600_000) / 1000 },
+  result: {
+    account: {
+      kind: "reported",
+      windows: [
+        { usedPct, resetsAt: AT + 2 * 3_600_000, windowMinutes: 300 },
+        { usedPct: 13, resetsAt: AT + 100 * 3_600_000, windowMinutes: 10_080 },
+      ],
+      reportedAt: 0,
+      sourcePaneId: "",
     },
+    pane: null,
+  },
+});
+
+const unavailableReport = (): { agent: string; result: NormalizedUsage } => ({
+  agent: "claude",
+  result: {
+    account: { kind: "unavailable", reason: "api-key", reportedAt: 0 },
+    pane: null,
   },
 });
 
@@ -44,6 +65,15 @@ describe("UsageChips", () => {
 
   beforeEach(() => {
     resetUsageManager();
+    // The echo normalizer: payloads carry their normalized result, stamped
+    // with the report time like a real parser would.
+    registerUsageNormalizer("claude", (payload, at) => {
+      const { result } = payload as { result: NormalizedUsage };
+      return {
+        account: result.account ? { ...result.account, reportedAt: at } : null,
+        pane: result.pane,
+      };
+    });
     settingsMock.updateSettings.mockReset();
     vi.setSystemTime(AT);
     document.body.innerHTML = "<div id='host'></div>";
@@ -84,11 +114,7 @@ describe("UsageChips", () => {
   });
 
   it("dims an API-key account to --", () => {
-    reportUsage(
-      "pane-1",
-      { agent: "claude", statusline: { cost: { total_cost_usd: 0.4 } } },
-      AT,
-    );
+    reportUsage("pane-1", unavailableReport(), AT);
     render();
     const chip = host.querySelector(".usage-chip")!;
     expect(chip.className).toContain("usage-chip--dim");

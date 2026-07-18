@@ -38,7 +38,7 @@ describe("windowLabel", () => {
         scope: "seven_day_fable",
       }),
     ).toBe("seven_day_fable");
-    expect(windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: null })).toBe("win");
+    expect(windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: null })).toBe("plan");
   });
 });
 

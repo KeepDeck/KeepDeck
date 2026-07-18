@@ -23,7 +23,8 @@ export function contextLevel(usedPct: number): UsageLevel {
 
 /** The label a window earns from its LENGTH — never from field position
  * (codex plans disagree about which window is primary). Unknown lengths
- * fall back to the scope name or a generic mark. */
+ * fall back to the scope name, else "plan" (kimi's primary window carries
+ * no duration upstream — it IS the plan window). */
 export function windowLabel(window: UsageWindow): string {
   switch (window.windowMinutes) {
     case 300:
@@ -35,7 +36,7 @@ export function windowLabel(window: UsageWindow): string {
     case 43_200:
       return "mo";
     default:
-      return window.scope ?? "win";
+      return window.scope ?? "plan";
   }
 }
 

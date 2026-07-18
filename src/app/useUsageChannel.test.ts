@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentUsage, NormalizedUsage } from "@keepdeck/plugin-api";
 import type { UsageReportEvent } from "../ipc/usage";
 import { getUsageSnapshot, resetUsageManager } from "./usageManager";
 import { useUsageChannel } from "./useUsageChannel";
@@ -16,18 +17,37 @@ const ipc = vi.hoisted(() => ({
   onSessionBound: vi.fn(),
   watchRollout: vi.fn(),
   unwatchRollout: vi.fn(),
+  fetchKimiUsages: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
+  // The agents contribution list the channel reads its declarations from.
+  contributions: [] as { pluginId: string; entry: { id: string; usage?: AgentUsage } }[],
 }));
 vi.mock("../ipc/usage", () => ({
   onUsageReport: ipc.onUsageReport,
   watchRollout: ipc.watchRollout,
   unwatchRollout: ipc.unwatchRollout,
+  fetchKimiUsages: ipc.fetchKimiUsages,
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
 vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: ipc.peekPaneSpawnSpec }));
+vi.mock("./runtimeContext", () => ({
+  useAppRuntime: () => ({ plugins: { pluginRegistries: { agents: {} } } }),
+}));
+vi.mock("../plugins/react", () => ({
+  useContributions: () => ipc.contributions,
+}));
+
+/** A fake normalizer echoing fixed windows — the mechanics under test are
+ * registration, arming and polling, not payload parsing. */
+const reported = (at: number): NormalizedUsage => ({
+  account: { kind: "reported", windows: [], reportedAt: at, sourcePaneId: "" },
+  pane: { agent: "any", reportedAt: at },
+});
 
 /** The channel only reads `deck.workspaces` — a shaped literal is enough. */
-const deckWith = (panes: { id: string; agentType?: string }[]): Deck =>
+const deckWith = (
+  panes: { id: string; agentType?: string; dormant?: boolean }[],
+): Deck =>
   ({
     workspaces: [
       {
@@ -45,13 +65,6 @@ function Probe({ deck }: { deck: Deck }) {
   return null;
 }
 
-const CLAUDE_REPORT = {
-  agent: "claude",
-  statusline: {
-    rate_limits: { five_hour: { used_percentage: 42, resets_at: 1_738_425_600 } },
-  },
-};
-
 interface Bound {
   paneId: string;
   token: string;
@@ -68,8 +81,21 @@ describe("useUsageChannel", () => {
     await act(async () => {});
   };
 
-  beforeEach(async () => {
+  beforeEach(() => {
     resetUsageManager();
+    ipc.contributions = [
+      {
+        pluginId: "keepdeck.claude",
+        entry: { id: "claude", usage: { normalize: (_p, at) => reported(at) } },
+      },
+      {
+        pluginId: "keepdeck.codex",
+        entry: {
+          id: "codex",
+          usage: { normalize: (_p, at) => reported(at), tail: "codex" },
+        },
+      },
+    ];
     ipc.onUsageReport.mockReset().mockImplementation((handler) => {
       emit = handler;
       return Promise.resolve(() => {});
@@ -80,6 +106,7 @@ describe("useUsageChannel", () => {
     });
     ipc.watchRollout.mockReset().mockResolvedValue(undefined);
     ipc.unwatchRollout.mockReset().mockResolvedValue(undefined);
+    ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
     ipc.peekPaneSpawnSpec
       .mockReset()
       .mockImplementation((paneId: string) =>
@@ -87,7 +114,6 @@ describe("useUsageChannel", () => {
       );
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
-    await mount(deckWith([{ id: "pane-1" }]));
   });
 
   afterEach(() => {
@@ -95,9 +121,10 @@ describe("useUsageChannel", () => {
     resetUsageManager();
   });
 
-  it("applies a report that echoes the pane's spawn token", async () => {
+  it("registers plugin normalizers and applies token-verified reports", async () => {
+    await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {
-      emit({ paneId: "pane-1", token: "tok-1", payload: CLAUDE_REPORT });
+      emit({ paneId: "pane-1", token: "tok-1", payload: { agent: "claude" } });
     });
     expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
       kind: "reported",
@@ -106,16 +133,18 @@ describe("useUsageChannel", () => {
   });
 
   it("rejects wrong tokens and unknown panes", async () => {
+    await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {
-      emit({ paneId: "pane-1", token: "forged", payload: CLAUDE_REPORT });
-      emit({ paneId: "pane-ghost", token: "tok-1", payload: CLAUDE_REPORT });
+      emit({ paneId: "pane-1", token: "forged", payload: { agent: "claude" } });
+      emit({ paneId: "pane-ghost", token: "tok-1", payload: { agent: "claude" } });
     });
     expect(getUsageSnapshot().accounts.size).toBe(0);
   });
 
   it("prunes pane usage when a pane leaves the deck, keeping the account", async () => {
+    await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {
-      emit({ paneId: "pane-1", token: "tok-1", payload: CLAUDE_REPORT });
+      emit({ paneId: "pane-1", token: "tok-1", payload: { agent: "claude" } });
     });
     expect(getUsageSnapshot().panes.has("pane-1")).toBe(true);
 
@@ -124,7 +153,7 @@ describe("useUsageChannel", () => {
     expect(getUsageSnapshot().accounts.get("claude")).toBeDefined();
   });
 
-  it("arms the rollout tail for a codex binding carrying a transcript", async () => {
+  it("arms the declared tail for a binding carrying a transcript", async () => {
     await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
     await act(async () => {
       emitBound({
@@ -137,11 +166,13 @@ describe("useUsageChannel", () => {
       "pane-1",
       "/x/rollout.jsonl",
       "tok-1",
+      "codex",
     );
   });
 
-  it("never arms tails for non-codex panes, forged tokens or bare bindings", async () => {
-    // Default pane-1 is claude (no agentType) — transcript or not, no tail.
+  it("never arms tails for undeclared agents, forged tokens or bare bindings", async () => {
+    // claude declares no tail — transcript or not, nothing arms.
+    await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {
       emitBound({ paneId: "pane-1", token: "tok-1", transcriptPath: "/x/r.jsonl" });
     });
@@ -164,5 +195,41 @@ describe("useUsageChannel", () => {
     });
     await mount(deckWith([]));
     expect(ipc.unwatchRollout).toHaveBeenCalledWith("pane-1");
+  });
+
+  it("polls a declared limits source only while its agent has a live pane", async () => {
+    ipc.contributions = [
+      ...ipc.contributions,
+      {
+        pluginId: "keepdeck.kimi",
+        entry: {
+          id: "kimi",
+          usage: {
+            normalize: (_p, at) => reported(at),
+            tail: "kimi-wire",
+            limits: {
+              poll: "kimi-usages",
+              normalize: (_body, at) => ({
+                kind: "reported",
+                windows: [],
+                reportedAt: at,
+                sourcePaneId: "",
+              }),
+            },
+          },
+        },
+      },
+    ];
+    // No kimi pane (dormant doesn't count) → no fetch.
+    await mount(deckWith([{ id: "pane-1" }, { id: "pane-2", agentType: "kimi", dormant: true }]));
+    expect(ipc.fetchKimiUsages).not.toHaveBeenCalled();
+
+    // A live kimi pane → an immediate fetch lands in the store.
+    await mount(deckWith([{ id: "pane-2", agentType: "kimi" }]));
+    await act(async () => {});
+    expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(1);
+    expect(getUsageSnapshot().accounts.get("kimi")).toMatchObject({
+      kind: "reported",
+    });
   });
 });

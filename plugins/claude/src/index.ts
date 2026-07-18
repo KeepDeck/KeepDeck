@@ -13,6 +13,7 @@ import type {
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
+import { normalizeClaudeStatusline } from "./usage";
 
 /** Quote a path for a shell command line (single quotes, `'\''` escaping) —
  * KeepDeck.app can live under a path with spaces. */
@@ -71,6 +72,8 @@ const plugin: KeepDeckPlugin = {
       icon,
       detect: { bin: "claude" },
       supportsYolo: true,
+      // The statusLine reporter pushes; no tail, no poll.
+      usage: { normalize: normalizeClaudeStatusline },
       hooks: {
         "spawn.plan": async (input, output) => {
           output.args = [
