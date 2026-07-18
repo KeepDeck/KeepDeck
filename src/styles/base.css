@@ -1,7 +1,25 @@
 :root {
+  /* The semantic palette. Every stylesheet — host chrome and plugins alike —
+     shares one document, so these are THE place a status color is defined;
+     stylesheets still carrying the same values as literals predate the tokens
+     and migrate as they're touched. The -strong pair is for small colored
+     text on dark tints, where the base tone drops below comfortable
+     contrast. --kd-bg is not a status color: it's here because opaque
+     color mixes must track the real page background. The other recurring
+     surface literals (text, muted, seams, hovers) stay literal for now —
+     when they tokenize, they become their own tier, not more entries
+     here. */
+  --kd-bg: #0b0e14;
+  --kd-ok: #58b368;
+  --kd-ok-strong: #6fd07f;
+  --kd-err: #e5736f;
+  --kd-err-strong: #f28b87;
+  --kd-warn: #d9a441;
+  --kd-info: #6b9fd0;
+
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: #c5c8c6;
-  background-color: #0b0e14;
+  background-color: var(--kd-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
