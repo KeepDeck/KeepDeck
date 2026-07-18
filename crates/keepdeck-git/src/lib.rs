@@ -18,6 +18,7 @@ pub mod branch;
 pub mod diff;
 pub mod head;
 pub mod log;
+pub mod provenance;
 pub mod repo;
 pub mod status;
 pub mod worktree;
