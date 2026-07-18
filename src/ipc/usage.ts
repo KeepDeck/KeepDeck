@@ -51,3 +51,10 @@ export function unwatchRollout(paneId: string): Promise<void> {
 export function fetchKimiUsages(): Promise<string> {
   return invoke("kimi_usages_fetch");
 }
+
+/** Resolve a codex session's rollout path by its recorded id — the fallback
+ * for TUI resumes, where codex fires no SessionStart hook and no binding
+ * carries the path (observed on 0.144.5). */
+export function findCodexRollout(sessionId: string): Promise<string | null> {
+  return invoke("usage_find_codex_rollout", { sessionId });
+}

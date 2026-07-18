@@ -75,21 +75,15 @@ describe("normalizeClaudeStatusline", () => {
     });
   });
 
-  it("claims api-key unavailability only once cost proves a response", () => {
-    const early = normalizeClaudeStatusline(
-      report({ cost: { total_cost_usd: 0 } }),
-      AT,
-    );
-    expect(early?.account).toBeNull();
-    const keyed = normalizeClaudeStatusline(
+  it("never claims unavailability from cost — resumed sessions carry cost first", () => {
+    // A resumed Max session's very first update: accumulated cost, no
+    // rate_limits YET. This must stay a non-claim, not become "api-key".
+    const resumed = normalizeClaudeStatusline(
       report({ cost: { total_cost_usd: 0.5 } }),
       AT,
     );
-    expect(keyed?.account).toEqual({
-      kind: "unavailable",
-      reason: "api-key",
-      reportedAt: AT,
-    });
+    expect(resumed?.account).toBeNull();
+    expect(resumed?.pane?.costUsd).toBe(0.5);
   });
 
   it("clamps percentages and survives malformed windows", () => {

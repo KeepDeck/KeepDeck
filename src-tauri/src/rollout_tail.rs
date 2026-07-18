@@ -286,6 +286,61 @@ pub fn usage_unwatch_rollout(tails: State<UsageTails>, pane_id: String) {
     tails.lock().remove(&pane_id);
 }
 
+/// Locate a codex session's rollout by its recorded id — the fallback for
+/// TUI resumes: codex (observed on 0.144.5) fires SessionStart in `exec`
+/// and `exec resume` but NOT in the interactive `resume`, so no binding
+/// carries the path. Rollout names end `-<session_id>.jsonl` under the
+/// day-partitioned `~/.codex/sessions/YYYY/MM/DD/`; the newest match wins.
+fn find_rollout_in(root: &std::path::Path, session_id: &str) -> Option<PathBuf> {
+    let suffix = format!("-{session_id}.jsonl");
+    let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
+    let days = std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .flat_map(|y| std::fs::read_dir(y.path()).into_iter().flatten().flatten())
+        .flat_map(|m| std::fs::read_dir(m.path()).into_iter().flatten().flatten());
+    for day in days {
+        let Ok(files) = std::fs::read_dir(day.path()) else {
+            continue;
+        };
+        for file in files.flatten() {
+            let path = file.path();
+            let matches = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(&suffix));
+            if !matches {
+                continue;
+            }
+            let modified = file
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            if newest.as_ref().is_none_or(|(t, _)| modified > *t) {
+                newest = Some((modified, path));
+            }
+        }
+    }
+    newest.map(|(_, path)| path)
+}
+
+/// The fallback resolver command. The id is sanitized to uuid characters —
+/// it names a file suffix, nothing else may ride in.
+#[tauri::command(async)]
+pub fn usage_find_codex_rollout(session_id: String) -> Option<String> {
+    if session_id.is_empty()
+        || !session_id
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '-')
+    {
+        return None;
+    }
+    let home = std::env::var_os("HOME")?;
+    let root = PathBuf::from(home).join(".codex/sessions");
+    find_rollout_in(&root, &session_id).map(|p| p.to_string_lossy().into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,6 +486,24 @@ mod tests {
         state.format = TailFormat::KimiWire;
         let event = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
         assert_eq!(report(&state, event).payload["agent"], "kimi");
+    }
+
+    #[test]
+    fn find_rollout_walks_the_day_tree_and_prefers_the_newest_match() {
+        let root = temp_dir();
+        let sid = "019f7683-d6f4-7b00-8e66-00c4694731be";
+        let old_day = root.join("2026/07/17");
+        let new_day = root.join("2026/07/18");
+        fs::create_dir_all(&old_day).unwrap();
+        fs::create_dir_all(&new_day).unwrap();
+        fs::write(old_day.join(format!("rollout-2026-07-17T01-00-00-{sid}.jsonl")), "x").unwrap();
+        fs::write(new_day.join("rollout-2026-07-18T02-00-00-other.jsonl"), "x").unwrap();
+        let newest = new_day.join(format!("rollout-2026-07-18T03-00-00-{sid}.jsonl"));
+        fs::write(&newest, "x").unwrap();
+
+        assert_eq!(find_rollout_in(&root, sid), Some(newest));
+        assert_eq!(find_rollout_in(&root, "0000-none"), None);
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]

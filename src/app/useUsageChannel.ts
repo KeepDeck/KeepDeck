@@ -5,6 +5,7 @@ import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import {
   fetchKimiUsages,
+  findCodexRollout,
   onUsageReport,
   unwatchRollout,
   watchRollout,
@@ -122,6 +123,40 @@ export function useUsageChannel(deck: Deck): void {
     };
   }, []);
 
+  // The binding is the normal way a tail arms — but codex's interactive
+  // `resume` fires no SessionStart hook (observed on 0.144.5), so a revived
+  // codex pane would never report. Fallback: its recorded session id is
+  // already on the pane; resolve the rollout natively and arm. Retried by
+  // the sweep because the spawn token lands asynchronously with the plan.
+  const armRecordedTails = () => {
+    for (const ws of deckRef.current.workspaces) {
+      for (const pane of ws.panes) {
+        if (pane.dormant || pane.provisioning) continue;
+        const sessionId = pane.session?.id;
+        if (!sessionId || tailedRef.current.has(pane.id)) continue;
+        if (usageByAgentRef.current.get(paneAgentType(pane))?.tail !== "codex") {
+          continue;
+        }
+        const token = peekPaneSpawnSpec(pane.id)?.token;
+        if (!token) continue;
+        const paneId = pane.id;
+        tailedRef.current.add(paneId);
+        findCodexRollout(sessionId)
+          .then((path) => {
+            if (!path) {
+              tailedRef.current.delete(paneId);
+              return;
+            }
+            return watchRollout(paneId, path, token, "codex");
+          })
+          .catch((e) => {
+            tailedRef.current.delete(paneId);
+            log.warn("web:usage", `rollout lookup for ${paneId} failed: ${e}`);
+          });
+      }
+    }
+  };
+
   // A string key so the retain sweep runs only when pane MEMBERSHIP changes,
   // not on every deck render.
   const paneIds = deck.workspaces
@@ -136,6 +171,11 @@ export function useUsageChannel(deck: Deck): void {
       tailedRef.current.delete(paneId);
       void unwatchRollout(paneId);
     }
+    armRecordedTails();
+    // A slow retry lane: the spawn token (or the rollout itself) may not
+    // exist yet on the first pass; quiet no-op once everything is tailed.
+    const timer = setInterval(armRecordedTails, 20_000);
+    return () => clearInterval(timer);
   }, [paneIds]);
 
   // Declared limits polls, gated per agent on a LIVE (non-dormant) pane.

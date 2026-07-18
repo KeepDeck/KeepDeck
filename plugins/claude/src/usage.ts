@@ -44,9 +44,10 @@ function window(
  * Account: `rate_limits` maps keys → windows by the known-minutes table;
  * unknown keys of the same shape still normalize (windowMinutes null,
  * scoped) so a future window appears instead of vanishing. Absent
- * rate_limits is "unavailable (api-key)" only once cost proves the API has
- * answered — docs: the field exists on subscription plans after the first
- * response — and `null` (no claim) before that.
+ * rate_limits is NEVER a claim: a resumed subscription session reports
+ * accumulated cost>0 from its very first update, BEFORE rate_limits shows
+ * up (field report: a Max account dimmed to "--"), so cost proves nothing
+ * about billing. API-key accounts simply never produce windows — no chip.
  */
 export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
   if (!isJsonRecord(payload)) return null;
@@ -73,9 +74,6 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
   const cost = isJsonRecord(line.cost)
     ? asFiniteNumber(line.cost.total_cost_usd)
     : undefined;
-  if (!account && cost !== undefined && cost > 0) {
-    account = { kind: "unavailable", reason: "api-key", reportedAt: at };
-  }
 
   const model = isJsonRecord(line.model) ? line.model : undefined;
   const modelName = model

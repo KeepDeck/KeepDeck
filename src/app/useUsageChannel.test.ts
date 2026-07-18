@@ -18,6 +18,7 @@ const ipc = vi.hoisted(() => ({
   watchRollout: vi.fn(),
   unwatchRollout: vi.fn(),
   fetchKimiUsages: vi.fn(),
+  findCodexRollout: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
   // The agents contribution list the channel reads its declarations from.
   contributions: [] as { pluginId: string; entry: { id: string; usage?: AgentUsage } }[],
@@ -27,6 +28,7 @@ vi.mock("../ipc/usage", () => ({
   watchRollout: ipc.watchRollout,
   unwatchRollout: ipc.unwatchRollout,
   fetchKimiUsages: ipc.fetchKimiUsages,
+  findCodexRollout: ipc.findCodexRollout,
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
 vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: ipc.peekPaneSpawnSpec }));
@@ -46,7 +48,12 @@ const reported = (at: number): NormalizedUsage => ({
 
 /** The channel only reads `deck.workspaces` — a shaped literal is enough. */
 const deckWith = (
-  panes: { id: string; agentType?: string; dormant?: boolean }[],
+  panes: {
+    id: string;
+    agentType?: string;
+    dormant?: boolean;
+    session?: { id: string };
+  }[],
 ): Deck =>
   ({
     workspaces: [
@@ -107,6 +114,7 @@ describe("useUsageChannel", () => {
     ipc.watchRollout.mockReset().mockResolvedValue(undefined);
     ipc.unwatchRollout.mockReset().mockResolvedValue(undefined);
     ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
+    ipc.findCodexRollout.mockReset().mockResolvedValue(null);
     ipc.peekPaneSpawnSpec
       .mockReset()
       .mockImplementation((paneId: string) =>
@@ -182,6 +190,49 @@ describe("useUsageChannel", () => {
       emitBound({ paneId: "pane-1", token: "tok-1" });
     });
     expect(ipc.watchRollout).not.toHaveBeenCalled();
+  });
+
+  it("arms a recorded codex session without a binding — the TUI-resume fallback", async () => {
+    ipc.findCodexRollout.mockResolvedValue("/x/sessions/rollout-019f.jsonl");
+    await mount(
+      deckWith([
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+      ]),
+    );
+    await act(async () => {});
+    expect(ipc.findCodexRollout).toHaveBeenCalledWith("019f-recorded");
+    expect(ipc.watchRollout).toHaveBeenCalledWith(
+      "pane-1",
+      "/x/sessions/rollout-019f.jsonl",
+      "tok-1",
+      "codex",
+    );
+  });
+
+  it("retries the fallback later when the rollout is not found yet", async () => {
+    ipc.findCodexRollout.mockResolvedValue(null);
+    await mount(
+      deckWith([
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+      ]),
+    );
+    await act(async () => {});
+    expect(ipc.watchRollout).not.toHaveBeenCalled();
+    // A later sweep may succeed — the pane must not be marked tailed.
+    ipc.findCodexRollout.mockResolvedValue("/x/rollout.jsonl");
+    await mount(
+      deckWith([
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+        { id: "pane-x" },
+      ]),
+    );
+    await act(async () => {});
+    expect(ipc.watchRollout).toHaveBeenCalledWith(
+      "pane-1",
+      "/x/rollout.jsonl",
+      "tok-1",
+      "codex",
+    );
   });
 
   it("unwatches the tail when its pane leaves the deck", async () => {
