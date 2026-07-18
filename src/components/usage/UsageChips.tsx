@@ -56,10 +56,13 @@ function WindowValue({
   );
 }
 
-function Bar({ window, now, row }: { window: UsageWindow; now: number; row?: boolean }) {
+/** The panel's fill bar. Chips deliberately carry NONE: a bar next to one
+ * number but not its neighbor read as noise (field report) — the chip is
+ * numbers only, the panel visualizes. */
+function Bar({ window, now }: { window: UsageWindow; now: number }) {
   const level = limitLevel(window.usedPct);
   return (
-    <span className={`usage-bar${row ? " usage-bar--row" : ""}`} aria-hidden>
+    <span className="usage-bar" aria-hidden>
       <i
         className={
           windowExpired(window, now) || level === "ok" ? "" : `usage-level--${level}`
@@ -111,7 +114,6 @@ function Chip({
         windows.map((window, i) => (
           <span key={i} className="usage-chip__win">
             <span className="usage-chip__label">{windowLabel(window)}</span>
-            {i === 0 && <Bar window={window} now={now} />}
             <WindowValue window={window} display={display} now={now} />
           </span>
         ))
@@ -256,7 +258,7 @@ export function UsageChips({
                       <span className="usage-window__label">
                         {windowLabel(window)}
                       </span>
-                      <Bar window={window} now={now} row />
+                      <Bar window={window} now={now} />
                       <span className="usage-window__detail">
                         <WindowValue window={window} display={display} now={now} />
                         <small>{windowResetCaption(window, now)}</small>

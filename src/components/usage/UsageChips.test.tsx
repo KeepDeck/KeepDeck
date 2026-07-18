@@ -126,6 +126,8 @@ describe("UsageChips", () => {
     expect(chip.textContent).toContain("13%");
     expect(chip.querySelector(".usage-level--warn")).toBeNull();
     expect(chip.className).not.toContain("usage-chip--dim");
+    // Chips are numbers-only — fill bars belong to the panel.
+    expect(chip.querySelector(".usage-bar")).toBeNull();
   });
 
   it("colors only at the thresholds", () => {
@@ -208,6 +210,7 @@ describe("UsageChips", () => {
     expect(panel.textContent).toContain("Claude Code");
     expect(panel.textContent).toContain("Updated now");
     expect(panel.textContent).toContain("resets in 2h 0m");
+    expect(panel.querySelector(".usage-bar")).not.toBeNull();
 
     act(() => {
       (panel.querySelector(".usage-panel__toggle") as HTMLButtonElement).click();
