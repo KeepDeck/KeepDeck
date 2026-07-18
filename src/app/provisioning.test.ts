@@ -284,5 +284,11 @@ describe("discardWorktrees", () => {
     expect(failures).toHaveLength(1);
     expect(failures[0]).toContain("b1");
     expect(worktree.removeWorktree).toHaveBeenCalledTimes(2);
+    // The delete checkbox's intent covers the agent's created side branches.
+    expect(worktree.removeWorktree).toHaveBeenCalledWith("/r", "/wt/2", {
+      force: true,
+      branch: "b2",
+      reapCreatedBranches: true,
+    });
   });
 });
