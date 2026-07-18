@@ -79,4 +79,25 @@ describe("the skills prune sweep", () => {
     expect(wire.disarmSkills).toHaveBeenLastCalledWith(["/wt/a", "/wt/b"]);
     expect(wire.pruneSkills).toHaveBeenLastCalledWith([]);
   });
+
+  it("a closed PANE's cwd is disarmed too — unless another pane still uses it", async () => {
+    const wt = (id: string, cwd: string) =>
+      ({ id, agentType: "codex", cwd, branch: "kd/x" }) as Workspace["panes"][number];
+    const shared = (id: string) =>
+      ({ id, agentType: "claude" }) as Workspace["panes"][number];
+    // Two panes in the workspace cwd plus one worktree pane.
+    await mount(
+      [ws("ws-1", "One", [shared("p1"), shared("p2"), wt("p3", "/wt/a")])],
+      true,
+    );
+
+    // The worktree pane closes: its cwd is nobody's now — disarm it.
+    await mount([ws("ws-1", "One", [shared("p1"), shared("p2")])], true);
+    expect(wire.disarmSkills).toHaveBeenLastCalledWith(["/wt/a"]);
+
+    // One of the shared-cwd panes closes: the OTHER still runs there —
+    // the workspace cwd must stay armed.
+    await mount([ws("ws-1", "One", [shared("p1")])], true);
+    expect(wire.disarmSkills).toHaveBeenLastCalledWith([]);
+  });
 });

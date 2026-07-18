@@ -29,11 +29,15 @@ export function useSkillsPrune(workspaces: Workspace[], ready: boolean): void {
   useEffect(() => {
     if (!ready) return;
     const liveIds = new Set(workspaces.map((ws) => ws.id));
-    const closedRoots = swept.current
-      .filter((ws) => !liveIds.has(ws.id))
-      .flatMap(skillRootsOf);
+    // One rule for closed workspaces AND closed panes: a spawn cwd is
+    // disarmed the moment NO live workspace claims it anymore — a pane's
+    // departure must not leave its directory armed forever.
+    const currentRoots = new Set(workspaces.flatMap(skillRootsOf));
+    const departedRoots = [
+      ...new Set(swept.current.flatMap(skillRootsOf)),
+    ].filter((root) => !currentRoots.has(root));
     swept.current = workspaces;
-    void disarmSkills(closedRoots);
+    void disarmSkills(departedRoots);
     void pruneSkills([...liveIds].sort());
     // The key IS the workspaces digest — listing the array too would re-run
     // the sweep on every deck render.
