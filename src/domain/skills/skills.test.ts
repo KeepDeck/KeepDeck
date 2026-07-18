@@ -73,6 +73,32 @@ describe("compose/parse round-trip", () => {
     expect(saved).toContain("description: Ships it faster");
   });
 
+  it("parses a CRLF-authored file instead of demoting its frontmatter", () => {
+    const stored =
+      "---\r\nname: deploy\r\ndescription: Ships it\r\nallowed-tools: Bash\r\n---\r\nBody\r\n";
+    const parsed = parseSkillFile(stored);
+    expect(parsed.name).toBe("deploy");
+    expect(parsed.description).toBe("Ships it");
+    expect(parsed.extraFrontmatter).toEqual(["allowed-tools: Bash"]);
+    expect(parsed.body).toBe("Body\n");
+  });
+
+  it("keeps the FIRST duplicated key and preserves the rest verbatim", () => {
+    const stored = "---\nname: x\ndescription: first\ndescription: second\n---\nB\n";
+    const parsed = parseSkillFile(stored);
+    expect(parsed.description).toBe("first");
+    expect(parsed.extraFrontmatter).toEqual(["description: second"]);
+    // A form save re-emits the duplicate — hand-added lines are never lost.
+    const saved = composeSkillFile({
+      name: "x",
+      description: parsed.description,
+      body: parsed.body,
+      extraFrontmatter: parsed.extraFrontmatter,
+    });
+    expect(saved).toContain("description: first");
+    expect(saved).toContain("description: second");
+  });
+
   it("treats a file without frontmatter as body-only", () => {
     const parsed = parseSkillFile("Just instructions.\n");
     expect(parsed.name).toBeNull();

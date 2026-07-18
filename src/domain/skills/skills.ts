@@ -33,7 +33,11 @@ export function isValidSkillName(name: string): boolean {
   return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name);
 }
 
-/** One-line descriptions only — the frontmatter scalar stays simple. */
+/** One-line descriptions only — the frontmatter scalar stays simple.
+ * COUPLING PIN: the Rust side (`frontmatter_line` in
+ * src-tauri/src/skills.rs) lifts the description as one verbatim line when
+ * generating opencode command files; relaxing this to multi-line or block
+ * scalars breaks that lift — change both sides together. */
 export function isValidSkillDescription(description: string): boolean {
   return !description.includes("\n");
 }
@@ -53,20 +57,25 @@ export function composeSkillFile(draft: SkillDraft): string {
 
 /** Parse a stored SKILL.md back into a draft. A file without frontmatter is
  * still a skill (name comes from its directory): empty description, the
- * whole content as body. */
+ * whole content as body. CRLF files are normalized to LF first — a
+ * hand-edited Windows-style file must parse (and round-trip), not read as
+ * body-only and get its frontmatter demoted into the body on save. A
+ * duplicated name/description line keeps the FIRST value; later duplicates
+ * go to `extraFrontmatter` verbatim, so nothing is silently lost. */
 export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { name: string | null } {
-  const fm = frontmatterBlock(content);
-  if (!fm) return { name: null, description: "", body: content, extraFrontmatter: [] };
+  const normalized = content.replace(/\r\n/g, "\n");
+  const fm = frontmatterBlock(normalized);
+  if (!fm) return { name: null, description: "", body: normalized, extraFrontmatter: [] };
   let name: string | null = null;
-  let description = "";
+  let description: string | null = null;
   const extraFrontmatter: string[] = [];
   for (const line of fm.lines) {
     const match = /^(name|description):\s?(.*)$/.exec(line);
-    if (match?.[1] === "name") name = unscalar(match[2]);
-    else if (match?.[1] === "description") description = unscalar(match[2]);
+    if (match?.[1] === "name" && name === null) name = unscalar(match[2]);
+    else if (match?.[1] === "description" && description === null) description = unscalar(match[2]);
     else extraFrontmatter.push(line);
   }
-  return { name, description, body: fm.body, extraFrontmatter };
+  return { name, description: description ?? "", body: fm.body, extraFrontmatter };
 }
 
 function frontmatterBlock(content: string): { lines: string[]; body: string } | null {
