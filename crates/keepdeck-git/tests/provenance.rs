@@ -159,6 +159,38 @@ fn a_same_second_attach_is_not_claimed() {
     fs::remove_dir_all(&wt_root).ok();
 }
 
+/// The trust guard's blind spot, covered by the sha check: `git branch Y
+/// HEAD` creates WITHOUT a checkout yet with a trusted source, so a
+/// same-second visit of Y pairs on timestamp, name, AND source — but once the
+/// worktree's tip has diverged from Y's, the checkout entry's old/new sides
+/// disagree and the visit is rejected.
+#[test]
+fn a_same_second_head_sourced_visit_of_a_diverged_tip_is_not_claimed() {
+    let repo_dir = init_repo();
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("agent-1");
+    git_at(
+        &repo_dir,
+        BIRTH,
+        &["worktree", "add", "-q", "-b", "born-with-wt", wt.to_str().unwrap()],
+    );
+    // Diverge the worktree from the main repo's HEAD.
+    fs::write(wt.join("work.txt"), "wip").unwrap();
+    git(&wt, &["add", "."]);
+    git(&wt, &["commit", "-q", "-m", "wip"]);
+
+    // A trusted-source bystander born in the MAIN repo, visited here in the
+    // same second.
+    git_at(&repo_dir, LATER, &["branch", "bystander", "HEAD"]);
+    git_at(&wt, LATER, &["switch", "-q", "bystander"]);
+
+    let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
+    assert_eq!(created, ["born-with-wt"], "the bystander was claimed");
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
 /// The reproduced false-claim, visit arm: a branch created elsewhere and
 /// switched-to here inside the same second pairs by timestamp AND name — only
 /// its name-sourced creation record tells it apart.

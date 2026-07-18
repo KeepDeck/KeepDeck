@@ -22,19 +22,30 @@
 //! false-claim (`git branch X && git worktree add wt X` inside one second) —
 //! so name-sourced creations are never attributed.
 //!
+//! A checkout-target match additionally requires the entry's old and new
+//! sides to AGREE: `switch -c` forks from the current HEAD and stays on that
+//! commit, while a same-second VISIT of a branch born elsewhere moves to that
+//! branch's own tip — so whenever the tips diverge, the visit is rejected on
+//! shas even when its source reads trusted (`git branch Y HEAD && git switch
+//! Y` with diverged histories).
+//!
 //! Deliberate misses (evidence errs toward KEEPING a branch):
 //! - `git branch X` inside W — no checkout entry, name source: unattributable.
 //! - `switch -c X <name-start>` / `git branch X && git switch X` inside W —
 //!   name-sourced, rejected by the trust guard.
+//! - `switch -c X <sha-start>` onto a commit other than the current HEAD —
+//!   trusted source, but the old/new sides differ, so the sha check drops it.
 //! - a created branch later RENAMED — the checkout entries still carry the old
 //!   name, so the new name no longer pairs up.
 //! - expired or disabled reflogs — no evidence, no claim.
 //!
-//! Residual false-claim: a HEAD/sha-sourced creation elsewhere colliding to
-//! the exact second with a checkout of that branch here (the creator's
-//! worktree must also have released it within that second) — a deliberately
-//! contrived race, and git still refuses to delete the branch while any
-//! worktree holds it.
+//! Residual false-claim: a standalone creation with a TRUSTED source —
+//! `git branch Y HEAD` or `git branch Y <sha>`, which check nothing out —
+//! followed within the same second by this worktree adopting Y while both
+//! sit on the SAME commit: an attach (`git worktree add wt Y`, no checkout
+//! entry to sha-check) or a switch with coinciding tips. Requires that exact
+//! command shape inside one second; git's refusal to delete a held branch
+//! protects it only while some other worktree still holds it at close time.
 //!
 //! The evidence survives the worktree DIRECTORY: after an external `rm -rf`,
 //! the admin dir `.git/worktrees/<id>` keeps the HEAD reflog until
@@ -50,16 +61,20 @@ use crate::error::GitError;
 use crate::head::{self, Head};
 use crate::repo;
 
-/// One reflog entry: its unix timestamp and message ("" for a worktree's
-/// birth entry, which git writes without one).
+/// One reflog entry: its unix timestamp, the commit its NEW side points to,
+/// and its message ("" for a worktree's birth entry, which git writes without
+/// one). The OLD side isn't printed by `log -g`, but within one log it is
+/// simply the next-older entry's new side.
 struct ReflogEntry {
     ts: u64,
+    new_sha: String,
     message: String,
 }
 
 /// `%gd` = the date-based selector (`ref@{<unix>}` under `--date=unix`),
-/// `%x09` = a literal tab, `%gs` = the entry's message.
-const REFLOG_FORMAT: &str = "--format=%gd%x09%gs";
+/// `%x09` = a literal tab, `%H` = the entry's new-side commit, `%gs` = the
+/// entry's message.
+const REFLOG_FORMAT: &str = "--format=%gd%x09%H%x09%gs";
 
 /// Parse `log -g` output in [`REFLOG_FORMAT`] order (newest first, as git
 /// prints it). Lines that don't carry a parsable `@{<unix>}` selector are
@@ -67,16 +82,17 @@ const REFLOG_FORMAT: &str = "--format=%gd%x09%gs";
 fn parse_reflog(out: &str) -> Vec<ReflogEntry> {
     out.lines()
         .filter_map(|line| {
-            let (selector, message) = match line.split_once('\t') {
-                Some((s, m)) => (s, m),
-                None => (line, ""),
-            };
+            let mut parts = line.splitn(3, '\t');
+            let selector = parts.next()?;
+            let new_sha = parts.next().unwrap_or("");
+            let message = parts.next().unwrap_or("");
             let ts = selector
                 .rfind("@{")
                 .and_then(|i| selector[i + 2..].strip_suffix('}'))
                 .and_then(|ts| ts.parse::<u64>().ok())?;
             Some(ReflogEntry {
                 ts,
+                new_sha: new_sha.to_string(),
                 message: message.to_string(),
             })
         })
@@ -127,8 +143,17 @@ fn is_created_here(
     let born_with_worktree =
         initial == Some(branch) && entries.last().is_some_and(|birth| birth.ts == creation_ts);
     born_with_worktree
-        || entries.iter().any(|e| {
-            e.ts == creation_ts && checkout_move(&e.message).is_some_and(|(_, to)| to == branch)
+        || entries.iter().enumerate().any(|(i, e)| {
+            e.ts == creation_ts
+                && checkout_move(&e.message).is_some_and(|(_, to)| to == branch)
+                // A switch that CREATED its target stays on the commit it left
+                // (`switch -c` forks from the current HEAD), so the entry's old
+                // and new sides agree; a same-second VISIT of a branch born
+                // elsewhere moves to that branch's own tip. The old side is
+                // the next-older entry's new side within this same log.
+                && entries
+                    .get(i + 1)
+                    .is_some_and(|older| older.new_sha == e.new_sha)
         })
 }
 
@@ -317,34 +342,38 @@ pub fn created_branches(repo_path: &Path, worktree: &Path) -> Result<Vec<String>
 mod tests {
     use super::*;
 
-    fn entry(ts: u64, message: &str) -> ReflogEntry {
+    fn entry(ts: u64, new_sha: &str, message: &str) -> ReflogEntry {
         ReflogEntry {
             ts,
+            new_sha: new_sha.to_string(),
             message: message.to_string(),
         }
     }
 
-    /// A typical worktree HEAD log, newest first: born at 100 on `born`,
-    /// switched to a fresh `inside` at 200, then to `other` at 300.
+    /// A typical worktree HEAD log, newest first: born at 100 on `born` (tip
+    /// A), switched to a fresh `inside` at 200 (still tip A — `switch -c`
+    /// stays put), then VISITED pre-existing `other` at 300 (tip B).
     fn head_log() -> Vec<ReflogEntry> {
         vec![
-            entry(300, "checkout: moving from inside to other"),
-            entry(200, "checkout: moving from born to inside"),
-            entry(100, ""),
+            entry(300, "B", "checkout: moving from inside to other"),
+            entry(200, "A", "checkout: moving from born to inside"),
+            entry(100, "A", ""),
         ]
     }
 
     #[test]
-    fn parses_selectors_messages_and_the_bare_birth_line() {
+    fn parses_selectors_shas_messages_and_the_bare_birth_line() {
         let parsed = parse_reflog(
-            "HEAD@{300}\tcheckout: moving from a to b\nHEAD@{100}\t\nHEAD@{50}\nnot a reflog line\n",
+            "HEAD@{300}\tabc\tcheckout: moving from a to b\nHEAD@{100}\tdef\t\nHEAD@{50}\nnot a reflog line\n",
         );
-        // The tab-less birth variant and the trailing-tab variant both parse;
+        // The tab-less variant and the trailing-tab birth variant both parse;
         // the garbage line is dropped.
         assert_eq!(parsed.len(), 3);
         assert_eq!(parsed[0].ts, 300);
+        assert_eq!(parsed[0].new_sha, "abc");
         assert_eq!(parsed[0].message, "checkout: moving from a to b");
         assert_eq!(parsed[1].ts, 100);
+        assert_eq!(parsed[1].new_sha, "def");
         assert_eq!(parsed[1].message, "");
         assert_eq!(parsed[2].ts, 50);
     }
@@ -352,7 +381,8 @@ mod tests {
     #[test]
     fn parses_the_admin_ref_selector_of_a_gone_worktree() {
         // Addressed from the main repo, the selector carries the ref path.
-        let parsed = parse_reflog("worktrees/wt-1/HEAD@{700}\tcheckout: moving from a to b\n");
+        let parsed =
+            parse_reflog("worktrees/wt-1/HEAD@{700}\tabc\tcheckout: moving from a to b\n");
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].ts, 700);
     }
@@ -361,7 +391,7 @@ mod tests {
     fn initial_branch_is_the_oldest_checkout_source_else_the_fallback() {
         assert_eq!(initial_branch(&head_log(), Some("current")), Some("born"));
         // Never switched: the current branch is the one it was born on.
-        let unswitched = vec![entry(100, "")];
+        let unswitched = vec![entry(100, "A", "")];
         assert_eq!(initial_branch(&unswitched, Some("current")), Some("current"));
         assert_eq!(initial_branch(&unswitched, None), None);
     }
@@ -384,6 +414,23 @@ mod tests {
         assert!(!is_created_here(&log, Some("born"), "no-checkout", 200));
         // Switched TO at 300, but created earlier elsewhere.
         assert!(!is_created_here(&log, Some("born"), "other", 250));
+    }
+
+    #[test]
+    fn a_visit_moving_to_a_diverged_tip_is_rejected_on_shas() {
+        let log = head_log();
+        // `other` was visited at 300 moving A→B: even if its creation second
+        // coincided (a trusted-source bystander, `git branch other HEAD`), the
+        // old/new disagreement proves the checkout didn't create it.
+        assert!(!is_created_here(&log, Some("born"), "other", 300));
+        // The documented residual: with COINCIDING tips the same shape passes
+        // — same-second, same-commit adoption is beyond reflog evidence.
+        let flat = vec![
+            entry(300, "A", "checkout: moving from inside to other"),
+            entry(200, "A", "checkout: moving from born to inside"),
+            entry(100, "A", ""),
+        ];
+        assert!(is_created_here(&flat, Some("born"), "other", 300));
     }
 
     #[test]
