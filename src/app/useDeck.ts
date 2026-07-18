@@ -1,14 +1,12 @@
-import { useCallback, useReducer, useRef } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import {
-  deckReducer,
-  initialDeckState,
-  type DeckAction,
   type DeckState,
   type Pane,
   type PaneSession,
   type Workspace,
   type WorkspaceView,
 } from "../domain/deck";
+import { createDeckStore, type DeckStore } from "./deckStore";
 import { mintWorkspaceSeq } from "./ids";
 
 /** An empty view — the defaults for a workspace with no view entry yet. Shared
@@ -27,23 +25,20 @@ export type WorkspaceCreationResult =
  * coupled `useState`s and cleaning them by hand on every removal.
  */
 export function useDeck() {
-  const [state, reactDispatch] = useReducer(deckReducer, initialDeckState);
-  // React may batch several commands before rendering. Track the state after
-  // every queued reducer transition synchronously so an allocator owned here
-  // sees earlier commands in the same batch instead of a stale render snapshot.
-  const queuedState = useRef(state);
-  queuedState.current = state;
-  const dispatch = useCallback((action: DeckAction): DeckState => {
-    const next = deckReducer(queuedState.current, action);
-    queuedState.current = next;
-    reactDispatch(action);
-    return next;
-  }, []);
+  const storeRef = useRef<DeckStore | null>(null);
+  if (storeRef.current === null) storeRef.current = createDeckStore();
+  const store = storeRef.current;
+  const state = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
+  );
+  const dispatch = store.dispatch;
   // Stable because the minimize-mode effect depends on this command while it
   // reconciles the independently-owned settings and deck state.
   const clearMinimized = useCallback(
     () => dispatch({ type: "clearMinimized" }),
-    [],
+    [dispatch],
   );
   return {
     ...state,
@@ -54,20 +49,20 @@ export function useDeck() {
     selectWorkspace: (id: string) => dispatch({ type: "selectWorkspace", id }),
     createWorkspace: (workspace: Workspace) =>
       dispatch({ type: "createWorkspace", workspace }),
-    /** Build and insert a workspace against the latest queued deck state.
+    /** Build and insert a workspace against the latest deck snapshot.
      * Allocation and insertion are one synchronous state-owner operation, so
      * two creates in one React batch cannot observe or append the same id. */
     createWorkspaceFromSequence: (
       build: (sequence: number) => Workspace,
     ): WorkspaceCreationResult => {
       const sequence = mintWorkspaceSeq(
-        queuedState.current.workspaces.map((workspace) => workspace.id),
+        store.getSnapshot().workspaces.map((workspace) => workspace.id),
       );
       if (sequence === null) {
         return { ok: false, reason: "sequence-exhausted" };
       }
       const workspace = build(sequence);
-      const before = queuedState.current;
+      const before = store.getSnapshot();
       const next = dispatch({ type: "createWorkspace", workspace });
       return next === before
         ? { ok: false, reason: "duplicate-id" }
