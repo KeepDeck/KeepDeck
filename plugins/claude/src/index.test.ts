@@ -23,7 +23,11 @@ const output = (): SpawnPlanOutput => ({
   env: [],
 });
 
-const input = { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" };
+const input = {
+  paneId: "pane-1",
+  workspace: { id: "ws-1", instance: "workspace-instance-1" },
+  cwd: "/repo",
+};
 
 describe("claude plugin hooks", () => {
   it("arms the SessionStart reporter — identity is reporter-based", async () => {

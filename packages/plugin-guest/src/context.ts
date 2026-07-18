@@ -302,7 +302,9 @@ export function buildGuestContext(
       registerPaneAction: (action) => {
         const key = actionKey("pane", action.id);
         actionCallbacks.set(key, (target) =>
-          action.run(target as { wsId: string; paneId: string }),
+          action.run(
+            target as { workspace: WorkspaceRef; paneId: string },
+          ),
         );
         return registerRemote(
           "ui.registerPaneAction",

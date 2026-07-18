@@ -172,7 +172,11 @@ describe("agent hooks over the RPC seam", () => {
 
     const out = output();
     const running = h.agent().hooks["spawn.plan"]!(
-      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
+      {
+        paneId: "pane-1",
+        workspace: { id: "ws-1", instance: "workspace-instance-1" },
+        cwd: "/repo",
+      },
       out,
     );
     expect(h.pushes).toHaveLength(1);
@@ -194,7 +198,11 @@ describe("agent hooks over the RPC seam", () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);
     const running = h.agent().hooks["spawn.plan"]!(
-      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
+      {
+        paneId: "pane-1",
+        workspace: { id: "ws-1", instance: "workspace-instance-1" },
+        cwd: "/repo",
+      },
       output(),
     );
     const id = Number(h.pushes[0].channel.slice("hook:".length));
@@ -210,7 +218,11 @@ describe("agent hooks over the RPC seam", () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);
     const running = h.agent().hooks["spawn.plan"]!(
-      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
+      {
+        paneId: "pane-1",
+        workspace: { id: "ws-1", instance: "workspace-instance-1" },
+        cwd: "/repo",
+      },
       output(),
     );
     h.dispatch.dispose();
@@ -301,7 +313,11 @@ describe("file-open handlers over the RPC seam", () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);
     const running = h.agent().hooks["spawn.plan"]!(
-      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
+      {
+        paneId: "pane-1",
+        workspace: { id: "ws-1", instance: "workspace-instance-1" },
+        cwd: "/repo",
+      },
       output(),
     );
     const id = Number(h.pushes[0].channel.slice("hook:".length));

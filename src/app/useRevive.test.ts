@@ -134,7 +134,14 @@ describe("useRevive — session policy", () => {
     expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
       expect.anything(),
       "claude",
-      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
+      {
+        paneId: "pane-1",
+        workspace: {
+          id: "ws-1",
+          instance: deck.workspaces[0].instance,
+        },
+        cwd: "/repo",
+      },
       expect.anything(),
       "old",
       "restore",

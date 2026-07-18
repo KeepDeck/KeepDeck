@@ -135,7 +135,10 @@ describe("useAgentRestart", () => {
       "codex",
       {
         paneId: "pane-1",
-        wsId: "ws-1",
+        workspace: {
+          id: "ws-1",
+          instance: deck.workspaces[0].instance,
+        },
         cwd: "/worktree",
         branch: "feature/restart",
         yolo: true,

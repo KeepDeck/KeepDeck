@@ -340,6 +340,31 @@ describe("external plugin bridge", () => {
     expect(runs).toBe(1);
   });
 
+  it("carries an exact workspace lifetime into an external pane action", async () => {
+    const host = createFakeHost();
+    let received:
+      | { workspace: WorkspaceRef; paneId: string }
+      | undefined;
+    const plugin: KeepDeckPlugin = {
+      activate(ctx) {
+        ctx.ui.registerPaneAction({
+          id: "inspect",
+          title: "Inspect",
+          run: (target) => {
+            received = target;
+          },
+        });
+      },
+    };
+    const { bridge } = wire(plugin, host);
+    await bridge.activated;
+
+    host.paneActions[0].run({ workspace: W1, paneId: "pane-1" });
+    await flush();
+
+    expect(received).toEqual({ workspace: W1, paneId: "pane-1" });
+  });
+
   it("rejects the guest promise with the message of a throwing host member", async () => {
     const host = createFakeHost();
     host.ctx.storage.global.get = () => {

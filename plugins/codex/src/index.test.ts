@@ -23,7 +23,11 @@ const output = (): SpawnPlanOutput => ({
   env: [],
 });
 
-const input = { paneId: "pane-2", wsId: "ws-1", cwd: "/repo" };
+const input = {
+  paneId: "pane-2",
+  workspace: { id: "ws-1", instance: "workspace-instance-1" },
+  cwd: "/repo",
+};
 
 describe("codex plugin hooks", () => {
   it("arms the SessionStart hook via -c overrides, id NOT adopted", async () => {

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AgentContribution, SpawnPlanOutput } from "@keepdeck/plugin-api";
+import type {
+  AgentContribution,
+  SpawnPlanInput,
+  SpawnPlanOutput,
+} from "@keepdeck/plugin-api";
 import {
   BRIDGE_PROTOCOL_VERSION,
   type ResumeOrigin,
@@ -74,15 +78,7 @@ async function buildAndCache(
 
 /** The pane-side facts a plan is built from — the hook input's shape minus
  * the resume session (that arrives with the resume request, not the pane). */
-export interface PaneSpawnFacts {
-  paneId: string;
-  wsId: string;
-  cwd: string;
-  branch?: string;
-  /** The pane was created in YOLO mode — a supporting hook turns this into
-   * its CLI's skip-permissions flag, on spawn and resume alike. */
-  yolo?: boolean;
-}
+export type PaneSpawnFacts = SpawnPlanInput;
 
 /** Build one plan through the agent's hook; a throwing hook degrades to a
  * bare spawn (no identity) rather than a dead pane. */
@@ -103,9 +99,9 @@ async function buildPlan(
     args: [],
     env: [],
   };
-  const base = {
+  const base: SpawnPlanInput = {
     paneId,
-    wsId: facts.wsId,
+    workspace: facts.workspace,
     cwd: facts.cwd,
     ...(facts.branch ? { branch: facts.branch } : {}),
     ...(facts.yolo ? { yolo: true } : {}),
@@ -266,7 +262,7 @@ export function usePaneSpawnSpecs(
             agent,
             {
               paneId: pane.id,
-              wsId: ws.id,
+              workspace: { id: ws.id, instance: ws.instance },
               cwd: pane.cwd ?? ws.cwd,
               branch: pane.branch,
               yolo: pane.yolo,
