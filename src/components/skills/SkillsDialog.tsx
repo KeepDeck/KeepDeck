@@ -352,7 +352,6 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
                     </DestructiveButton>
                   )}
                   <span className="skills__actions-gap" />
-                  <span className="skills__key-hint">⌘S</span>
                   <button
                     type="button"
                     className="form__create"

@@ -236,9 +236,3 @@
 .skills__actions-gap {
   flex: 1;
 }
-
-.skills__key-hint {
-  color: #4b5563;
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
