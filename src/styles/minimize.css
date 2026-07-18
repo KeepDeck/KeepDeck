@@ -153,11 +153,12 @@
   max-width: 96px;
 }
 
-/* The header's YOLO warning survives minimizing as a bare ⚡ — tiny, but the
+/* The header's YOLO warning survives minimizing as a bare bolt — tiny, but the
    disabled-prompts state stays visible wherever the pane's stand-in lives. */
 .minimized__yolo {
   flex: none;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
   color: #e0b568;
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { GitBranchIcon, RestoreUpIcon } from "../../ui/icons";
+import { BoltIcon, GitBranchIcon, RestoreUpIcon } from "../../ui/icons";
 import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { MinimizedDetailsTooltip } from "./MinimizedDetailsTooltip";
@@ -16,7 +16,7 @@ interface MinimizedItemProps {
   /** The agent's live branch badge, when its cwd is a known git HEAD. */
   gitBadge?: GitBadge | null;
   /** The pane runs in YOLO mode — the header chip's warning must survive
-   * minimizing, so the stand-in carries a ⚡ marker too. */
+   * minimizing, so the stand-in carries a bolt marker too. */
   yolo?: boolean;
   /** Accessible action label for the whole control, e.g. "Restore Claude 1". */
   label: string;
@@ -51,7 +51,7 @@ export function MinimizedItemContent({
           className="minimized__yolo"
           title="YOLO mode — runs without permission prompts"
         >
-          ⚡
+          <BoltIcon />
         </span>
       )}
       {gitBadge && (

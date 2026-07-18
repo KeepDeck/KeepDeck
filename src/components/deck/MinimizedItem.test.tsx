@@ -58,7 +58,7 @@ describe("MinimizedItem", () => {
       );
     });
     const marker = document.querySelector<HTMLElement>(".minimized__yolo")!;
-    expect(marker.textContent).toBe("⚡");
+    expect(marker.querySelector("svg")).not.toBeNull();
     expect(marker.title).toContain("without permission prompts");
   });
 

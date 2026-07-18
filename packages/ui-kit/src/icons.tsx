@@ -83,6 +83,16 @@ export function GitBranchIcon() {
   );
 }
 
+/** Lightning bolt — the YOLO-mode warning mark in pane chrome (Lucide `zap`,
+ * ISC). Tight viewBox: unlike an emoji it centers exactly in chip anatomy. */
+export function BoltIcon() {
+  return (
+    <svg {...iconProps}>
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </svg>
+  );
+}
+
 /** Collapse-direction chevron (dropdown state). */
 export function ChevronDownIcon() {
   return (
