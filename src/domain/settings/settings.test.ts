@@ -40,6 +40,7 @@ describe("hydrateSettings", () => {
           values: { git: { remote: "origin" } },
         },
         notifications: { enabled: false, mode: "system" },
+        usageDisplay: "left",
       }),
     );
     expect(doc?.settings).toEqual({
@@ -50,7 +51,14 @@ describe("hydrateSettings", () => {
       minimizeStyle: "strip",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
       notifications: { enabled: false, mode: "system", mutedPlugins: [] },
+      usageDisplay: "left",
     });
+  });
+
+  it("snaps a malformed usageDisplay back to the default", () => {
+    expect(hydrateSettings('{"usageDisplay":"sideways"}')?.settings.usageDisplay).toBe(
+      "used",
+    );
   });
 
   it("defaults deckLayout to grid and minimizeStyle to tray when absent", () => {

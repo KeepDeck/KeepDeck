@@ -65,6 +65,13 @@ export const NOTIFICATION_MODES: readonly NotificationsMode[] = [
   "app",
 ];
 
+/** Which direction the usage chips' numbers run. Threshold COLOR always
+ * follows % used regardless — the toggle changes the words, not the alarm. */
+export type UsageDisplay = "used" | "left";
+
+/** Every usage display, in cycle order; also the stored-value allow-list. */
+export const USAGE_DISPLAYS: readonly UsageDisplay[] = ["used", "left"];
+
 export interface Settings {
   /** Agent preselected for new workspaces and panes. Always a concrete
    * agent; if it isn't installed, the pickers snap to the first one that
@@ -104,6 +111,8 @@ export interface Settings {
     mode: NotificationsMode;
     mutedPlugins: string[];
   };
+  /** How the usage chips present window percentages ("42%" vs "58% left"). */
+  usageDisplay: UsageDisplay;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -114,6 +123,7 @@ export const DEFAULT_SETTINGS: Settings = {
   minimizeStyle: "tray",
   plugins: { enabled: {}, values: {}, consented: {} },
   notifications: { enabled: true, mode: "system-and-app", mutedPlugins: [] },
+  usageDisplay: "used",
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -282,6 +292,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   const notifications = readNotifications(doc.notifications);
   if (notifications) settings.notifications = notifications;
+  if (USAGE_DISPLAYS.includes(doc.usageDisplay as UsageDisplay)) {
+    settings.usageDisplay = doc.usageDisplay as UsageDisplay;
+  }
   const plugins = readPlugins(doc.plugins);
   // Only replace the default's object reference when there's genuinely
   // something to keep — otherwise `settings.plugins` stays pointing at

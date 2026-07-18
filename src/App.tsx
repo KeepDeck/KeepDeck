@@ -17,6 +17,7 @@ import { usePersistence } from "./app/usePersistence";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
+import { useUsageChannel } from "./app/useUsageChannel";
 import { useSettings } from "./app/useSettings";
 import { useMinimizeMode } from "./app/useMinimizeMode";
 import { DEFAULT_SETTINGS } from "./domain/settings";
@@ -31,6 +32,7 @@ import {
 } from "./app/notificationProducers";
 import { useNotifications } from "./app/useNotifications";
 import { NotificationBell } from "./components/notifications/NotificationBell";
+import { UsageChips } from "./components/usage/UsageChips";
 import { unreadByWorkspace, type Notification } from "./domain/notifications";
 import {
   settingsSectionForNotification,
@@ -139,6 +141,9 @@ function App() {
   );
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
   useSessionBinding(deck);
+  // Wire bridge usage reports into the usage store (single mount) and prune
+  // pane usage as panes close; the chips read the store on their own.
+  useUsageChannel(deck);
   // Runtime git HEAD observations for pane badges and worktree close cleanup.
   const gitHeads = useGitHead(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).
@@ -565,6 +570,9 @@ function App() {
               {updateState.phase === "installing" && "Restarting…"}
             </button>
           )}
+          {/* Provider limit chips — visible before the hand reaches for
+              another agent; nothing renders until a first report lands. */}
+          <UsageChips agents={agents} />
           <button
             type="button"
             className="bar__action"
