@@ -672,6 +672,7 @@ function App() {
           {agentFlow.dialog && (
             <AgentDialog
               defaultAgentType={agentFlow.dialog.defaultAgentType}
+              defaultYolo={agentFlow.dialog.defaultYolo}
               repo={agentFlow.dialog.repo}
               suggestedPath={agentFlow.dialog.suggestedPath}
               suggestedBranch={agentFlow.dialog.suggestedBranch}

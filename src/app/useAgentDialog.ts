@@ -26,6 +26,8 @@ export interface AgentDialogSpec {
   agentId: string;
   index: number;
   defaultAgentType: AgentType;
+  /** The YOLO toggle's starting position ([F6] global preference). */
+  defaultYolo: boolean;
   /** The workspace repo when its cwd is a git repo — enables the worktree
    * location field; null → the agent just runs in the workspace cwd. */
   repo: { cwd: string; branch: string | null } | null;
@@ -101,25 +103,29 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
       agentId: paneId(seq),
       index,
       defaultAgentType: defaultType,
+      defaultYolo: getSettings()?.defaultYolo ?? false,
       repo,
       suggestedPath,
       suggestedBranch,
     });
   };
 
-  const confirm = ({ agentType, name, location }: AgentDialogResult) => {
+  const confirm = ({ agentType, name, location, yolo }: AgentDialogResult) => {
     const dlg = dialog;
     if (!dlg) return;
     setDialog(null);
     const ws = findWorkspace(deck.workspaces, dlg.wsId);
     if (!ws) return;
     const paneName = name.trim() || undefined;
+    // Sparse like persistence: only the armed mode lands on the pane.
+    const paneYolo = yolo ? { yolo: true as const } : {};
     // Main repo: a bare pane that runs in the workspace cwd.
     if (location.kind === "main") {
       deck.addAgentPane(dlg.wsId, {
         id: dlg.agentId,
         name: paneName,
         agentType,
+        ...paneYolo,
       });
       return;
     }
@@ -131,6 +137,7 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
         branch: location.branch || undefined,
         name: paneName,
         agentType,
+        ...paneYolo,
       });
       return;
     }
@@ -141,6 +148,7 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
       id: dlg.agentId,
       name: paneName,
       agentType,
+      ...paneYolo,
       provisioning: {
         repo: ws.cwd,
         path: location.path,

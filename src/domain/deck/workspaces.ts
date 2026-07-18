@@ -23,6 +23,9 @@ export interface SpawnConfig {
   /** One-time worktree setup command (experimental run presets); blank/absent
    * = none. */
   setup?: string;
+  /** Every spawned agent runs in YOLO mode; absent = off. Only ever true for
+   * an agent whose plugin declares support (the form gates the toggle). */
+  yolo?: boolean;
 }
 
 export interface Workspace {

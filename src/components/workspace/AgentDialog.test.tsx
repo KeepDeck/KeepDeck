@@ -14,7 +14,10 @@ import type {
   true;
 
 // The dialog pulls the agent catalog via useAgents; pin one agent at the
-// hook seam (the real hook would bootstrap the real plugin system).
+// hook seam (the real hook would bootstrap the real plugin system). The
+// YOLO support flag is swappable per test — the toggle's visibility gates
+// on it.
+const catalog = vi.hoisted(() => ({ supportsYolo: true }));
 vi.mock("../../app/useAgents", () => ({
   useAgents: () => ({
     agents: [
@@ -26,6 +29,7 @@ vi.mock("../../app/useAgents", () => ({
           paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
         },
         command: "claude",
+        supportsYolo: catalog.supportsYolo,
         installed: true,
         path: null,
       },
@@ -115,6 +119,7 @@ describe("AgentDialog worktree location flow", () => {
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
+          defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "/base/kd-ws-2",
           suggestedBranch: "kd/ws/2",
@@ -170,6 +175,7 @@ describe("AgentDialog worktree location flow", () => {
           // The untouched base field carries the prefilled current branch.
           baseBranch: "main",
         },
+        yolo: false,
       },
     ]);
   });
@@ -372,6 +378,7 @@ describe("AgentDialog agent picker", () => {
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
+          defaultYolo: false,
           repo: null,
           suggestedPath: "",
           suggestedBranch: "",
@@ -391,5 +398,70 @@ describe("AgentDialog agent picker", () => {
     const path = button.querySelector("svg path")!;
     expect(path.getAttribute("fill")).toBe("#D97757");
     expect(path.getAttribute("d")).toBe("M0 0h24v24H0z");
+  });
+});
+
+describe("AgentDialog YOLO toggle", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let confirmed: AgentDialogResult[];
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    confirmed = [];
+    catalog.supportsYolo = true;
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    catalog.supportsYolo = true;
+  });
+
+  const mount = (defaultYolo: boolean) =>
+    act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          defaultYolo,
+          repo: null,
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => [],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          onConfirm: (r: AgentDialogResult) => confirmed.push(r),
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+  const checkbox = () =>
+    document.querySelector<HTMLInputElement>(".form__yolo input");
+
+  it("prefills from the global default and the result carries the choice", async () => {
+    await mount(true);
+    expect(checkbox()?.checked).toBe(true);
+    submit();
+    expect(confirmed).toMatchObject([{ yolo: true }]);
+  });
+
+  it("unticking overrides the global default per spawn", async () => {
+    await mount(true);
+    act(() => checkbox()!.click());
+    submit();
+    expect(confirmed).toMatchObject([{ yolo: false }]);
+  });
+
+  it("hidden — and never true — for an agent without YOLO support", async () => {
+    catalog.supportsYolo = false;
+    await mount(true);
+    expect(checkbox()).toBeNull();
+    submit();
+    // A remembered tick must not leak through a non-supporting agent.
+    expect(confirmed).toMatchObject([{ yolo: false }]);
   });
 });

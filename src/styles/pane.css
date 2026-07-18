@@ -133,6 +133,24 @@
   -webkit-user-select: text;
 }
 
+/* Standing YOLO warning chip: same anatomy as the branch chip, tinted amber —
+   the pane's disabled-prompts state must stay visible, not just at creation. */
+.pane__yolo {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #e0b568;
+  background-color: rgba(224, 181, 104, 0.08);
+  border: 1px solid #6b5327;
+  flex: none;
+}
+
 .pane__branch {
   display: inline-flex;
   align-items: center;

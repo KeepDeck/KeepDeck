@@ -230,6 +230,20 @@ describe("SettingsDialog", () => {
     expect(button("List").className).toContain("form__type--active");
   });
 
+  it("switching the YOLO default writes it through to the store", async () => {
+    await mount();
+    // Scoped to its own picker group — other sections have On/Off pairs too.
+    const label = Array.from(document.querySelectorAll(".form__label")).find(
+      (el) => el.textContent === "YOLO mode",
+    )!;
+    const on = Array.from(label.nextElementSibling!.querySelectorAll("button")).find(
+      (b) => b.textContent === "On",
+    )!;
+    act(() => on.click());
+    expect(getSettings()?.defaultYolo).toBe(true);
+    expect(on.className).toContain("form__type--active");
+  });
+
   it("picking a minimize style writes it through to the store", async () => {
     await mount({ minimizeStyle: "tray" });
     act(() => button("Strip").click());

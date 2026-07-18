@@ -110,4 +110,7 @@ export interface AgentDialogResult {
   /** Optional custom display name; blank falls back to the derived title. */
   name: string;
   location: AgentLocation;
+  /** Run with permission prompts disabled — only ever true for an agent
+   * whose plugin declares YOLO support (the dialog gates the toggle). */
+  yolo: boolean;
 }

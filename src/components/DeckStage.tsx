@@ -265,6 +265,7 @@ export function DeckStage({
               planPending={planPending}
               cwd={executionCwd}
               gitBadge={badge}
+              yolo={pane.yolo}
               visible={layout.visible}
               focused={layout.focused}
               hidden={layout.hidden}

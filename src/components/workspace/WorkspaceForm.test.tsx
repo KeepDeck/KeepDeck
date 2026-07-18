@@ -141,6 +141,60 @@ describe("WorkspaceForm worktree directory", () => {
   });
 });
 
+describe("WorkspaceForm YOLO toggle", () => {
+  let root: Root;
+  let created: SpawnConfig[];
+
+  beforeEach(() => {
+    resetAgentsCache();
+    catalog.list = [{ ...agent("claude", "Claude Code"), supportsYolo: true }];
+    document.body.innerHTML = "";
+    root = createRoot(document.body.appendChild(document.createElement("div")));
+    created = [];
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const checkbox = () =>
+    document.querySelector<HTMLInputElement>(".form__yolo input");
+
+  const mount = async (defaultYolo: boolean) => {
+    await seedDefaultAgent("claude");
+    updateSettings({ defaultYolo });
+    await act(async () =>
+      root.render(
+        createElement(WorkspaceForm, {
+          onCreate: (c: SpawnConfig) => created.push(c),
+          pickFolder: async () => "/repo",
+          inspectDir: async () => ({ isRepo: false, branch: null }),
+        }),
+      ),
+    );
+    await act(async () => chooseBtn().click());
+    await act(async () => {}); // flush the probe + catalog load
+  };
+
+  it("prefills from the global default; the whole batch carries the choice", async () => {
+    await mount(true);
+    expect(checkbox()?.checked).toBe(true);
+    submit();
+    expect(created[0].yolo).toBe(true);
+  });
+
+  it("stays sparse when off, and hides entirely without agent support", async () => {
+    await mount(false);
+    expect(checkbox()?.checked).toBe(false);
+    submit();
+    expect("yolo" in created[0]).toBe(false);
+
+    catalog.list = TWO_AGENTS; // no supportsYolo anywhere
+    await mount(true);
+    expect(checkbox()).toBeNull();
+    submit();
+    // The global default must not leak through a non-supporting agent.
+    expect("yolo" in created[1]).toBe(false);
+  });
+});
+
 describe("WorkspaceForm default agent ([F6])", () => {
   let root: Root;
 

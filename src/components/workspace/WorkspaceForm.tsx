@@ -51,8 +51,14 @@ export function WorkspaceForm({
   // The user picked a type by hand — that choice must survive a defaultAgent
   // change made in the settings dialog while this form is open ([F6]).
   const [agentTouched, setAgentTouched] = useState(false);
+  // The batch is homogeneous, so one YOLO choice covers every spawned agent.
+  // Starts at the global preference; only the SUBMITTED value is gated on the
+  // selected agent's support, so switching types never loses the tick.
+  const [yolo, setYolo] = useState(settings?.defaultYolo ?? false);
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
+  const supportsYolo =
+    agents.find((a) => a.id === agentType)?.supportsYolo ?? false;
   const [count, setCount] = useState(1);
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
   const [worktreeDir, setWorktreeDir] = useState("");
@@ -135,6 +141,7 @@ export function WorkspaceForm({
         agentType,
         count,
         worktreeBaseDir: worktreeDir.trim() || null,
+        ...(yolo && supportsYolo && { yolo: true }),
       });
   };
 
@@ -237,6 +244,28 @@ export function WorkspaceForm({
           </button>
         ))}
       </div>
+
+      {supportsYolo && (
+        <label
+          className="form__yolo"
+          // Dimmed with the agent picker at 0: no agents spawn, nothing runs.
+          style={count === 0 ? { opacity: 0.4, pointerEvents: "none" } : undefined}
+          aria-disabled={count === 0}
+        >
+          <input
+            type="checkbox"
+            checked={yolo}
+            onChange={(e) => setYolo(e.target.checked)}
+            tabIndex={count === 0 ? -1 : undefined}
+          />
+          <span className="form__yolo-text">
+            YOLO mode
+            <span className="form__yolo-hint">
+              Runs without permission prompts — the agents act on their own
+            </span>
+          </span>
+        </label>
+      )}
 
       <span className="form__label">Agents</span>
       <TerminalCountTiles
