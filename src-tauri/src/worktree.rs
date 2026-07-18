@@ -394,9 +394,11 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
 
     // Branches born in this worktree are enumerated BEFORE the removal: the
     // evidence is the worktree's private HEAD reflog, which `git worktree
-    // remove` destroys with the administrative dir. A failed scan degrades to
-    // "reap nothing extra" — the close itself must not hinge on provenance.
-    let created = if spec.reap_created_branches && path.exists() {
+    // remove`/`prune` destroy with the administrative record. Provenance reads
+    // that record through the main repo, so an externally-deleted directory
+    // (the fallthrough case below) is still attributable here. A failed scan
+    // degrades to "reap nothing extra" — the close must not hinge on it.
+    let created = if spec.reap_created_branches {
         match provenance::created_branches(&repo_path, &path) {
             Ok(branches) => branches,
             Err(e) => {
@@ -424,42 +426,13 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
         log::warn!("worktree: prune after remove failed in {}: {e}", repo_path.display());
     }
     // Branch removal is separate: a branch can't be deleted while its worktree
-    // is checked out, so it only runs now that the worktree is gone — the
-    // tracked branch first, then the worktree-born extras (minus the overlap:
-    // the tracked branch usually IS one of them).
+    // is checked out, so it only runs now that the worktree is gone.
     let primary = spec
         .branch
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
-    let extras: Vec<&str> = created
-        .iter()
-        .map(String::as_str)
-        .filter(|b| Some(*b) != primary)
-        .collect();
-    // An extra that moved on to ANOTHER worktree since its birth here is in
-    // use, not litter — deleting (or failing loudly) would both be wrong, so
-    // it's kept with only a log line. The tracked branch never trips this:
-    // it was checked out HERE, and this worktree is gone.
-    let checked_out_elsewhere: HashSet<String> = if extras.is_empty() {
-        HashSet::new()
-    } else {
-        worktree::list(&repo_path)
-            .map(|list| list.into_iter().filter_map(|w| w.branch).collect())
-            .unwrap_or_default()
-    };
-
-    let mut failures = Vec::new();
-    for branch in primary.into_iter().chain(extras) {
-        if checked_out_elsewhere.contains(branch) {
-            log::warn!(
-                "worktree: branch '{branch}' is checked out in another worktree of {}; keeping it",
-                repo_path.display()
-            );
-            continue;
-        }
-        failures.extend(delete_branch_if_present(&repo_path, branch, spec.force));
-    }
+    let failures = reap_branches(&repo_path, primary, &created, spec.force);
     if failures.is_empty() {
         Ok(())
     } else {
@@ -467,13 +440,69 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
     }
 }
 
+/// Delete the tracked branch and the worktree-born extras (minus the overlap:
+/// the tracked branch usually IS one of them), returning the user-facing
+/// message for every branch that resisted — one stubborn branch must not hide
+/// the rest.
+///
+/// An extra that moved on to ANOTHER worktree since its birth here is in use,
+/// not litter — deleting (or failing loudly) would both be wrong, so it's kept
+/// with only a log line. When the adoption info itself is unavailable
+/// (`worktree list` failed) EVERY extra is kept for the same reason; only the
+/// tracked branch — explicit close intent — is still attempted, which is
+/// exactly the pre-reap contract.
+fn reap_branches(
+    repo_path: &Path,
+    primary: Option<&str>,
+    created: &[String],
+    force: bool,
+) -> Vec<String> {
+    let extras: Vec<&str> = created
+        .iter()
+        .map(String::as_str)
+        .filter(|b| Some(*b) != primary)
+        .collect();
+    let adopted: Option<HashSet<String>> = if extras.is_empty() {
+        Some(HashSet::new())
+    } else {
+        match worktree::list(repo_path) {
+            Ok(list) => Some(list.into_iter().filter_map(|w| w.branch).collect()),
+            Err(e) => {
+                log::warn!(
+                    "worktree: can't tell which branches are in use in {} ({e}); \
+                     keeping {} created branch(es)",
+                    repo_path.display(),
+                    extras.len()
+                );
+                None
+            }
+        }
+    };
+    let extra_sweep: &[&str] = if adopted.is_some() { &extras } else { &[] };
+
+    let mut failures = Vec::new();
+    for branch in primary.iter().copied().chain(extra_sweep.iter().copied()) {
+        if adopted.as_ref().is_some_and(|set| set.contains(branch)) {
+            log::warn!(
+                "worktree: branch '{branch}' is checked out in another worktree of {}; keeping it",
+                repo_path.display()
+            );
+            continue;
+        }
+        if let Err(message) = delete_branch_if_present(repo_path, branch, force) {
+            failures.push(message);
+        }
+    }
+    failures
+}
+
 /// Delete `branch` unless it's already gone — someone beating us to it means
-/// already-cleaned, not failed. Returns the user-facing message on failure so
-/// the caller can keep going and report every branch that resisted, instead of
-/// aborting the sweep at the first one.
-fn delete_branch_if_present(repo_path: &Path, branch: &str, force: bool) -> Option<String> {
+/// already-cleaned, not failed. `Err` carries the user-facing message so the
+/// caller can keep sweeping and report every branch that resisted, instead of
+/// aborting at the first one.
+fn delete_branch_if_present(repo_path: &Path, branch: &str, force: bool) -> Result<(), String> {
     match repo::branch_exists(repo_path, branch) {
-        Ok(true) => repo::delete_branch(repo_path, branch, force).err().map(|e| {
+        Ok(true) => repo::delete_branch(repo_path, branch, force).map_err(|e| {
             format!(
                 "Couldn’t delete branch '{branch}' after removing the worktree. \
                  You may need to delete it manually. Reason: {e}"
@@ -484,9 +513,9 @@ fn delete_branch_if_present(repo_path: &Path, branch: &str, force: bool) -> Opti
                 "worktree: branch '{branch}' was already gone in {}; skipping branch delete",
                 repo_path.display()
             );
-            None
+            Ok(())
         }
-        Err(e) => Some(format!(
+        Err(e) => Err(format!(
             "Couldn’t check whether branch '{branch}' exists: {e}"
         )),
     }
@@ -840,6 +869,35 @@ mod tests {
         }
         let visitor = git_out(&repo, &["branch", "--list", "visitor"]);
         assert!(!visitor.trim().is_empty(), "the visiting branch was reaped");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn remove_with_reap_recovers_branches_of_an_externally_deleted_worktree() {
+        // The dir vanished behind KeepDeck's back, but the admin record still
+        // holds the provenance until prune — the reap must ride the same
+        // fallthrough that already saves the registration and tracked branch.
+        let (repo, wt, branch) = repo_with_worktree("reap-gone");
+        git(&wt, &["switch", "-q", "-c", "kd/side-branch"]);
+        git(&wt, &["switch", "-q", &branch]);
+        std::fs::remove_dir_all(&wt).unwrap();
+
+        remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: true,
+                branch: Some(branch.clone()),
+                reap_created_branches: true,
+            },
+        )
+        .expect("a gone dir must not abort the reap");
+
+        for gone in [branch.as_str(), "kd/side-branch"] {
+            let out = git_out(&repo, &["branch", "--list", gone]);
+            assert!(out.trim().is_empty(), "branch leaked: {gone}");
+        }
         let _ = std::fs::remove_dir_all(&repo);
     }
 
