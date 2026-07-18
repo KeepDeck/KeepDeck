@@ -32,7 +32,10 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
 /** The staged shared skills as an EXTRA config directory — opencode loads
  * `OPENCODE_CONFIG_DIR` on top of the global and project ones (additive,
  * probe-verified on 1.18.3), and it composes fine with the reporter's
- * `OPENCODE_CONFIG_CONTENT` above. */
+ * `OPENCODE_CONFIG_CONTENT` above. The host hands us a STABLE per-workspace
+ * dir here, never a wiped staging one: opencode treats its config dir as a
+ * writable home (plugin node_modules, account/state files — field-verified),
+ * so pointing it at a rebuilt-from-scratch directory would destroy those. */
 const skillsEnv = (skills: SpawnSkillsInput | undefined): [string, string][] =>
   skills ? [["OPENCODE_CONFIG_DIR", skills.opencodeConfigDir]] : [];
 

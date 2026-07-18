@@ -13,11 +13,15 @@
 //!
 //! - `staging/<wsId>/claude-plugin/` — a Claude Code plugin dir
 //!   (`.claude-plugin/plugin.json` + `skills/`) for `--plugin-dir`
-//! - `staging/<wsId>/opencode/` — an OpenCode config dir (`skills/` subdir)
-//!   for `OPENCODE_CONFIG_DIR`
 //! - `staging/<wsId>/skills/` — the bare standard layout (`<skill>/SKILL.md`
 //!   at top level) for kimi's `--skills-dir`; the same shape codex's
 //!   `.agents/skills` would take once its injection lands
+//! - `opencode/<wsId>/` — an OpenCode config dir (`skills/` subdir) for
+//!   `OPENCODE_CONFIG_DIR`. STABLE, not under `staging/`: opencode treats
+//!   the directory as a writable config home (it installs plugin
+//!   node_modules and drops account/state files there — field-verified on
+//!   1.18.3), so only its `skills/` subtree is KeepDeck's to replace;
+//!   everything else in it must survive every rebuild.
 //!
 //! Frontmatter and schema knowledge stay in TS (`src/domain/skills`), next to
 //! the model; this adapter only moves bytes: list, save, delete, stage.
@@ -52,7 +56,9 @@ pub struct SkillDto {
 }
 
 /// A workspace's staged views, absolute paths (mirrors the TS
-/// `SkillsStagingViews`, camelCase).
+/// `SkillsStagingViews`, camelCase). `opencode_config_dir` is the STABLE
+/// per-workspace dir (opencode writes its own state there); the other two
+/// live under the wiped `staging/<wsId>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillStagingDto {
@@ -204,6 +210,10 @@ fn delete(scope_dir: &Path, name: &str) -> io::Result<()> {
 fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
     let library = root.join("library");
     let final_dir = root.join("staging").join(ws_id);
+    // opencode's view lives OUTSIDE the wiped staging: opencode writes its
+    // own files into its config dir, and those must survive every rebuild —
+    // only the `skills/` subtree below this dir is KeepDeck's.
+    let opencode_dir = root.join("opencode").join(ws_id);
 
     // Workspace skills override same-named global ones: collect global
     // first, then let the workspace pass replace by name.
@@ -220,16 +230,19 @@ fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
     }
 
     if sources.is_empty() {
-        // An emptied library must not leave yesterday's staging behind.
-        match fs::remove_dir_all(&final_dir) {
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            other => other?,
+        // An emptied library must not leave yesterday's views behind — but
+        // opencode's own files next to its skills/ are not ours to touch.
+        for stale in [final_dir, opencode_dir.join("skills")] {
+            match fs::remove_dir_all(&stale) {
+                Err(e) if e.kind() == ErrorKind::NotFound => {}
+                other => other?,
+            }
         }
         return Ok(None);
     }
 
     // Build aside, then swap: a pane spawning mid-rebuild reads either the
-    // old complete staging or the new one, never a half-copied view.
+    // old complete view or the new one, never a half-copied one.
     let tmp = root.join("staging").join(format!(".tmp-{ws_id}"));
     match fs::remove_dir_all(&tmp) {
         Err(e) if e.kind() == ErrorKind::NotFound => {}
@@ -240,11 +253,16 @@ fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
         &claude_plugin.join(".claude-plugin").join("plugin.json"),
         CLAUDE_PLUGIN_MANIFEST.as_bytes(),
     )?;
+    let opencode_tmp = opencode_dir.join(".skills-tmp");
+    match fs::remove_dir_all(&opencode_tmp) {
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        other => other?,
+    }
     for (name, source) in &sources {
         for view in [
             claude_plugin.join("skills"),
-            tmp.join("opencode").join("skills"),
             tmp.join("skills"),
+            opencode_tmp.clone(),
         ] {
             copy_dir(source, &view.join(name))?;
         }
@@ -255,12 +273,18 @@ fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
     }
     fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
     fs::rename(&tmp, &final_dir)?;
+    let opencode_skills = opencode_dir.join("skills");
+    match fs::remove_dir_all(&opencode_skills) {
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        other => other?,
+    }
+    fs::rename(&opencode_tmp, &opencode_skills)?;
 
-    let abs = |sub: &str| final_dir.join(sub).to_string_lossy().into_owned();
+    let abs = |dir: &Path| dir.to_string_lossy().into_owned();
     Ok(Some(SkillStagingDto {
-        claude_plugin_dir: abs("claude-plugin"),
-        opencode_config_dir: abs("opencode"),
-        skills_dir: abs("skills"),
+        claude_plugin_dir: abs(&final_dir.join("claude-plugin")),
+        opencode_config_dir: abs(&opencode_dir),
+        skills_dir: abs(&final_dir.join("skills")),
     }))
 }
 
@@ -374,6 +398,36 @@ mod tests {
                 "asset",
             );
         }
+    }
+
+    #[test]
+    fn opencodes_own_files_survive_restaging_and_emptying() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", "x").unwrap();
+        let views = stage(&root, "ws-1").unwrap().unwrap();
+
+        // opencode treats its config dir as writable (node_modules, account
+        // files) — plant a stand-in next to the skills subtree.
+        let oc = PathBuf::from(&views.opencode_config_dir);
+        fs::write(oc.join("antigravity-accounts.json"), "precious").unwrap();
+
+        save(&global(&root), "deploy", "y").unwrap();
+        stage(&root, "ws-1").unwrap().unwrap();
+        assert_eq!(
+            fs::read_to_string(oc.join("antigravity-accounts.json")).unwrap(),
+            "precious",
+        );
+        assert!(oc.join("skills").join("deploy").exists());
+
+        // An emptied library removes ONLY the skills subtree.
+        delete(&global(&root), "review").unwrap();
+        delete(&global(&root), "deploy").unwrap();
+        assert_eq!(stage(&root, "ws-1").unwrap(), None);
+        assert!(!oc.join("skills").exists());
+        assert_eq!(
+            fs::read_to_string(oc.join("antigravity-accounts.json")).unwrap(),
+            "precious",
+        );
     }
 
     #[test]
