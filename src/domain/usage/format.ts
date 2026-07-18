@@ -52,9 +52,11 @@ export function formatCountdown(resetsAt: number | null, now: number): string | 
 }
 
 /** "42%" or "58% left" — the user picks which direction the number runs;
- * threshold COLOR always follows % used regardless. */
+ * threshold COLOR always follows % used regardless. Used rounds UP (the
+ * CLIs' own /usage panels ceil; understating consumption reads as a bug —
+ * field report: claude said 5%, a rounded chip said 4). */
 export function formatPct(usedPct: number, display: "used" | "left"): string {
-  const pct = Math.round(usedPct);
+  const pct = Math.min(100, Math.ceil(usedPct));
   return display === "left" ? `${100 - pct}% left` : `${pct}%`;
 }
 

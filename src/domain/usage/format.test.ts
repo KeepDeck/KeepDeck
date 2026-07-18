@@ -63,6 +63,12 @@ describe("formatPct", () => {
     expect(formatPct(41.6, "used")).toBe("42%");
     expect(formatPct(41.6, "left")).toBe("58% left");
   });
+
+  it("ceils used like the CLIs' own panels — never understates", () => {
+    expect(formatPct(4.2, "used")).toBe("5%");
+    expect(formatPct(4.2, "left")).toBe("95% left");
+    expect(formatPct(100, "used")).toBe("100%");
+  });
 });
 
 describe("staleness and age", () => {
