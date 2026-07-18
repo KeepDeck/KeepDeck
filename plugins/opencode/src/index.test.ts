@@ -42,6 +42,34 @@ describe("opencode plugin hooks", () => {
     });
   });
 
+  it("staged skills ride OPENCODE_CONFIG_DIR next to the reporter's config", async () => {
+    const agent = activate("/App/resources/session-reporter.js");
+    const skills = {
+      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
+      opencodeConfigDir: "/kd/staging/ws-1/opencode",
+      skillsDir: "/kd/staging/ws-1/skills",
+    };
+    const out = output();
+    await agent.hooks["spawn.plan"]!({ ...input, skills }, out);
+
+    const env = Object.fromEntries(out.env);
+    expect(env.OPENCODE_CONFIG_DIR).toBe("/kd/staging/ws-1/opencode");
+    // Both doors stay open: the reporter's config content is untouched.
+    expect(env.OPENCODE_CONFIG_CONTENT).toBeDefined();
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...input, skills, sessionId: "s" }, resume);
+    expect(Object.fromEntries(resume.env).OPENCODE_CONFIG_DIR).toBe(
+      "/kd/staging/ws-1/opencode",
+    );
+
+    // No skills, no env var — a pane must not point opencode at a dir that
+    // was never staged.
+    const bare = output();
+    await agent.hooks["spawn.plan"]!(input, bare);
+    expect(Object.fromEntries(bare.env).OPENCODE_CONFIG_DIR).toBeUndefined();
+  });
+
   it("resumes with -s and still arms the reporter (catches /new)", async () => {
     const agent = activate("/App/resources/session-reporter.js");
     const out = output();

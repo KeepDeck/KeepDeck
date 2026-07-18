@@ -108,6 +108,31 @@ describe("Kimi CLI plugin", () => {
     expect(out.args).toEqual(["--session", "session_123"]);
   });
 
+  it("staged skills add --skills-dir on spawn and resume, absent otherwise", async () => {
+    const { agent } = await activate();
+    const skills = {
+      claudePluginDir: "/kd/staging/ws-1/claude-plugin",
+      opencodeConfigDir: "/kd/staging/ws-1/opencode",
+      skillsDir: "/kd/staging/ws-1/skills",
+    };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, skills }, spawn);
+    expect(spawn.args).toEqual(["--skills-dir", "/kd/staging/ws-1/skills"]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, skills, sessionId: "session_123" },
+      resume,
+    );
+    expect(resume.args).toEqual([
+      "--skills-dir",
+      "/kd/staging/ws-1/skills",
+      "--session",
+      "session_123",
+    ]);
+  });
+
   it("YOLO adds --yolo on spawn and resume alike", async () => {
     const { agent } = await activate();
     expect(agent.supportsYolo).toBe(true);
