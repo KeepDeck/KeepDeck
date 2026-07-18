@@ -55,6 +55,15 @@ describe("agent hooks over the RPC seam", () => {
     expect(Object.keys(h.agent().hooks)).toEqual(["spawn.plan"]);
   });
 
+  it("supportsYolo crosses strictly; a non-true value from the realm drops", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [1, { ...entry, supportsYolo: true }]);
+    expect(h.agent().supportsYolo).toBe(true);
+
+    await h.dispatch.call("agents.register", [2, { ...entry, supportsYolo: "yes" }]);
+    expect(h.agent().supportsYolo).toBeUndefined();
+  });
+
   it("an icon crosses in the contract's exact shape, extras stripped", async () => {
     const h = harness();
     await h.dispatch.call("agents.register", [

@@ -127,6 +127,27 @@ describe("agent registration payload", () => {
     expect(payload.icon).toEqual(icon);
     expect(payload.hookNames).toEqual(["spawn.plan"]);
     expect(payload).not.toHaveProperty("hooks");
+    // Not declared → not on the wire (sparse, like the host's strict read).
+    expect(payload).not.toHaveProperty("supportsYolo");
+  });
+
+  it("carries a declared supportsYolo onto the wire", async () => {
+    const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
+    const rpc = { call } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    bundle.ctx.agents.register({
+      id: "codex",
+      label: "Codex",
+      detect: { bin: "codex" },
+      supportsYolo: true,
+      hooks: { "spawn.plan": () => {} },
+    });
+    await bundle.registrationsSettled();
+    const register = call.mock.calls.find(
+      ([path]) => path === "agents.register",
+    );
+    const [, payload] = register![1] as [number, Record<string, unknown>];
+    expect(payload.supportsYolo).toBe(true);
   });
 });
 

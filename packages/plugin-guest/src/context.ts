@@ -396,6 +396,8 @@ export function buildGuestContext(
             label: agent.label,
             icon: agent.icon,
             detect: agent.detect,
+            // Sparse like the host's read: only a true declaration crosses.
+            ...(agent.supportsYolo === true && { supportsYolo: true }),
             hookNames: Object.keys(agent.hooks),
           },
           () => agentHooks.delete(agent.id),
