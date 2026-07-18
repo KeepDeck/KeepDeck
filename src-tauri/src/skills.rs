@@ -41,11 +41,27 @@
 //! the model; this adapter only moves bytes: list, save, delete, stage.
 
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::state::write_atomic;
+
+/// One mutex per workspace id. Overlapping `stage()` calls for the SAME
+/// workspace share the `.tmp-<ws>` build dir and a multi-step swap — without
+/// serialization the loser can delete the winner's published staging and
+/// leave the workspace with no views and a dangling codex symlink. Commands
+/// run on plain pool threads (no await inside), so holding a std mutex for
+/// the duration is fine. A poisoned lock (a panicked stage) is recovered —
+/// the next stage rebuilds from scratch anyway.
+fn ws_lock(ws_id: &str) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let map = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = map.lock().unwrap_or_else(|p| p.into_inner());
+    map.entry(ws_id.to_string()).or_default().clone()
+}
 
 const SKILL_FILE: &str = "SKILL.md";
 
@@ -281,19 +297,11 @@ fn stage(
     // only the `skills/` subtree below this dir is KeepDeck's.
     let opencode_dir = root.join("opencode").join(ws_id);
 
-    // Workspace skills override same-named global ones: collect global
-    // first, then let the workspace pass replace by name.
-    let mut sources: Vec<(String, PathBuf)> = Vec::new();
-    for scope in [library.join("global"), library.join("ws").join(ws_id)] {
-        for skill in sorted_dirs(&scope)? {
-            if !skill.join(SKILL_FILE).is_file() {
-                continue;
-            }
-            let name = skill.file_name().unwrap_or_default().to_string_lossy().into_owned();
-            sources.retain(|(existing, _)| *existing != name);
-            sources.push((name, skill));
-        }
-    }
+    // Overlapping same-ws stagings share tmp dirs and the swap — serialize.
+    let lock = ws_lock(ws_id);
+    let _staging = lock.lock().unwrap_or_else(|p| p.into_inner());
+
+    let sources = collect_sources(&library, ws_id);
 
     if sources.is_empty() {
         // An emptied library must not leave yesterday's views behind — but
@@ -309,6 +317,7 @@ fn stage(
             }
         }
         disarm_roots(root, spawn_roots)?;
+        let _ = fs::remove_file(armed_manifest(root, ws_id));
         return Ok(None);
     }
 
@@ -332,7 +341,7 @@ fn stage(
             other => other?,
         }
     }
-    for (name, source) in &sources {
+    for (name, source, content) in &sources {
         for view in [
             claude_plugin.join("skills"),
             tmp.join("skills"),
@@ -345,32 +354,27 @@ fn stage(
         // staged SKILL.md (the command file must not go stale on edits, so
         // it references rather than inlines).
         let staged_skill = opencode_dir.join("skills").join(name).join(SKILL_FILE);
-        let command = opencode_command(name, source, &staged_skill)?;
+        let command = opencode_command(name, content, &staged_skill);
         write_atomic(
             &opencode_cmd_tmp.join(format!("{name}.md")),
             command.as_bytes(),
         )?;
     }
-    match fs::remove_dir_all(&final_dir) {
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        other => other?,
-    }
     fs::create_dir_all(final_dir.parent().unwrap_or(root))?;
-    fs::rename(&tmp, &final_dir)?;
-    let opencode_skills = opencode_dir.join("skills");
-    match fs::remove_dir_all(&opencode_skills) {
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        other => other?,
-    }
-    fs::rename(&opencode_tmp, &opencode_skills)?;
-    let opencode_commands = opencode_dir.join("command");
-    match fs::remove_dir_all(&opencode_commands) {
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        other => other?,
-    }
-    fs::rename(&opencode_cmd_tmp, &opencode_commands)?;
+    swap_dir(&tmp, &final_dir, &root.join("staging").join(format!(".old-{ws_id}")))?;
+    swap_dir(
+        &opencode_tmp,
+        &opencode_dir.join("skills"),
+        &opencode_dir.join(".old-skills"),
+    )?;
+    swap_dir(
+        &opencode_cmd_tmp,
+        &opencode_dir.join("command"),
+        &opencode_dir.join(".old-command"),
+    )?;
 
-    arm_roots(root, &final_dir.join("skills"), spawn_roots)?;
+    let armed = arm_roots(root, &final_dir.join("skills"), spawn_roots);
+    record_armed(root, ws_id, &armed);
 
     let abs = |dir: &Path| dir.to_string_lossy().into_owned();
     Ok(Some(SkillStagingDto {
@@ -380,42 +384,129 @@ fn stage(
     }))
 }
 
+/// The workspace's effective skills — global first, workspace overrides by
+/// name — with each SKILL.md's content read up front. A skill whose file
+/// cannot be read (non-UTF-8, permissions) is SKIPPED with a warning, the
+/// same treatment `list()` gives it: one broken skill must not take the
+/// whole workspace's staging down.
+fn collect_sources(library: &Path, ws_id: &str) -> Vec<(String, PathBuf, String)> {
+    let mut sources: Vec<(String, PathBuf, String)> = Vec::new();
+    for scope in [library.join("global"), library.join("ws").join(ws_id)] {
+        let Ok(dirs) = sorted_dirs(&scope) else { continue };
+        for skill in dirs {
+            let content = match fs::read_to_string(skill.join(SKILL_FILE)) {
+                Ok(content) => content,
+                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                Err(e) => {
+                    log::warn!(
+                        "skills: {} has an unreadable SKILL.md — skipped: {e}",
+                        skill.display(),
+                    );
+                    continue;
+                }
+            };
+            let name = skill.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            sources.retain(|(existing, _, _)| *existing != name);
+            sources.push((name, skill, content));
+        }
+    }
+    sources
+}
+
+/// Publish `tmp` at `final_dir` with the smallest possible outage: the old
+/// dir is renamed aside (one syscall) rather than deleted in place, so a
+/// reader — the persistent codex symlink, a live OPENCODE_CONFIG_DIR — sees
+/// the target missing only between two renames, not for a whole recursive
+/// delete.
+fn swap_dir(tmp: &Path, final_dir: &Path, trash: &Path) -> io::Result<()> {
+    let _ = fs::remove_dir_all(trash);
+    match fs::rename(final_dir, trash) {
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        other => other?,
+    }
+    fs::rename(tmp, final_dir)?;
+    let _ = fs::remove_dir_all(trash);
+    Ok(())
+}
+
+/// Where a workspace's armed spawn cwds are remembered, so a boot-time
+/// `prune` can disarm the cwds of a workspace that died in a crash (the
+/// deck no longer knows them; this file does).
+fn armed_manifest(root: &Path, ws_id: &str) -> PathBuf {
+    root.join("armed").join(ws_id)
+}
+
+fn record_armed(root: &Path, ws_id: &str, armed: &[String]) {
+    let path = armed_manifest(root, ws_id);
+    let result = if armed.is_empty() {
+        fs::remove_file(&path).or_else(|e| {
+            if e.kind() == ErrorKind::NotFound { Ok(()) } else { Err(e) }
+        })
+    } else {
+        serde_json::to_vec(armed)
+            .map_err(io::Error::other)
+            .and_then(|json| write_atomic(&path, &json))
+    };
+    if let Err(e) = result {
+        log::warn!("skills: recording armed cwds for {ws_id} failed: {e}");
+    }
+}
+
 /// The codex-facing arm: `<cwd>/.agents/skills` → the staged bare view, for
 /// every pane spawn cwd. A real (non-symlink) entry there is the user's own
 /// and is left alone; a foreign symlink (target outside KeepDeck's skills
-/// root) likewise. The exclude line is best-effort — a dir whose repo can't
-/// be resolved still gets the skills, just with an untracked `.agents/`.
-fn arm_roots(root: &Path, staged_skills: &Path, spawn_roots: &[String]) -> io::Result<()> {
+/// root) likewise; a `.agents` that is itself a FILE or a SYMLINK is the
+/// user's arrangement and is never written through. Wholly best-effort per
+/// root — one odd cwd must not take the workspace's staging down — and the
+/// successfully armed cwds are returned for the armed manifest.
+fn arm_roots(root: &Path, staged_skills: &Path, spawn_roots: &[String]) -> Vec<String> {
+    let mut armed = Vec::new();
     for wt in spawn_roots {
-        let wt = Path::new(wt);
-        if !wt.is_dir() {
-            continue;
-        }
-        let agents = wt.join(".agents");
-        let link = agents.join("skills");
-        match fs::symlink_metadata(&link) {
-            Ok(meta) if meta.file_type().is_symlink() => {
-                if fs::read_link(&link)? == staged_skills {
-                    // Already correct — content freshness comes from staging.
-                } else if link_is_ours(&link, root) {
-                    fs::remove_file(&link)?;
-                    symlink_dir(staged_skills, &link)?;
-                } else {
-                    continue; // someone else's link — hands off
-                }
-            }
-            Ok(_) => continue, // the user's real .agents/skills — hands off
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                fs::create_dir_all(&agents)?;
-                symlink_dir(staged_skills, &link)?;
-            }
-            Err(e) => return Err(e),
-        }
-        if let Err(e) = ensure_excluded(wt) {
-            log::warn!("skills: exclude line for {} failed: {e}", wt.display());
+        match arm_one(root, staged_skills, Path::new(wt)) {
+            Ok(true) => armed.push(wt.clone()),
+            Ok(false) => {}
+            Err(e) => log::warn!("skills: arming {wt} failed: {e}"),
         }
     }
-    Ok(())
+    armed
+}
+
+/// Arm one spawn cwd; `Ok(true)` iff OUR link is (now) in place there.
+fn arm_one(root: &Path, staged_skills: &Path, wt: &Path) -> io::Result<bool> {
+    if !wt.is_dir() {
+        return Ok(false);
+    }
+    let agents = wt.join(".agents");
+    // `.agents` existing as anything but a real directory (a file, or a
+    // symlink into the user's own tree) is the user's — creating our link
+    // through it would write inside THEIR target.
+    match fs::symlink_metadata(&agents) {
+        Ok(meta) if !meta.file_type().is_dir() => return Ok(false),
+        _ => {}
+    }
+    let link = agents.join("skills");
+    match fs::symlink_metadata(&link) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            if fs::read_link(&link)? == staged_skills {
+                // Already correct — content freshness comes from staging.
+            } else if link_is_ours(&link, root) {
+                fs::remove_file(&link)?;
+                symlink_dir(staged_skills, &link)?;
+            } else {
+                return Ok(false); // someone else's link — hands off
+            }
+        }
+        Ok(_) => return Ok(false), // the user's real .agents/skills — hands off
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            fs::create_dir_all(&agents)?;
+            symlink_dir(staged_skills, &link)?;
+        }
+        Err(e) => return Err(e),
+    }
+    if let Err(e) = ensure_excluded(wt) {
+        log::warn!("skills: exclude line for {} failed: {e}", wt.display());
+    }
+    Ok(true)
 }
 
 /// Remove OUR symlinks (and a `.agents` dir they leave empty) from the
@@ -515,19 +606,44 @@ fn git_exclusion(armed_root: &Path) -> io::Result<Option<(PathBuf, String)>> {
     Ok(None)
 }
 
-/// `.tmp-<id>` build leftovers follow the same liveness rule as the dirs
-/// themselves, so an in-flight stage of a LIVE workspace can never lose its
-/// build-aside dir to a concurrent prune.
+/// `.tmp-<id>`/`.old-<id>` build leftovers follow the same liveness rule as
+/// the dirs themselves, so an in-flight stage of a LIVE workspace can never
+/// lose its build-aside dir to a concurrent prune. Dead workspaces' armed
+/// manifests are consumed here too: their recorded spawn cwds get OUR
+/// symlinks removed — the crash path, where the deck no longer knows the
+/// workspace but its worktrees survived.
 fn prune(root: &Path, live: &[String]) -> io::Result<()> {
     for parent in [root.join("staging"), root.join("opencode")] {
         for dir in sorted_dirs(&parent)? {
             let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
-            let id = name.strip_prefix(".tmp-").unwrap_or(&name);
+            let id = name
+                .strip_prefix(".tmp-")
+                .or_else(|| name.strip_prefix(".old-"))
+                .unwrap_or(&name);
             if live.iter().any(|l| l == id) {
                 continue;
             }
             fs::remove_dir_all(&dir)?;
         }
+    }
+    let manifests = match fs::read_dir(root.join("armed")) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    for entry in manifests.flatten() {
+        let ws = entry.file_name().to_string_lossy().into_owned();
+        if live.iter().any(|l| l == &ws) {
+            continue;
+        }
+        let roots: Vec<String> = fs::read(entry.path())
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default();
+        if let Err(e) = disarm_roots(root, &roots) {
+            log::warn!("skills: disarming dead workspace {ws} failed: {e}");
+        }
+        let _ = fs::remove_file(entry.path());
     }
     Ok(())
 }
@@ -536,19 +652,23 @@ fn prune(root: &Path, live: &[String]) -> io::Result<()> {
 /// or slash form of its own, so each skill doubles as a palette command
 /// whose description is the skill's own, pointing the agent at the staged
 /// SKILL.md (a reference, not a copy of the body — it cannot go stale).
-fn opencode_command(name: &str, source: &Path, staged_skill: &Path) -> io::Result<String> {
-    let skill = fs::read_to_string(source.join(SKILL_FILE))?;
-    let description = frontmatter_line(&skill, "description").unwrap_or_default();
-    Ok(format!(
+fn opencode_command(name: &str, content: &str, staged_skill: &Path) -> String {
+    let description = frontmatter_line(content, "description").unwrap_or_default();
+    format!(
         "---\ndescription: {description}\n---\nUse the \"{name}\" skill: read {} and follow its \
          instructions for this request: $ARGUMENTS\n",
         staged_skill.display(),
-    ))
+    )
 }
 
 /// Best-effort raw value of one `key:` line inside the frontmatter fence.
 /// Schema knowledge stays TS-side — this lifts a line the library already
-/// stores as valid YAML and re-emits it verbatim.
+/// stores as valid YAML and re-emits it VERBATIM (quoting untouched).
+/// COUPLING PIN: this depends on descriptions being single-line, which
+/// only the TS side enforces (`isValidSkillDescription`,
+/// src/domain/skills/skills.ts). If TS ever allows multi-line or block
+/// scalars, this lift breaks — the pin test below and the note on the TS
+/// validator mark the contract on both sides.
 fn frontmatter_line(content: &str, key: &str) -> Option<String> {
     let rest = content.strip_prefix("---\n")?;
     let fence = rest.find("\n---\n")?;
@@ -561,14 +681,25 @@ fn frontmatter_line(content: &str, key: &str) -> Option<String> {
 
 /// Copy a skill directory tree (assets included). Symlinks are followed —
 /// the library is KeepDeck-authored, a link is the author's own doing.
+/// `write_atomic`'s transient `SKILL.md.tmp` sibling is excluded, and an
+/// entry that vanishes mid-copy (that same transient being renamed away by
+/// a concurrent save) is skipped rather than failing the whole stage.
 fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)?.flatten() {
+        if entry.file_name().to_string_lossy() == "SKILL.md.tmp" {
+            continue;
+        }
         let target = to.join(entry.file_name());
         if entry.path().is_dir() {
             copy_dir(&entry.path(), &target)?;
         } else {
-            fs::copy(entry.path(), &target)?;
+            match fs::copy(entry.path(), &target) {
+                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                other => {
+                    other?;
+                }
+            }
         }
     }
     Ok(())
@@ -902,6 +1033,115 @@ mod tests {
         disarm_roots(&root, &[wt.to_string_lossy().into_owned()]).unwrap();
         assert!(agents.join("skills").exists());
         assert!(agents.join("notes.txt").exists());
+    }
+
+    #[test]
+    fn concurrent_same_ws_stagings_serialize_and_end_complete() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", "x").unwrap();
+        let root = std::sync::Arc::new(root);
+        for _ in 0..8 {
+            let a = std::sync::Arc::clone(&root);
+            let b = std::sync::Arc::clone(&root);
+            let ta = std::thread::spawn(move || stage(&a, "ws-1", &[]).unwrap().unwrap());
+            let tb = std::thread::spawn(move || stage(&b, "ws-1", &[]).unwrap().unwrap());
+            ta.join().unwrap();
+            tb.join().unwrap();
+            // Whatever the interleaving, the published staging is complete.
+            let staged = root.join("staging").join("ws-1");
+            assert!(staged.join("skills").join("review").join(SKILL_FILE).exists());
+            assert!(staged
+                .join("claude-plugin")
+                .join(".claude-plugin")
+                .join("plugin.json")
+                .exists());
+        }
+    }
+
+    #[test]
+    fn an_unreadable_skill_is_skipped_not_fatal_matching_list() {
+        let (_tmp, root) = root();
+        save(&global(&root), "good", "fine").unwrap();
+        save(&global(&root), "bad", "x").unwrap();
+        fs::write(global(&root).join("bad").join(SKILL_FILE), [0xff, 0xfe, 0x00]).unwrap();
+
+        let views = stage(&root, "ws-1", &[]).unwrap().unwrap();
+        let skills = PathBuf::from(&views.skills_dir);
+        assert!(skills.join("good").exists());
+        assert!(!skills.join("bad").exists());
+        // list() treats the same file the same way — the two views agree.
+        let listed = list(&root).unwrap();
+        let names: Vec<&str> = listed.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["good"]);
+    }
+
+    #[test]
+    fn a_dot_agents_file_or_user_symlink_is_skipped_without_failing_stage() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", "x").unwrap();
+        let base = root.parent().unwrap();
+
+        // `.agents` is a regular FILE — not ours, and not fatal.
+        let with_file = base.join("cwd-file");
+        fs::create_dir_all(&with_file).unwrap();
+        fs::write(with_file.join(".agents"), "not a dir").unwrap();
+
+        // `.agents` is the user's SYMLINK to their own directory — writing
+        // through it would land inside their tree.
+        let with_link = base.join("cwd-link");
+        let their_tree = base.join("their-agents");
+        fs::create_dir_all(&with_link).unwrap();
+        fs::create_dir_all(&their_tree).unwrap();
+        symlink_dir(&their_tree, &with_link.join(".agents")).unwrap();
+
+        let roots = vec![
+            with_file.to_string_lossy().into_owned(),
+            with_link.to_string_lossy().into_owned(),
+        ];
+        stage(&root, "ws-1", &roots).unwrap().unwrap(); // no error
+        assert_eq!(fs::read_to_string(with_file.join(".agents")).unwrap(), "not a dir");
+        assert!(!their_tree.join("skills").exists()); // nothing planted in their tree
+    }
+
+    #[test]
+    fn prune_disarms_a_crashed_workspaces_recorded_cwds() {
+        let (_tmp, root) = root();
+        let wt = fake_worktree(root.parent().unwrap());
+        save(&global(&root), "review", "x").unwrap();
+        let roots = vec![wt.to_string_lossy().into_owned()];
+        stage(&root, "ws-9", &roots).unwrap().unwrap();
+        assert!(wt.join(".agents").join("skills").exists());
+
+        // Boot after a crash: ws-9 is not in the restored deck.
+        prune(&root, &["ws-1".into()]).unwrap();
+        assert!(!wt.join(".agents").exists());
+        assert!(!armed_manifest(&root, "ws-9").exists());
+    }
+
+    #[test]
+    fn copy_skips_write_atomics_transient_sibling() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", "x").unwrap();
+        fs::write(global(&root).join("review").join("SKILL.md.tmp"), "torn").unwrap();
+
+        let views = stage(&root, "ws-1", &[]).unwrap().unwrap();
+        let staged = PathBuf::from(&views.skills_dir).join("review");
+        assert!(staged.join(SKILL_FILE).exists());
+        assert!(!staged.join("SKILL.md.tmp").exists());
+    }
+
+    #[test]
+    fn frontmatter_lift_is_verbatim_and_single_line_pinned() {
+        // COUPLING PIN with src/domain/skills/skills.ts: descriptions are
+        // single-line (TS enforces) and the lift re-emits the scalar
+        // VERBATIM, quoting untouched.
+        let content = "---\nname: x\ndescription: \"Use when: it's risky\"\n---\nB\n";
+        assert_eq!(
+            frontmatter_line(content, "description").as_deref(),
+            Some("\"Use when: it's risky\""),
+        );
+        let command = opencode_command("x", content, Path::new("/staged/SKILL.md"));
+        assert!(command.starts_with("---\ndescription: \"Use when: it's risky\"\n---\n"));
     }
 
     #[test]
