@@ -96,6 +96,30 @@ describe("SkillsDialog", () => {
       ),
     );
 
+  it("shows the loading placeholder until the first library read lands", async () => {
+    lib.skills = null;
+    await mount();
+    expect(document.body.textContent).toContain("Loading…");
+    expect(document.body.textContent).not.toContain("One skill, every agent");
+  });
+
+  it("discarding edits can land on the CREATE form, not only on close", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-description"), "edited");
+
+    act(() => buttonByTitle("New global skill")!.click());
+    expect(document.body.textContent).toContain("unsaved changes");
+    act(() => button("Discard")!.click());
+
+    // The create form opens CLEAN — nothing bleeds over from the discard.
+    expect(document.body.textContent).toContain("New skill");
+    expect(input("skill-name").value).toBe("");
+    expect(input("skill-description").value).toBe("");
+    expect(closed).toBe(0);
+  });
+
   it("groups the library: global plus the ACTIVE workspace only", async () => {
     lib.skills = [
       skill("review"),

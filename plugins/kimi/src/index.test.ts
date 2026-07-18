@@ -131,6 +131,17 @@ describe("Kimi CLI plugin", () => {
       "--session",
       "session_123",
     ]);
+
+    // The "absent otherwise" half: no skills means the flag must not appear
+    // at all — kimi's --skills-dir REPLACES its auto-discovery, so an empty
+    // one would hide the user's own skills.
+    const bareSpawn = output();
+    await agent.hooks["spawn.plan"]!(input, bareSpawn);
+    expect(bareSpawn.args).not.toContain("--skills-dir");
+
+    const bareResume = output();
+    await agent.hooks["resume.plan"]!({ ...input, sessionId: "session_123" }, bareResume);
+    expect(bareResume.args).toEqual(["--session", "session_123"]);
   });
 
   it("YOLO adds --yolo on spawn and resume alike", async () => {
