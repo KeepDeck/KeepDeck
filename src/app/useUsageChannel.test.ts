@@ -15,8 +15,8 @@ import type { Deck } from "./useDeck";
 const ipc = vi.hoisted(() => ({
   onUsageReport: vi.fn(),
   onSessionBound: vi.fn(),
-  watchRollout: vi.fn(),
-  unwatchRollout: vi.fn(),
+  watchSessionFile: vi.fn(),
+  unwatchSessionFile: vi.fn(),
   fetchKimiUsages: vi.fn(),
   findCodexRollout: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
@@ -25,8 +25,8 @@ const ipc = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/usage", () => ({
   onUsageReport: ipc.onUsageReport,
-  watchRollout: ipc.watchRollout,
-  unwatchRollout: ipc.unwatchRollout,
+  watchSessionFile: ipc.watchSessionFile,
+  unwatchSessionFile: ipc.unwatchSessionFile,
   fetchKimiUsages: ipc.fetchKimiUsages,
   findCodexRollout: ipc.findCodexRollout,
 }));
@@ -111,8 +111,8 @@ describe("useUsageChannel", () => {
       emitBound = handler;
       return Promise.resolve(() => {});
     });
-    ipc.watchRollout.mockReset().mockResolvedValue(undefined);
-    ipc.unwatchRollout.mockReset().mockResolvedValue(undefined);
+    ipc.watchSessionFile.mockReset().mockResolvedValue(undefined);
+    ipc.unwatchSessionFile.mockReset().mockResolvedValue(undefined);
     ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
     ipc.peekPaneSpawnSpec
@@ -170,7 +170,7 @@ describe("useUsageChannel", () => {
         transcriptPath: "/x/rollout.jsonl",
       });
     });
-    expect(ipc.watchRollout).toHaveBeenCalledWith(
+    expect(ipc.watchSessionFile).toHaveBeenCalledWith(
       "pane-1",
       "/x/rollout.jsonl",
       "tok-1",
@@ -189,7 +189,7 @@ describe("useUsageChannel", () => {
       emitBound({ paneId: "pane-1", token: "forged", transcriptPath: "/x/r.jsonl" });
       emitBound({ paneId: "pane-1", token: "tok-1" });
     });
-    expect(ipc.watchRollout).not.toHaveBeenCalled();
+    expect(ipc.watchSessionFile).not.toHaveBeenCalled();
   });
 
   it("arms a recorded codex session without a binding — the TUI-resume fallback", async () => {
@@ -201,7 +201,7 @@ describe("useUsageChannel", () => {
     );
     await act(async () => {});
     expect(ipc.findCodexRollout).toHaveBeenCalledWith("019f-recorded");
-    expect(ipc.watchRollout).toHaveBeenCalledWith(
+    expect(ipc.watchSessionFile).toHaveBeenCalledWith(
       "pane-1",
       "/x/sessions/rollout-019f.jsonl",
       "tok-1",
@@ -217,7 +217,7 @@ describe("useUsageChannel", () => {
       ]),
     );
     await act(async () => {});
-    expect(ipc.watchRollout).not.toHaveBeenCalled();
+    expect(ipc.watchSessionFile).not.toHaveBeenCalled();
     // A later sweep may succeed — the pane must not be marked tailed.
     ipc.findCodexRollout.mockResolvedValue("/x/rollout.jsonl");
     await mount(
@@ -227,7 +227,7 @@ describe("useUsageChannel", () => {
       ]),
     );
     await act(async () => {});
-    expect(ipc.watchRollout).toHaveBeenCalledWith(
+    expect(ipc.watchSessionFile).toHaveBeenCalledWith(
       "pane-1",
       "/x/rollout.jsonl",
       "tok-1",
@@ -245,7 +245,7 @@ describe("useUsageChannel", () => {
       });
     });
     await mount(deckWith([]));
-    expect(ipc.unwatchRollout).toHaveBeenCalledWith("pane-1");
+    expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
   });
 
   it("polls a declared limits source only while its agent has a live pane", async () => {

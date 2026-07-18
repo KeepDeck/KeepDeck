@@ -12,9 +12,10 @@
 //! own the payload schema.
 //!
 //! Three deliberate choices:
-//! - The file's PARENT directory is watched (non-recursively): the rollout
-//!   may not exist yet at bind time, and a dir watch sees its creation for
-//!   free. Events are filtered to the one file by name.
+//! - The file's PARENT directory is watched (non-recursively): the session
+//!   FILE may not exist yet at bind time, and a dir watch sees its creation
+//!   for free (the parent dir itself must exist — it always does by
+//!   SessionStart). Events are filtered to the one file by name.
 //! - Registration immediately drains the EXISTING file and emits only the
 //!   LAST token_count and turn_context found — instant restore of limits
 //!   and model after an app restart, without replaying a session's history.
@@ -22,11 +23,10 @@
 //!   a torn multi-byte character or half-written line never breaks parsing;
 //!   it completes on the next fs event).
 
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use notify::{Event, EventKind, RecommendedWatcher};
 use serde::Deserialize;
@@ -86,22 +86,12 @@ struct TailState {
     partial: Vec<u8>,
 }
 
-/// The watcher's closure owns the tail state (via its `Arc`); dropping the
-/// watcher drops the tail.
-struct TailHandle {
-    _watcher: RecommendedWatcher,
-}
-
-/// The live rollout tails, keyed by pane id. Tauri managed state; replacing
-/// or removing an entry drops its watcher.
+/// The live session-file tails, keyed by pane id — a shared
+/// [`fswatch::WatchRegistry`] like every other watcher family
+/// (`HeadWatchers`, `ProjectFsWatchers`). The watcher's closure owns the
+/// tail state via its `Arc`; replace/remove drops the watcher and the tail.
 #[derive(Default)]
-pub struct UsageTails(Mutex<HashMap<String, TailHandle>>);
-
-impl UsageTails {
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, TailHandle>> {
-        self.0.lock().expect("usage tails poisoned")
-    }
-}
+pub struct UsageTails(fswatch::WatchRegistry);
 
 /// One rollout line → the payload event worth forwarding, if any:
 /// `token_count` (usage + rate limits) and `turn_context` (model). Anything
@@ -245,7 +235,7 @@ fn spawn_tailer(
 /// away. Idempotent per pane: a rebind (new session, new file) replaces the
 /// old tail. `(async)` — the catch-up drain reads a whole session file.
 #[tauri::command(async)]
-pub fn usage_watch_rollout(
+pub fn usage_watch_session_file(
     app: AppHandle,
     tails: State<UsageTails>,
     pane_id: String,
@@ -275,15 +265,15 @@ pub fn usage_watch_rollout(
     let watcher = spawn_tailer(state, move |payload| {
         let _ = emitter.emit(USAGE_REPORT_EVENT, &payload);
     })?;
-    tails.lock().insert(pane_id, TailHandle { _watcher: watcher });
+    tails.0.insert(pane_id, watcher);
     Ok(())
 }
 
-/// Stop following a pane's rollout (pane closed / rebind cleanup). Unknown
-/// panes are a no-op.
+/// Stop following a pane's session file (pane closed / rebind cleanup).
+/// Unknown panes are a no-op.
 #[tauri::command]
-pub fn usage_unwatch_rollout(tails: State<UsageTails>, pane_id: String) {
-    tails.lock().remove(&pane_id);
+pub fn usage_unwatch_session_file(tails: State<UsageTails>, pane_id: String) {
+    tails.0.remove(&pane_id);
 }
 
 /// Locate a codex session's rollout by its recorded id — the fallback for

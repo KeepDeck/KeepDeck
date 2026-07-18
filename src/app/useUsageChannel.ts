@@ -7,8 +7,8 @@ import {
   fetchKimiUsages,
   findCodexRollout,
   onUsageReport,
-  unwatchRollout,
-  watchRollout,
+  unwatchSessionFile,
+  watchSessionFile,
 } from "../ipc/usage";
 import {
   registerUsageNormalizer,
@@ -111,7 +111,7 @@ export function useUsageChannel(deck: Deck): void {
         const format = usageByAgentRef.current.get(paneAgentType(pane))?.tail;
         if (!format) return;
         tailedRef.current.add(paneId);
-        watchRollout(paneId, transcriptPath, token, format).catch((e) =>
+        watchSessionFile(paneId, transcriptPath, token, format).catch((e) =>
           log.warn("web:usage", `session-file tail for ${paneId} failed: ${e}`),
         );
       }),
@@ -147,7 +147,7 @@ export function useUsageChannel(deck: Deck): void {
               tailedRef.current.delete(paneId);
               return;
             }
-            return watchRollout(paneId, path, token, "codex");
+            return watchSessionFile(paneId, path, token, "codex");
           })
           .catch((e) => {
             tailedRef.current.delete(paneId);
@@ -169,7 +169,7 @@ export function useUsageChannel(deck: Deck): void {
     for (const paneId of [...tailedRef.current]) {
       if (live.has(paneId)) continue;
       tailedRef.current.delete(paneId);
-      void unwatchRollout(paneId);
+      void unwatchSessionFile(paneId);
     }
     armRecordedTails();
     // A slow retry lane: the spawn token (or the rollout itself) may not

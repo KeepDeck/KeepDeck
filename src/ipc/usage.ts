@@ -31,18 +31,18 @@ export function onUsageReport(
 /** Follow a pane's session file in the given dialect (codex rollout / kimi
  * wire); its usage events arrive as usage reports carrying `token`.
  * Idempotent per pane — a rebind replaces the old tail. */
-export function watchRollout(
+export function watchSessionFile(
   paneId: string,
   path: string,
   token: string,
   format: "codex" | "kimi-wire",
 ): Promise<void> {
-  return invoke("usage_watch_rollout", { paneId, path, token, format });
+  return invoke("usage_watch_session_file", { paneId, path, token, format });
 }
 
 /** Stop following a pane's session file (pane closed / workspace gone). */
-export function unwatchRollout(paneId: string): Promise<void> {
-  return invoke("usage_unwatch_rollout", { paneId });
+export function unwatchSessionFile(paneId: string): Promise<void> {
+  return invoke("usage_unwatch_session_file", { paneId });
 }
 
 /** One read-only GET of kimi's account usages document (the polled limits
