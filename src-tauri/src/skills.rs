@@ -16,11 +16,15 @@
 //! - `staging/<wsId>/skills/` — the bare standard layout (`<skill>/SKILL.md`
 //!   at top level) for kimi's `--skills-dir`; the same shape codex's
 //!   `.agents/skills` would take once its injection lands
-//! - `opencode/<wsId>/` — an OpenCode config dir (`skills/` subdir) for
-//!   `OPENCODE_CONFIG_DIR`. STABLE, not under `staging/`: opencode treats
-//!   the directory as a writable config home (it installs plugin
-//!   node_modules and drops account/state files there — field-verified on
-//!   1.18.3), so only its `skills/` subtree is KeepDeck's to replace;
+//! - `opencode/<wsId>/` — an OpenCode config dir for `OPENCODE_CONFIG_DIR`,
+//!   carrying each skill twice: under `skills/` for the model's own `skill`
+//!   tool, and as a generated `command/<name>.md` so the skill is USER-
+//!   visible too — opencode surfaces no skill listing or slash form of its
+//!   own, and without the command a loaded skill is invisible in the UI.
+//!   STABLE, not under `staging/`: opencode treats the directory as a
+//!   writable config home (it installs plugin node_modules and drops
+//!   account/state files there — field-verified on 1.18.3), so only the
+//!   `skills/` and `command/` subtrees are KeepDeck's to replace;
 //!   everything else in it must survive every rebuild.
 //!
 //! Frontmatter and schema knowledge stay in TS (`src/domain/skills`), next to
@@ -231,8 +235,12 @@ fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
 
     if sources.is_empty() {
         // An emptied library must not leave yesterday's views behind — but
-        // opencode's own files next to its skills/ are not ours to touch.
-        for stale in [final_dir, opencode_dir.join("skills")] {
+        // opencode's own files next to our subtrees are not ours to touch.
+        for stale in [
+            final_dir,
+            opencode_dir.join("skills"),
+            opencode_dir.join("command"),
+        ] {
             match fs::remove_dir_all(&stale) {
                 Err(e) if e.kind() == ErrorKind::NotFound => {}
                 other => other?,
@@ -254,9 +262,12 @@ fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
         CLAUDE_PLUGIN_MANIFEST.as_bytes(),
     )?;
     let opencode_tmp = opencode_dir.join(".skills-tmp");
-    match fs::remove_dir_all(&opencode_tmp) {
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        other => other?,
+    let opencode_cmd_tmp = opencode_dir.join(".command-tmp");
+    for stale in [&opencode_tmp, &opencode_cmd_tmp] {
+        match fs::remove_dir_all(stale) {
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            other => other?,
+        }
     }
     for (name, source) in &sources {
         for view in [
@@ -266,6 +277,16 @@ fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
         ] {
             copy_dir(source, &view.join(name))?;
         }
+        // The user-facing half of the opencode view: a /name command whose
+        // palette description is the skill's own, pointing the agent at the
+        // staged SKILL.md (the command file must not go stale on edits, so
+        // it references rather than inlines).
+        let staged_skill = opencode_dir.join("skills").join(name).join(SKILL_FILE);
+        let command = opencode_command(name, source, &staged_skill)?;
+        write_atomic(
+            &opencode_cmd_tmp.join(format!("{name}.md")),
+            command.as_bytes(),
+        )?;
     }
     match fs::remove_dir_all(&final_dir) {
         Err(e) if e.kind() == ErrorKind::NotFound => {}
@@ -279,6 +300,12 @@ fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
         other => other?,
     }
     fs::rename(&opencode_tmp, &opencode_skills)?;
+    let opencode_commands = opencode_dir.join("command");
+    match fs::remove_dir_all(&opencode_commands) {
+        Err(e) if e.kind() == ErrorKind::NotFound => {}
+        other => other?,
+    }
+    fs::rename(&opencode_cmd_tmp, &opencode_commands)?;
 
     let abs = |dir: &Path| dir.to_string_lossy().into_owned();
     Ok(Some(SkillStagingDto {
@@ -286,6 +313,33 @@ fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
         opencode_config_dir: abs(&opencode_dir),
         skills_dir: abs(&final_dir.join("skills")),
     }))
+}
+
+/// The generated `/name` command for opencode: it surfaces no skill listing
+/// or slash form of its own, so each skill doubles as a palette command
+/// whose description is the skill's own, pointing the agent at the staged
+/// SKILL.md (a reference, not a copy of the body — it cannot go stale).
+fn opencode_command(name: &str, source: &Path, staged_skill: &Path) -> io::Result<String> {
+    let skill = fs::read_to_string(source.join(SKILL_FILE))?;
+    let description = frontmatter_line(&skill, "description").unwrap_or_default();
+    Ok(format!(
+        "---\ndescription: {description}\n---\nUse the \"{name}\" skill: read {} and follow its \
+         instructions for this request: $ARGUMENTS\n",
+        staged_skill.display(),
+    ))
+}
+
+/// Best-effort raw value of one `key:` line inside the frontmatter fence.
+/// Schema knowledge stays TS-side — this lifts a line the library already
+/// stores as valid YAML and re-emits it verbatim.
+fn frontmatter_line(content: &str, key: &str) -> Option<String> {
+    let rest = content.strip_prefix("---\n")?;
+    let fence = rest.find("\n---\n")?;
+    rest[..fence].lines().find_map(|line| {
+        line.strip_prefix(key)?
+            .strip_prefix(':')
+            .map(|value| value.trim().to_string())
+    })
 }
 
 /// Copy a skill directory tree (assets included). Symlinks are followed —
@@ -401,6 +455,24 @@ mod tests {
     }
 
     #[test]
+    fn every_skill_doubles_as_an_opencode_palette_command() {
+        let (_tmp, root) = root();
+        let content = "---\nname: review\ndescription: \"Reviews: the diff\"\n---\nBody\n";
+        save(&global(&root), "review", content).unwrap();
+        save(&ws(&root, "ws-1"), "review", "---\ndescription: Ws wins\n---\nB\n").unwrap();
+
+        let views = stage(&root, "ws-1").unwrap().unwrap();
+        let oc = PathBuf::from(&views.opencode_config_dir);
+        let command = fs::read_to_string(oc.join("command").join("review.md")).unwrap();
+        // The palette description is the WINNING skill's, quoted verbatim,
+        // and the body points at the staged SKILL.md.
+        assert!(command.starts_with("---\ndescription: Ws wins\n---\n"));
+        assert!(command.contains(
+            oc.join("skills").join("review").join(SKILL_FILE).to_str().unwrap(),
+        ));
+    }
+
+    #[test]
     fn opencodes_own_files_survive_restaging_and_emptying() {
         let (_tmp, root) = root();
         save(&global(&root), "review", "x").unwrap();
@@ -419,11 +491,12 @@ mod tests {
         );
         assert!(oc.join("skills").join("deploy").exists());
 
-        // An emptied library removes ONLY the skills subtree.
+        // An emptied library removes ONLY KeepDeck's subtrees.
         delete(&global(&root), "review").unwrap();
         delete(&global(&root), "deploy").unwrap();
         assert_eq!(stage(&root, "ws-1").unwrap(), None);
         assert!(!oc.join("skills").exists());
+        assert!(!oc.join("command").exists());
         assert_eq!(
             fs::read_to_string(oc.join("antigravity-accounts.json")).unwrap(),
             "precious",
