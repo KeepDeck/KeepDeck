@@ -29,7 +29,10 @@ export interface CreateWorktreeArgs {
   agentId: string;
   /** Explicit branch; auto-generated (`kd/<ws>/<n>`) when omitted/blank. */
   branch?: string | null;
-  /** Pinned base commit/rev; defaults to HEAD resolved at create time. */
+  /** Base commit/rev — a branch NAME is fine: the Rust side ALWAYS resolves
+   *  it to a commit sha at create time (defaults to HEAD), pinning the batch
+   *  to one commit and giving the born branch a sha-sourced creation reflog,
+   *  which branch provenance trusts at close-time reaping. */
   base?: string | null;
   workspace?: string;
   index?: number;
