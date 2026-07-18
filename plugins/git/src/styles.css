@@ -2,8 +2,10 @@
    the plugin (Vite injects it in dev; the lib build emits it as the bundle's
    index.css, linked by the host in prod). Styles ONLY the plugin's `.git`
    family; the shared chrome vocabulary its markup also uses (form__*,
-   peek__*, ui-kit dropdown) stays host-styled. Palette mirrors the dock, the
-   Run tab and the Files tab so the plugin reads as native chrome. */
+   peek__*, ui-kit dropdown) stays host-styled. Status colors come from the
+   host's root tokens (--kd-ok/err/warn/info, base.css); the rest of the
+   palette mirrors the dock, the Run tab and the Files tab so the plugin
+   reads as native chrome. */
 
 .git {
   display: flex;
@@ -207,7 +209,7 @@
   flex: none;
   display: inline-flex;
   align-items: center;
-  color: #58b368;
+  color: var(--kd-ok);
 }
 
 /* The badge marks the checkout IN THE OPEN LIST only — on the closed control
@@ -271,7 +273,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 2px;
-  color: #58b368;
+  color: var(--kd-ok);
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -371,23 +373,23 @@
 }
 
 .git__code--staged {
-  color: #58b368;
+  color: var(--kd-ok);
 }
 
 .git__code--unstaged {
-  color: #d9a441;
+  color: var(--kd-warn);
 }
 
 .git__code--untracked {
-  color: #6b9fd0;
+  color: var(--kd-info);
 }
 
 .git__code--conflicted {
-  color: #e5736f;
+  color: var(--kd-err);
 }
 
 .git__code--del {
-  color: #e5736f;
+  color: var(--kd-err);
 }
 
 .git__file {
@@ -414,7 +416,7 @@
 }
 
 .git__empty--bad {
-  color: #e5736f;
+  color: var(--kd-err);
 }
 
 /* The peek's shell is the shared .peek (peek.css / ui-kit Peek); below is
@@ -466,11 +468,11 @@
 }
 
 .git__badge--staged {
-  color: #58b368;
+  color: var(--kd-ok);
 }
 
 .git__badge--conflicted {
-  color: #e5736f;
+  color: var(--kd-err);
 }
 
 /* The diff itself: two number gutters (old / new), a marker column, the line.
@@ -487,7 +489,7 @@
 
 .git__hunkhead {
   padding: 6px 12px;
-  color: #6b9fd0;
+  color: var(--kd-info);
   background-color: #10151f;
   font-size: 11px;
   user-select: none;
@@ -506,7 +508,7 @@
   padding-right: 8px;
   text-align: right;
   color: #3b4658;
-  background-color: #0b0e14;
+  background-color: var(--kd-bg);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -537,19 +539,19 @@
 }
 
 .git__diffrow--add {
-  background-color: rgba(88, 179, 104, 0.09);
+  background-color: color-mix(in srgb, var(--kd-ok) 9%, transparent);
 }
 
 .git__diffrow--add .git__linemark {
-  color: #58b368;
+  color: var(--kd-ok);
 }
 
 .git__diffrow--del {
-  background-color: rgba(229, 115, 111, 0.09);
+  background-color: color-mix(in srgb, var(--kd-err) 9%, transparent);
 }
 
 .git__diffrow--del .git__linemark {
-  color: #e5736f;
+  color: var(--kd-err);
 }
 
 .git__diffrow--meta .git__linetext {
