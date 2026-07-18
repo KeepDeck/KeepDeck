@@ -14,6 +14,7 @@ import { paneAgentType, type Workspace } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { mintBridgeToken } from "./ids";
 import { postbackCount } from "./postbacks";
+import { stagedSkillsFor } from "./skillsStaging";
 import type { PluginManager } from "./pluginManager";
 import { useAppRuntime } from "./runtimeContext";
 import { execCovers } from "../plugins/capabilities/execCovers";
@@ -99,12 +100,19 @@ async function buildPlan(
     args: [],
     env: [],
   };
+  // Staged shared skills are a host fact like the bridge — but delivered as
+  // hook INPUT, because loading them is per-CLI dialect (a flag here, an env
+  // var there), and dialects are exactly what hooks own. Keyed by the
+  // workspace INSTANCE — ids may be reused after a close, instances never
+  // are, so a reborn id can never inherit a dead workspace's staging.
+  const skills = await stagedSkillsFor(facts.workspace.instance);
   const base: SpawnPlanInput = {
     paneId,
     workspace: facts.workspace,
     cwd: facts.cwd,
     ...(facts.branch ? { branch: facts.branch } : {}),
     ...(facts.yolo ? { yolo: true } : {}),
+    ...(skills ? { skills } : {}),
   };
   try {
     if (resumeId) {

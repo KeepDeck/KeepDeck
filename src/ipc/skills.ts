@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { SpawnSkillsInput } from "@keepdeck/plugin-api";
 import type { SkillScope } from "../domain/skills";
 import { describeError, log } from "./log";
 
@@ -10,19 +11,10 @@ export interface StoredSkill {
   content: string;
 }
 
-/** A workspace's staged skill views (mirrors the Rust `SkillStagingDto`):
- * the same skills in each CLI's injection dialect, absolute paths. */
-export interface SkillsStagingViews {
-  /** Claude-plugin layout (`.claude-plugin/plugin.json` + `skills/`) —
-   * for `claude --plugin-dir`. */
-  claudePluginDir: string;
-  /** OpenCode config-dir layout (`skills/` subdir) — for the
-   * `OPENCODE_CONFIG_DIR` env var. */
-  opencodeConfigDir: string;
-  /** Bare standard layout (`<skill>/SKILL.md` at top level) — for kimi's
-   * `--skills-dir` today, codex's `.agents/skills` once its injection lands. */
-  skillsDir: string;
-}
+/** A workspace's staged skill views (mirrors the Rust `SkillStagingDto`) —
+ * exactly the shape hooks receive, so the wire and the plugin contract
+ * cannot drift apart. */
+export type SkillsStagingViews = SpawnSkillsInput;
 
 const wire = (scope: SkillScope) =>
   scope.kind === "global"

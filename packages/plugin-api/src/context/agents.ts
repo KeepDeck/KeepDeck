@@ -74,6 +74,26 @@ export interface SpawnPlanInput {
   /** The pane runs with permission prompts disabled: a supporting hook adds
    * its CLI's skip-permissions flag. Absent on hosts older than API 20. */
   yolo?: boolean;
+  /** The user's staged shared skills for this pane's workspace: a hook adds
+   * its CLI's way of loading them. Absent when there is nothing to inject,
+   * and on hosts older than API 22. */
+  skills?: SpawnSkillsInput;
+}
+
+/** One skills library rendered in each CLI's injection dialect — staged
+ * directories under KeepDeck's own home (absolute paths), never the user's
+ * dotfiles or repo. A hook reads the view its CLI understands. */
+export interface SpawnSkillsInput {
+  /** Claude-plugin layout (`.claude-plugin/plugin.json` + `skills/`) —
+   * made for `claude --plugin-dir`. */
+  claudePluginDir: string;
+  /** OpenCode config-directory layout (`skills/` subdir) — made for the
+   * `OPENCODE_CONFIG_DIR` env var. */
+  opencodeConfigDir: string;
+  /** Bare standard layout (`<skill>/SKILL.md` at the top level) — kimi's
+   * `--skills-dir`; the shape codex's `.agents/skills` would take once its
+   * injection lands. */
+  skillsDir: string;
 }
 
 export interface ResumePlanInput extends SpawnPlanInput {

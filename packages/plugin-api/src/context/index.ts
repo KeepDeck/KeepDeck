@@ -9,6 +9,7 @@ export type {
   ResumePlanInput,
   SpawnPlanInput,
   SpawnPlanOutput,
+  SpawnSkillsInput,
 } from "./agents.ts";
 export type {
   CommandArgSpec,
