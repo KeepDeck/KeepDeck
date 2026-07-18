@@ -1,5 +1,6 @@
 import type { PluginKV } from "@keepdeck/plugin-api";
 import type { Workspace } from "../domain/deck";
+import type { WorkspaceInstance } from "../domain/workspaceInstance";
 import { isRecord } from "../domain/json";
 
 /**
@@ -16,7 +17,12 @@ import { isRecord } from "../domain/json";
  */
 export interface DeckAccess {
   workspaces(): Workspace[];
-  setPluginSlot(wsId: string, pluginId: string, value: unknown): void;
+  setPluginSlot(
+    wsId: string,
+    workspaceInstance: WorkspaceInstance,
+    pluginId: string,
+    value: unknown,
+  ): void;
 }
 
 export function makeWorkspaceKv(
@@ -24,9 +30,23 @@ export function makeWorkspaceKv(
   pluginId: string,
   wsId: string,
 ): PluginKV {
+  // A handle belongs to the workspace lifetime that existed when it was
+  // requested. An unknown workspace captures no lifetime and can never attach
+  // itself to a future workspace that happens to reuse the same public id.
+  const workspaceInstance = access
+    .workspaces()
+    .find((workspace) => workspace.id === wsId)?.instance;
+  const workspace = (): Workspace | undefined =>
+    workspaceInstance === undefined
+      ? undefined
+      : access
+          .workspaces()
+          .find(
+            (candidate) =>
+              candidate.id === wsId && candidate.instance === workspaceInstance,
+          );
   const slot = (): Record<string, unknown> => {
-    const ws = access.workspaces().find((w) => w.id === wsId);
-    const value = ws?.plugins?.[pluginId];
+    const value = workspace()?.plugins?.[pluginId];
     return isRecord(value) ? value : {};
   };
   return {
@@ -34,14 +54,20 @@ export function makeWorkspaceKv(
       return slot()[key] as T | undefined;
     },
     async set(key: string, value: unknown): Promise<void> {
-      access.setPluginSlot(wsId, pluginId, { ...slot(), [key]: value });
+      if (workspaceInstance === undefined || !workspace()) return;
+      access.setPluginSlot(wsId, workspaceInstance, pluginId, {
+        ...slot(),
+        [key]: value,
+      });
     },
     async delete(key: string): Promise<void> {
+      if (workspaceInstance === undefined || !workspace()) return;
       const { [key]: _gone, ...rest } = slot();
       // An emptied slot is deleted outright (`undefined`), keeping the
       // persisted document sparse — the reducer drops the empty bag.
       access.setPluginSlot(
         wsId,
+        workspaceInstance,
         pluginId,
         Object.keys(rest).length > 0 ? rest : undefined,
       );

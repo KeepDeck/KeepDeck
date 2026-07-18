@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { usePersistence } from "./usePersistence";
@@ -93,6 +94,7 @@ describe("usePersistence", () => {
     act(() =>
       deck.createWorkspace({
         id: "ws-9",
+        instance: createWorkspaceInstance(),
         name: "early",
         cwd: "/x",
         worktreeBaseDir: null,
@@ -251,6 +253,7 @@ describe("usePersistence", () => {
     act(() =>
       deck.createWorkspace({
         id: "ws-9",
+        instance: createWorkspaceInstance(),
         name: "doomed",
         cwd: "/x",
         worktreeBaseDir: null,

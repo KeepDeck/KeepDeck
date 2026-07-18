@@ -112,7 +112,18 @@ export function useDeck() {
       dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
     setPaneProvisioningPhase: (wsId: string, paneId: string, phase: "setup") =>
       dispatch({ type: "setPaneProvisioningPhase", wsId, paneId, phase }),
-    setWorkspacePluginSlot: (wsId: string, pluginId: string, value: unknown) =>
-      dispatch({ type: "setWorkspacePluginSlot", wsId, pluginId, value }),
+    setWorkspacePluginSlot: (
+      wsId: string,
+      workspaceInstance: Workspace["instance"],
+      pluginId: string,
+      value: unknown,
+    ) =>
+      dispatch({
+        type: "setWorkspacePluginSlot",
+        wsId,
+        workspaceInstance,
+        pluginId,
+        value,
+      }),
   };
 }

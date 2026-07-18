@@ -17,6 +17,7 @@ import {
   setWorkspacePluginSlot,
   type Workspace,
 } from "./workspaces";
+import type { WorkspaceInstance } from "../workspaceInstance";
 
 /**
  * One workspace's runtime view state, in a SINGLE object per workspace so a
@@ -125,6 +126,7 @@ export type DeckAction =
   | {
       type: "setWorkspacePluginSlot";
       wsId: string;
+      workspaceInstance: WorkspaceInstance;
       pluginId: string;
       value: unknown;
     };
@@ -446,6 +448,12 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ),
       );
     case "setWorkspacePluginSlot":
+      if (
+        state.workspaces.find((workspace) => workspace.id === action.wsId)
+          ?.instance !== action.workspaceInstance
+      ) {
+        return state;
+      }
       return withWorkspaces(
         state,
         setWorkspacePluginSlot(

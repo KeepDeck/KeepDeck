@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentInfo } from "../domain/agents";
 import { createCommandRegistry } from "../domain/commands";
 import type { Workspace } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
 import type { Deck } from "./useDeck";
@@ -43,6 +44,7 @@ const AGENTS: AgentInfo[] = [
 
 const workspace = (over: Partial<Workspace>): Workspace => ({
   id: "ws-1",
+  instance: createWorkspaceInstance(),
   name: "web",
   cwd: "/repo",
   worktreeBaseDir: null,

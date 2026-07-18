@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentInfo } from "../agents";
 import type { Workspace } from "../deck";
+import { createWorkspaceInstance } from "../workspaceInstance";
 import { resolvePaneRef, resolveWorkspaceRef } from "./resolve";
 
 const AGENTS: AgentInfo[] = [
@@ -10,6 +11,7 @@ const AGENTS: AgentInfo[] = [
 
 const ws = (over: Partial<Workspace>): Workspace => ({
   id: "ws-1",
+  instance: createWorkspaceInstance(),
   name: "KeepDeck",
   cwd: "/repo",
   worktreeBaseDir: null,

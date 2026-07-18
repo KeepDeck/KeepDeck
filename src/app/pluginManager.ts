@@ -42,6 +42,7 @@ import {
   composePluginNotification,
   createPluginNotifyPort,
 } from "../plugins/host/notifyPort";
+import { pluginNotificationSource } from "./notificationProducers";
 import { notify } from "./notificationCenter";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
@@ -202,8 +203,8 @@ export function createPluginManager(appDownloads: DownloadManager) {
   // The indirection keeps KV instances valid across re-wires.
   const liveDeckAccess: DeckAccess = {
     workspaces: () => deckAccess.workspaces(),
-    setPluginSlot: (wsId, pluginId, value) =>
-      deckAccess.setPluginSlot(wsId, pluginId, value),
+    setPluginSlot: (wsId, workspaceInstance, pluginId, value) =>
+      deckAccess.setPluginSlot(wsId, workspaceInstance, pluginId, value),
   };
 
   /** The deck's UI actions, late-bound like `DeckAccess` but a SEPARATE port:
@@ -512,8 +513,18 @@ export function createPluginManager(appDownloads: DownloadManager) {
             (
               getSettings()?.notifications ?? DEFAULT_SETTINGS.notifications
             ).mutedPlugins.includes(manifest.id),
-          deliver: (delivery) =>
-            notify(composePluginNotification(manifest.name, delivery)),
+          deliver: (delivery) => {
+            const composed = composePluginNotification(manifest.name, delivery);
+            notify({
+              ...composed,
+              source: pluginNotificationSource(
+                liveDeckAccess.workspaces(),
+                composed.source.pluginId,
+                delivery.wsId,
+                composed.source.dockTab,
+              ),
+            });
+          },
         }),
       log: loggerFor,
       hostFacts: {

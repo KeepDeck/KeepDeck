@@ -51,6 +51,7 @@ describe("useProvisioning workspace ids", () => {
       ["ws-3", "workspace-3"],
     ]);
 
+    const oldInstance = deck.workspaces[2].instance;
     act(() => deck.closeWorkspace("ws-3"));
     create();
 
@@ -59,6 +60,7 @@ describe("useProvisioning workspace ids", () => {
       ["ws-2", "workspace-2"],
       ["ws-3", "workspace-3"],
     ]);
+    expect(deck.workspaces[2].instance).not.toBe(oldInstance);
   });
 
   it("keeps advancing past the maximum when only an interior id is deleted", () => {

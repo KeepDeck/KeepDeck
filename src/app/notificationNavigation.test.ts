@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { settingsSectionForNotification } from "./notificationNavigation";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import {
+  settingsSectionForNotification,
+  workspaceForNotification,
+} from "./notificationNavigation";
 
 describe("settingsSectionForNotification", () => {
+  const instance = createWorkspaceInstance();
   it("opens an untargeted plugin notification on that plugin's settings", () => {
     expect(
       settingsSectionForNotification({
@@ -16,7 +21,7 @@ describe("settingsSectionForNotification", () => {
       settingsSectionForNotification({
         type: "plugin",
         pluginId: "keepdeck.git",
-        wsId: "ws-1",
+        workspace: { id: "ws-1", instance },
       }),
     ).toBeNull();
     expect(
@@ -29,7 +34,7 @@ describe("settingsSectionForNotification", () => {
     expect(
       settingsSectionForNotification({
         type: "pane",
-        wsId: "ws-1",
+        workspace: { id: "ws-1", instance },
         paneId: "pane-1",
       }),
     ).toBeNull();
@@ -41,7 +46,7 @@ describe("settingsSectionForNotification", () => {
         {
           type: "plugin",
           pluginId: "keepdeck.git",
-          wsId: "gone-workspace",
+          workspace: { id: "gone-workspace", instance: null },
         },
         false,
       ),
@@ -60,5 +65,46 @@ describe("settingsSectionForNotification", () => {
 
   it("keeps app notifications mapped to Updates", () => {
     expect(settingsSectionForNotification({ type: "app" })).toBe("updates");
+  });
+});
+
+describe("workspaceForNotification", () => {
+  it("rejects an old lifetime after the public id is reused", () => {
+    const oldInstance = createWorkspaceInstance();
+    const current = {
+      id: "ws-3",
+      instance: createWorkspaceInstance(),
+      name: "new",
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [],
+    };
+
+    expect(
+      workspaceForNotification([current], {
+        id: "ws-3",
+        instance: oldInstance,
+      }),
+    ).toBeNull();
+    expect(
+      workspaceForNotification([current], {
+        id: "ws-3",
+        instance: current.instance,
+      }),
+    ).toBe(current);
+  });
+
+  it("never attaches an unresolved plugin target to a future workspace", () => {
+    const current = {
+      id: "ws-3",
+      instance: createWorkspaceInstance(),
+      name: "new",
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [],
+    };
+    expect(
+      workspaceForNotification([current], { id: "ws-3", instance: null }),
+    ).toBeNull();
   });
 });

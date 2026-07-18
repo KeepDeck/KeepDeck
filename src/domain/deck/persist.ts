@@ -5,6 +5,7 @@ import type { Workspace } from "./workspaces";
 import { resolveActiveId } from "./workspaces";
 import { nextIdSequence } from "../idSequence";
 import { collectExtras, isRecord } from "../json";
+import { createWorkspaceInstance } from "../workspaceInstance";
 import { MAX_PANES } from "./layout";
 
 /**
@@ -212,6 +213,9 @@ const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
 
 const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "id",
+  // Runtime-owned: ignore a hand-written/stale persisted value instead of
+  // preserving it as a forward-compatible extra.
+  "instance",
   "name",
   "cwd",
   "worktreeBaseDir",
@@ -253,7 +257,14 @@ function readWorkspace(value: unknown): Workspace | null {
     if (!pane) return null;
     panes.push(pane);
   }
-  const ws: Workspace = { id, name, cwd, worktreeBaseDir, panes };
+  const ws: Workspace = {
+    id,
+    instance: createWorkspaceInstance(),
+    name,
+    cwd,
+    worktreeBaseDir,
+    panes,
+  };
   // Tolerant like `run`'s own setup: a non-string or blank value degrades to
   // absent rather than rejecting the workspace.
   if (typeof value.setup === "string" && value.setup.trim() !== "") {

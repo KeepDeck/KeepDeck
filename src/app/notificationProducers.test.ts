@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import {
   initUpdateNotifications,
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
+  pluginNotificationSource,
   resetUpdateNotifications,
 } from "./notificationProducers";
 
@@ -44,11 +46,13 @@ vi.mock("./updateManager", () => ({
 const agents = [
   { id: "claude", label: "Claude", command: "claude", supportsYolo: false, installed: true, path: null },
 ];
+const workspaceInstance = createWorkspaceInstance();
 
 function deckWith(paneName?: string): Workspace[] {
   return [
     {
       id: "ws-1",
+      instance: workspaceInstance,
       name: "Alpha",
       cwd: "/repo",
       panes: [
@@ -71,7 +75,11 @@ describe("pane producers", () => {
       title: "Claude 1 crashed",
       body: "Exit code 137 · Alpha",
       severity: "error",
-      source: { type: "pane", wsId: "ws-1", paneId: "pane-1" },
+      source: {
+        type: "pane",
+        workspace: { id: "ws-1", instance: workspaceInstance },
+        paneId: "pane-1",
+      },
       tag: "pane:pane-1:crash",
     });
   });
@@ -101,6 +109,27 @@ describe("pane producers", () => {
         tag: "pane:pane-1:spawn",
       }),
     );
+  });
+});
+
+describe("plugin notification source", () => {
+  it("captures the current workspace lifetime", () => {
+    expect(
+      pluginNotificationSource(deckWith(), "git", "ws-1", "changes"),
+    ).toEqual({
+      type: "plugin",
+      pluginId: "git",
+      workspace: { id: "ws-1", instance: workspaceInstance },
+      dockTab: "changes",
+    });
+  });
+
+  it("does not let an unknown id attach to a future workspace", () => {
+    expect(pluginNotificationSource([], "git", "ws-1")).toEqual({
+      type: "plugin",
+      pluginId: "git",
+      workspace: { id: "ws-1", instance: null },
+    });
   });
 });
 

@@ -1,18 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
 import { closedWorkspaceIds, revealDockTabOn } from "./usePluginDeckBridge";
 
+const ref = (id: string, instance = Symbol(id)) => ({ id, instance });
+
 describe("closedWorkspaceIds", () => {
   it("names exactly the ids that disappeared", () => {
-    expect(closedWorkspaceIds(["a", "b", "c"], ["a", "c"])).toEqual(["b"]);
+    const a = ref("a");
+    const b = ref("b");
+    const c = ref("c");
+    expect(closedWorkspaceIds([a, b, c], [a, c])).toEqual(["b"]);
   });
 
   it("is empty on growth, reorder, and the first render", () => {
-    expect(closedWorkspaceIds([], ["a"])).toEqual([]);
-    expect(closedWorkspaceIds(["a", "b"], ["b", "a", "c"])).toEqual([]);
+    const a = ref("a");
+    const b = ref("b");
+    expect(closedWorkspaceIds([], [a])).toEqual([]);
+    expect(closedWorkspaceIds([a, b], [b, a, ref("c")])).toEqual([]);
   });
 
   it("reports several removals at once (multi-close on hydrate)", () => {
-    expect(closedWorkspaceIds(["a", "b", "c"], [])).toEqual(["a", "b", "c"]);
+    expect(closedWorkspaceIds([ref("a"), ref("b"), ref("c")], [])).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  it("reports the old lifetime when the same public id is reused", () => {
+    expect(closedWorkspaceIds([ref("ws-3")], [ref("ws-3")])).toEqual(["ws-3"]);
   });
 });
 

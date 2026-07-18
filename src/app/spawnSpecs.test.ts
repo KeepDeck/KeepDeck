@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentContribution, Disposable } from "@keepdeck/plugin-api";
 import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "../domain/agents";
 import type { Workspace } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createContributionRegistries } from "../plugins/registries/contributions";
 import type { AppRuntime } from "./runtime";
 import { AppRuntimeProvider } from "./runtimeContext";
@@ -49,7 +50,14 @@ const adopting: AgentContribution = {
 };
 
 const ws = (panes: Workspace["panes"]): Workspace[] => [
-  { id: "ws-1", name: "ws", cwd: "/repo", worktreeBaseDir: null, panes },
+  {
+    id: "ws-1",
+    instance: createWorkspaceInstance(),
+    name: "ws",
+    cwd: "/repo",
+    worktreeBaseDir: null,
+    panes,
+  },
 ];
 
 let seen: Record<string, SpawnPlan>;

@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import {
   notify,
   resetNotificationCenter,
@@ -19,7 +20,11 @@ vi.mock("../../app/settingsManager", () => ({
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
-const paneSource = { type: "pane", wsId: "ws-1", paneId: "p-1" } as const;
+const paneSource = {
+  type: "pane",
+  workspace: { id: "ws-1", instance: createWorkspaceInstance() },
+  paneId: "p-1",
+} as const;
 
 describe("NotificationBell", () => {
   let root: Root;

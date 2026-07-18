@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentInfo } from "../agents";
 import { closeHotkeyTarget, maximizeHotkeyTarget } from "./hotkeys";
 import type { Workspace } from "./workspaces";
+import { createWorkspaceInstance } from "../workspaceInstance";
 
 const agents: AgentInfo[] = [
   {
@@ -16,6 +17,7 @@ const agents: AgentInfo[] = [
 
 const ws = (id: string, panes: Workspace["panes"]): Workspace => ({
   id,
+  instance: createWorkspaceInstance(),
   name: id,
   cwd: "/tmp/repo",
   worktreeBaseDir: null,

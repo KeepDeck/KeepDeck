@@ -9,6 +9,7 @@ import {
   type SpawnConfig,
   type Workspace,
 } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { mintAgentSeqs } from "./ids";
 import { planPanes, provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
@@ -62,6 +63,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
       );
       return {
         id: `ws-${wsSeq}`,
+        instance: createWorkspaceInstance(),
         name: wsName,
         cwd,
         worktreeBaseDir,

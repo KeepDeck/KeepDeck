@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 
@@ -84,6 +85,7 @@ function seed(sessionId: string | null = "session-old") {
   act(() => {
     deck.createWorkspace({
       id: "ws-1",
+      instance: createWorkspaceInstance(),
       name: "ws",
       cwd: "/repo",
       worktreeBaseDir: null,

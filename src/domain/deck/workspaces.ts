@@ -4,6 +4,7 @@ import {
   type Occupancy,
   type PathProbe,
 } from "../agents";
+import type { WorkspaceInstance } from "../workspaceInstance";
 import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
@@ -30,6 +31,8 @@ export interface SpawnConfig {
 
 export interface Workspace {
   id: string;
+  /** Non-reused runtime identity. `id` is a reusable `ws-N` slot. */
+  readonly instance: WorkspaceInstance;
   name: string;
   /** Working directory all this workspace's agents run in. */
   cwd: string;

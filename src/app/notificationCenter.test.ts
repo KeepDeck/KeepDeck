@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../domain/settings";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import {
   getNotifications,
@@ -39,7 +40,11 @@ function withNotificationPrefs(
   };
 }
 
-const paneSource = { type: "pane", wsId: "ws-1", paneId: "p-1" } as const;
+const paneSource = {
+  type: "pane",
+  workspace: { id: "ws-1", instance: createWorkspaceInstance() },
+  paneId: "p-1",
+} as const;
 
 describe("notificationCenter", () => {
   beforeEach(() => {

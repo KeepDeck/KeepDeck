@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createWorkspaceInstance } from "../workspaceInstance";
 import {
   addNotification,
   BANNER_COOLDOWN_MS,
@@ -12,13 +13,19 @@ import {
 } from "./notifications";
 
 let seq = 0;
+const ws1 = createWorkspaceInstance();
+const ws2 = createWorkspaceInstance();
 function make(over: Partial<Notification> = {}): Notification {
   seq += 1;
   return {
     id: `n-${seq}`,
     title: "t",
     severity: "info",
-    source: { type: "pane", wsId: "ws-1", paneId: "pane-1" },
+    source: {
+      type: "pane",
+      workspace: { id: "ws-1", instance: ws1 },
+      paneId: "pane-1",
+    },
     at: seq,
     ...over,
   };
@@ -100,17 +107,62 @@ describe("read state", () => {
 describe("unreadByWorkspace", () => {
   it("tallies pane and workspace-bound plugin sources; app counts nowhere", () => {
     const items = [
-      make({ source: { type: "pane", wsId: "ws-1", paneId: "p1" } }),
-      make({ source: { type: "pane", wsId: "ws-1", paneId: "p2" } }),
-      make({ source: { type: "plugin", pluginId: "x", wsId: "ws-2" } }),
+      make({
+        source: {
+          type: "pane",
+          workspace: { id: "ws-1", instance: ws1 },
+          paneId: "p1",
+        },
+      }),
+      make({
+        source: {
+          type: "pane",
+          workspace: { id: "ws-1", instance: ws1 },
+          paneId: "p2",
+        },
+      }),
+      make({
+        source: {
+          type: "plugin",
+          pluginId: "x",
+          workspace: { id: "ws-2", instance: ws2 },
+        },
+      }),
       make({ source: { type: "plugin", pluginId: "x" } }),
       make({ source: { type: "app" } }),
       make({
-        source: { type: "pane", wsId: "ws-2", paneId: "p3" },
+        source: {
+          type: "pane",
+          workspace: { id: "ws-2", instance: ws2 },
+          paneId: "p3",
+        },
         readAt: 1,
       }),
     ];
-    expect(unreadByWorkspace(items)).toEqual({ "ws-1": 2, "ws-2": 1 });
+    expect(unreadByWorkspace(items)).toEqual(
+      new Map([
+        [ws1, 2],
+        [ws2, 1],
+      ]),
+    );
+  });
+
+  it("does not transfer unread entries to a reused public id", () => {
+    const oldInstance = createWorkspaceInstance();
+    const replacementInstance = createWorkspaceInstance();
+    const items = [
+      make({
+        source: {
+          type: "pane",
+          workspace: { id: "ws-3", instance: oldInstance },
+          paneId: "old-pane",
+        },
+      }),
+    ];
+
+    const unread = unreadByWorkspace(items);
+    expect(unread.get(oldInstance)).toBe(1);
+    expect(unread.get(replacementInstance)).toBeUndefined();
   });
 });
 

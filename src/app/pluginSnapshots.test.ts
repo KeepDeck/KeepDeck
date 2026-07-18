@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { toWorkspaceSnapshot } from "./pluginSnapshots";
 
 const ws: Workspace = {
   id: "w1",
+  instance: createWorkspaceInstance(),
   name: "Deck",
   cwd: "/repo",
   worktreeBaseDir: null,

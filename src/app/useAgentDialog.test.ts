@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { useAgentDialog } from "./useAgentDialog";
 import type { Deck } from "./useDeck";
 
@@ -37,6 +38,7 @@ vi.mock("../ipc/worktree", () => ({
 
 const workspace = (over: Partial<Workspace>): Workspace => ({
   id: "ws-1",
+  instance: createWorkspaceInstance(),
   name: "KeepDeck",
   cwd: "/repo",
   worktreeBaseDir: "/base",

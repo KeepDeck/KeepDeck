@@ -30,7 +30,10 @@ import {
 import { useNotifications } from "./app/useNotifications";
 import { NotificationBell } from "./components/notifications/NotificationBell";
 import { unreadByWorkspace, type Notification } from "./domain/notifications";
-import { settingsSectionForNotification } from "./app/notificationNavigation";
+import {
+  settingsSectionForNotification,
+  workspaceForNotification,
+} from "./app/notificationNavigation";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -298,12 +301,12 @@ function App() {
     setSourceVisibilityProbe((source) => {
       if (source.type !== "pane") return false;
       const now = visibilityRef.current;
-      if (now.modalOpen || source.wsId !== now.activeId) return false;
-      const ws = findWorkspace(now.workspaces, source.wsId);
+      if (now.modalOpen || source.workspace.id !== now.activeId) return false;
+      const ws = workspaceForNotification(now.workspaces, source.workspace);
       if (!ws) return false;
       return paneOnScreen(
         ws.panes,
-        now.viewByWs[source.wsId],
+        now.viewByWs[source.workspace.id],
         now.deckLayout,
         now.minimizeOn,
         source.paneId,
@@ -386,27 +389,35 @@ function App() {
   const openNotification = (n: Notification) => {
     switch (n.source.type) {
       case "pane": {
-        const { wsId, paneId } = n.source;
+        const { workspace, paneId } = n.source;
         // The history outlives workspaces (and a plugin may name a wsId we
         // never had): activating a gone id would strand the stage on a blank
         // active workspace — the reducer sets activeId unconditionally.
-        if (!findWorkspace(deck.workspaces, wsId)) return;
-        handleSelectWorkspace(wsId);
-        if (deck.viewOf(wsId).minimized?.includes(paneId)) {
-          deck.toggleMinimize(wsId, paneId);
+        const ws = workspaceForNotification(deck.workspaces, workspace);
+        if (!ws) return;
+        handleSelectWorkspace(workspace.id);
+        if (deck.viewOf(workspace.id).minimized?.includes(paneId)) {
+          deck.toggleMinimize(workspace.id, paneId);
         }
-        deck.selectPane(wsId, paneId);
+        // Generation matching identifies the workspace; pane ownership keeps
+        // a stale/invalid pane source from poisoning its current selection.
+        if (ws.panes.some((pane) => pane.id === paneId)) {
+          deck.selectPane(workspace.id, paneId);
+        }
         break;
       }
       case "plugin": {
         let preciseTargetResolved = true;
-        if (
-          n.source.wsId !== undefined &&
-          findWorkspace(deck.workspaces, n.source.wsId)
-        ) {
-          handleSelectWorkspace(n.source.wsId);
-        } else if (n.source.wsId !== undefined) {
-          preciseTargetResolved = false;
+        if (n.source.workspace !== undefined) {
+          const ws = workspaceForNotification(
+            deck.workspaces,
+            n.source.workspace,
+          );
+          if (ws) {
+            handleSelectWorkspace(ws.id);
+          } else {
+            preciseTargetResolved = false;
+          }
         }
         if (n.source.dockTab !== undefined) {
           preciseTargetResolved =
@@ -457,7 +468,7 @@ function App() {
     // The dots belong to the bell: without it (system-only mode, or a
     // mid-session switch to it) there is nothing to open or mark read, so a
     // populated runtime list must not leave unclearable dots behind.
-    unread: showBell ? (unreadForWs[w.id] ?? 0) : 0,
+    unread: showBell ? (unreadForWs.get(w.instance) ?? 0) : 0,
   }));
 
   // While the saved deck (or the spawn context, or the settings) is loading,

@@ -4,6 +4,7 @@ import {
   type Workspace,
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
+import type { NotificationSource } from "../domain/notifications";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { notify } from "./notificationCenter";
 import { getSettings } from "./settingsManager";
@@ -21,13 +22,39 @@ function paneContext(
   wsId: string,
   paneId: string,
   agents: AgentInfo[],
-): { title: string; wsName: string } | null {
+): {
+  title: string;
+  wsName: string;
+  workspace: { id: string; instance: Workspace["instance"] };
+} | null {
   const ws = findWorkspace(workspaces, wsId);
   const index = ws?.panes.findIndex((p) => p.id === paneId) ?? -1;
   if (!ws || index === -1) return null;
   return {
     title: paneDisplayTitle(ws.panes[index], index, agents),
     wsName: ws.name,
+    workspace: { id: ws.id, instance: ws.instance },
+  };
+}
+
+/** Bind a plugin's public workspace target to the lifetime that exists at
+ * delivery. A missing id is represented explicitly so the notification can
+ * never attach itself to a later workspace that reuses that slot. */
+export function pluginNotificationSource(
+  workspaces: Workspace[],
+  pluginId: string,
+  wsId?: string,
+  dockTab?: string,
+): Extract<NotificationSource, { type: "plugin" }> {
+  const workspace =
+    wsId === undefined ? undefined : findWorkspace(workspaces, wsId);
+  return {
+    type: "plugin",
+    pluginId,
+    ...(wsId !== undefined && {
+      workspace: { id: wsId, instance: workspace?.instance ?? null },
+    }),
+    ...(dockTab !== undefined && { dockTab }),
   };
 }
 
@@ -49,7 +76,7 @@ export function notifyAgentCrashed(
         ? `Terminated · ${ctx.wsName}`
         : `Exit code ${code} · ${ctx.wsName}`,
     severity: "error",
-    source: { type: "pane", wsId, paneId },
+    source: { type: "pane", workspace: ctx.workspace, paneId },
     tag: `pane:${paneId}:crash`,
   });
 }
@@ -68,7 +95,7 @@ export function notifyAgentSpawnFailed(
     title: `${ctx.title} failed to start`,
     body: `${message} · ${ctx.wsName}`,
     severity: "error",
-    source: { type: "pane", wsId, paneId },
+    source: { type: "pane", workspace: ctx.workspace, paneId },
     tag: `pane:${paneId}:spawn`,
   });
 }
