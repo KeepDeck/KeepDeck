@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { inspectRepo } from "../ipc/worktree";
 import { useAgentDialog } from "./useAgentDialog";
 import type { Deck } from "./useDeck";
 
@@ -19,7 +20,11 @@ const blockedDirs = vi.hoisted(() => new Set<string>());
 // probes; pin all three (suggestions follow the real Rust naming:
 // kd/<ws>/<i> ↔ kd-<ws>-<i>).
 vi.mock("../ipc/worktree", () => ({
-  inspectRepo: async () => ({ isRepo: true, head: "abc", branch: "main" }),
+  inspectRepo: vi.fn(async () => ({
+    isRepo: true,
+    head: "abc",
+    branch: "main",
+  })),
   suggestWorktree: async (workspace: string, index: number) => ({
     branch: `kd/${workspace}/${index}`,
     folder: `kd-${workspace}-${index}`,
@@ -63,6 +68,11 @@ describe("useAgentDialog suggestions", () => {
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     blockedDirs.clear();
+    vi.mocked(inspectRepo).mockReset().mockResolvedValue({
+      isRepo: true,
+      head: "abc",
+      branch: "main",
+    });
   });
   afterEach(() => act(() => root.unmount()));
 
@@ -207,5 +217,72 @@ describe("useAgentDialog suggestions", () => {
     await confirmMain(false);
     // Off never lands as an explicit false — the pane stays sparse.
     expect("yolo" in addAgentPane.mock.calls[1][1]).toBe(false);
+  });
+
+  it("does not open after the workspace is replaced during repo inspection", async () => {
+    const old = workspace({});
+    let finishInspection!: (value: {
+      isRepo: boolean;
+      head: string;
+      branch: string;
+    }) => void;
+    vi.mocked(inspectRepo).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishInspection = resolve;
+      }),
+    );
+    await mount(old);
+
+    let opening!: Promise<void>;
+    await act(async () => {
+      opening = flow.openFor(old);
+      await Promise.resolve();
+    });
+    const replacement = workspace({ id: old.id });
+    const replacementDeck = {
+      workspaces: [replacement],
+      addAgentPane: vi.fn(),
+    } as unknown as Deck;
+    await act(async () =>
+      root.render(createElement(Host, { deck: replacementDeck })),
+    );
+    await act(async () => {
+      finishInspection({ isRepo: true, head: "new", branch: "main" });
+      await opening;
+    });
+
+    expect(flow.dialog).toBeNull();
+  });
+
+  it("does not confirm into a replacement with the same public id", async () => {
+    const old = workspace({});
+    const oldAdd = vi.fn();
+    const oldDeck = {
+      workspaces: [old],
+      addAgentPane: oldAdd,
+    } as unknown as Deck;
+    await act(async () => root.render(createElement(Host, { deck: oldDeck })));
+    await act(async () => flow.openFor(old));
+
+    const replacement = workspace({ id: old.id });
+    const replacementAdd = vi.fn();
+    const replacementDeck = {
+      workspaces: [replacement],
+      addAgentPane: replacementAdd,
+    } as unknown as Deck;
+    await act(async () =>
+      root.render(createElement(Host, { deck: replacementDeck })),
+    );
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: false,
+      }),
+    );
+
+    expect(oldAdd).not.toHaveBeenCalled();
+    expect(replacementAdd).not.toHaveBeenCalled();
   });
 });

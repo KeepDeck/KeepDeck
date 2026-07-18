@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   defaultAgentType,
   type AgentDialogResult,
@@ -7,7 +7,7 @@ import {
 } from "../domain/agents";
 import {
   baseName,
-  findWorkspace,
+  findWorkspaceByRef,
   firstFreeWorktree,
   paneId,
   parentDir,
@@ -15,6 +15,7 @@ import {
   type Workspace,
 } from "../domain/deck";
 import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
+import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";
 import { provisionInto, runProvisioning } from "./provisioning";
@@ -22,7 +23,7 @@ import type { Deck } from "./useDeck";
 
 /** Everything the "+ Agent" dialog needs to render, captured at open time. */
 export interface AgentDialogSpec {
-  wsId: string;
+  workspace: WorkspaceRef;
   agentId: string;
   index: number;
   defaultAgentType: AgentType;
@@ -47,6 +48,8 @@ export interface AgentDialogSpec {
  */
 export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
+  const deckRef = useRef(deck);
+  deckRef.current = deck;
 
   /** Per-index name suggestion for `ws`, IPC failures flattened to null. */
   const suggestFor = (ws: Workspace) => (index: number) =>
@@ -57,6 +60,7 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
   const probeFor = (path: string) => probeWorktree(path).catch(() => null);
 
   const openFor = async (ws: Workspace) => {
+    const workspace = { id: ws.id, instance: ws.instance };
     const seq = mintAgentSeq();
     const index = ws.panes.length + 1;
     // Default the type to the last pane's if it's still selectable — the
@@ -81,7 +85,7 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
         // disk: jump straight to the first usable suggestion instead of
         // opening onto an occupied- or blocked-path error.
         const free = await firstFreeWorktree(
-          deck.workspaces,
+          deckRef.current.workspaces,
           ws.worktreeBaseDir,
           suggestFor(ws),
           index,
@@ -98,8 +102,12 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
         if (s) suggestedBranch = s.branch;
       }
     }
+    // The workspace may have closed while repo/path IPC was in flight. Its
+    // public id can already name a replacement, so only the exact lifetime is
+    // allowed to open this dialog.
+    if (!findWorkspaceByRef(deckRef.current.workspaces, workspace)) return;
     setDialog({
-      wsId: ws.id,
+      workspace,
       agentId: paneId(seq),
       index,
       defaultAgentType: defaultType,
@@ -114,14 +122,15 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
     const dlg = dialog;
     if (!dlg) return;
     setDialog(null);
-    const ws = findWorkspace(deck.workspaces, dlg.wsId);
+    const currentDeck = deckRef.current;
+    const ws = findWorkspaceByRef(currentDeck.workspaces, dlg.workspace);
     if (!ws) return;
     const paneName = name.trim() || undefined;
     // Sparse like persistence: only the armed mode lands on the pane.
     const paneYolo = yolo ? { yolo: true as const } : {};
     // Main repo: a bare pane that runs in the workspace cwd.
     if (location.kind === "main") {
-      deck.addAgentPane(dlg.wsId, {
+      currentDeck.addAgentPane(dlg.workspace.id, {
         id: dlg.agentId,
         name: paneName,
         agentType,
@@ -131,7 +140,7 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
     }
     // Existing worktree: attach in place, no git mutation ([F12]-lite).
     if (location.kind === "existing") {
-      deck.addAgentPane(dlg.wsId, {
+      currentDeck.addAgentPane(dlg.workspace.id, {
         id: dlg.agentId,
         cwd: location.path,
         branch: location.branch || undefined,
@@ -158,8 +167,11 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
         index: dlg.index,
       },
     };
-    deck.addAgentPane(dlg.wsId, pane);
-    void runProvisioning([pane], provisionInto(deck, dlg.wsId));
+    currentDeck.addAgentPane(dlg.workspace.id, pane);
+    void runProvisioning(
+      [pane],
+      provisionInto(currentDeck, dlg.workspace.id),
+    );
   };
 
   /**
@@ -172,17 +184,21 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
   const nextFree = async (currentPath: string) => {
     const dlg = dialog;
     if (!dlg) return null;
-    const ws = findWorkspace(deck.workspaces, dlg.wsId);
+    const currentDeck = deckRef.current;
+    const ws = findWorkspaceByRef(currentDeck.workspaces, dlg.workspace);
     if (!ws) return null;
     const base = ws.worktreeBaseDir ?? parentDir(currentPath);
     if (!base) return null;
-    return firstFreeWorktree(
-      deck.workspaces,
+    const free = await firstFreeWorktree(
+      currentDeck.workspaces,
       base,
       suggestFor(ws),
       dlg.index,
       probeFor,
     );
+    return findWorkspaceByRef(deckRef.current.workspaces, dlg.workspace)
+      ? free
+      : null;
   };
 
   /**
@@ -197,13 +213,15 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
   const branchFor = async (path: string): Promise<string | null> => {
     const dlg = dialog;
     if (!dlg) return null;
-    const ws = findWorkspace(deck.workspaces, dlg.wsId);
+    const ws = findWorkspaceByRef(deckRef.current.workspaces, dlg.workspace);
     if (!ws) return null;
     const folder = baseName(path);
     if (!folder) return null;
     const tail = /-(\d+)$/.exec(folder);
     if (tail) {
       const s = await suggestFor(ws)(Number(tail[1]));
+      if (!findWorkspaceByRef(deckRef.current.workspaces, dlg.workspace))
+        return null;
       if (s?.folder === folder) return s.branch;
     }
     return folder;
