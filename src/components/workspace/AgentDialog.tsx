@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  agentSupportsYolo,
   canCreateAgent,
   classifyLocation,
   isKnownBaseBranch,
@@ -200,8 +201,7 @@ export function AgentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, repo]);
 
-  const supportsYolo =
-    agents.find((a) => a.id === agentType)?.supportsYolo ?? false;
+  const supportsYolo = agentSupportsYolo(agents, agentType);
   const occupancy = repo && path.trim() ? occupancyAt(path) : null;
   const kind = repo
     ? classifyLocation(path, probe, occupancy, attachAnyway)

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  agentSupportsYolo,
   selectableAgents,
   defaultAgentType,
   type AgentType,
@@ -57,8 +58,7 @@ export function WorkspaceForm({
   const [yolo, setYolo] = useState(settings?.defaultYolo ?? false);
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
-  const supportsYolo =
-    agents.find((a) => a.id === agentType)?.supportsYolo ?? false;
+  const supportsYolo = agentSupportsYolo(agents, agentType);
   const [count, setCount] = useState(1);
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
   const [worktreeDir, setWorktreeDir] = useState("");

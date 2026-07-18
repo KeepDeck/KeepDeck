@@ -61,3 +61,14 @@ export function defaultAgentType(
   return pool[0]?.id ?? "claude";
 }
 
+/** Whether `type`'s catalog entry declares YOLO support — the single gate
+ *  every creation surface consults before offering (or defaulting) the mode.
+ *  Unknown/absent agents answer false: no toggle, and no armed pane, for an
+ *  agent whose plugin can't honor it. */
+export function agentSupportsYolo(
+  agents: AgentInfo[],
+  type: AgentType,
+): boolean {
+  return agents.find((a) => a.id === type)?.supportsYolo ?? false;
+}
+

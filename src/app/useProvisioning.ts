@@ -1,4 +1,8 @@
-import { defaultAgentType, type AgentInfo } from "../domain/agents";
+import {
+  agentSupportsYolo,
+  defaultAgentType,
+  type AgentInfo,
+} from "../domain/agents";
 import {
   findPane,
   findWorkspace,
@@ -29,7 +33,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
     // gated on the resolved agent's support like every creation surface.
     const yolo =
       (getSettings()?.defaultYolo ?? false) &&
-      (agents.find((a) => a.id === agentType)?.supportsYolo ?? false);
+      agentSupportsYolo(agents, agentType);
     const panes = planPanes(ws, startSeq, count, agentType, yolo);
     deck.setPanes(workspaceId, panes);
     void runProvisioning(panes, provisionInto(deck, workspaceId), ws.setup);

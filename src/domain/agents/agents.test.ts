@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentSupportsYolo,
   selectableAgents,
   defaultAgentType,
   type AgentInfo,
@@ -68,5 +69,20 @@ describe("defaultAgentType", () => {
     // selectableAgents falls back to the full list, so a preference still holds.
     expect(defaultAgentType(none, "codex")).toBe("codex");
     expect(defaultAgentType(none)).toBe("claude");
+  });
+});
+
+describe("agentSupportsYolo", () => {
+  const list = [
+    agent("claude", true, { supportsYolo: true }),
+    agent("codex", true),
+  ];
+
+  it("answers from the catalog entry, false for non-support and unknowns", () => {
+    expect(agentSupportsYolo(list, "claude")).toBe(true);
+    expect(agentSupportsYolo(list, "codex")).toBe(false);
+    // An absent agent (plugin gone, catalog loading) must never arm YOLO.
+    expect(agentSupportsYolo(list, "gemini")).toBe(false);
+    expect(agentSupportsYolo([], "claude")).toBe(false);
   });
 });
