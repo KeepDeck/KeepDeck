@@ -8,6 +8,7 @@ mod dnd;
 mod downloads;
 mod fswatch;
 mod head_watch;
+mod kimi_usage;
 mod links;
 mod logging;
 mod menu;
@@ -182,6 +183,7 @@ pub fn run() {
             head_watch::worktree_unwatch,
             rollout_tail::usage_watch_rollout,
             rollout_tail::usage_unwatch_rollout,
+            kimi_usage::kimi_usages_fetch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
