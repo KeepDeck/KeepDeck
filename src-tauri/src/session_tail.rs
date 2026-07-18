@@ -12,10 +12,14 @@
 //! own the payload schema.
 //!
 //! Three deliberate choices:
-//! - The file's PARENT directory is watched (non-recursively): the session
-//!   FILE may not exist yet at bind time, and a dir watch sees its creation
-//!   for free (the parent dir itself must exist — it always does by
-//!   SessionStart). Events are filtered to the one file by name.
+//! - The ONE file is POLLED (a 2s stat + drain-on-growth thread), not
+//!   OS-watched: every CLI keeps its session file OPEN and appends without
+//!   closing, and FSEvents is blind to exactly that pattern until
+//!   close/rename (reproduced by the open-handle test below — the chip
+//!   froze on stale catch-up data in the field), while notify's PollWatcher
+//!   compares mtime at SECONDS granularity and misses same-second appends.
+//!   Statting one file per tick is cheaper than either, and a
+//!   not-yet-created file (or parent) simply arrives on a later tick.
 //! - Registration immediately drains the EXISTING file and emits only the
 //!   LAST token_count and turn_context found — instant restore of limits
 //!   and model after an app restart, without replaying a session's history.
@@ -26,9 +30,11 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
-use notify::{Event, EventKind, RecommendedWatcher};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
@@ -95,10 +101,27 @@ const MAX_PARTIAL_BYTES: usize = 8 * 1024 * 1024;
 
 /// The live session-file tails, keyed by pane id — a shared
 /// [`fswatch::WatchRegistry`] like every other watcher family
-/// (`HeadWatchers`, `ProjectFsWatchers`). The watcher's closure owns the
-/// tail state via its `Arc`; replace/remove drops the watcher and the tail.
+/// (`HeadWatchers`, `ProjectFsWatchers`), over [`TailPoller`] (see the
+/// module doc for why not an OS watcher). The poller's closure owns the
+/// tail state via its `Arc`; replace/remove stops the poller and the tail.
 #[derive(Default)]
-pub struct UsageTails(fswatch::WatchRegistry);
+pub struct UsageTails(fswatch::WatchRegistry<TailPoller>);
+
+/// Production poll cadence: two seconds keeps "near-realtime" honest at a
+/// negligible one-file stat per tick. Tests pass something tighter.
+const POLL_INTERVAL: Duration = Duration::from_secs(2);
+
+/// A dedicated poll thread for one tail. Dropping it (registry replace or
+/// remove) raises the stop flag; the thread exits within one interval.
+pub struct TailPoller {
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for TailPoller {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
 
 /// One rollout line → the payload event worth forwarding, if any:
 /// `token_count` (usage + rate limits) and `turn_context` (model). Anything
@@ -227,40 +250,33 @@ fn report(state: &TailState, event: Value, catch_up: bool) -> UsageReport {
     }
 }
 
-/// Is this fs event about our rollout file? The watched day-directory holds
-/// every session's rollout — filter by exact file name.
-fn is_our_file(event: &Event, path: &PathBuf) -> bool {
-    matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_))
-        && event
-            .paths
-            .iter()
-            .any(|p| p.file_name() == path.file_name())
-}
-
-/// Start the watcher for one tail. Delivery is a plain closure so the
-/// pipeline is testable without a Tauri app handle.
+/// Start the poll thread for one tail. Delivery is a plain closure so the
+/// pipeline is testable without a Tauri app handle. `drain` already
+/// no-ops when the file is missing or unchanged, so a tick is one cheap
+/// open+stat.
 fn spawn_tailer(
     state: Arc<Mutex<TailState>>,
+    interval: Duration,
     deliver: impl Fn(UsageReport) + Send + 'static,
-) -> Result<RecommendedWatcher, String> {
-    let (path, parent) = {
-        let s = state.lock().expect("tail state poisoned");
-        let parent = s
-            .path
-            .parent()
-            .ok_or("session-file path has no parent directory")?
-            .to_path_buf();
-        (s.path.clone(), parent)
-    };
-    fswatch::watch_dir(&parent, move |event| {
-        if !is_our_file(event, &path) {
-            return;
-        }
-        let Ok(mut s) = state.lock() else { return };
-        for event in drain(&mut s) {
-            deliver(report(&s, event, false));
-        }
-    })
+) -> Result<TailPoller, String> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = stop.clone();
+    thread::Builder::new()
+        .name("keepdeck usage tail".to_string())
+        .spawn(move || {
+            while !flag.load(Ordering::Relaxed) {
+                thread::sleep(interval);
+                if flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                let Ok(mut s) = state.lock() else { break };
+                for event in drain(&mut s) {
+                    deliver(report(&s, event, false));
+                }
+            }
+        })
+        .map_err(|e| format!("usage tail thread failed to start: {e}"))?;
+    Ok(TailPoller { stop })
 }
 
 /// Follow one pane's session file, emitting its current usage state right
@@ -296,7 +312,7 @@ pub fn usage_watch_session_file(
     // fs event. Lines the watcher wins ride as live reports; the catch-up
     // summary is marked catchUp so a replay can never outrank them.
     let emitter = app.clone();
-    let watcher = spawn_tailer(state.clone(), move |payload| {
+    let watcher = spawn_tailer(state.clone(), POLL_INTERVAL, move |payload| {
         log::debug!(
             "usage tail: pane={} live {} event",
             payload.pane_id,
@@ -596,6 +612,38 @@ mod tests {
     }
 
     #[test]
+    fn tailer_delivers_appends_from_an_open_handle_without_close() {
+        // The real CLIs keep their session file OPEN for the whole run and
+        // append+flush without ever closing — the one pattern the e2e test
+        // below (which drops its handle) never exercised.
+        let dir = temp_dir();
+        let path = dir.join("rollout-openhandle.jsonl");
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .unwrap();
+        let state = Arc::new(Mutex::new(tail(path)));
+        let (tx, rx) = mpsc::channel::<UsageReport>();
+        let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
+            let _ = tx.send(r);
+        })
+        .expect("watch");
+
+        write!(file, "{TOKEN_COUNT_LINE}\n").unwrap();
+        file.flush().unwrap();
+        // NO drop(file) — the handle stays open like a live CLI's.
+
+        let delivered = rx.recv_timeout(Duration::from_secs(10));
+        assert!(
+            delivered.is_ok(),
+            "append from a still-open handle must deliver"
+        );
+        drop(file);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn tailer_delivers_appends_end_to_end_even_for_a_late_file() {
         let dir = temp_dir();
         let path = dir.join("rollout-live.jsonl");
@@ -603,7 +651,7 @@ mod tests {
         let (tx, rx) = mpsc::channel::<UsageReport>();
 
         // Armed BEFORE the file exists — the dir watch catches its creation.
-        let _watcher = spawn_tailer(state, move |r| {
+        let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
             let _ = tx.send(r);
         })
         .expect("watch");
