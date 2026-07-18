@@ -104,6 +104,22 @@ describe("Kimi CLI plugin", () => {
     expect(out.args).toEqual(["--session", "session_123"]);
   });
 
+  it("YOLO adds --yolo on spawn and resume alike", async () => {
+    const { agent } = await activate();
+    expect(agent.supportsYolo).toBe(true);
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
+    expect(spawn.args).toEqual(["--yolo"]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, yolo: true, sessionId: "session_123" },
+      resume,
+    );
+    expect(resume.args).toEqual(["--yolo", "--session", "session_123"]);
+  });
+
   it("registers plugin-owned setup UI even when its bundled resource is missing", async () => {
     const { settings } = await activate({ manifestPath: null });
     expect(settings.label).toBe("Kimi Code");

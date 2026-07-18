@@ -56,6 +56,26 @@ describe("claude plugin hooks", () => {
 
     expect(out.args).toEqual([]);
   });
+
+  it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
+    const agent = activate(null);
+    expect(agent.supportsYolo).toBe(true);
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
+    expect(spawn.args).toEqual(["--dangerously-skip-permissions"]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, yolo: true, sessionId: "old-id" },
+      resume,
+    );
+    expect(resume.args).toEqual([
+      "--dangerously-skip-permissions",
+      "--resume",
+      "old-id",
+    ]);
+  });
 });
 
 describe("claude plugin identity", () => {
