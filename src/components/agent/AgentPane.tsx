@@ -4,6 +4,7 @@ import type { PaneProvisioning } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 import {
+  BoltIcon,
   ChevronDownIcon,
   CloseIcon,
   GitBranchIcon,
@@ -238,7 +239,8 @@ export function AgentPane({
               className="pane__yolo"
               title="YOLO mode — runs without permission prompts"
             >
-              ⚡<span className="pane__yolo-label">YOLO</span>
+              <BoltIcon />
+              <span className="pane__yolo-label">YOLO</span>
             </span>
           )}
           {gitBadge && (

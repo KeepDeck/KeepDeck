@@ -26,7 +26,7 @@ export interface MinimizedTrayEntry {
   /** The agent's brand mark; absent/null draws the neutral fallback. */
   icon?: AgentGlyphIcon | null;
   gitBadge?: GitBadge | null;
-  /** The pane runs in YOLO mode — the chip carries the ⚡ marker. */
+  /** The pane runs in YOLO mode — the chip carries the bolt marker. */
   yolo?: boolean;
   label: string;
   onRestore(): void;

@@ -135,7 +135,7 @@
 
 /* Standing YOLO warning chip: same anatomy as the branch chip, tinted amber —
    the pane's disabled-prompts state must stay visible, not just at creation.
-   It joins the narrow-header cascade below: label off at ≤280px (a ⚡ dot),
+   It joins the narrow-header cascade below: label off at ≤280px (a bolt dot),
    gone at ≤150px so maximize/close keep their never-hide guarantee. */
 .pane__yolo {
   display: inline-flex;
