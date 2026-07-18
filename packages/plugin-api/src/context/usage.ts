@@ -105,7 +105,12 @@ export type UsageTailFormat = "codex" | "kimi-wire";
 /** Native polled limit sources the host offers. */
 export type UsageLimitsSource = "kimi-usages";
 
-/** The usage half of an agent contribution. */
+/** The usage half of an agent contribution.
+ *
+ * BUILT-IN (in-process) agents only for now: the external tier does not
+ * carry usage across its RPC boundary — the store invokes `normalize`
+ * synchronously per report, and a cross-realm proxy is necessarily async.
+ * An external plugin's declaration is ignored with a host-log warning. */
 export interface AgentUsage {
   /** Normalize this agent's bridge usage payloads (statusLine reports,
    * tailed session-file events — whatever its reporters emit). */
