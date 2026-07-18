@@ -27,7 +27,12 @@
 //! commit, while a same-second VISIT of a branch born elsewhere moves to that
 //! branch's own tip — so whenever the tips diverge, the visit is rejected on
 //! shas even when its source reads trusted (`git branch Y HEAD && git switch
-//! Y` with diverged histories).
+//! Y` with diverged histories). The old side is derived from the next-older
+//! entry, which assumes the log is CONTIGUOUS — true of everything git itself
+//! writes (it only appends, and expiry trims the tail, degrading to a safe
+//! miss). Hand-surgery that removes a MIDDLE entry (`git reflog delete
+//! HEAD@{n}`) splices unrelated neighbours together and can fake an old==new
+//! pair; a hand-edited reflog is out of scope as evidence.
 //!
 //! Deliberate misses (evidence errs toward KEEPING a branch):
 //! - `git branch X` inside W — no checkout entry, name source: unattributable.
@@ -157,32 +162,38 @@ fn is_created_here(
         })
 }
 
-/// The unix timestamp a branch was created at — its reflog's oldest entry,
-/// counted only when that entry is a creation record with a trusted source
-/// ([`trusted_creation`]; an expired reflog whose tail was cut is no evidence
-/// either). `None` when the reflog is gone entirely; every case collapses to
-/// "cannot attribute" — an answer, not an error.
-fn creation_ts(repo_path: &Path, branch: &str) -> Result<Option<u64>, GitError> {
+/// The reflog of `reference` as seen from `dir`, newest first. A ref without
+/// a reflog answers an EMPTY log rather than an error — everywhere in this
+/// module, "no reflog" is an answer ("no evidence"), never a failure.
+fn reflog(dir: &Path, reference: &str) -> Result<Vec<ReflogEntry>, GitError> {
     match run_git(
-        repo_path,
+        dir,
         [
             "--no-optional-locks",
             "log",
             "-g",
             "--date=unix",
             REFLOG_FORMAT,
-            branch,
+            reference,
             "--",
         ],
     ) {
-        Ok(out) => Ok(parse_reflog(&out)
-            .last()
-            .filter(|e| trusted_creation(&e.message))
-            .map(|e| e.ts)),
-        // No reflog for the ref is an answer, not an error.
-        Err(GitError::Command { .. }) => Ok(None),
+        Ok(out) => Ok(parse_reflog(&out)),
+        Err(GitError::Command { .. }) => Ok(Vec::new()),
         Err(other) => Err(other),
     }
+}
+
+/// The unix timestamp a branch was created at — its reflog's oldest entry,
+/// counted only when that entry is a creation record with a trusted source
+/// ([`trusted_creation`]; an expired reflog whose tail was cut is no evidence
+/// either). `None` when the reflog is gone entirely; every case collapses to
+/// "cannot attribute" — an answer, not an error.
+fn creation_ts(repo_path: &Path, branch: &str) -> Result<Option<u64>, GitError> {
+    Ok(reflog(repo_path, branch)?
+        .last()
+        .filter(|e| trusted_creation(&e.message))
+        .map(|e| e.ts))
 }
 
 /// The worktree's HEAD reflog plus the fallback branch for [`initial_branch`],
@@ -209,23 +220,7 @@ fn head_evidence(
 /// registration, no reflog): the caller falls through to the admin route,
 /// which reads the same log if it still exists.
 fn live_evidence(worktree: &Path) -> Result<Option<(Vec<ReflogEntry>, Option<String>)>, GitError> {
-    let out = match run_git(
-        worktree,
-        [
-            "--no-optional-locks",
-            "log",
-            "-g",
-            "--date=unix",
-            REFLOG_FORMAT,
-            "HEAD",
-            "--",
-        ],
-    ) {
-        Ok(out) => out,
-        Err(GitError::Command { .. }) => return Ok(None),
-        Err(other) => return Err(other),
-    };
-    let head_log = parse_reflog(&out);
+    let head_log = reflog(worktree, "HEAD")?;
     if head_log.is_empty() {
         return Ok(None);
     }
@@ -251,23 +246,7 @@ fn admin_evidence(
         return Ok(None);
     };
     let head_ref = format!("worktrees/{id}/HEAD");
-    let out = match run_git(
-        repo_path,
-        [
-            "--no-optional-locks",
-            "log",
-            "-g",
-            "--date=unix",
-            REFLOG_FORMAT,
-            &head_ref,
-            "--",
-        ],
-    ) {
-        Ok(out) => out,
-        Err(GitError::Command { .. }) => return Ok(None),
-        Err(other) => return Err(other),
-    };
-    let head_log = parse_reflog(&out);
+    let head_log = reflog(repo_path, &head_ref)?;
     if head_log.is_empty() {
         return Ok(None);
     }

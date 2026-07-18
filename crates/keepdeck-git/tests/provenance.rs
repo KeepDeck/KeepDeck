@@ -67,10 +67,12 @@ const BIRTH: u64 = 1_700_000_100;
 const INSIDE: u64 = 1_700_000_200;
 const LATER: u64 = 1_700_000_300;
 
-/// The full provenance matrix in one worktree lifetime: a branch born with the
-/// worktree, one switched-to inside it, and the two look-alikes that must NOT
-/// be claimed — a pre-existing branch created the same second as the worktree,
-/// and a `git branch` (no checkout) sharing a second with a real switch.
+/// The full provenance matrix in one worktree lifetime: a branch born with
+/// the worktree, one switched-to inside it, and FOUR look-alikes that must
+/// NOT be claimed — a pre-existing branch created the same second as the
+/// worktree, a `git branch` (no checkout) sharing a second with a real
+/// switch, a two-step `branch`+`switch` (name-sourced), and a visited
+/// foreign branch.
 #[test]
 fn attributes_only_branches_born_in_the_worktree() {
     let repo_dir = init_repo();
@@ -260,6 +262,32 @@ fn an_attached_existing_branch_is_not_claimed() {
 
     let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
     assert!(created.is_empty(), "claimed: {created:?}");
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
+/// The race the live→admin fallthrough exists for: the directory still
+/// EXISTS at the check but can no longer answer (hollowed out mid-close by
+/// an external cleaner) — the admin record must still supply the evidence.
+#[test]
+fn a_hollowed_out_directory_falls_through_to_the_admin_record() {
+    let repo_dir = init_repo();
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("agent-1");
+    git_at(
+        &repo_dir,
+        BIRTH,
+        &["worktree", "add", "-q", "-b", "born-with-wt", wt.to_str().unwrap()],
+    );
+    git_at(&wt, INSIDE, &["switch", "-q", "-c", "switched-inside"]);
+
+    // Replace the worktree with an empty husk: exists() says yes, git says no.
+    fs::remove_dir_all(&wt).unwrap();
+    fs::create_dir_all(&wt).unwrap();
+
+    let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
+    assert_eq!(created, ["born-with-wt", "switched-inside"]);
 
     fs::remove_dir_all(&repo_dir).ok();
     fs::remove_dir_all(&wt_root).ok();
