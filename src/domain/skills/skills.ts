@@ -1,0 +1,97 @@
+/**
+ * Shared agent skills ([skills] — one SKILL.md library, every CLI).
+ *
+ * A skill is the open Agent Skills format: a directory with a `SKILL.md`
+ * whose YAML frontmatter carries `name` + `description`; every supported CLI
+ * reads the format and ignores frontmatter keys it doesn't know, so ONE file
+ * serves all agents. The library lives under KeepDeck's home (the Rust
+ * `skills` adapter moves the bytes); this module owns the schema side:
+ * naming rules and frontmatter compose/parse.
+ *
+ * Parsing is deliberately tolerant and round-trip-safe: the user may hand
+ * edit a stored SKILL.md (extra frontmatter like `allowed-tools`, assets in
+ * the directory), and a later save from the form must not eat those lines.
+ */
+
+/** Where a skill lives — its distribution boundary. */
+export type SkillScope = { kind: "global" } | { kind: "workspace"; wsId: string };
+
+/** A skill split into what the editor form works with. */
+export interface SkillDraft {
+  name: string;
+  description: string;
+  /** Markdown instructions below the frontmatter. */
+  body: string;
+  /** Frontmatter lines OTHER than name/description, kept verbatim so a
+   * form save round-trips hand-added keys (`allowed-tools`, `license`…). */
+  extraFrontmatter: string[];
+}
+
+/** Skill names are standard-format kebab-case directory names. The Rust side
+ * re-checks path safety; this is the friendlier authoring rule. */
+export function isValidSkillName(name: string): boolean {
+  return /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name);
+}
+
+/** One-line descriptions only — the frontmatter scalar stays simple. */
+export function isValidSkillDescription(description: string): boolean {
+  return !description.includes("\n");
+}
+
+/** Compose the stored SKILL.md for a draft. */
+export function composeSkillFile(draft: SkillDraft): string {
+  const lines = [
+    "---",
+    `name: ${scalar(draft.name)}`,
+    `description: ${scalar(draft.description)}`,
+    ...draft.extraFrontmatter,
+    "---",
+  ];
+  const body = draft.body.endsWith("\n") || draft.body === "" ? draft.body : `${draft.body}\n`;
+  return `${lines.join("\n")}\n${body}`;
+}
+
+/** Parse a stored SKILL.md back into a draft. A file without frontmatter is
+ * still a skill (name comes from its directory): empty description, the
+ * whole content as body. */
+export function parseSkillFile(content: string): Omit<SkillDraft, "name"> & { name: string | null } {
+  const fm = frontmatterBlock(content);
+  if (!fm) return { name: null, description: "", body: content, extraFrontmatter: [] };
+  let name: string | null = null;
+  let description = "";
+  const extraFrontmatter: string[] = [];
+  for (const line of fm.lines) {
+    const match = /^(name|description):\s?(.*)$/.exec(line);
+    if (match?.[1] === "name") name = unscalar(match[2]);
+    else if (match?.[1] === "description") description = unscalar(match[2]);
+    else extraFrontmatter.push(line);
+  }
+  return { name, description, body: fm.body, extraFrontmatter };
+}
+
+function frontmatterBlock(content: string): { lines: string[]; body: string } | null {
+  if (!content.startsWith("---\n")) return null;
+  const close = content.indexOf("\n---\n", 3);
+  if (close === -1) return null;
+  return {
+    lines: content.slice(4, close).split("\n"),
+    body: content.slice(close + 5),
+  };
+}
+
+/** Quote a value only when YAML would misread it plain. */
+function scalar(value: string): string {
+  const risky = value === "" || /[:#"'\\{}[\],&*?|<>=!%@`]/.test(value) || /^\s|\s$|^-/.test(value);
+  return risky ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value;
+}
+
+function unscalar(raw: string): string {
+  const value = raw.trim();
+  if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+    return value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  if (value.startsWith("'") && value.endsWith("'") && value.length >= 2) {
+    return value.slice(1, -1).replace(/''/g, "'");
+  }
+  return value;
+}
