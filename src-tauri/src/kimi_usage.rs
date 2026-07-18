@@ -46,9 +46,16 @@ fn credentials_path() -> Option<PathBuf> {
 
 /// One read-only GET of the kimi usages document. Errors are strings for
 /// the log; the webview treats any failure the same way — keep the last
-/// snapshot and let it age.
+/// snapshot and let it age. The blocking ureq call parks on the blocking
+/// pool — a hung endpoint must not pin a Tokio worker for its 10s timeout.
 #[tauri::command(async)]
-pub fn kimi_usages_fetch() -> Result<String, String> {
+pub async fn kimi_usages_fetch() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(fetch_usages_blocking)
+        .await
+        .map_err(|e| format!("kimi usages task failed: {e}"))?
+}
+
+fn fetch_usages_blocking() -> Result<String, String> {
     let path = credentials_path().ok_or("no home directory")?;
     let creds = std::fs::read_to_string(&path)
         .map_err(|e| format!("kimi credentials unreadable: {e}"))?;

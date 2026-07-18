@@ -84,7 +84,14 @@ struct TailState {
     format: TailFormat,
     offset: u64,
     partial: Vec<u8>,
+    /// Inside an abandoned oversized line — drop bytes until its newline.
+    skipping: bool,
 }
+
+/// A pathological line (megabytes with no newline yet) must not buffer
+/// forever — past this cap the line is abandoned and the tail resyncs at
+/// the next newline. Generous: real usage lines are a few KB.
+const MAX_PARTIAL_BYTES: usize = 8 * 1024 * 1024;
 
 /// The live session-file tails, keyed by pane id — a shared
 /// [`fswatch::WatchRegistry`] like every other watcher family
@@ -161,12 +168,30 @@ fn drain(state: &mut TailState) -> Vec<Value> {
     state.offset += read as u64;
     state.partial.extend_from_slice(&fresh);
 
+    // Resync after an abandoned oversized line: drop through its newline.
+    if state.skipping {
+        match state.partial.iter().position(|b| *b == b'\n') {
+            Some(nl) => {
+                state.partial.drain(..=nl);
+                state.skipping = false;
+            }
+            None => {
+                state.partial.clear(); // still inside the monster line
+                return Vec::new();
+            }
+        }
+    }
+
     let mut events = Vec::new();
     while let Some(nl) = state.partial.iter().position(|b| *b == b'\n') {
         let line: Vec<u8> = state.partial.drain(..=nl).collect();
         if let Some(event) = state.format.event(&line[..line.len() - 1]) {
             events.push(event);
         }
+    }
+    if state.partial.len() > MAX_PARTIAL_BYTES {
+        state.partial.clear();
+        state.skipping = true;
     }
     events
 }
@@ -186,12 +211,19 @@ fn last_of_each(events: Vec<Value>, order: [&str; 2]) -> Vec<Value> {
     last.into_iter().flatten().collect()
 }
 
-/// Wrap one session-file event into the bridge's wire shape.
-fn report(state: &TailState, event: Value) -> UsageReport {
+/// Wrap one session-file event into the bridge's wire shape. `agent` and
+/// `catchUp` are HOST-owned transport keys on the payload: `catchUp` marks
+/// events replayed from the EXISTING file at arm time — the store must not
+/// let that replay outrank live data.
+fn report(state: &TailState, event: Value, catch_up: bool) -> UsageReport {
     UsageReport {
         pane_id: state.pane_id.clone(),
         token: state.token.clone(),
-        payload: json!({ "agent": state.format.agent(), "event": event }),
+        payload: json!({
+            "agent": state.format.agent(),
+            "event": event,
+            "catchUp": catch_up,
+        }),
     }
 }
 
@@ -216,7 +248,7 @@ fn spawn_tailer(
         let parent = s
             .path
             .parent()
-            .ok_or("rollout path has no parent directory")?
+            .ok_or("session-file path has no parent directory")?
             .to_path_buf();
         (s.path.clone(), parent)
     };
@@ -226,7 +258,7 @@ fn spawn_tailer(
         }
         let Ok(mut s) = state.lock() else { return };
         for event in drain(&mut s) {
-            deliver(report(&s, event));
+            deliver(report(&s, event, false));
         }
     })
 }
@@ -243,6 +275,10 @@ pub fn usage_watch_session_file(
     token: String,
     format: TailFormat,
 ) -> Result<(), String> {
+    // Replace-first: the OLD tail must be gone before the new watcher arms,
+    // or a same-path rebind briefly runs two tails and duplicates events.
+    tails.0.remove(&pane_id);
+
     let state = Arc::new(Mutex::new(TailState {
         path: PathBuf::from(&path),
         pane_id: pane_id.clone(),
@@ -250,21 +286,25 @@ pub fn usage_watch_session_file(
         format,
         offset: 0,
         partial: Vec::new(),
+        skipping: false,
     }));
 
-    // Catch up on the existing file first: the last known limits/model land
-    // in the store before any live event — instant restore after a restart.
+    // Watcher FIRST, catch-up second: an append landing during the catch-up
+    // drain fires an event that re-drains whatever the catch-up hasn't
+    // consumed (the offset is shared) — nothing is lost in the gap. The
+    // reverse order lost any append between drain and arm until the NEXT
+    // fs event. Lines the watcher wins ride as live reports; the catch-up
+    // summary is marked catchUp so a replay can never outrank them.
+    let emitter = app.clone();
+    let watcher = spawn_tailer(state.clone(), move |payload| {
+        let _ = emitter.emit(USAGE_REPORT_EVENT, &payload);
+    })?;
     {
         let mut s = state.lock().expect("tail state poisoned");
         for event in last_of_each(drain(&mut s), format.catch_up_order()) {
-            let _ = app.emit(USAGE_REPORT_EVENT, &report(&s, event));
+            let _ = app.emit(USAGE_REPORT_EVENT, &report(&s, event, true));
         }
     }
-
-    let emitter = app.clone();
-    let watcher = spawn_tailer(state, move |payload| {
-        let _ = emitter.emit(USAGE_REPORT_EVENT, &payload);
-    })?;
     tails.0.insert(pane_id, watcher);
     Ok(())
 }
@@ -364,6 +404,7 @@ mod tests {
             format: TailFormat::Codex,
             offset: 0,
             partial: Vec::new(),
+            skipping: false,
         }
     }
 
@@ -464,18 +505,46 @@ mod tests {
     }
 
     #[test]
-    fn reports_carry_the_format_agent_tag() {
+    fn reports_carry_the_agent_tag_and_the_catch_up_mark() {
         let mut state = tail(PathBuf::from("/x/rollout.jsonl"));
         let event = rollout_event(TURN_CONTEXT_LINE.as_bytes()).unwrap();
-        let wrapped = report(&state, event);
+        let wrapped = report(&state, event, false);
         assert_eq!(wrapped.pane_id, "pane-1");
         assert_eq!(wrapped.token, "tok");
         assert_eq!(wrapped.payload["agent"], "codex");
         assert_eq!(wrapped.payload["event"]["type"], "turn_context");
+        assert_eq!(wrapped.payload["catchUp"], false);
 
         state.format = TailFormat::KimiWire;
         let event = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
-        assert_eq!(report(&state, event).payload["agent"], "kimi");
+        let wrapped = report(&state, event, true);
+        assert_eq!(wrapped.payload["agent"], "kimi");
+        assert_eq!(wrapped.payload["catchUp"], true);
+    }
+
+    #[test]
+    fn an_oversized_line_is_abandoned_and_the_tail_resyncs() {
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        let mut state = tail(path.clone());
+
+        // A monster line spilling past the cap, no newline yet.
+        fs::write(&path, vec![b'x'; MAX_PARTIAL_BYTES + 64]).unwrap();
+        assert!(drain(&mut state).is_empty());
+        assert!(state.skipping, "the line is abandoned, not buffered");
+        assert!(state.partial.is_empty());
+
+        // Its newline finally lands, followed by a healthy line — the tail
+        // resyncs and parses only the healthy one.
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        write!(file, "tail-of-monster\n{TURN_CONTEXT_LINE}\n").unwrap();
+        drop(file);
+        let events = drain(&mut state);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["type"], "turn_context");
+        assert!(!state.skipping);
+
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

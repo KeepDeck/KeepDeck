@@ -43,9 +43,10 @@ pub const SESSION_BOUND_EVENT: &str = "deck://session/bound";
 /// Event delivering one usage report to the webview (`src/ipc/usage.ts`).
 pub const USAGE_REPORT_EVENT: &str = "deck://usage/report";
 
-/// An envelope larger than this is dropped unread — reporters send tiny
-/// JSON, anything bigger is not ours.
-const MAX_ENVELOPE_BYTES: u64 = 64 * 1024;
+/// An envelope larger than this is dropped unread — reporters send small
+/// JSON (a statusline payload runs a few KB; the cap leaves generous
+/// headroom for bloated workspace lists), anything bigger is not ours.
+const MAX_ENVELOPE_BYTES: u64 = 256 * 1024;
 
 /// The staging area inboxes are built (and locked) in before publication.
 const STAGING_DIR: &str = ".staging";
