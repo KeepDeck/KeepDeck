@@ -45,7 +45,13 @@ pub fn is_worktree_root(path: &Path) -> bool {
 /// spawned agents all start from the same state even if `HEAD` moves mid-batch.
 pub fn resolve_commit(repo: &Path, rev: &str) -> Result<String, GitError> {
     let spec = format!("{rev}^{{commit}}");
-    let out = run_git(repo, &["rev-parse", "--verify", "--quiet", &spec])?;
+    // `--end-of-options`: the rev can be user-typed (the dialog's degraded
+    // free-text base), so a leading-dash spelling must reach rev-parse as a
+    // revision, not an option — the same guard the `--` siblings carry.
+    let out = run_git(
+        repo,
+        &["rev-parse", "--verify", "--quiet", "--end-of-options", &spec],
+    )?;
     Ok(out.trim().to_string())
 }
 
