@@ -19,6 +19,7 @@ mod project_fs;
 mod project_git;
 mod session;
 mod sessions;
+mod skills;
 mod voice;
 mod state;
 mod worktree;
@@ -140,6 +141,10 @@ pub fn run() {
             state::settings_load,
             state::settings_save,
             state::settings_quarantine,
+            skills::skills_list,
+            skills::skills_save,
+            skills::skills_delete,
+            skills::skills_stage,
             ports::ports_allocate,
             plugins_fs::plugins_scan,
             plugins_fs::plugins_resolve_dir,
