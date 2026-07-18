@@ -76,6 +76,7 @@ function toAgentInfo(
     label: entry.label,
     icon: entry.icon,
     command: entry.detect.bin,
+    supportsYolo: entry.supportsYolo === true,
     installed: status?.installed ?? true,
     path: status?.path ?? null,
   };

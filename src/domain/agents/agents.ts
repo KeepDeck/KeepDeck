@@ -34,6 +34,9 @@ export interface AgentInfo {
   icon?: AgentIcon;
   /** CLI command to spawn (passed back to `session_spawn`). */
   command: string;
+  /** Whether the CLI can run with permission prompts disabled (YOLO mode) —
+   * gates the YOLO toggle wherever an agent is created. */
+  supportsYolo: boolean;
   /** Whether the CLI resolves on the augmented PATH. */
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */

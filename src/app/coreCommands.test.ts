@@ -32,8 +32,8 @@ vi.mock("../ipc/worktree", () => ({
 vi.mock("./settingsManager", () => ({ getSettings: () => null }));
 
 const AGENTS: AgentInfo[] = [
-  { id: "claude", label: "Claude", command: "claude", installed: true, path: "/c" },
-  { id: "codex", label: "Codex", command: "codex", installed: true, path: "/x" },
+  { id: "claude", label: "Claude", command: "claude", supportsYolo: false, installed: true, path: "/c" },
+  { id: "codex", label: "Codex", command: "codex", supportsYolo: false, installed: true, path: "/x" },
 ];
 
 const workspace = (over: Partial<Workspace>): Workspace => ({

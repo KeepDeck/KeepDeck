@@ -11,7 +11,15 @@ function agent(
   installed: boolean,
   extra: Partial<AgentInfo> = {},
 ): AgentInfo {
-  return { id, label: id, command: id, installed, path: null, ...extra };
+  return {
+    id,
+    label: id,
+    command: id,
+    supportsYolo: false,
+    installed,
+    path: null,
+    ...extra,
+  };
 }
 
 describe("selectableAgents", () => {

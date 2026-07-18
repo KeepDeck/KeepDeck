@@ -42,7 +42,7 @@ vi.mock("./updateManager", () => ({
 }));
 
 const agents = [
-  { id: "claude", label: "Claude", command: "claude", installed: true, path: null },
+  { id: "claude", label: "Claude", command: "claude", supportsYolo: false, installed: true, path: null },
 ];
 
 function deckWith(paneName?: string): Workspace[] {

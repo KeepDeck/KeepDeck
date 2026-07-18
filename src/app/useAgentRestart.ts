@@ -36,6 +36,7 @@ interface RestartTarget {
   agentType: string;
   cwd: string;
   branch: string | undefined;
+  yolo: boolean | undefined;
   sessionId: string | null;
 }
 
@@ -82,10 +83,13 @@ export function useAgentRestart(
     const planBuilt = await buildResumeSpec(
       plugins,
       target.agentType,
-      target.paneId,
-      target.wsId,
-      target.cwd,
-      target.branch,
+      {
+        paneId: target.paneId,
+        wsId: target.wsId,
+        cwd: target.cwd,
+        branch: target.branch,
+        yolo: target.yolo,
+      },
       spawnCtx,
       target.sessionId,
       "manual",
@@ -190,6 +194,7 @@ function findTarget(
     agentType: paneAgentType(pane),
     cwd: pane.cwd ?? workspace.cwd,
     branch: pane.branch,
+    yolo: pane.yolo,
     sessionId: pane.session?.id ?? null,
   };
 }

@@ -35,6 +35,7 @@ const claude: AgentContribution = {
     paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
   },
   detect: { bin: "claude" },
+  supportsYolo: true,
   hooks: {},
 };
 
@@ -88,6 +89,7 @@ describe("useAgents", () => {
           paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
         },
         command: "claude",
+        supportsYolo: true,
         installed: false,
         path: null,
       },

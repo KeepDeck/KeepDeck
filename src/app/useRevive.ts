@@ -99,10 +99,13 @@ export function useRevive(
         await buildResumeSpec(
           plugins,
           agentType,
-          pane.id,
-          active.id,
-          dir,
-          pane.branch,
+          {
+            paneId: pane.id,
+            wsId: active.id,
+            cwd: dir,
+            branch: pane.branch,
+            yolo: pane.yolo,
+          },
           ctxRef.current,
           sessionId,
           "restore",

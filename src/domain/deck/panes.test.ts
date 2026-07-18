@@ -118,6 +118,7 @@ describe("paneDisplayTitle", () => {
       id: "claude" as const,
       label: "Claude Code",
       command: "claude",
+      supportsYolo: false,
       installed: true,
       path: null,
     },

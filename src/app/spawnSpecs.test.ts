@@ -114,6 +114,39 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(plan.token).toBe(bridge.token);
   });
 
+  it("a pane's YOLO mode reaches the hook input on spawn AND resume", async () => {
+    const inputs: Array<boolean | undefined> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          inputs.push(input.yolo);
+        },
+        "resume.plan": (input) => {
+          inputs.push(input.yolo);
+        },
+      },
+    });
+    await mount(
+      ws([
+        { id: "pane-1", agentType: "claude", yolo: true },
+        { id: "pane-2", agentType: "claude" },
+      ]),
+    );
+    await settle();
+    await buildResumeSpec(
+      plugins,
+      "claude",
+      { paneId: "pane-9", wsId: "ws-1", cwd: "/repo", yolo: true },
+      ctx,
+      "old-id",
+      "restore",
+    );
+    // Armed pane spawns with it, plain pane WITHOUT it (absent, not false —
+    // the wire shape stays sparse), and a resume carries it the same way.
+    expect(inputs.sort()).toEqual([true, true, undefined]);
+  });
+
   it("builds each pane ONCE — a re-render must not re-mint", async () => {
     register(adopting);
     const workspaces = ws([{ id: "pane-1", agentType: "claude" }]);
@@ -192,10 +225,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     await buildResumeSpec(
       plugins,
       "claude",
-      "pane-9",
-      "ws-1",
-      "/repo",
-      undefined,
+      { paneId: "pane-9", wsId: "ws-1", cwd: "/repo" },
       ctx,
       "old-id",
       "restore",
@@ -217,10 +247,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     const built = await buildResumeSpec(
       plugins,
       "claude",
-      "pane-unsupported",
-      "ws-1",
-      "/repo",
-      undefined,
+      { paneId: "pane-unsupported", wsId: "ws-1", cwd: "/repo" },
       ctx,
       "old-id",
       "manual",
@@ -259,10 +286,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     const manual = buildResumeSpec(
       plugins,
       "claude",
-      "pane-1",
-      "ws-1",
-      "/repo",
-      undefined,
+      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
       ctx,
       "old-id",
       "manual",
@@ -297,10 +321,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     const building = buildResumeSpec(
       plugins,
       "claude",
-      "pane-1",
-      "ws-1",
-      "/repo",
-      undefined,
+      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
       ctx,
       "old-id",
       "manual",
