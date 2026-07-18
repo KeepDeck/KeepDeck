@@ -10,6 +10,7 @@ import {
   type Workspace,
 } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
 import { planPanes, provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
@@ -51,7 +52,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
     yolo,
   }: SpawnConfig) => {
     const wsSetup = setup?.trim() || undefined;
-    const workspace = deck.createWorkspaceFromSequence((wsSeq): Workspace => {
+    const created = deck.createWorkspaceFromSequence((wsSeq): Workspace => {
       const startSeq = mintAgentSeqs(count);
       const wsName = name.trim() || `workspace-${wsSeq}`;
       const panes = planPanes(
@@ -73,6 +74,14 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
         panes,
       };
     });
+    if (!created.ok) {
+      log.error(
+        "web:provisioning",
+        `workspace create rejected: ${created.reason}`,
+      );
+      return;
+    }
+    const { workspace } = created;
     void runProvisioning(
       workspace.panes,
       provisionInto(deck, workspace.id),

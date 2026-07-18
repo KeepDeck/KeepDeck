@@ -351,6 +351,18 @@ describe("deckReducer restore actions ([F7])", () => {
     ).toBe(restored);
   });
 
+  it("hydrate rejects duplicate workspace ids", () => {
+    const current = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const duplicate = state({
+      workspaces: [dormantWs, ws("ws-1", ["another-pane"])],
+      activeId: "ws-1",
+    });
+
+    expect(deckReducer(current, { type: "hydrate", state: duplicate })).toBe(
+      current,
+    );
+  });
+
   it("revivePane clears the dormant flag", () => {
     const next = deckReducer(state({ workspaces: [dormantWs], activeId: "ws-1" }), {
       type: "revivePane",

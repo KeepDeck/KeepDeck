@@ -17,6 +17,9 @@ const EMPTY_VIEW: WorkspaceView = {};
 
 /** The deck surface the application hooks drive (state + bound actions). */
 export type Deck = ReturnType<typeof useDeck>;
+export type WorkspaceCreationResult =
+  | { ok: true; workspace: Workspace }
+  | { ok: false; reason: "sequence-exhausted" | "duplicate-id" };
 
 /**
  * Owns the deck's reducer and exposes the state plus bound action helpers, so
@@ -56,13 +59,19 @@ export function useDeck() {
      * two creates in one React batch cannot observe or append the same id. */
     createWorkspaceFromSequence: (
       build: (sequence: number) => Workspace,
-    ): Workspace => {
+    ): WorkspaceCreationResult => {
       const sequence = mintWorkspaceSeq(
         queuedState.current.workspaces.map((workspace) => workspace.id),
       );
+      if (sequence === null) {
+        return { ok: false, reason: "sequence-exhausted" };
+      }
       const workspace = build(sequence);
-      dispatch({ type: "createWorkspace", workspace });
-      return workspace;
+      const before = queuedState.current;
+      const next = dispatch({ type: "createWorkspace", workspace });
+      return next === before
+        ? { ok: false, reason: "duplicate-id" }
+        : { ok: true, workspace };
     },
     setPanes: (id: string, panes: Pane[]) =>
       dispatch({ type: "setPanes", id, panes }),

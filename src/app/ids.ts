@@ -24,7 +24,9 @@ export function mintAgentSeq(): number {
  * The next workspace sequence from the live deck. Removing the highest
  * workspace releases its sequence; gaps below the maximum remain untouched.
  */
-export function mintWorkspaceSeq(workspaceIds: readonly string[]): number {
+export function mintWorkspaceSeq(
+  workspaceIds: readonly string[],
+): number | null {
   return nextIdSequence(workspaceIds, "ws");
 }
 

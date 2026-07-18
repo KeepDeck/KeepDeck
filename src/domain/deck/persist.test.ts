@@ -86,7 +86,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     raw.workspaces[0].instance = "stale-runtime-token";
     const hydrated = okDeck(JSON.stringify(raw));
 
-    expect(typeof hydrated.state.workspaces[0].instance).toBe("symbol");
+    expect(typeof hydrated.state.workspaces[0].instance).toBe("string");
     expect(serializeDeck(hydrated.state, hydrated.docExtras)).not.toContain(
       '"instance"',
     );
@@ -218,6 +218,35 @@ describe("hydrateDeck — unusable input", () => {
           selectByWs: {},
           workspaces: [
             { id: "ws-1", name: "x", cwd: "/x", worktreeBaseDir: null, panes },
+          ],
+        }),
+      ).kind,
+    ).toBe("corrupt");
+  });
+
+  it("rejects duplicate workspace ids", () => {
+    expect(
+      hydrateDeck(
+        JSON.stringify({
+          version: 1,
+          activeId: "ws-1",
+          focusByWs: {},
+          selectByWs: {},
+          workspaces: [
+            {
+              id: "ws-1",
+              name: "first",
+              cwd: "/first",
+              worktreeBaseDir: null,
+              panes: [],
+            },
+            {
+              id: "ws-1",
+              name: "duplicate",
+              cwd: "/second",
+              worktreeBaseDir: null,
+              panes: [],
+            },
           ],
         }),
       ).kind,

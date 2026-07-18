@@ -2,7 +2,7 @@ import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
-import { resolveActiveId } from "./workspaces";
+import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
 import { nextIdSequence } from "../idSequence";
 import { collectExtras, isRecord } from "../json";
 import { createWorkspaceInstance } from "../workspaceInstance";
@@ -141,6 +141,16 @@ export function hydrateDeck(json: string): HydrateDeckResult {
     if (!ws) return corrupt;
     workspaces.push(ws);
   }
+  // Duplicate ids make every by-id selector ambiguous and one close removes
+  // several rows. Old buggy builds could persist them, so quarantine rather
+  // than restoring a deck that violates the state owner's core invariant.
+  if (!workspaceIdsAreUnique(workspaces)) return corrupt;
+
+  const nextAgentSeq = nextIdSequence(
+    workspaces.flatMap((w) => w.panes.map((p) => p.id)),
+    "pane",
+  );
+  if (nextAgentSeq === null) return corrupt;
 
   const paneIdsByWs = new Map(
     workspaces.map((w) => [w.id, new Set(w.panes.map((p) => p.id))]),
@@ -192,10 +202,7 @@ export function hydrateDeck(json: string): HydrateDeckResult {
         activeId,
         viewByWs,
       },
-      nextAgentSeq: nextIdSequence(
-        workspaces.flatMap((w) => w.panes.map((p) => p.id)),
-        "pane",
-      ),
+      nextAgentSeq,
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
     },
   };

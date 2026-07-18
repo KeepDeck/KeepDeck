@@ -22,4 +22,11 @@ describe("id mints", () => {
   it("does not fill gaps below the live maximum", () => {
     expect(mintWorkspaceSeq(["ws-1", "ws-3"])).toBe(4);
   });
+
+  it("refuses to allocate an imprecise workspace sequence", () => {
+    expect(mintWorkspaceSeq([`ws-${Number.MAX_SAFE_INTEGER}`])).toBeNull();
+    expect(mintWorkspaceSeq([`ws-${Number.MAX_SAFE_INTEGER - 1}`])).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
+  });
 });

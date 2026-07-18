@@ -15,6 +15,7 @@ import {
   setPaneProvisioningPhase,
   setPaneSession,
   setWorkspacePluginSlot,
+  workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
 import type { WorkspaceInstance } from "../workspaceInstance";
@@ -122,7 +123,7 @@ export type DeckAction =
   | { type: "setPaneProvisioningPhase"; wsId: string; paneId: string; phase: "setup" }
   /** Set (or, via `undefined`, clear) one plugin's opaque persisted slot for
    * a workspace — the write path behind a plugin's workspace-scoped storage
-   * (`ctx.storage.workspace(wsId)`). */
+   * (`ctx.storage.workspace(workspace)`). */
   | {
       type: "setWorkspacePluginSlot";
       wsId: string;
@@ -398,7 +399,9 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         setPaneAutoTitle(state.workspaces, action.wsId, action.paneId, action.title),
       );
     case "hydrate":
-      return action.state;
+      return workspaceIdsAreUnique(action.state.workspaces)
+        ? action.state
+        : state;
     case "revivePane":
       // revivePane returns the same ref for an absent/already-live pane, so a
       // re-fired revive effect causes no re-render.

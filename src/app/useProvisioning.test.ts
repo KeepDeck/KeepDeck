@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SpawnConfig } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { useProvisioning } from "./useProvisioning";
@@ -94,5 +95,29 @@ describe("useProvisioning workspace ids", () => {
     });
 
     expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1", "ws-2", "ws-3"]);
+  });
+
+  it("does not start a create when the numeric namespace is exhausted", () => {
+    const maxId = `ws-${Number.MAX_SAFE_INTEGER}`;
+    act(() =>
+      deck.hydrate({
+        workspaces: [
+          {
+            id: maxId,
+            instance: createWorkspaceInstance(),
+            name: "maximum",
+            cwd: "/repo",
+            worktreeBaseDir: null,
+            panes: [],
+          },
+        ],
+        activeId: maxId,
+        viewByWs: {},
+      }),
+    );
+
+    create();
+
+    expect(deck.workspaces.map((ws) => ws.id)).toEqual([maxId]);
   });
 });
