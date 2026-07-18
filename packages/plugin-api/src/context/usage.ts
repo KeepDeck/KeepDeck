@@ -84,7 +84,12 @@ export interface NormalizedUsage {
 }
 
 /** A per-agent normalizer: raw bridge payload → normalized usage, or null
- * when the payload is not recognizable. Pure; time is injected. */
+ * when the payload is not recognizable. Pure; time is injected.
+ *
+ * Two payload keys are HOST-owned transport metadata, not agent schema:
+ * `agent` (the dispatch key) and `catchUp` (the event is a replay of an
+ * existing session file at arm time — the host's store lets such replays
+ * fill gaps but never outrank live data). Normalizers may ignore both. */
 export type UsageNormalizer = (
   payload: unknown,
   at: number,

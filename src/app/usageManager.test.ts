@@ -129,6 +129,42 @@ describe("retainUsagePanes", () => {
   });
 });
 
+describe("catch-up reports", () => {
+  it("fill gaps but never overwrite live data", () => {
+    const live = fake(reported(10));
+    reportUsage("pane-live", { agent: "fake" });
+    live();
+    // A freshly-armed pane replays an OLD snapshot stamped with receipt
+    // time — without the mark it would outrank the live data above.
+    const replay = fake({
+      account: { kind: "reported", windows: [], reportedAt: 99, sourcePaneId: "" },
+      pane: { agent: "fake", model: "stale", reportedAt: 99 },
+    });
+    reportUsage("pane-new", { agent: "fake", catchUp: true });
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 10,
+      sourcePaneId: "pane-live",
+    });
+    // The NEW pane had no data of its own — the replay fills that gap.
+    expect(getUsageSnapshot().panes.get("pane-new")).toMatchObject({
+      model: "stale",
+    });
+    // A second replay for the same pane no longer fills anything.
+    reportUsage("pane-new", { agent: "fake", catchUp: true });
+    replay();
+    expect(getUsageSnapshot().panes.get("pane-new")).toMatchObject({
+      reportedAt: 99,
+    });
+  });
+
+  it("populate an empty store like any first report", () => {
+    const dispose = fake(reported(5));
+    reportUsage("pane-1", { agent: "fake", catchUp: true });
+    dispose();
+    expect(getUsageSnapshot().accounts.get("fake")).toBeDefined();
+  });
+});
+
 describe("setAccountUsage", () => {
   it("applies polled documents freshest-wins alongside pane reports", () => {
     setAccountUsage("kimi", {

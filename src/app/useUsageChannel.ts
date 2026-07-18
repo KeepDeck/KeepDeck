@@ -56,6 +56,15 @@ export function useUsageChannel(deck: Deck): void {
   // Panes with a live session-file tail — the retain sweep's unwatch list.
   const tailedRef = useRef(new Set<string>());
 
+  // The native watch/find commands are async; a pane can close while one is
+  // in flight, AFTER the sweep already ran its unwatch. Every arm therefore
+  // re-checks intent on completion and undoes a landing the sweep missed —
+  // without this, a close-during-arm leaks a native watcher forever and
+  // zombie reports keep flowing for the dead pane.
+  const settleArm = (paneId: string) => {
+    if (!tailedRef.current.has(paneId)) void unwatchSessionFile(paneId);
+  };
+
   const { plugins } = useAppRuntime();
   const contributions = useContributions(plugins.pluginRegistries.agents);
   /** agent id → its usage declaration, rebuilt as plugins (de)activate. */
@@ -111,9 +120,11 @@ export function useUsageChannel(deck: Deck): void {
         const format = usageByAgentRef.current.get(paneAgentType(pane))?.tail;
         if (!format) return;
         tailedRef.current.add(paneId);
-        watchSessionFile(paneId, transcriptPath, token, format).catch((e) =>
-          log.warn("web:usage", `session-file tail for ${paneId} failed: ${e}`),
-        );
+        watchSessionFile(paneId, transcriptPath, token, format)
+          .then(() => settleArm(paneId))
+          .catch((e) =>
+            log.warn("web:usage", `session-file tail for ${paneId} failed: ${e}`),
+          );
       }),
     );
 
@@ -147,7 +158,12 @@ export function useUsageChannel(deck: Deck): void {
               tailedRef.current.delete(paneId);
               return;
             }
-            return watchSessionFile(paneId, path, token, "codex");
+            // The pane may have closed while the lookup ran — arming now
+            // would resurrect a tail the sweep already buried.
+            if (!tailedRef.current.has(paneId)) return;
+            return watchSessionFile(paneId, path, token, "codex").then(() =>
+              settleArm(paneId),
+            );
           })
           .catch((e) => {
             tailedRef.current.delete(paneId);
@@ -196,7 +212,10 @@ export function useUsageChannel(deck: Deck): void {
       const limits = usageByAgentRef.current.get(agentId)?.limits;
       if (!limits) continue;
       const fetch = LIMIT_SOURCES[limits.poll];
-      const tick = () =>
+      const tick = () => {
+        // A hidden window keeps its panes but nobody is reading the chip —
+        // don't spend the provider's request budget on it.
+        if (document.hidden) return;
         void fetch()
           .then((body) => {
             const account = limits.normalize(body, Date.now());
@@ -207,6 +226,7 @@ export function useUsageChannel(deck: Deck): void {
           .catch((e) =>
             log.debug("web:usage", `${limits.poll} poll failed: ${e}`),
           );
+      };
       tick();
       timers.push(setInterval(tick, LIMITS_POLL_MS));
     }

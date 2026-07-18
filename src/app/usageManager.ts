@@ -55,7 +55,14 @@ export function registerUsageNormalizer(
 }
 
 /** Apply one VERIFIED bridge report. Unknown agents and unrecognizable
- * payloads are dropped silently — reporters are best-effort by design. */
+ * payloads are dropped silently — reporters are best-effort by design.
+ *
+ * `payload.catchUp` (a host-owned transport key, set by the tailer) marks
+ * a replay of the EXISTING session file at arm time. Replays are stamped
+ * with RECEIPT time like everything else, so without the mark a stale
+ * snapshot from a freshly-armed pane would outrank genuinely fresher live
+ * data under freshest-wins; marked reports only FILL GAPS — they never
+ * overwrite an account or pane that already has data. */
 export function reportUsage(
   paneId: string,
   payload: unknown,
@@ -67,9 +74,10 @@ export function reportUsage(
   if (!normalize) return;
   const result = normalize(payload, at);
   if (!result) return;
+  const catchUp = payload.catchUp === true;
 
   let changed = false;
-  if (result.account) {
+  if (result.account && !(catchUp && accounts.has(provider))) {
     const claimed: AccountUsage =
       result.account.kind === "reported"
         ? { ...result.account, sourcePaneId: paneId }
@@ -81,7 +89,7 @@ export function reportUsage(
       changed = true;
     }
   }
-  if (result.pane) {
+  if (result.pane && !(catchUp && panes.has(paneId))) {
     // Merged, not replaced: codex splits model and numbers across events.
     panes = new Map(panes).set(
       paneId,

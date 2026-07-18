@@ -235,6 +235,50 @@ describe("useUsageChannel", () => {
     );
   });
 
+  it("undoes an arm that lands after its pane already closed", async () => {
+    // The native watch resolves only when we let it — the pane closes while
+    // the arm is in flight.
+    let finishWatch!: () => void;
+    ipc.watchSessionFile.mockImplementation(
+      () => new Promise<void>((resolve) => (finishWatch = resolve)),
+    );
+    ipc.findCodexRollout.mockResolvedValue("/x/rollout.jsonl");
+    await mount(
+      deckWith([
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+      ]),
+    );
+    await act(async () => {});
+    expect(ipc.watchSessionFile).toHaveBeenCalled();
+
+    // Pane closes; the sweep unwatches what it knows — the watch is still
+    // in flight, so its late landing must be undone on settle.
+    await mount(deckWith([]));
+    ipc.unwatchSessionFile.mockClear();
+    await act(async () => {
+      finishWatch();
+    });
+    expect(ipc.unwatchSessionFile).toHaveBeenCalledWith("pane-1");
+  });
+
+  it("skips arming when the pane closed during the rollout lookup", async () => {
+    let finishFind!: (path: string) => void;
+    ipc.findCodexRollout.mockImplementation(
+      () => new Promise<string>((resolve) => (finishFind = resolve)),
+    );
+    await mount(
+      deckWith([
+        { id: "pane-1", agentType: "codex", session: { id: "019f-recorded" } },
+      ]),
+    );
+    await act(async () => {});
+    await mount(deckWith([]));
+    await act(async () => {
+      finishFind("/x/rollout.jsonl");
+    });
+    expect(ipc.watchSessionFile).not.toHaveBeenCalled();
+  });
+
   it("unwatches the tail when its pane leaves the deck", async () => {
     await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
     await act(async () => {
