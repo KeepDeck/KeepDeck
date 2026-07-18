@@ -31,6 +31,7 @@ describe("hydrateSettings", () => {
       JSON.stringify({
         version: 1,
         defaultAgent: "codex",
+        defaultYolo: true,
         scrollback: 50_000,
         deckLayout: "list",
         minimizeStyle: "strip",
@@ -43,6 +44,7 @@ describe("hydrateSettings", () => {
     );
     expect(doc?.settings).toEqual({
       defaultAgent: "codex",
+      defaultYolo: true,
       scrollback: 50_000,
       deckLayout: "list",
       minimizeStyle: "strip",
@@ -159,6 +161,18 @@ describe("hydrateSettings", () => {
   it("a null defaultAgent (older document) degrades to the default", () => {
     const doc = hydrateSettings(JSON.stringify({ defaultAgent: null }));
     expect(doc?.settings.defaultAgent).toBe(DEFAULT_SETTINGS.defaultAgent);
+  });
+
+  it("defaultYolo stays sparse at its default and degrades a non-boolean", () => {
+    expect(serializeSettings(defaultSettingsDocument())).not.toContain(
+      "defaultYolo",
+    );
+    const armed = defaultSettingsDocument();
+    armed.settings.defaultYolo = true;
+    expect(JSON.parse(serializeSettings(armed)).defaultYolo).toBe(true);
+    // Hand-editable file: a typo'd value falls back to off, not to garbage.
+    const doc = hydrateSettings(JSON.stringify({ defaultYolo: "on" }));
+    expect(doc?.settings.defaultYolo).toBe(false);
   });
 
 });

@@ -70,6 +70,10 @@ export interface Settings {
    * agent; if it isn't installed, the pickers snap to the first one that
    * is ([F1]). */
   defaultAgent: AgentType;
+  /** YOLO mode preselected wherever an agent is created — each dialog's
+   * toggle starts here and overrides per spawn. Applies at creation only:
+   * flipping it never touches existing panes. */
+  defaultYolo: boolean;
   /** Scrollback lines kept per terminal pane. */
   scrollback: number;
   /** How a workspace's agents are laid out (grid / list). */
@@ -104,6 +108,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultAgent: "claude",
+  defaultYolo: false,
   scrollback: 10_000,
   deckLayout: "grid",
   minimizeStyle: "tray",
@@ -262,6 +267,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   // to the first selectable agent.
   if (typeof doc.defaultAgent === "string" && doc.defaultAgent) {
     settings.defaultAgent = doc.defaultAgent;
+  }
+  if (typeof doc.defaultYolo === "boolean") {
+    settings.defaultYolo = doc.defaultYolo;
   }
   if (typeof doc.scrollback === "number" && Number.isFinite(doc.scrollback)) {
     settings.scrollback = clampScrollback(doc.scrollback);
