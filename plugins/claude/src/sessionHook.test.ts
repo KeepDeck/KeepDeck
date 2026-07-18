@@ -71,4 +71,26 @@ describe("kd-session-hook.sh", () => {
       payload: { sessionId: "sid-1" },
     });
   });
+
+  it("drops a JSON-hostile transcript path rather than the whole binding", () => {
+    // A quote in a path component would corrupt the printf'd envelope and
+    // cost the pane its identity — the guard falls back to a bare bind.
+    const dir = inbox();
+    run(
+      dir,
+      JSON.stringify({
+        session_id: "sid-1",
+        transcript_path: '/Users/me/pro"j/rollout.jsonl',
+      }),
+    );
+    expect(envelope(dir).payload).toEqual({ sessionId: "sid-1" });
+  });
+
+  it("keeps the claude and codex copies byte-identical — the shared-script invariant", () => {
+    const codex = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../codex/resources/kd-session-hook.sh",
+    );
+    expect(readFileSync(codex, "utf8")).toBe(readFileSync(SCRIPT, "utf8"));
+  });
 });

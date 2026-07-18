@@ -36,6 +36,11 @@ if [ -f "$index" ]; then
     | sed -n 's/.*"sessionDir"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   [ -n "$sdir" ] && transcript="$sdir/agents/main/wire.jsonl"
 fi
+# A path with a JSON-hostile character would corrupt the envelope and cost
+# the pane its whole binding — better a bare bind than none.
+case $transcript in
+  *\"*|*\\*) transcript="" ;;
+esac
 if [ -n "$transcript" ]; then
   body=$(printf '{"sessionId":"%s","transcriptPath":"%s"}' "$sid" "$transcript")
 else

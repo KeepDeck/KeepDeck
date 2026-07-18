@@ -36,10 +36,15 @@ sid=$(printf '%s' "$payload" \
   | head -n 1)
 [ -n "$sid" ] || exit 0
 # The transcript/rollout path rides along when the hook payload carries one —
-# codex usage tailing needs it; plain absolute paths, sed-safe like the id.
+# codex usage tailing needs it. Unlike the UUID id, a PATH can carry
+# JSON-hostile characters: a quote or backslash would corrupt the envelope
+# and cost the pane its whole binding — better a bare bind than none.
 transcript=$(printf '%s' "$payload" \
   | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
   | head -n 1)
+case $transcript in
+  *\"*|*\\*) transcript="" ;;
+esac
 if [ -n "$transcript" ]; then
   body=$(printf '{"sessionId":"%s","transcriptPath":"%s"}' "$sid" "$transcript")
 else

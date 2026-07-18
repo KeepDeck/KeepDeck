@@ -139,6 +139,39 @@ describe("Kimi SessionStart reporter", () => {
     });
   });
 
+  it("drops a JSON-hostile session dir rather than the whole binding", () => {
+    const dir = scratch();
+    const home = scratch();
+    const kimiDir = join(home, ".kimi-code");
+    mkdirSync(kimiDir, { recursive: true });
+    writeFileSync(
+      join(kimiDir, "session_index.jsonl"),
+      JSON.stringify({
+        sessionId: "session_abc",
+        sessionDir: `${home}/se"ssions/session_abc`,
+        workDir: "/repo",
+      }) + "\n",
+    );
+    runHook(
+      { hook_event_name: "SessionStart", session_id: "session_abc" },
+      {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        HOME: home,
+        KEEPDECK_BRIDGE: JSON.stringify({
+          v: 1,
+          dir,
+          pane: "pane-kimi",
+          token: "token-kimi",
+        }),
+      },
+    );
+    const files = readdirSync(dir);
+    expect(files).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+      sessionId: "session_abc",
+    });
+  });
+
   it("binds bare when the index has not recorded the session yet", () => {
     const dir = scratch();
     const home = scratch(); // no .kimi-code at all
