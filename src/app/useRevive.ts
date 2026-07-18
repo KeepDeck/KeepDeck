@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentInfo, SpawnPlanContext } from "../domain/agents";
-import { findWorkspace, paneAgentType, type Pane } from "../domain/deck";
+import { findWorkspace, paneAgentType, skillRootsOf, type Pane } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
-import { buildResumeSpec, skillRootsOf } from "./spawnSpecs";
+import { buildResumeSpec } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
 

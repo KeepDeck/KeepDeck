@@ -49,7 +49,6 @@ const plans = vi.hoisted(() => {
       spec?.resumeOrigin === "restore" &&
       !!spec.resumeOf &&
       spec.postbackMark === count,
-    skillRootsOf: () => [],
   };
 });
 vi.mock("./spawnSpecs", () => plans);
@@ -143,7 +142,7 @@ describe("useAgentRestart", () => {
         cwd: "/worktree",
         branch: "feature/restart",
         yolo: true,
-        wsSkillRoots: [],
+        wsSkillRoots: ["/worktree"],
       },
       ctx,
       "session-old",

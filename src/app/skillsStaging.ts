@@ -8,21 +8,30 @@
  * a failed staging degraded by the IPC layer) is remembered too: panes then
  * spawn without skills rather than re-hitting a broken backend.
  */
+import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import { stageSkills, type SkillsStagingViews } from "../ipc/skills";
 
 const staged = new Map<string, Promise<SkillsStagingViews | null>>();
 
 /** The workspace's staged views (memoized; concurrent callers share one
- * in-flight staging). `worktreeRoots` = the workspace's worktree pane roots. */
+ * in-flight staging). `spawnRoots` = every pane spawn cwd of the workspace
+ * — worktree roots and the plain workspace cwd alike (NOT only worktrees;
+ * codex arming covers wherever a CLI actually starts). */
 export function stagedSkillsFor(
-  wsId: string,
-  worktreeRoots: string[] = [],
+  workspace: WorkspaceRef,
+  spawnRoots: string[] = [],
 ): Promise<SkillsStagingViews | null> {
-  const roots = [...new Set(worktreeRoots)].sort();
-  const key = [wsId, ...roots].join("\n");
+  const roots = [...new Set(spawnRoots)].sort();
+  // The memo is keyed by the workspace INSTANCE — ids may be reused after a
+  // close, instances never are, so a reborn id can't be served a dead
+  // lifetime's promise (whose dirs the close's prune may have deleted). The
+  // DISK key stays the durable id: the library the user edits lives under
+  // it, and re-staging the same id rebuilds the same dirs correctly.
+  // NUL-joined: the one byte no path or instance can contain.
+  const key = [workspace.instance, ...roots].join("\u0000");
   let views = staged.get(key);
   if (!views) {
-    views = stageSkills(wsId, roots);
+    views = stageSkills(workspace.id, roots);
     staged.set(key, views);
   }
   return views;

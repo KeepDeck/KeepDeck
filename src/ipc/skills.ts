@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SpawnSkillsInput } from "@keepdeck/plugin-api";
 import type { SkillScope } from "../domain/skills";
 import { describeError, log } from "./log";
 
@@ -11,10 +10,19 @@ export interface StoredSkill {
   content: string;
 }
 
-/** A workspace's staged skill views (mirrors the Rust `SkillStagingDto`) —
- * exactly the shape hooks receive, so the wire and the plugin contract
- * cannot drift apart. */
-export type SkillsStagingViews = SpawnSkillsInput;
+/** A workspace's staged skill views (mirrors the Rust `SkillStagingDto`).
+ * Deliberately its OWN interface, not an alias of the plugin contract's
+ * `SpawnSkillsInput`: the wire may one day carry host-only fields a
+ * sandboxed plugin must not see, and the two shapes must be free to
+ * diverge (the host narrows when it feeds hook input). */
+export interface SkillsStagingViews {
+  /** Claude-plugin layout (`.claude-plugin/plugin.json` + `skills/`). */
+  claudePluginDir: string;
+  /** OpenCode config-directory layout (`skills/` + `command/` subdirs). */
+  opencodeConfigDir: string;
+  /** Bare standard layout (`<skill>/SKILL.md` at the top level). */
+  skillsDir: string;
+}
 
 const wire = (scope: SkillScope) =>
   scope.kind === "global"

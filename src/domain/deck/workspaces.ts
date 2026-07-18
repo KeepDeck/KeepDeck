@@ -536,6 +536,17 @@ export function paneExecutionCwd(ws: Workspace, pane: Pane): string | null {
 
 /** The distinct effective directories whose git HEAD the app may observe for
  * pane-header branch badges and worktree cleanup decisions. */
+/** The workspace's pane spawn cwds, deduped: worktree roots and the
+ * workspace cwd alike — wherever a CLI actually starts. Skills staging arms
+ * each of these with the codex-facing `.agents/skills` symlink. */
+export function skillRootsOf(ws: Workspace): string[] {
+  return [
+    ...new Set(
+      ws.panes.filter((p) => !p.provisioning).map((p) => p.cwd ?? ws.cwd),
+    ),
+  ];
+}
+
 export function gitWatchPaths(workspaces: Workspace[]): Set<string> {
   const paths = new Set<string>();
   for (const ws of workspaces) {

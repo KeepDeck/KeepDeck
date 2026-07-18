@@ -196,7 +196,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     await buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-9", wsId: "ws-1", cwd: "/repo" },
+      { paneId: "pane-9", workspace: W1, cwd: "/repo" },
       ctx,
       "old-id",
       "restore",
