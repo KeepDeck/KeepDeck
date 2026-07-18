@@ -35,6 +35,10 @@ const skill = (
   content: `---\nname: ${name}\ndescription: About ${name}\n---\nBody of ${name}\n`,
 });
 
+const row = (name: string) =>
+  Array.from(
+    document.querySelectorAll<HTMLButtonElement>(".skills__item"),
+  ).find((b) => b.querySelector(".skills__item-name")?.textContent === name);
 const button = (text: string) =>
   Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === text,
@@ -93,10 +97,10 @@ describe("SkillsDialog", () => {
     ];
     await mount();
 
-    expect(button("review")).toBeDefined();
-    expect(button("mine")).toBeDefined();
+    expect(row("review")).toBeDefined();
+    expect(row("mine")).toBeDefined();
     // Another workspace's skill is not this dialog's business.
-    expect(button("foreign")).toBeUndefined();
+    expect(row("foreign")).toBeUndefined();
     // The workspace group is titled by the workspace's own name.
     expect(document.body.textContent).toContain("My project");
   });
@@ -107,15 +111,58 @@ describe("SkillsDialog", () => {
     expect(buttonByTitle("New global skill")).not.toBeNull();
   });
 
-  it("selecting a skill fills the editor; the name is immutable", async () => {
+  it("selecting a skill fills the editor; the name lives in the title", async () => {
     lib.skills = [skill("review")];
     await mount();
-    act(() => button("review")!.click());
+    act(() => row("review")!.click());
 
-    expect(input("skill-name").value).toBe("review");
-    expect(input("skill-name").disabled).toBe(true);
+    // No name input in edit mode — the name is immutable and reads as the
+    // editor's heading instead.
+    expect(document.querySelector("#skill-name")).toBeNull();
+    expect(
+      document.querySelector(".skills__editor-title")!.textContent,
+    ).toContain("review");
     expect(input("skill-description").value).toBe("About review");
     expect(textarea().value).toBe("Body of review\n");
+  });
+
+  it("the library rows preview each skill's description", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    expect(
+      document.querySelector(".skills__item-desc")!.textContent,
+    ).toBe("About review");
+  });
+
+  it("shows every agent's invocation form next to a saved skill", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+
+    const strip = document.querySelector(".skills__run")!;
+    expect(strip.textContent).toContain("/keepdeck-skills:review");
+    expect(strip.textContent).toContain("Claude Code");
+    expect(strip.textContent).toContain("Kimi Code");
+    expect(strip.textContent).toContain("OpenCode");
+    expect(strip.textContent).toContain("Codex");
+    // Creating a NEW skill shows no strip — nothing to run yet.
+    act(() => buttonByTitle("New global skill")!.click());
+    expect(document.querySelector(".skills__run")).toBeNull();
+  });
+
+  it("⌘S saves when the draft is valid", async () => {
+    await mount();
+    act(() => buttonByTitle("New global skill")!.click());
+    type(input("skill-name"), "deploy");
+    type(input("skill-description"), "Ships it");
+    type(textarea(), "Steps");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "s", metaKey: true }),
+      );
+    });
+    expect(lib.save).toHaveBeenCalledTimes(1);
   });
 
   it("creates a skill in the scope whose + New was clicked", async () => {
@@ -170,7 +217,7 @@ describe("SkillsDialog", () => {
   it("deleting asks first and routes through the library", async () => {
     lib.skills = [skill("review")];
     await mount();
-    act(() => button("review")!.click());
+    act(() => row("review")!.click());
     act(() => button("Delete")!.click());
 
     // In-app confirm, not a system dialog.
@@ -185,7 +232,7 @@ describe("SkillsDialog", () => {
   it("guards unsaved edits behind a discard confirm on close", async () => {
     lib.skills = [skill("review")];
     await mount();
-    act(() => button("review")!.click());
+    act(() => row("review")!.click());
     type(input("skill-description"), "edited");
 
     act(() => buttonByTitle("Close skills")!.click());

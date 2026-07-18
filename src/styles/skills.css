@@ -1,6 +1,7 @@
 /* Skills dialog ([skills]) — the full-screen library editor: a .form card
    stretched to the viewport, library nav on the left, editor filling the
-   rest. Reuses the settings nav-item look for library rows. */
+   rest. The editor's signature is the "Run it" strip: per-agent invocation
+   forms living next to the skill they run. */
 .skills {
   display: flex;
   flex-direction: column;
@@ -11,16 +12,18 @@
 
 .skills__body {
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: 240px 1fr;
   gap: 24px;
   flex: 1;
   min-height: 0;
 }
 
+/* ---- Library nav ---- */
+
 .skills__nav {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   padding-right: 16px;
   border-right: 1px solid #1c2230;
   overflow-y: auto;
@@ -29,22 +32,28 @@
 .skills__group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .skills__group-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 4px;
   color: #6b7280;
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.skills__group-label {
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .skills__new {
+  flex: none;
   padding: 2px 6px;
   border: none;
   border-radius: 5px;
@@ -60,11 +69,55 @@
   color: #c5c8c6;
 }
 
+/* A library row: the name with its description under it — the list should
+   answer "what does this one do" without opening anything. */
+.skills__item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.skills__item:hover {
+  background-color: #161c28;
+}
+
+.skills__item--active {
+  background-color: #1c2230;
+}
+
+.skills__item-name {
+  color: #9aa0a6;
+  font-size: 13px;
+}
+
+.skills__item--active .skills__item-name,
+.skills__item:hover .skills__item-name {
+  color: #c5c8c6;
+}
+
+.skills__item-desc {
+  overflow: hidden;
+  color: #565e6b;
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .skills__empty-group {
   padding: 4px 10px;
   color: #4b5563;
   font-size: 12px;
+  line-height: 1.4;
 }
+
+/* ---- Editor ---- */
 
 .skills__editor {
   display: flex;
@@ -75,6 +128,8 @@
 .skills__placeholder {
   display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 8px;
   align-items: center;
   justify-content: center;
   padding: 24px;
@@ -83,8 +138,121 @@
   text-align: center;
 }
 
-/* The instructions editor is the row that grows; everything else keeps its
-   natural height. Same chrome family as .form__input. */
+.skills__placeholder-title {
+  color: #9aa0a6;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.skills__placeholder span:not(.skills__placeholder-title) {
+  max-width: 380px;
+  line-height: 1.5;
+}
+
+.skills__editor-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.skills__editor-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #c5c8c6;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* The unsaved-changes dot — state, not decoration. */
+.skills__dirty {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #eab308;
+}
+
+.skills__scope {
+  padding: 2px 8px;
+  border: 1px solid #262d3d;
+  border-radius: 999px;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+/* Name/description keep a readable measure; the instructions editor below
+   is the only full-width element. */
+.skills__meta {
+  max-width: 560px;
+}
+
+.skills__hint {
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ---- "Run it" strip ---- */
+
+.skills__run {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.skills__run-label {
+  margin-right: 2px;
+  color: #6b7280;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.skills__chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid #262d3d;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.skills__chip:hover {
+  border-color: #34405a;
+  background-color: #161c28;
+}
+
+.skills__chip-agent {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.skills__chip-form {
+  color: #9aa0a6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.skills__run-note {
+  margin-left: 4px;
+  color: #4b5563;
+  font-size: 11px;
+}
+
+/* ---- Instructions + actions ---- */
+
+.skills__body-label {
+  margin-top: 16px;
+}
+
 .skills__text {
   flex: 1;
   min-height: 0;
@@ -104,19 +272,21 @@
   outline: none;
 }
 
-.skills__hint {
-  margin-top: 4px;
-  color: #6b7280;
-  font-size: 12px;
-}
-
 .skills__actions {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding-top: 14px;
   margin-top: 14px;
+  border-top: 1px solid #1c2230;
 }
 
 .skills__actions-gap {
   flex: 1;
+}
+
+.skills__key-hint {
+  color: #4b5563;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

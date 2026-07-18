@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   isValidSkillDescription,
   isValidSkillName,
@@ -45,18 +45,30 @@ const scopeOf = (skill: StoredSkill): SkillScope =>
     ? { kind: "global" }
     : { kind: "workspace", wsId: skill.wsId ?? "" };
 
+/** Where a saved skill shows up in each CLI — the strip's whole point is
+ * that this differs per agent and nobody should rediscover it in a pane. */
+const runForms = (name: string) => [
+  { agent: "Claude Code", form: `/keepdeck-skills:${name}` },
+  { agent: "Kimi Code", form: `/${name}` },
+  { agent: "OpenCode", form: `/${name}` },
+  { agent: "Codex", form: "worktree panes, automatic" },
+];
+
 /**
  * The shared-skills manager — a full-screen editor over the library ([skills]):
  * one SKILL.md authored here reaches every CLI at its next spawn. Left: the
- * library, grouped Global / This workspace. Right: the editor. Destructive
- * steps (delete, discarding edits) confirm in-app, per the no-system-dialogs
- * rule.
+ * library, grouped Global / This workspace, each row naming the skill and
+ * previewing its description. Right: the editor, with a per-agent "How to
+ * run it" strip so the invocation forms live where the skill is written.
+ * Destructive steps (delete, discarding edits) confirm in-app, per the
+ * no-system-dialogs rule.
  */
 export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   const { skills, error, save, remove } = useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   // A destructive step awaiting confirmation.
   const [confirm, setConfirm] = useState<
     | { kind: "delete"; scope: SkillScope; name: string }
@@ -143,6 +155,25 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
     }
   };
 
+  // ⌘S saves from anywhere in the dialog — the editor is a writing surface
+  // and writers hit ⌘S by reflex.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        void submit();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  const copyForm = (agent: string, form: string) => {
+    navigator.clipboard?.writeText(form).catch(() => {});
+    setCopied(agent);
+    window.setTimeout(() => setCopied((c) => (c === agent ? null : c)), 1200);
+  };
+
   const field =
     (key: "name" | "description" | "body") =>
     (value: string) => {
@@ -155,15 +186,17 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
       selection?.mode === "edit" &&
       selection.name === skill.name &&
       sameScope(selection.scope, scopeOf(skill));
+    const description = parseSkillFile(skill.content).description;
     return (
       <button
         key={`${skill.scope}:${skill.wsId ?? ""}:${skill.name}`}
         type="button"
-        className={`settings__nav-item${active ? " settings__nav-item--active" : ""}`}
+        className={`skills__item${active ? " skills__item--active" : ""}`}
         aria-current={active || undefined}
         onClick={() => navigate({ mode: "edit", scope: scopeOf(skill), name: skill.name })}
       >
-        {skill.name}
+        <span className="skills__item-name">{skill.name}</span>
+        {description && <span className="skills__item-desc">{description}</span>}
       </button>
     );
   };
@@ -171,7 +204,7 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   const group = (label: string, scope: SkillScope, items: StoredSkill[]) => (
     <div className="skills__group">
       <div className="skills__group-head">
-        <span>{label}</span>
+        <span className="skills__group-label">{label}</span>
         <button
           type="button"
           className="skills__new"
@@ -182,9 +215,18 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
         </button>
       </div>
       {items.map(item)}
-      {items.length === 0 && <div className="skills__empty-group">No skills yet</div>}
+      {items.length === 0 && (
+        <div className="skills__empty-group">
+          {scope.kind === "global"
+            ? "Nothing here yet — a global skill reaches every workspace"
+            : "Nothing here yet — these stay with this workspace"}
+        </div>
+      )}
     </div>
   );
+
+  const scopeLabel = (scope: SkillScope) =>
+    scope.kind === "global" ? "Global" : (activeWs?.name ?? "Workspace");
 
   return (
     <ModalOverlay>
@@ -216,63 +258,114 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
           <section className="skills__editor">
             {selection === null ? (
               <div className="skills__placeholder">
-                {skills === null
-                  ? "Loading…"
-                  : "Pick a skill on the left, or create one — it reaches every agent's next session"}
+                {skills === null ? (
+                  "Loading…"
+                ) : (
+                  <>
+                    <span className="skills__placeholder-title">
+                      One skill, every agent
+                    </span>
+                    <span>
+                      Pick a skill on the left or create one — it reaches
+                      Claude Code, Kimi, OpenCode and Codex worktrees at
+                      their next session
+                    </span>
+                  </>
+                )}
               </div>
             ) : (
               <>
-                <label className="form__label" htmlFor="skill-name">
-                  Name
-                </label>
-                <input
-                  id="skill-name"
-                  className="form__input"
-                  value={form.name}
-                  onChange={(e) => field("name")(e.target.value)}
-                  disabled={!creating}
-                  placeholder="kebab-case-name"
-                  spellCheck={false}
-                  autoFocus={creating}
-                />
-                {creating && form.name !== "" && !nameOk && (
-                  <div className="form__error">
-                    Lowercase letters, digits and hyphens only
-                  </div>
-                )}
-                {nameTaken && (
-                  <div className="form__error">
-                    A skill with this name already exists in this scope
+                <div className="skills__editor-head">
+                  <h3 className="skills__editor-title">
+                    {creating ? "New skill" : selection.name}
+                    {dirty && (
+                      <span
+                        className="skills__dirty"
+                        title="Unsaved changes"
+                        aria-label="Unsaved changes"
+                      />
+                    )}
+                  </h3>
+                  <span className="skills__scope">{scopeLabel(selection.scope)}</span>
+                </div>
+
+                <div className="skills__meta">
+                  {creating && (
+                    <>
+                      <label className="form__label" htmlFor="skill-name">
+                        Name
+                      </label>
+                      <input
+                        id="skill-name"
+                        className="form__input"
+                        value={form.name}
+                        onChange={(e) => field("name")(e.target.value)}
+                        placeholder="kebab-case-name"
+                        spellCheck={false}
+                        autoFocus
+                      />
+                      {form.name !== "" && !nameOk && (
+                        <div className="form__error">
+                          Lowercase letters, digits and hyphens only
+                        </div>
+                      )}
+                      {nameTaken && (
+                        <div className="form__error">
+                          A skill with this name already exists in this scope
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <label className="form__label" htmlFor="skill-description">
+                    Description
+                  </label>
+                  <input
+                    id="skill-description"
+                    className="form__input"
+                    value={form.description}
+                    onChange={(e) => field("description")(e.target.value)}
+                    placeholder="When should an agent reach for this skill"
+                    spellCheck={false}
+                  />
+                  {form.description.trim() === "" && (
+                    <div className="skills__hint">
+                      Required — agents pick skills by description, and some
+                      silently drop a skill without one
+                    </div>
+                  )}
+                </div>
+
+                {!creating && (
+                  <div className="skills__run" aria-label="How to run it">
+                    <span className="skills__run-label">Run it</span>
+                    {runForms(selection.name).map(({ agent, form: invocation }) => (
+                      <button
+                        key={agent}
+                        type="button"
+                        className="skills__chip"
+                        onClick={() => copyForm(agent, invocation)}
+                        title={`${agent} — click to copy`}
+                      >
+                        <span className="skills__chip-agent">{agent}</span>
+                        <code className="skills__chip-form">
+                          {copied === agent ? "Copied" : invocation}
+                        </code>
+                      </button>
+                    ))}
+                    <span className="skills__run-note">New sessions only</span>
                   </div>
                 )}
 
-                <label className="form__label" htmlFor="skill-description">
-                  Description
-                </label>
-                <input
-                  id="skill-description"
-                  className="form__input"
-                  value={form.description}
-                  onChange={(e) => field("description")(e.target.value)}
-                  placeholder="When should an agent reach for this skill"
-                  spellCheck={false}
-                />
-                {form.description.trim() === "" && (
-                  <div className="skills__hint">
-                    Required — agents pick skills by description, and some
-                    silently drop a skill without one
-                  </div>
-                )}
-
-                <label className="form__label" htmlFor="skill-body">
-                  Instructions
+                <label className="form__label skills__body-label" htmlFor="skill-body">
+                  Instructions · Markdown
                 </label>
                 <textarea
                   id="skill-body"
                   className="skills__text"
                   value={form.body}
                   onChange={(e) => field("body")(e.target.value)}
-                  placeholder="Markdown the agent reads when the skill triggers"
+                  placeholder="What the agent reads when the skill triggers"
                   spellCheck={false}
                 />
 
@@ -292,6 +385,7 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
                     </DestructiveButton>
                   )}
                   <span className="skills__actions-gap" />
+                  <span className="skills__key-hint">⌘S</span>
                   <button
                     type="button"
                     className="form__create"
