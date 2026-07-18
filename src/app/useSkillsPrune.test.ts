@@ -95,9 +95,15 @@ describe("the skills prune sweep", () => {
     await mount([ws("ws-1", "One", [shared("p1"), shared("p2")])], true);
     expect(wire.disarmSkills).toHaveBeenLastCalledWith(["/wt/a"]);
 
-    // One of the shared-cwd panes closes: the OTHER still runs there —
-    // the workspace cwd must stay armed.
+    // One of the shared-cwd panes closes: the OTHER still runs there — the
+    // workspace cwd must stay armed. The root set is unchanged, so the
+    // sweep doesn't even re-run, and "/repo" is never disarmed.
     await mount([ws("ws-1", "One", [shared("p1")])], true);
-    expect(wire.disarmSkills).toHaveBeenLastCalledWith([]);
+    expect(wire.disarmSkills).not.toHaveBeenCalledWith(["/repo"]);
+    expect(
+      wire.disarmSkills.mock.calls.some(([roots]) =>
+        (roots as string[]).includes("/repo"),
+      ),
+    ).toBe(false);
   });
 });
