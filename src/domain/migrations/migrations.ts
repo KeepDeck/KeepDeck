@@ -143,6 +143,8 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *   8 — + notifications (enabled, mode system-and-app|system|app,
  *       mutedPlugins): delivery channels for the notification system.
  *   9 — + defaultYolo: YOLO mode preselected wherever an agent is created.
+ *  10 — + usageDisplay (used|left): which direction the usage chips'
+ *       percentages run.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -150,7 +152,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 9;
+export const SETTINGS_VERSION = 10;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

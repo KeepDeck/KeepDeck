@@ -303,10 +303,17 @@ export function createHostDispatch(
 
     // ---- agents: identity as data; hooks as host→realm proxies ----
     "agents.register": ([regId, entry]) => {
-      const { id, label, icon, detect, supportsYolo, hookNames } = entry as Omit<
-        AgentContribution,
-        "hooks"
-      > & { hookNames?: string[] };
+      const { id, label, icon, detect, supportsYolo, hookNames, usage } =
+        entry as Omit<AgentContribution, "hooks"> & { hookNames?: string[] };
+      // Usage contributions cannot cross this boundary yet: the store calls
+      // `normalize` SYNCHRONOUSLY per report, and a cross-realm proxy is
+      // necessarily async. Loud, not silent — a plugin author must learn
+      // this from the log, not from a chip that never appears.
+      if (usage !== undefined) {
+        ctx.log.warn(
+          `agent "${String(id)}": usage contributions are not carried across the external tier yet — ignored`,
+        );
+      }
       const hooks: AgentHooks = {};
       for (const name of hookNames ?? []) {
         // Only the contract's hook names become proxies — a made-up name

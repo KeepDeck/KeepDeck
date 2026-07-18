@@ -92,6 +92,7 @@ describe("useAgents", () => {
         supportsYolo: true,
         installed: false,
         path: null,
+        reportsUsage: false,
       },
     ]);
     expect(seen.loading).toBe(false);

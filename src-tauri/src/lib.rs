@@ -8,6 +8,7 @@ mod dnd;
 mod downloads;
 mod fswatch;
 mod head_watch;
+mod kimi_usage;
 mod links;
 mod logging;
 mod menu;
@@ -17,6 +18,7 @@ mod plugins_fs;
 mod ports;
 mod project_fs;
 mod project_git;
+mod session_tail;
 mod session;
 mod sessions;
 mod skills;
@@ -82,6 +84,7 @@ pub fn run() {
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
+        .manage(session_tail::UsageTails::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
         .manage(downloads::DownloadRegistry::default())
@@ -142,6 +145,8 @@ pub fn run() {
             state::settings_load,
             state::settings_save,
             state::settings_quarantine,
+            state::usage_cache_load,
+            state::usage_cache_save,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,
@@ -178,6 +183,11 @@ pub fn run() {
             worktree::worktree_remove,
             head_watch::worktree_watch,
             head_watch::worktree_unwatch,
+            session_tail::usage_watch_session_file,
+            session_tail::usage_unwatch_session_file,
+            session_tail::usage_find_codex_rollout,
+            session_tail::usage_latest_codex_rollout,
+            kimi_usage::kimi_usages_fetch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

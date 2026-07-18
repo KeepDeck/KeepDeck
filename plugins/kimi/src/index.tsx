@@ -13,6 +13,7 @@ import {
   type SetupState,
 } from "./setupController";
 import { createSetupSection } from "./SetupSection";
+import { normalizeKimiUsages, normalizeKimiWire } from "./usage";
 
 let activeController: ReturnType<typeof createKimiSetupController> | null = null;
 
@@ -58,6 +59,13 @@ const plugin: KeepDeckPlugin = {
       icon,
       detect: { bin: "kimi" },
       supportsYolo: true,
+      // Tokens/context ride the tailed wire.jsonl; rate windows exist only
+      // behind the polled usages endpoint (kimi's own /usage queries it too).
+      usage: {
+        normalize: normalizeKimiWire,
+        tail: "kimi-wire",
+        limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
+      },
       hooks: {
         "spawn.plan": (input, output) => {
           output.args = [

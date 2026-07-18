@@ -4,10 +4,13 @@
 //! hand-rolling a `notify` watcher and a `Mutex<HashMap<_, Watcher>>`, they
 //! share this.
 //!
-//! Watching is passive: the OS notifies us (FSEvents on macOS, inotify on
-//! Linux), and we hold NO handle on the watched files. So a watched directory
-//! — a gitdir, a project folder open in the tree — is never blocked or slowed,
-//! and git, agents and the user run unaffected.
+//! The `watch_dir*` primitives are passive: the OS notifies us (FSEvents on
+//! macOS, inotify on Linux), and we hold NO handle on the watched files —
+//! a watched directory (a gitdir, a project folder open in the tree) is
+//! never blocked or slowed. The REGISTRY below is broader than the passive
+//! family: it also hosts the session-tail pollers (`session_tail`), which
+//! actively stat one file per tick because OS events are blind to appends
+//! on a still-open file — see that module's doc for the reproduced why.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -57,20 +60,30 @@ fn watch(
     Ok(watcher)
 }
 
-/// A registry of live directory watchers keyed by a caller-chosen string.
-/// Inserting under a key that already exists REPLACES (and thereby stops) the
-/// prior watcher; removing stops it (the watcher drops). Thread-safe and
-/// `Default` — designed to sit behind Tauri managed state, wrapped in a newtype
-/// so distinct call sites (`HeadWatchers`, `ProjectFsWatchers`) get distinct
-/// managed types.
-#[derive(Default)]
-pub struct WatchRegistry {
-    inner: Mutex<HashMap<String, RecommendedWatcher>>,
+/// A registry of live watchers keyed by a caller-chosen string. Inserting
+/// under a key that already exists REPLACES (and thereby stops) the prior
+/// watcher; removing stops it (the watcher drops). Thread-safe and
+/// `Default` — designed to sit behind Tauri managed state, wrapped in a
+/// newtype so distinct call sites (`HeadWatchers`, `ProjectFsWatchers`,
+/// `UsageTails`) get distinct managed types. Generic over the watcher kind
+/// so the polling family shares it too.
+pub struct WatchRegistry<W = RecommendedWatcher> {
+    inner: Mutex<HashMap<String, W>>,
 }
 
-impl WatchRegistry {
+// Manual, not derived: a derive would demand `W: Default`, and watchers
+// have no Default — an empty registry needs none.
+impl<W> Default for WatchRegistry<W> {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl<W> WatchRegistry<W> {
     /// Register (or replace) the watcher under `key`.
-    pub fn insert(&self, key: String, watcher: RecommendedWatcher) {
+    pub fn insert(&self, key: String, watcher: W) {
         self.lock().insert(key, watcher);
     }
 
@@ -79,7 +92,7 @@ impl WatchRegistry {
         self.lock().remove(key);
     }
 
-    fn lock(&self) -> MutexGuard<'_, HashMap<String, RecommendedWatcher>> {
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, W>> {
         self.inner.lock().expect("watch registry poisoned")
     }
 }

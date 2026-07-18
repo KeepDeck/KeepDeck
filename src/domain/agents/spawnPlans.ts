@@ -40,9 +40,15 @@ export interface SpawnPlan {
   /** Env pairs applied only when the key is NOT already inherited — a
    * user-owned variable beats a plugin's default (see SpawnPlanOutput). */
   envDefaults?: [string, string][];
-  /** The per-spawn bridge secret. A reporter must echo it in its postback;
-   * the binding hook refuses postbacks whose token doesn't match — writing a
-   * file into the inbox is not enough to bind a pane. */
+  /** The PER-PANE bridge secret — NOT per build. A reporter must echo it in
+   * its postback; the binding hook refuses postbacks whose token doesn't
+   * match — writing a file into the inbox is not enough to bind a pane.
+   *
+   * INVARIANT: rebuilding a plan for a pane whose process is still alive
+   * must REUSE the cached token (`buildPlan` does; any new plan-building
+   * path must too) — a fresh mint would orphan the token the live process's
+   * reporters echo, and every postback would fail verification forever.
+   * Only an explicit restart, which drops the spec first, mints fresh. */
   token?: string;
   /** Host bookkeeping: the recorded session this plan tries to RESUME. Set
    * only on resume plans — the resume-failure detector keys off it. */

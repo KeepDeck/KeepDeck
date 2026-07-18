@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DeckStage } from "./components/DeckStage";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
@@ -17,6 +17,7 @@ import { usePersistence } from "./app/usePersistence";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
+import { useUsageChannel } from "./app/useUsageChannel";
 import { useSettings } from "./app/useSettings";
 import { useMinimizeMode } from "./app/useMinimizeMode";
 import { DEFAULT_SETTINGS } from "./domain/settings";
@@ -31,6 +32,7 @@ import {
 } from "./app/notificationProducers";
 import { useNotifications } from "./app/useNotifications";
 import { NotificationBell } from "./components/notifications/NotificationBell";
+import { UsageChips } from "./components/usage/UsageChips";
 import { unreadByWorkspace, type Notification } from "./domain/notifications";
 import {
   settingsSectionForNotification,
@@ -64,6 +66,8 @@ import {
   findWorkspace,
   MAX_PANES,
   maximizeHotkeyTarget,
+  paneAgentType,
+  paneDisplayTitle,
   paneOnScreen,
   pathOccupancy,
   type SpawnConfig,
@@ -139,6 +143,35 @@ function App() {
   );
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
   useSessionBinding(deck);
+  // Wire bridge usage reports into the usage store (single mount) and prune
+  // pane usage as panes close; the chips read the store on their own.
+  useUsageChannel(deck);
+  // Pane display titles for the usage panel's session rows, and the agent
+  // ids present in the deck — every one earns a chip immediately, so the
+  // usage roster is stable instead of appearing report by report.
+  const usagePaneNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const ws of deck.workspaces) {
+      ws.panes.forEach((pane, index) => {
+        names.set(pane.id, paneDisplayTitle(pane, index, agents));
+      });
+    }
+    return names;
+  }, [deck.workspaces, agents]);
+  const usageLiveAgents = useMemo(() => {
+    const ids = new Set<string>();
+    for (const ws of deck.workspaces) {
+      for (const pane of ws.panes) {
+        // Dormant/provisioning panes have no running process — counting
+        // them gave background workspaces eternal "waiting" chips (revive
+        // only wakes the active workspace). Same filter as the tail and
+        // polling lanes.
+        if (pane.dormant || pane.provisioning) continue;
+        ids.add(paneAgentType(pane));
+      }
+    }
+    return ids;
+  }, [deck.workspaces]);
   // Runtime git HEAD observations for pane badges and worktree close cleanup.
   const gitHeads = useGitHead(deck);
   // The new-workspace form is open (also shown whenever there are no workspaces).
@@ -565,6 +598,13 @@ function App() {
               {updateState.phase === "installing" && "Restarting…"}
             </button>
           )}
+          {/* Provider limit chips — visible before the hand reaches for
+              another agent; nothing renders until a first report lands. */}
+          <UsageChips
+            agents={agents}
+            liveAgents={usageLiveAgents}
+            paneNames={usagePaneNames}
+          />
           <button
             type="button"
             className="bar__action"

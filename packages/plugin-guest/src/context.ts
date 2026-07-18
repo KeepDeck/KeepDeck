@@ -391,6 +391,19 @@ export function buildGuestContext(
       // Identity crosses as data; the hooks stay in this realm and the host
       // invokes them per spawn through `hook:<id>` pushes.
       register: (agent) => {
+        // Usage contributions cannot cross this boundary yet: the host
+        // store calls `normalize` SYNCHRONOUSLY per report, and a
+        // cross-realm proxy is necessarily async. Loud, not silent — and
+        // it must be loud HERE, where the declaration actually exists (the
+        // wire payload below never carried it, so a host-side check alone
+        // was dead code — review finding).
+        if (agent.usage !== undefined) {
+          void rpc
+            .call("log.warn", [
+              `agent "${agent.id}": usage contributions are not carried across the external tier yet — ignored`,
+            ])
+            .catch(noop);
+        }
         agentHooks.set(agent.id, agent.hooks);
         return registerRemote(
           "agents.register",

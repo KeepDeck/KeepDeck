@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import {
   closeSync,
+  mkdirSync,
   mkdtempSync,
   openSync,
   readFileSync,
@@ -89,6 +90,108 @@ describe("Kimi SessionStart reporter", () => {
       paneId: "pane-kimi",
       token: "token-kimi",
       payload: { sessionId: "session_24f9c57a" },
+    });
+  });
+
+  it("resolves the wire.jsonl transcript through the session index", () => {
+    const dir = scratch();
+    // A fake $HOME carrying kimi's session index; the LAST line for the id
+    // wins (kimi appends on every open).
+    const home = scratch();
+    const kimiDir = join(home, ".kimi-code");
+    mkdirSync(kimiDir, { recursive: true });
+    writeFileSync(
+      join(kimiDir, "session_index.jsonl"),
+      [
+        JSON.stringify({
+          sessionId: "session_abc",
+          sessionDir: "/old/dir",
+          workDir: "/repo",
+        }),
+        JSON.stringify({
+          sessionId: "session_abc",
+          sessionDir: `${home}/sessions/wd_repo/session_abc`,
+          workDir: "/repo",
+        }),
+        "",
+      ].join("\n"),
+    );
+
+    runHook(
+      { hook_event_name: "SessionStart", session_id: "session_abc" },
+      {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        HOME: home,
+        KEEPDECK_BRIDGE: JSON.stringify({
+          v: 1,
+          dir,
+          pane: "pane-kimi",
+          token: "token-kimi",
+        }),
+      },
+    );
+
+    const files = readdirSync(dir);
+    expect(files).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+      sessionId: "session_abc",
+      transcriptPath: `${home}/sessions/wd_repo/session_abc/agents/main/wire.jsonl`,
+    });
+  });
+
+  it("drops a JSON-hostile session dir rather than the whole binding", () => {
+    const dir = scratch();
+    const home = scratch();
+    const kimiDir = join(home, ".kimi-code");
+    mkdirSync(kimiDir, { recursive: true });
+    writeFileSync(
+      join(kimiDir, "session_index.jsonl"),
+      JSON.stringify({
+        sessionId: "session_abc",
+        sessionDir: `${home}/se"ssions/session_abc`,
+        workDir: "/repo",
+      }) + "\n",
+    );
+    runHook(
+      { hook_event_name: "SessionStart", session_id: "session_abc" },
+      {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        HOME: home,
+        KEEPDECK_BRIDGE: JSON.stringify({
+          v: 1,
+          dir,
+          pane: "pane-kimi",
+          token: "token-kimi",
+        }),
+      },
+    );
+    const files = readdirSync(dir);
+    expect(files).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+      sessionId: "session_abc",
+    });
+  });
+
+  it("binds bare when the index has not recorded the session yet", () => {
+    const dir = scratch();
+    const home = scratch(); // no .kimi-code at all
+    runHook(
+      { hook_event_name: "SessionStart", session_id: "session_new" },
+      {
+        PATH: process.env.PATH ?? "/usr/bin:/bin",
+        HOME: home,
+        KEEPDECK_BRIDGE: JSON.stringify({
+          v: 1,
+          dir,
+          pane: "pane-kimi",
+          token: "token-kimi",
+        }),
+      },
+    );
+    const files = readdirSync(dir);
+    expect(files).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(dir, files[0]), "utf8")).payload).toEqual({
+      sessionId: "session_new",
     });
   });
 });

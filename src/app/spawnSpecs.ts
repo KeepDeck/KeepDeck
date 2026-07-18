@@ -165,7 +165,16 @@ async function buildPlan(
   }
   // Bridge arming is host business: reporters read this var; hooks only
   // make the CLI load a reporter. Armed whenever the bridge exists.
-  const token = ctx.bridgeDir ? mintBridgeToken() : null;
+  //
+  // The token is PER PANE, not per build: a rebuild while the pane's
+  // process is alive (observed: a double-revive rebuilding the resume
+  // plan) must not orphan the token that process's reporters echo — every
+  // postback would fail verification forever. An explicit restart drops
+  // the spec first (`dropPaneSpawnSpec`), so a genuinely new process still
+  // gets a fresh token.
+  const token = ctx.bridgeDir
+    ? (specs.get(paneId)?.token ?? mintBridgeToken())
+    : null;
   const env: [string, string][] = token
     ? [
         ...output.env,

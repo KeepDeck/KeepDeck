@@ -66,6 +66,7 @@ const catalog = {
     supportsYolo: false,
     installed: true,
     path: null,
+    reportsUsage: true,
   })),
   ready: true,
 };
