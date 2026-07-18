@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createWorkspaceInstance } from "../workspaceInstance";
 import type { DeckState } from "./reducer";
 import {
   DECK_STATE_VERSION,
@@ -19,6 +20,7 @@ const state: DeckState = {
   workspaces: [
     {
       id: "ws-2",
+      instance: createWorkspaceInstance(),
       name: "KeepDeck",
       cwd: "/repo",
       worktreeBaseDir: "/repo/.wt",
@@ -36,6 +38,7 @@ const state: DeckState = {
     },
     {
       id: "ws-5",
+      instance: createWorkspaceInstance(),
       name: "Site",
       cwd: "/site",
       worktreeBaseDir: null,
@@ -70,9 +73,27 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     }
   });
 
-  it("derives the id-mint seeds from the highest persisted ids", () => {
+  it("recreates runtime workspace identities instead of persisting them", () => {
+    const json = serializeDeck(state);
+    expect(json).not.toContain('"instance"');
+    expect(restored.state.workspaces[0].instance).not.toBe(
+      state.workspaces[0].instance,
+    );
+  });
+
+  it("ignores a stale persisted instance instead of preserving it as an extra", () => {
+    const raw = JSON.parse(serializeDeck(state));
+    raw.workspaces[0].instance = "stale-runtime-token";
+    const hydrated = okDeck(JSON.stringify(raw));
+
+    expect(typeof hydrated.state.workspaces[0].instance).toBe("string");
+    expect(serializeDeck(hydrated.state, hydrated.docExtras)).not.toContain(
+      '"instance"',
+    );
+  });
+
+  it("derives the pane id-mint seed from the highest persisted id", () => {
     expect(restored.nextAgentSeq).toBe(8); // pane-7 + 1
-    expect(restored.nextWorkspaceSeq).toBe(6); // ws-5 + 1
   });
 
   it("never persists the dock state — every launch starts closed", () => {
@@ -89,7 +110,14 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     // or without them — usePersistence's identity guard then skips the write.
     const base: DeckState = {
       workspaces: [
-        { id: "ws-1", name: "a", cwd: "/r", worktreeBaseDir: null, panes: [{ id: "pane-1" }] },
+        {
+          id: "ws-1",
+          instance: createWorkspaceInstance(),
+          name: "a",
+          cwd: "/r",
+          worktreeBaseDir: null,
+          panes: [{ id: "pane-1" }],
+        },
       ],
       activeId: "ws-1",
       viewByWs: { "ws-1": { select: "pane-1" } },
@@ -122,6 +150,7 @@ describe("pane YOLO mode across a restart", () => {
     workspaces: [
       {
         id: "ws-1",
+        instance: createWorkspaceInstance(),
         name: "a",
         cwd: "/r",
         worktreeBaseDir: null,
@@ -189,6 +218,35 @@ describe("hydrateDeck — unusable input", () => {
           selectByWs: {},
           workspaces: [
             { id: "ws-1", name: "x", cwd: "/x", worktreeBaseDir: null, panes },
+          ],
+        }),
+      ).kind,
+    ).toBe("corrupt");
+  });
+
+  it("rejects duplicate workspace ids", () => {
+    expect(
+      hydrateDeck(
+        JSON.stringify({
+          version: 1,
+          activeId: "ws-1",
+          focusByWs: {},
+          selectByWs: {},
+          workspaces: [
+            {
+              id: "ws-1",
+              name: "first",
+              cwd: "/first",
+              worktreeBaseDir: null,
+              panes: [],
+            },
+            {
+              id: "ws-1",
+              name: "duplicate",
+              cwd: "/second",
+              worktreeBaseDir: null,
+              panes: [],
+            },
           ],
         }),
       ).kind,
@@ -282,7 +340,7 @@ describe("hydrateDeck — tolerated degradations", () => {
     expect(stale.state.viewByWs).toEqual({});
   });
 
-  it("seeds mints at 1 when no ids match the minted format", () => {
+  it("seeds the pane mint at 1 when no ids match the minted format", () => {
     const custom = okDeck(
       JSON.stringify({
         version: 1,
@@ -295,7 +353,6 @@ describe("hydrateDeck — tolerated degradations", () => {
       }),
     );
     expect(custom.nextAgentSeq).toBe(1);
-    expect(custom.nextWorkspaceSeq).toBe(1);
   });
 });
 
@@ -304,6 +361,7 @@ describe("provisioning panes across a restart", () => {
     workspaces: [
       {
         id: "ws-1",
+        instance: createWorkspaceInstance(),
         name: "deck",
         cwd: "/repo",
         worktreeBaseDir: "/wt",
@@ -360,6 +418,7 @@ describe("workspace plugin slots round-trip", () => {
     workspaces: [
       {
         id: "ws-1",
+        instance: createWorkspaceInstance(),
         name: "app",
         cwd: "/repo",
         worktreeBaseDir: null,
@@ -551,6 +610,7 @@ describe("deck v5 — Workspace.run retirement", () => {
       workspaces: [
         {
           id: "ws-1",
+          instance: createWorkspaceInstance(),
           name: "app",
           cwd: "/repo",
           worktreeBaseDir: null,
@@ -568,7 +628,14 @@ describe("deck v5 — Workspace.run retirement", () => {
   it("a workspace without setup stays without the field (sparse)", () => {
     const bareState: DeckState = {
       workspaces: [
-        { id: "ws-1", name: "app", cwd: "/repo", worktreeBaseDir: null, panes: [] },
+        {
+          id: "ws-1",
+          instance: createWorkspaceInstance(),
+          name: "app",
+          cwd: "/repo",
+          worktreeBaseDir: null,
+          panes: [],
+        },
       ],
       activeId: "ws-1",
       viewByWs: {},
@@ -633,6 +700,7 @@ describe("provisioning phase is runtime-only", () => {
       workspaces: [
         {
           id: "ws-1",
+          instance: createWorkspaceInstance(),
           name: "a",
           cwd: "/repo",
           worktreeBaseDir: "/wt",

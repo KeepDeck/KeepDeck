@@ -19,6 +19,7 @@ import { RunTab } from "./RunTab";
 
 const workspace: WorkspaceSnapshot = {
   id: "ws-1",
+  instance: "instance-1",
   name: "app",
   cwd: "/repo",
   panes: [
@@ -34,7 +35,7 @@ const PRESETS: RunPreset[] = [
 
 const running = (over: Partial<RunSession> = {}): RunSession => ({
   id: "s1",
-  wsId: "ws-1",
+  workspace,
   name: "Dev",
   presetId: "run-1",
   command: "pnpm dev",
@@ -145,7 +146,7 @@ describe("RunTab — the merged Commands list", () => {
 
     act(() => button("Run: Dev")!.click());
     expect(manager.launchRun).toHaveBeenCalledWith(
-      "ws-1",
+      workspace,
       { worktree: "/wt/b", branch: "kd/b" },
       { presetId: "run-1", command: "pnpm dev", name: "Dev" },
     );
@@ -193,7 +194,7 @@ describe("RunTab — the merged Commands list", () => {
     // command (the manager replaces the dead session for that target).
     act(() => button("Run again: Dev (kd/a)")!.click());
     expect(manager.launchRun).toHaveBeenCalledWith(
-      "ws-1",
+      workspace,
       { worktree: "/wt/a", branch: "kd/a" },
       { presetId: "run-1", command: "pnpm dev", name: "Dev" },
     );
@@ -211,7 +212,7 @@ describe("RunTab — the merged Commands list", () => {
     act(() => button("Run again: Dev")!.click());
     // The edited preset command wins over the dead session's snapshot.
     expect(manager.launchRun).toHaveBeenCalledWith(
-      "ws-1",
+      workspace,
       { worktree: "/wt/b", branch: "kd/b" },
       { presetId: "run-1", command: "pnpm dev", name: "Dev" },
     );
@@ -349,7 +350,7 @@ describe("RunTab — the merged Commands list", () => {
     act(() => button("Delete preset Tests")!.click());
     // Dead sessions of the deleted command are swept — without this a
     // same-named orphan row made the delete look like it didn't work.
-    expect(manager.removeDeadRunsFor).toHaveBeenCalledWith("ws-1", "run-2");
+    expect(manager.removeDeadRunsFor).toHaveBeenCalledWith(workspace, "run-2");
     expect(kv.set).toHaveBeenLastCalledWith(
       "presets",
       expect.not.arrayContaining([expect.objectContaining({ id: "run-2" })]),

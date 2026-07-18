@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 
 vi.mock("./terminal/TerminalPane", () => ({
   TerminalPane: vi.fn(() => null),
@@ -16,6 +17,7 @@ import { DeckStage } from "./DeckStage";
 const workspaces = [
   {
     id: "ws-1",
+    instance: createWorkspaceInstance(),
     name: "Workspace",
     cwd: "/repo",
     worktreeBaseDir: null,
@@ -34,6 +36,7 @@ const twoWorkspaces = [
   ...workspaces,
   {
     id: "ws-2",
+    instance: createWorkspaceInstance(),
     name: "Second workspace",
     cwd: "/repo-2",
     worktreeBaseDir: null,

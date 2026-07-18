@@ -1,18 +1,35 @@
 import { describe, expect, it, vi } from "vitest";
-import { closedWorkspaceIds, revealDockTabOn } from "./usePluginDeckBridge";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { closedWorkspaces, revealDockTabOn } from "./usePluginDeckBridge";
 
-describe("closedWorkspaceIds", () => {
+const ref = (id: string, instance = createWorkspaceInstance()) => ({
+  id,
+  instance,
+});
+
+describe("closedWorkspaces", () => {
   it("names exactly the ids that disappeared", () => {
-    expect(closedWorkspaceIds(["a", "b", "c"], ["a", "c"])).toEqual(["b"]);
+    const a = ref("a");
+    const b = ref("b");
+    const c = ref("c");
+    expect(closedWorkspaces([a, b, c], [a, c])).toEqual([b]);
   });
 
   it("is empty on growth, reorder, and the first render", () => {
-    expect(closedWorkspaceIds([], ["a"])).toEqual([]);
-    expect(closedWorkspaceIds(["a", "b"], ["b", "a", "c"])).toEqual([]);
+    const a = ref("a");
+    const b = ref("b");
+    expect(closedWorkspaces([], [a])).toEqual([]);
+    expect(closedWorkspaces([a, b], [b, a, ref("c")])).toEqual([]);
   });
 
   it("reports several removals at once (multi-close on hydrate)", () => {
-    expect(closedWorkspaceIds(["a", "b", "c"], [])).toEqual(["a", "b", "c"]);
+    const previous = [ref("a"), ref("b"), ref("c")];
+    expect(closedWorkspaces(previous, [])).toEqual(previous);
+  });
+
+  it("reports the old lifetime when the same public id is reused", () => {
+    const old = ref("ws-3");
+    expect(closedWorkspaces([old], [ref("ws-3")])).toEqual([old]);
   });
 });
 

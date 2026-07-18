@@ -2,8 +2,10 @@ import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
-import { resolveActiveId } from "./workspaces";
+import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
+import { nextIdSequence } from "../idSequence";
 import { collectExtras, isRecord } from "../json";
+import { createWorkspaceInstance } from "../workspaceInstance";
 import { MAX_PANES } from "./layout";
 
 /**
@@ -32,15 +34,14 @@ export { DECK_STATE_VERSION } from "../migrations";
  * a restored in-flight provisioning so it surfaces as the failed card. */
 export const PROVISIONING_INTERRUPTED = "Worktree creation was interrupted";
 
-/** What hydration yields: the restored state plus the id-mint floors derived
- * from the highest persisted `pane-N` / `ws-N` (never stored separately — one
- * source of truth). */
+/** What hydration yields: the restored state plus the pane-id mint floor
+ * derived from the highest persisted `pane-N` (never stored separately — one
+ * source of truth). Workspace ids are derived from the live deck at create
+ * time, so they need no hydration seed. */
 export interface HydratedDeck {
   state: DeckState;
   /** Seed for the agent-seq mint: one past the highest restored pane number. */
   nextAgentSeq: number;
-  /** Seed for the workspace-seq mint: one past the highest restored ws number. */
-  nextWorkspaceSeq: number;
   /** Unknown top-level keys of the stored document (a newer revision's
    * fields) — handed back to `serializeDeck` so saves never strip them. */
   docExtras: Record<string, unknown>;
@@ -140,6 +141,16 @@ export function hydrateDeck(json: string): HydrateDeckResult {
     if (!ws) return corrupt;
     workspaces.push(ws);
   }
+  // Duplicate ids make every by-id selector ambiguous and one close removes
+  // several rows. Old buggy builds could persist them, so quarantine rather
+  // than restoring a deck that violates the state owner's core invariant.
+  if (!workspaceIdsAreUnique(workspaces)) return corrupt;
+
+  const nextAgentSeq = nextIdSequence(
+    workspaces.flatMap((w) => w.panes.map((p) => p.id)),
+    "pane",
+  );
+  if (nextAgentSeq === null) return corrupt;
 
   const paneIdsByWs = new Map(
     workspaces.map((w) => [w.id, new Set(w.panes.map((p) => p.id))]),
@@ -191,9 +202,7 @@ export function hydrateDeck(json: string): HydrateDeckResult {
         activeId,
         viewByWs,
       },
-      nextAgentSeq:
-        maxSeq(workspaces.flatMap((w) => w.panes.map((p) => p.id)), "pane") + 1,
-      nextWorkspaceSeq: maxSeq(workspaces.map((w) => w.id), "ws") + 1,
+      nextAgentSeq,
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
     },
   };
@@ -211,6 +220,9 @@ const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
 
 const WS_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "id",
+  // Runtime-owned: ignore a hand-written/stale persisted value instead of
+  // preserving it as a forward-compatible extra.
+  "instance",
   "name",
   "cwd",
   "worktreeBaseDir",
@@ -252,7 +264,14 @@ function readWorkspace(value: unknown): Workspace | null {
     if (!pane) return null;
     panes.push(pane);
   }
-  const ws: Workspace = { id, name, cwd, worktreeBaseDir, panes };
+  const ws: Workspace = {
+    id,
+    instance: createWorkspaceInstance(),
+    name,
+    cwd,
+    worktreeBaseDir,
+    panes,
+  };
   // Tolerant like `run`'s own setup: a non-string or blank value degrades to
   // absent rather than rejecting the workspace.
   if (typeof value.setup === "string" && value.setup.trim() !== "") {
@@ -350,15 +369,4 @@ function stripRuntime(
 ): Omit<PaneProvisioning, "error" | "phase"> {
   const { error: _error, phase: _phase, ...intent } = p;
   return intent;
-}
-
-/** Highest `<prefix>-N` among `ids` (0 when none match — seeds start at 1). */
-function maxSeq(ids: string[], prefix: string): number {
-  const re = new RegExp(`^${prefix}-(\\d+)$`);
-  let max = 0;
-  for (const id of ids) {
-    const m = re.exec(id);
-    if (m) max = Math.max(max, Number(m[1]));
-  }
-  return max;
 }

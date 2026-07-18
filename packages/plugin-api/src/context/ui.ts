@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import type { Disposable } from "./disposable.ts";
-import type { WorkspaceSnapshot } from "./snapshots.ts";
+import type { WorkspaceRef, WorkspaceSnapshot } from "./snapshots.ts";
 
 /**
  * UI contributions. This is the one module of the contract that knows React:
@@ -97,5 +97,5 @@ export interface PaneActionContribution {
   id: string;
   title: string;
   Icon?: ComponentType;
-  run(target: { wsId: string; paneId: string }): void;
+  run(target: { workspace: WorkspaceRef; paneId: string }): void;
 }

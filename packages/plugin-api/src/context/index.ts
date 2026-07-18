@@ -78,7 +78,11 @@ export type {
   SettingsField,
   SettingsSectionContribution,
 } from "./settings.ts";
-export type { PaneSnapshot, WorkspaceSnapshot } from "./snapshots.ts";
+export type {
+  PaneSnapshot,
+  WorkspaceRef,
+  WorkspaceSnapshot,
+} from "./snapshots.ts";
 export type { PluginResources } from "./resources.ts";
 export type { PluginKV, PluginStorage } from "./storage.ts";
 export type {

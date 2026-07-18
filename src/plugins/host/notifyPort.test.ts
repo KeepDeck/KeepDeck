@@ -5,6 +5,8 @@ import {
   createPluginNotifyPort,
 } from "./notifyPort";
 
+const workspace = { id: "ws-1", instance: "instance-1" };
+
 function manifest(withCapability = true): PluginManifest {
   return {
     id: "keepdeck.git",
@@ -42,7 +44,7 @@ describe("createPluginNotifyPort", () => {
       title: "  merge conflict  ",
       body: "in repo x",
       severity: "warning",
-      wsId: "ws-1",
+      workspace,
       dockTab: "git",
       tag: "conflict",
     });
@@ -51,7 +53,7 @@ describe("createPluginNotifyPort", () => {
       title: "merge conflict",
       body: "in repo x",
       severity: "warning",
-      wsId: "ws-1",
+      workspace,
       dockTab: "git",
       tag: "plugin:keepdeck.git:conflict",
     });
@@ -125,14 +127,14 @@ describe("createPluginNotifyPort", () => {
       title: "t".repeat(500),
       body: 13,
       severity: "loud",
-      wsId: "",
+      workspace: { id: "", instance: 42 },
       tag: "g".repeat(200),
     } as never);
     const d = deliver.mock.calls[0][0];
     expect(d.title).toHaveLength(120);
     expect(d.body).toBeUndefined();
     expect(d.severity).toBe("info");
-    expect(d.wsId).toBeUndefined();
+    expect(d.workspace).toBeUndefined();
     expect(d.tag).toBe(`plugin:keepdeck.git:${"g".repeat(64)}`);
   });
 
@@ -201,7 +203,7 @@ describe("composePluginNotification", () => {
         title: "merge conflict",
         body: "repo x",
         severity: "warning",
-        wsId: "ws-1",
+        workspace,
         dockTab: "git",
         tag: "plugin:keepdeck.git:conflict",
       }),
@@ -212,7 +214,7 @@ describe("composePluginNotification", () => {
       source: {
         type: "plugin",
         pluginId: "keepdeck.git",
-        wsId: "ws-1",
+        workspace,
         dockTab: "git",
       },
       tag: "plugin:keepdeck.git:conflict",
@@ -232,6 +234,6 @@ describe("composePluginNotification", () => {
     });
     expect(composed.body).toBeUndefined();
     expect(composed.tag).toBeUndefined();
-    expect(composed.source.wsId).toBeUndefined();
+    expect(composed.source.workspace).toBeUndefined();
   });
 });

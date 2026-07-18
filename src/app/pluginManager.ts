@@ -7,6 +7,7 @@ import {
   type KeepDeckPlugin,
   type PluginCategory,
   type PluginManifest,
+  type WorkspaceRef as PluginWorkspaceRef,
 } from "@keepdeck/plugin-api";
 import {
   createContributionRegistries,
@@ -42,6 +43,7 @@ import {
   composePluginNotification,
   createPluginNotifyPort,
 } from "../plugins/host/notifyPort";
+import { pluginNotificationSource } from "./notificationProducers";
 import { notify } from "./notificationCenter";
 import { makeExternalPlugin } from "../plugins/external/realmPlugin";
 import { capabilityFingerprint } from "../plugins/external/consent";
@@ -202,8 +204,8 @@ export function createPluginManager(appDownloads: DownloadManager) {
   // The indirection keeps KV instances valid across re-wires.
   const liveDeckAccess: DeckAccess = {
     workspaces: () => deckAccess.workspaces(),
-    setPluginSlot: (wsId, pluginId, value) =>
-      deckAccess.setPluginSlot(wsId, pluginId, value),
+    setPluginSlot: (wsId, workspaceInstance, pluginId, value) =>
+      deckAccess.setPluginSlot(wsId, workspaceInstance, pluginId, value),
   };
 
   /** The deck's UI actions, late-bound like `DeckAccess` but a SEPARATE port:
@@ -248,16 +250,22 @@ export function createPluginManager(appDownloads: DownloadManager) {
     };
   }
 
-  const workspaceClosed = channel<{ wsId: string }>();
-  const paneSelected = channel<{ wsId: string; paneId: string | null }>();
+  const workspaceClosed = channel<{ workspace: PluginWorkspaceRef }>();
+  const paneSelected = channel<{
+    workspace: PluginWorkspaceRef;
+    paneId: string | null;
+  }>();
   const deckChanged = channel<void>();
 
   /** Fired by the deck bridge (`usePluginDeckBridge`) — not exported to
    * plugins; they subscribe through their context, which tracks disposal. */
   const pluginDeckEvents = {
-    emitWorkspaceClosed: (e: { wsId: string }) => workspaceClosed.emit(e),
-    emitPaneSelected: (e: { wsId: string; paneId: string | null }) =>
-      paneSelected.emit(e),
+    emitWorkspaceClosed: (e: { workspace: PluginWorkspaceRef }) =>
+      workspaceClosed.emit(e),
+    emitPaneSelected: (e: {
+      workspace: PluginWorkspaceRef;
+      paneId: string | null;
+    }) => paneSelected.emit(e),
     emitDeckChanged: () => deckChanged.emit(),
   };
 
@@ -424,7 +432,8 @@ export function createPluginManager(appDownloads: DownloadManager) {
   const pluginHost = new PluginHost(
     {
       storage: (pluginId) => ({
-        workspace: (wsId) => makeWorkspaceKv(liveDeckAccess, pluginId, wsId),
+        workspace: (workspace) =>
+          makeWorkspaceKv(liveDeckAccess, pluginId, workspace),
         global: makeGlobalKvStub((m) => loggerFor(pluginId).warn(m)),
       }),
       settings: (pluginId) => ({
@@ -512,8 +521,17 @@ export function createPluginManager(appDownloads: DownloadManager) {
             (
               getSettings()?.notifications ?? DEFAULT_SETTINGS.notifications
             ).mutedPlugins.includes(manifest.id),
-          deliver: (delivery) =>
-            notify(composePluginNotification(manifest.name, delivery)),
+          deliver: (delivery) => {
+            const composed = composePluginNotification(manifest.name, delivery);
+            notify({
+              ...composed,
+              source: pluginNotificationSource(
+                composed.source.pluginId,
+                delivery.workspace,
+                composed.source.dockTab,
+              ),
+            });
+          },
         }),
       log: loggerFor,
       hostFacts: {

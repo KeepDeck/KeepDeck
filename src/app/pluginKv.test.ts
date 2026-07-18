@@ -1,14 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { makeGlobalKvStub, makeWorkspaceKv, type DeckAccess } from "./pluginKv";
 
 const ws = (id: string, plugins?: Record<string, unknown>): Workspace => ({
   id,
+  instance: createWorkspaceInstance(),
   name: id,
   cwd: `/tmp/${id}`,
   worktreeBaseDir: null,
   panes: [],
   ...(plugins && { plugins }),
+});
+const ref = (workspace: Workspace) => ({
+  id: workspace.id,
+  instance: workspace.instance,
 });
 
 function access(workspaces: Workspace[]): DeckAccess & {
@@ -19,39 +25,59 @@ function access(workspaces: Workspace[]): DeckAccess & {
 
 describe("makeWorkspaceKv", () => {
   it("reads a key out of the plugin's slot", async () => {
-    const a = access([ws("w1", { "keepdeck.sample": { note: "hi" } })]);
-    const kv = makeWorkspaceKv(a, "keepdeck.sample", "w1");
+    const workspace = ws("w1", { "keepdeck.sample": { note: "hi" } });
+    const a = access([workspace]);
+    const kv = makeWorkspaceKv(a, "keepdeck.sample", ref(workspace));
     expect(await kv.get("note")).toBe("hi");
     expect(await kv.get("missing")).toBeUndefined();
   });
 
   it("answers undefined for an unknown workspace or foreign slot", async () => {
-    const a = access([ws("w1", { other: { note: "x" } })]);
+    const workspace = ws("w1", { other: { note: "x" } });
+    const a = access([workspace]);
     expect(
-      await makeWorkspaceKv(a, "keepdeck.sample", "w1").get("note"),
+      await makeWorkspaceKv(a, "keepdeck.sample", ref(workspace)).get("note"),
     ).toBeUndefined();
     expect(
-      await makeWorkspaceKv(a, "keepdeck.sample", "gone").get("note"),
+      await makeWorkspaceKv(a, "keepdeck.sample", {
+        id: "gone",
+        instance: "gone-instance",
+      }).get("note"),
     ).toBeUndefined();
   });
 
   it("set spreads the new key over the existing slot", async () => {
-    const a = access([ws("w1", { p: { keep: 1 } })]);
-    await makeWorkspaceKv(a, "p", "w1").set("added", 2);
-    expect(a.setPluginSlot).toHaveBeenCalledWith("w1", "p", {
-      keep: 1,
-      added: 2,
-    });
+    const workspace = ws("w1", { p: { keep: 1 } });
+    const a = access([workspace]);
+    await makeWorkspaceKv(a, "p", ref(workspace)).set("added", 2);
+    expect(a.setPluginSlot).toHaveBeenCalledWith(
+      "w1",
+      workspace.instance,
+      "p",
+      { keep: 1, added: 2 },
+    );
   });
 
   it("delete drops the key, and deleting the last key deletes the slot", async () => {
-    const a = access([ws("w1", { p: { one: 1, two: 2 } })]);
-    await makeWorkspaceKv(a, "p", "w1").delete("one");
-    expect(a.setPluginSlot).toHaveBeenCalledWith("w1", "p", { two: 2 });
+    const first = ws("w1", { p: { one: 1, two: 2 } });
+    const a = access([first]);
+    await makeWorkspaceKv(a, "p", ref(first)).delete("one");
+    expect(a.setPluginSlot).toHaveBeenCalledWith(
+      "w1",
+      first.instance,
+      "p",
+      { two: 2 },
+    );
 
-    const b = access([ws("w1", { p: { last: 1 } })]);
-    await makeWorkspaceKv(b, "p", "w1").delete("last");
-    expect(b.setPluginSlot).toHaveBeenCalledWith("w1", "p", undefined);
+    const last = ws("w1", { p: { last: 1 } });
+    const b = access([last]);
+    await makeWorkspaceKv(b, "p", ref(last)).delete("last");
+    expect(b.setPluginSlot).toHaveBeenCalledWith(
+      "w1",
+      last.instance,
+      "p",
+      undefined,
+    );
   });
 
   it("reads through the accessor LIVE — a later state is visible to an old kv", async () => {
@@ -60,10 +86,24 @@ describe("makeWorkspaceKv", () => {
       workspaces: () => current,
       setPluginSlot: vi.fn(),
     };
-    const kv = makeWorkspaceKv(a, "p", "w1");
+    const kv = makeWorkspaceKv(a, "p", ref(current[0]));
     expect(await kv.get("k")).toBeUndefined();
-    current = [ws("w1", { p: { k: "now" } })];
+    current = [{ ...current[0], plugins: { p: { k: "now" } } }];
     expect(await kv.get("k")).toBe("now");
+  });
+
+  it("never attaches a stale handle to a workspace that reuses its id", async () => {
+    let current = [ws("ws-3", { p: { old: true } })];
+    const setPluginSlot = vi.fn();
+    const a: DeckAccess = { workspaces: () => current, setPluginSlot };
+    const stale = makeWorkspaceKv(a, "p", ref(current[0]));
+
+    current = [ws("ws-3", { p: { fresh: true } })];
+
+    expect(await stale.get("old")).toBeUndefined();
+    await stale.set("leak", true);
+    await stale.delete("fresh");
+    expect(setPluginSlot).not.toHaveBeenCalled();
   });
 });
 

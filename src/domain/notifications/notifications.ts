@@ -1,3 +1,8 @@
+import type {
+  WorkspaceInstance,
+  WorkspaceRef,
+} from "../workspaceInstance";
+
 /**
  * Notifications — the domain model and pure transforms behind the
  * notification center (`src/app/notificationCenter.ts`).
@@ -13,9 +18,21 @@
 /** Where a notification came from. The origin drives navigation on click and
  * per-workspace unread badges; the host constructs it — a plugin cannot claim
  * a pane origin or another plugin's id. */
+
+export type NotificationWorkspace = WorkspaceRef;
+
 export type NotificationSource =
-  | { type: "pane"; wsId: string; paneId: string }
-  | { type: "plugin"; pluginId: string; wsId?: string; dockTab?: string }
+  | {
+      type: "pane";
+      workspace: NotificationWorkspace;
+      paneId: string;
+    }
+  | {
+      type: "plugin";
+      pluginId: string;
+      workspace?: NotificationWorkspace;
+      dockTab?: string;
+    }
   | { type: "app" };
 
 export type NotificationSeverity = "info" | "warning" | "error";
@@ -96,13 +113,13 @@ export function unreadCount(items: readonly Notification[]): number {
  * workspace and only feed the bell total. */
 export function unreadByWorkspace(
   items: readonly Notification[],
-): Record<string, number> {
-  const counts: Record<string, number> = {};
+): Map<WorkspaceInstance, number> {
+  const counts = new Map<WorkspaceInstance, number>();
   for (const n of items) {
     if (n.readAt !== undefined) continue;
-    const wsId = n.source.type === "app" ? undefined : n.source.wsId;
-    if (wsId === undefined) continue;
-    counts[wsId] = (counts[wsId] ?? 0) + 1;
+    const workspace = n.source.type === "app" ? undefined : n.source.workspace;
+    if (!workspace) continue;
+    counts.set(workspace.instance, (counts.get(workspace.instance) ?? 0) + 1);
   }
   return counts;
 }

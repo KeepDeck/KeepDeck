@@ -101,7 +101,7 @@ export function useRevive(
           agentType,
           {
             paneId: pane.id,
-            wsId: active.id,
+            workspace: { id: active.id, instance: active.instance },
             cwd: dir,
             branch: pane.branch,
             yolo: pane.yolo,

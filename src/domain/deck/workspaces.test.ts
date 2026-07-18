@@ -25,9 +25,11 @@ import {
   type Workspace,
 } from "./workspaces";
 import { type Pane } from "./panes";
+import { createWorkspaceInstance } from "../workspaceInstance";
 
 const ws = (id: string, paneNums: number[]): Workspace => ({
   id,
+  instance: createWorkspaceInstance(),
   name: id,
   cwd: "/tmp",
   worktreeBaseDir: null,
@@ -146,6 +148,7 @@ describe("worktreeTargets", () => {
   // back to the cwd (no worktree of its own).
   const wtWs: Workspace = {
     id: "a",
+    instance: createWorkspaceInstance(),
     name: "a",
     cwd: "/repo",
     worktreeBaseDir: "/wt",
@@ -176,6 +179,7 @@ describe("worktreeTargets", () => {
   it("collects a detached-HEAD worktree pane (cwd, no branch)", () => {
     const detached: Workspace = {
       id: "a",
+      instance: createWorkspaceInstance(),
       name: "a",
       cwd: "/repo",
       worktreeBaseDir: "/wt",
@@ -190,6 +194,7 @@ describe("worktreeTargets", () => {
   it("returns nothing for a non-worktree workspace", () => {
     const plain: Workspace = {
       id: "b",
+      instance: createWorkspaceInstance(),
       name: "b",
       cwd: "/repo",
       worktreeBaseDir: null,
@@ -213,6 +218,7 @@ describe("worktreeTargets", () => {
   it("does not target cwd-fallback panes even when their repo branch is observed", () => {
     const plain: Workspace = {
       id: "b",
+      instance: createWorkspaceInstance(),
       name: "b",
       cwd: "/repo",
       worktreeBaseDir: null,
@@ -327,6 +333,7 @@ describe("gitWatchPaths", () => {
 describe("pane provisioning transforms", () => {
   const provisioningWs = (): Workspace => ({
     id: "a",
+    instance: createWorkspaceInstance(),
     name: "a",
     cwd: "/repo",
     worktreeBaseDir: "/wt",

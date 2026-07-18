@@ -9,9 +9,24 @@ describe("id mints", () => {
     expect(mintAgentSeq()).toBe(start + 3);
   });
 
-  it("workspace seqs are independent of agent seqs", () => {
-    const ws = mintWorkspaceSeq();
-    mintAgentSeqs(5);
-    expect(mintWorkspaceSeq()).toBe(ws + 1);
+  it("derives the workspace seq from the current maximum", () => {
+    expect(mintWorkspaceSeq([])).toBe(1);
+    expect(mintWorkspaceSeq(["ws-1", "imported", "ws-3"])).toBe(4);
+  });
+
+  it("releases the maximum workspace seq when that workspace disappears", () => {
+    expect(mintWorkspaceSeq(["ws-1", "ws-2", "ws-3"])).toBe(4);
+    expect(mintWorkspaceSeq(["ws-1", "ws-2"])).toBe(3);
+  });
+
+  it("does not fill gaps below the live maximum", () => {
+    expect(mintWorkspaceSeq(["ws-1", "ws-3"])).toBe(4);
+  });
+
+  it("refuses to allocate an imprecise workspace sequence", () => {
+    expect(mintWorkspaceSeq([`ws-${Number.MAX_SAFE_INTEGER}`])).toBeNull();
+    expect(mintWorkspaceSeq([`ws-${Number.MAX_SAFE_INTEGER - 1}`])).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
   });
 });

@@ -15,8 +15,10 @@ import {
   setPaneProvisioningPhase,
   setPaneSession,
   setWorkspacePluginSlot,
+  workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
+import type { WorkspaceInstance } from "../workspaceInstance";
 
 /**
  * One workspace's runtime view state, in a SINGLE object per workspace so a
@@ -121,10 +123,11 @@ export type DeckAction =
   | { type: "setPaneProvisioningPhase"; wsId: string; paneId: string; phase: "setup" }
   /** Set (or, via `undefined`, clear) one plugin's opaque persisted slot for
    * a workspace — the write path behind a plugin's workspace-scoped storage
-   * (`ctx.storage.workspace(wsId)`). */
+   * (`ctx.storage.workspace(workspace)`). */
   | {
       type: "setWorkspacePluginSlot";
       wsId: string;
+      workspaceInstance: WorkspaceInstance;
       pluginId: string;
       value: unknown;
     };
@@ -211,6 +214,10 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
     }
     case "createWorkspace": {
       const { workspace } = action;
+      // An id is one live-deck slot. Allocation normally prevents a duplicate,
+      // but the state owner enforces the invariant too so imported/programmatic
+      // actions cannot make selectors ambiguous or one close remove two rows.
+      if (state.workspaces.some((ws) => ws.id === workspace.id)) return state;
       return {
         ...state,
         workspaces: [...state.workspaces, workspace],
@@ -392,7 +399,9 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         setPaneAutoTitle(state.workspaces, action.wsId, action.paneId, action.title),
       );
     case "hydrate":
-      return action.state;
+      return workspaceIdsAreUnique(action.state.workspaces)
+        ? action.state
+        : state;
     case "revivePane":
       // revivePane returns the same ref for an absent/already-live pane, so a
       // re-fired revive effect causes no re-render.
@@ -442,6 +451,12 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ),
       );
     case "setWorkspacePluginSlot":
+      if (
+        state.workspaces.find((workspace) => workspace.id === action.wsId)
+          ?.instance !== action.workspaceInstance
+      ) {
+        return state;
+      }
       return withWorkspaces(
         state,
         setWorkspacePluginSlot(

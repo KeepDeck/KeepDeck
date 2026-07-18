@@ -11,6 +11,7 @@ import {
   type CommandRegistry,
 } from "../domain/commands";
 import {
+  findWorkspaceByRef,
   firstFreeWorktree,
   paneAgentType,
   paneDisplayTitle,
@@ -177,6 +178,18 @@ export function registerCoreCommands(
         const deck = deps.deck();
         const agents = deps.agents();
         const ws = targetWorkspace(deck, str(args, "workspace"));
+        const workspace = { id: ws.id, instance: ws.instance };
+        const currentTarget = (): { deck: Deck; workspace: Workspace } => {
+          const currentDeck = deps.deck();
+          const currentWorkspace = findWorkspaceByRef(
+            currentDeck.workspaces,
+            workspace,
+          );
+          if (!currentWorkspace) {
+            throw new Error("workspace was closed while spawning the agent");
+          }
+          return { deck: currentDeck, workspace: currentWorkspace };
+        };
         const requested = str(args, "agentType");
         if (requested && !agents.some((a) => a.id === requested))
           throw new Error(`unknown agent type "${requested}"`);
@@ -207,39 +220,45 @@ export function registerCoreCommands(
           ...(yolo && { yolo: true }),
         };
         const info = await inspectRepo(ws.cwd).catch(() => null);
-        if (info?.isRepo && ws.worktreeBaseDir) {
+        let current = currentTarget();
+        if (info?.isRepo && current.workspace.worktreeBaseDir) {
           const free = await firstFreeWorktree(
-            deck.workspaces,
-            ws.worktreeBaseDir,
-            (i) => suggestWorktree(ws.name, i).catch(() => null),
+            current.deck.workspaces,
+            current.workspace.worktreeBaseDir,
+            (i) => suggestWorktree(current.workspace.name, i).catch(() => null),
             index,
             (path) => probeWorktree(path).catch(() => null),
           );
+          current = currentTarget();
           if (free) {
             pane = {
               ...pane,
               provisioning: {
-                repo: ws.cwd,
+                repo: current.workspace.cwd,
                 path: free.path,
                 branch: free.branch,
-                workspace: ws.name,
+                workspace: current.workspace.name,
                 index,
               },
             };
           }
         }
 
-        deck.addAgentPane(ws.id, pane);
+        current = currentTarget();
+        current.deck.addAgentPane(workspace.id, pane);
         if (pane.provisioning)
-          void runProvisioning([pane], provisionInto(deck, ws.id));
-        deck.selectWorkspace(ws.id);
-        deck.selectPane(ws.id, id);
+          void runProvisioning(
+            [pane],
+            provisionInto(current.deck, workspace.id),
+          );
+        current.deck.selectWorkspace(workspace.id);
+        current.deck.selectPane(workspace.id, id);
 
         const task = str(args, "task");
         if (task) void deliverTask(id, task);
         return {
           paneId: id,
-          workspaceId: ws.id,
+          workspaceId: workspace.id,
           agentType,
           worktree: pane.provisioning
             ? { path: pane.provisioning.path, branch: pane.provisioning.branch ?? null }

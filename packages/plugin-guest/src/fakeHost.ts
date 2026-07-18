@@ -14,6 +14,7 @@ import type {
   PluginSessionHandle,
   SettingsSectionContribution,
   TopBarActionContribution,
+  WorkspaceRef,
 } from "@keepdeck/plugin-api";
 
 /**
@@ -53,8 +54,8 @@ export interface FakeHost {
   workspaceStore: Map<string, unknown>;
   /** Fire a host-side event/settings change into whatever the plugin subscribed. */
   fire: {
-    workspaceClosed(e: { wsId: string }): void;
-    paneSelected(e: { wsId: string; paneId: string | null }): void;
+    workspaceClosed(e: { workspace: WorkspaceRef }): void;
+    paneSelected(e: { workspace: WorkspaceRef; paneId: string | null }): void;
     deckChanged(): void;
     settingsChanged(values: Record<string, unknown>): void;
   };
@@ -126,8 +127,12 @@ export function createFakeHost(
 
   // Listener sets a test fires into. At most one per channel is expected (the
   // guest fans out locally), but sets keep the fake honest if that changes.
-  const workspaceClosedCbs = new Set<(e: { wsId: string }) => void>();
-  const paneSelectedCbs = new Set<(e: { wsId: string; paneId: string | null }) => void>();
+  const workspaceClosedCbs = new Set<
+    (e: { workspace: WorkspaceRef }) => void
+  >();
+  const paneSelectedCbs = new Set<
+    (e: { workspace: WorkspaceRef; paneId: string | null }) => void
+  >();
   const deckChangedCbs = new Set<() => void>();
   const settingsCbs = new Set<(v: Record<string, unknown>) => void>();
 
@@ -191,11 +196,20 @@ export function createFakeHost(
     },
     resources: { path: async () => null },
     storage: {
-      workspace: (wsId) => ({
+      workspace: (workspace) => ({
         get: async <T>(key: string) =>
-          workspaceStore.get(`${wsId}::${key}`) as T | undefined,
-        set: async (key, value) => void workspaceStore.set(`${wsId}::${key}`, value),
-        delete: async (key) => void workspaceStore.delete(`${wsId}::${key}`),
+          workspaceStore.get(
+            `${workspace.id}:${workspace.instance}::${key}`,
+          ) as T | undefined,
+        set: async (key, value) =>
+          void workspaceStore.set(
+            `${workspace.id}:${workspace.instance}::${key}`,
+            value,
+          ),
+        delete: async (key) =>
+          void workspaceStore.delete(
+            `${workspace.id}:${workspace.instance}::${key}`,
+          ),
       }),
       global: {
         get: async <T>(key: string) => globalStore.get(key) as T | undefined,

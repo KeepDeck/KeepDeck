@@ -2,7 +2,7 @@
   "id": "keepdeck.run",
   "name": "Run",
   "version": "0.1.0",
-  "minApiVersion": 18,
+  "minApiVersion": 21,
   "category": "deck",
   "description": "Launch the app under development: named shell commands per workspace, run in a pane's worktree with the KeepDeck env contract, streamed to a live log.",
   "capabilities": [

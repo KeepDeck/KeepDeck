@@ -1,4 +1,5 @@
 import type { Disposable } from "./disposable.ts";
+import type { WorkspaceRef } from "./snapshots.ts";
 
 /**
  * Agent contributions — teaching KeepDeck a CLI agent. Static identity is
@@ -67,7 +68,7 @@ export interface AgentHooks {
 
 export interface SpawnPlanInput {
   paneId: string;
-  wsId: string;
+  workspace: WorkspaceRef;
   cwd: string;
   branch?: string;
   /** The pane runs with permission prompts disabled: a supporting hook adds
@@ -75,14 +76,7 @@ export interface SpawnPlanInput {
   yolo?: boolean;
 }
 
-export interface ResumePlanInput {
-  paneId: string;
-  wsId: string;
-  cwd: string;
-  branch?: string;
-  /** The pane runs with permission prompts disabled: a supporting hook adds
-   * its CLI's skip-permissions flag. Absent on hosts older than API 20. */
-  yolo?: boolean;
+export interface ResumePlanInput extends SpawnPlanInput {
   /** The recorded session to resume. */
   sessionId: string;
 }

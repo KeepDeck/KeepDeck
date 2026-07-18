@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckState } from "../domain/deck";
 import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import {
   buildResumeSpec,
   peekPaneSpawnSpec,
@@ -80,6 +81,7 @@ const restored = (pane: object): DeckState => ({
   workspaces: [
     {
       id: "ws-1",
+      instance: createWorkspaceInstance(),
       name: "ws",
       cwd: "/repo",
       worktreeBaseDir: null,
@@ -132,7 +134,14 @@ describe("useRevive — session policy", () => {
     expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
       expect.anything(),
       "claude",
-      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
+      {
+        paneId: "pane-1",
+        workspace: {
+          id: "ws-1",
+          instance: deck.workspaces[0].instance,
+        },
+        cwd: "/repo",
+      },
       expect.anything(),
       "old",
       "restore",

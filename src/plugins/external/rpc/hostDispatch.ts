@@ -174,14 +174,34 @@ export function createHostDispatch(
     return channel;
   }
 
+  /** Validate the identity object at the realm boundary before it reaches the
+   * in-process plugin context. Old guests sent only `wsId`; rejecting that
+   * shape makes the API-21 incompatibility explicit instead of silently
+   * binding an operation to the wrong lifetime. */
+  function workspaceStorage(value: unknown) {
+    if (typeof value !== "object" || value === null)
+      throw new Error("workspace storage requires a workspace lifetime ref");
+    const { id, instance } = value as Record<string, unknown>;
+    if (
+      typeof id !== "string" ||
+      id === "" ||
+      typeof instance !== "string" ||
+      instance === ""
+    ) {
+      throw new Error("workspace storage requires non-empty id and instance");
+    }
+    return ctx.storage.workspace({ id, instance });
+  }
+
   const handlers: Record<string, (args: unknown[]) => unknown> = {
-    // ---- storage: workspace scope needs the id as its leading argument ----
-    "storage.workspace.get": ([wsId, key]) =>
-      ctx.storage.workspace(wsId as string).get(key as string),
-    "storage.workspace.set": ([wsId, key, value]) =>
-      ctx.storage.workspace(wsId as string).set(key as string, value),
-    "storage.workspace.delete": ([wsId, key]) =>
-      ctx.storage.workspace(wsId as string).delete(key as string),
+    // ---- storage: every operation carries the exact serializable lifetime
+    // ref captured by the guest handle, never merely a reusable public id. ----
+    "storage.workspace.get": ([workspace, key]) =>
+      workspaceStorage(workspace).get(key as string),
+    "storage.workspace.set": ([workspace, key, value]) =>
+      workspaceStorage(workspace).set(key as string, value),
+    "storage.workspace.delete": ([workspace, key]) =>
+      workspaceStorage(workspace).delete(key as string),
     "storage.global.get": ([key]) => ctx.storage.global.get(key as string),
     "storage.global.set": ([key, value]) =>
       ctx.storage.global.set(key as string, value),

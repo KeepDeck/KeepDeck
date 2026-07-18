@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import { getRuntime } from "../runtime";
 
 /**
@@ -11,14 +12,14 @@ import { getRuntime } from "../runtime";
  * `onDeckChanged`, mirror writes into local state.
  */
 export function useOpenApp(
-  wsId: string,
+  workspace: WorkspaceRef,
 ): [string | null, (app: string) => void] {
   const { ctx } = getRuntime();
   const [pick, setPick] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    const slot = ctx.storage.workspace(wsId);
+    const slot = ctx.storage.workspace(workspace);
     const load = () => {
       void slot.get("openApp").then((stored) => {
         if (alive) setPick(typeof stored === "string" ? stored : null);
@@ -30,14 +31,14 @@ export function useOpenApp(
       alive = false;
       sub.dispose();
     };
-  }, [ctx, wsId]);
+  }, [ctx, workspace.id, workspace.instance]);
 
   const save = useCallback(
     (next: string) => {
-      void ctx.storage.workspace(wsId).set("openApp", next);
+      void ctx.storage.workspace(workspace).set("openApp", next);
       setPick(next);
     },
-    [ctx, wsId],
+    [ctx, workspace.id, workspace.instance],
   );
 
   return [pick, save];

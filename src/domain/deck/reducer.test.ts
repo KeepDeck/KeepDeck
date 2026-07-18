@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { deckReducer, initialDeckState, type DeckState } from "./reducer";
+import { createWorkspaceInstance } from "../workspaceInstance";
 import { type Workspace } from "./workspaces";
 
 const ws = (id: string, paneIds: string[]): Workspace => ({
   id,
+  instance: createWorkspaceInstance(),
   name: id,
   cwd: "/tmp",
   worktreeBaseDir: null,
@@ -13,6 +15,23 @@ const ws = (id: string, paneIds: string[]): Workspace => ({
 const state = (partial: Partial<DeckState>): DeckState => ({
   ...initialDeckState,
   ...partial,
+});
+
+describe("deckReducer createWorkspace", () => {
+  it("rejects a duplicate live id", () => {
+    const start = state({
+      workspaces: [ws("a", ["a-1"])],
+      activeId: "a",
+      viewByWs: { a: { select: "a-1" } },
+    });
+
+    expect(
+      deckReducer(start, {
+        type: "createWorkspace",
+        workspace: ws("a", ["other-pane"]),
+      }),
+    ).toBe(start);
+  });
 });
 
 describe("deckReducer closeAgent", () => {
@@ -296,6 +315,7 @@ describe("deckReducer pane naming", () => {
       workspaces: [
         {
           id: "a",
+          instance: createWorkspaceInstance(),
           name: "a",
           cwd: "/tmp",
           worktreeBaseDir: null,
@@ -317,6 +337,7 @@ describe("deckReducer pane naming", () => {
 describe("deckReducer restore actions ([F7])", () => {
   const dormantWs: Workspace = {
     id: "ws-1",
+    instance: createWorkspaceInstance(),
     name: "ws-1",
     cwd: "/tmp",
     worktreeBaseDir: null,
@@ -328,6 +349,18 @@ describe("deckReducer restore actions ([F7])", () => {
     expect(
       deckReducer(initialDeckState, { type: "hydrate", state: restored }),
     ).toBe(restored);
+  });
+
+  it("hydrate rejects duplicate workspace ids", () => {
+    const current = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const duplicate = state({
+      workspaces: [dormantWs, ws("ws-1", ["another-pane"])],
+      activeId: "ws-1",
+    });
+
+    expect(deckReducer(current, { type: "hydrate", state: duplicate })).toBe(
+      current,
+    );
   });
 
   it("revivePane clears the dormant flag", () => {
@@ -352,6 +385,7 @@ describe("deckReducer restore actions ([F7])", () => {
   it("resetPaneLocation drops cwd/branch/session; no-op when nothing to drop", () => {
     const wtWs: Workspace = {
       id: "ws-1",
+      instance: createWorkspaceInstance(),
       name: "ws-1",
       cwd: "/repo",
       worktreeBaseDir: null,
@@ -433,6 +467,7 @@ describe("deckReducer restore actions ([F7])", () => {
 describe("resetPaneLocation", () => {
   const wtWs: Workspace = {
     id: "ws-1",
+    instance: createWorkspaceInstance(),
     name: "ws-1",
     cwd: "/repo",
     worktreeBaseDir: null,
@@ -461,6 +496,7 @@ describe("resetPaneLocation", () => {
 describe("deckReducer provisioning actions", () => {
   const provisioningWs: Workspace = {
     id: "ws-1",
+    instance: createWorkspaceInstance(),
     name: "ws-1",
     cwd: "/repo",
     worktreeBaseDir: "/wt",
@@ -528,6 +564,7 @@ describe("deckReducer setWorkspacePluginSlot", () => {
     const next = deckReducer(start, {
       type: "setWorkspacePluginSlot",
       wsId: "a",
+      workspaceInstance: start.workspaces[0].instance,
       pluginId: "git",
       value: { remote: "origin" },
     });
@@ -536,13 +573,18 @@ describe("deckReducer setWorkspacePluginSlot", () => {
   });
 
   it("clears a slot via undefined, dropping the bag when it was the last one", () => {
-    const seeded = deckReducer(
-      state({ workspaces: [ws("a", [])], activeId: "a" }),
-      { type: "setWorkspacePluginSlot", wsId: "a", pluginId: "git", value: { v: 1 } },
-    );
+    const initial = state({ workspaces: [ws("a", [])], activeId: "a" });
+    const seeded = deckReducer(initial, {
+      type: "setWorkspacePluginSlot",
+      wsId: "a",
+      workspaceInstance: initial.workspaces[0].instance,
+      pluginId: "git",
+      value: { v: 1 },
+    });
     const cleared = deckReducer(seeded, {
       type: "setWorkspacePluginSlot",
       wsId: "a",
+      workspaceInstance: seeded.workspaces[0].instance,
       pluginId: "git",
       value: undefined,
     });
@@ -555,10 +597,28 @@ describe("deckReducer setWorkspacePluginSlot", () => {
       deckReducer(start, {
         type: "setWorkspacePluginSlot",
         wsId: "a",
+        workspaceInstance: start.workspaces[0].instance,
         pluginId: "git",
         value: undefined,
       }),
     ).toBe(start);
+  });
+
+  it("rejects a write from an old lifetime after the id is reused", () => {
+    const oldInstance = createWorkspaceInstance();
+    const replacement = ws("a", []);
+    const start = state({ workspaces: [replacement], activeId: "a" });
+
+    expect(
+      deckReducer(start, {
+        type: "setWorkspacePluginSlot",
+        wsId: "a",
+        workspaceInstance: oldInstance,
+        pluginId: "git",
+        value: { leaked: true },
+      }),
+    ).toBe(start);
+    expect(start.workspaces[0].plugins).toBeUndefined();
   });
 });
 

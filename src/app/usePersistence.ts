@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { hydrateDeck, serializeDeck } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { loadDeckState, quarantineDeckState, saveDeckState } from "../ipc/state";
-import { seedAgentSeq, seedWorkspaceSeq } from "./ids";
+import { seedAgentSeq } from "./ids";
 import type { Deck } from "./useDeck";
 
 /** Debounce for cosmetic churn (titles, selection) — a burst lands as one
@@ -74,10 +74,9 @@ export function usePersistence(deck: Deck): {
           );
           return;
         }
-        // Mints first: ids issued after the restore must not collide with
-        // restored `pane-N`/`ws-N`.
+        // Seed the app-lifetime pane mint before hydration. Workspace ids are
+        // derived from the live deck on each creation instead.
         seedAgentSeq(result.deck.nextAgentSeq);
-        seedWorkspaceSeq(result.deck.nextWorkspaceSeq);
         docExtrasRef.current = result.deck.docExtras;
         hydrateRef.current(result.deck.state);
       })

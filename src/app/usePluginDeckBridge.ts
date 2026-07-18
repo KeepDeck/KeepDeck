@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { findWorkspace, type Workspace } from "../domain/deck";
 import type { Deck } from "./useDeck";
 import { useAppRuntime } from "./runtimeContext";
 
@@ -18,8 +19,13 @@ export function usePluginDeckBridge(deck: Deck): void {
   useEffect(() => {
     wireDeckAccess({
       workspaces: () => deckRef.current.workspaces,
-      setPluginSlot: (wsId, pluginId, value) =>
-        deckRef.current.setWorkspacePluginSlot(wsId, pluginId, value),
+      setPluginSlot: (wsId, workspaceInstance, pluginId, value) =>
+        deckRef.current.setWorkspacePluginSlot(
+          wsId,
+          workspaceInstance,
+          pluginId,
+          value,
+        ),
     });
     wireDeckUi({
       revealDockTab: (tabId) => revealDockTabOn(deckRef.current, tabId),
@@ -27,24 +33,25 @@ export function usePluginDeckBridge(deck: Deck): void {
   }, [wireDeckAccess, wireDeckUi]);
 
   // Workspace removals + the coarse change signal, from one diff.
-  const prevIds = useRef<string[]>([]);
+  const previous = useRef<WorkspaceRef[]>([]);
   useEffect(() => {
-    const ids = deck.workspaces.map((ws) => ws.id);
-    for (const gone of closedWorkspaceIds(prevIds.current, ids)) {
-      pluginDeckEvents.emitWorkspaceClosed({ wsId: gone });
+    const current = deck.workspaces.map(({ id, instance }) => ({ id, instance }));
+    for (const gone of closedWorkspaces(previous.current, current)) {
+      pluginDeckEvents.emitWorkspaceClosed({ workspace: gone });
     }
-    prevIds.current = ids;
+    previous.current = current;
     pluginDeckEvents.emitDeckChanged();
   }, [deck.workspaces, pluginDeckEvents]);
 
+  const active = findWorkspace(deck.workspaces, deck.activeId);
   const selectedPaneId = deck.viewOf(deck.activeId).select ?? null;
   useEffect(() => {
-    if (!deck.activeId) return;
+    if (!active) return;
     pluginDeckEvents.emitPaneSelected({
-      wsId: deck.activeId,
+      workspace: { id: active.id, instance: active.instance },
       paneId: selectedPaneId,
     });
-  }, [deck.activeId, selectedPaneId, pluginDeckEvents]);
+  }, [active?.instance, selectedPaneId, pluginDeckEvents]);
 }
 
 /** Reveal a dock tab on the ACTIVE workspace — the host side of a plugin's
@@ -60,11 +67,14 @@ export function revealDockTabOn(
   deck.setDockTab(deck.activeId, tabId);
 }
 
-/** Ids present before and gone now — the workspaces that just closed. */
-export function closedWorkspaceIds(
-  previous: readonly string[],
-  current: readonly string[],
-): string[] {
-  const now = new Set(current);
-  return previous.filter((id) => !now.has(id));
+/** Workspace lifetimes present before and gone now. A reused public id with a
+ * new instance still means the previous workspace closed. */
+type WorkspaceRef = Pick<Workspace, "id" | "instance">;
+
+export function closedWorkspaces(
+  previous: readonly WorkspaceRef[],
+  current: readonly WorkspaceRef[],
+): WorkspaceRef[] {
+  const now = new Set(current.map((workspace) => workspace.instance));
+  return previous.filter((workspace) => !now.has(workspace.instance));
 }

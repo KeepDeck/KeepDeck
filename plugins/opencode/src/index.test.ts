@@ -23,7 +23,11 @@ const output = (): SpawnPlanOutput => ({
   env: [],
 });
 
-const input = { paneId: "pane-3", wsId: "ws-1", cwd: "/repo" };
+const input = {
+  paneId: "pane-3",
+  workspace: { id: "ws-1", instance: "workspace-instance-1" },
+  cwd: "/repo",
+};
 
 describe("opencode plugin hooks", () => {
   it("injects the reporter via a MERGING per-invocation config", async () => {

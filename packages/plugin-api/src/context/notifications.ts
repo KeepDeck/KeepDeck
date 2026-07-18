@@ -1,3 +1,5 @@
+import type { WorkspaceRef } from "./snapshots.ts";
+
 /**
  * `ctx.notify` — a plugin's way to reach the host's notification center
  * (and, per the user's delivery settings, an OS banner). Requires the
@@ -14,9 +16,9 @@ export interface PluginNotifyInput {
   body?: string;
   /** Defaults to `info`. */
   severity?: "info" | "warning" | "error";
-  /** Bind the entry to a workspace: it counts toward that workspace's
-   * unread dot and clicking it activates the workspace. */
-  wsId?: string;
+  /** Bind the entry to one exact workspace lifetime: it counts toward that
+   * workspace's unread dot and clicking it activates the workspace. */
+  workspace?: WorkspaceRef;
   /** Clicking the entry opens this dock tab of the plugin (an entry id from
    * the manifest's `contributes.dockTabs`). */
   dockTab?: string;

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { RunPreset } from "../domain";
 import { getRuntime } from "../runtime";
 
 /**
  * The workspace's run presets, out of the plugin's per-workspace storage slot
- * (`ctx.storage.workspace(wsId)`), replacing the props the host RunTab took.
+ * (`ctx.storage.workspace(workspace)`), replacing the props the host RunTab took.
  *
  * Read on mount AND re-read on every `onDeckChanged` — the coarse "deck
  * changed" signal is what fires once the workspace's stored data has hydrated,
@@ -13,14 +14,14 @@ import { getRuntime } from "../runtime";
  * without waiting for a round-trip.
  */
 export function usePresets(
-  wsId: string,
+  workspace: WorkspaceRef,
 ): [RunPreset[], (next: RunPreset[]) => void] {
   const { ctx } = getRuntime();
   const [presets, setPresets] = useState<RunPreset[]>([]);
 
   useEffect(() => {
     let alive = true;
-    const slot = ctx.storage.workspace(wsId);
+    const slot = ctx.storage.workspace(workspace);
     const load = () => {
       void slot.get<RunPreset[]>("presets").then((stored) => {
         if (alive) setPresets(stored ?? []);
@@ -32,14 +33,14 @@ export function usePresets(
       alive = false;
       sub.dispose();
     };
-  }, [ctx, wsId]);
+  }, [ctx, workspace.id, workspace.instance]);
 
   const save = useCallback(
     (next: RunPreset[]) => {
-      void ctx.storage.workspace(wsId).set("presets", next);
+      void ctx.storage.workspace(workspace).set("presets", next);
       setPresets(next);
     },
-    [ctx, wsId],
+    [ctx, workspace.id, workspace.instance],
   );
 
   return [presets, save];

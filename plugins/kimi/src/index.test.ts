@@ -76,7 +76,11 @@ function activate(options: ActivationOptions = {}) {
 }
 
 const output = (): SpawnPlanOutput => ({ command: "kimi", args: [], env: [] });
-const input = { paneId: "pane-k", wsId: "ws-1", cwd: "/repo" };
+const input = {
+  paneId: "pane-k",
+  workspace: { id: "ws-1", instance: "workspace-instance-1" },
+  cwd: "/repo",
+};
 
 describe("Kimi CLI plugin", () => {
   afterEach(async () => {

@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Workspace } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { toWorkspaceSnapshot } from "./pluginSnapshots";
 
 const ws: Workspace = {
   id: "w1",
+  instance: createWorkspaceInstance(),
   name: "Deck",
   cwd: "/repo",
   worktreeBaseDir: null,
@@ -18,6 +20,7 @@ describe("toWorkspaceSnapshot", () => {
   it("projects identity and location, drops runtime-only concerns", () => {
     expect(toWorkspaceSnapshot(ws)).toEqual({
       id: "w1",
+      instance: ws.instance,
       name: "Deck",
       cwd: "/repo",
       panes: [

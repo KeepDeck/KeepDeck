@@ -19,6 +19,7 @@ import { FilesOverlay } from "./FilesOverlay";
 
 const workspace: WorkspaceSnapshot = {
   id: "ws-1",
+  instance: "instance-1",
   name: "app",
   cwd: "/repo",
   panes: [],

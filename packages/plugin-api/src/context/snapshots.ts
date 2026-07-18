@@ -5,8 +5,14 @@
  * RPC boundary on the external tier unchanged.
  */
 
-export interface WorkspaceSnapshot {
-  id: string;
+/** Serializable identity of one workspace lifetime. The public `id` may be
+ * reused after close; `instance` never is. */
+export interface WorkspaceRef {
+  readonly id: string;
+  readonly instance: string;
+}
+
+export interface WorkspaceSnapshot extends WorkspaceRef {
   name: string;
   cwd: string;
   panes: PaneSnapshot[];

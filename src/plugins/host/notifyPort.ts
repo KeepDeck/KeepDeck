@@ -3,6 +3,7 @@ import type {
   PluginManifest,
   PluginNotify,
   PluginNotifyInput,
+  WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { stripUnsafeText } from "@keepdeck/plugin-api/unsafe-text";
 import { makeAdmit, type GateMode } from "../capabilities/tier";
@@ -24,6 +25,17 @@ const REFILL_MS = 10_000; // one token per 10s
 
 const SEVERITIES = ["info", "warning", "error"] as const;
 
+function readWorkspaceRef(value: unknown): WorkspaceRef | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { id, instance } = value as Record<string, unknown>;
+  return typeof id === "string" &&
+    id !== "" &&
+    typeof instance === "string" &&
+    instance !== ""
+    ? { id, instance }
+    : undefined;
+}
+
 /** What the port hands downstream — the sanitized input plus the host-owned
  * origin fields. The port depends on this narrow sink, not on the app's
  * notification center, so it tests in isolation. */
@@ -32,7 +44,7 @@ export interface PluginNotificationDelivery {
   title: string;
   body?: string;
   severity: (typeof SEVERITIES)[number];
-  wsId?: string;
+  workspace?: WorkspaceRef;
   dockTab?: string;
   /** Already namespaced `plugin:<id>:<tag>`. */
   tag?: string;
@@ -52,7 +64,12 @@ export function composePluginNotification(
   title: string;
   body?: string;
   severity: (typeof SEVERITIES)[number];
-  source: { type: "plugin"; pluginId: string; wsId?: string; dockTab?: string };
+  source: {
+    type: "plugin";
+    pluginId: string;
+    workspace?: WorkspaceRef;
+    dockTab?: string;
+  };
   tag?: string;
 } {
   return {
@@ -62,7 +79,7 @@ export function composePluginNotification(
     source: {
       type: "plugin",
       pluginId: d.pluginId,
-      wsId: d.wsId,
+      workspace: d.workspace,
       dockTab: d.dockTab,
     },
     tag: d.tag,
@@ -164,8 +181,7 @@ export function createPluginNotifyPort(
     )
       ? (raw.severity as (typeof SEVERITIES)[number])
       : "info";
-    const wsId =
-      typeof raw.wsId === "string" && raw.wsId !== "" ? raw.wsId : undefined;
+    const workspace = readWorkspaceRef(raw.workspace);
     const dockTab =
       typeof raw.dockTab === "string" && raw.dockTab !== ""
         ? raw.dockTab
@@ -182,7 +198,7 @@ export function createPluginNotifyPort(
       title: title.slice(0, TITLE_MAX),
       body,
       severity,
-      wsId,
+      workspace,
       dockTab,
       tag,
     });

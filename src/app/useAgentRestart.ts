@@ -1,6 +1,12 @@
 import { useRef, useState } from "react";
 import type { AgentRestartMode, SpawnPlanContext } from "../domain/agents";
-import { findWorkspace, paneAgentType } from "../domain/deck";
+import {
+  findWorkspace,
+  findWorkspaceByRef,
+  paneAgentType,
+  type Workspace,
+} from "../domain/deck";
+import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { describeError, log } from "../ipc/log";
 import { postbackCount } from "./postbacks";
 import { closePane } from "./ptyManager";
@@ -31,7 +37,7 @@ export interface AgentRestartApi {
 }
 
 interface RestartTarget {
-  wsId: string;
+  workspace: WorkspaceRef;
   paneId: string;
   agentType: string;
   cwd: string;
@@ -65,10 +71,10 @@ export function useAgentRestart(
     // retired process. The next spawn-plan sweep is triggered by the epoch.
     dropPaneSpawnSpec(target.paneId);
     await closePane(target.paneId);
-    if (!findTarget(deckRef.current, target.wsId, target.paneId)) return;
+    if (!findTarget(deckRef.current, target.workspace, target.paneId)) return;
     // Fresh means fresh on the next app launch too. Keep cwd/branch/worktree;
     // only the exact session binding is replaced by the new reporter later.
-    deckRef.current.setPaneSession(target.wsId, target.paneId, null);
+    deckRef.current.setPaneSession(target.workspace.id, target.paneId, null);
     bumpEpoch(target.paneId);
   };
 
@@ -85,7 +91,7 @@ export function useAgentRestart(
       target.agentType,
       {
         paneId: target.paneId,
-        wsId: target.wsId,
+        workspace: target.workspace,
         cwd: target.cwd,
         branch: target.branch,
         yolo: target.yolo,
@@ -95,7 +101,11 @@ export function useAgentRestart(
       "manual",
     );
 
-    const current = findTarget(deckRef.current, target.wsId, target.paneId);
+    const current = findTarget(
+      deckRef.current,
+      target.workspace,
+      target.paneId,
+    );
     if (!current) {
       dropPaneSpawnSpec(target.paneId);
       return;
@@ -117,7 +127,11 @@ export function useAgentRestart(
     }
 
     await closePane(target.paneId);
-    const afterClose = findTarget(deckRef.current, target.wsId, target.paneId);
+    const afterClose = findTarget(
+      deckRef.current,
+      target.workspace,
+      target.paneId,
+    );
     if (!afterClose || !sameResumeTarget(afterClose, target)) {
       dropPaneSpawnSpec(target.paneId);
       return;
@@ -167,11 +181,12 @@ export function useAgentRestart(
       "web:revive",
       `${paneId}: resume of ${spec?.resumeOf} exited (${code ?? "?"}) without reporting — respawning fresh`,
     );
-    deckRef.current.setPaneSession(wsId, paneId, null);
+    deckRef.current.setPaneSession(target.workspace.id, paneId, null);
     dropPaneSpawnSpec(paneId);
     void closePane(paneId)
       .then(() => {
-        if (findTarget(deckRef.current, wsId, paneId)) bumpEpoch(paneId);
+        if (findTarget(deckRef.current, target.workspace, paneId))
+          bumpEpoch(paneId);
       })
       .finally(() => inFlight.current.delete(paneId));
     return true;
@@ -182,14 +197,17 @@ export function useAgentRestart(
 
 function findTarget(
   deck: Deck,
-  wsId: string,
+  workspaceRef: string | WorkspaceRef,
   paneId: string,
 ): RestartTarget | null {
-  const workspace = findWorkspace(deck.workspaces, wsId);
+  const workspace =
+    typeof workspaceRef === "string"
+      ? findWorkspace(deck.workspaces, workspaceRef)
+      : findWorkspaceByRef(deck.workspaces, workspaceRef);
   const pane = workspace?.panes.find((candidate) => candidate.id === paneId);
   if (!workspace || !pane) return null;
   return {
-    wsId,
+    workspace: exactRef(workspace),
     paneId,
     agentType: paneAgentType(pane),
     cwd: pane.cwd ?? workspace.cwd,
@@ -197,6 +215,10 @@ function findTarget(
     yolo: pane.yolo,
     sessionId: pane.session?.id ?? null,
   };
+}
+
+function exactRef(workspace: Workspace): WorkspaceRef {
+  return { id: workspace.id, instance: workspace.instance };
 }
 
 function sameResumeTarget(

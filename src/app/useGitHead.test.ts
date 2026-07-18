@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckState, GitPosition } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { WorktreeHead } from "../ipc/worktree";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
@@ -37,6 +38,7 @@ const restored = (): DeckState => ({
   workspaces: [
     {
       id: "ws-1",
+      instance: createWorkspaceInstance(),
       name: "ws",
       cwd: "/repo",
       worktreeBaseDir: null,

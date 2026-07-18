@@ -2,9 +2,14 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentContribution, Disposable } from "@keepdeck/plugin-api";
+import type {
+  AgentContribution,
+  Disposable,
+  WorkspaceRef,
+} from "@keepdeck/plugin-api";
 import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "../domain/agents";
 import type { Workspace } from "../domain/deck";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createContributionRegistries } from "../plugins/registries/contributions";
 import type { AppRuntime } from "./runtime";
 import { AppRuntimeProvider } from "./runtimeContext";
@@ -32,6 +37,7 @@ const plugins = {
 const runtime = { plugins } as unknown as AppRuntime;
 
 const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
+const W1: WorkspaceRef = { id: "ws-1", instance: "workspace-instance-1" };
 
 /** A claude-shaped agent: reporter args on spawn, --resume on resume. */
 const adopting: AgentContribution = {
@@ -49,7 +55,14 @@ const adopting: AgentContribution = {
 };
 
 const ws = (panes: Workspace["panes"]): Workspace[] => [
-  { id: "ws-1", name: "ws", cwd: "/repo", worktreeBaseDir: null, panes },
+  {
+    id: "ws-1",
+    instance: createWorkspaceInstance(),
+    name: "ws",
+    cwd: "/repo",
+    worktreeBaseDir: null,
+    panes,
+  },
 ];
 
 let seen: Record<string, SpawnPlan>;
@@ -137,7 +150,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     await buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-9", wsId: "ws-1", cwd: "/repo", yolo: true },
+      { paneId: "pane-9", workspace: W1, cwd: "/repo", yolo: true },
       ctx,
       "old-id",
       "restore",
@@ -225,7 +238,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     await buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-9", wsId: "ws-1", cwd: "/repo" },
+      { paneId: "pane-9", workspace: W1, cwd: "/repo" },
       ctx,
       "old-id",
       "restore",
@@ -247,7 +260,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     const built = await buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-unsupported", wsId: "ws-1", cwd: "/repo" },
+      { paneId: "pane-unsupported", workspace: W1, cwd: "/repo" },
       ctx,
       "old-id",
       "manual",
@@ -286,7 +299,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     const manual = buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
+      { paneId: "pane-1", workspace: W1, cwd: "/repo" },
       ctx,
       "old-id",
       "manual",
@@ -321,7 +334,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     const building = buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
+      { paneId: "pane-1", workspace: W1, cwd: "/repo" },
       ctx,
       "old-id",
       "manual",

@@ -1,9 +1,12 @@
+import type { WorkspaceRef as PluginWorkspaceRef } from "@keepdeck/plugin-api";
 import {
   findWorkspace,
   paneDisplayTitle,
   type Workspace,
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
+import type { NotificationSource } from "../domain/notifications";
+import type { WorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { notify } from "./notificationCenter";
 import { getSettings } from "./settingsManager";
@@ -21,13 +24,38 @@ function paneContext(
   wsId: string,
   paneId: string,
   agents: AgentInfo[],
-): { title: string; wsName: string } | null {
+): {
+  title: string;
+  wsName: string;
+  workspace: { id: string; instance: Workspace["instance"] };
+} | null {
   const ws = findWorkspace(workspaces, wsId);
   const index = ws?.panes.findIndex((p) => p.id === paneId) ?? -1;
   if (!ws || index === -1) return null;
   return {
     title: paneDisplayTitle(ws.panes[index], index, agents),
     wsName: ws.name,
+    workspace: { id: ws.id, instance: ws.instance },
+  };
+}
+
+/** Preserve the exact workspace lifetime supplied by a plugin notification so
+ * delayed delivery can never attach to a replacement that reused its id. */
+export function pluginNotificationSource(
+  pluginId: string,
+  workspace?: PluginWorkspaceRef,
+  dockTab?: string,
+): Extract<NotificationSource, { type: "plugin" }> {
+  return {
+    type: "plugin",
+    pluginId,
+    ...(workspace !== undefined && {
+      workspace: {
+        id: workspace.id,
+        instance: workspace.instance as WorkspaceInstance,
+      },
+    }),
+    ...(dockTab !== undefined && { dockTab }),
   };
 }
 
@@ -49,7 +77,7 @@ export function notifyAgentCrashed(
         ? `Terminated · ${ctx.wsName}`
         : `Exit code ${code} · ${ctx.wsName}`,
     severity: "error",
-    source: { type: "pane", wsId, paneId },
+    source: { type: "pane", workspace: ctx.workspace, paneId },
     tag: `pane:${paneId}:crash`,
   });
 }
@@ -68,7 +96,7 @@ export function notifyAgentSpawnFailed(
     title: `${ctx.title} failed to start`,
     body: `${message} · ${ctx.wsName}`,
     severity: "error",
-    source: { type: "pane", wsId, paneId },
+    source: { type: "pane", workspace: ctx.workspace, paneId },
     tag: `pane:${paneId}:spawn`,
   });
 }

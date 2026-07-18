@@ -30,7 +30,11 @@ import {
 import { useNotifications } from "./app/useNotifications";
 import { NotificationBell } from "./components/notifications/NotificationBell";
 import { unreadByWorkspace, type Notification } from "./domain/notifications";
-import { settingsSectionForNotification } from "./app/notificationNavigation";
+import {
+  settingsSectionForNotification,
+  shouldRevealPluginDock,
+  workspaceForNotification,
+} from "./app/notificationNavigation";
 import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
@@ -135,8 +139,12 @@ function App() {
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
   const [railCollapsed, setRailCollapsed] = useState(false);
-  // In-app error notice (no system dialogs).
-  const [error, setError] = useState<string | null>(null);
+  // In-app error notice (no system dialogs). The title belongs to the caller:
+  // worktree cleanup and workspace allocation are separate failure domains.
+  const [error, setError] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
   // The settings dialog ([F6]) — opened from the app menu (⌘,), the gear, or
   // a plugin's `openSettings`. When a plugin opens it, the target section id
   // rides along so the dialog lands on that plugin's page.
@@ -150,7 +158,11 @@ function App() {
   // per-agent worktree location, [F2]).
   const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
-  const closeFlow = useCloseFlow(deck, setError, gitHeads);
+  const closeFlow = useCloseFlow(
+    deck,
+    (message) => setError({ title: "Worktree error", message }),
+    gitHeads,
+  );
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
   // through the same confirm flow as ⌘W.
@@ -298,12 +310,12 @@ function App() {
     setSourceVisibilityProbe((source) => {
       if (source.type !== "pane") return false;
       const now = visibilityRef.current;
-      if (now.modalOpen || source.wsId !== now.activeId) return false;
-      const ws = findWorkspace(now.workspaces, source.wsId);
+      if (now.modalOpen || source.workspace.id !== now.activeId) return false;
+      const ws = workspaceForNotification(now.workspaces, source.workspace);
       if (!ws) return false;
       return paneOnScreen(
         ws.panes,
-        now.viewByWs[source.wsId],
+        now.viewByWs[source.workspace.id],
         now.deckLayout,
         now.minimizeOn,
         source.paneId,
@@ -386,29 +398,37 @@ function App() {
   const openNotification = (n: Notification) => {
     switch (n.source.type) {
       case "pane": {
-        const { wsId, paneId } = n.source;
+        const { workspace, paneId } = n.source;
         // The history outlives workspaces (and a plugin may name a wsId we
         // never had): activating a gone id would strand the stage on a blank
         // active workspace — the reducer sets activeId unconditionally.
-        if (!findWorkspace(deck.workspaces, wsId)) return;
-        handleSelectWorkspace(wsId);
-        if (deck.viewOf(wsId).minimized?.includes(paneId)) {
-          deck.toggleMinimize(wsId, paneId);
+        const ws = workspaceForNotification(deck.workspaces, workspace);
+        if (!ws) return;
+        handleSelectWorkspace(workspace.id);
+        if (deck.viewOf(workspace.id).minimized?.includes(paneId)) {
+          deck.toggleMinimize(workspace.id, paneId);
         }
-        deck.selectPane(wsId, paneId);
+        // Generation matching identifies the workspace; pane ownership keeps
+        // a stale/invalid pane source from poisoning its current selection.
+        if (ws.panes.some((pane) => pane.id === paneId)) {
+          deck.selectPane(workspace.id, paneId);
+        }
         break;
       }
       case "plugin": {
         let preciseTargetResolved = true;
-        if (
-          n.source.wsId !== undefined &&
-          findWorkspace(deck.workspaces, n.source.wsId)
-        ) {
-          handleSelectWorkspace(n.source.wsId);
-        } else if (n.source.wsId !== undefined) {
-          preciseTargetResolved = false;
+        if (n.source.workspace !== undefined) {
+          const ws = workspaceForNotification(
+            deck.workspaces,
+            n.source.workspace,
+          );
+          if (ws) {
+            handleSelectWorkspace(ws.id);
+          } else {
+            preciseTargetResolved = false;
+          }
         }
-        if (n.source.dockTab !== undefined) {
+        if (shouldRevealPluginDock(n.source, preciseTargetResolved)) {
           preciseTargetResolved =
             revealPluginDockTab(n.source.pluginId, n.source.dockTab) &&
             preciseTargetResolved;
@@ -446,7 +466,17 @@ function App() {
 
   const handleCreateWorkspace = (config: SpawnConfig) => {
     // Optimistic: the workspace (and its provisioning cards) land at once.
-    provisioning.createWorkspace(config);
+    const result = provisioning.createWorkspace(config);
+    if (!result.ok) {
+      setError({
+        title: "Workspace creation failed",
+        message:
+          result.reason === "sequence-exhausted"
+            ? "No numeric workspace ID is available. Remove the workspace with the highest numeric ID and try again."
+            : "The allocated workspace ID is already in use. Please try again.",
+      });
+      return;
+    }
     setCreating(false);
   };
 
@@ -457,7 +487,7 @@ function App() {
     // The dots belong to the bell: without it (system-only mode, or a
     // mid-session switch to it) there is nothing to open or mark read, so a
     // populated runtime list must not leave unclearable dots behind.
-    unread: showBell ? (unreadForWs[w.id] ?? 0) : 0,
+    unread: showBell ? (unreadForWs.get(w.instance) ?? 0) : 0,
   }));
 
   // While the saved deck (or the spawn context, or the settings) is loading,
@@ -689,8 +719,8 @@ function App() {
 
           {error && (
             <ConfirmDialog
-              title="Worktree error"
-              message={error}
+              title={error.title}
+              message={error.message}
               confirmLabel="OK"
               onConfirm={() => setError(null)}
             />
@@ -775,7 +805,7 @@ function App() {
           // tab state (run target, drafts) to the new workspace's context —
           // the selected tab survives it because it lives in the deck.
           <DockPanel
-            key={active.id}
+            key={active.instance}
             tabs={dockTabs}
             activeTab={activeView.dockTab ?? null}
             onSelectTab={(id) => deck.setDockTab(active.id, id)}

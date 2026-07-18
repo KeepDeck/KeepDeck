@@ -1,13 +1,13 @@
-import { useCallback, useReducer } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import {
-  deckReducer,
-  initialDeckState,
   type DeckState,
   type Pane,
   type PaneSession,
   type Workspace,
   type WorkspaceView,
 } from "../domain/deck";
+import { createDeckStore, type DeckStore } from "./deckStore";
+import { mintWorkspaceSeq } from "./ids";
 
 /** An empty view — the defaults for a workspace with no view entry yet. Shared
  * so `viewOf` returns a stable reference for absent workspaces. */
@@ -15,6 +15,9 @@ const EMPTY_VIEW: WorkspaceView = {};
 
 /** The deck surface the application hooks drive (state + bound actions). */
 export type Deck = ReturnType<typeof useDeck>;
+export type WorkspaceCreationResult =
+  | { ok: true; workspace: Workspace }
+  | { ok: false; reason: "sequence-exhausted" | "duplicate-id" };
 
 /**
  * Owns the deck's reducer and exposes the state plus bound action helpers, so
@@ -22,12 +25,20 @@ export type Deck = ReturnType<typeof useDeck>;
  * coupled `useState`s and cleaning them by hand on every removal.
  */
 export function useDeck() {
-  const [state, dispatch] = useReducer(deckReducer, initialDeckState);
+  const storeRef = useRef<DeckStore | null>(null);
+  if (storeRef.current === null) storeRef.current = createDeckStore();
+  const store = storeRef.current;
+  const state = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
+  );
+  const dispatch = store.dispatch;
   // Stable because the minimize-mode effect depends on this command while it
   // reconciles the independently-owned settings and deck state.
   const clearMinimized = useCallback(
     () => dispatch({ type: "clearMinimized" }),
-    [],
+    [dispatch],
   );
   return {
     ...state,
@@ -38,6 +49,25 @@ export function useDeck() {
     selectWorkspace: (id: string) => dispatch({ type: "selectWorkspace", id }),
     createWorkspace: (workspace: Workspace) =>
       dispatch({ type: "createWorkspace", workspace }),
+    /** Build and insert a workspace against the latest deck snapshot.
+     * Allocation and insertion are one synchronous state-owner operation, so
+     * two creates in one React batch cannot observe or append the same id. */
+    createWorkspaceFromSequence: (
+      build: (sequence: number) => Workspace,
+    ): WorkspaceCreationResult => {
+      const sequence = mintWorkspaceSeq(
+        store.getSnapshot().workspaces.map((workspace) => workspace.id),
+      );
+      if (sequence === null) {
+        return { ok: false, reason: "sequence-exhausted" };
+      }
+      const workspace = build(sequence);
+      const before = store.getSnapshot();
+      const next = dispatch({ type: "createWorkspace", workspace });
+      return next === before
+        ? { ok: false, reason: "duplicate-id" }
+        : { ok: true, workspace };
+    },
     setPanes: (id: string, panes: Pane[]) =>
       dispatch({ type: "setPanes", id, panes }),
     addAgentPane: (id: string, pane: Pane) =>
@@ -86,7 +116,18 @@ export function useDeck() {
       dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
     setPaneProvisioningPhase: (wsId: string, paneId: string, phase: "setup") =>
       dispatch({ type: "setPaneProvisioningPhase", wsId, paneId, phase }),
-    setWorkspacePluginSlot: (wsId: string, pluginId: string, value: unknown) =>
-      dispatch({ type: "setWorkspacePluginSlot", wsId, pluginId, value }),
+    setWorkspacePluginSlot: (
+      wsId: string,
+      workspaceInstance: Workspace["instance"],
+      pluginId: string,
+      value: unknown,
+    ) =>
+      dispatch({
+        type: "setWorkspacePluginSlot",
+        wsId,
+        workspaceInstance,
+        pluginId,
+        value,
+      }),
   };
 }

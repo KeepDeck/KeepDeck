@@ -5,6 +5,7 @@ import {
   commandRows,
   removePreset,
   resolveOpenApp,
+  sameWorkspace,
   updatePreset,
   type RunSession,
 } from "../domain";
@@ -39,12 +40,12 @@ import { RunLog } from "./RunLog";
  */
 export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
   const { manager, ctx } = getRuntime();
-  const [presets, savePresets] = usePresets(workspace.id);
+  const [presets, savePresets] = usePresets(workspace);
   // The "Open in" applications from the plugin's settings; the workspace's
   // own pick out of that list rides its storage slot. An emptied list hides
   // the row (openApp = null).
   const apps = useOpenApps();
-  const [openPick, setOpenPick] = useOpenApp(workspace.id);
+  const [openPick, setOpenPick] = useOpenApp(workspace);
   const openApp = resolveOpenApp(openPick, apps);
 
   // Where to run: a pane's worktree, or the workspace folder. Defaults to the
@@ -75,7 +76,9 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
   // an existing one.
   const [draft, setDraft] = useState<{ presetId: string | null } | null>(null);
 
-  const sessions = useRunSessions().filter((s) => s.wsId === workspace.id);
+  const sessions = useRunSessions().filter((session) =>
+    sameWorkspace(session.workspace, workspace),
+  );
   const rows = commandRows(presets, sessions, target);
   // Ids still held by live (possibly orphaned) sessions — a new preset must not
   // reuse one, or the running command rebinds to the fresh, unrelated row.
@@ -124,7 +127,7 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
     const branch = workspace.panes.find((p) => p.cwd === target)?.branch;
     void manager
       .launchRun(
-        workspace.id,
+        workspace,
         where ?? { worktree: target, ...(branch && { branch }) },
         { presetId: preset.id, command: preset.command, name: preset.name },
       )
@@ -409,7 +412,7 @@ export function RunTab({ workspace, selectedPaneId }: DockTabProps) {
                             // same-named orphan row reading as "the delete
                             // didn't work" was exactly the reported bug; a
                             // RUNNING one stays visible until it stops.
-                            manager.removeDeadRunsFor(workspace.id, row.preset!.id);
+                            manager.removeDeadRunsFor(workspace, row.preset!.id);
                           }}
                           title={`Delete "${rowName}"`}
                           aria-label={`Delete preset ${rowName}`}
