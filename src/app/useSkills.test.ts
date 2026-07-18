@@ -97,7 +97,7 @@ describe("the skills library hook", () => {
     expect(staging.invalidateSkillsStaging).not.toHaveBeenCalled();
   });
 
-  it("rename moves the skill, invalidates staging, reloads", async () => {
+  it("rename invalidates staging but leaves the reload to the save that follows", async () => {
     await mount();
     let ok = false;
     await act(async () => {
@@ -111,6 +111,8 @@ describe("the skills library hook", () => {
       "deep-review",
     );
     expect(staging.invalidateSkillsStaging).toHaveBeenCalledTimes(1);
+    // One user action, one reload: rename itself must not re-read the list.
+    expect(wire.listSkills).toHaveBeenCalledTimes(1);
   });
 
   it("a failed rename surfaces the error and leaves staging alone", async () => {

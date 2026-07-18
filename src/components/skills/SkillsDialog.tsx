@@ -55,7 +55,7 @@ const scopeOf = (skill: StoredSkill): SkillScope =>
  * rule.
  */
 export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
-  const { skills, error, save, rename, remove } = useSkillsLibrary(true);
+  const { skills, error, clearError, save, rename, remove } = useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
@@ -101,6 +101,9 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
       onClose();
       return;
     }
+    // A stale error belongs to the skill it happened on, not to wherever
+    // the user navigates next.
+    clearError();
     if (next?.mode === "edit") {
       const skill = (skills ?? []).find(
         (s) => s.name === next.name && sameScope(scopeOf(s), next.scope),
@@ -109,6 +112,10 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
         openSkill(skill);
         return;
       }
+      // The target vanished between click and now (deleted, renamed) — an
+      // empty editor claiming to edit it would be a ghost. Show the
+      // placeholder instead.
+      next = null;
     }
     setSelection(next);
     setForm(EMPTY_FORM);
@@ -141,25 +148,32 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
 
   const submit = async () => {
     if (!selection || !canSave) return;
+    const scope = selection.scope;
     // An edited name moves the directory first (assets travel), then the
     // ordinary save lands the content under the new name.
     if (selection.mode === "edit" && form.name !== selection.name) {
-      if (!(await rename(selection.scope, selection.name, form.name))) return;
+      if (!(await rename(scope, selection.name, form.name))) return;
+      // From here the skill IS form.name on disk — the selection must say
+      // so even if the content save below fails, or `nameTaken` would
+      // treat our own new name as a collision and dead-end the editor.
+      setSelection({ mode: "edit", scope, name: form.name });
     }
     const draft: SkillDraft = { ...form };
-    if (await save(selection.scope, draft)) {
-      setSelection({ mode: "edit", scope: selection.scope, name: form.name });
+    if (await save(scope, draft)) {
+      setSelection({ mode: "edit", scope, name: form.name });
       setDirty(false);
     }
   };
 
   // ⌘S saves from anywhere in the dialog — the editor is a writing surface
-  // and writers hit ⌘S by reflex.
+  // and writers hit ⌘S by reflex. Like Escape above, it yields while a
+  // confirm is up: saving underneath a delete/discard confirmation would
+  // change the very state the user is deciding about.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
-        void submit();
+        if (!confirm) void submit();
       }
     };
     window.addEventListener("keydown", onKeyDown);

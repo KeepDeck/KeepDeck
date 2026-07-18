@@ -20,9 +20,14 @@ import { invalidateSkillsStaging } from "./skillsStaging";
 export interface SkillsLibrary {
   /** The stored skills; `null` while the first load is in flight. */
   skills: StoredSkill[] | null;
-  /** The last failed operation, human-readable; cleared by the next success. */
+  /** The last failed operation, human-readable; cleared by the next success
+   * or by `clearError` (navigation away from the failed skill). */
   error: string | null;
+  clearError(): void;
   save(scope: SkillScope, draft: SkillDraft): Promise<boolean>;
+  /** Move the skill's directory. Deliberately does NOT reload the list —
+   * a rename is always followed by a save (whose refresh covers both), so
+   * one user action costs one reload, not two. */
   rename(scope: SkillScope, from: string, to: string): Promise<boolean>;
   remove(scope: SkillScope, name: string): Promise<boolean>;
 }
@@ -62,19 +67,21 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     [refresh],
   );
 
-  const rename = useCallback(
-    async (scope: SkillScope, from: string, to: string) => {
-      try {
-        await renameSkill(scope, from, to);
-        await refresh();
-        return true;
-      } catch (e) {
-        setError(`Rename failed: ${describeError(e)}`);
-        return false;
-      }
-    },
-    [refresh],
-  );
+  const rename = useCallback(async (scope: SkillScope, from: string, to: string) => {
+    try {
+      await renameSkill(scope, from, to);
+      // The directory moved — staged views are stale NOW, even though the
+      // list reload waits for the save that follows.
+      invalidateSkillsStaging();
+      setError(null);
+      return true;
+    } catch (e) {
+      setError(`Rename failed: ${describeError(e)}`);
+      return false;
+    }
+  }, []);
+
+  const clearError = useCallback(() => setError(null), []);
 
   const remove = useCallback(
     async (scope: SkillScope, name: string) => {
@@ -90,5 +97,5 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     [refresh],
   );
 
-  return { skills, error, save, rename, remove };
+  return { skills, error, clearError, save, rename, remove };
 }

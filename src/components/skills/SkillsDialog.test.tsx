@@ -12,6 +12,7 @@ import { SkillsDialog } from "./SkillsDialog";
 const lib = vi.hoisted(() => ({
   skills: [] as StoredSkill[] | null,
   error: null as string | null,
+  clearError: vi.fn(),
   save: vi.fn(async () => true),
   rename: vi.fn(async () => true),
   remove: vi.fn(async () => true),
@@ -20,6 +21,7 @@ vi.mock("../../app/useSkills", () => ({
   useSkillsLibrary: () => ({
     skills: lib.skills,
     error: lib.error,
+    clearError: lib.clearError,
     save: lib.save,
     rename: lib.rename,
     remove: lib.remove,
@@ -72,6 +74,7 @@ describe("SkillsDialog", () => {
   beforeEach(() => {
     lib.skills = [];
     lib.error = null;
+    lib.clearError.mockClear();
     lib.save.mockClear();
     lib.save.mockResolvedValue(true);
     lib.rename.mockClear();
@@ -141,6 +144,71 @@ describe("SkillsDialog", () => {
       { kind: "global" },
       expect.objectContaining({ name: "deep-review" }),
     );
+  });
+
+  it("a failed save after a successful rename is retryable, not a dead end", async () => {
+    lib.skills = [skill("review")];
+    lib.save.mockResolvedValueOnce(false); // disk said no, once
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-name"), "deep-review");
+    await act(async () => button("Save")!.click());
+
+    // The directory moved; the editor must follow the new name — its own
+    // name is not a collision, so Save stays available for a retry.
+    expect(document.body.textContent).not.toContain("already exists");
+    expect(button("Save")!.disabled).toBe(false);
+
+    await act(async () => button("Save")!.click());
+    // The retry is a plain save under the new name — no second rename.
+    expect(lib.rename).toHaveBeenCalledTimes(1);
+    expect(lib.save).toHaveBeenLastCalledWith(
+      { kind: "global" },
+      expect.objectContaining({ name: "deep-review" }),
+    );
+  });
+
+  it("⌘S yields while a confirm is up — saving under it would defeat it", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-description"), "edited");
+    act(() => button("Delete")!.click());
+    expect(document.querySelector(".confirm")).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "s", metaKey: true }),
+      );
+    });
+    expect(lib.save).not.toHaveBeenCalled();
+    expect(lib.rename).not.toHaveBeenCalled();
+  });
+
+  it("a stale operation error clears when navigating to another skill", async () => {
+    lib.skills = [skill("review"), skill("deploy")];
+    lib.error = "Save failed: disk full";
+    await mount();
+    act(() => row("review")!.click());
+    expect(document.body.textContent).toContain("disk full");
+
+    act(() => row("deploy")!.click());
+    expect(lib.clearError).toHaveBeenCalled();
+  });
+
+  it("a vanished discard target falls back to the placeholder, not a ghost editor", async () => {
+    lib.skills = [skill("review"), skill("deploy")];
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-description"), "edited");
+    act(() => row("deploy")!.click()); // discard confirm captures the target
+
+    lib.skills = [skill("review")]; // "deploy" vanishes meanwhile
+    await mount();
+    act(() => button("Discard")!.click());
+
+    expect(document.querySelector(".skills__editor-title")).toBeNull();
+    expect(document.body.textContent).toContain("One skill, every agent");
   });
 
   it("renaming onto another skill in the scope is blocked; keeping your own name is not", async () => {
