@@ -256,7 +256,14 @@ export function UsageChips({
                             ? "reset passed · awaiting report"
                             : countdown
                               ? `resets in ${countdown}`
-                              : "reset unknown"}
+                              : window.windowMinutes !== null
+                                ? // A rolling window whose reset the CLI
+                                  // didn't share.
+                                  "reset unknown"
+                                : // No duration, no reset: a plan BALANCE
+                                  // (kimi's totalQuota) — spent and topped
+                                  // up, never reset on a clock.
+                                  "plan allowance"}
                         </small>
                       </span>
                     </div>

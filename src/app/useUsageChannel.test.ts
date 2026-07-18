@@ -19,6 +19,8 @@ const ipc = vi.hoisted(() => ({
   unwatchSessionFile: vi.fn(),
   fetchKimiUsages: vi.fn(),
   findCodexRollout: vi.fn(),
+  loadUsageCache: vi.fn(),
+  saveUsageCache: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
   // The agents contribution list the channel reads its declarations from.
   contributions: [] as { pluginId: string; entry: { id: string; usage?: AgentUsage } }[],
@@ -29,6 +31,8 @@ vi.mock("../ipc/usage", () => ({
   unwatchSessionFile: ipc.unwatchSessionFile,
   fetchKimiUsages: ipc.fetchKimiUsages,
   findCodexRollout: ipc.findCodexRollout,
+  loadUsageCache: ipc.loadUsageCache,
+  saveUsageCache: ipc.saveUsageCache,
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
 vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: ipc.peekPaneSpawnSpec }));
@@ -115,6 +119,8 @@ describe("useUsageChannel", () => {
     ipc.unwatchSessionFile.mockReset().mockResolvedValue(undefined);
     ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
+    ipc.loadUsageCache.mockReset().mockResolvedValue(null);
+    ipc.saveUsageCache.mockReset().mockResolvedValue(undefined);
     ipc.peekPaneSpawnSpec
       .mockReset()
       .mockImplementation((paneId: string) =>

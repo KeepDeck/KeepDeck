@@ -29,7 +29,7 @@ const CLAUDE: AgentInfo = {
   supportsYolo: true,
   installed: true,
   path: null,
-  reportsUsage: false,
+  reportsUsage: true,
 };
 
 const AT = 1_738_400_000_000;
@@ -163,6 +163,37 @@ describe("UsageChips", () => {
     const chip = host.querySelector(".usage-chip")!;
     expect(chip.className).toContain("usage-chip--dim");
     expect(chip.querySelector(".usage-chip__stale")).not.toBeNull();
+  });
+
+  it("labels a balance row as an allowance, not an unknown reset", () => {
+    reportUsage(
+      "pane-1",
+      {
+        agent: "claude",
+        result: {
+          account: {
+            kind: "reported",
+            windows: [
+              // A quota-style BALANCE: no duration, no reset instant.
+              { usedPct: 1, resetsAt: null, windowMinutes: null, scope: "quota" },
+              // A rolling window that just didn't share its reset.
+              { usedPct: 10, resetsAt: null, windowMinutes: 300 },
+            ],
+            reportedAt: 0,
+            sourcePaneId: "",
+          },
+          pane: null,
+        },
+      },
+      AT,
+    );
+    render();
+    act(() => {
+      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+    });
+    const panel = host.querySelector("#usage-panel")!;
+    expect(panel.textContent).toContain("plan allowance");
+    expect(panel.textContent).toContain("reset unknown");
   });
 
   it("opens the panel with countdowns and flips the display setting", () => {
