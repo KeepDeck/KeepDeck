@@ -22,17 +22,17 @@ import { useUsage } from "../../app/useUsage";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 
 /**
- * The top-bar usage cluster: one chip per provider with REPORTED account
- * state, calm by default — color only at the 60/80 thresholds. Clicking
- * any chip opens the one anchored panel (the bell's manners) detailing
- * every provider's windows with client-side reset countdowns, plus the
- * live per-pane session rows (model, context, cost). Idle panes stop
- * reporting but the countdown clocks keep ticking from the absolute
- * `resetsAt`.
+ * The top-bar usage cluster: one chip per usage-declaring agent with a
+ * pane in the deck (immediately — "···" until data) or with a reported
+ * account (persisted snapshots keep the bar full after a restart). Calm
+ * by default — color only at the 60/80 thresholds. Clicking a chip opens
+ * the anchored panel (the bell's manners) scoped to THAT provider: its
+ * windows with client-side reset countdowns and its live session rows
+ * (model, context, cost). Idle panes stop reporting but the countdown
+ * clocks keep ticking from the absolute `resetsAt`.
  *
- * A provider without reported state contributes NO chip — the cluster is
- * invisible until the first report lands. Which windows a chip shows (and
- * in what order) is domain policy: [`chipWindows`]/[`panelWindows`].
+ * Which windows a chip shows (and in what order) is domain policy:
+ * [`chipWindows`]/[`panelWindows`].
  */
 
 function WindowValue({
@@ -140,7 +140,8 @@ export function UsageChips({
   const { accounts, panes } = useUsage();
   const settings = useSettings();
   const display = settings?.usageDisplay ?? DEFAULT_SETTINGS.usageDisplay;
-  const [open, setOpen] = useState(false);
+  // The open PANEL is per provider — a chip opens ITS agent's details.
+  const [openProvider, setOpenProvider] = useState<string | null>(null);
   const rootRef = useRef<HTMLSpanElement>(null);
 
   // Countdowns and staleness drift with wall time — a slow tick re-renders
@@ -153,13 +154,14 @@ export function UsageChips({
   }, [accounts.size]);
 
   // Light-dismiss: any pointer press outside (or Escape) closes the panel.
+  const open = openProvider !== null;
   useEffect(() => {
     if (!open) return;
     const onPress = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(e.target as Node)) setOpenProvider(null);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") setOpenProvider(null);
     };
     document.addEventListener("pointerdown", onPress, true);
     document.addEventListener("keydown", onKey, true);
@@ -175,11 +177,14 @@ export function UsageChips({
   // honestly aged). The "unavailable" contract arm has no producer today.
   const providers = agents.filter(
     (agent) =>
-      liveAgents.has(agent.id) || accounts.get(agent.id)?.kind === "reported",
+      (agent.reportsUsage === true && liveAgents.has(agent.id)) ||
+      accounts.get(agent.id)?.kind === "reported",
   );
   if (providers.length === 0) return null;
   const now = Date.now();
-  const sessions = [...panes.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const sessions = [...panes.entries()]
+    .filter(([, usage]) => usage.agent === openProvider)
+    .sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <span className="usage" ref={rootRef}>
@@ -190,8 +195,10 @@ export function UsageChips({
           account={accounts.get(agent.id)}
           display={display}
           now={now}
-          open={open}
-          onToggle={() => setOpen((o) => !o)}
+          open={openProvider === agent.id}
+          onToggle={() =>
+            setOpenProvider((current) => (current === agent.id ? null : agent.id))
+          }
         />
       ))}
       {open && (
@@ -209,7 +216,9 @@ export function UsageChips({
               % {display}
             </button>
           </div>
-          {providers.map((agent) => {
+          {providers
+            .filter((agent) => agent.id === openProvider)
+            .map((agent) => {
             const account = accounts.get(agent.id);
             if (!account) {
               return (

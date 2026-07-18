@@ -29,6 +29,7 @@ const CLAUDE: AgentInfo = {
   supportsYolo: true,
   installed: true,
   path: null,
+  reportsUsage: false,
 };
 
 const AT = 1_738_400_000_000;

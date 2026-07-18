@@ -41,6 +41,10 @@ export interface AgentInfo {
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */
   path: string | null;
+  /** Whether the plugin declares a usage contribution — gates the agent's
+   * chip in the usage bar (an agent that never reports must not sit there
+   * as an eternal "waiting"). Absent = false. */
+  reportsUsage?: boolean;
 }
 
 /** Agents to offer in the picker: installed only, but the full catalog when none

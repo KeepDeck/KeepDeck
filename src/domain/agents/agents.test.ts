@@ -17,6 +17,7 @@ function agent(
     label: id,
     command: id,
     supportsYolo: false,
+    reportsUsage: true,
     installed,
     path: null,
     ...extra,

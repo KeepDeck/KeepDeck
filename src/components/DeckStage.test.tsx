@@ -77,6 +77,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
       supportsYolo: false,
       installed: true,
       path: null,
+      reportsUsage: true,
     },
   ],
   agentsReady: true,
@@ -232,6 +233,7 @@ describe("DeckStage — agent identity on the pane header", () => {
           supportsYolo: false,
           installed: true,
           path: null,
+          reportsUsage: true,
         },
       ],
     });
