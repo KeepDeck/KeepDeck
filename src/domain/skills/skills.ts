@@ -96,10 +96,14 @@ function frontmatterBlock(content: string): { lines: string[]; body: string } | 
 function scalar(value: string): string {
   const reserved = /^(?:true|false|null|yes|no|on|off|~)$/i.test(value);
   const numeric = /^[+-]?(?:\d[\d_]*(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value);
+  // YAML 1.2 core also reads hex/octal ints and the special float tokens as
+  // numbers (0x1F → 31, .inf → Infinity) — quoted, they stay strings.
+  const special = /^[+-]?(?:0[xX][0-9a-fA-F_]+|0[oO][0-7_]+|\.(?:inf|nan))$/i.test(value);
   const risky =
     value === "" ||
     reserved ||
     numeric ||
+    special ||
     /[:#"'\\{}[\],&*?|<>=!%@`]/.test(value) ||
     /^\s|\s$|^-/.test(value);
   return risky ? `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : value;

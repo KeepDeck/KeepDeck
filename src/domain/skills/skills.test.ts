@@ -60,7 +60,22 @@ describe("compose/parse round-trip", () => {
   it("quotes YAML-reserved and numeric-looking scalars so real parsers keep strings", () => {
     // Our regex round-trip can't tell — but the CLIs parse this frontmatter
     // with real YAML parsers, where bare true/null/123 stop being strings.
-    for (const value of ["true", "False", "null", "~", "123", "3.14", "-5", "1e3", "no"]) {
+    for (const value of [
+      "true",
+      "False",
+      "null",
+      "~",
+      "123",
+      "3.14",
+      "-5",
+      "1e3",
+      "no",
+      "0x1F",
+      "0o7",
+      ".inf",
+      ".nan",
+      "+.inf",
+    ]) {
       const file = composeSkillFile({
         name: "x",
         description: value,
