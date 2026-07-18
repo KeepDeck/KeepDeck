@@ -1,0 +1,116 @@
+/* Skills dialog ([skills]) — the full-screen library editor: a .form card
+   stretched to the viewport, library nav on the left, editor filling the
+   rest. Reuses the settings nav-item look for library rows. */
+.skills {
+  display: flex;
+  flex-direction: column;
+  width: min(1080px, 94vw);
+  max-width: none;
+  height: min(760px, 90vh);
+}
+
+.skills__body {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 24px;
+  flex: 1;
+  min-height: 0;
+}
+
+.skills__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-right: 16px;
+  border-right: 1px solid #1c2230;
+  overflow-y: auto;
+}
+
+.skills__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skills__group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #6b7280;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.skills__new {
+  padding: 2px 6px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: #6b7280;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.skills__new:hover {
+  background-color: #1c2230;
+  color: #c5c8c6;
+}
+
+.skills__empty-group {
+  padding: 4px 10px;
+  color: #4b5563;
+  font-size: 12px;
+}
+
+.skills__editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.skills__placeholder {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #6b7280;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* The instructions editor is the row that grows; everything else keeps its
+   natural height. Same chrome family as .form__input. */
+.skills__text {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px;
+  border: 1px solid #262d3d;
+  border-radius: 8px;
+  background-color: #0f131c;
+  color: #c5c8c6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: none;
+}
+
+.skills__text:focus {
+  border-color: #3b82f6;
+  outline: none;
+}
+
+.skills__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.skills__actions-gap {
+  flex: 1;
+}
