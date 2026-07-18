@@ -456,62 +456,81 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
 /// Delete the tracked branch and the worktree-born extras (minus the overlap:
 /// the tracked branch usually IS one of them), returning the user-facing
 /// message for every branch that resisted — one stubborn branch must not hide
-/// the rest.
-///
-/// A branch that some OTHER worktree now holds is in use, not litter —
-/// deleting (or failing loudly) would both be wrong, so it's kept with only a
-/// log line. That in-use info comes from `worktree list`, consulted only when
-/// extras exist, with three deliberate consequences: with no extras the
-/// tracked branch is always attempted, exactly the pre-reap contract (a
-/// held tracked branch fails loudly there); with extras present the keep
-/// guard shields the tracked branch too; and when the list itself fails,
-/// every extra is kept unswept while the tracked branch is still attempted.
+/// the rest. The decision of WHAT to sweep is [`sweep_targets`]'s; this
+/// function only gathers the in-use info and executes.
 fn reap_branches(
     repo_path: &Path,
     primary: Option<&str>,
     created: &[String],
     force: bool,
 ) -> Vec<String> {
-    let mut extras: Vec<&str> = created
+    let extras: Vec<&str> = created
         .iter()
         .map(String::as_str)
         .filter(|b| Some(*b) != primary)
         .collect();
-    let adopted: HashSet<String> = if extras.is_empty() {
-        HashSet::new()
+    // In-use info: which branches the surviving worktrees hold. Only needed
+    // when extras exist; a failed `worktree list` is "info unavailable".
+    let adopted: Option<HashSet<String>> = if extras.is_empty() {
+        Some(HashSet::new())
     } else {
         match worktree::list(repo_path) {
-            Ok(list) => list.into_iter().filter_map(|w| w.branch).collect(),
+            Ok(list) => Some(list.into_iter().filter_map(|w| w.branch).collect()),
             Err(e) => {
-                // Without the in-use info, sweeping extras could hit an
-                // adopted branch; keep them all and sweep only the tracked
-                // branch, unguarded — the pre-reap contract.
                 log::warn!(
                     "worktree: can't tell which branches are in use in {} ({e}); \
                      keeping {} created branch(es)",
                     repo_path.display(),
                     extras.len()
                 );
-                extras.clear();
-                HashSet::new()
+                None
             }
         }
     };
-
-    let mut failures = Vec::new();
-    for branch in primary.iter().copied().chain(extras) {
-        if adopted.contains(branch) {
+    let targets = sweep_targets(primary, &extras, adopted.as_ref());
+    if adopted.is_some() {
+        for kept in primary
+            .iter()
+            .copied()
+            .chain(extras.iter().copied())
+            .filter(|b| !targets.contains(b))
+        {
             log::warn!(
-                "worktree: branch '{branch}' is checked out in another worktree of {}; keeping it",
+                "worktree: branch '{kept}' is checked out in another worktree of {}; keeping it",
                 repo_path.display()
             );
-            continue;
         }
+    }
+
+    let mut failures = Vec::new();
+    for branch in targets {
         if let Err(message) = delete_branch_if_present(repo_path, branch, force) {
             failures.push(message);
         }
     }
     failures
+}
+
+/// Pure sweep policy — which branches the reap attempts, given the tracked
+/// branch, the worktree-born extras, and the in-use info from `worktree list`
+/// (`None` = that info is unavailable). The three cells, spelled out: with
+/// info, everything not currently checked out in another worktree — the
+/// guard shields the tracked branch too; without info, every extra is kept
+/// (deleting blind could hit an in-use branch) and only the tracked branch —
+/// explicit close intent — is attempted: the pre-reap contract.
+fn sweep_targets<'a>(
+    primary: Option<&'a str>,
+    extras: &[&'a str],
+    adopted: Option<&HashSet<String>>,
+) -> Vec<&'a str> {
+    let Some(adopted) = adopted else {
+        return primary.into_iter().collect();
+    };
+    primary
+        .into_iter()
+        .chain(extras.iter().copied())
+        .filter(|branch| !adopted.contains(*branch))
+        .collect()
 }
 
 /// Delete `branch` unless it's already gone — someone beating us to it means
@@ -865,7 +884,10 @@ mod tests {
         // delete checkbox must sweep it along with the tracked branch, while a
         // branch that merely VISITED the worktree stays.
         let (repo, wt, branch) = repo_with_worktree("reap-created");
-        git_at(&repo, 1_700_000_000, &["branch", "visitor"]);
+        // The visitor carries a TRUSTED source (explicit HEAD) and sits on the
+        // same commit as everything else — so the timestamp separation below
+        // is the ONE guard this test isolates.
+        git_at(&repo, 1_700_000_000, &["branch", "visitor", "HEAD"]);
         git(&wt, &["switch", "-q", "-c", "kd/side-branch"]);
         git(&wt, &["switch", "-q", "visitor"]);
 
@@ -888,6 +910,30 @@ mod tests {
         let visitor = git_out(&repo, &["branch", "--list", "visitor"]);
         assert!(!visitor.trim().is_empty(), "the visiting branch was reaped");
         let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn sweep_without_in_use_info_attempts_only_the_tracked_branch() {
+        // `worktree list` failed: extras are kept (deleting blind could hit
+        // an in-use branch); the tracked branch is still attempted, unguarded.
+        let targets = sweep_targets(Some("kd/ws/1"), &["kd/side"], None);
+        assert_eq!(targets, ["kd/ws/1"]);
+        assert!(sweep_targets(None, &["kd/side"], None).is_empty());
+    }
+
+    #[test]
+    fn sweep_with_in_use_info_shields_adopted_branches_everywhere() {
+        let adopted: HashSet<String> = ["kd/side".to_string(), "kd/ws/1".to_string()].into();
+        // The guard applies to extras AND the tracked branch alike.
+        assert_eq!(
+            sweep_targets(Some("kd/ws/1"), &["kd/side", "kd/free"], Some(&adopted)),
+            ["kd/free"]
+        );
+        // With nothing adopted, everything is swept, tracked branch first.
+        assert_eq!(
+            sweep_targets(Some("kd/ws/1"), &["kd/side"], Some(&HashSet::new())),
+            ["kd/ws/1", "kd/side"]
+        );
     }
 
     #[test]
