@@ -139,8 +139,12 @@ function App() {
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
   const [railCollapsed, setRailCollapsed] = useState(false);
-  // In-app error notice (no system dialogs).
-  const [error, setError] = useState<string | null>(null);
+  // In-app error notice (no system dialogs). The title belongs to the caller:
+  // worktree cleanup and workspace allocation are separate failure domains.
+  const [error, setError] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
   // The settings dialog ([F6]) — opened from the app menu (⌘,), the gear, or
   // a plugin's `openSettings`. When a plugin opens it, the target section id
   // rides along so the dialog lands on that plugin's page.
@@ -154,7 +158,11 @@ function App() {
   // per-agent worktree location, [F2]).
   const agentFlow = useAgentDialog(deck, agents);
   // A close (agent or workspace) awaiting confirmation ([U6]).
-  const closeFlow = useCloseFlow(deck, setError, gitHeads);
+  const closeFlow = useCloseFlow(
+    deck,
+    (message) => setError({ title: "Worktree error", message }),
+    gitHeads,
+  );
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
   // through the same confirm flow as ⌘W.
@@ -458,7 +466,17 @@ function App() {
 
   const handleCreateWorkspace = (config: SpawnConfig) => {
     // Optimistic: the workspace (and its provisioning cards) land at once.
-    provisioning.createWorkspace(config);
+    const result = provisioning.createWorkspace(config);
+    if (!result.ok) {
+      setError({
+        title: "Workspace creation failed",
+        message:
+          result.reason === "sequence-exhausted"
+            ? "No numeric workspace ID is available. Remove the workspace with the highest numeric ID and try again."
+            : "The allocated workspace ID is already in use. Please try again.",
+      });
+      return;
+    }
     setCreating(false);
   };
 
@@ -701,8 +719,8 @@ function App() {
 
           {error && (
             <ConfirmDialog
-              title="Worktree error"
-              message={error}
+              title={error.title}
+              message={error.message}
               confirmLabel="OK"
               onConfirm={() => setError(null)}
             />

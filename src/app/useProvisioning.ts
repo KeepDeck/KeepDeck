@@ -79,7 +79,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
         "web:provisioning",
         `workspace create rejected: ${created.reason}`,
       );
-      return;
+      return created;
     }
     const { workspace } = created;
     void runProvisioning(
@@ -87,6 +87,7 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
       provisionInto(deck, workspace.id),
       wsSetup,
     );
+    return created;
   };
 
   /** Re-issue a failed pane's worktree create from its stored intent. */

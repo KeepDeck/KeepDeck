@@ -40,7 +40,13 @@ describe("useProvisioning workspace ids", () => {
 
   afterEach(() => act(() => root.unmount()));
 
-  const create = () => act(() => provisioning.createWorkspace(config()));
+  const create = () => {
+    let result!: ReturnType<typeof provisioning.createWorkspace>;
+    act(() => {
+      result = provisioning.createWorkspace(config());
+    });
+    return result;
+  };
 
   it("reuses the highest sequence after its workspace is deleted", () => {
     create();
@@ -116,8 +122,9 @@ describe("useProvisioning workspace ids", () => {
       }),
     );
 
-    create();
+    const result = create();
 
     expect(deck.workspaces.map((ws) => ws.id)).toEqual([maxId]);
+    expect(result).toEqual({ ok: false, reason: "sequence-exhausted" });
   });
 });
