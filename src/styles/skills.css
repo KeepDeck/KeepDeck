@@ -104,6 +104,12 @@
   outline: none;
 }
 
+.skills__hint {
+  margin-top: 4px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
 .skills__actions {
   display: flex;
   align-items: center;

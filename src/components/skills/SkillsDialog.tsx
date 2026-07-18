@@ -126,12 +126,13 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
       (s) => s.name === form.name && sameScope(scopeOf(s), selection.scope),
     );
   const nameOk = isValidSkillName(form.name);
+  // The spec makes description REQUIRED, and it's not pedantry: kimi
+  // silently drops a skill whose description is empty (field-verified 0.27),
+  // so saving one would "work" and then never reach the agent.
+  const descriptionOk =
+    form.description.trim() !== "" && isValidSkillDescription(form.description);
   const canSave =
-    selection !== null &&
-    dirty &&
-    nameOk &&
-    !nameTaken &&
-    isValidSkillDescription(form.description);
+    selection !== null && dirty && nameOk && !nameTaken && descriptionOk;
 
   const submit = async () => {
     if (!selection || !canSave) return;
@@ -256,6 +257,12 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
                   placeholder="When should an agent reach for this skill"
                   spellCheck={false}
                 />
+                {form.description.trim() === "" && (
+                  <div className="skills__hint">
+                    Required — agents pick skills by description, and some
+                    silently drop a skill without one
+                  </div>
+                )}
 
                 <label className="form__label" htmlFor="skill-body">
                   Instructions

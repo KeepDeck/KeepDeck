@@ -137,10 +137,24 @@ describe("SkillsDialog", () => {
     );
   });
 
+  it("refuses to save without a description — some CLIs silently drop such skills", async () => {
+    await mount();
+    act(() => buttonByTitle("New global skill")!.click());
+    type(input("skill-name"), "deploy");
+    type(textarea(), "Steps");
+
+    expect(button("Create")!.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Required");
+
+    type(input("skill-description"), "Ships it");
+    expect(button("Create")!.disabled).toBe(false);
+  });
+
   it("blocks creating with an invalid or colliding name", async () => {
     lib.skills = [skill("review")];
     await mount();
     act(() => buttonByTitle("New global skill")!.click());
+    type(input("skill-description"), "A valid description");
 
     type(input("skill-name"), "Bad Name");
     expect(button("Create")!.disabled).toBe(true);
