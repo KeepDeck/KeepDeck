@@ -60,7 +60,8 @@
 
 .usage-chip__stale {
   color: #e0b568;
-  font-size: 10px;
+  font-size: 13px;
+  line-height: 1;
 }
 
 /* The mini fill bar: structural gray unless a threshold speaks. */
@@ -85,7 +86,6 @@
   background-color: #6b5327;
 }
 
-.usage-bar i.usage-level--crit,
 .usage-bar i.usage-level--critical {
   background-color: #7a3a3a;
 }
@@ -176,10 +176,6 @@
   font-size: 11px;
 }
 
-.usage-panel__na {
-  color: #6b7280;
-  font-size: 11.5px;
-}
 
 .usage-window {
   display: grid;

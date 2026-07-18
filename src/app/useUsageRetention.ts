@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { retainUsagePanes } from "./usageManager";
 import type { Deck } from "./useDeck";
 
@@ -6,13 +7,8 @@ import type { Deck } from "./useDeck";
  * chips deliberately survive their reporter — the windows describe the
  * account, not the pane. */
 export function useUsageRetention(deck: Deck): void {
-  // A string key so the sweep runs only when pane MEMBERSHIP changes, not
-  // on every deck render.
-  const paneIds = deck.workspaces
-    .flatMap((ws) => ws.panes.map((pane) => pane.id))
-    .sort()
-    .join("\n");
+  const paneIds = paneMembershipKey(deck);
   useEffect(() => {
-    retainUsagePanes(new Set(paneIds.split("\n").filter(Boolean)));
+    retainUsagePanes(paneMembership(paneIds));
   }, [paneIds]);
 }

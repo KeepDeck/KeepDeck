@@ -92,6 +92,11 @@ export function windowExpired(
  * "Updated Xh ago"), read as a dashboard. Pane usage deliberately does NOT
  * persist — sessions die with their panes. */
 
+/** A reserved forward-compat stamp, WRITTEN but deliberately never read:
+ * the tolerant per-entry reader below IS the migration mechanism while the
+ * shape stays additive. If a future revision changes an entry's MEANING,
+ * that is the moment to start gating on this field — do not assume the
+ * reader already rejects mismatches. */
 const USAGE_CACHE_VERSION = 1;
 
 /** Serialize the account map for the cache file. */

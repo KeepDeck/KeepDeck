@@ -9,6 +9,7 @@ import {
   panelWindows,
   usageStale,
   windowLabel,
+  windowResetCaption,
 } from "./format";
 import type { AccountUsage, UsageWindow } from "./usage";
 
@@ -111,6 +112,30 @@ describe("formatPct", () => {
     expect(formatPct(4.2, "used")).toBe("5%");
     expect(formatPct(4.2, "left")).toBe("95% left");
     expect(formatPct(100, "used")).toBe("100%");
+  });
+});
+
+describe("windowResetCaption", () => {
+  const NOW = 1_000_000_000_000;
+  it("covers all four window kinds", () => {
+    expect(
+      windowResetCaption({ usedPct: 1, resetsAt: NOW - 1, windowMinutes: 300 }, NOW),
+    ).toBe("reset passed · awaiting report");
+    expect(
+      windowResetCaption(
+        { usedPct: 1, resetsAt: NOW + 130 * 60_000, windowMinutes: 300 },
+        NOW,
+      ),
+    ).toBe("resets in 2h 10m");
+    expect(
+      windowResetCaption({ usedPct: 1, resetsAt: null, windowMinutes: 300 }, NOW),
+    ).toBe("reset unknown");
+    expect(
+      windowResetCaption(
+        { usedPct: 1, resetsAt: null, windowMinutes: null, scope: "quota" },
+        NOW,
+      ),
+    ).toBe("plan allowance");
   });
 });
 

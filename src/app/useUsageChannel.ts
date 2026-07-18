@@ -4,7 +4,6 @@ import { useAppRuntime } from "./runtimeContext";
 import { useContributions } from "../plugins/react";
 import { useLimitsPolling } from "./useLimitsPolling";
 import { useUsageNormalizers } from "./useUsageNormalizers";
-import { useUsagePersistence } from "./useUsagePersistence";
 import { useUsageReports } from "./useUsageReports";
 import { useUsageRetention } from "./useUsageRetention";
 import { useUsageTails } from "./useUsageTails";
@@ -22,8 +21,11 @@ import type { Deck } from "./useDeck";
  * - [`useUsageTails`]       — declared session-file tails (binding-armed,
  *                             codex TUI-resume fallback, close GC);
  * - [`useLimitsPolling`]    — declared polled limit sources;
- * - [`useUsageRetention`]   — store hygiene as panes close;
- * - [`useUsagePersistence`] — last-known account snapshots across restarts.
+ * - [`useUsageRetention`]   — store hygiene as panes close.
+ *
+ * Snapshot persistence is deliberately NOT a lane: it consumes nothing
+ * reactive, so it boots from `main.tsx` (`initUsagePersistence`) beside
+ * `initSettings`, the store-persistence idiom.
  */
 export function useUsageChannel(deck: Deck): void {
   const { plugins } = useAppRuntime();
@@ -42,5 +44,4 @@ export function useUsageChannel(deck: Deck): void {
   useUsageTails(deck, usageByAgent);
   useLimitsPolling(deck, usageByAgent);
   useUsageRetention(deck);
-  useUsagePersistence();
 }

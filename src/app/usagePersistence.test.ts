@@ -1,6 +1,3 @@
-// @vitest-environment happy-dom
-import { act, createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { serializeUsageCache } from "../domain/usage";
 import {
@@ -9,13 +6,9 @@ import {
   setAccountUsage,
 } from "./usageManager";
 import {
+  initUsagePersistence,
   USAGE_SAVE_DEBOUNCE_MS,
-  useUsagePersistence,
-} from "./useUsagePersistence";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+} from "./usagePersistence";
 
 const ipc = vi.hoisted(() => ({
   loadUsageCache: vi.fn(),
@@ -25,11 +18,6 @@ vi.mock("../ipc/usage", () => ({
   loadUsageCache: ipc.loadUsageCache,
   saveUsageCache: ipc.saveUsageCache,
 }));
-
-function Probe() {
-  useUsagePersistence();
-  return null;
-}
 
 const SNAPSHOT = serializeUsageCache(
   new Map([
@@ -45,40 +33,41 @@ const SNAPSHOT = serializeUsageCache(
   ]),
 );
 
-describe("useUsagePersistence", () => {
-  let root: Root;
+/** Let queued promise callbacks run. */
+const settle = () => new Promise<void>((r) => setTimeout(r, 0));
+
+describe("initUsagePersistence", () => {
+  let dispose: (() => void) | null = null;
 
   beforeEach(() => {
     resetUsageManager();
     ipc.loadUsageCache.mockReset().mockResolvedValue(null);
     ipc.saveUsageCache.mockReset().mockResolvedValue(undefined);
-    document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
   });
 
   afterEach(() => {
-    act(() => root.unmount());
+    dispose?.();
+    dispose = null;
     resetUsageManager();
     vi.useRealTimers();
   });
 
-  it("hydrates the stored snapshot into the store on mount", async () => {
+  it("hydrates the stored snapshot into the store", async () => {
     ipc.loadUsageCache.mockResolvedValue(SNAPSHOT);
-    act(() => root.render(createElement(Probe)));
-    await act(async () => {});
+    dispose = initUsagePersistence();
+    await settle();
     expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
       kind: "reported",
       reportedAt: 1_000,
     });
   });
 
-  it("never downgrades live data that beat the load", async () => {
+  it("never downgrades live data that beat the load, and does not echo-save the boot hydration", async () => {
     let resolveLoad!: (json: string) => void;
     ipc.loadUsageCache.mockImplementation(
       () => new Promise<string>((r) => (resolveLoad = r)),
     );
-    act(() => root.render(createElement(Probe)));
-    await act(async () => {});
+    dispose = initUsagePersistence();
     // A live report lands FIRST, fresher than the snapshot.
     setAccountUsage("claude", {
       kind: "reported",
@@ -86,18 +75,26 @@ describe("useUsagePersistence", () => {
       reportedAt: 9_999,
       sourcePaneId: "pane-1",
     });
-    await act(async () => {
-      resolveLoad(SNAPSHOT);
-    });
+    resolveLoad(SNAPSHOT);
+    await settle();
     expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
       reportedAt: 9_999,
     });
   });
 
-  it("saves account changes on the debounce, ignoring pane-only churn", async () => {
+  it("does not write the cache back at itself on a quiet boot", async () => {
     vi.useFakeTimers();
-    act(() => root.render(createElement(Probe)));
-    await act(async () => {});
+    ipc.loadUsageCache.mockResolvedValue(SNAPSHOT);
+    dispose = initUsagePersistence();
+    await vi.advanceTimersByTimeAsync(0); // let the load land
+    await vi.advanceTimersByTimeAsync(USAGE_SAVE_DEBOUNCE_MS * 2);
+    expect(ipc.saveUsageCache).not.toHaveBeenCalled();
+  });
+
+  it("saves account changes on the debounce", async () => {
+    vi.useFakeTimers();
+    dispose = initUsagePersistence();
+    await vi.advanceTimersByTimeAsync(0);
     setAccountUsage("codex", {
       kind: "reported",
       windows: [],
@@ -105,11 +102,8 @@ describe("useUsagePersistence", () => {
       sourcePaneId: "",
     });
     expect(ipc.saveUsageCache).not.toHaveBeenCalled();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(USAGE_SAVE_DEBOUNCE_MS);
-    });
+    await vi.advanceTimersByTimeAsync(USAGE_SAVE_DEBOUNCE_MS);
     expect(ipc.saveUsageCache).toHaveBeenCalledTimes(1);
-    const saved = ipc.saveUsageCache.mock.calls[0][0] as string;
-    expect(saved).toContain("codex");
+    expect(ipc.saveUsageCache.mock.calls[0][0] as string).toContain("codex");
   });
 });

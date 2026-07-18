@@ -6,13 +6,13 @@ import {
   contextLevel,
   contextPct,
   formatAge,
-  formatCountdown,
   formatPct,
   limitLevel,
   panelWindows,
   usageStale,
   windowExpired,
   windowLabel,
+  windowResetCaption,
   type AccountUsage,
   type UsageWindow,
 } from "../../domain/usage";
@@ -144,6 +144,25 @@ export function UsageChips({
   const [openProvider, setOpenProvider] = useState<string | null>(null);
   const rootRef = useRef<HTMLSpanElement>(null);
 
+  // Catalog order keeps the cluster stable. A chip exists for every agent
+  // WITH A PANE (immediately — "···" until data) and for every REPORTED
+  // account (persisted snapshots keep the bar populated after a restart,
+  // honestly aged). The "unavailable" contract arm has no producer today.
+  const providers = agents.filter(
+    (agent) =>
+      (agent.reportsUsage === true && liveAgents.has(agent.id)) ||
+      accounts.get(agent.id)?.kind === "reported",
+  );
+
+  // The open provider can lose its chip (pane closed, no reported account)
+  // — close the panel rather than leaving an orphaned empty shell.
+  const providersKey = providers.map((a) => a.id).join("\n");
+  useEffect(() => {
+    if (openProvider !== null && !providersKey.split("\n").includes(openProvider)) {
+      setOpenProvider(null);
+    }
+  }, [openProvider, providersKey]);
+
   // Countdowns and staleness drift with wall time — a slow tick re-renders
   // them; nothing else here depends on it.
   const [, tick] = useReducer((n: number) => n + 1, 0);
@@ -171,15 +190,6 @@ export function UsageChips({
     };
   }, [open]);
 
-  // Catalog order keeps the cluster stable. A chip exists for every agent
-  // WITH A PANE (immediately — "···" until data) and for every REPORTED
-  // account (persisted snapshots keep the bar populated after a restart,
-  // honestly aged). The "unavailable" contract arm has no producer today.
-  const providers = agents.filter(
-    (agent) =>
-      (agent.reportsUsage === true && liveAgents.has(agent.id)) ||
-      accounts.get(agent.id)?.kind === "reported",
-  );
   if (providers.length === 0) return null;
   const now = Date.now();
   const sessions = [...panes.entries()]
@@ -241,8 +251,6 @@ export function UsageChips({
                   </span>
                 </div>
                 {panelWindows(account).map((window, i) => {
-                  const expired = windowExpired(window, now);
-                  const countdown = formatCountdown(window.resetsAt, now);
                   return (
                     <div key={i} className="usage-window">
                       <span className="usage-window__label">
@@ -251,20 +259,7 @@ export function UsageChips({
                       <Bar window={window} now={now} row />
                       <span className="usage-window__detail">
                         <WindowValue window={window} display={display} now={now} />
-                        <small>
-                          {expired
-                            ? "reset passed · awaiting report"
-                            : countdown
-                              ? `resets in ${countdown}`
-                              : window.windowMinutes !== null
-                                ? // A rolling window whose reset the CLI
-                                  // didn't share.
-                                  "reset unknown"
-                                : // No duration, no reset: a plan BALANCE
-                                  // (kimi's totalQuota) — spent and topped
-                                  // up, never reset on a clock.
-                                  "plan allowance"}
-                        </small>
+                        <small>{windowResetCaption(window, now)}</small>
                       </span>
                     </div>
                   );

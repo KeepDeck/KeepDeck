@@ -178,8 +178,12 @@ fn drain(state: &mut TailState) -> Vec<Value> {
     };
     let len = file.metadata().map(|m| m.len()).unwrap_or(0);
     if len < state.offset {
+        // A rotated/truncated file is a fresh start — including out of an
+        // abandoned-line skip, or the new file's FIRST line would be
+        // silently dropped as the monster's tail (review finding).
         state.offset = 0;
         state.partial.clear();
+        state.skipping = false;
     }
     if len == state.offset || file.seek(SeekFrom::Start(state.offset)).is_err() {
         return Vec::new();
@@ -569,6 +573,29 @@ mod tests {
         let mut file = OpenOptions::new().append(true).open(&path).unwrap();
         write!(file, "tail-of-monster\n{TURN_CONTEXT_LINE}\n").unwrap();
         drop(file);
+        let events = drain(&mut state);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0]["type"], "turn_context");
+        assert!(!state.skipping);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_rotation_while_skipping_keeps_the_new_files_first_line() {
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        let mut state = tail(path.clone());
+
+        // Monster line puts the tail into skip mode…
+        fs::write(&path, vec![b'x'; MAX_PARTIAL_BYTES + 64]).unwrap();
+        assert!(drain(&mut state).is_empty());
+        assert!(state.skipping);
+
+        // …then the file is ROTATED before the monster's newline arrives.
+        // The fresh file's first line must parse, not vanish as the
+        // monster's imagined tail.
+        fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
         let events = drain(&mut state);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["type"], "turn_context");

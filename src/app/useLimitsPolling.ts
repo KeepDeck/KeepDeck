@@ -45,6 +45,7 @@ export function useLimitsPolling(
   useEffect(() => {
     if (!polledAgents) return;
     const timers: ReturnType<typeof setInterval>[] = [];
+    const ticks: (() => void)[] = [];
     for (const agentId of polledAgents.split("\n")) {
       const limits = usageByAgentRef.current.get(agentId)?.limits;
       if (!limits) continue;
@@ -65,9 +66,17 @@ export function useLimitsPolling(
           );
       };
       tick();
+      ticks.push(tick);
       timers.push(setInterval(tick, LIMITS_POLL_MS));
     }
+    // Un-hiding shouldn't wait out the rest of an interval with a stale
+    // chip — refresh the moment the window is visible again.
+    const onVisible = () => {
+      if (!document.hidden) for (const tick of ticks) tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
       for (const timer of timers) clearInterval(timer);
     };
   }, [polledAgents]);

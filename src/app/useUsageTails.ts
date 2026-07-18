@@ -4,6 +4,7 @@ import { findWorkspaceOfPane, paneAgentType } from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import { findCodexRollout, unwatchSessionFile, watchSessionFile } from "../ipc/usage";
+import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
 import { postbackAccepted } from "./useSessionBinding";
 import type { Deck } from "./useDeck";
@@ -67,9 +68,12 @@ export function useUsageTails(
       tailedRef.current.add(paneId);
       watchSessionFile(paneId, transcriptPath, token, format)
         .then(() => settleArm(paneId))
-        .catch((e) =>
-          log.warn("web:usage", `session-file tail for ${paneId} failed: ${e}`),
-        );
+        .catch((e) => {
+          // Un-mark, or a transient native failure would pin the pane as
+          // "tailed" forever with no watcher and no retry (review finding).
+          tailedRef.current.delete(paneId);
+          log.warn("web:usage", `session-file tail for ${paneId} failed: ${e}`);
+        });
     }).then((u) => {
       if (disposed) u();
       else unlisten = u;
@@ -118,12 +122,9 @@ export function useUsageTails(
 
   // A string key so the sweep runs only when pane MEMBERSHIP changes, not
   // on every deck render.
-  const paneIds = deck.workspaces
-    .flatMap((ws) => ws.panes.map((pane) => pane.id))
-    .sort()
-    .join("\n");
+  const paneIds = paneMembershipKey(deck);
   useEffect(() => {
-    const live = new Set(paneIds.split("\n").filter(Boolean));
+    const live = paneMembership(paneIds);
     for (const paneId of [...tailedRef.current]) {
       if (live.has(paneId)) continue;
       tailedRef.current.delete(paneId);

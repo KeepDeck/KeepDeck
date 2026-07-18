@@ -4,10 +4,13 @@
 //! hand-rolling a `notify` watcher and a `Mutex<HashMap<_, Watcher>>`, they
 //! share this.
 //!
-//! Watching is passive: the OS notifies us (FSEvents on macOS, inotify on
-//! Linux), and we hold NO handle on the watched files. So a watched directory
-//! — a gitdir, a project folder open in the tree — is never blocked or slowed,
-//! and git, agents and the user run unaffected.
+//! The `watch_dir*` primitives are passive: the OS notifies us (FSEvents on
+//! macOS, inotify on Linux), and we hold NO handle on the watched files —
+//! a watched directory (a gitdir, a project folder open in the tree) is
+//! never blocked or slowed. The REGISTRY below is broader than the passive
+//! family: it also hosts the session-tail pollers (`session_tail`), which
+//! actively stat one file per tick because OS events are blind to appends
+//! on a still-open file — see that module's doc for the reproduced why.
 
 use std::collections::HashMap;
 use std::path::Path;
