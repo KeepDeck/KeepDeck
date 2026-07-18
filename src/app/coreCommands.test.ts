@@ -29,11 +29,16 @@ vi.mock("../ipc/worktree", () => ({
   removeWorktree: async () => {},
 }));
 
-vi.mock("./settingsManager", () => ({ getSettings: () => null }));
+const settingsState = vi.hoisted(() => ({
+  current: null as { defaultYolo?: boolean } | null,
+}));
+vi.mock("./settingsManager", () => ({
+  getSettings: () => settingsState.current,
+}));
 
 const AGENTS: AgentInfo[] = [
-  { id: "claude", label: "Claude", command: "claude", installed: true, path: "/c" },
-  { id: "codex", label: "Codex", command: "codex", installed: true, path: "/x" },
+  { id: "claude", label: "Claude", command: "claude", supportsYolo: true, installed: true, path: "/c" },
+  { id: "codex", label: "Codex", command: "codex", supportsYolo: false, installed: true, path: "/x" },
 ];
 
 const workspace = (over: Partial<Workspace>): Workspace => ({
@@ -79,6 +84,7 @@ function setup(workspaces: Workspace[]) {
 
 beforeEach(() => {
   repoMode.isRepo = false;
+  settingsState.current = null;
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -163,6 +169,27 @@ describe("agent.spawn", () => {
       index: 2,
     });
     expect(pane.provisioning?.path?.endsWith("kd-web-2")).toBe(true);
+  });
+
+  it("honors the global YOLO default, gated on the agent's support", async () => {
+    settingsState.current = { defaultYolo: true };
+    const { registry, deck } = setup([workspace({})]);
+
+    await registry.execute(
+      "agent.spawn",
+      { workspace: "web", agentType: "claude" },
+      HOST,
+    );
+    expect(deck.workspaces[0].panes[0].yolo).toBe(true);
+
+    await registry.execute(
+      "agent.spawn",
+      { workspace: "web", agentType: "codex" },
+      HOST,
+    );
+    // codex's fixture declares no support — the default must not leak, and
+    // off never lands as an explicit false (sparse like every other surface).
+    expect("yolo" in deck.workspaces[0].panes[1]).toBe(false);
   });
 
   it("refuses an unknown agent type", async () => {

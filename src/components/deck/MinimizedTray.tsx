@@ -26,6 +26,8 @@ export interface MinimizedTrayEntry {
   /** The agent's brand mark; absent/null draws the neutral fallback. */
   icon?: AgentGlyphIcon | null;
   gitBadge?: GitBadge | null;
+  /** The pane runs in YOLO mode — the chip carries the ⚡ marker. */
+  yolo?: boolean;
   label: string;
   onRestore(): void;
 }
@@ -235,6 +237,7 @@ function MinimizedOverflow({
             title={entry.title}
             icon={entry.icon}
             gitBadge={entry.gitBadge}
+            yolo={entry.yolo}
             label={entry.label}
             active
             onClick={() => {
@@ -341,6 +344,7 @@ export function MinimizedTray({
               title={entry.title}
               icon={entry.icon}
               gitBadge={entry.gitBadge}
+              yolo={entry.yolo}
             />
           </span>
         ))}
@@ -353,6 +357,7 @@ export function MinimizedTray({
             title={entry.title}
             icon={entry.icon}
             gitBadge={entry.gitBadge}
+            yolo={entry.yolo}
             label={entry.label}
             active={active}
             onClick={entry.onRestore}

@@ -72,20 +72,30 @@ async function buildAndCache(
   }
 }
 
+/** The pane-side facts a plan is built from — the hook input's shape minus
+ * the resume session (that arrives with the resume request, not the pane). */
+export interface PaneSpawnFacts {
+  paneId: string;
+  wsId: string;
+  cwd: string;
+  branch?: string;
+  /** The pane was created in YOLO mode — a supporting hook turns this into
+   * its CLI's skip-permissions flag, on spawn and resume alike. */
+  yolo?: boolean;
+}
+
 /** Build one plan through the agent's hook; a throwing hook degrades to a
  * bare spawn (no identity) rather than a dead pane. */
 async function buildPlan(
   plugins: SpawnPluginAccess,
   agent: { entry: AgentContribution; pluginId: string },
-  paneId: string,
-  wsId: string,
-  cwd: string,
-  branch: string | undefined,
+  facts: PaneSpawnFacts,
   ctx: SpawnPlanContext,
   resumeId?: string | null,
   resumeOrigin?: ResumeOrigin,
 ): Promise<SpawnPlan> {
   const { entry, pluginId } = agent;
+  const { paneId } = facts;
   const output: SpawnPlanOutput = {
     // Prefilled with the detected command; a hook may override (null = the
     // user's shell).
@@ -93,7 +103,13 @@ async function buildPlan(
     args: [],
     env: [],
   };
-  const base = { paneId, wsId, cwd, ...(branch ? { branch } : {}) };
+  const base = {
+    paneId,
+    wsId: facts.wsId,
+    cwd: facts.cwd,
+    ...(facts.branch ? { branch: facts.branch } : {}),
+    ...(facts.yolo ? { yolo: true } : {}),
+  };
   try {
     if (resumeId) {
       await entry.hooks["resume.plan"]?.(
@@ -195,10 +211,7 @@ export function dropPaneSpawnSpec(paneId: string): void {
 export async function buildResumeSpec(
   plugins: SpawnPluginAccess,
   agentType: string,
-  paneId: string,
-  wsId: string,
-  cwd: string,
-  branch: string | undefined,
+  facts: PaneSpawnFacts,
   ctx: SpawnPlanContext,
   resumeId: string,
   origin: ResumeOrigin,
@@ -208,12 +221,12 @@ export async function buildResumeSpec(
   if (!agent.entry.hooks["resume.plan"]) {
     log.warn(
       "web:agents",
-      `${agentType}: cannot resume ${paneId} — plugin has no resume.plan hook`,
+      `${agentType}: cannot resume ${facts.paneId} — plugin has no resume.plan hook`,
     );
     return false;
   }
-  return buildAndCache(paneId, () =>
-    buildPlan(plugins, agent, paneId, wsId, cwd, branch, ctx, resumeId, origin),
+  return buildAndCache(facts.paneId, () =>
+    buildPlan(plugins, agent, facts, ctx, resumeId, origin),
   );
 }
 
@@ -251,10 +264,13 @@ export function usePaneSpawnSpecs(
           buildPlan(
             plugins,
             agent,
-            pane.id,
-            ws.id,
-            pane.cwd ?? ws.cwd,
-            pane.branch,
+            {
+              paneId: pane.id,
+              wsId: ws.id,
+              cwd: pane.cwd ?? ws.cwd,
+              branch: pane.branch,
+              yolo: pane.yolo,
+            },
             ctx,
           ),
         )

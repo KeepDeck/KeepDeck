@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  agentSupportsYolo,
   selectableAgents,
   defaultAgentType,
   type AgentType,
@@ -51,8 +52,17 @@ export function WorkspaceForm({
   // The user picked a type by hand — that choice must survive a defaultAgent
   // change made in the settings dialog while this form is open ([F6]).
   const [agentTouched, setAgentTouched] = useState(false);
+  // The batch is homogeneous, so one YOLO choice covers every spawned agent.
+  // Starts at the global preference; only the SUBMITTED value is gated on the
+  // selected agent's support, so switching types never loses the tick.
+  const defaultYolo = settings?.defaultYolo ?? false;
+  const [yolo, setYolo] = useState(defaultYolo);
+  // A hand-set tick survives a defaultYolo change made in the settings
+  // dialog while this form is open — same contract as agentTouched ([F6]).
+  const [yoloTouched, setYoloTouched] = useState(false);
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
+  const supportsYolo = agentSupportsYolo(agents, agentType);
   const [count, setCount] = useState(1);
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
   const [worktreeDir, setWorktreeDir] = useState("");
@@ -109,6 +119,17 @@ export function WorkspaceForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultAgent]);
 
+  // The YOLO default gets the same follow-a-change treatment: the settings
+  // dialog opens OVER this form (first run: the form is the only screen), so
+  // a preference flipped there must reach the already-mounted checkbox.
+  const seenDefaultYoloRef = useRef(defaultYolo);
+  useEffect(() => {
+    if (seenDefaultYoloRef.current === defaultYolo) return;
+    seenDefaultYoloRef.current = defaultYolo;
+    if (!yoloTouched) setYolo(defaultYolo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultYolo]);
+
   // Esc closes the form when there's a workspace to return to — but not while
   // the nudge is open (its own Esc handles that, so the form stays put).
   useEscape(() => {
@@ -135,6 +156,7 @@ export function WorkspaceForm({
         agentType,
         count,
         worktreeBaseDir: worktreeDir.trim() || null,
+        ...(yolo && supportsYolo && { yolo: true }),
       });
   };
 
@@ -237,6 +259,31 @@ export function WorkspaceForm({
           </button>
         ))}
       </div>
+
+      {supportsYolo && (
+        <label
+          className="form__yolo"
+          // Dimmed with the agent picker at 0: no agents spawn, nothing runs.
+          style={count === 0 ? { opacity: 0.4, pointerEvents: "none" } : undefined}
+          aria-disabled={count === 0}
+        >
+          <input
+            type="checkbox"
+            checked={yolo}
+            onChange={(e) => {
+              setYoloTouched(true);
+              setYolo(e.target.checked);
+            }}
+            tabIndex={count === 0 ? -1 : undefined}
+          />
+          <span className="form__yolo-text">
+            YOLO mode
+            <span className="form__yolo-hint">
+              Runs without permission prompts — the agents act on their own
+            </span>
+          </span>
+        </label>
+      )}
 
       <span className="form__label">Agents</span>
       <TerminalCountTiles

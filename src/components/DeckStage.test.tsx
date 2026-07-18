@@ -71,6 +71,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
       id: "codex",
       label: "Codex",
       command: "codex",
+      supportsYolo: false,
       installed: true,
       path: null,
     },
@@ -225,6 +226,7 @@ describe("DeckStage — agent identity on the pane header", () => {
           label: "Codex",
           icon: mark,
           command: "codex",
+          supportsYolo: false,
           installed: true,
           path: null,
         },
@@ -245,5 +247,27 @@ describe("DeckStage — agent identity on the pane header", () => {
       "[data-pane-id='pane-1'] .pane__agent",
     )!;
     expect(slot.querySelector("svg polyline")).not.toBeNull();
+  });
+
+  it("a YOLO pane wears the standing warning chip; a plain one doesn't", () => {
+    render({
+      workspaces: [
+        {
+          ...workspaces[0],
+          panes: [
+            { id: "pane-1", agentType: "codex", yolo: true },
+            { id: "pane-2", agentType: "codex" },
+          ],
+        },
+      ],
+    });
+    const chip = document.querySelector<HTMLElement>(
+      "[data-pane-id='pane-1'] .pane__yolo",
+    )!;
+    expect(chip.textContent).toContain("YOLO");
+    expect(chip.title).toContain("without permission prompts");
+    expect(
+      document.querySelector("[data-pane-id='pane-2'] .pane__yolo"),
+    ).toBeNull();
   });
 });

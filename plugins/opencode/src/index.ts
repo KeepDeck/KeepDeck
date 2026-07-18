@@ -20,6 +20,11 @@ async function reporterEnv(
   return [["OPENCODE_CONFIG_CONTENT", JSON.stringify({ plugin: [reporter] })]];
 }
 
+/** opencode's YOLO switch: auto-allows every ask prompt while explicit deny
+ * rules in the user's own config stay enforced. */
+const yoloArgs = (yolo: boolean | undefined): string[] =>
+  yolo ? ["--dangerously-skip-permissions"] : [];
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -27,13 +32,15 @@ const plugin: KeepDeckPlugin = {
       label: "OpenCode",
       icon,
       detect: { bin: "opencode" },
+      supportsYolo: true,
       hooks: {
-        "spawn.plan": async (_input, output) => {
+        "spawn.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
+          output.args = yoloArgs(input.yolo);
         },
         "resume.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
-          output.args = ["-s", input.sessionId];
+          output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
         },
       },
     });

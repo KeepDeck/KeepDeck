@@ -1,5 +1,9 @@
 import { useEffect, useRef } from "react";
-import { defaultAgentType, type AgentInfo } from "../domain/agents";
+import {
+  agentSupportsYolo,
+  defaultAgentType,
+  type AgentInfo,
+} from "../domain/agents";
 import {
   resolvePaneRef,
   resolveWorkspaceRef,
@@ -187,11 +191,21 @@ export function registerCoreCommands(
         const id = paneId(mintAgentSeq());
         const index = ws.panes.length + 1;
 
+        // The global YOLO default reaches this surface too, gated on the
+        // resolved agent's support like every other creation path.
+        const yolo =
+          (getSettings()?.defaultYolo ?? false) &&
+          agentSupportsYolo(agents, agentType);
         // Location mirrors the "+ Agent" dialog's defaults: a repo workspace
         // with a base folder gets the first FREE worktree suggestion (never a
         // dir an open pane holds, nor one blocked on disk); anything else
         // runs in the workspace cwd.
-        let pane: Pane = { id, name: str(args, "name"), agentType };
+        let pane: Pane = {
+          id,
+          name: str(args, "name"),
+          agentType,
+          ...(yolo && { yolo: true }),
+        };
         const info = await inspectRepo(ws.cwd).catch(() => null);
         if (info?.isRepo && ws.worktreeBaseDir) {
           const free = await firstFreeWorktree(

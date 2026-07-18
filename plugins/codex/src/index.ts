@@ -19,6 +19,11 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
   return cliArgs(`/bin/sh ${shellQuote(script)}`);
 }
 
+/** codex's YOLO switch (`--yolo` is its alias). Global like `-c`, so it
+ * must precede the `resume` subcommand. */
+const yoloArgs = (yolo: boolean | undefined): string[] =>
+  yolo ? ["--dangerously-bypass-approvals-and-sandbox"] : [];
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -26,13 +31,18 @@ const plugin: KeepDeckPlugin = {
       label: "Codex",
       icon,
       detect: { bin: "codex" },
+      supportsYolo: true,
       hooks: {
-        "spawn.plan": async (_input, output) => {
-          output.args = await hookArgs(ctx.resources);
+        "spawn.plan": async (input, output) => {
+          output.args = [
+            ...(await hookArgs(ctx.resources)),
+            ...yoloArgs(input.yolo),
+          ];
         },
         "resume.plan": async (input, output) => {
           output.args = [
             ...(await hookArgs(ctx.resources)),
+            ...yoloArgs(input.yolo),
             "resume",
             input.sessionId,
           ];

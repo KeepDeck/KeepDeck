@@ -24,6 +24,10 @@ export interface AgentContribution {
   icon?: AgentIcon;
   /** How to find the CLI on this machine. */
   detect: { bin: string };
+  /** Whether this CLI can run with its permission prompts disabled (YOLO
+   * mode). Declares the capability only — the host gates its YOLO toggle on
+   * it; the hooks are where `input.yolo` becomes the CLI's actual flag. */
+  supportsYolo?: boolean;
   hooks: AgentHooks;
 }
 
@@ -66,6 +70,9 @@ export interface SpawnPlanInput {
   wsId: string;
   cwd: string;
   branch?: string;
+  /** The pane runs with permission prompts disabled: a supporting hook adds
+   * its CLI's skip-permissions flag. Absent on hosts older than API 20. */
+  yolo?: boolean;
 }
 
 export interface ResumePlanInput {
@@ -73,6 +80,9 @@ export interface ResumePlanInput {
   wsId: string;
   cwd: string;
   branch?: string;
+  /** The pane runs with permission prompts disabled: a supporting hook adds
+   * its CLI's skip-permissions flag. Absent on hosts older than API 20. */
+  yolo?: boolean;
   /** The recorded session to resume. */
   sessionId: string;
 }

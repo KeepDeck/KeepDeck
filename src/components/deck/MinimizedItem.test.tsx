@@ -41,6 +41,27 @@ describe("MinimizedItem", () => {
     vi.useRealTimers();
   });
 
+  it("a YOLO pane keeps its warning marker in the stand-in; a plain one doesn't", () => {
+    // The beforeEach mount carries no yolo — the marker must be absent.
+    expect(document.querySelector(".minimized__yolo")).toBeNull();
+
+    act(() => {
+      root.render(
+        createElement(MinimizedItem, {
+          variant: "bar",
+          title: "Claude 1",
+          label: "Restore Claude 1",
+          yolo: true,
+          active: true,
+          onClick,
+        }),
+      );
+    });
+    const marker = document.querySelector<HTMLElement>(".minimized__yolo")!;
+    expect(marker.textContent).toBe("⚡");
+    expect(marker.title).toContain("without permission prompts");
+  });
+
   it("replaces native title bubbles with full details after hover intent", () => {
     const button = document.querySelector<HTMLButtonElement>(".minimized")!;
     expect(button.title).toBe("");

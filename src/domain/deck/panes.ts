@@ -56,6 +56,10 @@ export interface Pane {
    * header's current branch badge is runtime UI state derived from the pane's
    * effective cwd, not stored here. */
   branch?: string;
+  /** The agent runs with its permission prompts disabled (YOLO mode). Fixed
+   * at creation from the dialog/form choice and persisted: a revive or resume
+   * must come back in the mode the user created the pane with. */
+  yolo?: boolean;
   /** User-set display name; overrides everything ([F11] manual rename). */
   name?: string;
   /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
@@ -197,16 +201,18 @@ function cleanPaneAutoTitle(title: string | undefined): string | undefined {
 }
 
 /** Build `count` panes numbered from `startSeq` (clamped to MAX_PANES), all
- * running `agentType`. */
+ * running `agentType`; `yolo` marks every pane (sparse — false never lands). */
 export function makePanes(
   startSeq: number,
   count: number,
   agentType: AgentType,
+  yolo = false,
 ): Pane[] {
   const n = clampPaneCount(count);
   return Array.from({ length: n }, (_, i) => ({
     id: paneId(startSeq + i),
     agentType,
+    ...(yolo && { yolo: true }),
   }));
 }
 
@@ -220,11 +226,13 @@ export function makeProvisioningPanes(
   count: number,
   agentType: AgentType,
   ws: { cwd: string; baseDir: string; name: string },
+  yolo = false,
 ): Pane[] {
   const n = clampPaneCount(count);
   return Array.from({ length: n }, (_, i) => ({
     id: paneId(startSeq + i),
     agentType,
+    ...(yolo && { yolo: true }),
     provisioning: {
       repo: ws.cwd,
       baseDir: ws.baseDir,

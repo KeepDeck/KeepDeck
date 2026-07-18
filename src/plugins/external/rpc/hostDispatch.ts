@@ -283,7 +283,7 @@ export function createHostDispatch(
 
     // ---- agents: identity as data; hooks as host→realm proxies ----
     "agents.register": ([regId, entry]) => {
-      const { id, label, icon, detect, hookNames } = entry as Omit<
+      const { id, label, icon, detect, supportsYolo, hookNames } = entry as Omit<
         AgentContribution,
         "hooks"
       > & { hookNames?: string[] };
@@ -301,6 +301,9 @@ export function createHostDispatch(
           label,
           icon: sanitizeAgentIcon(icon),
           detect,
+          // Strictly `true`, like every boolean off the wire — anything else
+          // from a hostile realm degrades to "no YOLO support".
+          ...(supportsYolo === true && { supportsYolo: true }),
           hooks,
         }),
       );

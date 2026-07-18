@@ -48,12 +48,17 @@ const plugin: KeepDeckPlugin = {
       label: "Kimi Code",
       icon,
       detect: { bin: "kimi" },
+      supportsYolo: true,
       hooks: {
-        "spawn.plan": (_input, output) => {
-          output.args = [];
+        "spawn.plan": (input, output) => {
+          output.args = input.yolo ? ["--yolo"] : [];
         },
         "resume.plan": (input, output) => {
-          output.args = ["--session", input.sessionId];
+          output.args = [
+            ...(input.yolo ? ["--yolo"] : []),
+            "--session",
+            input.sessionId,
+          ];
         },
       },
     });

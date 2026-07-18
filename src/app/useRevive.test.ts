@@ -33,15 +33,12 @@ vi.mock("./spawnSpecs", () => {
       async (
         _plugins: unknown,
         _agentType: string,
-        paneId: string,
-        _wsId: string,
-        _cwd: string,
-        _branch: string | undefined,
+        facts: { paneId: string },
         _ctx: unknown,
         resumeId: string,
         _origin: "restore" | "manual",
       ) => {
-        specs.set(paneId, { args: ["--resume", resumeId], env: [] });
+        specs.set(facts.paneId, { args: ["--resume", resumeId], env: [] });
         return true;
       },
     ),
@@ -65,6 +62,7 @@ const catalog = {
     id,
     label: id,
     command: id,
+    supportsYolo: false,
     installed: true,
     path: null,
   })),
@@ -134,10 +132,7 @@ describe("useRevive — session policy", () => {
     expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
       expect.anything(),
       "claude",
-      "pane-1",
-      "ws-1",
-      "/repo",
-      undefined,
+      { paneId: "pane-1", wsId: "ws-1", cwd: "/repo" },
       expect.anything(),
       "old",
       "restore",

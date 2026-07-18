@@ -34,6 +34,9 @@ export interface AgentInfo {
   icon?: AgentIcon;
   /** CLI command to spawn (passed back to `session_spawn`). */
   command: string;
+  /** Whether the CLI can run with permission prompts disabled (YOLO mode) —
+   * gates the YOLO toggle wherever an agent is created. */
+  supportsYolo: boolean;
   /** Whether the CLI resolves on the augmented PATH. */
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */
@@ -56,5 +59,16 @@ export function defaultAgentType(
   const pool = selectableAgents(agents);
   if (preferred && pool.some((a) => a.id === preferred)) return preferred;
   return pool[0]?.id ?? "claude";
+}
+
+/** Whether `type`'s catalog entry declares YOLO support — the single gate
+ *  every creation surface consults before offering (or defaulting) the mode.
+ *  Unknown/absent agents answer false: no toggle, and no armed pane, for an
+ *  agent whose plugin can't honor it. */
+export function agentSupportsYolo(
+  agents: AgentInfo[],
+  type: AgentType,
+): boolean {
+  return agents.find((a) => a.id === type)?.supportsYolo ?? false;
 }
 

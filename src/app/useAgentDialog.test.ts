@@ -168,6 +168,7 @@ describe("useAgentDialog suggestions", () => {
           branch: "kd/KeepDeck/1",
           baseBranch: "develop",
         },
+        yolo: false,
       });
     });
 
@@ -178,5 +179,31 @@ describe("useAgentDialog suggestions", () => {
       branch: "kd/KeepDeck/1",
       base: "develop",
     });
+  });
+
+  it("the YOLO choice lands on the pane — sparsely, only when armed", async () => {
+    const ws = workspace({});
+    const addAgentPane = vi.fn();
+    const deck = { workspaces: [ws], addAgentPane } as unknown as Deck;
+    await act(async () => root.render(createElement(Host, { deck })));
+
+    const confirmMain = async (yolo: boolean) => {
+      await act(async () => flow.openFor(ws));
+      await act(async () => {
+        flow.confirm({
+          agentType: "claude",
+          name: "",
+          location: { kind: "main" },
+          yolo,
+        });
+      });
+    };
+
+    await confirmMain(true);
+    expect(addAgentPane.mock.calls[0][1].yolo).toBe(true);
+
+    await confirmMain(false);
+    // Off never lands as an explicit false — the pane stays sparse.
+    expect("yolo" in addAgentPane.mock.calls[1][1]).toBe(false);
   });
 });

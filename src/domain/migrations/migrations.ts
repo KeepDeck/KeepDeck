@@ -47,14 +47,16 @@ export type MigrationOutcome =
  *       `presets` move to `plugins["keepdeck.run"]`; `run` itself is dropped.
  *   6 — + `PaneProvisioning.base` (the picked base branch a Retry recreates
  *       the worktree from).
+ *   7 — + `Pane.yolo` (the agent runs with permission prompts disabled).
  */
-export const DECK_STATE_VERSION = 6;
+export const DECK_STATE_VERSION = 7;
 /** The oldest reader that can still make sense of a current document. Held at
- * 1 deliberately: v1→v4 and v6 were additive, and v5's `run` retirement moves
- * data an old reader wouldn't understand INTO keys it preserves as extras — so
- * an old build reading a v5 deck loses the Run panel's state (recoverable, not
- * corrupt) rather than misreading anything. The floor rises only when a
- * change would make an old reader misinterpret data it still consumes. */
+ * 1 deliberately: v1→v4, v6 and v7 were additive, and v5's `run` retirement
+ * moves data an old reader wouldn't understand INTO keys it preserves as
+ * extras — so an old build reading a v5 deck loses the Run panel's state
+ * (recoverable, not corrupt) rather than misreading anything. The floor rises
+ * only when a change would make an old reader misinterpret data it still
+ * consumes. */
 export const DECK_MIN_READER = 1;
 
 /** v1 → v2: `Workspace.run` added — additive, nothing to transform. */
@@ -112,12 +114,18 @@ function migrateDeckFromV5toV6(doc: RawDoc): RawDoc {
   return doc;
 }
 
+/** v6 → v7: `Pane.yolo` added — additive, nothing to transform. */
+function migrateDeckFromV6toV7(doc: RawDoc): RawDoc {
+  return doc;
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
   3: migrateDeckFromV3toV4,
   4: migrateDeckFromV4toV5,
   5: migrateDeckFromV5toV6,
+  6: migrateDeckFromV6toV7,
 };
 
 /**
@@ -134,6 +142,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       deck's display mode and how a minimized agent is shown in the grid.
  *   8 — + notifications (enabled, mode system-and-app|system|app,
  *       mutedPlugins): delivery channels for the notification system.
+ *   9 — + defaultYolo: YOLO mode preselected wherever an agent is created.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -141,7 +150,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 8;
+export const SETTINGS_VERSION = 9;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

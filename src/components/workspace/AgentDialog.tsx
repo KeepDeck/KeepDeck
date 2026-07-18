@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  agentSupportsYolo,
   canCreateAgent,
   classifyLocation,
   isKnownBaseBranch,
@@ -26,6 +27,9 @@ export type { AgentDialogResult } from "../../domain/agents";
 interface AgentDialogProps {
   /** Pre-selected agent type. */
   defaultAgentType: AgentType;
+  /** The YOLO toggle's starting position (the global preference); shown only
+   * while the selected agent's plugin declares YOLO support. */
+  defaultYolo: boolean;
   /** The workspace repo, when its working dir is a git repo — enables the
    * worktree location field. Null → the agent just runs in the workspace cwd,
    * so there's no worktree choice to make and the field is hidden ([F2]). */
@@ -78,6 +82,7 @@ interface AgentDialogProps {
  */
 export function AgentDialog({
   defaultAgentType,
+  defaultYolo,
   repo,
   suggestedPath,
   suggestedBranch,
@@ -92,6 +97,9 @@ export function AgentDialog({
 }: AgentDialogProps) {
   const [agentType, setAgentType] = useState<AgentType>(defaultAgentType);
   const [name, setName] = useState("");
+  // The toggle's state survives switching through a non-supporting agent —
+  // only the SUBMITTED value is gated (see `supportsYolo` below).
+  const [yolo, setYolo] = useState(defaultYolo);
   const [path, setPath] = useState(suggestedPath);
   const [branch, setBranch] = useState(suggestedBranch);
   // The base the new worktree branch forks from. Prefilled with the repo's
@@ -193,6 +201,7 @@ export function AgentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, repo]);
 
+  const supportsYolo = agentSupportsYolo(agents, agentType);
   const occupancy = repo && path.trim() ? occupancyAt(path) : null;
   const kind = repo
     ? classifyLocation(path, probe, occupancy, attachAnyway)
@@ -250,7 +259,13 @@ export function AgentDialog({
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid) onConfirm({ agentType, name, location: buildLocation() });
+          if (valid)
+            onConfirm({
+              agentType,
+              name,
+              location: buildLocation(),
+              yolo: yolo && supportsYolo,
+            });
         }}
       >
         <h2 className="form__title">New agent</h2>
@@ -337,6 +352,22 @@ export function AgentDialog({
             </button>
           ))}
         </div>
+
+        {supportsYolo && (
+          <label className="form__yolo">
+            <input
+              type="checkbox"
+              checked={yolo}
+              onChange={(e) => setYolo(e.target.checked)}
+            />
+            <span className="form__yolo-text">
+              YOLO mode
+              <span className="form__yolo-hint">
+                Runs without permission prompts — the agent acts on its own
+              </span>
+            </span>
+          </label>
+        )}
 
         <div className="form__actions">
           <button type="button" className="form__cancel" onClick={onCancel}>

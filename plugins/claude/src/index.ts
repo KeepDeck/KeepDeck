@@ -35,6 +35,11 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
   return ["--settings", JSON.stringify(settings)];
 }
 
+/** claude's YOLO switch. First use shows claude's own one-time in-TUI
+ * acceptance prompt — expected, it runs interactively in the pane. */
+const yoloArgs = (yolo: boolean | undefined): string[] =>
+  yolo ? ["--dangerously-skip-permissions"] : [];
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -42,13 +47,18 @@ const plugin: KeepDeckPlugin = {
       label: "Claude Code",
       icon,
       detect: { bin: "claude" },
+      supportsYolo: true,
       hooks: {
-        "spawn.plan": async (_input, output) => {
-          output.args = await hookArgs(ctx.resources);
+        "spawn.plan": async (input, output) => {
+          output.args = [
+            ...(await hookArgs(ctx.resources)),
+            ...yoloArgs(input.yolo),
+          ];
         },
         "resume.plan": async (input, output) => {
           output.args = [
             ...(await hookArgs(ctx.resources)),
+            ...yoloArgs(input.yolo),
             "--resume",
             input.sessionId,
           ];

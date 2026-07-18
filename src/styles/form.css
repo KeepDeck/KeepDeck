@@ -149,6 +149,38 @@
   color: #e5736f;
 }
 
+/* YOLO opt-in: checkbox + label with the warning tint — the mode disables the
+   agent's own permission prompts, so the row must read as a hazard, not a
+   convenience. Same anatomy as .settings__toggle / .confirm__option. */
+.form__yolo {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 20px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.form__yolo input {
+  margin-top: 2px;
+  accent-color: #b8863b;
+  cursor: pointer;
+}
+
+.form__yolo-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: #e0b568;
+}
+
+.form__yolo-hint {
+  font-size: 12px;
+  color: #9aa3af;
+}
+
 /* Inline resolution actions under an occupied-path warning ("Use next
    available" / "Attach anyway") — icon buttons, the user decides right in
    the flow; the tooltip carries the words. Pulls up against the warning line

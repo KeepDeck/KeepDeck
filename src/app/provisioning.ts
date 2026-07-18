@@ -63,13 +63,20 @@ export function planPanes(
   startSeq: number,
   count: number,
   agentType: AgentType,
+  yolo = false,
 ): Pane[] {
-  if (!ws.worktreeBaseDir) return makePanes(startSeq, count, agentType);
-  return makeProvisioningPanes(startSeq, count, agentType, {
-    cwd: ws.cwd,
-    baseDir: ws.worktreeBaseDir,
-    name: ws.name,
-  });
+  if (!ws.worktreeBaseDir) return makePanes(startSeq, count, agentType, yolo);
+  return makeProvisioningPanes(
+    startSeq,
+    count,
+    agentType,
+    {
+      cwd: ws.cwd,
+      baseDir: ws.worktreeBaseDir,
+      name: ws.name,
+    },
+    yolo,
+  );
 }
 
 /**

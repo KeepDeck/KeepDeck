@@ -58,6 +58,26 @@ describe("codex plugin hooks", () => {
     await agent.hooks["resume.plan"]!({ ...input, sessionId: "x" }, resume);
     expect(resume.args).toEqual(["resume", "x"]);
   });
+
+  it("YOLO adds the global bypass flag, BEFORE the resume subcommand", async () => {
+    const agent = activate(null);
+    expect(agent.supportsYolo).toBe(true);
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
+    expect(spawn.args).toEqual(["--dangerously-bypass-approvals-and-sandbox"]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, yolo: true, sessionId: "uuid-9" },
+      resume,
+    );
+    expect(resume.args).toEqual([
+      "--dangerously-bypass-approvals-and-sandbox",
+      "resume",
+      "uuid-9",
+    ]);
+  });
 });
 
 describe("codex plugin identity", () => {

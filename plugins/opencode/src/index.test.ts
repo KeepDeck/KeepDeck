@@ -54,6 +54,28 @@ describe("opencode plugin hooks", () => {
     expect(out.env).toEqual([]);
     expect(out.args).toEqual([]);
   });
+
+  it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
+    const agent = activate("/App/resources/session-reporter.js");
+    expect(agent.supportsYolo).toBe(true);
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
+    expect(spawn.args).toEqual(["--dangerously-skip-permissions"]);
+    // The reporter's env injection is independent of the mode.
+    expect(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, yolo: true, sessionId: "ses_x" },
+      resume,
+    );
+    expect(resume.args).toEqual([
+      "--dangerously-skip-permissions",
+      "-s",
+      "ses_x",
+    ]);
+  });
 });
 
 describe("opencode plugin identity", () => {

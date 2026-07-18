@@ -133,6 +133,27 @@
   -webkit-user-select: text;
 }
 
+/* Standing YOLO warning chip: same anatomy as the branch chip, tinted amber —
+   the pane's disabled-prompts state must stay visible, not just at creation.
+   It joins the narrow-header cascade below: label off at ≤280px (a ⚡ dot),
+   gone at ≤150px so maximize/close keep their never-hide guarantee. */
+.pane__yolo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: #e0b568;
+  background-color: rgba(224, 181, 104, 0.08);
+  border: 1px solid #6b5327;
+  flex: none;
+}
+
 .pane__branch {
   display: inline-flex;
   align-items: center;
@@ -169,11 +190,16 @@
    badge. `display:none` (not ellipsis-to-nothing) takes the label out of the
    flex flow entirely, so no leftover gap/padding pushes the icon off-center. */
 @container (max-width: 280px) {
-  .pane__branch {
+  .pane__branch,
+  .pane__yolo {
     flex: none;
     width: 22px;
     padding: 0;
     justify-content: center;
+  }
+
+  .pane__yolo-label {
+    display: none;
   }
 
   .pane__branch-label {
@@ -189,10 +215,12 @@
   }
 }
 
-/* Minimal header: minimize yields too. Maximize and close never hide — a pane
-   this narrow is exactly one you want to maximize or close. */
+/* Minimal header: minimize yields too, and the YOLO dot is the last chip to
+   go. Maximize and close never hide — a pane this narrow is exactly one you
+   want to maximize or close. */
 @container (max-width: 150px) {
-  .pane__action--minimize {
+  .pane__action--minimize,
+  .pane__yolo {
     display: none;
   }
 }

@@ -26,15 +26,12 @@ const plans = vi.hoisted(() => {
       async (
         _plugins: unknown,
         _agentType: string,
-        paneId: string,
-        _wsId: string,
-        _cwd: string,
-        _branch: string | undefined,
+        facts: { paneId: string },
         _ctx: unknown,
         resumeId: string,
         origin: "restore" | "manual",
       ) => {
-        specs.set(paneId, {
+        specs.set(facts.paneId, {
           args: ["resume", resumeId],
           env: [],
           token: `token-${origin}`,
@@ -96,6 +93,7 @@ function seed(sessionId: string | null = "session-old") {
           agentType: "codex",
           cwd: "/worktree",
           branch: "feature/restart",
+          yolo: true,
           ...(sessionId
             ? { session: { id: sessionId, boundAt: "2026-07-11T00:00:00Z" } }
             : {}),
@@ -133,10 +131,13 @@ describe("useAgentRestart", () => {
     expect(plans.buildResumeSpec).toHaveBeenCalledWith(
       expect.anything(),
       "codex",
-      "pane-1",
-      "ws-1",
-      "/worktree",
-      "feature/restart",
+      {
+        paneId: "pane-1",
+        wsId: "ws-1",
+        cwd: "/worktree",
+        branch: "feature/restart",
+        yolo: true,
+      },
       ctx,
       "session-old",
       "manual",
@@ -199,9 +200,9 @@ describe("useAgentRestart", () => {
     seed();
     let release!: () => void;
     plans.buildResumeSpec.mockImplementationOnce(
-      async (_plugins, _agent, paneId, _ws, _cwd, _branch, _ctx, resumeId) => {
+      async (_plugins, _agent, facts, _ctx, resumeId) => {
         await new Promise<void>((resolve) => (release = resolve));
-        plans.specs.set(paneId, {
+        plans.specs.set(facts.paneId, {
           args: ["resume", resumeId],
           env: [],
           resumeOf: resumeId,

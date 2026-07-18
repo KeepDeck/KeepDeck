@@ -47,6 +47,7 @@ const MINIMIZE_OPTIONS: Record<MinimizeStyle, { label: string; hint: string }> =
 export function GeneralSection() {
   const settings = useSettings();
   const defaultAgent = settings?.defaultAgent;
+  const defaultYolo = settings?.defaultYolo ?? DEFAULT_SETTINGS.defaultYolo;
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
   const { agents } = useAgents();
@@ -69,6 +70,24 @@ export function GeneralSection() {
       </div>
       <span className="settings__hint">
         Preselected when creating workspaces and agents
+      </span>
+
+      <span className="form__label">YOLO mode</span>
+      <div className="form__types">
+        {[true, false].map((on) => (
+          <button
+            key={String(on)}
+            type="button"
+            className={`form__type${defaultYolo === on ? " form__type--active" : ""}`}
+            onClick={() => updateSettings({ defaultYolo: on })}
+          >
+            {on ? "On" : "Off"}
+          </button>
+        ))}
+      </div>
+      <span className="settings__hint">
+        New agents run without permission prompts — each creation dialog can
+        still switch it per agent
       </span>
 
       <span className="form__label">Deck layout</span>

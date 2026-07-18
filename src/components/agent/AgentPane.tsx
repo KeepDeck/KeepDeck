@@ -34,6 +34,9 @@ interface AgentPaneProps {
   cwd?: string | null;
   /** Runtime git badge derived from this pane's effective cwd. */
   gitBadge?: GitBadge | null;
+  /** The pane runs in YOLO mode — a standing warning chip in the header, so
+   * the disabled-prompts state stays visible for the pane's whole life. */
+  yolo?: boolean;
   /** Whether this pane is currently on screen. */
   visible: boolean;
   /** Whether this pane is maximized to fill the grid. */
@@ -108,6 +111,7 @@ export function AgentPane({
   env,
   cwd,
   gitBadge,
+  yolo,
   visible,
   focused,
   hidden,
@@ -229,6 +233,14 @@ export function AgentPane({
           )}
         </div>
         <div className="pane__actions">
+          {yolo && (
+            <span
+              className="pane__yolo"
+              title="YOLO mode — runs without permission prompts"
+            >
+              ⚡<span className="pane__yolo-label">YOLO</span>
+            </span>
+          )}
           {gitBadge && (
             <span className="pane__branch" title={gitBadge.title}>
               <GitBranchIcon />

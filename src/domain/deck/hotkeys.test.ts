@@ -8,6 +8,7 @@ const agents: AgentInfo[] = [
     id: "claude",
     label: "Claude Code",
     command: "claude",
+    supportsYolo: false,
     installed: true,
     path: null,
   },
