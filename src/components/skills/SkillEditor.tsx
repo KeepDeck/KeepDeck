@@ -9,6 +9,14 @@ export interface SkillFormState {
   extraFrontmatter: string[];
 }
 
+/** What the dialog decided about the current draft — the editor renders
+ * verdicts, it never re-derives them. */
+export interface SkillValidation {
+  nameInvalid: boolean;
+  nameTaken: boolean;
+  descriptionMissing: boolean;
+}
+
 interface SkillEditorProps {
   /** Create mode shows "New skill" and enables Create; edit mode titles the
    * editor with the saved name and offers Delete. */
@@ -18,9 +26,7 @@ interface SkillEditorProps {
   scopeLabel: string;
   form: SkillFormState;
   dirty: boolean;
-  nameInvalid: boolean;
-  nameTaken: boolean;
-  descriptionMissing: boolean;
+  validation: SkillValidation;
   canSave: boolean;
   error: string | null;
   onField(key: "name" | "description" | "body", value: string): void;
@@ -28,17 +34,16 @@ interface SkillEditorProps {
   onDelete(): void;
 }
 
-/** The editor panel — a controlled form; every decision (validation, what a
- * save does, confirms) stays with the dialog that owns the state. */
+/** The editor panel — deliberately a CONTROLLED form (not an autonomous
+ * SettingsDialog-style section): the dialog's state machine owns every
+ * decision; this component only renders it. */
 export function SkillEditor({
   creating,
   savedName,
   scopeLabel,
   form,
   dirty,
-  nameInvalid,
-  nameTaken,
-  descriptionMissing,
+  validation,
   canSave,
   error,
   onField,
@@ -74,10 +79,10 @@ export function SkillEditor({
           spellCheck={false}
           autoFocus={creating}
         />
-        {nameInvalid && (
+        {validation.nameInvalid && (
           <div className="form__error">Lowercase letters, digits and hyphens only</div>
         )}
-        {nameTaken && (
+        {validation.nameTaken && (
           <div className="form__error">
             A skill with this name already exists in this scope
           </div>
@@ -94,7 +99,7 @@ export function SkillEditor({
           placeholder="When should an agent reach for this skill"
           spellCheck={false}
         />
-        {descriptionMissing && (
+        {validation.descriptionMissing && (
           <div className="skills__hint">
             Required — agents pick skills by description, and some silently
             drop a skill without one

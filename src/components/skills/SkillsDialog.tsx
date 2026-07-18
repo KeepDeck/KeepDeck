@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   isValidSkillDescription,
   isValidSkillName,
@@ -12,6 +12,7 @@ import { ConfirmDialog } from "../../ui/ConfirmDialog";
 import { CloseIcon } from "../../ui/icons";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
+import { useSaveShortcut } from "../../ui/useSaveShortcut";
 import { SkillEditor, type SkillFormState } from "./SkillEditor";
 import { SkillsNav, type SkillsNavGroup } from "./SkillsNav";
 
@@ -48,8 +49,10 @@ const scopeOf = (skill: StoredSkill): SkillScope =>
  * component owns the STATE MACHINE — selection, dirty tracking, the two
  * confirm flows, submit orchestration (rename-then-save) and the keyboard
  * surface; rendering is delegated to `SkillsNav` (library) and `SkillEditor`
- * (panel), the SettingsDialog split. Destructive steps confirm in-app, per
- * the no-system-dialogs rule.
+ * (panel). Unlike SettingsDialog's autonomous sections, the panel is a
+ * CONTROLLED component on purpose — the state machine must own every
+ * transition. Destructive steps confirm in-app, per the no-system-dialogs
+ * rule.
  */
 export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   const { skills, error, clearError, save, rename, remove } = useSkillsLibrary(true);
@@ -177,15 +180,8 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   // and writers hit ⌘S by reflex. Like Escape above, it yields while a
   // confirm is up: saving underneath a delete/discard confirmation would
   // change the very state the user is deciding about.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        e.preventDefault();
-        if (!confirm) void submit();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+  useSaveShortcut(() => {
+    if (!confirm) void submit();
   });
 
   const scopeLabel = (scope: SkillScope) =>
@@ -246,9 +242,11 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
                 scopeLabel={scopeLabel(selection.scope)}
                 form={form}
                 dirty={dirty}
-                nameInvalid={form.name !== "" && !nameOk}
-                nameTaken={nameTaken}
-                descriptionMissing={form.description.trim() === ""}
+                validation={{
+                  nameInvalid: form.name !== "" && !nameOk,
+                  nameTaken,
+                  descriptionMissing: form.description.trim() === "",
+                }}
                 canSave={canSave}
                 error={error}
                 onField={(key, value) => {

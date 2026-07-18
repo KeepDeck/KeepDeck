@@ -61,6 +61,10 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
         return true;
       } catch (e) {
         setError(`Save failed: ${describeError(e)}`);
+        // The disk may still have moved under this action (a rename that
+        // preceded the failed save): reload so the list stays truthful,
+        // WITHOUT clearing the error the user is reading.
+        setSkills(await listSkills());
         return false;
       }
     },

@@ -1,7 +1,6 @@
 /* Skills dialog ([skills]) — the full-screen library editor: a .form card
-   stretched to the viewport, library nav on the left, editor filling the
-   rest. The editor's signature is the "Run it" strip: per-agent invocation
-   forms living next to the skill they run. */
+   stretched to the viewport, library nav on the left (name + description
+   preview per row), the controlled editor panel filling the rest. */
 .skills {
   display: flex;
   flex-direction: column;
