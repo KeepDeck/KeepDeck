@@ -117,6 +117,41 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
   });
 });
 
+describe("pane YOLO mode across a restart", () => {
+  const yoloState: DeckState = {
+    workspaces: [
+      {
+        id: "ws-1",
+        name: "a",
+        cwd: "/r",
+        worktreeBaseDir: null,
+        panes: [
+          { id: "pane-1", agentType: "claude", yolo: true },
+          { id: "pane-2", agentType: "claude" },
+        ],
+      },
+    ],
+    activeId: "ws-1",
+    viewByWs: {},
+  };
+
+  it("round-trips the armed mode and keeps the off state sparse", () => {
+    const json = serializeDeck(yoloState);
+    // Exactly one pane carries the key on disk — false never lands.
+    expect(json.match(/"yolo"/g)).toHaveLength(1);
+    const [armed, plain] = okDeck(json).state.workspaces[0].panes;
+    expect(armed.yolo).toBe(true);
+    expect(plain.yolo).toBeUndefined();
+  });
+
+  it("degrades any non-true persisted value to off", () => {
+    const json = serializeDeck(yoloState)
+      .replace('"yolo":true', '"yolo":"yes"');
+    const [pane] = okDeck(json).state.workspaces[0].panes;
+    expect(pane.yolo).toBeUndefined();
+  });
+});
+
 describe("hydrateDeck — unusable input", () => {
   it("rejects non-JSON, wrong versions and malformed shapes", () => {
     expect(hydrateDeck("not json").kind).toBe("corrupt");
