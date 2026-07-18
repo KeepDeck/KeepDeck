@@ -323,7 +323,18 @@ fn stage(
                 other => other?,
             }
         }
-        disarm_roots(root, spawn_roots)?;
+        // Disarm everything this workspace ever armed, not only the cwds
+        // still in spawn_roots (a closed pane's cwd would otherwise dangle)
+        // — sparing any cwd another workspace still claims.
+        let mut roots = manifest_roots(root, ws_id);
+        for r in spawn_roots {
+            if !roots.contains(r) {
+                roots.push(r.clone());
+            }
+        }
+        let claimed = claimed_by_others(root, ws_id);
+        roots.retain(|r| !claimed.contains(r));
+        disarm_roots(root, &roots)?;
         let _ = fs::remove_file(armed_manifest(root, ws_id));
         return Ok(None);
     }
@@ -449,6 +460,32 @@ fn armed_manifest(root: &Path, ws_id: &str) -> PathBuf {
     root.join("armed").join(ws_id)
 }
 
+/// The recorded armed cwds of one workspace (empty when absent/unreadable).
+fn manifest_roots(root: &Path, ws_id: &str) -> Vec<String> {
+    fs::read(armed_manifest(root, ws_id))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Every cwd some OTHER manifest still claims — a shared cwd must survive
+/// one workspace's disarm while another workspace (live, or not yet
+/// pruned) runs panes there.
+fn claimed_by_others(root: &Path, except_ws: &str) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(root.join("armed")) else {
+        return Vec::new();
+    };
+    let mut claimed = Vec::new();
+    for entry in entries.flatten() {
+        let ws = entry.file_name().to_string_lossy().into_owned();
+        if ws == except_ws {
+            continue;
+        }
+        claimed.extend(manifest_roots(root, &ws));
+    }
+    claimed
+}
+
 fn record_armed(root: &Path, ws_id: &str, armed: &[String]) {
     let path = armed_manifest(root, ws_id);
     let result = if armed.is_empty() {
@@ -523,9 +560,11 @@ fn arm_one(root: &Path, staged_skills: &Path, wt: &Path) -> io::Result<bool> {
 }
 
 /// Remove OUR symlinks (and a `.agents` dir they leave empty) from the
-/// given spawn cwds, drop the matching `info/exclude` lines arming added,
-/// and update the armed manifests so they keep describing what is actually
-/// armed. Anything not provably ours stays.
+/// given spawn cwds, and drop the matching `info/exclude` lines arming
+/// added. Anything not provably ours stays. Deliberately does NOT touch
+/// the armed manifests: `record_armed` (stage) is their only writer and
+/// `prune` their only reader — a stale entry costs one idempotent
+/// re-disarm at the next boot, which the module accepts by contract.
 fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()> {
     for wt in spawn_roots {
         let agents = Path::new(wt).join(".agents");
@@ -544,7 +583,6 @@ fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()> {
             _ => {}
         }
     }
-    drop_from_manifests(root, spawn_roots);
     Ok(())
 }
 
@@ -568,42 +606,6 @@ fn remove_excluded(armed_root: &Path) -> io::Result<()> {
         text.push('\n');
     }
     write_atomic(&exclude, text.as_bytes())
-}
-
-/// Keep every armed manifest truthful after a disarm: the removed cwds are
-/// filtered out of each; an emptied manifest is deleted. Best-effort — the
-/// manifests are crash-recovery hints, and a stale entry only costs one
-/// idempotent re-disarm at the next boot.
-fn drop_from_manifests(root: &Path, removed: &[String]) {
-    if removed.is_empty() {
-        return;
-    }
-    let Ok(entries) = fs::read_dir(root.join("armed")) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Some(mut roots) = fs::read(entry.path())
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
-        else {
-            continue;
-        };
-        let before = roots.len();
-        roots.retain(|r| !removed.contains(r));
-        if roots.len() == before {
-            continue;
-        }
-        let result = if roots.is_empty() {
-            fs::remove_file(entry.path())
-        } else {
-            serde_json::to_vec(&roots)
-                .map_err(io::Error::other)
-                .and_then(|json| write_atomic(&entry.path(), &json))
-        };
-        if let Err(e) = result {
-            log::warn!("skills: manifest update after disarm failed: {e}");
-        }
-    }
 }
 
 /// A link is ours iff it points inside KeepDeck's skills root.
@@ -731,7 +733,11 @@ fn prune(root: &Path, live: &[String]) -> io::Result<()> {
             );
             continue;
         };
-        if let Err(e) = disarm_roots(root, &roots) {
+        // A cwd another workspace still claims keeps its symlink — two
+        // workspaces on one folder must not lose arming because one died.
+        let claimed = claimed_by_others(root, &ws);
+        let ours: Vec<String> = roots.into_iter().filter(|r| !claimed.contains(r)).collect();
+        if let Err(e) = disarm_roots(root, &ours) {
             log::warn!("skills: disarming dead workspace {ws} failed: {e}");
         }
         let _ = fs::remove_file(entry.path());
@@ -1232,26 +1238,55 @@ mod tests {
     }
 
     #[test]
-    fn disarm_keeps_the_armed_manifests_truthful() {
+    fn prune_spares_a_cwd_a_surviving_workspace_still_claims() {
         let (_tmp, root) = root();
-        let base = root.parent().unwrap();
-        let (a, b) = (base.join("cwd-a"), base.join("cwd-b"));
-        fs::create_dir_all(&a).unwrap();
-        fs::create_dir_all(&b).unwrap();
+        let shared = root.parent().unwrap().join("shared-cwd");
+        fs::create_dir_all(&shared).unwrap();
         save(&global(&root), "review", "x").unwrap();
-        let roots = vec![
-            a.to_string_lossy().into_owned(),
-            b.to_string_lossy().into_owned(),
+        let roots = vec![shared.to_string_lossy().into_owned()];
+        let locks = SkillsLocks::default();
+        stage(&locks, &root, "ws-live", &roots).unwrap().unwrap();
+        stage(&locks, &root, "ws-dead", &roots).unwrap().unwrap();
+
+        // ws-dead crashed; ws-live still runs panes in the shared cwd. The
+        // LINK survives (symlink_metadata, not exists(): the shared link
+        // last pointed at ws-dead's now-pruned staging, so it dangles until
+        // ws-live's next stage re-aims it — the documented staleness model).
+        prune(&root, &["ws-live".into()]).unwrap();
+        assert!(fs::symlink_metadata(shared.join(".agents").join("skills")).is_ok());
+        assert!(!armed_manifest(&root, "ws-dead").exists());
+        assert!(armed_manifest(&root, "ws-live").exists());
+
+        // And ws-live's next stage re-aims the surviving link at ITS view.
+        let views = stage(&locks, &root, "ws-live", &roots).unwrap().unwrap();
+        assert_eq!(
+            fs::read_link(shared.join(".agents").join("skills")).unwrap(),
+            PathBuf::from(&views.skills_dir),
+        );
+    }
+
+    #[test]
+    fn emptying_the_library_disarms_cwds_that_left_the_spawn_roots() {
+        let (_tmp, root) = root();
+        let gone = root.parent().unwrap().join("closed-pane-cwd");
+        let kept = root.parent().unwrap().join("open-pane-cwd");
+        fs::create_dir_all(&gone).unwrap();
+        fs::create_dir_all(&kept).unwrap();
+        save(&global(&root), "review", "x").unwrap();
+        let locks = SkillsLocks::default();
+        let both = vec![
+            gone.to_string_lossy().into_owned(),
+            kept.to_string_lossy().into_owned(),
         ];
-        stage(&SkillsLocks::default(), &root, "ws-1", &roots).unwrap().unwrap();
+        stage(&locks, &root, "ws-1", &both).unwrap().unwrap();
 
-        disarm_roots(&root, &roots[..1].to_vec()).unwrap();
-        let left: Vec<String> =
-            serde_json::from_slice(&fs::read(armed_manifest(&root, "ws-1")).unwrap()).unwrap();
-        assert_eq!(left, roots[1..].to_vec());
-
-        disarm_roots(&root, &roots[1..].to_vec()).unwrap();
-        assert!(!armed_manifest(&root, "ws-1").exists()); // emptied → gone
+        // The pane in `gone` closed; then the user empties the library.
+        delete(&global(&root), "review").unwrap();
+        let shrunk = vec![kept.to_string_lossy().into_owned()];
+        assert_eq!(stage(&locks, &root, "ws-1", &shrunk).unwrap(), None);
+        // BOTH cwds are disarmed — the departed one via the manifest.
+        assert!(!gone.join(".agents").exists());
+        assert!(!kept.join(".agents").exists());
     }
 
     #[test]
