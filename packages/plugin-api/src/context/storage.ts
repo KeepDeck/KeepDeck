@@ -1,3 +1,5 @@
+import type { WorkspaceRef } from "./snapshots.ts";
+
 /**
  * Plugin persistence, namespaced by plugin id at both scopes. Async by
  * contract even where today's backing store is synchronous in-memory state —
@@ -5,8 +7,9 @@
  */
 export interface PluginStorage {
   /** Per-workspace slot, persisted with the deck — dies with the workspace,
-   * survives restarts. */
-  workspace(wsId: string): PluginKV;
+   * survives restarts. The lifetime ref prevents a delayed operation from
+   * attaching to a replacement that reused the same public id. */
+  workspace(workspace: WorkspaceRef): PluginKV;
   /** App-global store in the host's data dir — survives plugin reinstalls
    * (data never lives in the plugin's install folder). */
   readonly global: PluginKV;

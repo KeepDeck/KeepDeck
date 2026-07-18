@@ -4,6 +4,7 @@ import type {
   KeepDeckPlugin,
   PluginContext,
   PluginSessionEvent,
+  WorkspaceRef,
 } from "@keepdeck/plugin-api";
 // The host bridge lives in the app (`src/`), the guest in this package; a
 // round-trip test is the one place both ends meet, so it reaches across the
@@ -27,6 +28,8 @@ afterEach(() => {
 });
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const W1: WorkspaceRef = { id: "w1", instance: "instance-1" };
+const W2: WorkspaceRef = { id: "w2", instance: "instance-2" };
 async function flush(times = 4): Promise<void> {
   for (let i = 0; i < times; i++) await tick();
 }
@@ -110,15 +113,32 @@ describe("external plugin bridge", () => {
     expect(host.globalStore.get("k")).toEqual(nested);
 
     const wsValue = { list: [3, 4] };
-    await ctx.storage.workspace("w1").set("x", wsValue);
-    expect(await ctx.storage.workspace("w1").get("x")).toEqual(wsValue);
+    await ctx.storage.workspace(W1).set("x", wsValue);
+    expect(await ctx.storage.workspace(W1).get("x")).toEqual(wsValue);
     // Namespaced by workspace: a different workspace does not see it.
-    expect(await ctx.storage.workspace("w2").get("x")).toBeUndefined();
+    expect(await ctx.storage.workspace(W2).get("x")).toBeUndefined();
+  });
+
+  it("keeps a captured workspace handle bound to its exact lifetime", async () => {
+    const { ctxReady } = wireCapturingCtx();
+    const ctx = await ctxReady;
+    const stale = ctx.storage.workspace(W1);
+    const replacement = { ...W1, instance: "replacement-instance" };
+
+    await stale.set("value", "old lifetime");
+    await ctx.storage.workspace(replacement).set("value", "replacement");
+    await stale.set("late", true);
+
+    expect(await stale.get("value")).toBe("old lifetime");
+    expect(await ctx.storage.workspace(replacement).get("value")).toBe(
+      "replacement",
+    );
+    expect(await ctx.storage.workspace(replacement).get("late")).toBeUndefined();
   });
 
   it("delivers a subscribed deck event and unsubscribes on the host when disposed", async () => {
     const host = createFakeHost();
-    const received: { wsId: string }[] = [];
+    const received: { workspace: WorkspaceRef }[] = [];
     let disposable: Disposable | undefined;
     const plugin: KeepDeckPlugin = {
       activate(ctx) {
@@ -129,17 +149,17 @@ describe("external plugin bridge", () => {
     await bridge.activated;
     await flush();
 
-    host.fire.workspaceClosed({ wsId: "w1" });
+    host.fire.workspaceClosed({ workspace: W1 });
     await flush();
-    expect(received).toEqual([{ wsId: "w1" }]);
+    expect(received).toEqual([{ workspace: W1 }]);
 
     disposable?.dispose();
     await flush();
     expect(host.unsubscribes.workspaceClosed).toBe(1);
 
-    host.fire.workspaceClosed({ wsId: "w2" });
+    host.fire.workspaceClosed({ workspace: W2 });
     await flush();
-    expect(received).toEqual([{ wsId: "w1" }]);
+    expect(received).toEqual([{ workspace: W1 }]);
   });
 
   it("delivers settings changes and unsubscribes on dispose", async () => {

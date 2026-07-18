@@ -32,6 +32,7 @@ import { NotificationBell } from "./components/notifications/NotificationBell";
 import { unreadByWorkspace, type Notification } from "./domain/notifications";
 import {
   settingsSectionForNotification,
+  shouldRevealPluginDock,
   workspaceForNotification,
 } from "./app/notificationNavigation";
 import { useProvisioning } from "./app/useProvisioning";
@@ -419,7 +420,7 @@ function App() {
             preciseTargetResolved = false;
           }
         }
-        if (n.source.dockTab !== undefined) {
+        if (shouldRevealPluginDock(n.source, preciseTargetResolved)) {
           preciseTargetResolved =
             revealPluginDockTab(n.source.pluginId, n.source.dockTab) &&
             preciseTargetResolved;
@@ -786,7 +787,7 @@ function App() {
           // tab state (run target, drafts) to the new workspace's context —
           // the selected tab survives it because it lives in the deck.
           <DockPanel
-            key={active.id}
+            key={active.instance}
             tabs={dockTabs}
             activeTab={activeView.dockTab ?? null}
             onSelectTab={(id) => deck.setDockTab(active.id, id)}

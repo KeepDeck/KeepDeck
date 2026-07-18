@@ -1,3 +1,4 @@
+import type { WorkspaceRef as PluginWorkspaceRef } from "@keepdeck/plugin-api";
 import {
   findWorkspace,
   paneDisplayTitle,
@@ -5,6 +6,7 @@ import {
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
 import type { NotificationSource } from "../domain/notifications";
+import type { WorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import { notify } from "./notificationCenter";
 import { getSettings } from "./settingsManager";
@@ -37,22 +39,21 @@ function paneContext(
   };
 }
 
-/** Bind a plugin's public workspace target to the lifetime that exists at
- * delivery. A missing id is represented explicitly so the notification can
- * never attach itself to a later workspace that reuses that slot. */
+/** Preserve the exact workspace lifetime supplied by a plugin notification so
+ * delayed delivery can never attach to a replacement that reused its id. */
 export function pluginNotificationSource(
-  workspaces: Workspace[],
   pluginId: string,
-  wsId?: string,
+  workspace?: PluginWorkspaceRef,
   dockTab?: string,
 ): Extract<NotificationSource, { type: "plugin" }> {
-  const workspace =
-    wsId === undefined ? undefined : findWorkspace(workspaces, wsId);
   return {
     type: "plugin",
     pluginId,
-    ...(wsId !== undefined && {
-      workspace: { id: wsId, instance: workspace?.instance ?? null },
+    ...(workspace !== undefined && {
+      workspace: {
+        id: workspace.id,
+        instance: workspace.instance as WorkspaceInstance,
+      },
     }),
     ...(dockTab !== undefined && { dockTab }),
   };

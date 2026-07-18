@@ -1,4 +1,5 @@
 import { runEnv, type RunPreset } from "./presets";
+import type { WorkspaceRef } from "@keepdeck/plugin-api";
 
 /**
  * Run sessions — the model behind the Run panel.
@@ -23,7 +24,7 @@ export interface RunSession {
   /** Manager-minted (`rs-N`), unique across the plugin activation's lifetime. */
   id: string;
   /** The workspace whose presets launched it — its runs die with it. */
-  wsId: string;
+  workspace: WorkspaceRef;
   /** Display name: the preset's, or the command line for ad-hoc runs. */
   name: string;
   /** The preset this run came from; ad-hoc runs have none. */
@@ -37,6 +38,13 @@ export interface RunSession {
    * lacks the variable — no invented default). */
   port?: number;
   status: RunStatus;
+}
+
+export function sameWorkspace(
+  left: WorkspaceRef,
+  right: WorkspaceRef,
+): boolean {
+  return left.id === right.id && left.instance === right.instance;
 }
 
 /** What to launch: a preset (id + command snapshot) or an ad-hoc line. */

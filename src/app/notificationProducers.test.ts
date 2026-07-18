@@ -115,7 +115,11 @@ describe("pane producers", () => {
 describe("plugin notification source", () => {
   it("captures the current workspace lifetime", () => {
     expect(
-      pluginNotificationSource(deckWith(), "git", "ws-1", "changes"),
+      pluginNotificationSource(
+        "git",
+        { id: "ws-1", instance: workspaceInstance },
+        "changes",
+      ),
     ).toEqual({
       type: "plugin",
       pluginId: "git",
@@ -124,11 +128,16 @@ describe("plugin notification source", () => {
     });
   });
 
-  it("does not let an unknown id attach to a future workspace", () => {
-    expect(pluginNotificationSource([], "git", "ws-1")).toEqual({
+  it("preserves a stale lifetime instead of resolving by reusable id", () => {
+    expect(
+      pluginNotificationSource("git", {
+        id: "ws-1",
+        instance: workspaceInstance,
+      }),
+    ).toEqual({
       type: "plugin",
       pluginId: "git",
-      workspace: { id: "ws-1", instance: null },
+      workspace: { id: "ws-1", instance: workspaceInstance },
     });
   });
 });

@@ -20,6 +20,7 @@ describe("toWorkspaceSnapshot", () => {
   it("projects identity and location, drops runtime-only concerns", () => {
     expect(toWorkspaceSnapshot(ws)).toEqual({
       id: "w1",
+      instance: ws.instance,
       name: "Deck",
       cwd: "/repo",
       panes: [

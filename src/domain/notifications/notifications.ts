@@ -1,4 +1,7 @@
-import type { WorkspaceInstance } from "../workspaceInstance";
+import type {
+  WorkspaceInstance,
+  WorkspaceRef,
+} from "../workspaceInstance";
 
 /**
  * Notifications — the domain model and pure transforms behind the
@@ -16,16 +19,12 @@ import type { WorkspaceInstance } from "../workspaceInstance";
  * per-workspace unread badges; the host constructs it — a plugin cannot claim
  * a pane origin or another plugin's id. */
 
-export interface NotificationWorkspace {
-  id: string;
-  /** `null` means a plugin named a workspace that did not exist at delivery. */
-  instance: WorkspaceInstance | null;
-}
+export type NotificationWorkspace = WorkspaceRef;
 
 export type NotificationSource =
   | {
       type: "pane";
-      workspace: NotificationWorkspace & { instance: WorkspaceInstance };
+      workspace: NotificationWorkspace;
       paneId: string;
     }
   | {
@@ -119,7 +118,7 @@ export function unreadByWorkspace(
   for (const n of items) {
     if (n.readAt !== undefined) continue;
     const workspace = n.source.type === "app" ? undefined : n.source.workspace;
-    if (!workspace || workspace.instance === null) continue;
+    if (!workspace) continue;
     counts.set(workspace.instance, (counts.get(workspace.instance) ?? 0) + 1);
   }
   return counts;

@@ -8,7 +8,7 @@ const PRESETS = [
 
 const session = (over: Partial<RunSession>): RunSession => ({
   id: "s1",
-  wsId: "ws-1",
+  workspace: { id: "ws-1", instance: "instance-1" },
   name: "Dev",
   presetId: "run-1",
   command: "pnpm dev",

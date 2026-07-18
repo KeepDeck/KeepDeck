@@ -44,7 +44,9 @@ const activate: KeepDeckPlugin["activate"] = (ctx: PluginContext) => {
 
   // A workspace closing takes its runs with it — nothing may leak. (The
   // subscription auto-disposes at deactivation, per the context contract.)
-  ctx.events.onWorkspaceClosed(({ wsId }) => manager.stopWorkspaceRuns(wsId));
+  ctx.events.onWorkspaceClosed(({ workspace }) =>
+    manager.stopWorkspaceRuns(workspace),
+  );
 };
 
 const deactivate: KeepDeckPlugin["deactivate"] = () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import {
   settingsSectionForNotification,
+  shouldRevealPluginDock,
   workspaceForNotification,
 } from "./notificationNavigation";
 
@@ -46,7 +47,10 @@ describe("settingsSectionForNotification", () => {
         {
           type: "plugin",
           pluginId: "keepdeck.git",
-          workspace: { id: "gone-workspace", instance: null },
+          workspace: {
+            id: "gone-workspace",
+            instance: createWorkspaceInstance(),
+          },
         },
         false,
       ),
@@ -104,7 +108,52 @@ describe("workspaceForNotification", () => {
       panes: [],
     };
     expect(
-      workspaceForNotification([current], { id: "ws-3", instance: null }),
+      workspaceForNotification([current], {
+        id: "ws-3",
+        instance: createWorkspaceInstance(),
+      }),
     ).toBeNull();
+  });
+});
+
+describe("shouldRevealPluginDock", () => {
+  it("rejects a dock target bound to a stale workspace lifetime", () => {
+    expect(
+      shouldRevealPluginDock(
+        {
+          type: "plugin",
+          pluginId: "keepdeck.git",
+          workspace: {
+            id: "ws-3",
+            instance: createWorkspaceInstance(),
+          },
+          dockTab: "changes",
+        },
+        false,
+      ),
+    ).toBe(false);
+  });
+
+  it("allows resolved workspace targets and untargeted dock tabs", () => {
+    expect(
+      shouldRevealPluginDock(
+        {
+          type: "plugin",
+          pluginId: "keepdeck.git",
+          workspace: {
+            id: "ws-3",
+            instance: createWorkspaceInstance(),
+          },
+          dockTab: "changes",
+        },
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      shouldRevealPluginDock(
+        { type: "plugin", pluginId: "keepdeck.git", dockTab: "changes" },
+        false,
+      ),
+    ).toBe(true);
   });
 });

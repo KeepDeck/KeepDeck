@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { Workspace } from "../domain/deck";
+import { findWorkspace, type Workspace } from "../domain/deck";
 import type { Deck } from "./useDeck";
 import { useAppRuntime } from "./runtimeContext";
 
@@ -36,21 +36,22 @@ export function usePluginDeckBridge(deck: Deck): void {
   const previous = useRef<WorkspaceRef[]>([]);
   useEffect(() => {
     const current = deck.workspaces.map(({ id, instance }) => ({ id, instance }));
-    for (const gone of closedWorkspaceIds(previous.current, current)) {
-      pluginDeckEvents.emitWorkspaceClosed({ wsId: gone });
+    for (const gone of closedWorkspaces(previous.current, current)) {
+      pluginDeckEvents.emitWorkspaceClosed({ workspace: gone });
     }
     previous.current = current;
     pluginDeckEvents.emitDeckChanged();
   }, [deck.workspaces, pluginDeckEvents]);
 
+  const active = findWorkspace(deck.workspaces, deck.activeId);
   const selectedPaneId = deck.viewOf(deck.activeId).select ?? null;
   useEffect(() => {
-    if (!deck.activeId) return;
+    if (!active) return;
     pluginDeckEvents.emitPaneSelected({
-      wsId: deck.activeId,
+      workspace: { id: active.id, instance: active.instance },
       paneId: selectedPaneId,
     });
-  }, [deck.activeId, selectedPaneId, pluginDeckEvents]);
+  }, [active?.instance, selectedPaneId, pluginDeckEvents]);
 }
 
 /** Reveal a dock tab on the ACTIVE workspace — the host side of a plugin's
@@ -70,12 +71,10 @@ export function revealDockTabOn(
  * new instance still means the previous workspace closed. */
 type WorkspaceRef = Pick<Workspace, "id" | "instance">;
 
-export function closedWorkspaceIds(
+export function closedWorkspaces(
   previous: readonly WorkspaceRef[],
   current: readonly WorkspaceRef[],
-): string[] {
+): WorkspaceRef[] {
   const now = new Set(current.map((workspace) => workspace.instance));
-  return previous
-    .filter((workspace) => !now.has(workspace.instance))
-    .map((workspace) => workspace.id);
+  return previous.filter((workspace) => !now.has(workspace.instance));
 }

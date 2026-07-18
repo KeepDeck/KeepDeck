@@ -2,11 +2,13 @@ import type {
   PluginLogger,
   PluginServices,
   PluginSessionHandle,
+  WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import {
   commandBanner,
   exitNote,
   runSpawnOptions,
+  sameWorkspace,
   spawnFailedNote,
   type RunRequest,
   type RunSession,
@@ -35,15 +37,15 @@ export interface RunSink {
 /** The plugin-facing run manager: the panel drives everything through it. */
 export interface RunManager {
   launchRun(
-    wsId: string,
+    workspace: WorkspaceRef,
     target: { worktree: string; branch?: string },
     request: RunRequest,
   ): Promise<string>;
   stopRun(id: string): void;
   restartRun(id: string): Promise<void>;
   removeRun(id: string): void;
-  removeDeadRunsFor(wsId: string, presetId: string): void;
-  stopWorkspaceRuns(wsId: string): void;
+  removeDeadRunsFor(workspace: WorkspaceRef, presetId: string): void;
+  stopWorkspaceRuns(workspace: WorkspaceRef): void;
   /** Deactivation: kill and forget every session (NEW vs the legacy host
    * manager, which lived for the app's whole lifetime). */
   stopAll(): void;
@@ -203,14 +205,14 @@ export function createRunManager(
   }
 
   async function launchRun(
-    wsId: string,
+    workspace: WorkspaceRef,
     target: { worktree: string; branch?: string },
     request: RunRequest,
   ): Promise<string> {
     if (request.presetId) {
       const existing = [...entries.values()].find(
         (e) =>
-          e.session.wsId === wsId &&
+          sameWorkspace(e.session.workspace, workspace) &&
           e.session.presetId === request.presetId &&
           e.session.worktree === target.worktree,
       );
@@ -234,7 +236,7 @@ export function createRunManager(
     const entry: Entry = {
       session: {
         id,
-        wsId,
+        workspace,
         name: request.name,
         ...(request.presetId && { presetId: request.presetId }),
         command: request.command,
@@ -297,11 +299,14 @@ export function createRunManager(
     notify();
   }
 
-  function removeDeadRunsFor(wsId: string, presetId: string): void {
+  function removeDeadRunsFor(
+    workspace: WorkspaceRef,
+    presetId: string,
+  ): void {
     for (const entry of [...entries.values()]) {
       const s = entry.session;
       if (
-        s.wsId === wsId &&
+        sameWorkspace(s.workspace, workspace) &&
         s.presetId === presetId &&
         (s.status.kind === "exited" || s.status.kind === "failed")
       ) {
@@ -310,9 +315,10 @@ export function createRunManager(
     }
   }
 
-  function stopWorkspaceRuns(wsId: string): void {
+  function stopWorkspaceRuns(workspace: WorkspaceRef): void {
     for (const entry of [...entries.values()]) {
-      if (entry.session.wsId === wsId) removeRun(entry.session.id);
+      if (sameWorkspace(entry.session.workspace, workspace))
+        removeRun(entry.session.id);
     }
   }
 

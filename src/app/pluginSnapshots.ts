@@ -10,6 +10,7 @@ import type { Pane, Workspace } from "../domain/deck";
 export function toWorkspaceSnapshot(ws: Workspace): WorkspaceSnapshot {
   return {
     id: ws.id,
+    instance: ws.instance,
     name: ws.name,
     cwd: ws.cwd,
     panes: ws.panes.map(toPaneSnapshot),

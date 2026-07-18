@@ -1,4 +1,4 @@
-import { findWorkspace, type Workspace } from "../domain/deck";
+import { findWorkspaceByRef, type Workspace } from "../domain/deck";
 import type {
   NotificationSource,
   NotificationWorkspace,
@@ -9,9 +9,23 @@ export function workspaceForNotification(
   workspaces: Workspace[],
   ref: NotificationWorkspace,
 ): Workspace | null {
-  if (ref.instance === null) return null;
-  const workspace = findWorkspace(workspaces, ref.id);
-  return workspace?.instance === ref.instance ? workspace : null;
+  return findWorkspaceByRef(workspaces, ref) ?? null;
+}
+
+/** A workspace-bound dock target is valid only after that exact workspace
+ * lifetime resolved. Untargeted plugin notifications may reveal a global dock
+ * tab directly. */
+export function shouldRevealPluginDock(
+  source: NotificationSource,
+  preciseTargetResolved: boolean,
+): source is Extract<NotificationSource, { type: "plugin" }> & {
+  dockTab: string;
+} {
+  return (
+    source.type === "plugin" &&
+    source.dockTab !== undefined &&
+    (source.workspace === undefined || preciseTargetResolved)
+  );
 }
 
 /** Resolve only Settings destinations. More precise pane, workspace and dock

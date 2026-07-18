@@ -16,6 +16,7 @@ import type {
   PluginSessionEvent,
   SpeechCapture,
   SpeechCaptureOptions,
+  WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { describeError } from "./errors";
 import type { GuestRpc } from "./rpc";
@@ -410,13 +411,17 @@ export function buildGuestContext(
         rpc.call("resources.path", [relative]) as Promise<string | null>,
     },
     storage: {
-      workspace: (wsId) => ({
+      workspace: (workspace) => ({
         get: <T>(key: string): Promise<T | undefined> =>
-          rpc.call("storage.workspace.get", [wsId, key]) as Promise<T | undefined>,
+          rpc.call("storage.workspace.get", [workspace, key]) as Promise<
+            T | undefined
+          >,
         set: (key, value) =>
-          rpc.call("storage.workspace.set", [wsId, key, value]).then(noop),
+          rpc
+            .call("storage.workspace.set", [workspace, key, value])
+            .then(noop),
         delete: (key) =>
-          rpc.call("storage.workspace.delete", [wsId, key]).then(noop),
+          rpc.call("storage.workspace.delete", [workspace, key]).then(noop),
       }),
       global: {
         get: <T>(key: string): Promise<T | undefined> =>
@@ -430,14 +435,15 @@ export function buildGuestContext(
       onWorkspaceClosed: (cb) =>
         subscribeChannel(
           "workspaceClosed",
-          (payload) => cb(payload as { wsId: string }),
+          (payload) => cb(payload as { workspace: WorkspaceRef }),
           () => void rpc.call("events.subscribe", ["workspaceClosed"]).catch(noop),
           () => void rpc.call("events.unsubscribe", ["workspaceClosed"]).catch(noop),
         ),
       onPaneSelected: (cb) =>
         subscribeChannel(
           "paneSelected",
-          (payload) => cb(payload as { wsId: string; paneId: string | null }),
+          (payload) =>
+            cb(payload as { workspace: WorkspaceRef; paneId: string | null }),
           () => void rpc.call("events.subscribe", ["paneSelected"]).catch(noop),
           () => void rpc.call("events.unsubscribe", ["paneSelected"]).catch(noop),
         ),

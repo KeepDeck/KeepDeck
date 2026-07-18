@@ -4,7 +4,10 @@ import {
   type Occupancy,
   type PathProbe,
 } from "../agents";
-import type { WorkspaceInstance } from "../workspaceInstance";
+import type {
+  WorkspaceInstance,
+  WorkspaceRef,
+} from "../workspaceInstance";
 import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
@@ -76,6 +79,23 @@ export function findWorkspace(
   id: string,
 ): Workspace | undefined {
   return workspaces.find((w) => w.id === id);
+}
+
+/** Resolve one exact workspace lifetime, never merely its reusable id. */
+export function findWorkspaceByRef(
+  workspaces: Workspace[],
+  ref: WorkspaceRef,
+): Workspace | undefined {
+  const workspace = findWorkspace(workspaces, ref.id);
+  return workspace?.instance === ref.instance ? workspace : undefined;
+}
+
+/** One public id names at most one live workspace. */
+export function workspaceIdsAreUnique(
+  workspaces: readonly Workspace[],
+): boolean {
+  return new Set(workspaces.map((workspace) => workspace.id)).size ===
+    workspaces.length;
 }
 
 /** The workspace that owns pane `paneId`, if any. */

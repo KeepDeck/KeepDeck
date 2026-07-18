@@ -4,6 +4,7 @@ import type {
   FileOpenHandler,
   PluginContext,
   SpawnPlanOutput,
+  WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { createHostDispatch } from "./hostDispatch";
 import type { WireHookCall } from "./protocol";
@@ -47,6 +48,49 @@ const entry = {
 };
 
 const output = (): SpawnPlanOutput => ({ command: "gemini", args: [], env: [] });
+
+describe("workspace storage over the RPC seam", () => {
+  const ref: WorkspaceRef = { id: "ws-1", instance: "instance-1" };
+
+  it("forwards the exact workspace lifetime on every operation", async () => {
+    const kv = {
+      get: vi.fn(async () => "value"),
+      set: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+    };
+    const workspace = vi.fn(() => kv);
+    const dispatch = createHostDispatch(
+      { storage: { workspace } } as unknown as PluginContext,
+      () => {},
+    );
+
+    await expect(
+      dispatch.call("storage.workspace.get", [ref, "key"]),
+    ).resolves.toBe("value");
+    await dispatch.call("storage.workspace.set", [ref, "key", 42]);
+    await dispatch.call("storage.workspace.delete", [ref, "key"]);
+
+    expect(workspace).toHaveBeenCalledTimes(3);
+    expect(workspace).toHaveBeenNthCalledWith(1, ref);
+    expect(workspace).toHaveBeenNthCalledWith(2, ref);
+    expect(workspace).toHaveBeenNthCalledWith(3, ref);
+    expect(kv.set).toHaveBeenCalledWith("key", 42);
+    expect(kv.delete).toHaveBeenCalledWith("key");
+  });
+
+  it("rejects the pre-API-21 wsId-only shape", async () => {
+    const workspace = vi.fn();
+    const dispatch = createHostDispatch(
+      { storage: { workspace } } as unknown as PluginContext,
+      () => {},
+    );
+
+    await expect(
+      dispatch.call("storage.workspace.get", ["ws-1", "key"]),
+    ).rejects.toThrow(/lifetime ref/);
+    expect(workspace).not.toHaveBeenCalled();
+  });
+});
 
 describe("agent hooks over the RPC seam", () => {
   it("proxies only the contract's hook names", async () => {
