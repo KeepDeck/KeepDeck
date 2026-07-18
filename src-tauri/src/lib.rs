@@ -145,6 +145,7 @@ pub fn run() {
             skills::skills_save,
             skills::skills_delete,
             skills::skills_stage,
+            skills::skills_prune,
             ports::ports_allocate,
             plugins_fs::plugins_scan,
             plugins_fs::plugins_resolve_dir,

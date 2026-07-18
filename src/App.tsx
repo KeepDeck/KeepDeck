@@ -14,6 +14,7 @@ import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
 import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
+import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useSettings } from "./app/useSettings";
@@ -110,6 +111,10 @@ function App() {
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);
+  // Skills housekeeping: drop dead workspaces' derived skill dirs at boot
+  // and on every close. Never while restoring/frozen — an unhydrated deck
+  // reads as "no workspaces" and would sweep the live dirs too.
+  useSkillsPrune(deck.workspaces, !restoring && !frozen);
   const [frozenAck, setFrozenAck] = useState(false);
   // Per-install spawn-plan constants (bridge inbox, reporter activation) — the
   // deck's first paint waits for it ([F7]/[F8] session identity v2).

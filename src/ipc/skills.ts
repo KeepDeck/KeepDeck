@@ -53,3 +53,13 @@ export async function stageSkills(wsId: string): Promise<SkillsStagingViews | nu
     return null;
   }
 }
+
+/** Drop the derived dirs of workspaces not in `liveWsIds` (closed ones must
+ * not keep dead staging around). Best-effort — a failed sweep only logs. */
+export async function pruneSkills(liveWsIds: string[]): Promise<void> {
+  try {
+    await invoke("skills_prune", { liveWsIds });
+  } catch (e) {
+    log.warn("web:skills", `skills_prune failed: ${describeError(e)}`);
+  }
+}

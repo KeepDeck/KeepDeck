@@ -109,6 +109,15 @@ pub fn skills_stage(ws_id: String) -> Result<Option<SkillStagingDto>, String> {
     stage(&root, &ws_id).map_err(|e| e.to_string())
 }
 
+/// Drop the DERIVED per-workspace dirs (staging views, opencode config
+/// homes) of workspaces that no longer exist — closed workspaces must not
+/// keep dead copies around forever. The library is user content and is
+/// never touched here.
+#[tauri::command(async)]
+pub fn skills_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
+    prune(&skills_root()?, &live_ws_ids).map_err(|e| e.to_string())
+}
+
 fn skills_root() -> Result<PathBuf, String> {
     let home = crate::paths::keepdeck_home().ok_or("no home directory for skills")?;
     Ok(home.join("skills"))
@@ -313,6 +322,23 @@ fn stage(root: &Path, ws_id: &str) -> io::Result<Option<SkillStagingDto>> {
         opencode_config_dir: abs(&opencode_dir),
         skills_dir: abs(&final_dir.join("skills")),
     }))
+}
+
+/// `.tmp-<id>` build leftovers follow the same liveness rule as the dirs
+/// themselves, so an in-flight stage of a LIVE workspace can never lose its
+/// build-aside dir to a concurrent prune.
+fn prune(root: &Path, live: &[String]) -> io::Result<()> {
+    for parent in [root.join("staging"), root.join("opencode")] {
+        for dir in sorted_dirs(&parent)? {
+            let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            let id = name.strip_prefix(".tmp-").unwrap_or(&name);
+            if live.iter().any(|l| l == id) {
+                continue;
+            }
+            fs::remove_dir_all(&dir)?;
+        }
+    }
+    Ok(())
 }
 
 /// The generated `/name` command for opencode: it surfaces no skill listing
@@ -527,6 +553,33 @@ mod tests {
         delete(&ws(&root, "ws-1"), "review").unwrap();
         assert_eq!(stage(&root, "ws-1").unwrap(), None);
         assert!(!root.join("staging").join("ws-1").exists());
+    }
+
+    #[test]
+    fn prune_drops_dead_workspaces_and_spares_live_ones_and_the_library() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", "x").unwrap();
+        save(&ws(&root, "ws-dead"), "gone", "x").unwrap();
+        stage(&root, "ws-live").unwrap().unwrap();
+        stage(&root, "ws-dead").unwrap().unwrap();
+        // A crash leftover of a dead workspace's build.
+        fs::create_dir_all(root.join("staging").join(".tmp-ws-dead")).unwrap();
+
+        prune(&root, &["ws-live".into()]).unwrap();
+
+        for parent in ["staging", "opencode"] {
+            assert!(root.join(parent).join("ws-live").exists(), "{parent} live");
+            assert!(!root.join(parent).join("ws-dead").exists(), "{parent} dead");
+        }
+        assert!(!root.join("staging").join(".tmp-ws-dead").exists());
+        // The library — user content, dead workspace or not — is untouched.
+        assert!(ws(&root, "ws-dead").join("gone").join(SKILL_FILE).exists());
+    }
+
+    #[test]
+    fn prune_on_a_fresh_home_is_a_no_op() {
+        let (_tmp, root) = root();
+        prune(&root, &["ws-1".into()]).unwrap();
     }
 
     #[test]
