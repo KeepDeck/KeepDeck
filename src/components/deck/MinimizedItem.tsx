@@ -15,6 +15,9 @@ interface MinimizedItemProps {
   icon?: AgentGlyphIcon | null;
   /** The agent's live branch badge, when its cwd is a known git HEAD. */
   gitBadge?: GitBadge | null;
+  /** The pane runs in YOLO mode — the header chip's warning must survive
+   * minimizing, so the stand-in carries a ⚡ marker too. */
+  yolo?: boolean;
   /** Accessible action label for the whole control, e.g. "Restore Claude 1". */
   label: string;
   /** False while the source workspace is mounted but inactive. */
@@ -27,6 +30,7 @@ interface MinimizedItemContentProps {
   /** The agent's brand mark; absent/null draws the neutral fallback. */
   icon?: AgentGlyphIcon | null;
   gitBadge?: GitBadge | null;
+  yolo?: boolean;
 }
 
 /** Shared visual payload for the live control and the tray's hidden sizer. */
@@ -34,6 +38,7 @@ export function MinimizedItemContent({
   title,
   icon,
   gitBadge,
+  yolo,
 }: MinimizedItemContentProps) {
   return (
     <>
@@ -41,6 +46,14 @@ export function MinimizedItemContent({
         <AgentGlyph icon={icon} />
       </span>
       <span className="minimized__title">{title}</span>
+      {yolo && (
+        <span
+          className="minimized__yolo"
+          title="YOLO mode — runs without permission prompts"
+        >
+          ⚡
+        </span>
+      )}
       {gitBadge && (
         <span className="minimized__branch" aria-hidden>
           <GitBranchIcon />
@@ -64,6 +77,7 @@ export function MinimizedItem({
   title,
   icon,
   gitBadge,
+  yolo,
   label,
   active,
   onClick,
@@ -125,7 +139,12 @@ export function MinimizedItem({
         aria-label={label}
         aria-describedby={active && tooltipAnchor ? tooltipId : undefined}
       >
-        <MinimizedItemContent title={title} icon={icon} gitBadge={gitBadge} />
+        <MinimizedItemContent
+          title={title}
+          icon={icon}
+          gitBadge={gitBadge}
+          yolo={yolo}
+        />
       </button>
       {active && tooltipAnchor && (
         <MinimizedDetailsTooltip

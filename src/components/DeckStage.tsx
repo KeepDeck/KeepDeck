@@ -339,6 +339,7 @@ export function DeckStage({
                         agents.find((a) => a.id === paneAgentType(pane))
                           ?.icon ?? null,
                       gitBadge: badgeOf(pane),
+                      yolo: pane.yolo,
                       label: `Restore ${title}`,
                       onRestore: () => onToggleMinimize(ws.id, pane.id),
                     };
@@ -358,6 +359,7 @@ export function DeckStage({
                             ?.icon ?? null
                         }
                         gitBadge={badgeOf(pane)}
+                        yolo={pane.yolo}
                         label={`Restore ${title}`}
                         active={isActive}
                         onClick={() => onToggleMinimize(ws.id, pane.id)}

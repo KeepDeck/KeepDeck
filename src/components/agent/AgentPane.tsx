@@ -238,7 +238,7 @@ export function AgentPane({
               className="pane__yolo"
               title="YOLO mode — runs without permission prompts"
             >
-              ⚡ YOLO
+              ⚡<span className="pane__yolo-label">YOLO</span>
             </span>
           )}
           {gitBadge && (
