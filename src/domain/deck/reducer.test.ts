@@ -15,6 +15,23 @@ const state = (partial: Partial<DeckState>): DeckState => ({
   ...partial,
 });
 
+describe("deckReducer createWorkspace", () => {
+  it("rejects a duplicate live id", () => {
+    const start = state({
+      workspaces: [ws("a", ["a-1"])],
+      activeId: "a",
+      viewByWs: { a: { select: "a-1" } },
+    });
+
+    expect(
+      deckReducer(start, {
+        type: "createWorkspace",
+        workspace: ws("a", ["other-pane"]),
+      }),
+    ).toBe(start);
+  });
+});
+
 describe("deckReducer closeAgent", () => {
   it("removes the pane and moves selection/focus to the next when the closed one was active", () => {
     const next = deckReducer(

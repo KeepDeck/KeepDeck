@@ -9,7 +9,7 @@ import {
   type SpawnConfig,
   type Workspace,
 } from "../domain/deck";
-import { mintAgentSeqs, mintWorkspaceSeq } from "./ids";
+import { mintAgentSeqs } from "./ids";
 import { planPanes, provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
 import type { Deck } from "./useDeck";
@@ -49,29 +49,33 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
     setup,
     yolo,
   }: SpawnConfig) => {
-    const wsSeq = mintWorkspaceSeq(deck.workspaces.map((ws) => ws.id));
-    const startSeq = mintAgentSeqs(count);
-    const wsName = name.trim() || `workspace-${wsSeq}`;
     const wsSetup = setup?.trim() || undefined;
-    const panes = planPanes(
-      { cwd, worktreeBaseDir, name: wsName },
-      startSeq,
-      count,
-      agentType,
-      yolo ?? false,
+    const workspace = deck.createWorkspaceFromSequence((wsSeq): Workspace => {
+      const startSeq = mintAgentSeqs(count);
+      const wsName = name.trim() || `workspace-${wsSeq}`;
+      const panes = planPanes(
+        { cwd, worktreeBaseDir, name: wsName },
+        startSeq,
+        count,
+        agentType,
+        yolo ?? false,
+      );
+      return {
+        id: `ws-${wsSeq}`,
+        name: wsName,
+        cwd,
+        worktreeBaseDir,
+        // Core field since deck v5: provisioning owns the setup command — it
+        // runs whether or not the Run plugin is installed.
+        ...(wsSetup && { setup: wsSetup }),
+        panes,
+      };
+    });
+    void runProvisioning(
+      workspace.panes,
+      provisionInto(deck, workspace.id),
+      wsSetup,
     );
-    const workspace: Workspace = {
-      id: `ws-${wsSeq}`,
-      name: wsName,
-      cwd,
-      worktreeBaseDir,
-      // Core field since deck v5: provisioning owns the setup command — it
-      // runs whether or not the Run plugin is installed.
-      ...(wsSetup && { setup: wsSetup }),
-      panes,
-    };
-    deck.createWorkspace(workspace);
-    void runProvisioning(panes, provisionInto(deck, workspace.id), wsSetup);
   };
 
   /** Re-issue a failed pane's worktree create from its stored intent. */

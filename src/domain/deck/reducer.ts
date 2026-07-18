@@ -211,6 +211,10 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
     }
     case "createWorkspace": {
       const { workspace } = action;
+      // An id is one live-deck slot. Allocation normally prevents a duplicate,
+      // but the state owner enforces the invariant too so imported/programmatic
+      // actions cannot make selectors ambiguous or one close remove two rows.
+      if (state.workspaces.some((ws) => ws.id === workspace.id)) return state;
       return {
         ...state,
         workspaces: [...state.workspaces, workspace],

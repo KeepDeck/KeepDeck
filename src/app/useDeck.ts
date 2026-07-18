@@ -1,13 +1,15 @@
-import { useCallback, useReducer } from "react";
+import { useCallback, useReducer, useRef } from "react";
 import {
   deckReducer,
   initialDeckState,
+  type DeckAction,
   type DeckState,
   type Pane,
   type PaneSession,
   type Workspace,
   type WorkspaceView,
 } from "../domain/deck";
+import { mintWorkspaceSeq } from "./ids";
 
 /** An empty view — the defaults for a workspace with no view entry yet. Shared
  * so `viewOf` returns a stable reference for absent workspaces. */
@@ -22,7 +24,18 @@ export type Deck = ReturnType<typeof useDeck>;
  * coupled `useState`s and cleaning them by hand on every removal.
  */
 export function useDeck() {
-  const [state, dispatch] = useReducer(deckReducer, initialDeckState);
+  const [state, reactDispatch] = useReducer(deckReducer, initialDeckState);
+  // React may batch several commands before rendering. Track the state after
+  // every queued reducer transition synchronously so an allocator owned here
+  // sees earlier commands in the same batch instead of a stale render snapshot.
+  const queuedState = useRef(state);
+  queuedState.current = state;
+  const dispatch = useCallback((action: DeckAction): DeckState => {
+    const next = deckReducer(queuedState.current, action);
+    queuedState.current = next;
+    reactDispatch(action);
+    return next;
+  }, []);
   // Stable because the minimize-mode effect depends on this command while it
   // reconciles the independently-owned settings and deck state.
   const clearMinimized = useCallback(
@@ -38,6 +51,19 @@ export function useDeck() {
     selectWorkspace: (id: string) => dispatch({ type: "selectWorkspace", id }),
     createWorkspace: (workspace: Workspace) =>
       dispatch({ type: "createWorkspace", workspace }),
+    /** Build and insert a workspace against the latest queued deck state.
+     * Allocation and insertion are one synchronous state-owner operation, so
+     * two creates in one React batch cannot observe or append the same id. */
+    createWorkspaceFromSequence: (
+      build: (sequence: number) => Workspace,
+    ): Workspace => {
+      const sequence = mintWorkspaceSeq(
+        queuedState.current.workspaces.map((workspace) => workspace.id),
+      );
+      const workspace = build(sequence);
+      dispatch({ type: "createWorkspace", workspace });
+      return workspace;
+    },
     setPanes: (id: string, panes: Pane[]) =>
       dispatch({ type: "setPanes", id, panes }),
     addAgentPane: (id: string, pane: Pane) =>

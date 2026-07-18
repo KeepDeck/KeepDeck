@@ -71,4 +71,26 @@ describe("useProvisioning workspace ids", () => {
 
     expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1", "ws-3", "ws-4"]);
   });
+
+  it("allocates distinct ids to creates queued in the same React batch", () => {
+    act(() => {
+      provisioning.createWorkspace(config());
+      provisioning.createWorkspace(config());
+    });
+
+    expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1", "ws-2"]);
+  });
+
+  it("can release and reuse the maximum inside one React batch", () => {
+    create();
+    create();
+    create();
+
+    act(() => {
+      deck.closeWorkspace("ws-3");
+      provisioning.createWorkspace(config());
+    });
+
+    expect(deck.workspaces.map((ws) => ws.id)).toEqual(["ws-1", "ws-2", "ws-3"]);
+  });
 });
