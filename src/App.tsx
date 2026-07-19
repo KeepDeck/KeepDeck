@@ -15,6 +15,7 @@ import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
 import { useJournalPersistence } from "./app/useJournalPersistence";
+import { useJournalResume } from "./app/useJournalResume";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
@@ -134,6 +135,7 @@ function App() {
   // rejected boot resume. Both replace only runtime PTY/spec state; the pane
   // keeps its identity and layout position.
   const agentRestart = useAgentRestart(deck, spawnCtx);
+  const journalResume = useJournalResume(deck, spawnCtx);
   // Every live pane's spawn plan, built through its agent plugin's hooks
   // (async — the pane's terminal waits for its plan; mounting is what
   // spawns). Dormant panes get theirs at revive time.
@@ -706,6 +708,11 @@ function App() {
             gitHeads={gitHeads}
             journal={deck.journal.records}
             onDeleteJournalRecord={deck.deleteJournalRecord}
+            onResumeSession={(wsId, record) =>
+              void journalResume.resume(wsId, record).catch(() => {
+                // Logged in the hook; the row simply stays for another try.
+              })
+            }
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
             onToggleMinimize={deck.toggleMinimize}

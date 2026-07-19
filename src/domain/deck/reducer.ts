@@ -279,7 +279,28 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // still points at the old pane) — the mirror of closeAgent's guard.
       let viewByWs = setViewField(state.viewByWs, action.id, "select", action.pane.id);
       viewByWs = setViewField(viewByWs, action.id, "focus", undefined);
-      return { ...state, workspaces, viewByWs };
+      // A pane arriving WITH a session (journal resume) claims its record:
+      // the reporter's later same-id re-report is a binding no-op, so this
+      // is the transition that flips the row back to live.
+      let journal = state.journal;
+      const ws = findWorkspace(workspaces, action.id);
+      if (ws && action.pane.session) {
+        journal = withJournalEvent(journal, {
+          e: "bound",
+          v: 1,
+          wsId: action.id,
+          record: {
+            agent: paneAgentType(action.pane),
+            sessionId: action.pane.session.id,
+            cwd: paneExecutionCwd(ws, action.pane) ?? ws.cwd,
+            ...(action.pane.branch !== undefined && { branch: action.pane.branch }),
+            ...(action.pane.yolo && { yolo: true }),
+            boundAt: action.pane.session.boundAt,
+            paneId: action.pane.id,
+          },
+        });
+      }
+      return { ...state, workspaces, viewByWs, journal };
     }
     case "renameWorkspace":
       return {

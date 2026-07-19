@@ -49,6 +49,7 @@ const twoWorkspaces = [
 
 const callbacks = {
   onDeleteJournalRecord: vi.fn(),
+  onResumeSession: vi.fn(),
   onSelectPane: vi.fn(),
   onToggleFocus: vi.fn(),
   onToggleMinimize: vi.fn(),

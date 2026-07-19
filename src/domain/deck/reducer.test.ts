@@ -1001,3 +1001,83 @@ describe("deckReducer journal", () => {
     expect(deckReducer(flushed, { type: "journalFlushed", count: 0 })).toBe(flushed);
   });
 });
+
+describe("deckReducer journal claims on addAgentPane", () => {
+  const AT = "2026-07-19T12:00:00.000Z";
+
+  it("a pane arriving with a session claims a live journal record", () => {
+    const start = state({
+      workspaces: [ws("ws-1", [])],
+      activeId: "ws-1",
+    });
+    const added = deckReducer(start, {
+      type: "addAgentPane",
+      id: "ws-1",
+      pane: {
+        id: "pane-9",
+        agentType: "kimi",
+        cwd: "/repo/wt",
+        branch: "kd/x/9",
+        session: { id: "s-res", boundAt: AT },
+      },
+    });
+    expect(added.journal.records["ws-1"][0]).toMatchObject({
+      agent: "kimi",
+      sessionId: "s-res",
+      cwd: "/repo/wt",
+      branch: "kd/x/9",
+      state: "live",
+      paneId: "pane-9",
+    });
+  });
+
+  it("re-claiming a sealed record preserves its frozen title and transcript path", () => {
+    const start = state({
+      workspaces: [ws("ws-1", [])],
+      activeId: "ws-1",
+      journal: {
+        records: {
+          "ws-1": [
+            {
+              agent: "kimi",
+              sessionId: "s-res",
+              cwd: "/repo/wt",
+              title: "polish pass",
+              transcriptPath: "/t/s-res",
+              boundAt: "2026-07-18T00:00:00.000Z",
+              state: "closed",
+              endedAt: "2026-07-18T01:00:00.000Z",
+            },
+          ],
+        },
+        tail: [],
+      },
+    });
+    const added = deckReducer(start, {
+      type: "addAgentPane",
+      id: "ws-1",
+      pane: {
+        id: "pane-9",
+        agentType: "kimi",
+        cwd: "/repo/wt",
+        session: { id: "s-res", boundAt: AT },
+      },
+    });
+    expect(added.journal.records["ws-1"][0]).toMatchObject({
+      state: "live",
+      title: "polish pass",
+      transcriptPath: "/t/s-res",
+      boundAt: AT,
+    });
+  });
+
+  it("a sessionless pane leaves the journal untouched", () => {
+    const start = state({ workspaces: [ws("ws-1", [])], activeId: "ws-1" });
+    const added = deckReducer(start, {
+      type: "addAgentPane",
+      id: "ws-1",
+      pane: { id: "pane-9", agentType: "claude" },
+    });
+    expect(added.journal).toBe(start.journal);
+  });
+});

@@ -40,11 +40,17 @@ describe("WorkspaceHistory", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
-  const render = (rows: SessionRecord[], onDelete = vi.fn()) => {
+  const render = (
+    rows: SessionRecord[],
+    onDelete = vi.fn(),
+    onResume = vi.fn(),
+  ) => {
     act(() =>
-      root.render(createElement(WorkspaceHistory, { rows, agents, onDelete })),
+      root.render(
+        createElement(WorkspaceHistory, { rows, agents, onDelete, onResume }),
+      ),
     );
-    return onDelete;
+    return { onDelete, onResume };
   };
 
   it("empty journal shows the + Agent hint, not a list", () => {
@@ -83,10 +89,31 @@ describe("WorkspaceHistory", () => {
     expect(host.querySelector(".history__state--live")).not.toBeNull();
   });
 
+  it("Resume passes the whole record; a live row offers no Resume", () => {
+    const { onResume } = render([
+      closed({ title: "auth bug" }),
+      {
+        agent: "claude",
+        sessionId: "s-live",
+        cwd: "/repo",
+        boundAt: "2026-07-19T10:00:00.000Z",
+        state: "live",
+        paneId: "pane-1",
+      },
+    ]);
+    const buttons = host.querySelectorAll<HTMLButtonElement>(".history__resume");
+    expect(buttons).toHaveLength(1); // the live row has none
+    act(() => buttons[0].click());
+    expect(onResume).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ sessionId: "s-1", state: "closed" }),
+    );
+  });
+
   it("the × forgets exactly that session", () => {
-    const onDelete = render([closed(), closed({ sessionId: "s-2" })]);
+    const { onDelete } = render([closed(), closed({ sessionId: "s-2" })]);
     const buttons = host.querySelectorAll<HTMLButtonElement>(".history__delete");
     act(() => buttons[1].click());
     expect(onDelete).toHaveBeenCalledExactlyOnceWith("s-2");
   });
 });
+

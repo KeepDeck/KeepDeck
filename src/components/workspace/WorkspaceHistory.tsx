@@ -9,6 +9,8 @@ interface WorkspaceHistoryProps {
   agents: AgentInfo[];
   /** Forget one record — journal metadata only, the agent store is untouched. */
   onDelete(sessionId: string): void;
+  /** Resume a closed record into a new pane of this workspace. */
+  onResume(record: SessionRecord): void;
 }
 
 /**
@@ -17,7 +19,7 @@ interface WorkspaceHistoryProps {
  * way to add an agent; this surface is for coming BACK to a workspace and
  * seeing what happened in it.
  */
-export function WorkspaceHistory({ rows, agents, onDelete }: WorkspaceHistoryProps) {
+export function WorkspaceHistory({ rows, agents, onDelete, onResume }: WorkspaceHistoryProps) {
   if (rows.length === 0) {
     return (
       <div className="history history--empty">
@@ -59,6 +61,16 @@ export function WorkspaceHistory({ rows, agents, onDelete }: WorkspaceHistoryPro
               <span className="history__when">
                 {formatAge(Date.parse(when), now)}
               </span>
+              {row.state === "closed" && (
+                <button
+                  type="button"
+                  className="history__resume"
+                  title="Resume this session in a new pane"
+                  onClick={() => onResume(row)}
+                >
+                  Resume
+                </button>
+              )}
               <button
                 type="button"
                 className="history__delete"

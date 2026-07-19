@@ -129,3 +129,22 @@
   background-color: #1c2230;
   color: #c5c8c6;
 }
+
+.history__resume {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid #2b3446;
+  border-radius: 6px;
+  background: none;
+  color: #9aa3af;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.history__resume:hover {
+  border-color: #58b368;
+  color: #c5c8c6;
+}

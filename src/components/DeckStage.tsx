@@ -23,7 +23,11 @@ import { gitBadge } from "../ui/gitBadge";
 import { AgentPane } from "./agent/AgentPane";
 import { MinimizedItem } from "./deck/MinimizedItem";
 import { MinimizedTray } from "./deck/MinimizedTray";
-import { journalRows, type JournalRecords } from "../domain/journal";
+import {
+  journalRows,
+  type JournalRecords,
+  type SessionRecord,
+} from "../domain/journal";
 import { WorkspaceHistory } from "./workspace/WorkspaceHistory";
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
@@ -64,6 +68,8 @@ interface DeckStageProps {
   journal: JournalRecords;
   /** Forget one journal row (the history list's ×). */
   onDeleteJournalRecord(wsId: string, sessionId: string): void;
+  /** Resume a journal record into a new pane of its workspace. */
+  onResumeSession(wsId: string, record: SessionRecord): void;
   onSelectPane(wsId: string, paneId: string): void;
   onToggleFocus(wsId: string, paneId: string): void;
   /** Minimize a pane out of the grid, or restore it (grid layout only). */
@@ -128,6 +134,7 @@ export function DeckStage({
   gitHeads,
   journal,
   onDeleteJournalRecord,
+  onResumeSession,
   onSelectPane,
   onToggleFocus,
   onToggleMinimize,
@@ -166,6 +173,7 @@ export function DeckStage({
                 rows={journalRows(journal, ws.id)}
                 agents={agents}
                 onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
+                onResume={(record) => onResumeSession(ws.id, record)}
               />
             </div>
           );

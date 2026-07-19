@@ -85,9 +85,13 @@ export function applyJournalEvent(
       const prior = idx >= 0 ? list[idx] : undefined;
       const next: SessionRecord = {
         ...event.record,
-        // A re-bound record keeps the title its last seal froze until the
-        // next seal freezes a fresher one.
+        // A re-bound record keeps the title its last seal froze (until the
+        // next seal) and the transcript path the reporter once delivered —
+        // a resume-minted binding knows neither.
         title: event.record.title ?? prior?.title,
+        ...((event.record.transcriptPath ?? prior?.transcriptPath) !== undefined && {
+          transcriptPath: event.record.transcriptPath ?? prior?.transcriptPath,
+        }),
         state: "live",
       };
       if (prior && recordsEqual(prior, next)) return records;
