@@ -1,11 +1,20 @@
 /** Validate host usage provenance without teaching application state any
- * agent schema. The primitive union has one wire field: string is an event
- * ISO time, number is file-mtime unix milliseconds. */
-export function usageSourceTimestamp(value: unknown): number | null {
+ * agent schema. Strings are event ISO times; numbers are unix milliseconds.
+ * A source cannot honestly postdate its receipt — rejecting future values
+ * prevents a skewed session file from poisoning freshest-wins indefinitely. */
+export function usageSourceTimestamp(
+  value: unknown,
+  receivedAt: number,
+): number | null {
+  let parsed: number;
   if (typeof value === "number") {
-    return Number.isFinite(value) && value >= 0 ? value : null;
+    parsed = value;
+  } else if (typeof value === "string") {
+    parsed = Date.parse(value);
+  } else {
+    return null;
   }
-  if (typeof value !== "string") return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= receivedAt
+    ? parsed
+    : null;
 }

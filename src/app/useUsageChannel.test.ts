@@ -422,4 +422,19 @@ describe("useUsageChannel", () => {
     await act(async () => {});
     expect(ipc.latestCodexRollout).toHaveBeenCalledTimes(1);
   });
+
+  it("falls back to rollout mtime when boot provenance is from the future", async () => {
+    ipc.latestCodexRollout.mockResolvedValue({
+      event: { type: "token_count" },
+      sourceAt: "2099-01-01T00:00:00.000Z",
+      mtimeMs: 1_234,
+    });
+
+    await mount(deckWith([]));
+    await act(async () => {});
+    expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+      kind: "reported",
+      reportedAt: 1_234,
+    });
+  });
 });

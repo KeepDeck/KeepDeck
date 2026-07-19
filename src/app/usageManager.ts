@@ -66,11 +66,13 @@ export function registerUsageNormalizer(
  * payloads are dropped silently — reporters are best-effort by design.
  *
  * `payload.catchUp` (a host-owned transport key, set by the tailer) marks
- * a replay of the EXISTING session file at arm time. Its `sourceAt` is the
- * rollout event's ISO time (file mtime fallback), so freshest-wins compares
- * it honestly with hydrated/polled state. The provenance mark remains a
- * stronger guard: replay can fill and MERGE gaps but never beat LIVE data
- * from this run. */
+ * a replay of the EXISTING session file at arm time. Every tailed event has
+ * an honest `sourceAt` plus `sourceMtimeMs` fallback; both replay and live
+ * account claims use that provenance so delivery order cannot beat a newer
+ * poll. A replay with no valid source time is stamped at epoch: it can fill
+ * an empty store but cannot relabel unknown old data as current. The replay
+ * mark remains a stronger guard: replay can fill and MERGE gaps but never
+ * beat LIVE data from this run. */
 export function reportUsage(
   paneId: string,
   payload: unknown,
@@ -81,8 +83,10 @@ export function reportUsage(
   const normalize = normalizers.get(provider);
   if (!normalize) return;
   const catchUp = payload.catchUp === true;
-  const sourceAt = catchUp ? usageSourceTimestamp(payload.sourceAt) : null;
-  const result = normalize(payload, sourceAt ?? at);
+  const sourceAt =
+    usageSourceTimestamp(payload.sourceAt, at) ??
+    usageSourceTimestamp(payload.sourceMtimeMs, at);
+  const result = normalize(payload, sourceAt ?? (catchUp ? 0 : at));
   if (!result) return;
 
   let changed = false;

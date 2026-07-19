@@ -79,10 +79,10 @@ impl TailFormat {
     }
 }
 
-/// Honest time carried by the source file. Codex writes an ISO timestamp on
-/// each rollout line; for older/malformed writers the file mtime is the
-/// fallback. An untagged scalar keeps the host transport small while its JSON
-/// type still discriminates ISO strings from unix milliseconds.
+/// Honest time carried by the source event. Codex writes an ISO timestamp on
+/// each rollout line; Kimi uses unix milliseconds. The file mtime travels
+/// separately as a fallback because parsing and wall-clock validation belong
+/// at the application freshness boundary.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 enum SourceTimestamp {
@@ -94,6 +94,7 @@ enum SourceTimestamp {
 struct TailedEvent {
     payload: Value,
     source_at: Option<SourceTimestamp>,
+    source_mtime_ms: Option<u64>,
 }
 
 /// One followed session file: where we are in it and how to attribute what
@@ -165,7 +166,11 @@ fn rollout_event(line: &[u8]) -> Option<TailedEvent> {
         }
         _ => return None,
     };
-    Some(TailedEvent { payload, source_at })
+    Some(TailedEvent {
+        payload,
+        source_at,
+        source_mtime_ms: None,
+    })
 }
 
 /// One kimi wire line → the payload event worth forwarding. `usage.record`
@@ -192,7 +197,11 @@ fn wire_event(line: &[u8]) -> Option<TailedEvent> {
         }
         _ => return None,
     };
-    Some(TailedEvent { payload, source_at })
+    Some(TailedEvent {
+        payload,
+        source_at,
+        source_mtime_ms: None,
+    })
 }
 
 /// Read everything appended since the recorded offset and return the events
@@ -250,6 +259,7 @@ fn drain(state: &mut TailState) -> Vec<TailedEvent> {
     while let Some(nl) = state.partial.iter().position(|b| *b == b'\n') {
         let line: Vec<u8> = state.partial.drain(..=nl).collect();
         if let Some(mut event) = state.format.event(&line[..line.len() - 1]) {
+            event.source_mtime_ms = file_mtime_ms;
             if event.source_at.is_none() {
                 event.source_at = file_mtime_ms.map(SourceTimestamp::UnixMillis);
             }
@@ -290,6 +300,9 @@ fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> UsageReport 
     });
     if let Some(source_at) = event.source_at {
         payload["sourceAt"] = json!(source_at);
+    }
+    if let Some(source_mtime_ms) = event.source_mtime_ms {
+        payload["sourceMtimeMs"] = json!(source_mtime_ms);
     }
     UsageReport {
         pane_id: state.pane_id.clone(),
@@ -666,7 +679,8 @@ mod tests {
     #[test]
     fn reports_carry_the_agent_tag_and_the_catch_up_mark() {
         let mut state = tail(PathBuf::from("/x/rollout.jsonl"));
-        let event = rollout_event(TURN_CONTEXT_LINE.as_bytes()).unwrap();
+        let mut event = rollout_event(TURN_CONTEXT_LINE.as_bytes()).unwrap();
+        event.source_mtime_ms = Some(1_234);
         let wrapped = report(&state, event, false);
         assert_eq!(wrapped.pane_id, "pane-1");
         assert_eq!(wrapped.token, "tok");
@@ -674,6 +688,7 @@ mod tests {
         assert_eq!(wrapped.payload["event"]["type"], "turn_context");
         assert_eq!(wrapped.payload["catchUp"], false);
         assert_eq!(wrapped.payload["sourceAt"], SOURCE_ISO);
+        assert_eq!(wrapped.payload["sourceMtimeMs"], 1_234);
 
         state.format = TailFormat::KimiWire;
         let event = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
@@ -776,6 +791,27 @@ mod tests {
             event.source_at,
             Some(SourceTimestamp::UnixMillis(1_234_000))
         );
+        assert_eq!(event.source_mtime_ms, Some(1_234_000));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_malformed_event_timestamp_keeps_file_mtime_as_a_separate_fallback() {
+        let dir = temp_dir();
+        let path = dir.join("rollout-malformed-timestamp.jsonl");
+        let malformed = TOKEN_COUNT_LINE.replace(SOURCE_ISO, "not-an-iso-time");
+        fs::write(&path, format!("{malformed}\n")).unwrap();
+        set_mtime(&path, 1_234);
+
+        let event = drain(&mut tail(path.clone())).pop().expect("usage event");
+        assert_eq!(
+            event.source_at,
+            Some(SourceTimestamp::Iso("not-an-iso-time".into()))
+        );
+        assert_eq!(event.source_mtime_ms, Some(1_234_000));
+        let wrapped = report(&tail(path), event, true);
+        assert_eq!(wrapped.payload["sourceAt"], "not-an-iso-time");
+        assert_eq!(wrapped.payload["sourceMtimeMs"], 1_234_000_u64);
         fs::remove_dir_all(&dir).ok();
     }
 

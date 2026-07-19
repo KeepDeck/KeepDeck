@@ -88,8 +88,10 @@ export interface NormalizedUsage {
  *
  * Three payload keys are HOST-owned transport metadata, not agent schema:
  * `agent` (the dispatch key), `catchUp` (the event is a replay of an
- * existing session file at arm time), and `sourceAt` (that replay's honest
- * ISO time or file-mtime unix milliseconds). Normalizers may ignore them. */
+ * existing session file at arm time), `sourceAt` (the event's ISO time or
+ * unix milliseconds), and `sourceMtimeMs` (the file-mtime fallback when the
+ * primary timestamp is malformed or clock-skewed). Normalizers may ignore
+ * them. */
 export type UsageNormalizer = (
   payload: unknown,
   at: number,

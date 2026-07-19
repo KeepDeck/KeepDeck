@@ -43,7 +43,11 @@ export function useUsageBootSweep(
           log.debug("web:usage", "boot sweep: no codex rollout carries usage");
           return;
         }
-        const sourceAt = usageSourceTimestamp(found.sourceAt) ?? found.mtimeMs;
+        const receivedAt = Date.now();
+        const sourceAt =
+          usageSourceTimestamp(found.sourceAt, receivedAt) ??
+          usageSourceTimestamp(found.mtimeMs, receivedAt) ??
+          0;
         const result = normalize(
           { agent: codexAgent, event: found.event, catchUp: true },
           sourceAt,

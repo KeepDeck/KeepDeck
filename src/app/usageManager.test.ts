@@ -96,6 +96,35 @@ describe("reportUsage", () => {
     unsubscribe();
     dispose();
   });
+
+  it("ranks live tailed account data by source time instead of delivery time", () => {
+    setAccountUsage("fake", {
+      kind: "reported",
+      windows: [],
+      reportedAt: 2_000,
+      sourcePaneId: "",
+    });
+    const dispose = registerUsageNormalizer("fake", (_payload, at) =>
+      reported(at),
+    );
+
+    // Written before the poll but delivered after it: must not downgrade.
+    reportUsage(
+      "pane-1",
+      { agent: "fake", sourceAt: 1_000, sourceMtimeMs: 1_100 },
+      3_000,
+    );
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 2_000,
+    });
+
+    // A genuinely newer source still wins, independently of receipt time.
+    reportUsage("pane-1", { agent: "fake", sourceAt: 2_500 }, 4_000);
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 2_500,
+    });
+    dispose();
+  });
 });
 
 describe("retainUsagePanes", () => {
@@ -201,7 +230,9 @@ describe("catch-up reports", () => {
       reportedAt: Date.parse("2026-07-19T12:00:00.000Z"),
       sourcePaneId: "",
     });
-    const dispose = registerUsageNormalizer("fake", (_payload, at) => reported(at));
+    const dispose = registerUsageNormalizer("fake", (_payload, at) =>
+      reported(at),
+    );
     reportUsage(
       "pane-old",
       {
@@ -222,7 +253,71 @@ describe("catch-up reports", () => {
     const dispose = registerUsageNormalizer("fake", (_payload, at) => reported(at));
     reportUsage("pane-1", { agent: "fake", catchUp: true, sourceAt: 2_000 }, 99_000);
     dispose();
-    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({ reportedAt: 2_000 });
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 2_000,
+    });
+  });
+
+  it("uses file mtime when the event timestamp is malformed", () => {
+    const dispose = registerUsageNormalizer("fake", (_payload, at) =>
+      reported(at),
+    );
+    reportUsage(
+      "pane-1",
+      {
+        agent: "fake",
+        catchUp: true,
+        sourceAt: "not-an-iso-time",
+        sourceMtimeMs: 2_000,
+      },
+      99_000,
+    );
+    dispose();
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 2_000,
+    });
+  });
+
+  it("rejects future provenance instead of poisoning freshest-wins", () => {
+    setAccountUsage("fake", {
+      kind: "reported",
+      windows: [],
+      reportedAt: 5_000,
+      sourcePaneId: "",
+    });
+    const dispose = registerUsageNormalizer("fake", (_payload, at) =>
+      reported(at),
+    );
+    reportUsage(
+      "pane-1",
+      {
+        agent: "fake",
+        catchUp: true,
+        sourceAt: "2099-01-01T00:00:00.000Z",
+        sourceMtimeMs: 2_000,
+      },
+      99_000,
+    );
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 5_000,
+    });
+
+    // With no valid fallback an unknown-age replay can fill an empty store,
+    // but epoch time prevents it from outranking any real observation.
+    resetUsageManager();
+    const restore = registerUsageNormalizer("fake", (_payload, at) =>
+      reported(at),
+    );
+    reportUsage(
+      "pane-1",
+      { agent: "fake", catchUp: true, sourceAt: 100_000 },
+      99_000,
+    );
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 0,
+    });
+    restore();
+    dispose();
   });
 
   it("populate an empty store like any first report", () => {
