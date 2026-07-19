@@ -23,10 +23,14 @@ const shellQuote = (path: string) => `'${path.split("'").join(`'\\''`)}'`;
  * hook and the statusLine usage reporter; each degrades independently when
  * its script is missing (`[]` only when neither resolves). The inline JSON
  * MERGES with the user's settings (hooks merge per event; verified on
- * 2.1.198); a user-configured statusLine is overridden INSIDE KeepDeck panes
- * only — the flag never touches config on disk. SessionStart fires on
- * startup/resume/clear/compact; the statusLine command runs event-driven on
- * every status update (rate_limits, cost, context_window on stdin). */
+ * 2.1.198), but `statusLine` is a single object with no merge story and
+ * `--settings` outranks every settings file a user edits (a managed policy
+ * still wins) — so this TAKES the statusLine slot. The reporter gives it back
+ * by resolving the user's own statusLine at runtime and delegating to it
+ * (kd-usage-statusline.sh); nothing on disk is ever touched. SessionStart
+ * fires on startup/resume/clear/compact; the statusLine command runs
+ * event-driven on every status update (rate_limits, cost, context_window on
+ * stdin). */
 async function hookArgs(resources: PluginResources): Promise<string[]> {
   const session = await resources.path("kd-session-hook.sh");
   const usage = await resources.path("kd-usage-statusline.sh");
