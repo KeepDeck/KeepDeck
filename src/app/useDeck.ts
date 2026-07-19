@@ -73,8 +73,6 @@ export function useDeck() {
         ? { ok: false, reason: "duplicate-id" }
         : { ok: true, workspace };
     },
-    setPanes: (id: string, panes: Pane[]) =>
-      dispatch({ type: "setPanes", id, panes }),
     addAgentPane: (id: string, pane: Pane) =>
       dispatch({ type: "addAgentPane", id, pane }),
     renameWorkspace: (id: string, name: string) =>

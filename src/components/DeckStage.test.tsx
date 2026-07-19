@@ -48,7 +48,7 @@ const twoWorkspaces = [
 ];
 
 const callbacks = {
-  onStartWorkspace: vi.fn(),
+  onDeleteJournalRecord: vi.fn(),
   onSelectPane: vi.fn(),
   onToggleFocus: vi.fn(),
   onToggleMinimize: vi.fn(),
@@ -63,6 +63,7 @@ const callbacks = {
 };
 
 const props = (overrides: Record<string, unknown> = {}) => ({
+  journal: {},
   workspaces,
   activeId: "ws-1",
   viewByWs: {},

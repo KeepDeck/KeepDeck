@@ -23,7 +23,8 @@ import { gitBadge } from "../ui/gitBadge";
 import { AgentPane } from "./agent/AgentPane";
 import { MinimizedItem } from "./deck/MinimizedItem";
 import { MinimizedTray } from "./deck/MinimizedTray";
-import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
+import { journalRows, type JournalRecords } from "../domain/journal";
+import { WorkspaceHistory } from "./workspace/WorkspaceHistory";
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
  * props (command, spec, cwd, badge) are the same everywhere. */
@@ -59,7 +60,10 @@ interface DeckStageProps {
   /** Runtime git HEAD observations, keyed by pane execution cwd. */
   gitHeads: ReadonlyMap<string, GitPosition>;
   /** The empty-workspace count picker chose `count` agents. */
-  onStartWorkspace(wsId: string, count: number): void;
+  /** The session journal's folded records — the empty-workspace history. */
+  journal: JournalRecords;
+  /** Forget one journal row (the history list's ×). */
+  onDeleteJournalRecord(wsId: string, sessionId: string): void;
   onSelectPane(wsId: string, paneId: string): void;
   onToggleFocus(wsId: string, paneId: string): void;
   /** Minimize a pane out of the grid, or restore it (grid layout only). */
@@ -122,7 +126,8 @@ export function DeckStage({
   agents,
   agentsReady,
   gitHeads,
-  onStartWorkspace,
+  journal,
+  onDeleteJournalRecord,
   onSelectPane,
   onToggleFocus,
   onToggleMinimize,
@@ -157,8 +162,10 @@ export function DeckStage({
                 pointerEvents: isActive ? "auto" : "none",
               }}
             >
-              <WorkspaceSetup
-                onPick={(count) => onStartWorkspace(ws.id, count)}
+              <WorkspaceHistory
+                rows={journalRows(journal, ws.id)}
+                agents={agents}
+                onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
               />
             </div>
           );

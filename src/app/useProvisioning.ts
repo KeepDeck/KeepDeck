@@ -1,9 +1,4 @@
 import {
-  agentSupportsYolo,
-  defaultAgentType,
-  type AgentInfo,
-} from "../domain/agents";
-import {
   findPane,
   findWorkspace,
   type SpawnConfig,
@@ -13,34 +8,17 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
 import { planPanes, provisionInto, runProvisioning } from "./provisioning";
-import { getSettings } from "./settingsManager";
 import type { Deck } from "./useDeck";
 
 /**
- * Owns workspace provisioning: the create-workspace form submit, the
- * empty-workspace count picker, and the failed-card Retry. All of it is
- * optimistic — panes land in the deck synchronously (as provisioning cards in
- * worktree mode) and the actual worktree creates run in the background, so
- * there is no busy state and nothing to double-submit: the form closes and
- * the count picker unmounts on the same tick that registers the panes.
+ * Owns workspace provisioning: the create-workspace form submit and the
+ * failed-card Retry. All of it is optimistic — panes land in the deck
+ * synchronously (as provisioning cards in worktree mode) and the actual
+ * worktree creates run in the background, so there is no busy state and
+ * nothing to double-submit: the form closes on the same tick that registers
+ * the panes.
  */
-export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
-  /** Add `count` agents to an existing (empty) workspace. */
-  const startWorkspace = (workspaceId: string, count: number) => {
-    const ws = findWorkspace(deck.workspaces, workspaceId);
-    if (!ws) return;
-    const startSeq = mintAgentSeqs(count);
-    const agentType = defaultAgentType(agents);
-    // The count picker has no YOLO toggle, so the global preference decides —
-    // gated on the resolved agent's support like every creation surface.
-    const yolo =
-      (getSettings()?.defaultYolo ?? false) &&
-      agentSupportsYolo(agents, agentType);
-    const panes = planPanes(ws, startSeq, count, agentType, yolo);
-    deck.setPanes(workspaceId, panes);
-    void runProvisioning(panes, provisionInto(deck, workspaceId), ws.setup);
-  };
-
+export function useProvisioning(deck: Deck) {
   /** Register a whole new workspace from the create form — immediately. */
   const createWorkspace = ({
     name,
@@ -100,5 +78,5 @@ export function useProvisioning(deck: Deck, agents: AgentInfo[]) {
     void runProvisioning([pane], provisionInto(deck, wsId), ws.setup);
   };
 
-  return { startWorkspace, createWorkspace, retryPane };
+  return { createWorkspace, retryPane };
 }

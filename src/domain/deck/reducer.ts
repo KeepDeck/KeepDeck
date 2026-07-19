@@ -88,8 +88,6 @@ export type DeckAction =
   /** `at` guards against a reused `ws-N` id inheriting a crash-orphaned
    * journal key (it stamps the pruning event). */
   | { type: "createWorkspace"; workspace: Workspace; at: string }
-  /** Replace an (empty) workspace's panes — the count-picker start flow. */
-  | { type: "setPanes"; id: string; panes: Pane[] }
   /** Append an already-formed agent pane (from the add-agent dialog). */
   | { type: "addAgentPane"; id: string; pane: Pane }
   | { type: "renameWorkspace"; id: string; name: string }
@@ -267,17 +265,6 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         workspaces: [...state.workspaces, workspace],
         activeId: workspace.id,
         viewByWs: withDefaultSelection(state.viewByWs, workspace.id, workspace),
-      };
-    }
-    case "setPanes": {
-      const workspaces = state.workspaces.map((w) =>
-        w.id === action.id ? { ...w, panes: action.panes } : w,
-      );
-      const ws = workspaces.find((w) => w.id === action.id);
-      return {
-        ...state,
-        workspaces,
-        viewByWs: withDefaultSelection(state.viewByWs, action.id, ws),
       };
     }
     case "addAgentPane": {

@@ -198,7 +198,7 @@ function App() {
   // top bar's update chip jumps to Updates, and a plugin's `settings.open`
   // command jumps to that plugin's page.
   const [settingsSection, setSettingsSection] = useState<string | undefined>();
-  const provisioning = useProvisioning(deck, agents);
+  const provisioning = useProvisioning(deck);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
   const agentFlow = useAgentDialog(deck, agents);
@@ -704,9 +704,8 @@ function App() {
             agents={agents}
             agentsReady={!agentsLoading}
             gitHeads={gitHeads}
-            onStartWorkspace={(wsId, count) =>
-              void provisioning.startWorkspace(wsId, count)
-            }
+            journal={deck.journal.records}
+            onDeleteJournalRecord={deck.deleteJournalRecord}
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
             onToggleMinimize={deck.toggleMinimize}

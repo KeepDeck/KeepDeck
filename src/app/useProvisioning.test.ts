@@ -18,7 +18,7 @@ let provisioning: ReturnType<typeof useProvisioning>;
 
 function Probe() {
   deck = useDeck();
-  provisioning = useProvisioning(deck, []);
+  provisioning = useProvisioning(deck);
   return null;
 }
 
