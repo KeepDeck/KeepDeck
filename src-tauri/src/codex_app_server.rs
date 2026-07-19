@@ -11,8 +11,8 @@
 //! credentials into an arbitrary local capability.
 
 use std::collections::{HashMap, VecDeque};
-use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Write};
+use std::ffi::{OsStr, OsString};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -25,6 +25,7 @@ use tauri::State;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_STDERR_BYTES: usize = 32 * 1024;
 
 #[derive(Clone)]
 pub struct CodexAppServerManager {
@@ -134,21 +135,29 @@ struct WorkerConfig {
 
 impl WorkerConfig {
     fn production() -> Self {
+        let path = keepdeck_env::augmented_path();
         Self {
             launcher: Arc::new(StdioLauncher {
-                command: CommandSpec {
-                    program: OsString::from("codex"),
-                    // stdio is the default app-server transport. Avoiding a
-                    // newer `--listen` flag keeps the fallback compatible
-                    // with the widest useful range of installed Codex CLIs.
-                    args: vec![OsString::from("app-server")],
-                    env: Vec::new(),
-                },
+                command: codex_command(path),
             }),
             idle_timeout: IDLE_TIMEOUT,
             startup_timeout: STARTUP_TIMEOUT,
             request_timeout: REQUEST_TIMEOUT,
         }
+    }
+}
+
+fn codex_command(path: &OsStr) -> CommandSpec {
+    CommandSpec {
+        // Match agent detection and pane spawning exactly: a GUI-launched
+        // macOS app otherwise sees launchd's stripped PATH and can report
+        // Codex installed while this sidecar still fails to resolve it.
+        program: keepdeck_env::resolve_program("codex", path),
+        // stdio is the default app-server transport. Avoiding a newer
+        // `--listen` flag keeps the fallback compatible with the widest
+        // useful range of installed Codex CLIs.
+        args: vec![OsString::from("app-server")],
+        env: vec![(OsString::from("PATH"), path.to_os_string())],
     }
 }
 
@@ -176,6 +185,31 @@ struct StdioLauncher {
     command: CommandSpec,
 }
 
+type StderrTail = Arc<Mutex<Vec<u8>>>;
+
+fn append_stderr(tail: &StderrTail, bytes: &[u8]) {
+    let Ok(mut tail) = tail.lock() else {
+        return;
+    };
+    tail.extend_from_slice(bytes);
+    let overflow = tail.len().saturating_sub(MAX_STDERR_BYTES);
+    if overflow > 0 {
+        tail.drain(..overflow);
+    }
+}
+
+fn with_stderr(reason: String, tail: &StderrTail) -> String {
+    let Ok(tail) = tail.lock() else {
+        return reason;
+    };
+    let detail = String::from_utf8_lossy(&tail).trim().to_string();
+    if detail.is_empty() {
+        reason
+    } else {
+        format!("{reason}; stderr: {detail}")
+    }
+}
+
 impl ServerLauncher for StdioLauncher {
     fn start(
         &self,
@@ -188,10 +222,10 @@ impl ServerLauncher for StdioLauncher {
             .envs(self.command.env.iter().cloned())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            // The stdout protocol is authoritative. Discarding stderr also
-            // prevents a verbose child from blocking on a full unread pipe;
-            // spawn/protocol/EOF failures still surface through this manager.
-            .stderr(Stdio::null());
+            // stdout remains the protocol. stderr is drained independently
+            // into a bounded diagnostic tail so a verbose child cannot block
+            // and startup/version/auth failures keep their useful context.
+            .stderr(Stdio::piped());
         let mut child = command
             .spawn()
             .map_err(|error| format!("could not start codex app-server: {error}"))?;
@@ -205,8 +239,34 @@ impl ServerLauncher for StdioLauncher {
             let _ = child.wait();
             return Err("codex app-server opened no stdout".into());
         };
+        let Some(stderr) = child.stderr.take() else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("codex app-server opened no stderr".into());
+        };
 
-        thread::Builder::new()
+        let stderr_tail: StderrTail = Arc::new(Mutex::new(Vec::new()));
+        let stderr_sink = Arc::clone(&stderr_tail);
+        let stderr_reader = thread::Builder::new()
+            .name("keepdeck codex app-server stderr".into())
+            .spawn(move || {
+                let mut reader = BufReader::new(stderr);
+                let mut chunk = [0_u8; 4096];
+                loop {
+                    match reader.read(&mut chunk) {
+                        Ok(0) | Err(_) => return,
+                        Ok(read) => append_stderr(&stderr_sink, &chunk[..read]),
+                    }
+                }
+            })
+            .map_err(|error| {
+                let _ = child.kill();
+                let _ = child.wait();
+                format!("codex app-server stderr reader failed to start: {error}")
+            })?;
+
+        let stdout_stderr = Arc::clone(&stderr_tail);
+        if let Err(error) = thread::Builder::new()
             .name("keepdeck codex app-server stdout".into())
             .spawn(move || {
                 let reader = BufReader::new(stdout);
@@ -216,7 +276,10 @@ impl ServerLauncher for StdioLauncher {
                         Err(error) => {
                             let _ = events.send(WorkerCommand::ServerClosed {
                                 generation,
-                                reason: format!("codex app-server stdout failed: {error}"),
+                                reason: with_stderr(
+                                    format!("codex app-server stdout failed: {error}"),
+                                    &stdout_stderr,
+                                ),
                             });
                             return;
                         }
@@ -229,7 +292,10 @@ impl ServerLauncher for StdioLauncher {
                         Err(error) => {
                             let _ = events.send(WorkerCommand::ServerClosed {
                                 generation,
-                                reason: format!("codex app-server wrote invalid JSON: {error}"),
+                                reason: with_stderr(
+                                    format!("codex app-server wrote invalid JSON: {error}"),
+                                    &stdout_stderr,
+                                ),
                             });
                             return;
                         }
@@ -246,18 +312,25 @@ impl ServerLauncher for StdioLauncher {
                 }
                 let _ = events.send(WorkerCommand::ServerClosed {
                     generation,
-                    reason: "codex app-server closed its stdout".into(),
+                    reason: with_stderr(
+                        "codex app-server closed its stdout".into(),
+                        &stdout_stderr,
+                    ),
                 });
             })
-            .map_err(|error| {
-                let _ = child.kill();
-                let _ = child.wait();
-                format!("codex app-server reader failed to start: {error}")
-            })?;
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stderr_reader.join();
+            return Err(format!(
+                "codex app-server stdout reader failed to start: {error}"
+            ));
+        }
 
         Ok(Box::new(StdioTransport {
             child,
             stdin: Some(stdin),
+            stderr_reader: Some(stderr_reader),
         }))
     }
 }
@@ -265,6 +338,7 @@ impl ServerLauncher for StdioLauncher {
 struct StdioTransport {
     child: Child,
     stdin: Option<ChildStdin>,
+    stderr_reader: Option<JoinHandle<()>>,
 }
 
 impl ServerTransport for StdioTransport {
@@ -291,6 +365,9 @@ impl ServerTransport for StdioTransport {
                 let _ = self.child.kill();
                 let _ = self.child.wait();
             }
+        }
+        if let Some(reader) = self.stderr_reader.take() {
+            let _ = reader.join();
         }
     }
 }
@@ -627,6 +704,11 @@ mod tests {
         Normal,
         ReverseTwo,
         CrashFirst,
+        InitializeSilent,
+        RequestSilent,
+        RpcError,
+        MissingResult,
+        WriteFailure,
     }
 
     struct FakeLauncher {
@@ -682,6 +764,7 @@ mod tests {
     impl ServerTransport for FakeTransport {
         fn send(&mut self, message: &Value) -> Result<(), String> {
             match message.get("method").and_then(Value::as_str) {
+                Some("initialize") if matches!(self.mode, FakeMode::InitializeSilent) => {}
                 Some("initialize") => self.respond(message),
                 Some("initialized") => {}
                 Some("account/rateLimits/read") | Some("echo") => match self.mode {
@@ -701,6 +784,23 @@ mod tests {
                             self.reversed.clear();
                         }
                     }
+                    FakeMode::RequestSilent | FakeMode::InitializeSilent => {}
+                    FakeMode::RpcError => {
+                        let _ = self.events.send(WorkerCommand::ServerMessage {
+                            generation: self.generation,
+                            message: json!({
+                                "id": message["id"].clone(),
+                                "error": { "code": -32601, "message": "fixture rpc error" }
+                            }),
+                        });
+                    }
+                    FakeMode::MissingResult => {
+                        let _ = self.events.send(WorkerCommand::ServerMessage {
+                            generation: self.generation,
+                            message: json!({ "id": message["id"].clone() }),
+                        });
+                    }
+                    FakeMode::WriteFailure => return Err("fixture write failed".into()),
                 },
                 _ => {}
             }
@@ -725,6 +825,20 @@ mod tests {
         mode: FakeMode,
         idle_timeout: Duration,
     ) -> (CodexAppServerManager, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+        fake_manager_with_timeouts(
+            mode,
+            idle_timeout,
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )
+    }
+
+    fn fake_manager_with_timeouts(
+        mode: FakeMode,
+        idle_timeout: Duration,
+        startup_timeout: Duration,
+        request_timeout: Duration,
+    ) -> (CodexAppServerManager, Arc<AtomicUsize>, Arc<AtomicUsize>) {
         let starts = Arc::new(AtomicUsize::new(0));
         let stops = Arc::new(AtomicUsize::new(0));
         let manager = CodexAppServerManager::new(WorkerConfig {
@@ -735,8 +849,8 @@ mod tests {
                 crashed: Arc::new(AtomicBool::new(false)),
             }),
             idle_timeout,
-            startup_timeout: Duration::from_secs(1),
-            request_timeout: Duration::from_secs(1),
+            startup_timeout,
+            request_timeout,
         });
         (manager, starts, stops)
     }
@@ -805,6 +919,102 @@ mod tests {
         assert_eq!(starts.load(Ordering::SeqCst), 2);
     }
 
+    #[test]
+    fn initialization_timeout_fails_every_queued_request_and_restarts_later() {
+        let (manager, starts, _) = fake_manager_with_timeouts(
+            FakeMode::InitializeSilent,
+            Duration::from_secs(10),
+            Duration::from_millis(30),
+            Duration::from_millis(30),
+        );
+        let first = {
+            let manager = manager.clone();
+            thread::spawn(move || manager.read_rate_limits())
+        };
+        let second = {
+            let manager = manager.clone();
+            thread::spawn(move || manager.read_rate_limits())
+        };
+        for result in [first.join().unwrap(), second.join().unwrap()] {
+            assert_eq!(
+                result.unwrap_err(),
+                "codex app-server initialization timed out"
+            );
+        }
+
+        assert_eq!(
+            manager.read_rate_limits().unwrap_err(),
+            "codex app-server initialization timed out"
+        );
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn request_timeout_fails_pending_work_and_reaps_the_generation() {
+        let (manager, starts, stops) = fake_manager_with_timeouts(
+            FakeMode::RequestSilent,
+            Duration::from_secs(10),
+            Duration::from_millis(30),
+            Duration::from_millis(30),
+        );
+        assert_eq!(
+            manager.read_rate_limits().unwrap_err(),
+            "codex app-server request timed out"
+        );
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        assert_eq!(stops.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn protocol_errors_are_returned_without_poisoning_the_ready_server() {
+        let (manager, starts, _) = fake_manager(FakeMode::RpcError, Duration::from_secs(10));
+        assert_eq!(
+            manager.read_rate_limits().unwrap_err(),
+            "codex app-server error -32601: fixture rpc error"
+        );
+        assert_eq!(
+            manager.read_rate_limits().unwrap_err(),
+            "codex app-server error -32601: fixture rpc error"
+        );
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_response_without_result_or_error_is_rejected() {
+        let (manager, _, _) = fake_manager(FakeMode::MissingResult, Duration::from_secs(10));
+        assert_eq!(
+            manager.read_rate_limits().unwrap_err(),
+            "codex app-server response carried neither result nor error"
+        );
+    }
+
+    #[test]
+    fn a_request_write_failure_reaps_the_generation_and_restarts_on_demand() {
+        let (manager, starts, stops) =
+            fake_manager(FakeMode::WriteFailure, Duration::from_secs(10));
+        assert_eq!(
+            manager.read_rate_limits().unwrap_err(),
+            "fixture write failed"
+        );
+        assert_eq!(
+            manager.read_rate_limits().unwrap_err(),
+            "fixture write failed"
+        );
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
+        assert_eq!(stops.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn stderr_diagnostics_keep_only_the_bounded_tail() {
+        let tail: StderrTail = Arc::new(Mutex::new(Vec::new()));
+        append_stderr(&tail, &vec![b'a'; MAX_STDERR_BYTES]);
+        append_stderr(&tail, b"useful-tail");
+
+        let kept = tail.lock().unwrap();
+        assert_eq!(kept.len(), MAX_STDERR_BYTES);
+        assert!(kept.ends_with(b"useful-tail"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn stdio_transport_round_trips_the_real_jsonl_protocol() {
@@ -812,7 +1022,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().unwrap();
-        let script = dir.path().join("fake-codex-app-server.sh");
+        let script = dir.path().join("codex");
         fs::write(
             &script,
             r#"#!/bin/sh
@@ -827,19 +1037,56 @@ done
         .unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
 
+        let command = codex_command(dir.path().as_os_str());
+        assert_eq!(command.program, script.as_os_str());
+        assert_eq!(
+            command.env,
+            vec![(
+                OsString::from("PATH"),
+                dir.path().as_os_str().to_os_string()
+            )]
+        );
+
         let manager = CodexAppServerManager::new(WorkerConfig {
-            launcher: Arc::new(StdioLauncher {
-                command: CommandSpec {
-                    program: script.into_os_string(),
-                    args: Vec::new(),
-                    env: Vec::new(),
-                },
-            }),
+            launcher: Arc::new(StdioLauncher { command }),
             idle_timeout: Duration::from_secs(10),
             startup_timeout: Duration::from_secs(1),
             request_timeout: Duration::from_secs(1),
         });
         let body: Value = serde_json::from_str(&manager.read_rate_limits().unwrap()).unwrap();
         assert_eq!(body["rateLimits"]["primary"]["usedPercent"], 51);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stdio_failures_include_a_bounded_stderr_tail() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("codex");
+        fs::write(
+            &script,
+            r#"#!/bin/sh
+IFS= read -r _line
+printf '%s\n' 'fixture auth detail' >&2
+sleep 0.05
+printf '%s\n' 'not-json'
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let manager = CodexAppServerManager::new(WorkerConfig {
+            launcher: Arc::new(StdioLauncher {
+                command: codex_command(dir.path().as_os_str()),
+            }),
+            idle_timeout: Duration::from_secs(10),
+            startup_timeout: Duration::from_secs(1),
+            request_timeout: Duration::from_secs(1),
+        });
+        let error = manager.read_rate_limits().unwrap_err();
+        assert!(error.contains("wrote invalid JSON"), "{error}");
+        assert!(error.contains("fixture auth detail"), "{error}");
     }
 }
