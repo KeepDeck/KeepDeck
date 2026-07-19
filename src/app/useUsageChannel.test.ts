@@ -128,7 +128,9 @@ describe("useUsageChannel", () => {
     });
     ipc.watchSessionFile.mockReset().mockResolvedValue(undefined);
     ipc.unwatchSessionFile.mockReset().mockResolvedValue(undefined);
-    ipc.fetchCodexRateLimits.mockReset().mockResolvedValue("{}");
+    ipc.fetchCodexRateLimits
+      .mockReset()
+      .mockResolvedValue({ body: "{}", sourceAt: Date.now() });
     ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
     ipc.latestCodexRollout.mockReset().mockResolvedValue(null);
@@ -401,7 +403,7 @@ describe("useUsageChannel", () => {
     expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
   });
 
-  it("serializes boot, live and visibility reads with dispatch-time freshness", async () => {
+  it("serializes reads and uses native post-initialization freshness", async () => {
     const codex = ipc.contributions.find((item) => item.entry.id === "codex")!;
     codex.entry.usage!.limits!.normalize = (_body, at) => ({
       kind: "reported",
@@ -411,15 +413,15 @@ describe("useUsageChannel", () => {
     });
     let active = 0;
     let maxActive = 0;
-    const resolves: ((body: string) => void)[] = [];
+    const resolves: ((read: { body: string; sourceAt: number }) => void)[] = [];
     ipc.fetchCodexRateLimits.mockImplementation(
       () =>
-        new Promise<string>((resolve) => {
+        new Promise<{ body: string; sourceAt: number }>((resolve) => {
           active += 1;
           maxActive = Math.max(maxActive, active);
-          resolves.push((body) => {
+          resolves.push((read) => {
             active -= 1;
-            resolve(body);
+            resolve(read);
           });
         }),
     );
@@ -434,25 +436,40 @@ describe("useUsageChannel", () => {
       await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
       expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
 
-      await act(async () => resolves[0]("boot"));
+      // A rollout delivered during cold native initialization is older than
+      // the actual JSON-RPC read. Native sourceAt, not the web trigger time,
+      // must let the fresh app-server snapshot replace it.
+      emit({
+        paneId: "pane-1",
+        token: "tok-1",
+        payload: { agent: "codex", sourceAt: 5_000 },
+      });
+      await act(async () =>
+        resolves[0]({ body: "boot", sourceAt: 8_000 }),
+      );
       expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
       expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
-        reportedAt: 1_000,
+        reportedAt: 8_000,
       });
 
       // A focus burst while the live read is pending collapses to one trailing
-      // refresh. The active response keeps its dispatch time, not completion.
+      // refresh. The active response keeps its native request time, not web
+      // completion time.
       now = 11_000;
       document.dispatchEvent(new Event("visibilitychange"));
       document.dispatchEvent(new Event("visibilitychange"));
       expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
-      await act(async () => resolves[1]("live"));
+      await act(async () =>
+        resolves[1]({ body: "live", sourceAt: 10_000 }),
+      );
       expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(3);
       expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
-        reportedAt: 9_000,
+        reportedAt: 10_000,
       });
 
-      await act(async () => resolves[2]("visible"));
+      await act(async () =>
+        resolves[2]({ body: "visible", sourceAt: 11_000 }),
+      );
       expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
         reportedAt: 11_000,
       });

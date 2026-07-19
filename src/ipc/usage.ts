@@ -54,8 +54,15 @@ export function fetchKimiUsages(): Promise<string> {
 
 /** Read Codex account limits through KeepDeck's shared, lazily-lived
  * official app-server process. Body rides back opaque so the Codex plugin,
- * not the host transport, owns the version-specific response schema. */
-export function fetchCodexRateLimits(): Promise<string> {
+ * not the host transport, owns the version-specific response schema.
+ * `sourceAt` is captured by native immediately before the actual JSON-RPC
+ * write — after a cold app-server has initialized. */
+export interface CodexRateLimitsRead {
+  body: string;
+  sourceAt: number;
+}
+
+export function fetchCodexRateLimits(): Promise<CodexRateLimitsRead> {
   return invoke("codex_rate_limits_read");
 }
 

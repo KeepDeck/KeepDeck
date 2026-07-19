@@ -4,6 +4,7 @@ import { paneAgentType } from "../domain/deck";
 import { log } from "../ipc/log";
 import { fetchCodexRateLimits, fetchKimiUsages } from "../ipc/usage";
 import { setAccountUsage } from "./usageManager";
+import { usageSourceTimestamp } from "./usageProvenance";
 import type { Deck } from "./useDeck";
 
 /**
@@ -22,9 +23,15 @@ export const LIMITS_POLL_MS = 60_000;
 /** The native fetchers a `limits.poll` declaration may name. Named on
  * purpose: an arbitrary plugin URL with local credentials would be an
  * exfiltration hole, not flexibility. */
-const LIMIT_SOURCES: Record<UsageLimitsSource, () => Promise<string>> = {
+interface LimitsRead {
+  body: string;
+  /** Earliest instant at which the native read could observe its source. */
+  sourceAt?: number;
+}
+
+const LIMIT_SOURCES: Record<UsageLimitsSource, () => Promise<LimitsRead>> = {
   "codex-app-server": fetchCodexRateLimits,
-  "kimi-usages": fetchKimiUsages,
+  "kimi-usages": async () => ({ body: await fetchKimiUsages() }),
 };
 
 type LimitsRequest = () => Promise<void>;
@@ -100,12 +107,17 @@ export function useLimitsPolling(
       }
       const limits = usageByAgentRef.current.get(agentId)?.limits;
       if (!limits) return;
+      // Generic/native sources without provenance keep the conservative
+      // dispatch lower bound. Codex replaces it with the native JSON-RPC
+      // send time, after any cold app-server initialization has completed.
       const requestedAt = Date.now();
       try {
-        const body = await LIMIT_SOURCES[limits.poll]();
+        const read = await LIMIT_SOURCES[limits.poll]();
         // A plugin may have been replaced while native IO was in flight.
         if (usageByAgentRef.current.get(agentId)?.limits !== limits) return;
-        const account = limits.normalize(body, requestedAt);
+        const sourceAt =
+          usageSourceTimestamp(read.sourceAt, Date.now()) ?? requestedAt;
+        const account = limits.normalize(read.body, sourceAt);
         if (account) setAccountUsage(agentId, account);
       } catch (e) {
         log.debug("web:usage", `${limits.poll} ${phase} failed: ${e}`);

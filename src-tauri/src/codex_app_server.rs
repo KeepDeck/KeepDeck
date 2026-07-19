@@ -17,7 +17,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 use tauri::State;
@@ -25,6 +25,8 @@ use tauri::State;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
+const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const MAX_STDERR_BYTES: usize = 32 * 1024;
 
 #[derive(Clone)]
@@ -72,7 +74,7 @@ impl CodexAppServerManager {
         }
     }
 
-    fn request(&self, method: &str, params: Option<Value>) -> Result<Value, String> {
+    fn request(&self, method: &str, params: Option<Value>) -> Result<TimedResponse, String> {
         let (reply, response) = mpsc::sync_channel(1);
         self.inner
             .commands
@@ -90,11 +92,26 @@ impl CodexAppServerManager {
             })?
     }
 
-    fn read_rate_limits(&self) -> Result<String, String> {
-        let result = self.request("account/rateLimits/read", None)?;
-        serde_json::to_string(&result)
-            .map_err(|error| format!("codex rate-limits response was not serializable: {error}"))
+    fn read_rate_limits(&self) -> Result<CodexRateLimitsRead, String> {
+        let response = self.request("account/rateLimits/read", None)?;
+        let body = serde_json::to_string(&response.result)
+            .map_err(|error| format!("codex rate-limits response was not serializable: {error}"))?;
+        Ok(CodexRateLimitsRead {
+            body,
+            source_at: response.source_at,
+        })
     }
+}
+
+/// Opaque app-server body plus the earliest instant at which that particular
+/// JSON-RPC read could have observed the backend. Unlike a timestamp captured
+/// in the webview, this is recorded AFTER a cold child has initialized and
+/// immediately before the request is written to its stdin.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexRateLimitsRead {
+    body: String,
+    source_at: u64,
 }
 
 /// Return one current Codex account rate-limit snapshot. The manager owns
@@ -103,7 +120,7 @@ impl CodexAppServerManager {
 #[tauri::command(async)]
 pub async fn codex_rate_limits_read(
     manager: State<'_, CodexAppServerManager>,
-) -> Result<String, String> {
+) -> Result<CodexRateLimitsRead, String> {
     let manager = CodexAppServerManager {
         inner: Arc::clone(&manager.inner),
     };
@@ -115,7 +132,12 @@ pub async fn codex_rate_limits_read(
 struct ClientRequest {
     method: String,
     params: Option<Value>,
-    reply: SyncSender<Result<Value, String>>,
+    reply: SyncSender<Result<TimedResponse, String>>,
+}
+
+struct TimedResponse {
+    result: Value,
+    source_at: u64,
 }
 
 enum WorkerCommand {
@@ -171,7 +193,10 @@ trait ServerLauncher: Send + Sync {
 
 trait ServerTransport: Send {
     fn send(&mut self, message: &Value) -> Result<(), String>;
-    fn stop(&mut self);
+    /// Stop and reap the child, returning its fully-drained bounded stderr
+    /// tail. Fakes return `None`; production uses it to enrich the failure
+    /// only after stdout and stderr have both settled.
+    fn stop(&mut self) -> Option<String>;
 }
 
 #[derive(Clone)]
@@ -198,15 +223,17 @@ fn append_stderr(tail: &StderrTail, bytes: &[u8]) {
     }
 }
 
-fn with_stderr(reason: String, tail: &StderrTail) -> String {
-    let Ok(tail) = tail.lock() else {
-        return reason;
-    };
-    let detail = String::from_utf8_lossy(&tail).trim().to_string();
-    if detail.is_empty() {
-        reason
-    } else {
-        format!("{reason}; stderr: {detail}")
+fn unix_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn append_stderr_reason(reason: String, stderr: Option<String>) -> String {
+    match stderr {
+        Some(stderr) => format!("{reason}; stderr: {stderr}"),
+        None => reason,
     }
 }
 
@@ -265,7 +292,6 @@ impl ServerLauncher for StdioLauncher {
                 format!("codex app-server stderr reader failed to start: {error}")
             })?;
 
-        let stdout_stderr = Arc::clone(&stderr_tail);
         if let Err(error) = thread::Builder::new()
             .name("keepdeck codex app-server stdout".into())
             .spawn(move || {
@@ -276,10 +302,7 @@ impl ServerLauncher for StdioLauncher {
                         Err(error) => {
                             let _ = events.send(WorkerCommand::ServerClosed {
                                 generation,
-                                reason: with_stderr(
-                                    format!("codex app-server stdout failed: {error}"),
-                                    &stdout_stderr,
-                                ),
+                                reason: format!("codex app-server stdout failed: {error}"),
                             });
                             return;
                         }
@@ -292,10 +315,7 @@ impl ServerLauncher for StdioLauncher {
                         Err(error) => {
                             let _ = events.send(WorkerCommand::ServerClosed {
                                 generation,
-                                reason: with_stderr(
-                                    format!("codex app-server wrote invalid JSON: {error}"),
-                                    &stdout_stderr,
-                                ),
+                                reason: format!("codex app-server wrote invalid JSON: {error}"),
                             });
                             return;
                         }
@@ -312,10 +332,7 @@ impl ServerLauncher for StdioLauncher {
                 }
                 let _ = events.send(WorkerCommand::ServerClosed {
                     generation,
-                    reason: with_stderr(
-                        "codex app-server closed its stdout".into(),
-                        &stdout_stderr,
-                    ),
+                    reason: "codex app-server closed its stdout".into(),
                 });
             })
         {
@@ -331,6 +348,7 @@ impl ServerLauncher for StdioLauncher {
             child,
             stdin: Some(stdin),
             stderr_reader: Some(stderr_reader),
+            stderr_tail,
         }))
     }
 }
@@ -339,6 +357,7 @@ struct StdioTransport {
     child: Child,
     stdin: Option<ChildStdin>,
     stderr_reader: Option<JoinHandle<()>>,
+    stderr_tail: StderrTail,
 }
 
 impl ServerTransport for StdioTransport {
@@ -355,32 +374,46 @@ impl ServerTransport for StdioTransport {
             .map_err(|error| format!("codex app-server stdin failed: {error}"))
     }
 
-    fn stop(&mut self) {
-        // EOF gives the child a chance to leave on its own. If it is still
-        // running, terminate it and always reap it — no app-server zombies.
+    fn stop(&mut self) -> Option<String> {
+        // EOF is app-server's supported clean shutdown. Give it a small,
+        // bounded grace period to release its own resources before the hard
+        // kill fallback, then always reap it — no app-server zombies.
         self.stdin.take();
-        match self.child.try_wait() {
-            Ok(Some(_)) => {}
-            Ok(None) | Err(_) => {
-                let _ = self.child.kill();
-                let _ = self.child.wait();
+        let deadline = Instant::now() + GRACEFUL_SHUTDOWN_TIMEOUT;
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if Instant::now() < deadline => {
+                    thread::sleep(SHUTDOWN_POLL_INTERVAL);
+                }
+                Ok(None) | Err(_) => {
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    break;
+                }
             }
         }
         if let Some(reader) = self.stderr_reader.take() {
             let _ = reader.join();
         }
+        let detail = self.stderr_tail.lock().ok().and_then(|tail| {
+            let detail = String::from_utf8_lossy(&tail).trim().to_string();
+            (!detail.is_empty()).then_some(detail)
+        });
+        detail
     }
 }
 
 impl Drop for StdioTransport {
     fn drop(&mut self) {
-        self.stop();
+        let _ = self.stop();
     }
 }
 
 struct PendingRequest {
-    reply: SyncSender<Result<Value, String>>,
+    reply: SyncSender<Result<TimedResponse, String>>,
     deadline: Instant,
+    source_at: u64,
 }
 
 enum ServerPhase {
@@ -415,6 +448,10 @@ impl RunningServer {
             PendingRequest {
                 reply: request.reply,
                 deadline: Instant::now() + timeout,
+                // This lower bound is deliberately adjacent to the real
+                // write, after initialization/queueing rather than at the
+                // webview trigger that may precede a cold start by seconds.
+                source_at: unix_time_ms(),
             },
         );
         self.send_raw(message)
@@ -526,7 +563,7 @@ impl Worker {
             next_request_id: initialize_id + 1,
             last_activity: now,
         };
-        server.send_raw(json!({
+        if let Err(error) = server.send_raw(json!({
             "method": "initialize",
             "id": initialize_id,
             "params": {
@@ -536,7 +573,10 @@ impl Worker {
                     "version": env!("CARGO_PKG_VERSION")
                 }
             }
-        }))?;
+        })) {
+            let stderr = server.transport.stop();
+            return Err(append_stderr_reason(error, stderr));
+        }
         self.server = Some(server);
         Ok(())
     }
@@ -591,7 +631,11 @@ impl Worker {
             if let Some(server) = self.server.as_mut() {
                 server.last_activity = Instant::now();
             }
-            let _ = pending.reply.send(response_result(&message));
+            let response = response_result(&message).map(|result| TimedResponse {
+                result,
+                source_at: pending.source_at,
+            });
+            let _ = pending.reply.send(response);
         }
     }
 
@@ -663,15 +707,19 @@ impl Worker {
         let Some(mut server) = self.server.take() else {
             return;
         };
+        // Stop first: only then has the stderr reader consumed everything the
+        // child wrote before exit. Building the caller-facing reason earlier
+        // raced the stdout thread and intermittently lost the useful detail.
+        let stderr = server.transport.stop();
         if let Some(failure) = failure {
+            let failure = append_stderr_reason(failure.to_string(), stderr);
             for (_, pending) in server.pending.drain() {
-                let _ = pending.reply.send(Err(failure.to_string()));
+                let _ = pending.reply.send(Err(failure.clone()));
             }
             for queued in server.queued.drain(..) {
-                let _ = queued.reply.send(Err(failure.to_string()));
+                let _ = queued.reply.send(Err(failure.clone()));
             }
         }
-        server.transport.stop();
     }
 }
 
@@ -702,6 +750,7 @@ mod tests {
     #[derive(Clone, Copy)]
     enum FakeMode {
         Normal,
+        InitializeDelayed,
         ReverseTwo,
         CrashFirst,
         InitializeSilent,
@@ -765,10 +814,14 @@ mod tests {
         fn send(&mut self, message: &Value) -> Result<(), String> {
             match message.get("method").and_then(Value::as_str) {
                 Some("initialize") if matches!(self.mode, FakeMode::InitializeSilent) => {}
+                Some("initialize") if matches!(self.mode, FakeMode::InitializeDelayed) => {
+                    thread::sleep(Duration::from_millis(50));
+                    self.respond(message);
+                }
                 Some("initialize") => self.respond(message),
                 Some("initialized") => {}
                 Some("account/rateLimits/read") | Some("echo") => match self.mode {
-                    FakeMode::Normal => self.respond(message),
+                    FakeMode::Normal | FakeMode::InitializeDelayed => self.respond(message),
                     FakeMode::CrashFirst if !self.crashed.swap(true, Ordering::SeqCst) => {
                         let _ = self.events.send(WorkerCommand::ServerClosed {
                             generation: self.generation,
@@ -807,17 +860,18 @@ mod tests {
             Ok(())
         }
 
-        fn stop(&mut self) {
+        fn stop(&mut self) -> Option<String> {
             if !self.stopped {
                 self.stopped = true;
                 self.stops.fetch_add(1, Ordering::SeqCst);
             }
+            None
         }
     }
 
     impl Drop for FakeTransport {
         fn drop(&mut self) {
-            self.stop();
+            let _ = self.stop();
         }
     }
 
@@ -864,9 +918,31 @@ mod tests {
             "manager construction is lazy"
         );
 
-        assert!(manager.read_rate_limits().unwrap().contains("rateLimits"));
-        assert!(manager.read_rate_limits().unwrap().contains("rateLimits"));
+        assert!(manager
+            .read_rate_limits()
+            .unwrap()
+            .body
+            .contains("rateLimits"));
+        assert!(manager
+            .read_rate_limits()
+            .unwrap()
+            .body
+            .contains("rateLimits"));
         assert_eq!(starts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn response_source_time_is_captured_after_cold_initialization() {
+        let (manager, _, _) = fake_manager(FakeMode::InitializeDelayed, Duration::from_secs(10));
+        let web_trigger_at = unix_time_ms();
+
+        let read = manager.read_rate_limits().unwrap();
+
+        assert!(
+            read.source_at.saturating_sub(web_trigger_at) >= 30,
+            "sourceAt={} trigger={web_trigger_at}",
+            read.source_at
+        );
     }
 
     #[test]
@@ -886,11 +962,11 @@ mod tests {
         barrier.wait();
 
         let mut tags = vec![
-            a.join().unwrap().unwrap()["tag"]
+            a.join().unwrap().unwrap().result["tag"]
                 .as_str()
                 .unwrap()
                 .to_string(),
-            b.join().unwrap().unwrap()["tag"]
+            b.join().unwrap().unwrap().result["tag"]
                 .as_str()
                 .unwrap()
                 .to_string(),
@@ -915,7 +991,11 @@ mod tests {
     fn a_crash_fails_pending_work_and_later_demand_restarts() {
         let (manager, starts, _) = fake_manager(FakeMode::CrashFirst, Duration::from_secs(10));
         assert_eq!(manager.read_rate_limits().unwrap_err(), "fixture crashed");
-        assert!(manager.read_rate_limits().unwrap().contains("rateLimits"));
+        assert!(manager
+            .read_rate_limits()
+            .unwrap()
+            .body
+            .contains("rateLimits"));
         assert_eq!(starts.load(Ordering::SeqCst), 2);
     }
 
@@ -1053,8 +1133,52 @@ done
             startup_timeout: Duration::from_secs(1),
             request_timeout: Duration::from_secs(1),
         });
-        let body: Value = serde_json::from_str(&manager.read_rate_limits().unwrap()).unwrap();
+        let read = manager.read_rate_limits().unwrap();
+        let body: Value = serde_json::from_str(&read.body).unwrap();
         assert_eq!(body["rateLimits"]["primary"]["usedPercent"], 51);
+        assert!(read.source_at > 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stdio_transport_allows_a_bounded_graceful_eof_shutdown() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("codex");
+        let marker = dir.path().join("graceful.marker");
+        fs::write(
+            &script,
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  case "$line" in
+    *'"method":"initialize"'*) printf '%s\n' '{"id":1,"result":{}}' ;;
+    *'"method":"account/rateLimits/read"'*) printf '%s\n' '{"id":2,"result":{"rateLimits":{"primary":null}}}' ;;
+  esac
+done
+/bin/sleep 0.05
+printf '%s' 'clean' > "$KEEPDECK_GRACEFUL_MARKER"
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+        let mut command = codex_command(dir.path().as_os_str());
+        command.env.push((
+            OsString::from("KEEPDECK_GRACEFUL_MARKER"),
+            marker.as_os_str().to_os_string(),
+        ));
+
+        let manager = CodexAppServerManager::new(WorkerConfig {
+            launcher: Arc::new(StdioLauncher { command }),
+            idle_timeout: Duration::from_secs(10),
+            startup_timeout: Duration::from_secs(1),
+            request_timeout: Duration::from_secs(1),
+        });
+        manager.read_rate_limits().unwrap();
+        drop(manager);
+
+        assert_eq!(fs::read_to_string(marker).unwrap(), "clean");
     }
 
     #[cfg(unix)]
@@ -1070,7 +1194,6 @@ done
             r#"#!/bin/sh
 IFS= read -r _line
 printf '%s\n' 'fixture auth detail' >&2
-sleep 0.05
 printf '%s\n' 'not-json'
 "#,
         )
