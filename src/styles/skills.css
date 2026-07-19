@@ -197,6 +197,13 @@
   max-width: 560px;
 }
 
+/* The description textarea reads like the inputs around it — it wraps
+   purely for display, so no manual resize. */
+.skills__desc {
+  line-height: 1.45;
+  resize: none;
+}
+
 .skills__hint {
   margin-top: 6px;
   color: #6b7280;

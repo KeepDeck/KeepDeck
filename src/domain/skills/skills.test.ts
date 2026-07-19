@@ -3,6 +3,7 @@ import {
   composeSkillFile,
   isValidSkillDescription,
   isValidSkillName,
+  normalizeSkillDescription,
   parseSkillFile,
 } from "./skills";
 
@@ -19,6 +20,18 @@ describe("skill names", () => {
   it("keeps descriptions single-line", () => {
     expect(isValidSkillDescription("one line")).toBe(true);
     expect(isValidSkillDescription("two\nlines")).toBe(false);
+  });
+
+  it("folds pasted newlines onto the one-line contract", () => {
+    // Untouched when already one line — including inner runs of spaces.
+    expect(normalizeSkillDescription("one  plain line ")).toBe("one  plain line ");
+    // A newline run and the indentation around it become ONE space; CRLF
+    // pastes and blank lines collapse the same way.
+    expect(normalizeSkillDescription("first\nsecond")).toBe("first second");
+    expect(normalizeSkillDescription("first  \r\n   second")).toBe("first second");
+    expect(normalizeSkillDescription("first\n\n\nsecond")).toBe("first second");
+    // The result always satisfies the validator it exists to serve.
+    expect(isValidSkillDescription(normalizeSkillDescription("a\nb\r\nc"))).toBe(true);
   });
 });
 

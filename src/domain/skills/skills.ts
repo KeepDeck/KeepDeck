@@ -42,6 +42,13 @@ export function isValidSkillDescription(description: string): boolean {
   return !description.includes("\n");
 }
 
+/** Fold edited description text onto that one line: newline runs (and the
+ * indentation around them) become single spaces, so a multi-line paste
+ * lands as a valid scalar instead of tripping validation. */
+export function normalizeSkillDescription(description: string): string {
+  return description.replace(/[^\S\r\n]*[\r\n]+\s*/g, " ");
+}
+
 /** Compose the stored SKILL.md for a draft. */
 export function composeSkillFile(draft: SkillDraft): string {
   const lines = [
