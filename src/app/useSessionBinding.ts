@@ -36,7 +36,7 @@ export function useSessionBinding(deck: Deck): void {
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
-    void onSessionBound(({ paneId, sessionId, token }) => {
+    void onSessionBound(({ paneId, sessionId, token, transcriptPath }) => {
       const d = deckRef.current;
       if (!postbackAccepted(peekPaneSpawnSpec(paneId), token)) {
         log.warn("web:bridge", `postback for ${paneId} with a wrong token — ignored`);
@@ -49,10 +49,12 @@ export function useSessionBinding(deck: Deck): void {
       // closed) — no workspace match means there's nothing to bind.
       const ws = findWorkspaceOfPane(d.workspaces, paneId);
       if (ws) {
-        d.setPaneSession(ws.id, paneId, {
-          id: sessionId,
-          boundAt: new Date().toISOString(),
-        });
+        d.setPaneSession(
+          ws.id,
+          paneId,
+          { id: sessionId, boundAt: new Date().toISOString() },
+          transcriptPath,
+        );
       }
     }).then((u) => {
       if (disposed) u();

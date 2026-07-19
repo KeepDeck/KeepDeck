@@ -6,12 +6,17 @@ import {
   type Workspace,
   type WorkspaceView,
 } from "../domain/deck";
+import type { JournalRecords } from "../domain/journal";
 import { createDeckStore, type DeckStore } from "./deckStore";
 import { mintWorkspaceSeq } from "./ids";
 
 /** An empty view — the defaults for a workspace with no view entry yet. Shared
  * so `viewOf` returns a stable reference for absent workspaces. */
 const EMPTY_VIEW: WorkspaceView = {};
+
+/** Journal events carry wall-clock stamps; the reducer stays deterministic by
+ * taking them from the action, minted here at the dispatch boundary. */
+const nowIso = () => new Date().toISOString();
 
 /** The deck surface the application hooks drive (state + bound actions). */
 export type Deck = ReturnType<typeof useDeck>;
@@ -48,7 +53,7 @@ export function useDeck() {
     viewOf: (wsId: string): WorkspaceView => state.viewByWs[wsId] ?? EMPTY_VIEW,
     selectWorkspace: (id: string) => dispatch({ type: "selectWorkspace", id }),
     createWorkspace: (workspace: Workspace) =>
-      dispatch({ type: "createWorkspace", workspace }),
+      dispatch({ type: "createWorkspace", workspace, at: nowIso() }),
     /** Build and insert a workspace against the latest deck snapshot.
      * Allocation and insertion are one synchronous state-owner operation, so
      * two creates in one React batch cannot observe or append the same id. */
@@ -63,7 +68,7 @@ export function useDeck() {
       }
       const workspace = build(sequence);
       const before = store.getSnapshot();
-      const next = dispatch({ type: "createWorkspace", workspace });
+      const next = dispatch({ type: "createWorkspace", workspace, at: nowIso() });
       return next === before
         ? { ok: false, reason: "duplicate-id" }
         : { ok: true, workspace };
@@ -77,8 +82,9 @@ export function useDeck() {
     moveWorkspace: (id: string, toIndex: number) =>
       dispatch({ type: "moveWorkspace", id, toIndex }),
     closeAgent: (wsId: string, paneId: string) =>
-      dispatch({ type: "closeAgent", wsId, paneId }),
-    closeWorkspace: (id: string) => dispatch({ type: "closeWorkspace", id }),
+      dispatch({ type: "closeAgent", wsId, paneId, at: nowIso() }),
+    closeWorkspace: (id: string) =>
+      dispatch({ type: "closeWorkspace", id, at: nowIso() }),
     toggleFocus: (wsId: string, paneId: string) =>
       dispatch({ type: "toggleFocus", wsId, paneId }),
     toggleMinimize: (wsId: string, paneId: string) =>
@@ -98,8 +104,20 @@ export function useDeck() {
       dispatch({ type: "revivePane", wsId, paneId }),
     resetPaneLocation: (wsId: string, paneId: string) =>
       dispatch({ type: "resetPaneLocation", wsId, paneId }),
-    setPaneSession: (wsId: string, paneId: string, session: PaneSession | null) =>
-      dispatch({ type: "setPaneSession", wsId, paneId, session }),
+    setPaneSession: (
+      wsId: string,
+      paneId: string,
+      session: PaneSession | null,
+      transcriptPath?: string,
+    ) =>
+      dispatch({
+        type: "setPaneSession",
+        wsId,
+        paneId,
+        session,
+        ...(transcriptPath !== undefined && { transcriptPath }),
+        at: nowIso(),
+      }),
     resolvePaneProvisioning: (
       wsId: string,
       paneId: string,
@@ -116,6 +134,11 @@ export function useDeck() {
       dispatch({ type: "setPaneProvisioningError", wsId, paneId, error }),
     setPaneProvisioningPhase: (wsId: string, paneId: string, phase: "setup") =>
       dispatch({ type: "setPaneProvisioningPhase", wsId, paneId, phase }),
+    hydrateJournal: (records: JournalRecords) =>
+      dispatch({ type: "hydrateJournal", records, at: nowIso() }),
+    deleteJournalRecord: (wsId: string, sessionId: string) =>
+      dispatch({ type: "deleteJournalRecord", wsId, sessionId, at: nowIso() }),
+    journalFlushed: (count: number) => dispatch({ type: "journalFlushed", count }),
     setWorkspacePluginSlot: (
       wsId: string,
       workspaceInstance: Workspace["instance"],

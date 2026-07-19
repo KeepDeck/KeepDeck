@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { emptyJournal } from "../domain/journal";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,6 +50,7 @@ const restored = (): DeckState => ({
     },
   ],
   activeId: "ws-1",
+  journal: emptyJournal,
   viewByWs: {},
 });
 

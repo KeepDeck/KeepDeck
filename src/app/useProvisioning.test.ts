@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { emptyJournal } from "../domain/journal";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -118,6 +119,7 @@ describe("useProvisioning workspace ids", () => {
           },
         ],
         activeId: maxId,
+        journal: emptyJournal,
         viewByWs: {},
       }),
     );

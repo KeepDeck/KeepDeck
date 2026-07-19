@@ -1,3 +1,4 @@
+import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
@@ -201,6 +202,9 @@ export function hydrateDeck(json: string): HydrateDeckResult {
         workspaces,
         activeId,
         viewByWs,
+        // deck.json carries no journal — the reducer's `hydrate` keeps the
+        // live slice, and journal.jsonl hydrates separately after.
+        journal: emptyJournal,
       },
       nextAgentSeq,
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),

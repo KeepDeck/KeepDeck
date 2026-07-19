@@ -192,6 +192,13 @@ export function paneDisplayTitle(
   return pane.name ?? cleanPaneAutoTitle(pane.autoTitle) ?? `${label} ${index + 1}`;
 }
 
+/** The title a pane's journal record freezes at seal time: the manual name,
+ * else the cleaned terminal auto title — never the derived "Agent N" (that is
+ * positional, meaningless once the pane is gone). */
+export function paneFrozenTitle(pane: Pane): string | undefined {
+  return pane.name ?? cleanPaneAutoTitle(pane.autoTitle);
+}
+
 /** Claude Code prefixes some OSC titles with a decorative/status glyph. Keep the
  * raw autoTitle for persistence, but do not make one agent family look like it
  * has a bespoke pane-header icon. */
