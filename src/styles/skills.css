@@ -91,7 +91,12 @@
   background-color: #1c2230;
 }
 
+/* max-width pins both lines to the button's content box: WKWebView does not
+   constrain a button's flex children to the button itself, so without it the
+   nowrap description lays out at content width and its ellipsis never
+   triggers — the row just clips at the nav edge. */
 .skills__item-name {
+  max-width: 100%;
   color: #9aa0a6;
   font-size: 13px;
 }
@@ -102,6 +107,7 @@
 }
 
 .skills__item-desc {
+  max-width: 100%;
   overflow: hidden;
   color: #565e6b;
   font-size: 11.5px;
