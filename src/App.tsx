@@ -16,6 +16,9 @@ import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
 import { useJournalPersistence } from "./app/useJournalPersistence";
 import { useJournalResume } from "./app/useJournalResume";
+import { useJournalFork } from "./app/useJournalFork";
+import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
+import type { SessionRecord } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
@@ -136,6 +139,12 @@ function App() {
   // keeps its identity and layout position.
   const agentRestart = useAgentRestart(deck, spawnCtx);
   const journalResume = useJournalResume(deck, spawnCtx);
+  const journalFork = useJournalFork(deck, spawnCtx);
+  // The fork-target dialog's subject, when one is open.
+  const [forkDialog, setForkDialog] = useState<{
+    wsId: string;
+    record: SessionRecord;
+  } | null>(null);
   // Every live pane's spawn plan, built through its agent plugin's hooks
   // (async — the pane's terminal waits for its plan; mounting is what
   // spawns). Dormant panes get theirs at revive time.
@@ -713,6 +722,7 @@ function App() {
                 // Logged in the hook; the row simply stays for another try.
               })
             }
+            onForkSession={(wsId, record) => setForkDialog({ wsId, record })}
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
             onToggleMinimize={deck.toggleMinimize}
@@ -784,6 +794,27 @@ function App() {
               pickFolder={pickFolder}
               onConfirm={agentFlow.confirm}
               onCancel={agentFlow.cancel}
+            />
+          )}
+
+          {forkDialog && (
+            <ForkTargetDialog
+              record={forkDialog.record}
+              agents={agents}
+              workspaceCwd={
+                findWorkspace(deck.workspaces, forkDialog.wsId)?.cwd ?? ""
+              }
+              probe={probeWorktree}
+              occupancy={(path) => pathOccupancy(deck.workspaces, path)}
+              pickFolder={pickFolder}
+              onConfirm={(target) => {
+                const { wsId, record } = forkDialog;
+                setForkDialog(null);
+                void journalFork.fork(wsId, record, target).catch(() => {
+                  // Logged in the hook; nothing was spawned.
+                });
+              }}
+              onCancel={() => setForkDialog(null)}
             />
           )}
 

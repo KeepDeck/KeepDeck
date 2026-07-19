@@ -70,6 +70,8 @@ interface DeckStageProps {
   onDeleteJournalRecord(wsId: string, sessionId: string): void;
   /** Resume a journal record into a new pane of its workspace. */
   onResumeSession(wsId: string, record: SessionRecord): void;
+  /** Open the fork-target dialog for a journal record. */
+  onForkSession(wsId: string, record: SessionRecord): void;
   onSelectPane(wsId: string, paneId: string): void;
   onToggleFocus(wsId: string, paneId: string): void;
   /** Minimize a pane out of the grid, or restore it (grid layout only). */
@@ -135,6 +137,7 @@ export function DeckStage({
   journal,
   onDeleteJournalRecord,
   onResumeSession,
+  onForkSession,
   onSelectPane,
   onToggleFocus,
   onToggleMinimize,
@@ -174,6 +177,7 @@ export function DeckStage({
                 agents={agents}
                 onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
                 onResume={(record) => onResumeSession(ws.id, record)}
+                onFork={(record) => onForkSession(ws.id, record)}
               />
             </div>
           );

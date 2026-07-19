@@ -55,13 +55,20 @@ describe("WorkspaceHistory", () => {
     rows: SessionRecord[],
     onDelete = vi.fn(),
     onResume = vi.fn(),
+    onFork = vi.fn(),
   ) => {
     act(() =>
       root.render(
-        createElement(WorkspaceHistory, { rows, agents, onDelete, onResume }),
+        createElement(WorkspaceHistory, {
+          rows,
+          agents,
+          onDelete,
+          onResume,
+          onFork,
+        }),
       ),
     );
-    return { onDelete, onResume };
+    return { onDelete, onResume, onFork };
   };
 
   it("empty journal shows the + Agent hint, not a list", () => {
@@ -136,6 +143,20 @@ describe("WorkspaceHistory", () => {
     expect(
       rows[1].querySelector<HTMLButtonElement>(".history__resume")?.disabled,
     ).toBe(false);
+  });
+
+  it("Fork… is offered on every row — a gone dir is exactly what forking rescues", async () => {
+    worktreeIpc.probeWorktree.mockImplementation(() =>
+      Promise.resolve({ exists: false, isWorktree: false, branch: null }),
+    );
+    const { onFork } = render([closed({ cwd: "/gone" })]);
+    await act(async () => {});
+    const fork = host.querySelector<HTMLButtonElement>(".history__fork")!;
+    expect(fork.disabled).toBe(false);
+    act(() => fork.click());
+    expect(onFork).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ sessionId: "s-1" }),
+    );
   });
 
   it("the × forgets exactly that session", () => {

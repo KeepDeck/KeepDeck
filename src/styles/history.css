@@ -130,7 +130,8 @@
   color: #c5c8c6;
 }
 
-.history__resume {
+.history__resume,
+.history__fork {
   flex: none;
   padding: 3px 10px;
   border: 1px solid #2b3446;
@@ -144,7 +145,8 @@
     color 0.15s;
 }
 
-.history__resume:hover {
+.history__resume:hover,
+.history__fork:hover {
   border-color: #58b368;
   color: #c5c8c6;
 }

@@ -44,6 +44,8 @@ interface WorkspaceHistoryProps {
   onDelete(sessionId: string): void;
   /** Resume a closed record into a new pane of this workspace. */
   onResume(record: SessionRecord): void;
+  /** Fork a record — pick a target dir/worktree for the copy. */
+  onFork(record: SessionRecord): void;
 }
 
 /**
@@ -52,7 +54,7 @@ interface WorkspaceHistoryProps {
  * way to add an agent; this surface is for coming BACK to a workspace and
  * seeing what happened in it.
  */
-export function WorkspaceHistory({ rows, agents, onDelete, onResume }: WorkspaceHistoryProps) {
+export function WorkspaceHistory({ rows, agents, onDelete, onResume, onFork }: WorkspaceHistoryProps) {
   const presence = useDirPresence(rows);
   if (rows.length === 0) {
     return (
@@ -119,6 +121,14 @@ export function WorkspaceHistory({ rows, agents, onDelete, onResume }: Workspace
                   Resume
                 </button>
               )}
+              <button
+                type="button"
+                className="history__fork"
+                title="Fork — a new conversation continuing from this session"
+                onClick={() => onFork(row)}
+              >
+                Fork…
+              </button>
               <button
                 type="button"
                 className="history__delete"
