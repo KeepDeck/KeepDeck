@@ -3,11 +3,18 @@ import type { PluginContext } from "@keepdeck/plugin-api";
 import { claudeHistory } from "./history";
 
 const LINES = [
-  JSON.stringify({ type: "summary", summary: "meta" }),
   JSON.stringify({
     type: "user",
     cwd: "/repo/wt",
     message: { role: "user", content: "<system-hint>noise</system-hint>" },
+  }),
+  JSON.stringify({
+    type: "user",
+    cwd: "/repo/wt",
+    message: {
+      role: "user",
+      content: "Base directory for this skill: /u/.claude/skills/prime # Prime",
+    },
   }),
   JSON.stringify({
     type: "user",
@@ -63,7 +70,7 @@ describe("claude history", () => {
     ]);
   });
 
-  it("describe pulls cwd from the lines and titles by the first REAL user turn", async () => {
+  it("describe pulls cwd from the lines and titles by the first REAL user turn — skill/tag preambles don't name a conversation", async () => {
     const history = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
     expect(await history.describe("/f.jsonl")).toEqual({
       cwd: "/repo/wt",
@@ -71,10 +78,20 @@ describe("claude history", () => {
     });
   });
 
+  it("the store's own summary line outranks the first user turn; the last summary wins", async () => {
+    const withSummary = [
+      JSON.stringify({ type: "summary", summary: "stale name" }),
+      JSON.stringify({ type: "summary", summary: "auth investigation" }),
+      LINES,
+    ].join("\n");
+    const history = claudeHistory(ctx({ "/f.jsonl": withSummary }, {}));
+    expect((await history.describe("/f.jsonl")).title).toBe("auth investigation");
+  });
+
   it("content and transcript keep user+assistant turns, skip noise and torn lines", async () => {
     const history = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
     expect(await history.content("/f.jsonl")).toContain("found it in refresh()");
     const page = await history.transcript("/f.jsonl", { offset: 0, limit: 10 });
-    expect(page.map((e) => e.role)).toEqual(["user", "user", "assistant"]);
+    expect(page.map((e) => e.role)).toEqual(["user", "user", "user", "assistant"]);
   });
 });

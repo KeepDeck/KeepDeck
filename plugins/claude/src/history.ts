@@ -66,13 +66,35 @@ function cwdOf(jsonl: string): string | null {
   return null;
 }
 
+/** Claude's own conversation summary, when the store recorded one —
+ * `{type:"summary", summary}` lines sit at the head of the jsonl. The last
+ * one wins (summaries get refreshed). */
+export function summaryOf(jsonl: string): string | undefined {
+  let latest: string | undefined;
+  for (const line of jsonl.split("\n")) {
+    if (!line.includes('"summary"')) continue;
+    try {
+      const parsed = JSON.parse(line) as { type?: unknown; summary?: unknown };
+      if (parsed.type === "summary" && typeof parsed.summary === "string") {
+        const text = parsed.summary.trim();
+        if (text) latest = text;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return latest;
+}
+
 /** A human title: the first REAL user message — command/meta preambles
- * (XML-ish tags, slash commands, injected instructions) don't name a
- * conversation. */
+ * (XML-ish tags, slash commands, skill bootstraps, the local-command
+ * caveat) don't name a conversation. */
 export function titleOf(turns: ParsedTurn[]): string | undefined {
   const real = turns.find(
     (t) =>
-      t.role === "user" && !/^[<#/[]/.test(t.text) && t.text.length > 1,
+      t.role === "user" &&
+      !/^([<#/[]|Base directory for this skill:|Caveat:)/.test(t.text) &&
+      t.text.length > 1,
   );
   return real ? real.text.slice(0, 120) : undefined;
 }
@@ -109,7 +131,7 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       const text = head.text ?? "";
       return {
         cwd: cwdOf(text) ?? "",
-        title: titleOf(parseTurns(text)),
+        title: summaryOf(text) ?? titleOf(parseTurns(text)),
       };
     },
     async content(ref) {

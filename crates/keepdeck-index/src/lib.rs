@@ -11,8 +11,10 @@
 use rusqlite::{params, Connection, OpenFlags};
 use std::path::Path;
 
-/// Bump on ANY schema change — the opener wipes and recreates.
-pub const SCHEMA_VERSION: i64 = 1;
+/// Bump on ANY schema change — the opener wipes and recreates. Also the
+/// lever for content-derivation fixes (e.g. title heuristics): stamped rows
+/// never refresh while their file is unchanged, a rebuild re-derives all.
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// One indexed session (an upsert row). `content` is the extracted
 /// searchable text (user+assistant turns), plugin-provided.
