@@ -256,7 +256,7 @@ export function UsageChips({
                   return (
                     <div key={i} className="usage-window">
                       <span className="usage-window__label">
-                        {windowLabel(window)}
+                        {windowLabel(window, "long")}
                       </span>
                       <Bar window={window} now={now} />
                       <span className="usage-window__detail">

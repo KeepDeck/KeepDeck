@@ -209,6 +209,8 @@ describe("UsageChips", () => {
     const panel = host.querySelector("#usage-panel")!;
     expect(panel.textContent).toContain("Claude Code");
     expect(panel.textContent).toContain("Updated now");
+    // The panel spells the window out; the abbreviation stays on the chip.
+    expect(panel.textContent).toContain("week");
     expect(panel.textContent).toContain("resets in 2h 0m");
     expect(panel.querySelector(".usage-bar")).not.toBeNull();
 

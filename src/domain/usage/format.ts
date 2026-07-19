@@ -46,17 +46,21 @@ export function panelWindows(account: AccountUsage): UsageWindow[] {
 /** The label a window earns from its LENGTH — never from field position
  * (codex plans disagree about which window is primary). Unknown lengths
  * fall back to the scope name, else "plan" — the safety net for a window
- * whose duration no source reports. */
-export function windowLabel(window: UsageWindow): string {
+ * whose duration no source reports. The chip abbreviates ("wk"/"mo"), the
+ * panel has room to spell the word out ("week"/"month"). */
+export function windowLabel(
+  window: UsageWindow,
+  form: "short" | "long" = "short",
+): string {
   switch (window.windowMinutes) {
     case 300:
       return "5h";
     case 1440:
       return "day";
     case 10_080:
-      return "wk";
+      return form === "long" ? "week" : "wk";
     case 43_200:
-      return "mo";
+      return form === "long" ? "month" : "mo";
     default:
       return window.scope ?? "plan";
   }
