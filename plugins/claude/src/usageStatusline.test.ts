@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -84,7 +85,7 @@ function run(
 ): string {
   const env: Record<string, string | undefined> = { ...process.env };
   delete env.KEEPDECK_BRIDGE;
-  delete env.KEEPDECK_STATUSLINE_INNER;
+  delete env.KEEPDECK_STATUSLINE_NESTED;
   delete env.CLAUDE_CONFIG_DIR;
   env.HOME = opts.home ?? tmp();
   if (bridge) env.KEEPDECK_BRIDGE = JSON.stringify(bridge);
@@ -147,10 +148,10 @@ describe("kd-usage-statusline.sh", () => {
 
 /**
  * Arming this script takes the statusLine slot away from the user's own —
- * `--settings` outranks every settings file on disk. So it resolves whatever
- * they configured and hands the payload on, which means these tests are as
- * much about NOT delegating (to the wrong command, to ourselves, on a broken
- * file) as about delegating.
+ * `--settings` outranks every settings file a user edits. So it resolves
+ * whatever they configured and hands the payload on, which means these tests
+ * are as much about NOT delegating (to the wrong command, to a duplicate the
+ * real parser would skip, to ourselves, on a broken file) as about delegating.
  */
 describe("kd-usage-statusline.sh delegation", () => {
   const payload = JSON.stringify(STATUSLINE);
@@ -161,17 +162,53 @@ describe("kd-usage-statusline.sh delegation", () => {
     expect(stdout.trim()).toBe("MY-OWN-LINE");
   });
 
-  it("feeds the delegate the same stdin it received", () => {
+  it("feeds the delegate the exact stdin it received", () => {
     const home = settings(tmp(), statusLine("cat"));
-    const stdout = run(payload, null, { home });
-    // Verbatim: the delegate can read every field claude sent, not a digest.
-    expect(JSON.parse(stdout).rate_limits).toEqual(STATUSLINE.rate_limits);
+    // The delegate is `cat`, so its stdout IS what we handed it — assert the
+    // whole payload byte for byte, not one field a reserialization could
+    // preserve while dropping the rest.
+    expect(run(payload, null, { home })).toBe(payload);
   });
 
   it("passes multi-line and ANSI output through untouched", () => {
     const home = settings(tmp(), statusLine("printf '\\033[32mrow1\\033[0m\\nrow2\\n'"));
     const stdout = run(payload, null, { home });
     expect(stdout).toBe("[32mrow1[0m\nrow2\n");
+  });
+
+  it("preserves trailing blank rows the delegate emits", () => {
+    // A file capture, not `$( )`, so trailing newlines survive byte for byte
+    // (`$( )` would collapse them and the pane would lose the spacer rows).
+    const home = settings(tmp(), statusLine("printf 'a\\nb\\n\\n\\n'"));
+    expect(run(payload, null, { home })).toBe("a\nb\n\n\n");
+  });
+
+  it("does not block on a child the delegate backgrounds", () => {
+    // "Print the cached line, refresh asynchronously" is the standard fast
+    // statusline shape. Command substitution would hang until the background
+    // job exits; a file capture returns as soon as the foreground line is out.
+    const dir = tmp();
+    const marker = join(dir, "marker");
+    const home = settings(
+      tmp(),
+      statusLine(`echo LINE; (sleep 3; touch ${marker}) &`),
+    );
+    expect(run(payload, null, { home }).trim()).toBe("LINE");
+    // Had we waited for the child, the marker would already exist.
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("passes the delegate the nested sentinel so it cannot re-delegate", () => {
+    const home = settings(
+      tmp(),
+      statusLine('printf "INNER=%s" "$KEEPDECK_STATUSLINE_NESTED"'),
+    );
+    expect(run(payload, null, { home })).toBe("INNER=1");
+  });
+
+  it("keeps the delegate's stderr out of the rendered row", () => {
+    const home = settings(tmp(), statusLine("echo ROW; echo noise >&2"));
+    expect(run(payload, null, { home }).trim()).toBe("ROW");
   });
 
   it("publishes the usage envelope BEFORE running the delegate", () => {
@@ -196,6 +233,18 @@ describe("kd-usage-statusline.sh delegation", () => {
     expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
+  it("still reports and delegates when stdin has leading whitespace", () => {
+    // The JSON-shape gate trims before checking, so one stray byte does not
+    // blank the row and starve the report.
+    const dir = inbox();
+    const home = settings(tmp(), statusLine("echo TRIMMED"));
+    const stdout = run(` \n${payload}`, { v: 1, dir, pane: "p", token: "t" }, {
+      home,
+    });
+    expect(stdout.trim()).toBe("TRIMMED");
+    expect(envelopes(dir)).toHaveLength(1);
+  });
+
   it("reads the user layer from CLAUDE_CONFIG_DIR when set", () => {
     const home = settings(tmp(), statusLine("echo WRONG-HOME"));
     const config = tmp();
@@ -208,6 +257,39 @@ describe("kd-usage-statusline.sh delegation", () => {
       env: { CLAUDE_CONFIG_DIR: config },
     });
     expect(stdout.trim()).toBe("FROM-CONFIG-DIR");
+  });
+
+  it("resolves a settings file with CRLF line endings", () => {
+    const home = tmp();
+    mkdirSync(join(home, ".claude"));
+    writeFileSync(
+      join(home, ".claude", "settings.json"),
+      JSON.stringify(statusLine("echo CRLF")).replace(/,/g, ",\r\n"),
+    );
+    expect(run(payload, null, { home }).trim()).toBe("CRLF");
+  });
+
+  it("delegates to the LAST of duplicate statusLine keys, as JSON does", () => {
+    // JSON.parse is last-wins; a first-hit reader would run a command claude
+    // itself would never use.
+    const home = tmp();
+    mkdirSync(join(home, ".claude"));
+    writeFileSync(
+      join(home, ".claude", "settings.json"),
+      '{"statusLine":{"type":"command","command":"echo FIRST"},' +
+        '"statusLine":{"type":"command","command":"echo LAST"}}',
+    );
+    expect(run(payload, null, { home }).trim()).toBe("LAST");
+  });
+
+  it("is not tripped by an escape in an unrelated field", () => {
+    // A multi-line `hooks` command (a `\n` escape) before statusLine must not
+    // abort the whole scan — the taint is scoped to the value it sits in.
+    const home = settings(tmp(), {
+      hooks: { Stop: [{ hooks: [{ type: "command", command: "a\nb" }] }] },
+      statusLine: { type: "command", command: "echo SURVIVED" },
+    });
+    expect(run(payload, null, { home }).trim()).toBe("SURVIVED");
   });
 
   it("ignores a statusLine nested under another key", () => {
@@ -225,8 +307,7 @@ describe("kd-usage-statusline.sh delegation", () => {
     expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
-  it("delegates to nothing when the settings file is truncated", () => {
-    // Half a file must not yield half a command — an ambiguity is a miss.
+  it("delegates to nothing when a value is truncated mid-string", () => {
     const home = tmp();
     mkdirSync(join(home, ".claude"));
     writeFileSync(
@@ -236,8 +317,23 @@ describe("kd-usage-statusline.sh delegation", () => {
     expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
-  it("never delegates to itself", () => {
-    const home = settings(tmp(), statusLine(`/bin/sh ${SCRIPT}`));
+  it("delegates to nothing when the braces are truncated after the value", () => {
+    // A complete command string but an unbalanced document — claude rejects it
+    // outright, so a half-captured command must not slip through.
+    const home = tmp();
+    mkdirSync(join(home, ".claude"));
+    writeFileSync(
+      join(home, ".claude", "settings.json"),
+      '{"statusLine":{"type":"command","command":"echo RAN"',
+    );
+    expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
+  });
+
+  it("drops a delegate command that names its own script", () => {
+    // The guard is a substring match, which is exactly what lets us observe
+    // it: remove the guard and this harmless echo would run and print its
+    // marker instead of the footer.
+    const home = settings(tmp(), statusLine("echo ran-kd-usage-statusline.sh"));
     expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
@@ -248,7 +344,7 @@ describe("kd-usage-statusline.sh delegation", () => {
     const home = settings(tmp(), statusLine("echo OUTER-ONLY"));
     const stdout = run(payload, { v: 1, dir, pane: "p", token: "t" }, {
       home,
-      env: { KEEPDECK_STATUSLINE_INNER: "1" },
+      env: { KEEPDECK_STATUSLINE_NESTED: "1" },
     });
     expect(stdout.trim()).toBe("Opus · ctx 8%");
     expect(envelopes(dir)).toHaveLength(0);
