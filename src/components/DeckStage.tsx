@@ -188,6 +188,7 @@ export function DeckStage({
                 <SessionsBrowser
                   api={browser}
                   agents={agents}
+                  ready={agentsReady}
                   onResume={(record) => onResumeSession(ws.id, record)}
                   onFork={(record) => onForkSession(ws.id, record)}
                 />

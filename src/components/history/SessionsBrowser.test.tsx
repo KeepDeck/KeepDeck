@@ -60,7 +60,7 @@ describe("SessionsBrowser", () => {
     const onFork = vi.fn();
     await act(async () =>
       root.render(
-        createElement(SessionsBrowser, { api: a, agents: [], onResume, onFork }),
+        createElement(SessionsBrowser, { api: a, agents: [], ready: true, onResume, onFork }),
       ),
     );
     expect(a.scan).toHaveBeenCalledTimes(1);
@@ -85,6 +85,20 @@ describe("SessionsBrowser", () => {
     expect(onFork).toHaveBeenCalledTimes(1);
   });
 
+  it("waits for plugin activation before scanning — an empty registry must not count as scanned", async () => {
+    const a = api([]);
+    const props = { api: a, agents: [], onResume: vi.fn(), onFork: vi.fn() };
+    await act(async () =>
+      root.render(createElement(SessionsBrowser, { ...props, ready: false })),
+    );
+    expect(a.scan).not.toHaveBeenCalled();
+
+    await act(async () =>
+      root.render(createElement(SessionsBrowser, { ...props, ready: true })),
+    );
+    expect(a.scan).toHaveBeenCalledTimes(1);
+  });
+
   it("opening a row reads the transcript through the plugin", async () => {
     const a = api([hit()]);
     await act(async () =>
@@ -92,6 +106,7 @@ describe("SessionsBrowser", () => {
         createElement(SessionsBrowser, {
           api: a,
           agents: [],
+          ready: true,
           onResume: vi.fn(),
           onFork: vi.fn(),
         }),

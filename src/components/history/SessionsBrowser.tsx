@@ -11,6 +11,9 @@ import { baseName } from "../../domain/deck";
 interface SessionsBrowserProps {
   api: SessionsBrowserApi;
   agents: AgentInfo[];
+  /** The agent plugins finished activating — before that a scan would see
+   * an empty registry and "successfully" index zero stores. */
+  ready: boolean;
   onResume(record: SessionRecord): void;
   onFork(record: SessionRecord): void;
 }
@@ -40,19 +43,23 @@ const PAGE = 100;
  * a row reads the transcript live through the owning plugin. Resume runs in
  * the session's ORIGINAL directory; Fork picks a new home.
  */
-export function SessionsBrowser({ api, agents, onResume, onFork }: SessionsBrowserProps) {
+export function SessionsBrowser({ api, agents, ready, onResume, onFork }: SessionsBrowserProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState<SearchHit | null>(null);
   const [entries, setEntries] = useState<AgentTranscriptEntry[]>([]);
   const [exhausted, setExhausted] = useState(false);
 
-  // First render of the browser = the scan trigger (incremental, cheap when
-  // nothing changed) plus the initial newest-first listing.
+  // The scan waits for plugin activation (the registry is empty until
+  // then), re-firing when readiness lands; the listing itself can show
+  // whatever the index already holds from a previous run.
   useEffect(() => {
-    api.scan();
     api.search("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    if (ready) api.scan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   const loadMore = (hit: SearchHit, from: number) => {
     void api
