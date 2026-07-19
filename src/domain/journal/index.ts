@@ -5,6 +5,7 @@ export {
   foldJournal,
   hydrateJournalSlice,
   journalRows,
+  snapshotJournal,
   withJournalEvent,
   type JournalEvent,
   type JournalRecords,

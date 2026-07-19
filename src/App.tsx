@@ -14,6 +14,7 @@ import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
 import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
+import { useJournalPersistence } from "./app/useJournalPersistence";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
@@ -115,6 +116,9 @@ function App() {
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);
+  // journal.jsonl rides the same boot gate: hydrate after the deck restored,
+  // freeze alongside a frozen deck (see the hook's ordering contract).
+  useJournalPersistence(deck, restoring, frozen !== null);
   // Skills housekeeping: drop dead workspaces' derived skill dirs at boot
   // and on every close. Never while restoring/frozen — an unhydrated deck
   // reads as "no workspaces" and would sweep the live dirs too.

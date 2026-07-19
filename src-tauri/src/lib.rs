@@ -24,6 +24,7 @@ mod session;
 mod sessions;
 mod skills;
 mod voice;
+mod journal;
 mod state;
 mod worktree;
 
@@ -149,6 +150,9 @@ pub fn run() {
             state::settings_quarantine,
             state::usage_cache_load,
             state::usage_cache_save,
+            journal::journal_load,
+            journal::journal_append,
+            journal::journal_compact,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,

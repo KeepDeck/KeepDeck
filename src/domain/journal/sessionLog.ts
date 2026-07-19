@@ -53,7 +53,11 @@ export type JournalEvent =
     }
   | { e: "sealed"; v: 1; wsId: string; sessionId: string; title?: string; at: string }
   | { e: "deleted"; v: 1; wsId: string; sessionId: string; at: string }
-  | { e: "wsDeleted"; v: 1; wsId: string; at: string };
+  | { e: "wsDeleted"; v: 1; wsId: string; at: string }
+  /** A full record verbatim — written ONLY by compaction, which rewrites the
+   * log as the folded state (a closed record can't be expressed as
+   * bound+sealed: its `paneId` is gone). */
+  | { e: "record"; v: 1; wsId: string; record: SessionRecord };
 
 /**
  * The journal slice of deck state: the folded records plus the outbox —
@@ -120,6 +124,15 @@ export function applyJournalEvent(
       if (!(event.wsId in records)) return records;
       const { [event.wsId]: _gone, ...rest } = records;
       return rest;
+    }
+    case "record": {
+      const list = records[event.wsId] ?? [];
+      const idx = list.findIndex((r) => r.sessionId === event.record.sessionId);
+      const prior = idx >= 0 ? list[idx] : undefined;
+      if (prior && recordsEqual(prior, event.record)) return records;
+      const nextList =
+        idx >= 0 ? replaceAt(list, idx, event.record) : [...list, event.record];
+      return { ...records, [event.wsId]: nextList };
     }
   }
 }
@@ -226,6 +239,14 @@ export function hydrateJournalSlice(
     }
   }
   return { records: merged, tail: [...current.tail, ...events] };
+}
+
+/** The folded state re-expressed as events — what compaction writes so the
+ * rewritten log folds back to exactly these records. */
+export function snapshotJournal(records: JournalRecords): JournalEvent[] {
+  return Object.entries(records).flatMap(([wsId, list]) =>
+    list.map((record): JournalEvent => ({ e: "record", v: 1, wsId, record })),
+  );
 }
 
 /** A workspace's records, newest binding first — the history list's order. */
