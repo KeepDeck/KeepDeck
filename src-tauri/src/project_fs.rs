@@ -40,7 +40,7 @@ use notify::{Event, EventKind};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::containment::resolve_within;
+use crate::containment::{expand_home, resolve_within};
 use crate::fswatch;
 
 /// Default cap for a single [`project_fs_read_file`] read, when the caller
@@ -48,16 +48,6 @@ use crate::fswatch;
 /// webview, so the common file is read whole and a large one comes back
 /// `truncated`.
 const DEFAULT_MAX_FILE_BYTES: u64 = 1024 * 1024;
-
-/// Expand a leading `~/` so a plugin can name its own store without knowing
-/// the user's home (host facts stay narrow). Containment still applies.
-fn expand_home(path: &str) -> Result<String, String> {
-    if let Some(rest) = path.strip_prefix("~/") {
-        let home = std::env::var("HOME").map_err(|_| "no home directory")?;
-        return Ok(format!("{home}/{rest}"));
-    }
-    Ok(path.to_string())
-}
 
 /// Hard ceiling on what a caller may request, so a plugin passing an enormous
 /// `maxBytes` can't turn a read into an out-of-memory. Above the default to

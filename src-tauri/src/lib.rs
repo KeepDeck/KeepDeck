@@ -17,6 +17,7 @@ mod migration;
 mod paths;
 mod plugins_fs;
 mod plugins_fs_write;
+mod plugins_sqlite;
 mod ports;
 mod project_fs;
 mod project_git;
@@ -160,7 +161,7 @@ pub fn run() {
             history::index_upsert,
             history::index_prune,
             history::index_search,
-            history::plugins_sqlite_query,
+            plugins_sqlite::plugins_sqlite_query,
             plugins_fs_write::plugins_fs_write_mkdir,
             plugins_fs_write::plugins_fs_write_copy,
             plugins_fs_write::plugins_fs_write_file,

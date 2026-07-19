@@ -9,6 +9,18 @@
 use std::fs;
 use std::path::PathBuf;
 
+/// Expand a leading `~/` to the user's home directory — THE home expansion
+/// for every containment-adjacent path (three separate copies drifted once;
+/// this is the single one). Lossy on a non-UTF-8 home, documented: every
+/// caller ultimately round-trips through UTF-8 command payloads anyway.
+pub fn expand_home(path: &str) -> Result<String, String> {
+    if let Some(rest) = path.strip_prefix("~/") {
+        let home = std::env::var_os("HOME").ok_or("no home directory")?;
+        return Ok(format!("{}/{rest}", PathBuf::from(home).to_string_lossy()));
+    }
+    Ok(path.to_string())
+}
+
 /// Canonicalize `path` and require the result to sit inside one of `roots`
 /// (each canonicalized too), unless `everywhere` waives the check. Returns the
 /// canonical path on success, or a human reason on rejection.

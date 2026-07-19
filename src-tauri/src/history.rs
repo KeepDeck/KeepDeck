@@ -10,8 +10,6 @@ use keepdeck_index::{IndexRow, IndexedRef, SearchHit, SessionIndex};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::containment::resolve_within;
-
 #[derive(Default)]
 pub struct HistoryIndex(Mutex<Option<SessionIndex>>);
 
@@ -42,6 +40,8 @@ pub struct IndexRowDto {
     pub reference: String,
     pub cwd: String,
     pub title: Option<String>,
+    #[serde(default)]
+    pub transcript_path: Option<String>,
     pub mtime: i64,
     pub size: i64,
     pub content: String,
@@ -55,6 +55,7 @@ pub struct SearchHitDto {
     pub reference: String,
     pub cwd: String,
     pub title: Option<String>,
+    pub transcript_path: Option<String>,
     pub mtime: i64,
     pub snippet: Option<String>,
 }
@@ -94,6 +95,7 @@ pub fn index_upsert(
                 reference: r.reference,
                 cwd: r.cwd,
                 title: r.title,
+                transcript_path: r.transcript_path,
                 mtime: r.mtime,
                 size: r.size,
                 content: r.content,
@@ -125,36 +127,26 @@ pub fn index_search(
             .search(&query, limit.min(500))?
             .into_iter()
             .map(
-                |SearchHit { agent, session_id, reference, cwd, title, mtime, snippet }| {
-                    SearchHitDto { agent, session_id, reference, cwd, title, mtime, snippet }
+                |SearchHit {
+                     agent,
+                     session_id,
+                     reference,
+                     cwd,
+                     title,
+                     transcript_path,
+                     mtime,
+                     snippet,
+                 }| SearchHitDto {
+                    agent,
+                    session_id,
+                    reference,
+                    cwd,
+                    title,
+                    transcript_path,
+                    mtime,
+                    snippet,
                 },
             )
             .collect())
     })
-}
-
-/// The `sqliteReadonly` capability's backend: a single parameterized SELECT
-/// against an agent's own store, containment-checked against the declared
-/// prefixes and opened read-only (the store cannot be mutated or locked up).
-#[tauri::command(async)]
-pub fn plugins_sqlite_query(
-    db_path: String,
-    sql: String,
-    params: Vec<String>,
-    roots: Vec<String>,
-) -> Result<Vec<Vec<Option<String>>>, String> {
-    let expanded: Vec<String> = roots
-        .iter()
-        .map(|root| expand_home(root))
-        .collect::<Result<_, _>>()?;
-    let db = resolve_within(&expand_home(&db_path)?, &expanded, false)?;
-    keepdeck_index::query_readonly(&db, &sql, &params)
-}
-
-fn expand_home(path: &str) -> Result<String, String> {
-    if let Some(rest) = path.strip_prefix("~/") {
-        let home = std::env::var("HOME").map_err(|_| "no home directory")?;
-        return Ok(format!("{home}/{rest}"));
-    }
-    Ok(path.to_string())
 }

@@ -13,6 +13,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write as _};
 use std::path::{Component, Path, PathBuf};
 
+use crate::containment::expand_home;
+
 #[tauri::command(async)]
 pub fn plugins_fs_write_mkdir(path: String, roots: Vec<String>) -> Result<(), String> {
     let target = resolve_write(&path, &roots)?;
@@ -68,15 +70,6 @@ pub fn plugins_fs_write_append(
         .map_err(|e| e.to_string())
 }
 
-/// Expand a leading `~/` to the user's home directory.
-fn expand_home(path: &str) -> Result<PathBuf, String> {
-    if let Some(rest) = path.strip_prefix("~/") {
-        let home = std::env::var_os("HOME").ok_or("no home directory")?;
-        return Ok(PathBuf::from(home).join(rest));
-    }
-    Ok(PathBuf::from(path))
-}
-
 /// Canonicalize the deepest existing ancestor and re-join the (`..`-free)
 /// remainder — the write-side symlink-escape proof.
 fn realize(path: &Path) -> Result<PathBuf, String> {
@@ -115,9 +108,9 @@ fn realize(path: &Path) -> Result<PathBuf, String> {
 }
 
 fn resolve_write(path: &str, roots: &[String]) -> Result<PathBuf, String> {
-    let real = realize(&expand_home(path)?)?;
+    let real = realize(&PathBuf::from(expand_home(path)?))?;
     for root in roots {
-        let expanded = expand_home(root)?;
+        let expanded = PathBuf::from(expand_home(root)?);
         let root_real = fs::canonicalize(&expanded).unwrap_or(expanded);
         if real.starts_with(&root_real) {
             return Ok(real);

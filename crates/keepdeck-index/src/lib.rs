@@ -14,7 +14,7 @@ use std::path::Path;
 /// Bump on ANY schema change — the opener wipes and recreates. Also the
 /// lever for content-derivation fixes (e.g. title heuristics): stamped rows
 /// never refresh while their file is unchanged, a rebuild re-derives all.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// One indexed session (an upsert row). `content` is the extracted
 /// searchable text (user+assistant turns), plugin-provided.
@@ -26,6 +26,9 @@ pub struct IndexRow {
     pub reference: String,
     pub cwd: String,
     pub title: Option<String>,
+    /// The transcript file, when the plugin knows one — carried explicitly
+    /// so consumers never have to guess it from the ref's shape.
+    pub transcript_path: Option<String>,
     pub mtime: i64,
     pub size: i64,
     pub content: String,
@@ -47,6 +50,7 @@ pub struct SearchHit {
     pub reference: String,
     pub cwd: String,
     pub title: Option<String>,
+    pub transcript_path: Option<String>,
     pub mtime: i64,
     /// FTS snippet with `[` `]` highlight markers, when content matched.
     pub snippet: Option<String>,
@@ -89,6 +93,7 @@ impl SessionIndex {
                     ref TEXT NOT NULL,
                     cwd TEXT NOT NULL,
                     title TEXT,
+                    transcript_path TEXT,
                     mtime INTEGER NOT NULL,
                     size INTEGER NOT NULL,
                     PRIMARY KEY (agent, session_id)
@@ -129,14 +134,15 @@ impl SessionIndex {
             .map_err(|e| e.to_string())?;
             tx.execute(
                 "INSERT OR REPLACE INTO sessions
-                 (agent, session_id, ref, cwd, title, mtime, size)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 (agent, session_id, ref, cwd, title, transcript_path, mtime, size)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     row.agent,
                     row.session_id,
                     row.reference,
                     row.cwd,
                     row.title,
+                    row.transcript_path,
                     row.mtime,
                     row.size
                 ],
@@ -195,7 +201,7 @@ impl SessionIndex {
             let mut stmt = self
                 .conn
                 .prepare(
-                    "SELECT agent, session_id, ref, cwd, title, mtime
+                    "SELECT agent, session_id, ref, cwd, title, transcript_path, mtime
                      FROM sessions ORDER BY mtime DESC LIMIT ?1",
                 )
                 .map_err(|e| e.to_string())?;
@@ -207,7 +213,8 @@ impl SessionIndex {
                         reference: r.get(2)?,
                         cwd: r.get(3)?,
                         title: r.get(4)?,
-                        mtime: r.get(5)?,
+                        transcript_path: r.get(5)?,
+                        mtime: r.get(6)?,
                         snippet: None,
                     })
                 })
@@ -223,30 +230,36 @@ impl SessionIndex {
             .collect::<Vec<_>>()
             .join(" ");
         let like = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
+        // A session matching BOTH branches yields two UNION rows (the snippet
+        // column differs), so fetch double and trim to `limit` AFTER the
+        // in-Rust dedup — SQL-side LIMIT alone under-fills the page.
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT s.agent, s.session_id, s.ref, s.cwd, s.title, s.mtime,
+                "SELECT s.agent, s.session_id, s.ref, s.cwd, s.title,
+                        s.transcript_path, s.mtime,
                         snippet(fts, 0, '[', ']', '…', 12) AS snip
                  FROM fts JOIN sessions s
                    ON s.agent = fts.agent AND s.session_id = fts.session_id
                  WHERE fts MATCH ?1
                  UNION
-                 SELECT agent, session_id, ref, cwd, title, mtime, NULL
+                 SELECT agent, session_id, ref, cwd, title, transcript_path,
+                        mtime, NULL
                  FROM sessions WHERE title LIKE ?2 ESCAPE '\\'
                  ORDER BY mtime DESC LIMIT ?3",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map(params![fts_query, like, limit as i64], |r| {
+            .query_map(params![fts_query, like, (limit * 2) as i64], |r| {
                 Ok(SearchHit {
                     agent: r.get(0)?,
                     session_id: r.get(1)?,
                     reference: r.get(2)?,
                     cwd: r.get(3)?,
                     title: r.get(4)?,
-                    mtime: r.get(5)?,
-                    snippet: r.get(6)?,
+                    transcript_path: r.get(5)?,
+                    mtime: r.get(6)?,
+                    snippet: r.get(7)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -260,6 +273,7 @@ impl SessionIndex {
         });
         hits.dedup_by(|a, b| a.agent == b.agent && a.session_id == b.session_id);
         hits.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+        hits.truncate(limit);
         Ok(hits)
     }
 }
@@ -314,10 +328,28 @@ mod tests {
             reference: format!("/store/{id}"),
             cwd: "/repo".into(),
             title: Some(format!("title {id}")),
+            transcript_path: Some(format!("/store/{id}")),
             mtime,
             size: 10,
             content: content.into(),
         }
+    }
+
+    #[test]
+    fn double_matching_sessions_do_not_underfill_the_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        // Every session matches the query in BOTH title and content.
+        let rows: Vec<IndexRow> = (0..6)
+            .map(|i| {
+                let mut r = row("claude", &format!("s{i}"), i, "shared token here");
+                r.title = Some("shared token".into());
+                r
+            })
+            .collect();
+        index.upsert(&rows).unwrap();
+        let hits = index.search("shared", 5).unwrap();
+        assert_eq!(hits.len(), 5); // not ~limit/2
     }
 
     #[test]
