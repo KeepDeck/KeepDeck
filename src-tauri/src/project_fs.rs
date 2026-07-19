@@ -49,6 +49,16 @@ use crate::fswatch;
 /// `truncated`.
 const DEFAULT_MAX_FILE_BYTES: u64 = 1024 * 1024;
 
+/// Expand a leading `~/` so a plugin can name its own store without knowing
+/// the user's home (host facts stay narrow). Containment still applies.
+fn expand_home(path: &str) -> Result<String, String> {
+    if let Some(rest) = path.strip_prefix("~/") {
+        let home = std::env::var("HOME").map_err(|_| "no home directory")?;
+        return Ok(format!("{home}/{rest}"));
+    }
+    Ok(path.to_string())
+}
+
 /// Hard ceiling on what a caller may request, so a plugin passing an enormous
 /// `maxBytes` can't turn a read into an out-of-memory. Above the default to
 /// leave headroom for a legitimately large source file.
@@ -107,7 +117,7 @@ pub fn project_fs_read_dir(
     roots: Vec<String>,
     everywhere: bool,
 ) -> Result<Vec<FsEntry>, String> {
-    let dir = resolve_within(&path, &roots, everywhere)?;
+    let dir = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
     let reader = fs::read_dir(&dir).map_err(|e| format!("cannot read directory: {e}"))?;
 
     let mut entries = Vec::new();
@@ -148,7 +158,7 @@ pub fn project_fs_read_file(
     everywhere: bool,
     max_bytes: Option<u64>,
 ) -> Result<FsFile, String> {
-    let file = resolve_within(&path, &roots, everywhere)?;
+    let file = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
     let meta = fs::metadata(&file).map_err(|e| format!("cannot stat: {e}"))?;
     if meta.is_dir() {
         return Err(format!("path is a directory: {path}"));

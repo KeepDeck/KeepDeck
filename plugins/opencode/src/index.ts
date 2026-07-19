@@ -11,6 +11,7 @@ import type {
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
+import { opencodeHistory } from "./history";
 
 /** The per-invocation config injecting the reporter; `[]` when the reporter
  * file is missing (identity off, the spawn itself still fine). */
@@ -50,6 +51,7 @@ const plugin: KeepDeckPlugin = {
       icon,
       detect: { bin: "opencode" },
       supportsYolo: true,
+      history: opencodeHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));

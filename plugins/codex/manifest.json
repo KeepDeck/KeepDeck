@@ -5,7 +5,10 @@
   "minApiVersion": 21,
   "category": "cli",
   "description": "Teaches KeepDeck the Codex CLI: catalog identity and detection; spawn, resume and session identity move in next.",
-  "capabilities": [{ "kind": "exec", "commands": ["codex"] }],
+  "capabilities": [
+    { "kind": "exec", "commands": ["codex"] },
+    { "kind": "fs", "scope": "everywhere" }
+  ],
   "contributes": {
     "agents": [{ "id": "codex", "label": "Codex" }]
   }

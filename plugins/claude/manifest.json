@@ -7,6 +7,7 @@
   "description": "Teaches KeepDeck the Claude Code CLI: catalog identity and detection; spawn, resume and session identity move in next.",
   "capabilities": [
     { "kind": "exec", "commands": ["claude"] },
+    { "kind": "fs", "scope": "everywhere" },
     { "kind": "fsWrite", "paths": ["~/.claude/projects"] }
   ],
   "contributes": {

@@ -6,6 +6,7 @@
  * `resume` subcommand.
  */
 import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
+import { codexHistory } from "./history";
 import { icon } from "./icon";
 import { cliArgs, shellQuote } from "./trust";
 import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
@@ -51,6 +52,7 @@ const plugin: KeepDeckPlugin = {
           normalize: normalizeCodexRateLimits,
         },
       },
+      history: codexHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
           output.args = [

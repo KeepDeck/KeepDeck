@@ -14,6 +14,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { normalizeClaudeStatusline } from "./usage";
+import { claudeHistory } from "./history";
 
 /** Quote a path for a shell command line (single quotes, `'\''` escaping) —
  * KeepDeck.app can live under a path with spaces. */
@@ -85,6 +86,7 @@ const plugin: KeepDeckPlugin = {
       supportsYolo: true,
       // The statusLine reporter pushes; no tail, no poll.
       usage: { normalize: normalizeClaudeStatusline },
+      history: claudeHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
           output.args = [

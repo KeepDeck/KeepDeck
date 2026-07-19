@@ -1,5 +1,6 @@
 import "./styles.css";
 import { kimiForkPlan } from "./fork";
+import { kimiHistory } from "./history";
 import type { KeepDeckPlugin, SpawnSkillsInput } from "@keepdeck/plugin-api";
 import {
   COMPANION_DESCRIPTOR,
@@ -67,6 +68,7 @@ const plugin: KeepDeckPlugin = {
         tail: "kimi-wire",
         limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },
       },
+      history: kimiHistory(ctx),
       hooks: {
         "spawn.plan": (input, output) => {
           output.args = [
