@@ -5,22 +5,200 @@
 # `--settings` injection as the SessionStart hook, so the user's own config
 # is never touched.
 #
-# Two jobs, both best-effort:
+# `--settings` OUTRANKS every settings file on disk, so arming this script
+# takes the statusLine slot away from whatever the user configured for
+# themselves. Hence three jobs, in this order, all best-effort:
+#
 #  1. Report: wrap stdin VERBATIM into a bridge `usage.report` envelope —
 #     the webview's normalizer owns the statusline schema, this script must
 #     never pick fields out of it (a lossy reporter would strip future data).
 #     Same tmp + rename publish as the session hook, so the watcher never
-#     sees a torn file.
-#  2. Footer: print a compact "Model · ctx N%" line for the pane's TUI —
-#     the statusLine renders in its own row above claude's built-in badges.
+#     sees a torn file. FIRST, because claude CANCELS an in-flight statusLine
+#     run as soon as the next update arrives: sitting behind a slow user
+#     script, the usage chip would starve.
+#  2. Delegate: hand the same stdin to the user's OWN statusLine command and
+#     pass its stdout through byte for byte (ANSI, OSC 8 links and multiple
+#     rows all survive), so a KeepDeck pane renders what their terminal would.
+#  3. Footer: only when there is nothing to delegate to — a compact
+#     "Model · ctx N%" line, so the pane is never left blank.
 #
 # Inert without the KeepDeck env; exit 0 always.
 
 payload=$(cat)
 
-# The footer works even when the bridge is gone — extraction is display-only.
-# `display_name` appears once; `used_percentage` is matched inside the flat
-# prefix of the context_window object (it precedes the nested current_usage).
+# Claude always sends a JSON object. Anything else is not worth a write (the
+# bridge would consume-and-drop it) nor a delegated render.
+case $payload in
+  "{"*) ;;
+  *) exit 0 ;;
+esac
+
+# ---------------------------------------------------------------- 1. report
+
+# Skipped when we are running INSIDE a delegation (see below): the outer run
+# already published this very payload, and a second envelope would double the
+# same reading.
+if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_INNER" ]; then
+  # The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a
+  # path without quotes — extracting quoted JSON strings with sed is safe.
+  field() {
+    printf '%s' "$KEEPDECK_BRIDGE" \
+      | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+      | head -n 1
+  }
+  dir=$(field dir)
+  pane=$(field pane)
+  token=$(field token)
+  if [ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ]; then
+    # mktemp = the unique name AND the tmp stage; the rename to .json
+    # publishes.
+    if f=$(mktemp "$dir/usage.report-XXXXXXXX"); then
+      {
+        printf '{"v":1,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":' \
+          "$pane" "$token"
+        printf '%s' "$payload"
+        printf '}}'
+      } > "$f" && mv "$f" "$f.json"
+    fi
+  fi
+fi
+
+# -------------------------------------------------------------- 2. delegate
+
+# Read ONE string field out of a JSON document on stdin:
+#   json_field <key>           a key of the root object
+#   json_field <object> <key>  a key of a root-level object
+# Prints the value, or NOTHING when the document is malformed, the field is
+# absent, or its value is not a plain string. Every ambiguity is a miss, never
+# a guess: this value decides which command we execute, so being wrong here
+# would run the wrong program on the user's machine.
+#
+# Hand-rolled because only POSIX tools are guaranteed on the target machine —
+# jq, python and node are all absent from a stock macOS with a native claude
+# install. The scan is a character state machine: it tracks string/escape
+# state, so a brace or a colon inside a string can never be mistaken for
+# structure, and it keys off nesting DEPTH, so a `statusLine` nested somewhere
+# else is never confused for the real one.
+json_field() {
+  if [ $# -eq 2 ]; then
+    _jf_obj=$1
+    _jf_key=$2
+  else
+    _jf_obj=""
+    _jf_key=$1
+  fi
+  awk -v want_obj="$_jf_obj" -v want_key="$_jf_key" '
+    { buf = buf $0 "\n" }
+    END {
+      n = length(buf)
+      depth = 0; instr = 0; esc = 0
+      tok = ""; last = ""; value = ""
+      awaiting = 0; pending = 0; got = 0; bad = 0
+      # With no object wanted, the root object IS the scope we search.
+      in_obj = (want_obj == "" ? 1 : 0); obj_depth = 1
+      for (i = 1; i <= n && !got && !bad; i++) {
+        c = substr(buf, i, 1)
+        if (instr) {
+          if (esc) {
+            # Anything fancier than these three (\n, \t, \uXXXX) means the
+            # value is not the plain command-or-path string we expect.
+            if (c == "\"" || c == "\\" || c == "/") tok = tok c; else bad = 1
+            esc = 0
+          } else if (c == "\\") esc = 1
+          else if (c == "\"") {
+            instr = 0
+            if (awaiting) { value = tok; got = 1 } else last = tok
+          } else tok = tok c
+          continue
+        }
+        if (c == "\"") { instr = 1; tok = ""; continue }
+        if (c == "{") {
+          depth++
+          if (pending) { in_obj = 1; obj_depth = depth; pending = 0 }
+          awaiting = 0
+          continue
+        }
+        if (c == "[") { depth++; pending = 0; awaiting = 0; continue }
+        if (c == "}" || c == "]") {
+          if (in_obj && want_obj != "" && depth == obj_depth) in_obj = 0
+          depth--; pending = 0; awaiting = 0
+          continue
+        }
+        if (c == ":") {
+          if (want_obj != "" && depth == 1 && last == want_obj) pending = 1
+          else if (in_obj && depth == obj_depth && last == want_key) awaiting = 1
+          continue
+        }
+        # A value that is not a string (number, object, true/null) ends the
+        # wait without a capture — only plain strings are ever accepted.
+        if (c == ",") { awaiting = 0; pending = 0 }
+      }
+      # A truncated string, a dangling escape or a rejected one means the
+      # document is not something to draw conclusions from.
+      if (instr || esc || bad) exit 0
+      if (got && value != "" && index(value, "\n") == 0) print value
+    }
+  '
+}
+
+# The user's statusLine, resolved from the SAME precedence chain claude
+# applies: project-local, then project, then user. Managed settings are not
+# consulted — they outrank `--settings` itself, so where one defines a
+# statusLine this script is not running at all.
+#
+# The project root comes out of the payload (`workspace.project_dir` — the
+# session's own idea of the project) instead of being guessed at spawn time,
+# so a pane opened below the root still resolves the right files, and an edit
+# to any of them takes effect on the next status update without a respawn.
+#
+# MVP simplification: a layer whose statusLine we cannot use (an exotic
+# `type`, a non-string command) is SKIPPED rather than treated as final, so in
+# that rare case a lower-precedence statusLine can win. It renders the wrong
+# line, never the wrong process.
+delegate=""
+if [ -z "$KEEPDECK_STATUSLINE_INNER" ]; then
+  project=$(printf '%s' "$payload" | json_field workspace project_dir)
+  [ -n "$project" ] || project=$(printf '%s' "$payload" | json_field cwd)
+  for settings in \
+    "${project:+$project/.claude/settings.local.json}" \
+    "${project:+$project/.claude/settings.json}" \
+    "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+  do
+    [ -n "$settings" ] && [ -f "$settings" ] || continue
+    [ "$(json_field statusLine type < "$settings")" = "command" ] || continue
+    candidate=$(json_field statusLine command < "$settings")
+    [ -n "$candidate" ] || continue
+    delegate=$candidate
+    break
+  done
+fi
+
+# Never delegate to ourselves: a user who points their own statusLine at this
+# script would otherwise recurse once per update. The env sentinel above
+# catches a wrapper AROUND us; this catches the direct reference.
+case $delegate in
+  *kd-usage-statusline.sh*) delegate="" ;;
+esac
+
+if [ -n "$delegate" ]; then
+  # Run it the way claude itself would: through a shell, so an inline command
+  # and a leading `~` behave exactly as they do outside a KeepDeck pane. Their
+  # stderr is left alone. `$(...)` eats trailing newlines; printf puts one back.
+  if out=$(printf '%s' "$payload" \
+    | KEEPDECK_STATUSLINE_INNER=1 sh -c "$delegate") && [ -n "$out" ]; then
+    printf '%s\n' "$out"
+    exit 0
+  fi
+  # Fall through: a delegate that failed or drew nothing would leave the status
+  # line blank, so our own footer takes over.
+fi
+
+# ---------------------------------------------------------------- 3. footer
+
+# Display-only, so sed is enough here — a missed field costs a character of
+# footer, not a wrong decision. `display_name` appears once; `used_percentage`
+# is matched inside the flat prefix of the context_window object (it precedes
+# the nested current_usage).
 model=$(printf '%s' "$payload" \
   | sed -n 's/.*"display_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
   | head -n 1)
@@ -32,33 +210,4 @@ if [ -n "$model" ] && [ -n "$ctx" ]; then
 elif [ -n "$model" ]; then
   printf '%s\n' "$model"
 fi
-
-[ -n "$KEEPDECK_BRIDGE" ] || exit 0
-# A statusline payload is a JSON object; anything else is not worth a write
-# (the bridge would consume-and-drop it anyway).
-case $payload in
-  "{"*) ;;
-  *) exit 0 ;;
-esac
-
-# The values are KeepDeck-minted (uuid-ish, no escapes) and the dir is a path
-# without quotes — extracting quoted JSON strings with sed is safe here.
-field() {
-  printf '%s' "$KEEPDECK_BRIDGE" \
-    | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    | head -n 1
-}
-dir=$(field dir)
-pane=$(field pane)
-token=$(field token)
-[ -n "$dir" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
-
-# mktemp = the unique name AND the tmp stage; the rename to .json publishes.
-f=$(mktemp "$dir/usage.report-XXXXXXXX") || exit 0
-{
-  printf '{"v":1,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":' \
-    "$pane" "$token"
-  printf '%s' "$payload"
-  printf '}}'
-} > "$f" && mv "$f" "$f.json"
 exit 0
