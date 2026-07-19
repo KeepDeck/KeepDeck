@@ -6,6 +6,7 @@ import {
   type PaneUsage,
   type UsageNormalizer,
 } from "../domain/usage";
+import { usageSourceTimestamp } from "./usageProvenance";
 
 /**
  * The owner of live usage state — one per app, outside React, like
@@ -65,12 +66,11 @@ export function registerUsageNormalizer(
  * payloads are dropped silently — reporters are best-effort by design.
  *
  * `payload.catchUp` (a host-owned transport key, set by the tailer) marks
- * a replay of the EXISTING session file at arm time. Replays are stamped
- * with RECEIPT time like everything else, so without the mark a stale
- * snapshot from a freshly-armed pane would outrank genuinely fresher live
- * data under freshest-wins; marked reports apply (and MERGE — one arm is
- * several complementary partial events) unless the target already carries
- * LIVE data from this run. */
+ * a replay of the EXISTING session file at arm time. Its `sourceAt` is the
+ * rollout event's ISO time (file mtime fallback), so freshest-wins compares
+ * it honestly with hydrated/polled state. The provenance mark remains a
+ * stronger guard: replay can fill and MERGE gaps but never beat LIVE data
+ * from this run. */
 export function reportUsage(
   paneId: string,
   payload: unknown,
@@ -80,9 +80,10 @@ export function reportUsage(
   const provider = payload.agent;
   const normalize = normalizers.get(provider);
   if (!normalize) return;
-  const result = normalize(payload, at);
-  if (!result) return;
   const catchUp = payload.catchUp === true;
+  const sourceAt = catchUp ? usageSourceTimestamp(payload.sourceAt) : null;
+  const result = normalize(payload, sourceAt ?? at);
+  if (!result) return;
 
   let changed = false;
   if (result.account && !(catchUp && liveAccounts.has(provider))) {

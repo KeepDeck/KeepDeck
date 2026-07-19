@@ -404,6 +404,7 @@ describe("useUsageChannel", () => {
   it("sweeps the newest on-disk codex rollout at boot, stamped with the file's age", async () => {
     ipc.latestCodexRollout.mockResolvedValue({
       event: { type: "token_count" },
+      sourceAt: "1970-01-01T00:00:02.000Z",
       mtimeMs: 1_234,
     });
     // No codex pane anywhere — the account chip still catches up from disk.
@@ -411,7 +412,7 @@ describe("useUsageChannel", () => {
     await act(async () => {});
     expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
       kind: "reported",
-      reportedAt: 1_234,
+      reportedAt: 2_000,
     });
     // Account state only: without a pane there is nothing to attribute.
     expect(getUsageSnapshot().panes.size).toBe(0);

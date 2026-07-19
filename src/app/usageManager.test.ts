@@ -192,6 +192,39 @@ describe("catch-up reports", () => {
     });
   });
 
+  it("rank against hydrated state by source time, not replay receipt time", () => {
+    // Exact regression: a three-day-old rollout was armed today and its
+    // receipt timestamp made 68% beat the genuinely current cached 49%.
+    setAccountUsage("fake", {
+      kind: "reported",
+      windows: [],
+      reportedAt: Date.parse("2026-07-19T12:00:00.000Z"),
+      sourcePaneId: "",
+    });
+    const dispose = registerUsageNormalizer("fake", (_payload, at) => reported(at));
+    reportUsage(
+      "pane-old",
+      {
+        agent: "fake",
+        catchUp: true,
+        sourceAt: "2026-07-16T22:13:08.000Z",
+      },
+      Date.parse("2026-07-19T15:57:00.000Z"),
+    );
+    dispose();
+
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: Date.parse("2026-07-19T12:00:00.000Z"),
+    });
+  });
+
+  it("accept file-mtime milliseconds as the replay fallback", () => {
+    const dispose = registerUsageNormalizer("fake", (_payload, at) => reported(at));
+    reportUsage("pane-1", { agent: "fake", catchUp: true, sourceAt: 2_000 }, 99_000);
+    dispose();
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({ reportedAt: 2_000 });
+  });
+
   it("populate an empty store like any first report", () => {
     const dispose = fake(reported(5));
     reportUsage("pane-1", { agent: "fake", catchUp: true });

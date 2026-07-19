@@ -66,10 +66,13 @@ export function findCodexRollout(sessionId: string): Promise<string | null> {
   return invoke("usage_find_codex_rollout", { sessionId });
 }
 
-/** Mirrors the Rust `LatestRollout`: the newest on-disk usage event and the
- * FILE's mtime — the honest age of what it says. */
+/** Mirrors the Rust `LatestRollout`: the newest on-disk usage event, its
+ * source time when available, and the file-mtime fallback. */
 export interface LatestCodexRollout {
   event: unknown;
+  /** Event ISO time when Codex provided it; file mtime milliseconds
+   * otherwise. Optional only for compatibility with older hosts. */
+  sourceAt?: string | number;
   mtimeMs: number;
 }
 

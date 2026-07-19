@@ -35,7 +35,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 
@@ -71,12 +71,29 @@ impl TailFormat {
         }
     }
 
-    fn event(self, line: &[u8]) -> Option<Value> {
+    fn event(self, line: &[u8]) -> Option<TailedEvent> {
         match self {
             TailFormat::Codex => rollout_event(line),
             TailFormat::KimiWire => wire_event(line),
         }
     }
+}
+
+/// Honest time carried by the source file. Codex writes an ISO timestamp on
+/// each rollout line; for older/malformed writers the file mtime is the
+/// fallback. An untagged scalar keeps the host transport small while its JSON
+/// type still discriminates ISO strings from unix milliseconds.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+enum SourceTimestamp {
+    Iso(String),
+    UnixMillis(u64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct TailedEvent {
+    payload: Value,
+    source_at: Option<SourceTimestamp>,
 }
 
 /// One followed session file: where we are in it and how to attribute what
@@ -126,34 +143,43 @@ impl Drop for TailPoller {
 /// One rollout line → the payload event worth forwarding, if any:
 /// `token_count` (usage + rate limits) and `turn_context` (model). Anything
 /// else — user messages, tool calls, garbage — is `None`.
-fn rollout_event(line: &[u8]) -> Option<Value> {
+fn rollout_event(line: &[u8]) -> Option<TailedEvent> {
     let value: Value = serde_json::from_slice(line).ok()?;
-    match value.get("type")?.as_str()? {
+    let source_at = value
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .map(|at| SourceTimestamp::Iso(at.to_string()));
+    let payload = match value.get("type")?.as_str()? {
         "event_msg" => {
             let payload = value.get("payload")?;
             if payload.get("type")?.as_str()? == "token_count" {
-                Some(payload.clone())
+                payload.clone()
             } else {
-                None
+                return None;
             }
         }
         "turn_context" => {
             let mut payload = value.get("payload")?.as_object()?.clone();
             payload.insert("type".into(), "turn_context".into());
-            Some(Value::Object(payload))
+            Value::Object(payload)
         }
-        _ => None,
-    }
+        _ => return None,
+    };
+    Some(TailedEvent { payload, source_at })
 }
 
 /// One kimi wire line → the payload event worth forwarding. `usage.record`
 /// is small and rides verbatim; `llm.request` is TRIMMED to the two scalars
 /// the normalizer needs (model, maxTokens) — the full event carries prompt
 /// content, which must never ride the app's event bus.
-fn wire_event(line: &[u8]) -> Option<Value> {
+fn wire_event(line: &[u8]) -> Option<TailedEvent> {
     let value: Value = serde_json::from_slice(line).ok()?;
-    match value.get("type")?.as_str()? {
-        "usage.record" => Some(value),
+    let source_at = value
+        .get("time")
+        .and_then(Value::as_u64)
+        .map(SourceTimestamp::UnixMillis);
+    let payload = match value.get("type")?.as_str()? {
+        "usage.record" => value,
         "llm.request" => {
             let mut trimmed = serde_json::Map::new();
             trimmed.insert("type".into(), "llm.request".into());
@@ -162,21 +188,32 @@ fn wire_event(line: &[u8]) -> Option<Value> {
                     trimmed.insert(key.into(), v.clone());
                 }
             }
-            Some(Value::Object(trimmed))
+            Value::Object(trimmed)
         }
-        _ => None,
-    }
+        _ => return None,
+    };
+    Some(TailedEvent { payload, source_at })
 }
 
 /// Read everything appended since the recorded offset and return the events
 /// of the COMPLETE new lines; a trailing partial line is carried for the
 /// next call. A missing file is "nothing yet"; a shrunk file (rotation)
 /// restarts from zero.
-fn drain(state: &mut TailState) -> Vec<Value> {
+fn drain(state: &mut TailState) -> Vec<TailedEvent> {
     let Ok(mut file) = File::open(&state.path) else {
         return Vec::new();
     };
-    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let (len, file_mtime_ms) = file
+        .metadata()
+        .map(|metadata| {
+            let modified = metadata
+                .modified()
+                .ok()
+                .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|duration| duration.as_millis() as u64);
+            (metadata.len(), modified)
+        })
+        .unwrap_or((0, None));
     if len < state.offset {
         // A rotated/truncated file is a fresh start — including out of an
         // abandoned-line skip, or the new file's FIRST line would be
@@ -212,7 +249,10 @@ fn drain(state: &mut TailState) -> Vec<Value> {
     let mut events = Vec::new();
     while let Some(nl) = state.partial.iter().position(|b| *b == b'\n') {
         let line: Vec<u8> = state.partial.drain(..=nl).collect();
-        if let Some(event) = state.format.event(&line[..line.len() - 1]) {
+        if let Some(mut event) = state.format.event(&line[..line.len() - 1]) {
+            if event.source_at.is_none() {
+                event.source_at = file_mtime_ms.map(SourceTimestamp::UnixMillis);
+            }
             events.push(event);
         }
     }
@@ -225,10 +265,10 @@ fn drain(state: &mut TailState) -> Vec<Value> {
 
 /// The catch-up summary: of everything drained from an existing file, only
 /// the LAST of each kind matters, emitted in the format's declared order.
-fn last_of_each(events: Vec<Value>, order: [&str; 2]) -> Vec<Value> {
-    let mut last: [Option<Value>; 2] = [None, None];
+fn last_of_each(events: Vec<TailedEvent>, order: [&str; 2]) -> Vec<TailedEvent> {
+    let mut last: [Option<TailedEvent>; 2] = [None, None];
     for event in events {
-        let Some(kind) = event.get("type").and_then(|t| t.as_str()) else {
+        let Some(kind) = event.payload.get("type").and_then(|t| t.as_str()) else {
             continue;
         };
         if let Some(slot) = order.iter().position(|k| *k == kind) {
@@ -242,15 +282,19 @@ fn last_of_each(events: Vec<Value>, order: [&str; 2]) -> Vec<Value> {
 /// `catchUp` are HOST-owned transport keys on the payload: `catchUp` marks
 /// events replayed from the EXISTING file at arm time — the store must not
 /// let that replay outrank live data.
-fn report(state: &TailState, event: Value, catch_up: bool) -> UsageReport {
+fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> UsageReport {
+    let mut payload = json!({
+        "agent": state.format.agent(),
+        "event": event.payload,
+        "catchUp": catch_up,
+    });
+    if let Some(source_at) = event.source_at {
+        payload["sourceAt"] = json!(source_at);
+    }
     UsageReport {
         pane_id: state.pane_id.clone(),
         token: state.token.clone(),
-        payload: json!({
-            "agent": state.format.agent(),
-            "event": event,
-            "catchUp": catch_up,
-        }),
+        payload,
     }
 }
 
@@ -401,13 +445,15 @@ fn find_rollout_in(root: &std::path::Path, session_id: &str) -> Option<PathBuf> 
         })
 }
 
-/// The last usage event of the newest rollout on disk, plus that FILE's
-/// mtime. This is the boot catch-up: codex runs outside KeepDeck too, so
-/// its sessions dir can know fresher limits than our persisted snapshot.
+/// The last usage event of the newest rollout on disk, its source time and
+/// that FILE's mtime fallback. This is the boot catch-up: codex runs outside
+/// KeepDeck too, so its sessions dir can know fresher limits than cache.
 #[derive(Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LatestRollout {
     event: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_at: Option<SourceTimestamp>,
     mtime_ms: u64,
 }
 
@@ -431,21 +477,25 @@ fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
         };
         let event = last_of_each(drain(&mut state), TailFormat::Codex.catch_up_order())
             .into_iter()
-            .find(|e| e.get("type").and_then(|t| t.as_str()) == Some("token_count"));
+            .find(|e| e.payload.get("type").and_then(|t| t.as_str()) == Some("token_count"));
         if let Some(event) = event {
             let mtime_ms = modified
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
-            return Some(LatestRollout { event, mtime_ms });
+            return Some(LatestRollout {
+                event: event.payload,
+                source_at: event.source_at,
+                mtime_ms,
+            });
         }
     }
     None
 }
 
 /// The boot catch-up command. `(async)` — it may read several session
-/// files. The event rides verbatim (payloads are opaque to Rust); the
-/// mtime, not receipt time, is the honest age of what it says.
+/// files. The event rides verbatim (payloads are opaque to Rust); source
+/// time (or mtime), never receipt time, is its honest age.
 #[tauri::command(async)]
 pub fn usage_latest_codex_rollout() -> Option<LatestRollout> {
     let home = std::env::var_os("HOME")?;
@@ -487,9 +537,10 @@ mod tests {
         dir
     }
 
-    const TOKEN_COUNT_LINE: &str = r#"{"timestamp":"t","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100},"last_token_usage":{"total_tokens":40},"model_context_window":258400},"rate_limits":{"primary":{"used_percent":75.0,"window_minutes":10080,"resets_at":1784834810},"secondary":null,"plan_type":"plus"}}}"#;
+    const SOURCE_ISO: &str = "2026-07-16T22:13:08.000Z";
+    const TOKEN_COUNT_LINE: &str = r#"{"timestamp":"2026-07-16T22:13:08.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100},"last_token_usage":{"total_tokens":40},"model_context_window":258400},"rate_limits":{"primary":{"used_percent":75.0,"window_minutes":10080,"resets_at":1784834810},"secondary":null,"plan_type":"plus"}}}"#;
     const TURN_CONTEXT_LINE: &str =
-        r#"{"timestamp":"t","type":"turn_context","payload":{"model":"gpt-5.6-sol","effort":"xhigh","cwd":"/x"}}"#;
+        r#"{"timestamp":"2026-07-16T22:13:08.000Z","type":"turn_context","payload":{"model":"gpt-5.6-sol","effort":"xhigh","cwd":"/x"}}"#;
     const USAGE_RECORD_LINE: &str = r#"{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":1200,"output":300,"inputCacheRead":40000,"inputCacheCreation":900},"usageScope":"turn","time":1784800000000}"#;
     const LLM_REQUEST_LINE: &str = r#"{"type":"llm.request","model":"kimi-code/k3","maxTokens":1048576,"messages":[{"role":"user","content":"SECRET PROMPT"}]}"#;
 
@@ -508,12 +559,19 @@ mod tests {
     #[test]
     fn rollout_event_forwards_usage_and_context_only() {
         let token = rollout_event(TOKEN_COUNT_LINE.as_bytes()).expect("token_count");
-        assert_eq!(token["type"], "token_count");
-        assert_eq!(token["rate_limits"]["primary"]["used_percent"], 75.0);
+        assert_eq!(token.payload["type"], "token_count");
+        assert_eq!(
+            token.payload["rate_limits"]["primary"]["used_percent"],
+            75.0
+        );
+        assert_eq!(
+            token.source_at,
+            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
+        );
 
         let turn = rollout_event(TURN_CONTEXT_LINE.as_bytes()).expect("turn_context");
-        assert_eq!(turn["type"], "turn_context");
-        assert_eq!(turn["model"], "gpt-5.6-sol");
+        assert_eq!(turn.payload["type"], "turn_context");
+        assert_eq!(turn.payload["model"], "gpt-5.6-sol");
 
         // Other event kinds, other line types and garbage are all skipped.
         assert_eq!(
@@ -544,8 +602,8 @@ mod tests {
         drop(file);
         let events = drain(&mut state);
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0]["type"], "token_count");
-        assert_eq!(events[1]["type"], "turn_context");
+        assert_eq!(events[0].payload["type"], "token_count");
+        assert_eq!(events[1].payload["type"], "turn_context");
 
         // Already consumed — nothing new.
         assert!(drain(&mut state).is_empty());
@@ -554,7 +612,7 @@ mod tests {
         fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
         let events = drain(&mut state);
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["type"], "turn_context");
+        assert_eq!(events[0].payload["type"], "turn_context");
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -562,14 +620,18 @@ mod tests {
     #[test]
     fn wire_event_forwards_usage_and_trims_prompt_content() {
         let record = wire_event(USAGE_RECORD_LINE.as_bytes()).expect("usage.record");
-        assert_eq!(record["type"], "usage.record");
-        assert_eq!(record["usage"]["inputCacheRead"], 40000);
+        assert_eq!(record.payload["type"], "usage.record");
+        assert_eq!(record.payload["usage"]["inputCacheRead"], 40000);
+        assert_eq!(
+            record.source_at,
+            Some(SourceTimestamp::UnixMillis(1_784_800_000_000))
+        );
 
         // llm.request keeps ONLY the scalars — the prompt must not ride the
         // event bus.
         let request = wire_event(LLM_REQUEST_LINE.as_bytes()).expect("llm.request");
         assert_eq!(
-            request,
+            request.payload,
             serde_json::json!({
                 "type": "llm.request", "model": "kimi-code/k3", "maxTokens": 1048576,
             })
@@ -583,7 +645,7 @@ mod tests {
     fn catch_up_keeps_only_the_last_of_each_kind_context_first() {
         let old = rollout_event(TURN_CONTEXT_LINE.as_bytes()).unwrap();
         let mut newer = old.clone();
-        newer["model"] = "gpt-6".into();
+        newer.payload["model"] = "gpt-6".into();
         let count = rollout_event(TOKEN_COUNT_LINE.as_bytes()).unwrap();
 
         let order = TailFormat::Codex.catch_up_order();
@@ -611,12 +673,14 @@ mod tests {
         assert_eq!(wrapped.payload["agent"], "codex");
         assert_eq!(wrapped.payload["event"]["type"], "turn_context");
         assert_eq!(wrapped.payload["catchUp"], false);
+        assert_eq!(wrapped.payload["sourceAt"], SOURCE_ISO);
 
         state.format = TailFormat::KimiWire;
         let event = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
         let wrapped = report(&state, event, true);
         assert_eq!(wrapped.payload["agent"], "kimi");
         assert_eq!(wrapped.payload["catchUp"], true);
+        assert_eq!(wrapped.payload["sourceAt"], 1_784_800_000_000_u64);
     }
 
     #[test]
@@ -638,7 +702,7 @@ mod tests {
         drop(file);
         let events = drain(&mut state);
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["type"], "turn_context");
+        assert_eq!(events[0].payload["type"], "turn_context");
         assert!(!state.skipping);
 
         fs::remove_dir_all(&dir).ok();
@@ -661,7 +725,7 @@ mod tests {
         fs::write(&path, format!("{TURN_CONTEXT_LINE}\n")).unwrap();
         let events = drain(&mut state);
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["type"], "turn_context");
+        assert_eq!(events[0].payload["type"], "turn_context");
         assert!(!state.skipping);
 
         fs::remove_dir_all(&dir).ok();
@@ -699,6 +763,23 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_event_timestamp_falls_back_to_the_file_mtime() {
+        let dir = temp_dir();
+        let path = dir.join("rollout-no-timestamp.jsonl");
+        let without_timestamp =
+            TOKEN_COUNT_LINE.replacen(&format!(r#""timestamp":"{SOURCE_ISO}","#), "", 1);
+        fs::write(&path, format!("{without_timestamp}\n")).unwrap();
+        set_mtime(&path, 1_234);
+
+        let event = drain(&mut tail(path)).pop().expect("usage event");
+        assert_eq!(
+            event.source_at,
+            Some(SourceTimestamp::UnixMillis(1_234_000))
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn boot_sweep_returns_the_newest_rollout_that_carries_usage() {
         let root = temp_dir();
         let day = root.join("2026/07/19");
@@ -720,6 +801,10 @@ mod tests {
         let found = latest_rollout_usage_in(&root).expect("usage found");
         assert_eq!(found.event["type"], "token_count");
         assert_eq!(found.event["rate_limits"]["primary"]["used_percent"], 33.0);
+        assert_eq!(
+            found.source_at,
+            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
+        );
         assert_eq!(found.mtime_ms, 2_000_000, "stamped with the FILE's age");
 
         fs::remove_dir_all(&root).ok();
@@ -754,8 +839,8 @@ mod tests {
         fs::write(&path, format!("{LLM_REQUEST_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
         let events = drain(&mut state);
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0]["type"], "llm.request");
-        assert_eq!(events[1]["type"], "usage.record");
+        assert_eq!(events[0].payload["type"], "llm.request");
+        assert_eq!(events[1].payload["type"], "usage.record");
 
         fs::remove_dir_all(&dir).ok();
     }
