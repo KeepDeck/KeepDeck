@@ -8,7 +8,9 @@
   "capabilities": [
     { "kind": "exec", "commands": ["kimi"] },
     { "kind": "net", "domains": ["127.0.0.1"] },
-    { "kind": "notifications" }
+    { "kind": "notifications" },
+    { "kind": "fs", "scope": "everywhere" },
+    { "kind": "fsWrite", "paths": ["~/.kimi-code"] }
   ],
   "contributes": {
     "agents": [{ "id": "kimi", "label": "Kimi Code" }],

@@ -66,6 +66,18 @@ const plugin: KeepDeckPlugin = {
             input.sessionId,
           ];
         },
+        // codex forks natively: `codex fork <id>` resolves the session by
+        // its GLOBAL id (no cwd filter), mints a NEW session id, copies the
+        // history, and binds the fork to the invocation dir — no store
+        // surgery at all (probe-verified, RESUME_ANY_HISTORY.md §2).
+        "fork.plan": async (input, output) => {
+          output.args = [
+            ...(await hookArgs(ctx.resources)),
+            ...yoloArgs(input.yolo),
+            "fork",
+            input.sessionId,
+          ];
+        },
       },
     });
   },

@@ -67,6 +67,14 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
 const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
   skills ? ["--plugin-dir", skills.claudePluginDir] : [];
 
+/** Claude encodes a session's project dir into the store path:
+ * `~/.claude/projects/<slug>/<sessionId>.jsonl`, slug = the absolute cwd
+ * with `/`, `.` and `_` each replaced by `-`. `--resume` searches ONLY the
+ * current cwd's slug dir (the `--cwd` flag request was closed not-planned),
+ * so a cross-directory fork copies the transcript into the TARGET's slug
+ * dir first — the community-verified relocation recipe. */
+const projectSlug = (cwd: string): string => cwd.replace(/[/._]/g, "-");
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -92,6 +100,48 @@ const plugin: KeepDeckPlugin = {
             ...yoloArgs(input.yolo),
             "--resume",
             input.sessionId,
+          ];
+        },
+        /** Cross-directory fork: copy the recorded transcript into the
+         * target cwd's slug dir, then spawn `--resume <id> --fork-session`
+         * THERE — claude finds the copy, and --fork-session mints a fresh
+         * session id for the continuation, leaving the original resumable
+         * where it was (no duplicate-id ambiguity). The copy lands inside
+         * `~/.claude/projects` only — exactly the manifest's fsWrite scope. */
+        "fork.plan": async (input, output) => {
+          const source = input.transcriptPath;
+          if (!source) {
+            // Without the reporter-delivered path there is nothing safe to
+            // copy — guessing the source slug would be store archaeology.
+            throw new Error(
+              `claude fork of ${input.sessionId}: no recorded transcript path`,
+            );
+          }
+          if (!/\.jsonl$/.test(source)) {
+            throw new Error(
+              `claude fork of ${input.sessionId}: transcript is not a .jsonl (${source})`,
+            );
+          }
+          // The projects root comes from the transcript itself — no home
+          // lookup, and a layout change breaks LOUDLY here instead of
+          // copying into a wrong tree.
+          const marker = "/projects/";
+          const at = source.lastIndexOf(marker);
+          if (at < 0) {
+            throw new Error(
+              `claude fork of ${input.sessionId}: unexpected store layout (${source})`,
+            );
+          }
+          const projectsRoot = source.slice(0, at + marker.length - 1);
+          const target = `${projectsRoot}/${projectSlug(input.cwd)}/${input.sessionId}.jsonl`;
+          await ctx.services.fsWrite.copyFile(source, target);
+          output.args = [
+            ...(await hookArgs(ctx.resources)),
+            ...skillsArgs(input.skills),
+            ...yoloArgs(input.yolo),
+            "--resume",
+            input.sessionId,
+            "--fork-session",
           ];
         },
       },

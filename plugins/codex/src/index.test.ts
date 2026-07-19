@@ -52,6 +52,27 @@ describe("codex plugin hooks", () => {
     expect(out.args.slice(-2)).toEqual(["resume", "uuid-9"]);
   });
 
+  it("fork.plan is args-only: global flags, then the fork subcommand", async () => {
+    const agent = activate("/App/resources/kd-session-hook.sh");
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, sessionId: "uuid-9", sourceCwd: "/somewhere/else" },
+      out,
+    );
+
+    // No surgery, no sourceCwd use — codex resolves the id globally.
+    expect(out.args.slice(0, 1)).toEqual(["-c"]);
+    expect(out.args.slice(-2)).toEqual(["fork", "uuid-9"]);
+
+    const yolo = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, yolo: true, sessionId: "u", sourceCwd: "/x" },
+      yolo,
+    );
+    expect(yolo.args.slice(0, 1)).toEqual(["-c"]);
+    expect(yolo.args).toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
   it("degrades to a bare spawn when the script is missing", async () => {
     const agent = activate(null);
     const out = output();

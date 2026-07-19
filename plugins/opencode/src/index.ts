@@ -61,6 +61,17 @@ const plugin: KeepDeckPlugin = {
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
           output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
         },
+        // opencode forks natively: `-s <id> --fork` continues a COPY under a
+        // new session id. Sessions are project-keyed and every git worktree
+        // of a repo shares one project, so the dominant fork-into-worktree
+        // flow needs no surgery; a target OUTSIDE the session's project
+        // fails visibly in the terminal (the export→rekey→import route can
+        // cover that if it ever matters).
+        "fork.plan": async (input, output) => {
+          output.env.push(...(await reporterEnv(ctx.resources)));
+          (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
+          output.args = [...yoloArgs(input.yolo), "-s", input.sessionId, "--fork"];
+        },
       },
     });
   },

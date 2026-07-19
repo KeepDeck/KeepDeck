@@ -1,4 +1,5 @@
 import "./styles.css";
+import { kimiForkPlan } from "./fork";
 import type { KeepDeckPlugin, SpawnSkillsInput } from "@keepdeck/plugin-api";
 import {
   COMPANION_DESCRIPTOR,
@@ -79,6 +80,15 @@ const plugin: KeepDeckPlugin = {
             ...(input.yolo ? ["--yolo"] : []),
             "--session",
             input.sessionId,
+          ];
+        },
+        "fork.plan": async (input, output) => {
+          const newId = await kimiForkPlan(ctx, input);
+          output.args = [
+            ...skillsArgs(input.skills),
+            ...(input.yolo ? ["--yolo"] : []),
+            "--session",
+            newId,
           ];
         },
       },
