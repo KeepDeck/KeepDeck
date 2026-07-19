@@ -91,11 +91,18 @@ export function SkillEditor({
         <label className="form__label" htmlFor="skill-description">
           Description
         </label>
-        <input
+        {/* A wrapping textarea so long descriptions read whole, but the
+            VALUE stays one line (frontmatter contract): Enter is inert
+            here and the dialog folds pasted newlines to spaces. */}
+        <textarea
           id="skill-description"
-          className="form__input"
+          className="form__input skills__desc"
+          rows={3}
           value={form.description}
           onChange={(e) => onField("description", e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.preventDefault();
+          }}
           placeholder="When should an agent reach for this skill"
           spellCheck={false}
         />

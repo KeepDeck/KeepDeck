@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   isValidSkillDescription,
   isValidSkillName,
+  normalizeSkillDescription,
   parseSkillFile,
   type SkillDraft,
   type SkillScope,
@@ -290,7 +291,13 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
                 canSave={canSave}
                 error={error}
                 onField={(key, value) => {
-                  setForm((f) => ({ ...f, [key]: value }));
+                  // The description is one YAML line by contract (see
+                  // isValidSkillDescription); its textarea wraps for
+                  // reading, so a multi-line paste folds to spaces here
+                  // instead of tripping validation.
+                  const next =
+                    key === "description" ? normalizeSkillDescription(value) : value;
+                  setForm((f) => ({ ...f, [key]: next }));
                   setDirty(true);
                 }}
                 onSubmit={() => void submit()}

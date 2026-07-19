@@ -260,6 +260,23 @@ describe("SkillsDialog", () => {
     ).toBe("About review");
   });
 
+  it("a multi-line paste into the description folds to one line and saves so", async () => {
+    lib.skills = [skill("review")];
+    await mount();
+    act(() => row("review")!.click());
+
+    type(input("skill-description"), "reviews diffs\r\n  with subagents\n\nread-only");
+    expect(input("skill-description").value).toBe(
+      "reviews diffs with subagents read-only",
+    );
+
+    await act(async () => button("Save")!.click());
+    expect(lib.save).toHaveBeenCalledWith(
+      { kind: "global" },
+      expect.objectContaining({ description: "reviews diffs with subagents read-only" }),
+    );
+  });
+
   it("⌘S fires by PHYSICAL key — a Cyrillic layout saves too", async () => {
     await mount();
     act(() => buttonByTitle("New global skill")!.click());
