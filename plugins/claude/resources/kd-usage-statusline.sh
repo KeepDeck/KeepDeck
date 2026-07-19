@@ -65,13 +65,12 @@ fi
 
 # -------------------------------------------------------------- 2. delegate
 
-# Read ONE string field out of a JSON document on stdin:
-#   json_field <key>           a key of the root object
-#   json_field <object> <key>  a key of a root-level object
-# Prints the value, or NOTHING when the document is malformed, the field is
-# absent, or its value is not a plain string. Every ambiguity is a miss, never
-# a guess: this value decides which command we execute, so being wrong here
-# would run the wrong program on the user's machine.
+# Read `<object>.<key>` as a string out of the JSON document on stdin, where
+# <object> is a key of the ROOT object. Prints the value, or NOTHING when the
+# document is malformed, the field is absent, or its value is not a plain
+# string. Every ambiguity is a miss, never a guess: this value decides which
+# command we execute, so being wrong here would run the wrong program on the
+# user's machine.
 #
 # Hand-rolled because only POSIX tools are guaranteed on the target machine —
 # jq, python and node are all absent from a stock macOS with a native claude
@@ -80,22 +79,14 @@ fi
 # structure, and it keys off nesting DEPTH, so a `statusLine` nested somewhere
 # else is never confused for the real one.
 json_field() {
-  if [ $# -eq 2 ]; then
-    _jf_obj=$1
-    _jf_key=$2
-  else
-    _jf_obj=""
-    _jf_key=$1
-  fi
-  awk -v want_obj="$_jf_obj" -v want_key="$_jf_key" '
+  awk -v want_obj="$1" -v want_key="$2" '
     { buf = buf $0 "\n" }
     END {
       n = length(buf)
       depth = 0; instr = 0; esc = 0
       tok = ""; last = ""; value = ""
       awaiting = 0; pending = 0; got = 0; bad = 0
-      # With no object wanted, the root object IS the scope we search.
-      in_obj = (want_obj == "" ? 1 : 0); obj_depth = 1
+      in_obj = 0; obj_depth = 0
       for (i = 1; i <= n && !got && !bad; i++) {
         c = substr(buf, i, 1)
         if (instr) {
@@ -120,12 +111,12 @@ json_field() {
         }
         if (c == "[") { depth++; pending = 0; awaiting = 0; continue }
         if (c == "}" || c == "]") {
-          if (in_obj && want_obj != "" && depth == obj_depth) in_obj = 0
+          if (in_obj && depth == obj_depth) in_obj = 0
           depth--; pending = 0; awaiting = 0
           continue
         }
         if (c == ":") {
-          if (want_obj != "" && depth == 1 && last == want_obj) pending = 1
+          if (depth == 1 && last == want_obj) pending = 1
           else if (in_obj && depth == obj_depth && last == want_key) awaiting = 1
           continue
         }
@@ -141,36 +132,26 @@ json_field() {
   '
 }
 
-# The user's statusLine, resolved from the SAME precedence chain claude
-# applies: project-local, then project, then user. Managed settings are not
-# consulted — they outrank `--settings` itself, so where one defines a
-# statusLine this script is not running at all.
-#
-# The project root comes out of the payload (`workspace.project_dir` — the
-# session's own idea of the project) instead of being guessed at spawn time,
-# so a pane opened below the root still resolves the right files, and an edit
-# to any of them takes effect on the next status update without a respawn.
-#
-# MVP simplification: a layer whose statusLine we cannot use (an exotic
-# `type`, a non-string command) is SKIPPED rather than treated as final, so in
-# that rare case a lower-precedence statusLine can win. It renders the wrong
-# line, never the wrong process.
+# The user's own statusLine — the USER layer only, never claude's full
+# precedence chain. A project's `.claude/settings.json` is COMMITTED to the
+# repository, so honouring it would mean executing a command chosen by
+# whoever wrote the repo, on every clone and every pulled PR branch — and
+# claude gates project settings behind a directory-trust prompt whose answer
+# we cannot see, so we would be running what the user may have refused.
+# Nothing can be sanitized away here: the field IS a command by design, so
+# the only workable defence is provenance. Reading just the user's own file
+# keeps this to "run what they configured for themselves", which claude would
+# have run anyway. Managed settings are not consulted either — they outrank
+# `--settings` itself, so where one defines a statusLine this script is not
+# running at all.
 delegate=""
 if [ -z "$KEEPDECK_STATUSLINE_INNER" ]; then
-  project=$(printf '%s' "$payload" | json_field workspace project_dir)
-  [ -n "$project" ] || project=$(printf '%s' "$payload" | json_field cwd)
-  for settings in \
-    "${project:+$project/.claude/settings.local.json}" \
-    "${project:+$project/.claude/settings.json}" \
-    "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
-  do
-    [ -n "$settings" ] && [ -f "$settings" ] || continue
-    [ "$(json_field statusLine type < "$settings")" = "command" ] || continue
-    candidate=$(json_field statusLine command < "$settings")
-    [ -n "$candidate" ] || continue
-    delegate=$candidate
-    break
-  done
+  settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
+  if [ -f "$settings" ] &&
+    [ "$(json_field statusLine type < "$settings")" = "command" ]
+  then
+    delegate=$(json_field statusLine command < "$settings")
+  fi
 fi
 
 # Never delegate to ourselves: a user who points their own statusLine at this

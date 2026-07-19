@@ -55,13 +55,13 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-/** Write a `.claude/settings.json` (or `settings.local.json`) under `root`,
- * the layout claude reads both a user home and a project root as. */
-function settings(root: string, value: object, local = false): string {
+/** Write a `.claude/settings.json` under `root` — the layout claude reads
+ * both a user home and a project root as. */
+function settings(root: string, value: object): string {
   mkdirSync(join(root, ".claude"), { recursive: true });
   writeFileSync(
-    join(root, ".claude", local ? "settings.local.json" : "settings.json"),
-    typeof value === "string" ? value : JSON.stringify(value),
+    join(root, ".claude", "settings.json"),
+    JSON.stringify(value),
   );
   return root;
 }
@@ -153,26 +153,24 @@ describe("kd-usage-statusline.sh", () => {
  * file) as about delegating.
  */
 describe("kd-usage-statusline.sh delegation", () => {
-  /** A payload whose `workspace.project_dir` points at `project`. */
-  const payload = (project: string) =>
-    JSON.stringify({ ...STATUSLINE, workspace: { project_dir: project } });
+  const payload = JSON.stringify(STATUSLINE);
 
   it("renders the user's own statusLine instead of the footer", () => {
     const home = settings(tmp(), statusLine("echo MY-OWN-LINE"));
-    const stdout = run(payload(tmp()), null, { home });
+    const stdout = run(payload, null, { home });
     expect(stdout.trim()).toBe("MY-OWN-LINE");
   });
 
   it("feeds the delegate the same stdin it received", () => {
     const home = settings(tmp(), statusLine("cat"));
-    const stdout = run(payload(tmp()), null, { home });
+    const stdout = run(payload, null, { home });
     // Verbatim: the delegate can read every field claude sent, not a digest.
     expect(JSON.parse(stdout).rate_limits).toEqual(STATUSLINE.rate_limits);
   });
 
   it("passes multi-line and ANSI output through untouched", () => {
     const home = settings(tmp(), statusLine("printf '\\033[32mrow1\\033[0m\\nrow2\\n'"));
-    const stdout = run(payload(tmp()), null, { home });
+    const stdout = run(payload, null, { home });
     expect(stdout).toBe("[32mrow1[0m\nrow2\n");
   });
 
@@ -181,7 +179,7 @@ describe("kd-usage-statusline.sh delegation", () => {
     // Claude cancels an in-flight statusLine run when the next update lands;
     // a report queued behind a slow delegate would be the one dropped.
     const home = settings(tmp(), statusLine(`ls ${dir} | wc -l`));
-    const stdout = run(payload(tmp()), { v: 1, dir, pane: "p", token: "t" }, {
+    const stdout = run(payload, { v: 1, dir, pane: "p", token: "t" }, {
       home,
     });
     expect(stdout.trim()).toBe("1");
@@ -189,29 +187,13 @@ describe("kd-usage-statusline.sh delegation", () => {
 
   it("falls back to the footer when the delegate fails", () => {
     const home = settings(tmp(), statusLine("exit 3"));
-    expect(run(payload(tmp()), null, { home }).trim()).toBe("Opus · ctx 8%");
+    expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
   it("falls back to the footer when the delegate draws nothing", () => {
     // Empty output blanks the status line — ours is better than nothing.
     const home = settings(tmp(), statusLine("true"));
-    expect(run(payload(tmp()), null, { home }).trim()).toBe("Opus · ctx 8%");
-  });
-
-  it("prefers project-local over project over user settings", () => {
-    const home = settings(tmp(), statusLine("echo USER"));
-    const project = settings(tmp(), statusLine("echo PROJECT"));
-    expect(run(payload(project), null, { home }).trim()).toBe("PROJECT");
-
-    settings(project, statusLine("echo PROJECT-LOCAL"), true);
-    expect(run(payload(project), null, { home }).trim()).toBe("PROJECT-LOCAL");
-  });
-
-  it("resolves the project from cwd when the payload has no workspace", () => {
-    const home = settings(tmp(), statusLine("echo USER"));
-    const project = settings(tmp(), statusLine("echo PROJECT"));
-    const stdin = JSON.stringify({ ...STATUSLINE, cwd: project });
-    expect(run(stdin, null, { home }).trim()).toBe("PROJECT");
+    expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
   it("reads the user layer from CLAUDE_CONFIG_DIR when set", () => {
@@ -221,7 +203,7 @@ describe("kd-usage-statusline.sh delegation", () => {
       join(config, "settings.json"),
       JSON.stringify(statusLine("echo FROM-CONFIG-DIR")),
     );
-    const stdout = run(payload(tmp()), null, {
+    const stdout = run(payload, null, {
       home,
       env: { CLAUDE_CONFIG_DIR: config },
     });
@@ -233,14 +215,14 @@ describe("kd-usage-statusline.sh delegation", () => {
     const home = settings(tmp(), {
       plugins: { statusLine: { type: "command", command: "echo NESTED" } },
     });
-    expect(run(payload(tmp()), null, { home }).trim()).toBe("Opus · ctx 8%");
+    expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
   it("ignores a statusLine that is not a command", () => {
     const home = settings(tmp(), {
       statusLine: { type: "widget", command: "echo NOT-A-COMMAND" },
     });
-    expect(run(payload(tmp()), null, { home }).trim()).toBe("Opus · ctx 8%");
+    expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
   it("delegates to nothing when the settings file is truncated", () => {
@@ -251,12 +233,12 @@ describe("kd-usage-statusline.sh delegation", () => {
       join(home, ".claude", "settings.json"),
       '{ "statusLine": { "type": "command", "command": "echo TRUNCATED',
     );
-    expect(run(payload(tmp()), null, { home }).trim()).toBe("Opus · ctx 8%");
+    expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
   it("never delegates to itself", () => {
     const home = settings(tmp(), statusLine(`/bin/sh ${SCRIPT}`));
-    expect(run(payload(tmp()), null, { home }).trim()).toBe("Opus · ctx 8%");
+    expect(run(payload, null, { home }).trim()).toBe("Opus · ctx 8%");
   });
 
   it("stays inert and silent when invoked as someone else's delegate", () => {
@@ -264,11 +246,42 @@ describe("kd-usage-statusline.sh delegation", () => {
     // A user whose own statusLine WRAPS this script: the sentinel stops the
     // inner run from delegating again and from double-reporting the payload.
     const home = settings(tmp(), statusLine("echo OUTER-ONLY"));
-    const stdout = run(payload(tmp()), { v: 1, dir, pane: "p", token: "t" }, {
+    const stdout = run(payload, { v: 1, dir, pane: "p", token: "t" }, {
       home,
       env: { KEEPDECK_STATUSLINE_INNER: "1" },
     });
     expect(stdout.trim()).toBe("Opus · ctx 8%");
     expect(envelopes(dir)).toHaveLength(0);
+  });
+});
+
+/**
+ * The security boundary, pinned. A project's `.claude/settings.json` is a
+ * COMMITTED file, so honouring a statusLine found there would execute a
+ * command chosen by whoever wrote the repository — on every clone and every
+ * pulled branch. Claude gates project settings behind a directory-trust
+ * prompt whose answer this script cannot see, so it reads the USER layer and
+ * nothing else. Nothing here can be fixed by sanitizing: the field is a
+ * command by design, so provenance is the only defence.
+ */
+describe("kd-usage-statusline.sh provenance", () => {
+  /** Payload pointing at `project` every way claude describes a location. */
+  const inProject = (project: string) =>
+    JSON.stringify({
+      ...STATUSLINE,
+      cwd: project,
+      workspace: { current_dir: project, project_dir: project },
+    });
+
+  it("never delegates to a statusLine committed in the project", () => {
+    const project = settings(tmp(), statusLine("echo REPO-CONTROLLED"));
+    const stdout = run(inProject(project), null, { home: tmp() });
+    expect(stdout.trim()).toBe("Opus · ctx 8%");
+  });
+
+  it("keeps the user's own statusLine when the project defines one too", () => {
+    const project = settings(tmp(), statusLine("echo REPO-CONTROLLED"));
+    const home = settings(tmp(), statusLine("echo MINE"));
+    expect(run(inProject(project), null, { home }).trim()).toBe("MINE");
   });
 });
