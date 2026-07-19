@@ -67,6 +67,9 @@ pub struct FsEntry {
     /// Byte size for a regular file; `None` for a directory or symlink (a
     /// symlink's own size is meaningless to a tree, and it is NOT followed).
     pub size: Option<u64>,
+    /// Modification time (epoch ms) for files AND dirs — what incremental
+    /// store scans key change detection on. `None` when stat fails.
+    pub mtime: Option<i64>,
 }
 
 /// What a child is, WITHOUT following symlinks: a symlink is reported as
@@ -112,18 +115,24 @@ pub fn project_fs_read_dir(
         let Ok(file_type) = child.file_type() else {
             continue;
         };
+        let metadata = child.metadata().ok();
         let (kind, size) = if file_type.is_symlink() {
             (FsKind::Symlink, None)
         } else if file_type.is_dir() {
             (FsKind::Dir, None)
         } else {
-            (FsKind::File, child.metadata().ok().map(|m| m.len()))
+            (FsKind::File, metadata.as_ref().map(|m| m.len()))
         };
+        let mtime = metadata
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64);
         entries.push(FsEntry {
             name: child.file_name().to_string_lossy().into_owned(),
             path: child.path().to_string_lossy().into_owned(),
             kind,
             size,
+            mtime,
         });
     }
     Ok(entries)

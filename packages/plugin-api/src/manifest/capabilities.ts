@@ -33,6 +33,10 @@ export type Capability =
    * surgery (fork/relocate) and is scoped to exactly the store paths the
    * plugin names — consent lists them verbatim. */
   | { kind: "fsWrite"; paths: string[] }
+  /** Run read-only SELECTs against database files under the declared path
+   * prefixes — for agent stores that are SQLite, where `fs` reads are
+   * useless on the binary blob. Opened READ-ONLY host-side. */
+  | { kind: "sqliteReadonly"; paths: string[] }
   /** Network access from the plugin's own realm, enforced via the realm's
    * CSP. Domains are literal hosts; `*` is deliberately not supported. */
   | { kind: "net"; domains: string[] }
@@ -64,6 +68,7 @@ export const CAPABILITY_KINDS = [
   "fs",
   "fsWrite",
   "git",
+  "sqliteReadonly",
   "net",
   "legacyDownloads",
   "ports",

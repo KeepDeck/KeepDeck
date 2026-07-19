@@ -30,6 +30,8 @@ function canonical(cap: Capability): string {
       return `fs:${cap.scope}`;
     case "fsWrite":
       return `fsWrite:${[...cap.paths].sort().join(",")}`;
+    case "sqliteReadonly":
+      return `sqliteReadonly:${[...cap.paths].sort().join(",")}`;
     case "git":
       return `git:${cap.scope}`;
     case "net":

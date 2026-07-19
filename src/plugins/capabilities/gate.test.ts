@@ -68,6 +68,9 @@ function fakeBackend() {
       })),
       watch: vi.fn(() => ({ dispose: vi.fn() })),
     },
+    sqlite: {
+      query: vi.fn(() => Promise.resolve([])),
+    },
     fsWrite: {
       mkdir: vi.fn(() => Promise.resolve()),
       copyFile: vi.fn(() => Promise.resolve()),

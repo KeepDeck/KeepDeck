@@ -223,6 +223,11 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
           errors.push(`${at}: fsWrite needs a non-empty "paths" string array`);
         else out.push({ kind: "fsWrite", paths: cap.paths });
         break;
+      case "sqliteReadonly":
+        if (!isStringArray(cap.paths) || cap.paths.length === 0)
+          errors.push(`${at}: sqliteReadonly needs a non-empty "paths" string array`);
+        else out.push({ kind: "sqliteReadonly", paths: cap.paths });
+        break;
       case "git":
         if (cap.scope !== "workspace" && cap.scope !== "everywhere")
           errors.push(`${at}: git "scope" must be "workspace" or "everywhere"`);

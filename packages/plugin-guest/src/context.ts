@@ -530,6 +530,12 @@ export function buildGuestContext(
         appendLine: (path, line) =>
           rpc.call("services.fsWrite.appendLine", [path, line]) as Promise<void>,
       },
+      sqlite: {
+        query: (dbPath, sql, params) =>
+          rpc.call("services.sqlite.query", [dbPath, sql, params]) as Promise<
+            (string | null)[][]
+          >,
+      },
       git: {
         status: (repo) =>
           rpc.call("services.git.status", [repo]) as Promise<GitStatus>,

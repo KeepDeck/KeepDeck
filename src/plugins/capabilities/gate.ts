@@ -52,6 +52,16 @@ export interface FsWriteBackend {
   appendLine(path: string, line: string, roots: readonly string[]): Promise<void>;
 }
 
+/** The prefix-aware read-only SQL backend, mirroring [`FsWriteBackend`]. */
+export interface SqliteBackend {
+  query(
+    dbPath: string,
+    sql: string,
+    params: string[],
+    roots: readonly string[],
+  ): Promise<(string | null)[][]>;
+}
+
 /** The scope-aware git backend, mirroring [`FsBackend`]: the gate derives the
  * scope from the manifest's `git` capability, the backend resolves it to the
  * same roots fs containment uses. */
@@ -88,6 +98,7 @@ export interface ServiceBackends {
   opener: PluginOpener;
   fs: FsBackend;
   fsWrite: FsWriteBackend;
+  sqlite: SqliteBackend;
   git: GitBackend;
   downloads: {
     start(
@@ -256,6 +267,20 @@ export function createCapabilityGate(
         return backend.fsWrite.appendLine(path, line, fsWritePaths(manifest.capabilities));
       },
     },
+    sqlite: {
+      query(dbPath, sql, params) {
+        admit(
+          sqlitePaths(manifest.capabilities).length > 0,
+          `sqlite.query: "${dbPath}" requires a "sqliteReadonly" capability, which the manifest does not declare`,
+        );
+        return backend.sqlite.query(
+          dbPath,
+          sql,
+          params ?? [],
+          sqlitePaths(manifest.capabilities),
+        );
+      },
+    },
     git: {
       status(repo) {
         admit(
@@ -421,6 +446,14 @@ function hasGitCapability(capabilities: Capability[]): boolean {
 function fsWritePaths(capabilities: Capability[]): string[] {
   const cap = capabilities.find((capability) => capability.kind === "fsWrite");
   return cap?.kind === "fsWrite" ? cap.paths : [];
+}
+
+/** The declared `sqliteReadonly` prefixes — same denial-by-default. */
+function sqlitePaths(capabilities: Capability[]): string[] {
+  const cap = capabilities.find(
+    (capability) => capability.kind === "sqliteReadonly",
+  );
+  return cap?.kind === "sqliteReadonly" ? cap.paths : [];
 }
 
 /** The scope the fs backend should enforce: the declared scope, defaulting to

@@ -1,0 +1,160 @@
+//! Adapter over `keepdeck-index` ([F8] global session browser): the search
+//! index lives at `<keepdeck_home>/index.sqlite` and is a DISPOSABLE
+//! projection — see the crate docs. Discovery/parsing happens in the agent
+//! plugins (webview side); these commands only move normalized rows in and
+//! search hits out, so the hot search path never touches a plugin.
+
+use std::sync::Mutex;
+
+use keepdeck_index::{IndexRow, IndexedRef, SearchHit, SessionIndex};
+use serde::{Deserialize, Serialize};
+use tauri::State;
+
+use crate::containment::resolve_within;
+
+#[derive(Default)]
+pub struct HistoryIndex(Mutex<Option<SessionIndex>>);
+
+fn with_index<T>(
+    state: &State<'_, HistoryIndex>,
+    f: impl FnOnce(&mut SessionIndex) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut guard = state.0.lock().map_err(|_| "index lock poisoned")?;
+    if guard.is_none() {
+        let home = crate::paths::keepdeck_home().ok_or("no home directory")?;
+        *guard = Some(SessionIndex::open(&home.join("index.sqlite"))?);
+    }
+    f(guard.as_mut().expect("just opened"))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexedRefDto {
+    pub reference: String,
+    pub mtime: i64,
+    pub size: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexRowDto {
+    pub session_id: String,
+    pub reference: String,
+    pub cwd: String,
+    pub title: Option<String>,
+    pub mtime: i64,
+    pub size: i64,
+    pub content: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHitDto {
+    pub agent: String,
+    pub session_id: String,
+    pub reference: String,
+    pub cwd: String,
+    pub title: Option<String>,
+    pub mtime: i64,
+    pub snippet: Option<String>,
+}
+
+/// The stored refs of one agent — the incremental scan's diff base.
+#[tauri::command(async)]
+pub fn index_refs(
+    state: State<'_, HistoryIndex>,
+    agent: String,
+) -> Result<Vec<IndexedRefDto>, String> {
+    with_index(&state, |index| {
+        Ok(index
+            .refs(&agent)?
+            .into_iter()
+            .map(|IndexedRef { reference, mtime, size }| IndexedRefDto {
+                reference,
+                mtime,
+                size,
+            })
+            .collect())
+    })
+}
+
+/// Upsert freshly scanned sessions (normalized by the agent's plugin).
+#[tauri::command(async)]
+pub fn index_upsert(
+    state: State<'_, HistoryIndex>,
+    agent: String,
+    rows: Vec<IndexRowDto>,
+) -> Result<(), String> {
+    with_index(&state, |index| {
+        let rows: Vec<IndexRow> = rows
+            .into_iter()
+            .map(|r| IndexRow {
+                agent: agent.clone(),
+                session_id: r.session_id,
+                reference: r.reference,
+                cwd: r.cwd,
+                title: r.title,
+                mtime: r.mtime,
+                size: r.size,
+                content: r.content,
+            })
+            .collect();
+        index.upsert(&rows)
+    })
+}
+
+/// Drop an agent's sessions that vanished from its store.
+#[tauri::command(async)]
+pub fn index_prune(
+    state: State<'_, HistoryIndex>,
+    agent: String,
+    live: Vec<String>,
+) -> Result<usize, String> {
+    with_index(&state, |index| index.prune(&agent, &live))
+}
+
+/// Search the index (empty query = newest sessions).
+#[tauri::command(async)]
+pub fn index_search(
+    state: State<'_, HistoryIndex>,
+    query: String,
+    limit: usize,
+) -> Result<Vec<SearchHitDto>, String> {
+    with_index(&state, |index| {
+        Ok(index
+            .search(&query, limit.min(500))?
+            .into_iter()
+            .map(
+                |SearchHit { agent, session_id, reference, cwd, title, mtime, snippet }| {
+                    SearchHitDto { agent, session_id, reference, cwd, title, mtime, snippet }
+                },
+            )
+            .collect())
+    })
+}
+
+/// The `sqliteReadonly` capability's backend: a single parameterized SELECT
+/// against an agent's own store, containment-checked against the declared
+/// prefixes and opened read-only (the store cannot be mutated or locked up).
+#[tauri::command(async)]
+pub fn plugins_sqlite_query(
+    db_path: String,
+    sql: String,
+    params: Vec<String>,
+    roots: Vec<String>,
+) -> Result<Vec<Vec<Option<String>>>, String> {
+    let expanded: Vec<String> = roots
+        .iter()
+        .map(|root| expand_home(root))
+        .collect::<Result<_, _>>()?;
+    let db = resolve_within(&expand_home(&db_path)?, &expanded, false)?;
+    keepdeck_index::query_readonly(&db, &sql, &params)
+}
+
+fn expand_home(path: &str) -> Result<String, String> {
+    if let Some(rest) = path.strip_prefix("~/") {
+        let home = std::env::var("HOME").map_err(|_| "no home directory")?;
+        return Ok(format!("{home}/{rest}"));
+    }
+    Ok(path.to_string())
+}

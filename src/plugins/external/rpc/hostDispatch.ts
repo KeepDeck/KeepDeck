@@ -377,6 +377,12 @@ export function createHostDispatch(
         ),
       );
     },
+    "services.sqlite.query": ([dbPath, sql, params]) =>
+      ctx.services.sqlite.query(
+        dbPath as string,
+        sql as string,
+        params as string[] | undefined,
+      ),
     "services.fsWrite.mkdir": ([path]) =>
       ctx.services.fsWrite.mkdir(path as string),
     "services.fsWrite.copyFile": ([src, dst]) =>

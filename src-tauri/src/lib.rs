@@ -25,6 +25,7 @@ mod session;
 mod sessions;
 mod skills;
 mod voice;
+mod history;
 mod journal;
 mod state;
 mod worktree;
@@ -83,6 +84,7 @@ pub fn run() {
         })
         .menu(menu::build)
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
+        .manage(history::HistoryIndex::default())
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
@@ -154,6 +156,11 @@ pub fn run() {
             journal::journal_load,
             journal::journal_append,
             journal::journal_compact,
+            history::index_refs,
+            history::index_upsert,
+            history::index_prune,
+            history::index_search,
+            history::plugins_sqlite_query,
             plugins_fs_write::plugins_fs_write_mkdir,
             plugins_fs_write::plugins_fs_write_copy,
             plugins_fs_write::plugins_fs_write_file,

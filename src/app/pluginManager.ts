@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { pluginsSqliteQuery } from "../ipc/history";
 import {
   pluginsFsWriteAppend,
   pluginsFsWriteCopy,
@@ -386,6 +387,10 @@ export function createPluginManager(appDownloads: DownloadManager) {
       openUrl: (url) => openUrl(url),
       openPath: (path) => openPath(path),
       openPathWith: (path, application) => openPathWith(path, application),
+    },
+    sqlite: {
+      query: (dbPath, sql, params, roots) =>
+        pluginsSqliteQuery(dbPath, sql, params, roots),
     },
     fsWrite: {
       mkdir: (path, roots) => pluginsFsWriteMkdir(path, roots),
