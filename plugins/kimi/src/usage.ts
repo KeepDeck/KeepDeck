@@ -138,10 +138,12 @@ function windowMinutesOf(window: unknown): number | null {
 /**
  * The usages document → account windows: `limits[]` are the rolling windows
  * (duration-labeled, e.g. 300 min = 5h); the top-level `usage{}` is the
- * plan's primary window (no duration upstream — unlabeled, the UI calls it
- * "plan"); `totalQuota{}` is the overall plan quota, scoped so it shows in
- * the panel but never crowds the chip.
+ * plan's primary window — the document carries no duration for it, but
+ * kimi's own console titles it "Weekly usage" and its reset cadence agrees,
+ * so it is stamped as 7 days here; `totalQuota{}` is the overall plan
+ * quota, scoped so it shows in the panel but never crowds the chip.
  */
+const PLAN_WINDOW_MINUTES = 7 * 1440;
 export const normalizeKimiUsages: LimitsNormalizer = (body, at) => {
   let raw: unknown;
   try {
@@ -159,7 +161,7 @@ export const normalizeKimiUsages: LimitsNormalizer = (body, at) => {
       if (parsed) windows.push(parsed);
     }
   }
-  const plan = quotaWindow(raw.usage, null);
+  const plan = quotaWindow(raw.usage, PLAN_WINDOW_MINUTES);
   if (plan) windows.push(plan);
   const quota = quotaWindow(raw.totalQuota, null, "quota");
   if (quota) windows.push(quota);

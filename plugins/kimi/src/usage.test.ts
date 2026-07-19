@@ -101,10 +101,12 @@ describe("normalizeKimiUsages", () => {
           resetsAt: Date.parse("2026-07-18T21:00:00Z"),
           windowMinutes: 300,
         },
+        // The document reports no duration for the plan window — the
+        // normalizer stamps it weekly (kimi console: "Weekly usage").
         {
           usedPct: 24,
           resetsAt: Date.parse("2026-07-21T00:00:00Z"),
-          windowMinutes: null,
+          windowMinutes: 10_080,
         },
         // No `used` on totalQuota — derived from remaining; panel-only scope.
         { usedPct: 20, resetsAt: null, windowMinutes: null, scope: "quota" },

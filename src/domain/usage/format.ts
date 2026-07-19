@@ -45,8 +45,8 @@ export function panelWindows(account: AccountUsage): UsageWindow[] {
 
 /** The label a window earns from its LENGTH — never from field position
  * (codex plans disagree about which window is primary). Unknown lengths
- * fall back to the scope name, else "plan" (kimi's primary window carries
- * no duration upstream — it IS the plan window). */
+ * fall back to the scope name, else "plan" — the safety net for a window
+ * whose duration no source reports. */
 export function windowLabel(window: UsageWindow): string {
   switch (window.windowMinutes) {
     case 300:
