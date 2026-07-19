@@ -111,7 +111,7 @@ export function reportUsage(
 }
 
 /** Apply an account-level document that arrived OUTSIDE the pane pipeline —
- * a polled limits source (kimi). Freshest-wins like every account claim. */
+ * a native limits source. Freshest-wins like every account claim. */
 export function setAccountUsage(provider: string, account: AccountUsage): void {
   const current = accounts.get(provider);
   const next = freshest(current, account);

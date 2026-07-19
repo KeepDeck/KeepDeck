@@ -103,7 +103,7 @@ export type LimitsNormalizer = (body: string, at: number) => AccountUsage | null
 export type UsageTailFormat = "codex" | "kimi-wire";
 
 /** Native polled limit sources the host offers. */
-export type UsageLimitsSource = "kimi-usages";
+export type UsageLimitsSource = "codex-app-server" | "kimi-usages";
 
 /** The usage half of an agent contribution.
  *
@@ -118,9 +118,9 @@ export interface AgentUsage {
   /** Follow the session file named by this agent's bindings with the given
    * dialect (the binding's transcriptPath is the file). */
   tail?: UsageTailFormat;
-  /** Account limits live behind a polled source (no push exists for this
-   * CLI): the host fetches the named native source on a slow interval while
-   * one of this agent's panes is live; the plugin reads the body. */
+  /** Account limits live behind a native source: the host fetches the named
+   * source on a slow interval while one of this agent's panes is live; the
+   * plugin reads the opaque body. */
   limits?: { poll: UsageLimitsSource; normalize: LimitsNormalizer };
 }
 

@@ -52,6 +52,13 @@ export function fetchKimiUsages(): Promise<string> {
   return invoke("kimi_usages_fetch");
 }
 
+/** Read Codex account limits through KeepDeck's shared, lazily-lived
+ * official app-server process. Body rides back opaque so the Codex plugin,
+ * not the host transport, owns the version-specific response schema. */
+export function fetchCodexRateLimits(): Promise<string> {
+  return invoke("codex_rate_limits_read");
+}
+
 /** Resolve a codex session's rollout path by its recorded id — the fallback
  * for TUI resumes, where codex fires no SessionStart hook and no binding
  * carries the path (observed on 0.144.5). */

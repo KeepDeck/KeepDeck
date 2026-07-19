@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import type { AgentUsage, UsageLimitsSource } from "@keepdeck/plugin-api";
 import { paneAgentType } from "../domain/deck";
 import { log } from "../ipc/log";
-import { fetchKimiUsages } from "../ipc/usage";
+import { fetchCodexRateLimits, fetchKimiUsages } from "../ipc/usage";
 import { setAccountUsage } from "./usageManager";
 import type { Deck } from "./useDeck";
 
@@ -10,9 +10,10 @@ import type { Deck } from "./useDeck";
  * The polled-limits lane, for agents whose contribution declares
  * `limits.poll`: one boot fetch per source regardless of panes, then the
  * named NATIVE fetcher on a slow interval while one of that agent's panes
- * is LIVE (kimi keeps its short-lived token fresh only during activity —
- * polling an idle machine would only 401), and never while the window is
- * hidden. Failures just let the last snapshot age into staleness.
+ * is LIVE, and never while the window is hidden. Failures just let the last
+ * snapshot age into staleness. For codex, this cadence also supplies the
+ * demand that keeps the shared app-server child warm; when polling stops,
+ * its native manager reaps the child after the idle grace period.
  */
 
 /** How often a declared limits source is re-fetched while its agent lives. */
@@ -22,6 +23,7 @@ export const LIMITS_POLL_MS = 60_000;
  * purpose: an arbitrary plugin URL with local credentials would be an
  * exfiltration hole, not flexibility. */
 const LIMIT_SOURCES: Record<UsageLimitsSource, () => Promise<string>> = {
+  "codex-app-server": fetchCodexRateLimits,
   "kimi-usages": fetchKimiUsages,
 };
 

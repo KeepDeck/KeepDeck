@@ -17,6 +17,7 @@ const ipc = vi.hoisted(() => ({
   onSessionBound: vi.fn(),
   watchSessionFile: vi.fn(),
   unwatchSessionFile: vi.fn(),
+  fetchCodexRateLimits: vi.fn(),
   fetchKimiUsages: vi.fn(),
   findCodexRollout: vi.fn(),
   latestCodexRollout: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("../ipc/usage", () => ({
   onUsageReport: ipc.onUsageReport,
   watchSessionFile: ipc.watchSessionFile,
   unwatchSessionFile: ipc.unwatchSessionFile,
+  fetchCodexRateLimits: ipc.fetchCodexRateLimits,
   fetchKimiUsages: ipc.fetchKimiUsages,
   findCodexRollout: ipc.findCodexRollout,
   latestCodexRollout: ipc.latestCodexRollout,
@@ -105,7 +107,14 @@ describe("useUsageChannel", () => {
         pluginId: "keepdeck.codex",
         entry: {
           id: "codex",
-          usage: { normalize: (_p, at) => reported(at), tail: "codex" },
+          usage: {
+            normalize: (_p, at) => reported(at),
+            tail: "codex",
+            limits: {
+              poll: "codex-app-server",
+              normalize: () => null,
+            },
+          },
         },
       },
     ];
@@ -119,6 +128,7 @@ describe("useUsageChannel", () => {
     });
     ipc.watchSessionFile.mockReset().mockResolvedValue(undefined);
     ipc.unwatchSessionFile.mockReset().mockResolvedValue(undefined);
+    ipc.fetchCodexRateLimits.mockReset().mockResolvedValue("{}");
     ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
     ipc.latestCodexRollout.mockReset().mockResolvedValue(null);
@@ -366,6 +376,29 @@ describe("useUsageChannel", () => {
     await mount(deckWith([{ id: "pane-2", agentType: "kimi" }]));
     await act(async () => {});
     expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads codex limits at boot through the shared app-server source", async () => {
+    const codex = ipc.contributions.find((item) => item.entry.id === "codex")!;
+    codex.entry.usage!.limits!.normalize = (_body, at) => ({
+      kind: "reported",
+      windows: [],
+      reportedAt: at,
+      sourcePaneId: "",
+    });
+
+    await mount(deckWith([]));
+    await act(async () => {});
+    expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
+    expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+      kind: "reported",
+    });
+
+    // A live pane switches to the polling lane's immediate tick; the boot
+    // read stays once-per-run and the manager reuses its warm child.
+    await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
+    await act(async () => {});
+    expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
   });
 
   it("sweeps the newest on-disk codex rollout at boot, stamped with the file's age", async () => {
