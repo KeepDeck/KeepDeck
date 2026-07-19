@@ -401,6 +401,67 @@ describe("useUsageChannel", () => {
     expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
   });
 
+  it("serializes boot, live and visibility reads with dispatch-time freshness", async () => {
+    const codex = ipc.contributions.find((item) => item.entry.id === "codex")!;
+    codex.entry.usage!.limits!.normalize = (_body, at) => ({
+      kind: "reported",
+      windows: [],
+      reportedAt: at,
+      sourcePaneId: "",
+    });
+    let active = 0;
+    let maxActive = 0;
+    const resolves: ((body: string) => void)[] = [];
+    ipc.fetchCodexRateLimits.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          resolves.push((body) => {
+            active -= 1;
+            resolve(body);
+          });
+        }),
+    );
+    let now = 1_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      // Boot owns the first in-flight read. Making Codex live queues exactly
+      // one follow-up instead of starting a concurrent native request.
+      await mount(deckWith([]));
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
+      now = 9_000;
+      await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
+
+      await act(async () => resolves[0]("boot"));
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
+      expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+        reportedAt: 1_000,
+      });
+
+      // A focus burst while the live read is pending collapses to one trailing
+      // refresh. The active response keeps its dispatch time, not completion.
+      now = 11_000;
+      document.dispatchEvent(new Event("visibilitychange"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
+      await act(async () => resolves[1]("live"));
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(3);
+      expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+        reportedAt: 9_000,
+      });
+
+      await act(async () => resolves[2]("visible"));
+      expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+        reportedAt: 11_000,
+      });
+      expect(maxActive).toBe(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("sweeps the newest on-disk codex rollout at boot, stamped with the file's age", async () => {
     ipc.latestCodexRollout.mockResolvedValue({
       event: { type: "token_count" },

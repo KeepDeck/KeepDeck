@@ -27,12 +27,50 @@ const LIMIT_SOURCES: Record<UsageLimitsSource, () => Promise<string>> = {
   "kimi-usages": fetchKimiUsages,
 };
 
+type LimitsRequest = () => Promise<void>;
+
+interface RequestLane {
+  running: boolean;
+  /** At most one trailing refresh: bursts collapse to their latest request. */
+  queued: LimitsRequest | null;
+}
+
+/** Serialize reads per provider. Boot/live and visibility triggers share this
+ * lane, so response completion order can never invert request order. A trigger
+ * that arrives in flight becomes one trailing refresh instead of disappearing. */
+function enqueueLatest(
+  lanes: Map<string, RequestLane>,
+  provider: string,
+  request: LimitsRequest,
+): void {
+  const lane = lanes.get(provider) ?? { running: false, queued: null };
+  lanes.set(provider, lane);
+  lane.queued = request;
+  if (lane.running) return;
+
+  const drain = () => {
+    const next = lane.queued;
+    if (!next) {
+      lane.running = false;
+      lanes.delete(provider);
+      return;
+    }
+    lane.running = true;
+    lane.queued = null;
+    void next()
+      .catch(() => {}) // each request already logs its provider-specific error
+      .finally(drain);
+  };
+  drain();
+}
+
 export function useLimitsPolling(
   deck: Deck,
   usageByAgent: ReadonlyMap<string, AgentUsage>,
 ): void {
   const usageByAgentRef = useRef(usageByAgent);
   usageByAgentRef.current = usageByAgent;
+  const requestLanesRef = useRef(new Map<string, RequestLane>());
 
   const declaredAgents = [...usageByAgent]
     .filter(([, usage]) => usage.limits)
@@ -45,6 +83,35 @@ export function useLimitsPolling(
       ),
     )
     .join("\n");
+  const polledAgentsRef = useRef(new Set<string>());
+  polledAgentsRef.current = new Set(polledAgents ? polledAgents.split("\n") : []);
+
+  const requestLimits = (
+    agentId: string,
+    phase: "boot fetch" | "poll",
+    visibleLiveOnly: boolean,
+  ) => {
+    enqueueLatest(requestLanesRef.current, agentId, async () => {
+      if (
+        visibleLiveOnly &&
+        (document.hidden || !polledAgentsRef.current.has(agentId))
+      ) {
+        return;
+      }
+      const limits = usageByAgentRef.current.get(agentId)?.limits;
+      if (!limits) return;
+      const requestedAt = Date.now();
+      try {
+        const body = await LIMIT_SOURCES[limits.poll]();
+        // A plugin may have been replaced while native IO was in flight.
+        if (usageByAgentRef.current.get(agentId)?.limits !== limits) return;
+        const account = limits.normalize(body, requestedAt);
+        if (account) setAccountUsage(agentId, account);
+      } catch (e) {
+        log.debug("web:usage", `${limits.poll} ${phase} failed: ${e}`);
+      }
+    });
+  };
 
   // The boot fetch: once per declared source per app run, pane or no pane —
   // the chip should be current the moment the window first shows, not after
@@ -60,16 +127,7 @@ export function useLimitsPolling(
       if (bootedRef.current.has(agentId)) continue;
       bootedRef.current.add(agentId);
       if (polling.has(agentId)) continue;
-      const limits = usageByAgentRef.current.get(agentId)?.limits;
-      if (!limits) continue;
-      void LIMIT_SOURCES[limits.poll]()
-        .then((body) => {
-          const account = limits.normalize(body, Date.now());
-          if (account) setAccountUsage(agentId, account);
-        })
-        .catch((e) =>
-          log.debug("web:usage", `${limits.poll} boot fetch failed: ${e}`),
-        );
+      requestLimits(agentId, "boot fetch", false);
     }
   }, [declaredKey, polledAgents]);
 
@@ -78,23 +136,11 @@ export function useLimitsPolling(
     const timers: ReturnType<typeof setInterval>[] = [];
     const ticks: (() => void)[] = [];
     for (const agentId of polledAgents.split("\n")) {
-      const limits = usageByAgentRef.current.get(agentId)?.limits;
-      if (!limits) continue;
-      const fetch = LIMIT_SOURCES[limits.poll];
       const tick = () => {
         // A hidden window keeps its panes but nobody is reading the chip —
         // don't spend the provider's request budget on it.
         if (document.hidden) return;
-        void fetch()
-          .then((body) => {
-            const account = limits.normalize(body, Date.now());
-            if (account) setAccountUsage(agentId, account);
-          })
-          // Expected while the CLI is idle (short-lived tokens 401) — the
-          // last snapshot simply ages into staleness.
-          .catch((e) =>
-            log.debug("web:usage", `${limits.poll} poll failed: ${e}`),
-          );
+        requestLimits(agentId, "poll", true);
       };
       tick();
       ticks.push(tick);
