@@ -17,6 +17,7 @@ import { usePersistence } from "./app/usePersistence";
 import { useJournalPersistence } from "./app/useJournalPersistence";
 import { useJournalResume } from "./app/useJournalResume";
 import { useJournalFork } from "./app/useJournalFork";
+import { useSessionsBrowser } from "./app/useSessionsBrowser";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionRecord } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
@@ -140,6 +141,7 @@ function App() {
   const agentRestart = useAgentRestart(deck, spawnCtx);
   const journalResume = useJournalResume(deck, spawnCtx);
   const journalFork = useJournalFork(deck, spawnCtx);
+  const sessionsBrowser = useSessionsBrowser();
   // The fork-target dialog's subject, when one is open.
   const [forkDialog, setForkDialog] = useState<{
     wsId: string;
@@ -723,6 +725,7 @@ function App() {
               })
             }
             onForkSession={(wsId, record) => setForkDialog({ wsId, record })}
+            browser={sessionsBrowser}
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
             onToggleMinimize={deck.toggleMinimize}

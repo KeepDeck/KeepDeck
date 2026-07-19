@@ -29,6 +29,8 @@ import {
   type SessionRecord,
 } from "../domain/journal";
 import { WorkspaceHistory } from "./workspace/WorkspaceHistory";
+import { SessionsBrowser } from "./history/SessionsBrowser";
+import type { SessionsBrowserApi } from "../app/useSessionsBrowser";
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
  * props (command, spec, cwd, badge) are the same everywhere. */
@@ -72,6 +74,8 @@ interface DeckStageProps {
   onResumeSession(wsId: string, record: SessionRecord): void;
   /** Open the fork-target dialog for a journal record. */
   onForkSession(wsId: string, record: SessionRecord): void;
+  /** The global sessions browser's engine (search/scan/transcript). */
+  browser: SessionsBrowserApi;
   onSelectPane(wsId: string, paneId: string): void;
   onToggleFocus(wsId: string, paneId: string): void;
   /** Minimize a pane out of the grid, or restore it (grid layout only). */
@@ -138,6 +142,7 @@ export function DeckStage({
   onDeleteJournalRecord,
   onResumeSession,
   onForkSession,
+  browser,
   onSelectPane,
   onToggleFocus,
   onToggleMinimize,
@@ -172,13 +177,21 @@ export function DeckStage({
                 pointerEvents: isActive ? "auto" : "none",
               }}
             >
-              <WorkspaceHistory
-                rows={journalRows(journal, ws.id)}
-                agents={agents}
-                onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
-                onResume={(record) => onResumeSession(ws.id, record)}
-                onFork={(record) => onForkSession(ws.id, record)}
-              />
+              <div className="deck__setup-col">
+                <WorkspaceHistory
+                  rows={journalRows(journal, ws.id)}
+                  agents={agents}
+                  onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
+                  onResume={(record) => onResumeSession(ws.id, record)}
+                  onFork={(record) => onForkSession(ws.id, record)}
+                />
+                <SessionsBrowser
+                  api={browser}
+                  agents={agents}
+                  onResume={(record) => onResumeSession(ws.id, record)}
+                  onFork={(record) => onForkSession(ws.id, record)}
+                />
+              </div>
             </div>
           );
         }

@@ -64,8 +64,17 @@ const callbacks = {
   onRestartAgent: vi.fn(() => Promise.resolve()),
 };
 
+const browser = {
+  hits: [],
+  scanning: false,
+  search: vi.fn(),
+  scan: vi.fn(),
+  transcript: vi.fn(() => Promise.resolve([])),
+};
+
 const props = (overrides: Record<string, unknown> = {}) => ({
   journal: {},
+  browser,
   workspaces,
   activeId: "ws-1",
   viewByWs: {},
