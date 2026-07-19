@@ -86,10 +86,12 @@ export interface NormalizedUsage {
 /** A per-agent normalizer: raw bridge payload → normalized usage, or null
  * when the payload is not recognizable. Pure; time is injected.
  *
- * Two payload keys are HOST-owned transport metadata, not agent schema:
- * `agent` (the dispatch key) and `catchUp` (the event is a replay of an
- * existing session file at arm time — the host's store lets such replays
- * fill gaps but never outrank live data). Normalizers may ignore both. */
+ * Three payload keys are HOST-owned transport metadata, not agent schema:
+ * `agent` (the dispatch key), `catchUp` (the event is a replay of an
+ * existing session file at arm time), `sourceAt` (the event's ISO time or
+ * unix milliseconds), and `sourceMtimeMs` (the file-mtime fallback when the
+ * primary timestamp is malformed or clock-skewed). Normalizers may ignore
+ * them. */
 export type UsageNormalizer = (
   payload: unknown,
   at: number,
@@ -103,7 +105,7 @@ export type LimitsNormalizer = (body: string, at: number) => AccountUsage | null
 export type UsageTailFormat = "codex" | "kimi-wire";
 
 /** Native polled limit sources the host offers. */
-export type UsageLimitsSource = "kimi-usages";
+export type UsageLimitsSource = "codex-app-server" | "kimi-usages";
 
 /** The usage half of an agent contribution.
  *
@@ -118,9 +120,9 @@ export interface AgentUsage {
   /** Follow the session file named by this agent's bindings with the given
    * dialect (the binding's transcriptPath is the file). */
   tail?: UsageTailFormat;
-  /** Account limits live behind a polled source (no push exists for this
-   * CLI): the host fetches the named native source on a slow interval while
-   * one of this agent's panes is live; the plugin reads the body. */
+  /** Account limits live behind a native source: the host fetches the named
+   * source on a slow interval while one of this agent's panes is live; the
+   * plugin reads the opaque body. */
   limits?: { poll: UsageLimitsSource; normalize: LimitsNormalizer };
 }
 

@@ -3,15 +3,16 @@ import type { AgentUsage } from "@keepdeck/plugin-api";
 import { log } from "../ipc/log";
 import { latestCodexRollout } from "../ipc/usage";
 import { setAccountUsage } from "./usageManager";
+import { usageSourceTimestamp } from "./usageProvenance";
 
 /**
  * The boot catch-up lane for codex: rollouts live on disk whether or not
  * KeepDeck was running, so the newest one knows fresher limits than our
  * persisted snapshot whenever codex ran outside the app. One sweep per app
- * run, normalized by the declaring plugin and stamped with the FILE's
- * mtime — never receipt time — so freshest-wins ranks it honestly against
- * the hydrated cache and any live report. Account state only: without a
- * pane there is nothing for the event's pane half to describe.
+ * run, normalized by the declaring plugin and stamped with the EVENT's
+ * source time (file mtime fallback) — never receipt time — so freshest-wins
+ * ranks it honestly against the hydrated cache and any live report. Account
+ * state only: without a pane there is nothing to attribute.
  *
  * Codex-specific like the TUI-resume fallback (the native command knows
  * the `~/.codex/sessions` layout). The other providers' boot freshness is
@@ -42,9 +43,14 @@ export function useUsageBootSweep(
           log.debug("web:usage", "boot sweep: no codex rollout carries usage");
           return;
         }
+        const receivedAt = Date.now();
+        const sourceAt =
+          usageSourceTimestamp(found.sourceAt, receivedAt) ??
+          usageSourceTimestamp(found.mtimeMs, receivedAt) ??
+          0;
         const result = normalize(
           { agent: codexAgent, event: found.event, catchUp: true },
-          found.mtimeMs,
+          sourceAt,
         );
         if (result?.account) setAccountUsage(codexAgent, result.account);
       })

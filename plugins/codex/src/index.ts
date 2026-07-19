@@ -8,7 +8,7 @@
 import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { cliArgs, shellQuote } from "./trust";
-import { normalizeCodexRollout } from "./usage";
+import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
 
 /** The `-c` override args arming the SessionStart reporter; `[]` when the
  * script is missing. On a codex without hooks these overrides are inert
@@ -41,8 +41,16 @@ const plugin: KeepDeckPlugin = {
       icon,
       detect: { bin: "codex" },
       supportsYolo: true,
-      // Usage lives in the session rollout; the host tails it per binding.
-      usage: { normalize: normalizeCodexRollout, tail: "codex" },
+      // Per-pane tokens/context stay in the rollout; current account limits
+      // come from the host's one shared official app-server manager.
+      usage: {
+        normalize: normalizeCodexRollout,
+        tail: "codex",
+        limits: {
+          poll: "codex-app-server",
+          normalize: normalizeCodexRateLimits,
+        },
+      },
       hooks: {
         "spawn.plan": async (input, output) => {
           output.args = [

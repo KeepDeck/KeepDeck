@@ -3,6 +3,7 @@ mod apps;
 mod app_updater;
 mod bridge;
 mod clipboard;
+mod codex_app_server;
 mod containment;
 mod dnd;
 mod downloads;
@@ -85,6 +86,7 @@ pub fn run() {
         .manage(skills::SkillsLocks::default())
         .manage(head_watch::HeadWatchers::default())
         .manage(session_tail::UsageTails::default())
+        .manage(codex_app_server::CodexAppServerManager::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
         .manage(downloads::DownloadRegistry::default())
@@ -187,6 +189,7 @@ pub fn run() {
             session_tail::usage_unwatch_session_file,
             session_tail::usage_find_codex_rollout,
             session_tail::usage_latest_codex_rollout,
+            codex_app_server::codex_rate_limits_read,
             kimi_usage::kimi_usages_fetch,
         ])
         .run(tauri::generate_context!())

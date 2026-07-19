@@ -6,6 +6,7 @@ import {
   type PaneUsage,
   type UsageNormalizer,
 } from "../domain/usage";
+import { usageSourceTimestamp } from "./usageProvenance";
 
 /**
  * The owner of live usage state — one per app, outside React, like
@@ -65,12 +66,13 @@ export function registerUsageNormalizer(
  * payloads are dropped silently — reporters are best-effort by design.
  *
  * `payload.catchUp` (a host-owned transport key, set by the tailer) marks
- * a replay of the EXISTING session file at arm time. Replays are stamped
- * with RECEIPT time like everything else, so without the mark a stale
- * snapshot from a freshly-armed pane would outrank genuinely fresher live
- * data under freshest-wins; marked reports apply (and MERGE — one arm is
- * several complementary partial events) unless the target already carries
- * LIVE data from this run. */
+ * a replay of the EXISTING session file at arm time. Every tailed event has
+ * an honest `sourceAt` plus `sourceMtimeMs` fallback; both replay and live
+ * account claims use that provenance so delivery order cannot beat a newer
+ * poll. A replay with no valid source time is stamped at epoch: it can fill
+ * an empty store but cannot relabel unknown old data as current. The replay
+ * mark remains a stronger guard: replay can fill and MERGE gaps but never
+ * beat LIVE data from this run. */
 export function reportUsage(
   paneId: string,
   payload: unknown,
@@ -80,9 +82,12 @@ export function reportUsage(
   const provider = payload.agent;
   const normalize = normalizers.get(provider);
   if (!normalize) return;
-  const result = normalize(payload, at);
-  if (!result) return;
   const catchUp = payload.catchUp === true;
+  const sourceAt =
+    usageSourceTimestamp(payload.sourceAt, at) ??
+    usageSourceTimestamp(payload.sourceMtimeMs, at);
+  const result = normalize(payload, sourceAt ?? (catchUp ? 0 : at));
+  if (!result) return;
 
   let changed = false;
   if (result.account && !(catchUp && liveAccounts.has(provider))) {
@@ -111,7 +116,7 @@ export function reportUsage(
 }
 
 /** Apply an account-level document that arrived OUTSIDE the pane pipeline —
- * a polled limits source (kimi). Freshest-wins like every account claim. */
+ * a native limits source. Freshest-wins like every account claim. */
 export function setAccountUsage(provider: string, account: AccountUsage): void {
   const current = accounts.get(provider);
   const next = freshest(current, account);

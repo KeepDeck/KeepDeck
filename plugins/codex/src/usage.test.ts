@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCodexRollout } from "./usage";
+import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
 
 const AT = 1_738_400_000_000;
 
@@ -108,6 +108,79 @@ describe("normalizeCodexRollout", () => {
     expect(normalizeCodexRollout({ agent: "codex" }, AT)).toBeNull();
     expect(
       normalizeCodexRollout({ agent: "codex", event: { type: "agent_message" } }, AT),
+    ).toBeNull();
+  });
+});
+
+describe("normalizeCodexRateLimits", () => {
+  it("maps the current generated app-server response", () => {
+    const result = normalizeCodexRateLimits(
+      JSON.stringify({
+        rateLimits: {
+          limitId: "codex",
+          primary: {
+            usedPercent: 51,
+            windowDurationMins: 10_080,
+            resetsAt: 1_785_004_593,
+          },
+          secondary: {
+            usedPercent: 12.5,
+            windowDurationMins: 300,
+            resetsAt: null,
+          },
+        },
+        rateLimitsByLimitId: null,
+        rateLimitResetCredits: null,
+      }),
+      AT,
+    );
+    expect(result).toEqual({
+      kind: "reported",
+      reportedAt: AT,
+      sourcePaneId: "",
+      windows: [
+        {
+          usedPct: 51,
+          windowMinutes: 10_080,
+          resetsAt: 1_785_004_593_000,
+        },
+        { usedPct: 12.5, windowMinutes: 300, resetsAt: null },
+      ],
+    });
+  });
+
+  it("falls back to a multi-bucket codex snapshot and the older duration name", () => {
+    const result = normalizeCodexRateLimits(
+      JSON.stringify({
+        rateLimitsByLimitId: {
+          other: { primary: { usedPercent: 3, windowDurationMins: 60 } },
+          codex: {
+            primary: {
+              usedPercent: 140,
+              windowMinutes: 300,
+              resetsAt: 1_785_000_000,
+            },
+            secondary: null,
+          },
+        },
+      }),
+      AT,
+    );
+    expect(result?.kind).toBe("reported");
+    if (result?.kind !== "reported") throw new Error("expected reported limits");
+    expect(result.windows).toEqual([
+      { usedPct: 100, windowMinutes: 300, resetsAt: 1_785_000_000_000 },
+    ]);
+  });
+
+  it("quietly rejects unsupported, malformed and windowless responses", () => {
+    expect(normalizeCodexRateLimits("not json", AT)).toBeNull();
+    expect(normalizeCodexRateLimits("{}", AT)).toBeNull();
+    expect(
+      normalizeCodexRateLimits(
+        JSON.stringify({ rateLimits: { primary: { usedPercent: "51" } } }),
+        AT,
+      ),
     ).toBeNull();
   });
 });

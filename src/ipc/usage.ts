@@ -52,6 +52,20 @@ export function fetchKimiUsages(): Promise<string> {
   return invoke("kimi_usages_fetch");
 }
 
+/** Read Codex account limits through KeepDeck's shared, lazily-lived
+ * official app-server process. Body rides back opaque so the Codex plugin,
+ * not the host transport, owns the version-specific response schema.
+ * `sourceAt` is captured by native immediately before the actual JSON-RPC
+ * write — after a cold app-server has initialized. */
+export interface CodexRateLimitsRead {
+  body: string;
+  sourceAt: number;
+}
+
+export function fetchCodexRateLimits(): Promise<CodexRateLimitsRead> {
+  return invoke("codex_rate_limits_read");
+}
+
 /** Resolve a codex session's rollout path by its recorded id — the fallback
  * for TUI resumes, where codex fires no SessionStart hook and no binding
  * carries the path (observed on 0.144.5). */
@@ -59,10 +73,13 @@ export function findCodexRollout(sessionId: string): Promise<string | null> {
   return invoke("usage_find_codex_rollout", { sessionId });
 }
 
-/** Mirrors the Rust `LatestRollout`: the newest on-disk usage event and the
- * FILE's mtime — the honest age of what it says. */
+/** Mirrors the Rust `LatestRollout`: the newest on-disk usage event, its
+ * source time when available, and the file-mtime fallback. */
 export interface LatestCodexRollout {
   event: unknown;
+  /** Event ISO time when Codex provided it; file mtime milliseconds
+   * otherwise. Optional only for compatibility with older hosts. */
+  sourceAt?: string | number;
   mtimeMs: number;
 }
 

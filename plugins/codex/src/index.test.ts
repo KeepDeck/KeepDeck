@@ -92,4 +92,10 @@ describe("codex plugin identity", () => {
     expect(agent.icon?.paths[0].color).toBeUndefined();
     expect(agent.icon?.paths[0].fillRule).toBe("evenodd");
   });
+
+  it("declares the shared app-server account-limits source", () => {
+    const agent = activate(null);
+    expect(agent.usage?.tail).toBe("codex");
+    expect(agent.usage?.limits?.poll).toBe("codex-app-server");
+  });
 });

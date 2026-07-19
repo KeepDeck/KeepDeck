@@ -17,6 +17,7 @@ const ipc = vi.hoisted(() => ({
   onSessionBound: vi.fn(),
   watchSessionFile: vi.fn(),
   unwatchSessionFile: vi.fn(),
+  fetchCodexRateLimits: vi.fn(),
   fetchKimiUsages: vi.fn(),
   findCodexRollout: vi.fn(),
   latestCodexRollout: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("../ipc/usage", () => ({
   onUsageReport: ipc.onUsageReport,
   watchSessionFile: ipc.watchSessionFile,
   unwatchSessionFile: ipc.unwatchSessionFile,
+  fetchCodexRateLimits: ipc.fetchCodexRateLimits,
   fetchKimiUsages: ipc.fetchKimiUsages,
   findCodexRollout: ipc.findCodexRollout,
   latestCodexRollout: ipc.latestCodexRollout,
@@ -105,7 +107,14 @@ describe("useUsageChannel", () => {
         pluginId: "keepdeck.codex",
         entry: {
           id: "codex",
-          usage: { normalize: (_p, at) => reported(at), tail: "codex" },
+          usage: {
+            normalize: (_p, at) => reported(at),
+            tail: "codex",
+            limits: {
+              poll: "codex-app-server",
+              normalize: () => null,
+            },
+          },
         },
       },
     ];
@@ -119,6 +128,9 @@ describe("useUsageChannel", () => {
     });
     ipc.watchSessionFile.mockReset().mockResolvedValue(undefined);
     ipc.unwatchSessionFile.mockReset().mockResolvedValue(undefined);
+    ipc.fetchCodexRateLimits
+      .mockReset()
+      .mockResolvedValue({ body: "{}", sourceAt: Date.now() });
     ipc.fetchKimiUsages.mockReset().mockResolvedValue("{}");
     ipc.findCodexRollout.mockReset().mockResolvedValue(null);
     ipc.latestCodexRollout.mockReset().mockResolvedValue(null);
@@ -368,9 +380,109 @@ describe("useUsageChannel", () => {
     expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(2);
   });
 
+  it("reads codex limits at boot through the shared app-server source", async () => {
+    const codex = ipc.contributions.find((item) => item.entry.id === "codex")!;
+    codex.entry.usage!.limits!.normalize = (_body, at) => ({
+      kind: "reported",
+      windows: [],
+      reportedAt: at,
+      sourcePaneId: "",
+    });
+
+    await mount(deckWith([]));
+    await act(async () => {});
+    expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
+    expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+      kind: "reported",
+    });
+
+    // A live pane switches to the polling lane's immediate tick; the boot
+    // read stays once-per-run and the manager reuses its warm child.
+    await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
+    await act(async () => {});
+    expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
+  });
+
+  it("serializes reads and uses native post-initialization freshness", async () => {
+    const codex = ipc.contributions.find((item) => item.entry.id === "codex")!;
+    codex.entry.usage!.limits!.normalize = (_body, at) => ({
+      kind: "reported",
+      windows: [],
+      reportedAt: at,
+      sourcePaneId: "",
+    });
+    let active = 0;
+    let maxActive = 0;
+    const resolves: ((read: { body: string; sourceAt: number }) => void)[] = [];
+    ipc.fetchCodexRateLimits.mockImplementation(
+      () =>
+        new Promise<{ body: string; sourceAt: number }>((resolve) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          resolves.push((read) => {
+            active -= 1;
+            resolve(read);
+          });
+        }),
+    );
+    let now = 1_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      // Boot owns the first in-flight read. Making Codex live queues exactly
+      // one follow-up instead of starting a concurrent native request.
+      await mount(deckWith([]));
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
+      now = 9_000;
+      await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(1);
+
+      // A rollout delivered during cold native initialization is older than
+      // the actual JSON-RPC read. Native sourceAt, not the web trigger time,
+      // must let the fresh app-server snapshot replace it.
+      emit({
+        paneId: "pane-1",
+        token: "tok-1",
+        payload: { agent: "codex", sourceAt: 5_000 },
+      });
+      await act(async () =>
+        resolves[0]({ body: "boot", sourceAt: 8_000 }),
+      );
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
+      expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+        reportedAt: 8_000,
+      });
+
+      // A focus burst while the live read is pending collapses to one trailing
+      // refresh. The active response keeps its native request time, not web
+      // completion time.
+      now = 11_000;
+      document.dispatchEvent(new Event("visibilitychange"));
+      document.dispatchEvent(new Event("visibilitychange"));
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(2);
+      await act(async () =>
+        resolves[1]({ body: "live", sourceAt: 10_000 }),
+      );
+      expect(ipc.fetchCodexRateLimits).toHaveBeenCalledTimes(3);
+      expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+        reportedAt: 10_000,
+      });
+
+      await act(async () =>
+        resolves[2]({ body: "visible", sourceAt: 11_000 }),
+      );
+      expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+        reportedAt: 11_000,
+      });
+      expect(maxActive).toBe(1);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("sweeps the newest on-disk codex rollout at boot, stamped with the file's age", async () => {
     ipc.latestCodexRollout.mockResolvedValue({
       event: { type: "token_count" },
+      sourceAt: "1970-01-01T00:00:02.000Z",
       mtimeMs: 1_234,
     });
     // No codex pane anywhere — the account chip still catches up from disk.
@@ -378,7 +490,7 @@ describe("useUsageChannel", () => {
     await act(async () => {});
     expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
       kind: "reported",
-      reportedAt: 1_234,
+      reportedAt: 2_000,
     });
     // Account state only: without a pane there is nothing to attribute.
     expect(getUsageSnapshot().panes.size).toBe(0);
@@ -387,5 +499,20 @@ describe("useUsageChannel", () => {
     await mount(deckWith([{ id: "pane-1" }]));
     await act(async () => {});
     expect(ipc.latestCodexRollout).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to rollout mtime when boot provenance is from the future", async () => {
+    ipc.latestCodexRollout.mockResolvedValue({
+      event: { type: "token_count" },
+      sourceAt: "2099-01-01T00:00:00.000Z",
+      mtimeMs: 1_234,
+    });
+
+    await mount(deckWith([]));
+    await act(async () => {});
+    expect(getUsageSnapshot().accounts.get("codex")).toMatchObject({
+      kind: "reported",
+      reportedAt: 1_234,
+    });
   });
 });

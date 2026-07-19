@@ -5,6 +5,7 @@ import {
   collectTokenCounts,
   isJsonRecord,
   type AccountUsage,
+  type LimitsNormalizer,
   type PaneUsage,
   type TokenCounts,
   type UsageNormalizer,
@@ -31,6 +32,62 @@ function window(value: unknown): UsageWindow | null {
     windowMinutes: asFiniteNumber(value.window_minutes) ?? null,
   };
 }
+
+/** One app-server rate-limit window. Generated schemas call the duration
+ * `windowDurationMins`; an older documented shape used `windowMinutes`, so
+ * tolerate both while keeping the official camelCase wire otherwise. */
+function appServerWindow(value: unknown): UsageWindow | null {
+  if (!isJsonRecord(value)) return null;
+  const usedPct = asFiniteNumber(value.usedPercent);
+  if (usedPct === undefined) return null;
+  const resetsAt = asFiniteNumber(value.resetsAt);
+  return {
+    usedPct: clampPercent(usedPct),
+    resetsAt: resetsAt !== undefined ? resetsAt * 1000 : null,
+    windowMinutes:
+      asFiniteNumber(value.windowDurationMins) ??
+      asFiniteNumber(value.windowMinutes) ??
+      null,
+  };
+}
+
+/** The backward-compatible snapshot is normally `rateLimits`. If a Codex
+ * version only returns the newer multi-bucket map, prefer its `codex`
+ * bucket and then the first recognizable bucket. */
+function appServerSnapshot(response: Record<string, unknown>): unknown {
+  if (isJsonRecord(response.rateLimits)) return response.rateLimits;
+  if (!isJsonRecord(response.rateLimitsByLimitId)) return null;
+  if (isJsonRecord(response.rateLimitsByLimitId.codex)) {
+    return response.rateLimitsByLimitId.codex;
+  }
+  return Object.values(response.rateLimitsByLimitId).find(isJsonRecord) ?? null;
+}
+
+/** Official `account/rateLimits/read` response → the same account domain
+ * shape rollout events already produce. The app-server schema is generated
+ * per installed Codex version, so malformed/unsupported shapes are a quiet
+ * null and the rollout/cache fallback keeps working. */
+export const normalizeCodexRateLimits: LimitsNormalizer = (body, at) => {
+  let response: unknown;
+  try {
+    response = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!isJsonRecord(response)) return null;
+  const snapshot = appServerSnapshot(response);
+  if (!isJsonRecord(snapshot)) return null;
+  const windows = [snapshot.primary, snapshot.secondary]
+    .map(appServerWindow)
+    .filter((candidate): candidate is UsageWindow => candidate !== null);
+  if (windows.length === 0) return null;
+  return {
+    kind: "reported",
+    windows,
+    reportedAt: at,
+    sourcePaneId: "",
+  };
+};
 
 /** Codex token bags share one field naming across total/last. */
 function tokens(value: unknown): TokenCounts | undefined {
