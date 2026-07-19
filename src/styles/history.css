@@ -194,14 +194,14 @@
 }
 
 .browser__bar {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
 }
 
 .browser__search {
   flex: 1;
-  padding: 8px 12px;
+  padding: 8px 88px 8px 12px;
   border: 1px solid #1c2230;
   border-radius: 8px;
   background-color: #0e121a;
@@ -215,8 +215,13 @@
 }
 
 .browser__scanning {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   font-size: 11px;
   color: #6b7280;
+  pointer-events: none;
 }
 
 .browser__list {

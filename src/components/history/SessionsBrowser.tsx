@@ -90,7 +90,11 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
             api.search(e.target.value);
           }}
         />
-        {api.scanning && <span className="browser__scanning">indexing…</span>}
+        {api.scanning && api.hits.length > 0 && (
+          // Inside the field, so a background rescan neither shifts layout
+          // nor duplicates the empty-list placeholder.
+          <span className="browser__scanning">indexing…</span>
+        )}
       </div>
       <ul className="history__list browser__list">
         {api.hits.map((hit) => {
