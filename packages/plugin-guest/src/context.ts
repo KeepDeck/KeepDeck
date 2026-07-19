@@ -520,6 +520,16 @@ export function buildGuestContext(
           rpc.call("services.fs.readFile", [path, opts]) as Promise<FsFile>,
         watch: (path, onChange) => remoteWatch("fs", path, onChange),
       },
+      fsWrite: {
+        mkdir: (path) =>
+          rpc.call("services.fsWrite.mkdir", [path]) as Promise<void>,
+        copyFile: (src, dst) =>
+          rpc.call("services.fsWrite.copyFile", [src, dst]) as Promise<void>,
+        writeFile: (path, text) =>
+          rpc.call("services.fsWrite.writeFile", [path, text]) as Promise<void>,
+        appendLine: (path, line) =>
+          rpc.call("services.fsWrite.appendLine", [path, line]) as Promise<void>,
+      },
       git: {
         status: (repo) =>
           rpc.call("services.git.status", [repo]) as Promise<GitStatus>,

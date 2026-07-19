@@ -182,6 +182,18 @@ describe("readManifest", () => {
     expect(result.errors[0]).toContain("Bad_Id");
   });
 
+  it("accepts an fsWrite capability with declared prefixes", () => {
+    const result = readManifest({
+      ...GOLDEN,
+      capabilities: [{ kind: "fsWrite", paths: ["~/.claude/projects"] }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.manifest.capabilities).toEqual([
+      { kind: "fsWrite", paths: ["~/.claude/projects"] },
+    ]);
+  });
+
   it("fails closed on an unknown capability kind", () => {
     const result = readManifest({
       ...GOLDEN,
@@ -197,6 +209,8 @@ describe("readManifest", () => {
       [{ kind: "exec", commands: [] }, "non-empty"],
       [{ kind: "exec" }, "non-empty"],
       [{ kind: "fs", scope: "disk" }, '"workspace" or "everywhere"'],
+      [{ kind: "fsWrite", paths: [] }, "non-empty"],
+      [{ kind: "fsWrite" }, "non-empty"],
       [{ kind: "git", scope: "disk" }, '"workspace" or "everywhere"'],
       [{ kind: "git" }, '"workspace" or "everywhere"'],
       [{ kind: "net", domains: ["*.evil.com"] }, "bare hostnames"],

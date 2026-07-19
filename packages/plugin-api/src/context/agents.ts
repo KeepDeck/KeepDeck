@@ -68,6 +68,15 @@ export interface AgentHooks {
     input: ResumePlanInput,
     output: SpawnPlanOutput,
   ): void | Promise<void>;
+  /** Fork the recorded session into `input.cwd` (the TARGET directory): a
+   * NEW conversation copy — the original stays resumable where it was. The
+   * hook performs its store surgery first (via the plugin's declared
+   * `fsWrite`/`exec` capabilities), then fills how the forked session
+   * spawns. Rejecting (throwing) must leave the store untouched. */
+  "fork.plan"?(
+    input: ForkPlanInput,
+    output: SpawnPlanOutput,
+  ): void | Promise<void>;
 }
 
 export interface SpawnPlanInput {
@@ -105,6 +114,17 @@ export interface SpawnSkillsInput {
 export interface ResumePlanInput extends SpawnPlanInput {
   /** The recorded session to resume. */
   sessionId: string;
+}
+
+export interface ForkPlanInput extends SpawnPlanInput {
+  /** The source session being forked. */
+  sessionId: string;
+  /** The directory the session was recorded in. It may no longer exist —
+   * recipes operate on the agent's store, never on the original dir. */
+  sourceCwd: string;
+  /** The session's transcript/rollout file, when the reporter delivered it
+   * — the exact source file for copy-based recipes. */
+  transcriptPath?: string;
 }
 
 /** Mutate-in-place spawn plan: hooks adjust what the host will run. */

@@ -41,6 +41,17 @@ export interface FsBackend {
   watch(path: string, scope: FsScope, onChange: () => void): Disposable;
 }
 
+/** The prefix-aware write backend the gate wraps: the gate passes the
+ * manifest's DECLARED `fsWrite` prefixes with every call; the host enforces
+ * containment against them (both ends of a copy). The plugin never supplies
+ * the prefixes — the manifest is the only source. */
+export interface FsWriteBackend {
+  mkdir(path: string, roots: readonly string[]): Promise<void>;
+  copyFile(src: string, dst: string, roots: readonly string[]): Promise<void>;
+  writeFile(path: string, text: string, roots: readonly string[]): Promise<void>;
+  appendLine(path: string, line: string, roots: readonly string[]): Promise<void>;
+}
+
 /** The scope-aware git backend, mirroring [`FsBackend`]: the gate derives the
  * scope from the manifest's `git` capability, the backend resolves it to the
  * same roots fs containment uses. */
@@ -76,6 +87,7 @@ export interface ServiceBackends {
   ports: PluginPorts;
   opener: PluginOpener;
   fs: FsBackend;
+  fsWrite: FsWriteBackend;
   git: GitBackend;
   downloads: {
     start(
@@ -212,6 +224,36 @@ export function createCapabilityGate(
           `fs.watch: "${path}" requires an "fs" capability, which the manifest does not declare`,
         );
         return backend.fs.watch(path, fsScope(manifest.capabilities), onChange);
+      },
+    },
+    fsWrite: {
+      mkdir(path) {
+        admit(
+          fsWritePaths(manifest.capabilities).length > 0,
+          `fsWrite.mkdir: "${path}" requires an "fsWrite" capability, which the manifest does not declare`,
+        );
+        return backend.fsWrite.mkdir(path, fsWritePaths(manifest.capabilities));
+      },
+      copyFile(src, dst) {
+        admit(
+          fsWritePaths(manifest.capabilities).length > 0,
+          `fsWrite.copyFile: "${dst}" requires an "fsWrite" capability, which the manifest does not declare`,
+        );
+        return backend.fsWrite.copyFile(src, dst, fsWritePaths(manifest.capabilities));
+      },
+      writeFile(path, text) {
+        admit(
+          fsWritePaths(manifest.capabilities).length > 0,
+          `fsWrite.writeFile: "${path}" requires an "fsWrite" capability, which the manifest does not declare`,
+        );
+        return backend.fsWrite.writeFile(path, text, fsWritePaths(manifest.capabilities));
+      },
+      appendLine(path, line) {
+        admit(
+          fsWritePaths(manifest.capabilities).length > 0,
+          `fsWrite.appendLine: "${path}" requires an "fsWrite" capability, which the manifest does not declare`,
+        );
+        return backend.fsWrite.appendLine(path, line, fsWritePaths(manifest.capabilities));
       },
     },
     git: {
@@ -372,6 +414,13 @@ function hasFsCapability(capabilities: Capability[]): boolean {
 
 function hasGitCapability(capabilities: Capability[]): boolean {
   return capabilities.some((capability) => capability.kind === "git");
+}
+
+/** The declared `fsWrite` prefixes — empty when the capability is absent
+ * (which denies every call; there is no default prefix). */
+function fsWritePaths(capabilities: Capability[]): string[] {
+  const cap = capabilities.find((capability) => capability.kind === "fsWrite");
+  return cap?.kind === "fsWrite" ? cap.paths : [];
 }
 
 /** The scope the fs backend should enforce: the declared scope, defaulting to

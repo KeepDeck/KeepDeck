@@ -68,6 +68,12 @@ function fakeBackend() {
       })),
       watch: vi.fn(() => ({ dispose: vi.fn() })),
     },
+    fsWrite: {
+      mkdir: vi.fn(() => Promise.resolve()),
+      copyFile: vi.fn(() => Promise.resolve()),
+      writeFile: vi.fn(() => Promise.resolve()),
+      appendLine: vi.fn(() => Promise.resolve()),
+    },
     git: {
       status: vi.fn(async () => ({
         branch: null,
@@ -676,5 +682,52 @@ describe("createCapabilityGate — git", () => {
     );
     expect(hard.backend.git.diffFile).not.toHaveBeenCalled();
     expect(hard.backend.git.watch).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCapabilityGate — fsWrite", () => {
+  it("forwards a declared call and injects the manifest's prefixes as roots", async () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "fsWrite", paths: ["~/.claude/projects"] }]),
+      backend,
+      { diagnostics: "silent", log },
+    );
+
+    await gate.fsWrite.mkdir("~/.claude/projects/-x");
+    await gate.fsWrite.copyFile("/a", "/b");
+    await gate.fsWrite.writeFile("/p", "text");
+    await gate.fsWrite.appendLine("/p", "line");
+
+    // The plugin never supplies the prefixes — the gate injects them.
+    expect(backend.fsWrite.mkdir).toHaveBeenCalledWith("~/.claude/projects/-x", [
+      "~/.claude/projects",
+    ]);
+    expect(backend.fsWrite.copyFile).toHaveBeenCalledWith("/a", "/b", [
+      "~/.claude/projects",
+    ]);
+    expect(backend.fsWrite.writeFile).toHaveBeenCalledWith("/p", "text", [
+      "~/.claude/projects",
+    ]);
+    expect(backend.fsWrite.appendLine).toHaveBeenCalledWith("/p", "line", [
+      "~/.claude/projects",
+    ]);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("missing fsWrite capability denies every write — fs (read) does not cover it", () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "fs", scope: "everywhere" }]),
+      backend,
+      { diagnostics: "silent", log },
+    );
+    expect(() => gate.fsWrite.mkdir("/x")).toThrow('"fsWrite" capability');
+    expect(() => gate.fsWrite.copyFile("/a", "/b")).toThrow('"fsWrite" capability');
+    expect(() => gate.fsWrite.writeFile("/p", "t")).toThrow('"fsWrite" capability');
+    expect(() => gate.fsWrite.appendLine("/p", "l")).toThrow('"fsWrite" capability');
+    expect(backend.fsWrite.mkdir).not.toHaveBeenCalled();
   });
 });

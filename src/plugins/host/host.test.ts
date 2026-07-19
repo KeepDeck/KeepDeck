@@ -57,6 +57,12 @@ function fakeDeps() {
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
     fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ dispose: vi.fn() })) },
+    fsWrite: {
+      mkdir: vi.fn(() => Promise.resolve()),
+      copyFile: vi.fn(() => Promise.resolve()),
+      writeFile: vi.fn(() => Promise.resolve()),
+      appendLine: vi.fn(() => Promise.resolve()),
+    },
     git: {
       status: vi.fn(),
       diffFile: vi.fn(),

@@ -16,6 +16,7 @@ mod menu;
 mod migration;
 mod paths;
 mod plugins_fs;
+mod plugins_fs_write;
 mod ports;
 mod project_fs;
 mod project_git;
@@ -153,6 +154,10 @@ pub fn run() {
             journal::journal_load,
             journal::journal_append,
             journal::journal_compact,
+            plugins_fs_write::plugins_fs_write_mkdir,
+            plugins_fs_write::plugins_fs_write_copy,
+            plugins_fs_write::plugins_fs_write_file,
+            plugins_fs_write::plugins_fs_write_append,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,

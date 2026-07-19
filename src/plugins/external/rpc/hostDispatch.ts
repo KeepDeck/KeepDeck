@@ -377,6 +377,14 @@ export function createHostDispatch(
         ),
       );
     },
+    "services.fsWrite.mkdir": ([path]) =>
+      ctx.services.fsWrite.mkdir(path as string),
+    "services.fsWrite.copyFile": ([src, dst]) =>
+      ctx.services.fsWrite.copyFile(src as string, dst as string),
+    "services.fsWrite.writeFile": ([path, text]) =>
+      ctx.services.fsWrite.writeFile(path as string, text as string),
+    "services.fsWrite.appendLine": ([path, line]) =>
+      ctx.services.fsWrite.appendLine(path as string, line as string),
     "services.fs.unwatch": ([id]) => {
       const key = id as number;
       watches.get(key)?.dispose();

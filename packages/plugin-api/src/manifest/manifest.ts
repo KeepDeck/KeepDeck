@@ -218,6 +218,11 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
           errors.push(`${at}: fs "scope" must be "workspace" or "everywhere"`);
         else out.push({ kind: "fs", scope: cap.scope });
         return;
+      case "fsWrite":
+        if (!isStringArray(cap.paths) || cap.paths.length === 0)
+          errors.push(`${at}: fsWrite needs a non-empty "paths" string array`);
+        else out.push({ kind: "fsWrite", paths: cap.paths });
+        break;
       case "git":
         if (cap.scope !== "workspace" && cap.scope !== "everywhere")
           errors.push(`${at}: git "scope" must be "workspace" or "everywhere"`);

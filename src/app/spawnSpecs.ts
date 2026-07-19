@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   AgentContribution,
+  ForkPlanInput,
   SpawnPlanInput,
   SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
@@ -88,15 +89,23 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
   wsSkillRoots?: string[];
 }
 
-/** Build one plan through the agent's hook; a throwing hook degrades to a
- * bare spawn (no identity) rather than a dead pane. */
+/** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
+ * their session facts; the hook that runs is the variant's. */
+type PlanVariant =
+  | { kind: "spawn" }
+  | { kind: "resume"; sessionId: string; origin: ResumeOrigin }
+  | { kind: "fork"; sessionId: string; sourceCwd: string; transcriptPath?: string };
+
+/** Build one plan through the agent's hook. A throwing SPAWN hook degrades
+ * to a bare spawn (no identity) rather than a dead pane; a throwing resume
+ * or fork hook REJECTS — degrading a requested continuation (or a fork whose
+ * surgery failed) into a fresh conversation would be silent data loss. */
 async function buildPlan(
   plugins: SpawnPluginAccess,
   agent: { entry: AgentContribution; pluginId: string },
   facts: PaneSpawnFacts,
   ctx: SpawnPlanContext,
-  resumeId?: string | null,
-  resumeOrigin?: ResumeOrigin,
+  variant: PlanVariant = { kind: "spawn" },
 ): Promise<SpawnPlan> {
   const { entry, pluginId } = agent;
   const { paneId } = facts;
@@ -126,18 +135,29 @@ async function buildPlan(
     ...(skills ? { skills } : {}),
   };
   try {
-    if (resumeId) {
+    if (variant.kind === "resume") {
       await entry.hooks["resume.plan"]?.(
-        { ...base, sessionId: resumeId },
+        { ...base, sessionId: variant.sessionId },
         output,
       );
+    } else if (variant.kind === "fork") {
+      const input: ForkPlanInput = {
+        ...base,
+        sessionId: variant.sessionId,
+        sourceCwd: variant.sourceCwd,
+        ...(variant.transcriptPath !== undefined && {
+          transcriptPath: variant.transcriptPath,
+        }),
+      };
+      await entry.hooks["fork.plan"]?.(input, output);
     } else {
       await entry.hooks["spawn.plan"]?.(base, output);
     }
   } catch (e) {
+    if (variant.kind !== "spawn") throw e;
     log.warn(
       "web:agents",
-      `${entry.id} ${resumeId ? "resume" : "spawn"}.plan failed — bare spawn: ${describeError(e)}`,
+      `${entry.id} spawn.plan failed — bare spawn: ${describeError(e)}`,
     );
     return { command: entry.detect.bin, args: [], env: [] };
   }
@@ -195,10 +215,10 @@ async function buildPlan(
     env,
     ...(output.envDefaults?.length ? { envDefaults: output.envDefaults } : {}),
     ...(token ? { token } : {}),
-    ...(resumeId && resumeOrigin
+    ...(variant.kind === "resume"
       ? {
-          resumeOf: resumeId,
-          resumeOrigin,
+          resumeOf: variant.sessionId,
+          resumeOrigin: variant.origin,
           postbackMark: postbackCount(paneId),
         }
       : {}),
@@ -252,8 +272,45 @@ export async function buildResumeSpec(
     return false;
   }
   return buildAndCache(facts.paneId, () =>
-    buildPlan(plugins, agent, facts, ctx, resumeId, origin),
+    buildPlan(plugins, agent, facts, ctx, {
+      kind: "resume",
+      sessionId: resumeId,
+      origin,
+    }),
   );
+}
+
+/** Build and cache a FORK plan for a pane about to be minted: the agent's
+ * `fork.plan` performs its store surgery, then fills how the forked session
+ * spawns. The fork's own (new) session id is reported by the spawned CLI's
+ * reporter like any fresh spawn — the plan carries no `resumeOf`. */
+export async function buildForkSpec(
+  plugins: SpawnPluginAccess,
+  agentType: string,
+  facts: PaneSpawnFacts,
+  ctx: SpawnPlanContext,
+  fork: { sessionId: string; sourceCwd: string; transcriptPath?: string },
+): Promise<boolean> {
+  const agent = findAgent(plugins, agentType);
+  if (!agent) return false;
+  if (!agent.entry.hooks["fork.plan"]) {
+    log.warn(
+      "web:agents",
+      `${agentType}: cannot fork ${fork.sessionId} — plugin has no fork.plan hook`,
+    );
+    return false;
+  }
+  try {
+    return await buildAndCache(facts.paneId, () =>
+      buildPlan(plugins, agent, facts, ctx, { kind: "fork", ...fork }),
+    );
+  } catch (e) {
+    log.warn(
+      "web:agents",
+      `${agentType}: fork.plan for ${fork.sessionId} failed: ${describeError(e)}`,
+    );
+    return false;
+  }
 }
 
 /**

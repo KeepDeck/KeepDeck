@@ -300,6 +300,12 @@ export function createFakeHost(
         }),
         watch: () => ({ dispose() {} }),
       },
+      fsWrite: {
+        mkdir: async () => {},
+        copyFile: async () => {},
+        writeFile: async () => {},
+        appendLine: async () => {},
+      },
       git: {
         status: async () => ({
           branch: "main",

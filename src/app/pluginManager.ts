@@ -1,5 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  pluginsFsWriteAppend,
+  pluginsFsWriteCopy,
+  pluginsFsWriteFile,
+  pluginsFsWriteMkdir,
+} from "../ipc/pluginsFsWrite";
+import {
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
@@ -380,6 +386,12 @@ export function createPluginManager(appDownloads: DownloadManager) {
       openUrl: (url) => openUrl(url),
       openPath: (path) => openPath(path),
       openPathWith: (path, application) => openPathWith(path, application),
+    },
+    fsWrite: {
+      mkdir: (path, roots) => pluginsFsWriteMkdir(path, roots),
+      copyFile: (src, dst, roots) => pluginsFsWriteCopy(src, dst, roots),
+      writeFile: (path, text, roots) => pluginsFsWriteFile(path, text, roots),
+      appendLine: (path, line, roots) => pluginsFsWriteAppend(path, line, roots),
     },
     fs: {
       readDir: (path, scope) =>
