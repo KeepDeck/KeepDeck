@@ -75,6 +75,12 @@ describe("windowLabel", () => {
     expect(windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 10_080 })).toBe("wk");
     expect(windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 43_200 })).toBe("mo");
     expect(
+      windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 10_080 }, "long"),
+    ).toBe("week");
+    expect(
+      windowLabel({ usedPct: 0, resetsAt: null, windowMinutes: 43_200 }, "long"),
+    ).toBe("month");
+    expect(
       windowLabel({
         usedPct: 0,
         resetsAt: null,
