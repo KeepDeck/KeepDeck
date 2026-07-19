@@ -148,3 +148,23 @@
   border-color: #58b368;
   color: #c5c8c6;
 }
+
+.history__missing {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background-color: rgba(177, 60, 60, 0.12);
+  border: 1px solid #5a2e2e;
+  font-size: 11px;
+  color: #d98c8c;
+}
+
+.history__resume:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.history__resume:disabled:hover {
+  border-color: #2b3446;
+  color: #9aa3af;
+}

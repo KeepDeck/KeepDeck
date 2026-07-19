@@ -1,7 +1,40 @@
+import { useEffect, useState } from "react";
 import type { AgentInfo } from "../../domain/agents";
 import type { SessionRecord } from "../../domain/journal";
 import { formatAge } from "../../domain/usage/format";
+import { probeWorktree } from "../../ipc/worktree";
 import { AgentGlyph } from "../../ui/AgentGlyph";
+
+/** Directories checked present/absent — probed per distinct cwd whenever the
+ * rows change. Unknown (probe pending or failed) counts as present: a wrong
+ * "present" merely lets Resume try and fail visibly; a wrong "missing" would
+ * block a working resume. */
+function useDirPresence(rows: SessionRecord[]): ReadonlyMap<string, boolean> {
+  const [presence, setPresence] = useState<ReadonlyMap<string, boolean>>(
+    new Map(),
+  );
+  const dirs = [...new Set(rows.map((r) => r.cwd))].sort().join("\u0000");
+  useEffect(() => {
+    if (dirs === "") return;
+    let alive = true;
+    const paths = dirs.split("\u0000");
+    void Promise.all(
+      paths.map(async (path) => {
+        try {
+          return [path, (await probeWorktree(path)).exists] as const;
+        } catch {
+          return [path, true] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (alive) setPresence(new Map(entries));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [dirs]);
+  return presence;
+}
 
 interface WorkspaceHistoryProps {
   /** The workspace's journal, newest binding first (`journalRows`). */
@@ -20,6 +53,7 @@ interface WorkspaceHistoryProps {
  * seeing what happened in it.
  */
 export function WorkspaceHistory({ rows, agents, onDelete, onResume }: WorkspaceHistoryProps) {
+  const presence = useDirPresence(rows);
   if (rows.length === 0) {
     return (
       <div className="history history--empty">
@@ -39,6 +73,7 @@ export function WorkspaceHistory({ rows, agents, onDelete, onResume }: Workspace
         {rows.map((row) => {
           const agent = agents.find((a) => a.id === row.agent);
           const when = row.state === "closed" ? row.endedAt : row.boundAt;
+          const dirMissing = presence.get(row.cwd) === false;
           return (
             <li key={row.sessionId} className="history__row">
               <span
@@ -61,11 +96,24 @@ export function WorkspaceHistory({ rows, agents, onDelete, onResume }: Workspace
               <span className="history__when">
                 {formatAge(Date.parse(when), now)}
               </span>
+              {dirMissing && (
+                <span
+                  className="history__missing"
+                  title={`${row.cwd} no longer exists — the session cannot resume in place`}
+                >
+                  dir gone
+                </span>
+              )}
               {row.state === "closed" && (
                 <button
                   type="button"
                   className="history__resume"
-                  title="Resume this session in a new pane"
+                  disabled={dirMissing}
+                  title={
+                    dirMissing
+                      ? "The session's directory no longer exists"
+                      : "Resume this session in a new pane"
+                  }
                   onClick={() => onResume(row)}
                 >
                   Resume

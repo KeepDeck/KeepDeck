@@ -6,6 +6,13 @@ import type { AgentInfo } from "../../domain/agents";
 import type { SessionRecord } from "../../domain/journal";
 import { WorkspaceHistory } from "./WorkspaceHistory";
 
+const worktreeIpc = vi.hoisted(() => ({
+  probeWorktree: vi.fn((_path: string) =>
+    Promise.resolve({ exists: true, isWorktree: false, branch: null }),
+  ),
+}));
+vi.mock("../../ipc/worktree", () => worktreeIpc);
+
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
@@ -34,6 +41,10 @@ describe("WorkspaceHistory", () => {
   let root: Root;
 
   beforeEach(() => {
+    worktreeIpc.probeWorktree.mockClear();
+    worktreeIpc.probeWorktree.mockImplementation(() =>
+      Promise.resolve({ exists: true, isWorktree: false, branch: null }),
+    );
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -107,6 +118,24 @@ describe("WorkspaceHistory", () => {
     expect(onResume).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ sessionId: "s-1", state: "closed" }),
     );
+  });
+
+  it("a gone directory shows the badge and disables Resume", async () => {
+    worktreeIpc.probeWorktree.mockImplementation((path: string) =>
+      Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
+    );
+    render([closed({ cwd: "/gone" }), closed({ sessionId: "s-2" })]);
+    await act(async () => {});
+
+    const rows = host.querySelectorAll(".history__row");
+    expect(rows[0].querySelector(".history__missing")).not.toBeNull();
+    expect(
+      rows[0].querySelector<HTMLButtonElement>(".history__resume")?.disabled,
+    ).toBe(true);
+    expect(rows[1].querySelector(".history__missing")).toBeNull();
+    expect(
+      rows[1].querySelector<HTMLButtonElement>(".history__resume")?.disabled,
+    ).toBe(false);
   });
 
   it("the × forgets exactly that session", () => {
