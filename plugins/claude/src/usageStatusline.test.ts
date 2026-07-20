@@ -6,7 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -131,6 +131,11 @@ describe("kd-usage-statusline.sh", () => {
     const dir = inbox();
     const transcript = join(tmp(), "transcript.jsonl");
     writeFileSync(transcript, "{}");
+    // Backdate to a DISTINCTIVE past instant so the assertion proves the stamp
+    // is the TRANSCRIPT's mtime — not "now" from any other file the test
+    // freshly created, which would read as the current whole second.
+    const turnedAt = 1_700_000_000; // fixed epoch seconds, hours in the past
+    utimesSync(transcript, turnedAt, turnedAt);
     run(JSON.stringify({ ...STATUSLINE, transcript_path: transcript }), {
       v: 1,
       dir,
@@ -139,8 +144,7 @@ describe("kd-usage-statusline.sh", () => {
     });
     const envelope = JSON.parse(readFileSync(join(dir, envelopes(dir)[0]), "utf8"));
     // Whole-second precision (BSD `stat -f %m` / GNU `%Y`), promoted to ms.
-    const expected = Math.floor(statSync(transcript).mtimeMs / 1000) * 1000;
-    expect(envelope.payload.sourceMtimeMs).toBe(expected);
+    expect(envelope.payload.sourceMtimeMs).toBe(turnedAt * 1000);
     // Reading transcript_path never strips the verbatim statusline.
     expect(envelope.payload.statusline.transcript_path).toBe(transcript);
   });
@@ -150,6 +154,49 @@ describe("kd-usage-statusline.sh", () => {
     // the chip degrades to arrival-time ranking rather than losing the report.
     const dir = inbox();
     const statusline = { ...STATUSLINE, transcript_path: "/no/such/kd-transcript.jsonl" };
+    run(JSON.stringify(statusline), { v: 1, dir, pane: "p", token: "t" });
+    const envelope = JSON.parse(readFileSync(join(dir, envelopes(dir)[0]), "utf8"));
+    expect(envelope.payload.sourceMtimeMs).toBeUndefined();
+    expect(envelope.payload.statusline).toEqual(statusline);
+  });
+
+  it("stamps a transcript path that contains spaces", () => {
+    // Every use of the path is double-quoted, so a space must not split it
+    // into multiple stat arguments and silently disable stamping.
+    const dir = inbox();
+    const transcript = join(tmp(), "a session.jsonl");
+    writeFileSync(transcript, "{}");
+    const turnedAt = 1_700_000_500;
+    utimesSync(transcript, turnedAt, turnedAt);
+    run(JSON.stringify({ ...STATUSLINE, transcript_path: transcript }), {
+      v: 1,
+      dir,
+      pane: "p",
+      token: "t",
+    });
+    const envelope = JSON.parse(readFileSync(join(dir, envelopes(dir)[0]), "utf8"));
+    expect(envelope.payload.sourceMtimeMs).toBe(turnedAt * 1000);
+  });
+
+  it("does not stamp a directory as a transcript — only a real file is a turn", () => {
+    // `-f` (regular file), never `-e`: a directory's mtime is not a turn time.
+    const dir = inbox();
+    run(JSON.stringify({ ...STATUSLINE, transcript_path: tmp() }), {
+      v: 1,
+      dir,
+      pane: "p",
+      token: "t",
+    });
+    const envelope = JSON.parse(readFileSync(join(dir, envelopes(dir)[0]), "utf8"));
+    expect(envelope.payload.sourceMtimeMs).toBeUndefined();
+  });
+
+  it("degrades safely when the path holds a quote the naive sed cannot span", () => {
+    // Claude's JSON is arbitrary; an embedded quote truncates the sed capture
+    // to a non-existent path → no stamp, no crash, and the statusline still
+    // publishes verbatim (the quoted shell var means no mishap either).
+    const dir = inbox();
+    const statusline = { ...STATUSLINE, transcript_path: '/tmp/we"ird.jsonl' };
     run(JSON.stringify(statusline), { v: 1, dir, pane: "p", token: "t" });
     const envelope = JSON.parse(readFileSync(join(dir, envelopes(dir)[0]), "utf8"));
     expect(envelope.payload.sourceMtimeMs).toBeUndefined();

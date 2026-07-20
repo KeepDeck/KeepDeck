@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { normalizeClaudeStatusline } from "../../plugins/claude/src/usage";
 import type { NormalizedUsage } from "../domain/usage";
 import {
   getUsageSnapshot,
@@ -137,6 +138,34 @@ describe("reportUsage", () => {
     expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
       reportedAt: 10_000,
       sourcePaneId: "pane-active",
+    });
+    dispose();
+  });
+
+  it("ranks the REAL claude account by the reporter's sourceMtimeMs, end to end", () => {
+    // The whole chain in one test: a reporter-shaped envelope (verbatim
+    // statusline + a sibling sourceMtimeMs) → reportUsage derives the capture
+    // time from it → the real normalizeClaudeStatusline stamps the account →
+    // freshest ranks by it. The idle 3% echo (older mtime, delivered LATER)
+    // must not clobber the active 6% reading.
+    const dispose = registerUsageNormalizer("claude", normalizeClaudeStatusline);
+    const win = (p: number) => ({
+      rate_limits: { five_hour: { used_percentage: p, resets_at: 1_800_000_000 } },
+    });
+    reportUsage(
+      "pane-active",
+      { agent: "claude", statusline: win(6), sourceMtimeMs: 2_000 },
+      9_000,
+    );
+    reportUsage(
+      "pane-idle",
+      { agent: "claude", statusline: win(3), sourceMtimeMs: 1_000 },
+      9_999,
+    );
+    expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
+      reportedAt: 2_000,
+      sourcePaneId: "pane-active",
+      windows: [{ usedPct: 6 }],
     });
     dispose();
   });
