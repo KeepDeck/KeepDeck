@@ -34,6 +34,9 @@ export interface AgentContribution {
   /** How to read this agent's usage (limits, tokens, context) — see
    * `context/usage.ts`. Absent = the agent reports no usage. */
   usage?: AgentUsage;
+  /** Read-only discovery over this agent's session store ([F8] browser).
+   * Absent = the agent's sessions don't appear in the global search. */
+  history?: AgentHistory;
 }
 
 /** A brand mark as bare SVG path data — data, never markup, so a plugin
@@ -66,6 +69,15 @@ export interface AgentHooks {
   /** Fill in how to resume a recorded session in a revived pane. */
   "resume.plan"?(
     input: ResumePlanInput,
+    output: SpawnPlanOutput,
+  ): void | Promise<void>;
+  /** Fork the recorded session into `input.cwd` (the TARGET directory): a
+   * NEW conversation copy — the original stays resumable where it was. The
+   * hook performs its store surgery first (via the plugin's declared
+   * `fsWrite`/`exec` capabilities), then fills how the forked session
+   * spawns. Rejecting (throwing) must leave the store untouched. */
+  "fork.plan"?(
+    input: ForkPlanInput,
     output: SpawnPlanOutput,
   ): void | Promise<void>;
 }
@@ -105,6 +117,63 @@ export interface SpawnSkillsInput {
 export interface ResumePlanInput extends SpawnPlanInput {
   /** The recorded session to resume. */
   sessionId: string;
+}
+
+/** A cheap store enumeration entry — everything derivable WITHOUT opening
+ * the session's content (ids ride in filenames/db rows). */
+export interface AgentSessionStub {
+  sessionId: string;
+  /** Opaque per-plugin ref (usually the transcript path): the diff key the
+   * host's incremental scan compares, and the handle for `describe`/
+   * `content`/`transcript`. */
+  ref: string;
+  /** Last-activity stamp (epoch ms) — with `size`, the change fingerprint. */
+  mtime: number;
+  size: number;
+}
+
+/** The fields worth OPENING a session for — fetched only for new/changed
+ * stubs. */
+export interface AgentSessionFacts {
+  cwd: string;
+  title?: string;
+  /** The session's transcript file, when the store has one — carried
+   * explicitly so consumers never infer it from the ref's shape. */
+  transcriptPath?: string;
+}
+
+export interface AgentTranscriptEntry {
+  role: "user" | "assistant" | "other";
+  text: string;
+}
+
+/** Read-only discovery over the agent's own store ([F8] global browser):
+ * the plugin enumerates and parses (its format, its capability — fs or
+ * sqliteReadonly); the host diffs, indexes and searches. Every method is
+ * read-only by construction. */
+export interface AgentHistory {
+  /** Enumerate the whole store — stat-level, no content reads. */
+  list(): Promise<AgentSessionStub[]>;
+  /** The facts worth indexing, for one (new/changed) session. */
+  describe(ref: string): Promise<AgentSessionFacts>;
+  /** The searchable text (user+assistant turns) — feeds the FTS index. */
+  content(ref: string): Promise<string>;
+  /** One transcript page for the read-only viewer. */
+  transcript(
+    ref: string,
+    page: { offset: number; limit: number },
+  ): Promise<AgentTranscriptEntry[]>;
+}
+
+export interface ForkPlanInput extends SpawnPlanInput {
+  /** The source session being forked. */
+  sessionId: string;
+  /** The directory the session was recorded in. It may no longer exist —
+   * recipes operate on the agent's store, never on the original dir. */
+  sourceCwd: string;
+  /** The session's transcript/rollout file, when the reporter delivered it
+   * — the exact source file for copy-based recipes. */
+  transcriptPath?: string;
 }
 
 /** Mutate-in-place spawn plan: hooks adjust what the host will run. */

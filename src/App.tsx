@@ -14,6 +14,12 @@ import { inspectRepo, listBranches, probeWorktree } from "./ipc/worktree";
 import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
+import { useJournalPersistence } from "./app/useJournalPersistence";
+import { useJournalResume } from "./app/useJournalResume";
+import { useJournalFork } from "./app/useJournalFork";
+import { useSessionsBrowser } from "./app/useSessionsBrowser";
+import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
+import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
@@ -115,6 +121,9 @@ function App() {
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);
+  // journal.jsonl rides the same boot gate: hydrate after the deck restored,
+  // freeze alongside a frozen deck (see the hook's ordering contract).
+  useJournalPersistence(deck, restoring, frozen !== null);
   // Skills housekeeping: drop dead workspaces' derived skill dirs at boot
   // and on every close. Never while restoring/frozen — an unhydrated deck
   // reads as "no workspaces" and would sweep the live dirs too.
@@ -130,6 +139,14 @@ function App() {
   // rejected boot resume. Both replace only runtime PTY/spec state; the pane
   // keeps its identity and layout position.
   const agentRestart = useAgentRestart(deck, spawnCtx);
+  const journalResume = useJournalResume(deck, spawnCtx);
+  const journalFork = useJournalFork(deck, spawnCtx);
+  const sessionsBrowser = useSessionsBrowser();
+  // The fork-target dialog's subject, when one is open.
+  const [forkDialog, setForkDialog] = useState<{
+    wsId: string;
+    record: SessionHandle;
+  } | null>(null);
   // Every live pane's spawn plan, built through its agent plugin's hooks
   // (async — the pane's terminal waits for its plan; mounting is what
   // spawns). Dormant panes get theirs at revive time.
@@ -194,14 +211,34 @@ function App() {
   // top bar's update chip jumps to Updates, and a plugin's `settings.open`
   // command jumps to that plugin's page.
   const [settingsSection, setSettingsSection] = useState<string | undefined>();
-  const provisioning = useProvisioning(deck, agents);
+  const provisioning = useProvisioning(deck);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
-  const agentFlow = useAgentDialog(deck, agents);
+  const agentFlow = useAgentDialog(deck, agents, {
+    // The dialog's "Start from" continuations, with the same visible-failure
+    // contract as the journal rows' Resume/Fork below.
+    resume: (wsId, handle, opts) =>
+      void journalResume.resume(wsId, handle, opts).catch((e: unknown) =>
+        setError((current) => current ?? {
+          title: "Could not resume the session",
+          message: describeError(e),
+        }),
+      ),
+    fork: (wsId, handle, target, opts) =>
+      void journalFork.fork(wsId, handle, target, opts).catch((e: unknown) =>
+        setError((current) => current ?? {
+          title: "Could not fork the session",
+          message: describeError(e),
+        }),
+      ),
+  });
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(
     deck,
-    (message) => setError({ title: "Worktree error", message }),
+    // First error wins, like the resume/fork catches — a second failure
+    // must not silently replace a dialog the user is reading.
+    (message) =>
+      setError((current) => current ?? { title: "Worktree error", message }),
     gitHeads,
   );
   // The command registry's core set — spawn/focus/close/switch/write behind
@@ -700,9 +737,22 @@ function App() {
             agents={agents}
             agentsReady={!agentsLoading}
             gitHeads={gitHeads}
-            onStartWorkspace={(wsId, count) =>
-              void provisioning.startWorkspace(wsId, count)
+            journal={deck.journal.records}
+            onDeleteJournalRecord={deck.deleteJournalRecord}
+            onResumeSession={(wsId, record) =>
+              void journalResume.resume(wsId, record).catch((e: unknown) =>
+                // A user-requested continuation must fail VISIBLY — the row
+                // staying put with no signal reads as a dead button. First
+                // error wins while its dialog is up: a slow earlier failure
+                // must not be clobbered by a later one.
+                setError((current) => current ?? {
+                  title: "Could not resume the session",
+                  message: describeError(e),
+                }),
+              )
             }
+            onForkSession={(wsId, record) => setForkDialog({ wsId, record })}
+            browser={sessionsBrowser}
             onSelectPane={deck.selectPane}
             onToggleFocus={deck.toggleFocus}
             onToggleMinimize={deck.toggleMinimize}
@@ -772,8 +822,36 @@ function App() {
               occupancyAt={(path) => pathOccupancy(deck.workspaces, path)}
               nextFreeLocation={agentFlow.nextFree}
               pickFolder={pickFolder}
+              searchSessions={agentFlow.searchSessions}
+              sessionClaim={agentFlow.sessionClaim}
               onConfirm={agentFlow.confirm}
               onCancel={agentFlow.cancel}
+            />
+          )}
+
+          {forkDialog && (
+            <ForkTargetDialog
+              record={forkDialog.record}
+              agents={agents}
+              workspaceCwd={
+                findWorkspace(deck.workspaces, forkDialog.wsId)?.cwd ?? ""
+              }
+              probe={probeWorktree}
+              occupancy={(path) => pathOccupancy(deck.workspaces, path)}
+              pickFolder={pickFolder}
+              onConfirm={(target) => {
+                const { wsId, record } = forkDialog;
+                setForkDialog(null);
+                void journalFork.fork(wsId, record, target).catch((e: unknown) =>
+                  // Surgery failures carry precise store diagnostics — show
+                  // them; a silently closing dialog reads as success.
+                  setError((current) => current ?? {
+                    title: "Could not fork the session",
+                    message: describeError(e),
+                  }),
+                );
+              }}
+              onCancel={() => setForkDialog(null)}
             />
           )}
 

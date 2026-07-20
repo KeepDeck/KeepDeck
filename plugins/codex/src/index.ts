@@ -6,6 +6,7 @@
  * `resume` subcommand.
  */
 import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
+import { codexHistory } from "./history";
 import { icon } from "./icon";
 import { cliArgs, shellQuote } from "./trust";
 import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
@@ -51,6 +52,7 @@ const plugin: KeepDeckPlugin = {
           normalize: normalizeCodexRateLimits,
         },
       },
+      history: codexHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
           output.args = [
@@ -63,6 +65,18 @@ const plugin: KeepDeckPlugin = {
             ...(await hookArgs(ctx.resources)),
             ...yoloArgs(input.yolo),
             "resume",
+            input.sessionId,
+          ];
+        },
+        // codex forks natively: `codex fork <id>` resolves the session by
+        // its GLOBAL id (no cwd filter), mints a NEW session id, copies the
+        // history, and binds the fork to the invocation dir — no store
+        // surgery at all (probe-verified, RESUME_ANY_HISTORY.md §2).
+        "fork.plan": async (input, output) => {
+          output.args = [
+            ...(await hookArgs(ctx.resources)),
+            ...yoloArgs(input.yolo),
+            "fork",
             input.sessionId,
           ];
         },

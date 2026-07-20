@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canCreateAgent,
+  canStartFromSession,
   classifyLocation,
   isKnownBaseBranch,
   type PathProbe,
@@ -132,5 +133,28 @@ describe("occupied locations", () => {
     expect(
       classifyLocation("/wt/a", probe({ exists: false }), "provisioning", true),
     ).toBe("occupied");
+  });
+});
+
+describe("canStartFromSession", () => {
+  it("a fresh session always passes — the picker doesn't apply", () => {
+    expect(canStartFromSession("new", false, null)).toBe(true);
+    // Leftover pick state from a mode the user backed out of is inert.
+    expect(canStartFromSession("new", true, "claimed")).toBe(true);
+  });
+
+  it("continuing needs a picked session", () => {
+    expect(canStartFromSession("resume", false, null)).toBe(false);
+    expect(canStartFromSession("fork", false, null)).toBe(false);
+  });
+
+  it("resume additionally needs a resumable pick; fork is the escape hatch", () => {
+    expect(canStartFromSession("resume", true, null)).toBe(true);
+    expect(canStartFromSession("resume", true, "dir-gone")).toBe(false);
+    expect(canStartFromSession("resume", true, "no-cwd")).toBe(false);
+    expect(canStartFromSession("resume", true, "claimed")).toBe(false);
+    // The exact sessions resume refuses are the ones fork exists for.
+    expect(canStartFromSession("fork", true, "dir-gone")).toBe(true);
+    expect(canStartFromSession("fork", true, "claimed")).toBe(true);
   });
 });

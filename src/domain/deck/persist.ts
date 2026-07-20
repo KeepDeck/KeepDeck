@@ -1,3 +1,4 @@
+import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
@@ -201,6 +202,9 @@ export function hydrateDeck(json: string): HydrateDeckResult {
         workspaces,
         activeId,
         viewByWs,
+        // deck.json carries no journal — the reducer's `hydrate` keeps the
+        // live slice, and journal.jsonl hydrates separately after.
+        journal: emptyJournal,
       },
       nextAgentSeq,
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
@@ -357,6 +361,7 @@ function readProvisioning(
     index: value.index,
   };
   if (typeof value.baseDir === "string") intent.baseDir = value.baseDir;
+  if (value.runsSetup === true) intent.runsSetup = true;
   if (typeof value.path === "string") intent.path = value.path;
   if (typeof value.branch === "string") intent.branch = value.branch;
   if (typeof value.base === "string") intent.base = value.base;

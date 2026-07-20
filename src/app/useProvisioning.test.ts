@@ -1,7 +1,16 @@
 // @vitest-environment happy-dom
+import { emptyJournal } from "../domain/journal";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const runs = vi.hoisted(() => ({
+  runProvisioning: vi.fn((..._args: unknown[]) => Promise.resolve()),
+}));
+vi.mock("./provisioning", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./provisioning")>()),
+  runProvisioning: runs.runProvisioning,
+}));
 import type { SpawnConfig } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
@@ -17,7 +26,7 @@ let provisioning: ReturnType<typeof useProvisioning>;
 
 function Probe() {
   deck = useDeck();
-  provisioning = useProvisioning(deck, []);
+  provisioning = useProvisioning(deck);
   return null;
 }
 
@@ -118,6 +127,7 @@ describe("useProvisioning workspace ids", () => {
           },
         ],
         activeId: maxId,
+        journal: emptyJournal,
         viewByWs: {},
       }),
     );
@@ -126,5 +136,65 @@ describe("useProvisioning workspace ids", () => {
 
     expect(deck.workspaces.map((ws) => ws.id)).toEqual([maxId]);
     expect(result).toEqual({ ok: false, reason: "sequence-exhausted" });
+  });
+});
+
+describe("useProvisioning retryPane", () => {
+  let root: Root;
+  beforeEach(() => {
+    runs.runProvisioning.mockClear();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const mountWith = async (provisioning: object) => {
+    await act(async () => root.render(createElement(Probe)));
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws-1",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        setup: "pnpm i",
+        panes: [
+          {
+            id: "pane-1",
+            agentType: "claude",
+            provisioning: {
+              repo: "/repo",
+              workspace: "ws-1",
+              index: 1,
+              error: "boom",
+              ...provisioning,
+            },
+          },
+        ],
+      }),
+    );
+  };
+
+  it("re-runs setup ONLY for batch panes — a dialog/fork retry must not widen the attempt", async () => {
+    // Dialog/fork intent: exact `path`, no baseDir → the initial run never
+    // executed setup, so the retry must not either.
+    await mountWith({ path: "/repo-wt/x", branch: "kd/x" });
+    act(() => provisioning.retryPane("ws-1", "pane-1"));
+    expect(runs.runProvisioning).toHaveBeenCalledTimes(1);
+    expect(runs.runProvisioning.mock.calls[0][2]).toBeUndefined();
+  });
+
+  it("batch panes (runsSetup intent) keep their setup on retry", async () => {
+    await mountWith({ baseDir: "/repo-wt", runsSetup: true });
+    act(() => provisioning.retryPane("ws-1", "pane-1"));
+    expect(runs.runProvisioning.mock.calls[0][2]).toBe("pnpm i");
+  });
+
+  it("an auto-placed pane WITHOUT the runsSetup stamp still skips setup on retry", async () => {
+    // The discriminator is the explicit stamp, not baseDir's presence — a
+    // future auto-placing dialog flow must not accidentally widen Retry.
+    await mountWith({ baseDir: "/repo-wt" });
+    act(() => provisioning.retryPane("ws-1", "pane-1"));
+    expect(runs.runProvisioning.mock.calls[0][2]).toBeUndefined();
   });
 });

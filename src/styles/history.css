@@ -1,0 +1,436 @@
+/* Empty-workspace session history ([F8]) */
+.deck__setup {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #0b0e14;
+}
+
+.history {
+  width: min(560px, calc(100% - 48px));
+  max-height: calc(100% - 48px);
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.history--empty {
+  text-align: center;
+}
+
+.history__title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #c5c8c6;
+}
+
+.history__hint {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.history__list {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  /* Without a min-height floor the flex parent lets the list keep its full
+   * content height and the scrollbar never appears — paging depends on it. */
+  min-height: 0;
+  border: 1px solid #1c2230;
+  border-radius: 10px;
+  background-color: #0e121a;
+}
+
+.history__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #151a24;
+  min-width: 0;
+}
+
+.history__row:last-child {
+  border-bottom: none;
+}
+
+.history__state {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #3a4658;
+}
+
+.history__state--live {
+  background-color: #58b368;
+}
+
+.history__glyph {
+  flex: none;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: #9aa3af;
+}
+
+.history__glyph svg {
+  width: 100%;
+  height: 100%;
+}
+
+.history__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #d6d9df;
+}
+
+.history__chip {
+  flex: none;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.035);
+  border: 1px solid #3b4250;
+  font-size: 11px;
+  color: #e5e7eb;
+}
+
+.history__when {
+  flex: none;
+  font-size: 11px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.history__delete {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.history__delete:hover {
+  background-color: #1c2230;
+  color: #c5c8c6;
+}
+
+.history__resume,
+.history__fork {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid #2b3446;
+  border-radius: 6px;
+  background: none;
+  color: #9aa3af;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.history__resume:hover,
+.history__fork:hover {
+  border-color: #58b368;
+  color: #c5c8c6;
+}
+
+.history__missing {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background-color: rgba(177, 60, 60, 0.12);
+  border: 1px solid #5a2e2e;
+  font-size: 11px;
+  color: #d98c8c;
+}
+
+.history__resume:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.history__resume:disabled:hover {
+  border-color: #2b3446;
+  color: #9aa3af;
+}
+
+/* Global sessions browser (under the workspace history) */
+.deck__setup-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: min(720px, calc(100% - 48px));
+  /* Definite, not max-: the children's percentage heights (the journal's
+   * 40% cap) resolve against a real number, and the browser can flex into
+   * the rest instead of collapsing to content height. */
+  height: calc(100% - 48px);
+}
+
+.deck__setup-col .history {
+  width: 100%;
+  padding: 0;
+  flex: 0 1 auto;
+  max-height: 40%;
+}
+
+.browser {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 200px;
+  position: relative;
+}
+
+.browser__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.browser__search {
+  flex: 1;
+  padding: 8px 88px 8px 12px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+  color: #d6d9df;
+  font-size: 13px;
+}
+
+.browser__search:focus {
+  outline: none;
+  border-color: #3a4658;
+}
+
+.browser__meta {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.browser__scanning {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+/* "shown X of N" — the paging denominator, never a cap. */
+.browser__count {
+  font-size: 11px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.browser__list {
+  min-height: 0;
+}
+
+/* The WHOLE row is clickable (opens the transcript) — say so on hover.
+ * Status rows (empty placeholder, the loading tail) are not. */
+.browser__list .history__row:not(.browser__empty):not(.browser__more) {
+  cursor: pointer;
+}
+
+.browser__list .history__row:not(.browser__empty):not(.browser__more):hover {
+  background-color: #131926;
+}
+
+/* The loading tail — a spinner as the LAST element while the next page is
+ * fetched (both the sessions list and the transcript viewer). */
+.browser__more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.browser__spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #2b3446;
+  border-top-color: #9aa3af;
+  border-radius: 50%;
+  animation: browser-spin 0.7s linear infinite;
+}
+
+@keyframes browser-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.browser__open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+}
+
+/* The browser's own name element — structurally different from the journal
+ * row's flexing name (a column child that must clip, not flex) — so a tweak
+ * to one list can't silently restyle the other. */
+.browser__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #d6d9df;
+}
+
+.browser__snippet {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.browser__empty {
+  justify-content: center;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.browser__viewer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #0e121a;
+  border: 1px solid #242a37;
+  border-radius: 10px;
+  /* Clip children to the rounded box — square row backgrounds must not
+   * poke into the corner curves. The viewer itself never scrolls (the
+   * body inside does), so this clip is safe. */
+  overflow: hidden;
+  z-index: 5;
+}
+
+/* Backing out of an opened transcript to the sessions list — the git
+ * plugin's drill-back row, verbatim: full-width, left chevron + the
+ * drilled-into label, top LEFT. No close cross: this is navigation. */
+.browser__back {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #1c2230;
+  background: transparent;
+  color: #8b93a3;
+  /* The label is a session TITLE, not the git plugin's short scope tag —
+   * sentence case at content size, with a comfortable row height. */
+  padding: 12px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser__back:hover {
+  color: #c5c8c6;
+}
+
+.browser__backlabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #c5c8c6;
+}
+
+.browser__open:hover .browser__name {
+  color: #ffffff;
+}
+
+/* The click already opened the viewer — a lingering WebKit focus ring on
+ * the row button reads as a stray highlight. Keyboard focus keeps one. */
+.browser__open:focus {
+  outline: none;
+}
+
+.browser__open:focus-visible {
+  outline: 1px solid #3a4658;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.browser__viewer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* The wider right padding is a gutter for the overlay scrollbar: without
+   * it the thumb rides ON the turn rows and reads as a stray highlight. */
+  padding: 12px 20px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.browser__turn {
+  /* Never shrink: a height-constrained flex column would otherwise squish
+   * every turn to a clipped sliver instead of scrolling. */
+  flex: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background-color: #11161f;
+  color: #c5c8c6;
+  /* On the TURN, not the container: selection/paint of the container's
+   * inter-row whitespace must never show beside the rounded rows. */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* The role accent is an INSET SHADOW, not border-left: WebKit paints a
+ * rounded box's corner arcs as joins with the adjacent (zero-width,
+ * currentColor) borders, which left a faint colored curve on the RIGHT
+ * corners of every turn. A shadow hugs the left edge and nothing else. */
+.browser__turn--user {
+  box-shadow: inset 2px 0 0 #58b368;
+}
+
+.browser__turn--assistant {
+  box-shadow: inset 2px 0 0 #3a4658;
+}
+
+.browser__turn--other {
+  opacity: 0.7;
+}

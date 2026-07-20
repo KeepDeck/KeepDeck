@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { emptyJournal } from "../journal";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import type { DeckState } from "./reducer";
 import {
@@ -47,6 +48,7 @@ const state: DeckState = {
   ],
   activeId: "ws-5",
   // Dock open on purpose: the round-trip must NOT carry it (session-only).
+  journal: emptyJournal,
   viewByWs: { "ws-2": { focus: "pane-3", select: "pane-3", dock: true } },
 };
 
@@ -120,6 +122,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
         },
       ],
       activeId: "ws-1",
+      journal: emptyJournal,
       viewByWs: { "ws-1": { select: "pane-1" } },
     };
     const withDockTab: DeckState = {
@@ -161,6 +164,7 @@ describe("pane YOLO mode across a restart", () => {
       },
     ],
     activeId: "ws-1",
+    journal: emptyJournal,
     viewByWs: {},
   };
 
@@ -382,6 +386,7 @@ describe("provisioning panes across a restart", () => {
       },
     ],
     activeId: "ws-1",
+    journal: emptyJournal,
     viewByWs: {},
   };
 
@@ -434,6 +439,7 @@ describe("workspace plugin slots round-trip", () => {
       },
     ],
     activeId: "ws-1",
+    journal: emptyJournal,
     viewByWs: {},
   };
 
@@ -619,6 +625,7 @@ describe("deck v5 — Workspace.run retirement", () => {
         },
       ],
       activeId: "ws-1",
+      journal: emptyJournal,
       viewByWs: {},
     };
     const restored = okDeck(serializeDeck(setupState));
@@ -638,6 +645,7 @@ describe("deck v5 — Workspace.run retirement", () => {
         },
       ],
       activeId: "ws-1",
+      journal: emptyJournal,
       viewByWs: {},
     };
     expect(serializeDeck(bareState)).not.toContain('"setup"');
@@ -718,6 +726,7 @@ describe("provisioning phase is runtime-only", () => {
         },
       ],
       activeId: "ws-1",
+      journal: emptyJournal,
       viewByWs: {},
     };
     const json = serializeDeck(state);

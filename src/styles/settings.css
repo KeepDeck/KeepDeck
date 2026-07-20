@@ -16,22 +16,7 @@
   margin: 0;
 }
 
-.settings__close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #6b7280;
-  cursor: pointer;
-}
-
-.settings__close:hover {
-  background-color: #1b2230;
-  color: #c5c8c6;
-}
+/* The head's ✕ is the shared .ui-close (base.css). */
 
 .settings__body {
   display: grid;

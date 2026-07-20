@@ -40,7 +40,7 @@ use notify::{Event, EventKind};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::containment::resolve_within;
+use crate::containment::{expand_home, resolve_within};
 use crate::fswatch;
 
 /// Default cap for a single [`project_fs_read_file`] read, when the caller
@@ -67,6 +67,9 @@ pub struct FsEntry {
     /// Byte size for a regular file; `None` for a directory or symlink (a
     /// symlink's own size is meaningless to a tree, and it is NOT followed).
     pub size: Option<u64>,
+    /// Modification time (epoch ms) for files AND dirs — what incremental
+    /// store scans key change detection on. `None` when stat fails.
+    pub mtime: Option<i64>,
 }
 
 /// What a child is, WITHOUT following symlinks: a symlink is reported as
@@ -104,7 +107,7 @@ pub fn project_fs_read_dir(
     roots: Vec<String>,
     everywhere: bool,
 ) -> Result<Vec<FsEntry>, String> {
-    let dir = resolve_within(&path, &roots, everywhere)?;
+    let dir = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
     let reader = fs::read_dir(&dir).map_err(|e| format!("cannot read directory: {e}"))?;
 
     let mut entries = Vec::new();
@@ -112,18 +115,24 @@ pub fn project_fs_read_dir(
         let Ok(file_type) = child.file_type() else {
             continue;
         };
+        let metadata = child.metadata().ok();
         let (kind, size) = if file_type.is_symlink() {
             (FsKind::Symlink, None)
         } else if file_type.is_dir() {
             (FsKind::Dir, None)
         } else {
-            (FsKind::File, child.metadata().ok().map(|m| m.len()))
+            (FsKind::File, metadata.as_ref().map(|m| m.len()))
         };
+        let mtime = metadata
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64);
         entries.push(FsEntry {
             name: child.file_name().to_string_lossy().into_owned(),
             path: child.path().to_string_lossy().into_owned(),
             kind,
             size,
+            mtime,
         });
     }
     Ok(entries)
@@ -139,7 +148,7 @@ pub fn project_fs_read_file(
     everywhere: bool,
     max_bytes: Option<u64>,
 ) -> Result<FsFile, String> {
-    let file = resolve_within(&path, &roots, everywhere)?;
+    let file = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
     let meta = fs::metadata(&file).map_err(|e| format!("cannot stat: {e}"))?;
     if meta.is_dir() {
         return Err(format!("path is a directory: {path}"));
@@ -235,7 +244,9 @@ pub fn project_fs_watch(
     roots: Vec<String>,
     everywhere: bool,
 ) -> Result<(), String> {
-    let dir = resolve_within(&path, &roots, everywhere)?;
+    // Same `~/` expansion as its read siblings — a dir a plugin can readDir
+    // must also be watchable by the same path string.
+    let dir = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
     let emitter = app.clone();
     let watcher = spawn_project_watch(&dir, path.clone(), move |registered| {
         let _ = emitter.emit(

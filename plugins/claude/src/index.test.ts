@@ -11,11 +11,19 @@ import plugin from "./index";
  * test can arm the two reporters independently. */
 function activate(
   resources: Record<string, string> | null,
+  copies: [string, string][] = [],
 ): AgentContribution {
   let agent: AgentContribution | undefined;
   plugin.activate({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
     resources: { path: async (name: string) => resources?.[name] ?? null },
+    services: {
+      fsWrite: {
+        copyFile: async (src: string, dst: string) => {
+          copies.push([src, dst]);
+        },
+      },
+    },
   } as unknown as PluginContext);
   if (!agent) throw new Error("plugin registered no agent");
   return agent;
@@ -158,5 +166,99 @@ describe("claude plugin identity", () => {
     expect(agent.icon?.paths).toHaveLength(1);
     expect(agent.icon?.paths[0].d).toBeTruthy();
     expect(agent.icon?.paths[0].color).toBe("#D97757");
+  });
+});
+
+describe("claude fork.plan", () => {
+  const forkInput = {
+    ...input,
+    sessionId: "uuid-1",
+    sourceCwd: "/old/worktree",
+    transcriptPath:
+      "/Users/u/.claude/projects/-old-worktree/uuid-1.jsonl",
+  };
+
+  it("copies the transcript into the target slug dir, then resumes with --fork-session", async () => {
+    const copies: [string, string][] = [];
+    const agent = activate(SESSION_HOOK, copies);
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...forkInput, cwd: "/repo/wt_2.x" },
+      out,
+    );
+
+    // Slug: `/`, `.` and `_` each become `-`; the projects root comes from
+    // the transcript path itself.
+    expect(copies).toEqual([
+      [
+        "/Users/u/.claude/projects/-old-worktree/uuid-1.jsonl",
+        "/Users/u/.claude/projects/-repo-wt-2-x/uuid-1.jsonl",
+      ],
+    ]);
+    expect(out.args.slice(-3)).toEqual(["--resume", "uuid-1", "--fork-session"]);
+  });
+
+  it("rejects without a recorded transcript path — no guessing, no surgery", async () => {
+    const copies: [string, string][] = [];
+    const agent = activate(null, copies);
+    await expect(
+      agent.hooks["fork.plan"]!(
+        { ...input, sessionId: "uuid-1", sourceCwd: "/x" },
+        output(),
+      ),
+    ).rejects.toThrow("no recorded transcript path");
+    expect(copies).toEqual([]);
+  });
+
+  it("rejects an unexpected store layout loudly instead of copying blind", async () => {
+    const agent = activate(null);
+    await expect(
+      agent.hooks["fork.plan"]!(
+        {
+          ...input,
+          sessionId: "u",
+          sourceCwd: "/x",
+          transcriptPath: "/somewhere/odd/u.jsonl",
+        },
+        output(),
+      ),
+    ).rejects.toThrow("unexpected store layout");
+    await expect(
+      agent.hooks["fork.plan"]!(
+        {
+          ...input,
+          sessionId: "u",
+          sourceCwd: "/x",
+          transcriptPath: "/Users/u/.claude/projects/-x/u.txt",
+        },
+        output(),
+      ),
+    ).rejects.toThrow("not a .jsonl");
+  });
+
+  it("slugs EVERY non-alphanumeric char like real claude, not just / . _", async () => {
+    const copies: [string, string][] = [];
+    const agent = activate(SESSION_HOOK, copies);
+    await agent.hooks["fork.plan"]!(
+      { ...forkInput, cwd: "/Users/John Doe/Projects/app (v2)" },
+      output(),
+    );
+    // Spaces and parens become dashes too — the store encoding claude's own
+    // sanitizePath applies (decompiled 2.1.215).
+    expect(copies[0][1]).toBe(
+      "/Users/u/.claude/projects/-Users-John-Doe-Projects-app--v2-/uuid-1.jsonl",
+    );
+  });
+
+  it("refuses a >200-char slug loudly — claude truncates with a private hash we can't reproduce", async () => {
+    const copies: [string, string][] = [];
+    const agent = activate(SESSION_HOOK, copies);
+    await expect(
+      agent.hooks["fork.plan"]!(
+        { ...forkInput, cwd: `/${"very-long-segment/".repeat(15)}end` },
+        output(),
+      ),
+    ).rejects.toThrow("shorter path");
+    expect(copies).toEqual([]); // zero writes on refusal
   });
 });

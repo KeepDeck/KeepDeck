@@ -48,7 +48,9 @@ const twoWorkspaces = [
 ];
 
 const callbacks = {
-  onStartWorkspace: vi.fn(),
+  onDeleteJournalRecord: vi.fn(),
+  onResumeSession: vi.fn(),
+  onForkSession: vi.fn(),
   onSelectPane: vi.fn(),
   onToggleFocus: vi.fn(),
   onToggleMinimize: vi.fn(),
@@ -62,7 +64,22 @@ const callbacks = {
   onRestartAgent: vi.fn(() => Promise.resolve()),
 };
 
+const browser = {
+  hits: [],
+  total: 0,
+  hasMore: false,
+  loadingMore: false,
+  query: "",
+  scanning: false,
+  search: vi.fn(),
+  loadMore: vi.fn(),
+  scan: vi.fn(),
+  transcript: vi.fn(() => Promise.resolve([])),
+};
+
 const props = (overrides: Record<string, unknown> = {}) => ({
+  journal: {},
+  browser,
   workspaces,
   activeId: "ws-1",
   viewByWs: {},

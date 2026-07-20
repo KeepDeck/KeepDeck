@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { hydrateDeck, serializeDeck } from "../domain/deck";
+import { emptyJournal } from "../domain/journal";
 import { describeError, log } from "../ipc/log";
 import { loadDeckState, quarantineDeckState, saveDeckState } from "../ipc/state";
 import { seedAgentSeq } from "./ids";
@@ -99,6 +100,9 @@ export function usePersistence(deck: Deck): {
     {
       workspaces: deck.workspaces,
       activeId: deck.activeId,
+      // serializeDeck ignores the journal (it persists via journal.jsonl);
+      // the shared empty slice keeps this literal a valid DeckState.
+      journal: emptyJournal,
       // serializeDeck writes only the durable half of each view
       // (focus/select); the session-only dock/dockTab never reach disk, so a
       // dock toggle or tab switch produces an identical string → no save.

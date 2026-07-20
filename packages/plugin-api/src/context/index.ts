@@ -4,7 +4,12 @@ export type {
   AgentContribution,
   AgentHooks,
   AgentIcon,
+  AgentHistory,
   AgentIconPath,
+  AgentSessionFacts,
+  AgentSessionStub,
+  AgentTranscriptEntry,
+  ForkPlanInput,
   PluginAgents,
   ResumePlanInput,
   SpawnPlanInput,
@@ -40,6 +45,10 @@ export type {
   PluginCommandSpec,
   PluginCommands,
 } from "./commands.ts";
+export {
+  firstMeaningfulUserTurn,
+  textFromParts,
+} from "./historyText.ts";
 export type { PluginContext } from "./context.ts";
 export type { Disposable } from "./disposable.ts";
 export {
@@ -76,6 +85,8 @@ export type {
   GitStatus,
   GitStatusEntry,
   PluginFs,
+  PluginFsWrite,
+  PluginSqlite,
   PluginGit,
   PluginOpener,
   PluginPorts,

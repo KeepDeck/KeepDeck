@@ -105,6 +105,15 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
         }),
         watch: () => ({ dispose() {} }),
       },
+      sqlite: {
+        query: async () => [],
+      },
+      fsWrite: {
+        mkdir: async () => {},
+        copyFile: async () => {},
+        writeFile: async () => {},
+        appendLine: async () => {},
+      },
       git: {
         status: async () => ({
           branch: null,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   agentSupportsYolo,
   canCreateAgent,
+  canStartFromSession,
   classifyLocation,
   isKnownBaseBranch,
   selectableAgents,
@@ -12,7 +13,12 @@ import {
   type LocationKind,
   type Occupancy,
   type PathProbe,
+  type ResumeBlock,
+  type SessionPickRow,
+  type SessionStartMode,
 } from "../../domain/agents";
+import { baseName } from "../../domain/deck";
+import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
 import { useEscape } from "../../ui/useEscape";
 import { noAutoCorrect } from "../../ui/inputProps";
@@ -21,6 +27,7 @@ import { SuggestedInput } from "../../ui/SuggestedInput";
 import { Combobox } from "../../ui/Combobox";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { AttachIcon, NextIcon } from "../../ui/icons";
+import { dirPresent, useDirPresence } from "../history/useDirPresence";
 
 export type { AgentDialogResult } from "../../domain/agents";
 
@@ -66,6 +73,13 @@ interface AgentDialogProps {
   ): Promise<{ path: string; branch: string } | null>;
   /** Native folder picker; null when cancelled. Injected for the same reason. */
   pickFolder(title: string): Promise<string | null>;
+  /** One agent's sessions from the search index for the "Start from" picker
+   * (newest first on an empty query, FTS-matched otherwise). Injected — the
+   * dialog stays free of IPC. */
+  searchSessions(agent: AgentType, query: string): Promise<SessionPickRow[]>;
+  /** How a session is already held by a pane, for the resume dimming rule
+   * — running, dormant, or free. Injected (deck state stays outside). */
+  sessionClaim(sessionId: string): "running" | "dormant" | null;
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
 }
@@ -92,6 +106,8 @@ export function AgentDialog({
   occupancyAt,
   nextFreeLocation,
   pickFolder,
+  searchSessions,
+  sessionClaim,
   onConfirm,
   onCancel,
 }: AgentDialogProps) {
@@ -120,9 +136,83 @@ export function AgentDialog({
   // The user's explicit "Attach anyway" on an occupied path; any path edit
   // voids it — consent covers the path it was given for, not the next one.
   const [attachAnyway, setAttachAnyway] = useState(false);
+  // "Start from" ([F8] spawn-time continuation): fresh conversation, resume,
+  // or fork of one of the SELECTED agent's indexed sessions.
+  const [startMode, setStartMode] = useState<SessionStartMode>("new");
+  const [sessionQuery, setSessionQuery] = useState("");
+  const [sessions, setSessions] = useState<SessionPickRow[]>([]);
+  const [picked, setPicked] = useState<SessionPickRow | null>(null);
+  // What the Name field was last prefilled with (a picked session's title):
+  // while name === prefill the field is untouched and follows the picks,
+  // an edit detaches it — SuggestedInput's state machine, hand-rolled.
+  const prefillRef = useRef("");
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
   useEscape(onCancel);
+
+  // Load the picker's options: the selected agent's sessions, re-queried as
+  // the user types (FTS server-side — the index matches content, not just
+  // what a label would fuzzy-match). Debounced like the path probe.
+  useEffect(() => {
+    if (startMode === "new") return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      searchSessions(agentType, sessionQuery)
+        .then((rows) => {
+          if (!cancelled) setSessions(rows);
+        })
+        .catch(() => {
+          if (!cancelled) setSessions([]);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startMode, agentType, sessionQuery]);
+
+  // A pick belongs to ONE agent's store — switching agents voids it (and
+  // the typed filter; the fresh listing shouldn't open pre-narrowed).
+  useEffect(() => {
+    setPicked(null);
+    setSessionQuery("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentType]);
+
+  // Resume needs the session's directory alive — same gate as the browser.
+  const presence = useDirPresence(
+    startMode === "resume" ? sessions.map((s) => s.handle.cwd) : [],
+  );
+  const resumeBlockOf = (row: SessionPickRow): ResumeBlock => {
+    if (row.handle.cwd === "") return "no-cwd";
+    if (sessionClaim(row.handle.sessionId) !== null) return "claimed";
+    if (!dirPresent(presence, row.handle.cwd)) return "dir-gone";
+    return null;
+  };
+  const blockReason = (block: ResumeBlock): string | null => {
+    switch (block) {
+      case "no-cwd":
+        return "no recorded directory — fork instead";
+      case "claimed":
+        return "already in a pane";
+      case "dir-gone":
+        return "directory is gone — fork instead";
+      case null:
+        return null;
+    }
+  };
+
+  const pickSession = (row: SessionPickRow) => {
+    setPicked(row);
+    // Prefill the name from the session title while the field is untouched.
+    // The previous prefill is captured OUTSIDE the updater — the ref is
+    // reassigned below, and updaters run later.
+    const title = row.handle.title ?? "";
+    const previous = prefillRef.current;
+    setName((current) => (current === previous ? title : current));
+    prefillRef.current = title;
+  };
 
   // Snap the pre-selected type onto the installed set once detection resolves
   // (the default may have been a not-installed fallback) ([F1]).
@@ -219,7 +309,14 @@ export function AgentDialog({
   if (kind !== "checking") settledKindRef.current = kind;
   const layoutKind = settledKindRef.current;
   const baseOk = isKnownBaseBranch(baseBranch, branches);
-  const valid = canCreateAgent(kind, branch, baseOk);
+  const pickedBlock = picked ? resumeBlockOf(picked) : null;
+  const sessionOk = canStartFromSession(startMode, picked !== null, pickedBlock);
+  // Resume ignores the location entirely (locked to the recorded cwd — the
+  // whole worktree block is hidden); everything else gates on both.
+  const valid =
+    startMode === "resume"
+      ? sessionOk
+      : canCreateAgent(kind, branch, baseOk) && sessionOk;
 
   // "Use next available": swap the occupied path (and its branch) for the
   // next free suggestion. A null result (no base, IPC down) leaves the field
@@ -265,6 +362,10 @@ export function AgentDialog({
               name,
               location: buildLocation(),
               yolo: yolo && supportsYolo,
+              ...(startMode !== "new" &&
+                picked && {
+                  session: { mode: startMode, handle: picked.handle },
+                }),
             });
         }}
       >
@@ -280,7 +381,97 @@ export function AgentDialog({
           aria-label="Agent name"
         />
 
-        {repo && (
+        <span className="form__label">Agent</span>
+        <div className="form__types">
+          {agentOptions.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              className={`form__type${a.id === agentType ? " form__type--active" : ""}`}
+              onClick={() => setAgentType(a.id)}
+            >
+              <AgentGlyph icon={a.icon} />
+              {a.label}
+            </button>
+          ))}
+        </div>
+
+        <span className="form__label">Start from</span>
+        <div className="form__types">
+          {(
+            [
+              ["new", "New session"],
+              ["resume", "Resume…"],
+              ["fork", "Fork…"],
+            ] as const
+          ).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              className={`form__type${startMode === mode ? " form__type--active" : ""}`}
+              onClick={() => setStartMode(mode)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {startMode !== "new" && (
+          <>
+            <input
+              {...noAutoCorrect}
+              className="form__input"
+              value={sessionQuery}
+              onChange={(e) => setSessionQuery(e.target.value)}
+              placeholder="Search sessions — content, titles"
+              aria-label="Search sessions"
+            />
+            <ul className="form__sessions" aria-label="Sessions">
+              {sessions.map((row) => {
+                const block =
+                  startMode === "resume" ? resumeBlockOf(row) : null;
+                const active =
+                  picked?.handle.sessionId === row.handle.sessionId;
+                return (
+                  <li key={`${row.handle.agent}:${row.handle.sessionId}`}>
+                    <button
+                      type="button"
+                      className={`form__session${active ? " form__session--active" : ""}${
+                        block !== null ? " form__session--blocked" : ""
+                      }`}
+                      onClick={() => pickSession(row)}
+                    >
+                      <span className="form__session-name">
+                        {row.handle.title ?? row.handle.sessionId}
+                      </span>
+                      <span className="form__session-meta">
+                        {baseName(row.handle.cwd) || "no directory"} ·{" "}
+                        {formatAge(row.mtime, Date.now())}
+                        {block !== null && ` · ${blockReason(block)}`}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+              {sessions.length === 0 && (
+                <li className="form__session-empty">No sessions match</li>
+              )}
+            </ul>
+            {startMode === "resume" && picked && (
+              pickedBlock === null ? (
+                <span className="form__git">
+                  ✓ Resumes in {picked.handle.cwd}
+                </span>
+              ) : (
+                <span className="form__error">
+                  Can't resume: {blockReason(pickedBlock)}
+                </span>
+              )
+            )}
+          </>
+        )}
+
+        {repo && startMode !== "resume" && (
           <>
             <span className="form__label">Worktree</span>
             <div className="form__path">
@@ -338,21 +529,6 @@ export function AgentDialog({
           </>
         )}
 
-        <span className="form__label">Agent</span>
-        <div className="form__types">
-          {agentOptions.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              className={`form__type${a.id === agentType ? " form__type--active" : ""}`}
-              onClick={() => setAgentType(a.id)}
-            >
-              <AgentGlyph icon={a.icon} />
-              {a.label}
-            </button>
-          ))}
-        </div>
-
         {supportsYolo && (
           <label className="form__yolo">
             <input
@@ -374,7 +550,11 @@ export function AgentDialog({
             Cancel
           </button>
           <button type="submit" className="form__create" disabled={!valid}>
-            Create agent
+            {startMode === "resume"
+              ? "Resume session"
+              : startMode === "fork"
+                ? "Fork session"
+                : "Create agent"}
           </button>
         </div>
       </form>

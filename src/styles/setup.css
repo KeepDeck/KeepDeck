@@ -1,31 +1,4 @@
-/* Empty-workspace setup (terminal-count picker) */
-.deck__setup {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #0b0e14;
-}
-
-.setup {
-  text-align: center;
-  padding: 24px;
-}
-
-.setup__title {
-  margin: 0 0 4px;
-  font-size: 18px;
-  font-weight: 600;
-  color: #c5c8c6;
-}
-
-.setup__hint {
-  margin: 0 0 24px;
-  font-size: 13px;
-  color: #6b7280;
-}
-
+/* Terminal-count tiles (the create-workspace form's count picker) */
 .setup__tiles {
   display: flex;
   flex-wrap: wrap;

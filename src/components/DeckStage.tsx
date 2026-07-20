@@ -23,7 +23,14 @@ import { gitBadge } from "../ui/gitBadge";
 import { AgentPane } from "./agent/AgentPane";
 import { MinimizedItem } from "./deck/MinimizedItem";
 import { MinimizedTray } from "./deck/MinimizedTray";
-import { WorkspaceSetup } from "./workspace/WorkspaceSetup";
+import {
+  journalRows,
+  type JournalRecords,
+  type SessionHandle,
+} from "../domain/journal";
+import { WorkspaceHistory } from "./workspace/WorkspaceHistory";
+import { SessionsBrowser } from "./history/SessionsBrowser";
+import type { SessionsBrowserApi } from "../app/useSessionsBrowser";
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
  * props (command, spec, cwd, badge) are the same everywhere. */
@@ -59,7 +66,16 @@ interface DeckStageProps {
   /** Runtime git HEAD observations, keyed by pane execution cwd. */
   gitHeads: ReadonlyMap<string, GitPosition>;
   /** The empty-workspace count picker chose `count` agents. */
-  onStartWorkspace(wsId: string, count: number): void;
+  /** The session journal's folded records — the empty-workspace history. */
+  journal: JournalRecords;
+  /** Forget one journal row (the history list's ×). */
+  onDeleteJournalRecord(wsId: string, sessionId: string): void;
+  /** Resume a journal record into a new pane of its workspace. */
+  onResumeSession(wsId: string, record: SessionHandle): void;
+  /** Open the fork-target dialog for a journal record. */
+  onForkSession(wsId: string, record: SessionHandle): void;
+  /** The global sessions browser's engine (search/scan/transcript). */
+  browser: SessionsBrowserApi;
   onSelectPane(wsId: string, paneId: string): void;
   onToggleFocus(wsId: string, paneId: string): void;
   /** Minimize a pane out of the grid, or restore it (grid layout only). */
@@ -122,7 +138,11 @@ export function DeckStage({
   agents,
   agentsReady,
   gitHeads,
-  onStartWorkspace,
+  journal,
+  onDeleteJournalRecord,
+  onResumeSession,
+  onForkSession,
+  browser,
   onSelectPane,
   onToggleFocus,
   onToggleMinimize,
@@ -157,9 +177,22 @@ export function DeckStage({
                 pointerEvents: isActive ? "auto" : "none",
               }}
             >
-              <WorkspaceSetup
-                onPick={(count) => onStartWorkspace(ws.id, count)}
-              />
+              <div className="deck__setup-col">
+                <WorkspaceHistory
+                  rows={journalRows(journal, ws.id)}
+                  agents={agents}
+                  onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
+                  onResume={(record) => onResumeSession(ws.id, record)}
+                  onFork={(record) => onForkSession(ws.id, record)}
+                />
+                <SessionsBrowser
+                  api={browser}
+                  agents={agents}
+                  ready={agentsReady}
+                  onResume={(record) => onResumeSession(ws.id, record)}
+                  onFork={(record) => onForkSession(ws.id, record)}
+                />
+              </div>
             </div>
           );
         }

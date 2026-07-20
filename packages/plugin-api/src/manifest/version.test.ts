@@ -55,7 +55,7 @@ describe("satisfiesApiFloor", () => {
 
   it("rejects pre-lifetime-ref plugins after the workspace API break", () => {
     expect(satisfiesApiFloor(20)).toBe(false);
-    expect(API_VERSION).toBe(23);
+    expect(API_VERSION).toBe(24);
     expect(MIN_COMPATIBLE_API_VERSION).toBe(21);
   });
 });

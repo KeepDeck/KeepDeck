@@ -10,7 +10,7 @@ import {
 import type { StoredSkill } from "../../ipc/skills";
 import { useSkillsLibrary } from "../../app/useSkills";
 import { ConfirmDialog } from "../../ui/ConfirmDialog";
-import { CloseIcon } from "../../ui/icons";
+import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useSaveShortcut } from "../../ui/useSaveShortcut";
@@ -233,15 +233,7 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
       <div className="form skills" role="dialog" aria-modal="true" aria-label="Skills">
         <div className="settings__head">
           <h2 className="form__title settings__title">Skills</h2>
-          <button
-            type="button"
-            className="settings__close"
-            onClick={() => navigate(null, true)}
-            title="Close skills"
-            aria-label="Close skills"
-          >
-            <CloseIcon />
-          </button>
+          <CloseButton label="Close skills" onClick={() => navigate(null, true)} />
         </div>
 
         <div className="skills__body">

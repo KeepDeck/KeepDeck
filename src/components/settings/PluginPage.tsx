@@ -197,6 +197,10 @@ function describe(cap: Capability): string {
       return cap.scope === "everywhere"
         ? "read any file"
         : "read project files";
+    case "fsWrite":
+      return `write inside ${cap.paths.join(", ")}`;
+    case "sqliteReadonly":
+      return `query databases (read-only) inside ${cap.paths.join(", ")}`;
     case "git":
       return cap.scope === "everywhere"
         ? "read git state of any repository"

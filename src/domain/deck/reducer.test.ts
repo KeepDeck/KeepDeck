@@ -26,10 +26,7 @@ describe("deckReducer createWorkspace", () => {
     });
 
     expect(
-      deckReducer(start, {
-        type: "createWorkspace",
-        workspace: ws("a", ["other-pane"]),
-      }),
+      deckReducer(start, { type: "createWorkspace", workspace: ws("a", ["other-pane"]), at: "2026-01-01T00:00:00.000Z" }),
     ).toBe(start);
   });
 });
@@ -42,7 +39,7 @@ describe("deckReducer closeAgent", () => {
         activeId: "a",
         viewByWs: { a: { focus: "a-1", select: "a-1" } },
       }),
-      { type: "closeAgent", wsId: "a", paneId: "a-1" },
+      { type: "closeAgent", wsId: "a", paneId: "a-1", at: "2026-01-01T00:00:00.000Z" },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-2"]);
     // Selection moves to the survivor; the maximize (a-1) is gone.
@@ -56,7 +53,7 @@ describe("deckReducer closeAgent", () => {
         activeId: "a",
         viewByWs: { a: { select: "a-1" } },
       }),
-      { type: "closeAgent", wsId: "a", paneId: "a-1" },
+      { type: "closeAgent", wsId: "a", paneId: "a-1", at: "2026-01-01T00:00:00.000Z" },
     );
     expect(next.workspaces[0].panes).toEqual([]);
     // The view empties out and is pruned from the map.
@@ -73,7 +70,7 @@ describe("deckReducer closeAgent", () => {
         activeId: "a",
         viewByWs: { a: { focus: "a-2", select: "a-2" } },
       }),
-      { type: "closeAgent", wsId: "a", paneId: "a-1" },
+      { type: "closeAgent", wsId: "a", paneId: "a-1", at: "2026-01-01T00:00:00.000Z" },
     );
     // Selection kept; the now-unresolvable maximize is dropped.
     expect(next.viewByWs).toEqual({ a: { select: "a-2" } });
@@ -86,7 +83,7 @@ describe("deckReducer closeAgent", () => {
         activeId: "a",
         viewByWs: { a: { focus: "a-2", select: "a-2" } },
       }),
-      { type: "closeAgent", wsId: "a", paneId: "a-3" },
+      { type: "closeAgent", wsId: "a", paneId: "a-3", at: "2026-01-01T00:00:00.000Z" },
     );
     expect(next.viewByWs).toEqual({ a: { focus: "a-2", select: "a-2" } });
   });
@@ -100,7 +97,7 @@ describe("deckReducer closeWorkspace", () => {
         activeId: "a",
         viewByWs: { a: { focus: "a-1", select: "a-1" } },
       }),
-      { type: "closeWorkspace", id: "a" },
+      { type: "closeWorkspace", id: "a", at: "2026-01-01T00:00:00.000Z" },
     );
     expect(next.workspaces.map((w) => w.id)).toEqual(["b"]);
     expect(next.activeId).toBe("b");
@@ -116,7 +113,7 @@ describe("deckReducer closeWorkspace", () => {
         activeId: "a",
         viewByWs: { a: { select: "a-1" } },
       }),
-      { type: "closeWorkspace", id: "a" },
+      { type: "closeWorkspace", id: "a", at: "2026-01-01T00:00:00.000Z" },
     );
     expect(next.workspaces).toEqual([]);
     expect(next.activeId).toBe("");
@@ -130,7 +127,7 @@ describe("deckReducer closeWorkspace", () => {
         activeId: "a",
         viewByWs: { a: { dock: true, dockTab: "p:t" }, b: { dock: true } },
       }),
-      { type: "closeWorkspace", id: "a" },
+      { type: "closeWorkspace", id: "a", at: "2026-01-01T00:00:00.000Z" },
     );
     // a — dock AND dock tab — is gone; b keeps its dock and gains a default
     // selection as the new active workspace.
@@ -346,9 +343,16 @@ describe("deckReducer restore actions ([F7])", () => {
 
   it("hydrate replaces the whole deck state", () => {
     const restored = state({ workspaces: [dormantWs], activeId: "ws-1" });
-    expect(
-      deckReducer(initialDeckState, { type: "hydrate", state: restored }),
-    ).toBe(restored);
+    const hydrated = deckReducer(initialDeckState, {
+      type: "hydrate",
+      state: restored,
+    });
+    // Everything deck.json owns is replaced wholesale; the journal slice is
+    // NOT deck.json's to replace (it hydrates separately from journal.jsonl).
+    expect(hydrated.workspaces).toBe(restored.workspaces);
+    expect(hydrated.activeId).toBe(restored.activeId);
+    expect(hydrated.viewByWs).toBe(restored.viewByWs);
+    expect(hydrated.journal).toBe(initialDeckState.journal);
   });
 
   it("hydrate rejects duplicate workspace ids", () => {
@@ -425,15 +429,11 @@ describe("deckReducer restore actions ([F7])", () => {
       wsId: "ws-1",
       paneId: "pane-2",
       session,
+      at: "2026-01-01T00:00:00.000Z",
     });
     expect(bound.workspaces[0].panes[1].session).toEqual(session);
     expect(
-      deckReducer(bound, {
-        type: "setPaneSession",
-        wsId: "ws-1",
-        paneId: "pane-2",
-        session: { id: "s-1", boundAt: "2026-07-02T09:00:00Z" },
-      }),
+      deckReducer(bound, { type: "setPaneSession", wsId: "ws-1", paneId: "pane-2", session: { id: "s-1", boundAt: "2026-07-02T09:00:00Z" }, at: "2026-01-01T00:00:00.000Z" }),
     ).toBe(bound);
   });
 
@@ -445,21 +445,12 @@ describe("deckReducer restore actions ([F7])", () => {
       wsId: "ws-1",
       paneId: "pane-2",
       session,
+      at: "2026-01-01T00:00:00.000Z",
     });
-    const cleared = deckReducer(bound, {
-      type: "setPaneSession",
-      wsId: "ws-1",
-      paneId: "pane-2",
-      session: null,
-    });
+    const cleared = deckReducer(bound, { type: "setPaneSession", wsId: "ws-1", paneId: "pane-2", session: null, at: "2026-01-01T00:00:00.000Z" });
     expect(cleared.workspaces[0].panes[1].session).toBeUndefined();
     expect(
-      deckReducer(cleared, {
-        type: "setPaneSession",
-        wsId: "ws-1",
-        paneId: "pane-2",
-        session: null,
-      }),
+      deckReducer(cleared, { type: "setPaneSession", wsId: "ws-1", paneId: "pane-2", session: null, at: "2026-01-01T00:00:00.000Z" }),
     ).toBe(cleared);
   });
 });
@@ -727,7 +718,7 @@ describe("deckReducer toggleMinimize", () => {
         activeId: "a",
         viewByWs: { a: { select: "a-1", minimized: ["a-2", "a-3"] } },
       }),
-      { type: "closeAgent", wsId: "a", paneId: "a-2" },
+      { type: "closeAgent", wsId: "a", paneId: "a-2", at: "2026-01-01T00:00:00.000Z" },
     );
     expect(next.workspaces[0].panes.map((p) => p.id)).toEqual(["a-1", "a-3"]);
     expect(next.viewByWs).toEqual({ a: { select: "a-1", minimized: ["a-3"] } });
@@ -742,7 +733,7 @@ describe("deckReducer toggleMinimize", () => {
         activeId: "a",
         viewByWs: { a: { select: "a-1", minimized: ["a-2"] } },
       }),
-      { type: "closeAgent", wsId: "a", paneId: "a-1" },
+      { type: "closeAgent", wsId: "a", paneId: "a-1", at: "2026-01-01T00:00:00.000Z" },
     );
     expect(next.viewByWs).toEqual({ a: { select: "a-3", minimized: ["a-2"] } });
   });
@@ -756,7 +747,7 @@ describe("deckReducer toggleMinimize", () => {
         activeId: "a",
         viewByWs: { a: { select: "a-1", minimized: ["a-2"] } },
       }),
-      { type: "closeAgent", wsId: "a", paneId: "a-1" },
+      { type: "closeAgent", wsId: "a", paneId: "a-1", at: "2026-01-01T00:00:00.000Z" },
     );
     expect(next.viewByWs).toEqual({ a: { select: "a-2", minimized: ["a-2"] } });
   });
@@ -795,5 +786,407 @@ describe("deckReducer clearMinimized", () => {
     });
 
     expect(deckReducer(start, { type: "clearMinimized" })).toBe(start);
+  });
+});
+
+describe("deckReducer journal", () => {
+  const AT = "2026-07-19T12:00:00.000Z";
+  const journalWs = (): Workspace => ({
+    id: "ws-1",
+    instance: createWorkspaceInstance(),
+    name: "ws-1",
+    cwd: "/repo",
+    worktreeBaseDir: null,
+    panes: [
+      { id: "pane-1", agentType: "codex", name: "auth bug", yolo: true },
+      { id: "pane-2", cwd: "/repo/wt", branch: "kd/ws/2" },
+    ],
+  });
+  const boundState = (): DeckState => {
+    const start = state({ workspaces: [journalWs()], activeId: "ws-1" });
+    return deckReducer(start, {
+      type: "setPaneSession",
+      wsId: "ws-1",
+      paneId: "pane-1",
+      session: { id: "s-1", boundAt: AT },
+      transcriptPath: "/t/s-1.jsonl",
+      at: AT,
+    });
+  };
+
+  it("binding records a live journal row with pane-derived fields", () => {
+    const bound = boundState();
+    expect(bound.journal.records["ws-1"]).toEqual([
+      {
+        agent: "codex",
+        sessionId: "s-1",
+        cwd: "/repo",
+        yolo: true,
+        transcriptPath: "/t/s-1.jsonl",
+        boundAt: AT,
+        state: "live",
+        paneId: "pane-1",
+      },
+    ]);
+    expect(bound.journal.tail).toHaveLength(1);
+  });
+
+  it("a worktree pane's record carries its own cwd and branch", () => {
+    const start = state({ workspaces: [journalWs()], activeId: "ws-1" });
+    const bound = deckReducer(start, {
+      type: "setPaneSession",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      session: { id: "s-2", boundAt: AT },
+      at: AT,
+    });
+    expect(bound.journal.records["ws-1"][0]).toMatchObject({
+      agent: "claude",
+      cwd: "/repo/wt",
+      branch: "kd/ws/2",
+    });
+  });
+
+  it("a rebind to a new session seals the old record and opens a new one", () => {
+    const rebound = deckReducer(boundState(), {
+      type: "setPaneSession",
+      wsId: "ws-1",
+      paneId: "pane-1",
+      session: { id: "s-2", boundAt: AT },
+      at: AT,
+    });
+    const rows = rebound.journal.records["ws-1"];
+    expect(rows.find((r) => r.sessionId === "s-1")).toMatchObject({
+      state: "closed",
+      endedAt: AT,
+      title: "auth bug",
+    });
+    expect(rows.find((r) => r.sessionId === "s-2")).toMatchObject({
+      state: "live",
+      paneId: "pane-1",
+    });
+    expect(rebound.journal.tail.map((e) => e.e)).toEqual([
+      "bound",
+      "sealed",
+      "bound",
+    ]);
+  });
+
+  it("clearing a binding seals the record", () => {
+    const cleared = deckReducer(boundState(), {
+      type: "setPaneSession",
+      wsId: "ws-1",
+      paneId: "pane-1",
+      session: null,
+      at: AT,
+    });
+    expect(cleared.journal.records["ws-1"][0]).toMatchObject({
+      state: "closed",
+      endedAt: AT,
+    });
+  });
+
+  it("closeAgent seals with the frozen title; a never-bound pane leaves no record", () => {
+    const closed = deckReducer(boundState(), {
+      type: "closeAgent",
+      wsId: "ws-1",
+      paneId: "pane-1",
+      at: AT,
+    });
+    expect(closed.journal.records["ws-1"][0]).toMatchObject({
+      state: "closed",
+      title: "auth bug",
+      endedAt: AT,
+    });
+
+    const start = state({ workspaces: [journalWs()], activeId: "ws-1" });
+    const noRecord = deckReducer(start, {
+      type: "closeAgent",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      at: AT,
+    });
+    expect(noRecord.journal).toBe(start.journal);
+  });
+
+  it("closeWorkspace drops the journal key and queues the prune event", () => {
+    const closed = deckReducer(boundState(), {
+      type: "closeWorkspace",
+      id: "ws-1",
+      at: AT,
+    });
+    expect(closed.journal.records).toEqual({});
+    expect(closed.journal.tail[closed.journal.tail.length - 1]).toMatchObject({
+      e: "wsDeleted",
+      wsId: "ws-1",
+    });
+  });
+
+  it("createWorkspace prunes a crash-orphaned journal key on a reused id", () => {
+    const orphaned = deckReducer(boundState(), {
+      type: "closeWorkspace",
+      id: "ws-1",
+      at: AT,
+    });
+    // Simulate the orphan: records linger (as if the close never persisted).
+    const stale: DeckState = {
+      ...orphaned,
+      journal: boundState().journal,
+      workspaces: [],
+    };
+    const recreated = deckReducer(stale, {
+      type: "createWorkspace",
+      workspace: journalWs(),
+      at: AT,
+    });
+    expect(recreated.journal.records).toEqual({});
+  });
+
+  it("deck hydrate preserves the live journal slice", () => {
+    const bound = boundState();
+    const hydrated = deckReducer(bound, {
+      type: "hydrate",
+      state: state({ workspaces: [journalWs()], activeId: "ws-1" }),
+    });
+    expect(hydrated.journal).toBe(bound.journal);
+  });
+
+  it("hydrateJournal folds the loaded records against live RESTORED workspaces", () => {
+    // ws-1 must count as restored-from-disk — journal keys only survive for
+    // those (a this-run creation reusing the id must not adopt them).
+    const bound = deckReducer(boundState(), {
+      type: "hydrate",
+      state: state({ workspaces: [journalWs()], activeId: "ws-1" }),
+    });
+    const hydrated = deckReducer(bound, {
+      type: "hydrateJournal",
+      records: {
+        "ws-1": [
+          {
+            agent: "claude",
+            sessionId: "past",
+            cwd: "/repo",
+            boundAt: "2026-07-18T00:00:00.000Z",
+            state: "closed",
+            endedAt: "2026-07-18T01:00:00.000Z",
+          },
+        ],
+        "ws-dead": [
+          {
+            agent: "claude",
+            sessionId: "orphan",
+            cwd: "/x",
+            boundAt: "2026-07-18T00:00:00.000Z",
+            state: "closed",
+            endedAt: "2026-07-18T01:00:00.000Z",
+          },
+        ],
+      },
+      at: AT,
+    });
+    expect(Object.keys(hydrated.journal.records)).toEqual(["ws-1"]);
+    expect(hydrated.journal.records["ws-1"].map((r) => r.sessionId).sort()).toEqual([
+      "past",
+      "s-1",
+    ]);
+  });
+
+  it("closing ONE restored workspace before journal hydrate keeps the OTHERS' history", () => {
+    // Regression: closeWorkspace once dropped restoredWorkspaceIds (the one
+    // case built without ...state) — hydrateJournal then pruned EVERY
+    // restored workspace's history as orphaned, durably.
+    const two = deckReducer(initialDeckState, {
+      type: "hydrate",
+      state: state({
+        workspaces: [journalWs(), { ...journalWs(), id: "ws-2", name: "ws-2" }],
+        activeId: "ws-1",
+      }),
+    });
+    const closed = deckReducer(two, { type: "closeWorkspace", id: "ws-2", at: AT });
+    const hydrated = deckReducer(closed, {
+      type: "hydrateJournal",
+      records: {
+        "ws-1": [
+          {
+            agent: "claude",
+            sessionId: "keep-me",
+            cwd: "/repo",
+            boundAt: "2026-07-18T00:00:00.000Z",
+            state: "closed",
+            endedAt: "2026-07-18T01:00:00.000Z",
+          },
+        ],
+      },
+      at: AT,
+    });
+    expect(hydrated.journal.records["ws-1"]?.map((r) => r.sessionId)).toEqual([
+      "keep-me",
+    ]);
+  });
+
+  it("close-then-recreate of a RESTORED id before journal hydrate does not adopt the dead history", () => {
+    // ws-1 was restored from deck.json, closed, and recreated under the
+    // same id — all before the journal file loaded. The recreated ws-1 is
+    // a NEW workspace: the closed one's records must prune, not attach.
+    const restored = deckReducer(initialDeckState, {
+      type: "hydrate",
+      state: state({ workspaces: [journalWs()], activeId: "ws-1" }),
+    });
+    const closed = deckReducer(restored, { type: "closeWorkspace", id: "ws-1", at: AT });
+    const recreated = deckReducer(closed, {
+      type: "createWorkspace",
+      workspace: journalWs(),
+      at: AT,
+    });
+    const hydrated = deckReducer(recreated, {
+      type: "hydrateJournal",
+      records: {
+        "ws-1": [
+          {
+            agent: "claude",
+            sessionId: "dead-history",
+            cwd: "/repo",
+            boundAt: "2026-07-18T00:00:00.000Z",
+            state: "closed",
+            endedAt: "2026-07-18T01:00:00.000Z",
+          },
+        ],
+      },
+      at: AT,
+    });
+    expect(hydrated.journal.records).toEqual({});
+  });
+
+  it("a workspace CREATED this run never adopts a crash-orphaned journal key for its reused id", () => {
+    // Boot: deck.json restored EMPTY (the crashed run's close saved), the
+    // journal file still carries ws-1 — and the user recreates ws-1 before
+    // the journal finishes loading. The stale key must not attach.
+    const empty = deckReducer(initialDeckState, {
+      type: "hydrate",
+      state: state({ workspaces: [], activeId: "" }),
+    });
+    const recreated = deckReducer(empty, {
+      type: "createWorkspace",
+      workspace: journalWs(),
+      at: AT,
+    });
+    const hydrated = deckReducer(recreated, {
+      type: "hydrateJournal",
+      records: {
+        "ws-1": [
+          {
+            agent: "claude",
+            sessionId: "phantom",
+            cwd: "/somewhere/else",
+            boundAt: "2026-07-18T00:00:00.000Z",
+            state: "closed",
+            endedAt: "2026-07-18T01:00:00.000Z",
+          },
+        ],
+      },
+      at: AT,
+    });
+    expect(hydrated.journal.records).toEqual({});
+    // The prune converges the file too.
+    expect(
+      hydrated.journal.tail.some(
+        (e) => e.e === "wsDeleted" && e.wsId === "ws-1",
+      ),
+    ).toBe(true);
+  });
+
+  it("deleteJournalRecord drops one row; journalFlushed trims the outbox", () => {
+    const bound = boundState();
+    const deleted = deckReducer(bound, {
+      type: "deleteJournalRecord",
+      wsId: "ws-1",
+      sessionId: "s-1",
+      at: AT,
+    });
+    expect(deleted.journal.records).toEqual({});
+    expect(deleted.journal.tail).toHaveLength(2);
+    const flushed = deckReducer(deleted, { type: "journalFlushed", count: 2 });
+    expect(flushed.journal.tail).toEqual([]);
+    expect(deckReducer(flushed, { type: "journalFlushed", count: 0 })).toBe(flushed);
+  });
+});
+
+describe("deckReducer journal claims on addAgentPane", () => {
+  const AT = "2026-07-19T12:00:00.000Z";
+
+  it("a pane arriving with a session claims a live journal record", () => {
+    const start = state({
+      workspaces: [ws("ws-1", [])],
+      activeId: "ws-1",
+    });
+    const added = deckReducer(start, {
+      type: "addAgentPane",
+      id: "ws-1",
+      pane: {
+        id: "pane-9",
+        agentType: "kimi",
+        cwd: "/repo/wt",
+        branch: "kd/x/9",
+        session: { id: "s-res", boundAt: AT },
+      },
+    });
+    expect(added.journal.records["ws-1"][0]).toMatchObject({
+      agent: "kimi",
+      sessionId: "s-res",
+      cwd: "/repo/wt",
+      branch: "kd/x/9",
+      state: "live",
+      paneId: "pane-9",
+    });
+  });
+
+  it("re-claiming a sealed record preserves its frozen title and transcript path", () => {
+    const start = state({
+      workspaces: [ws("ws-1", [])],
+      activeId: "ws-1",
+      journal: {
+        records: {
+          "ws-1": [
+            {
+              agent: "kimi",
+              sessionId: "s-res",
+              cwd: "/repo/wt",
+              title: "polish pass",
+              transcriptPath: "/t/s-res",
+              boundAt: "2026-07-18T00:00:00.000Z",
+              state: "closed",
+              endedAt: "2026-07-18T01:00:00.000Z",
+            },
+          ],
+        },
+        tail: [],
+      },
+    });
+    const added = deckReducer(start, {
+      type: "addAgentPane",
+      id: "ws-1",
+      pane: {
+        id: "pane-9",
+        agentType: "kimi",
+        cwd: "/repo/wt",
+        session: { id: "s-res", boundAt: AT },
+      },
+    });
+    expect(added.journal.records["ws-1"][0]).toMatchObject({
+      state: "live",
+      title: "polish pass",
+      transcriptPath: "/t/s-res",
+      boundAt: AT,
+    });
+  });
+
+  it("a sessionless pane leaves the journal untouched", () => {
+    const start = state({ workspaces: [ws("ws-1", [])], activeId: "ws-1" });
+    const added = deckReducer(start, {
+      type: "addAgentPane",
+      id: "ws-1",
+      pane: { id: "pane-9", agentType: "claude" },
+    });
+    expect(added.journal).toBe(start.journal);
   });
 });

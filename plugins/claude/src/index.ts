@@ -14,6 +14,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { normalizeClaudeStatusline } from "./usage";
+import { claudeHistory } from "./history";
 
 /** Quote a path for a shell command line (single quotes, `'\''` escaping) —
  * KeepDeck.app can live under a path with spaces. */
@@ -71,6 +72,28 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
 const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
   skills ? ["--plugin-dir", skills.claudePluginDir] : [];
 
+/** Claude encodes a session's project dir into the store path:
+ * `~/.claude/projects/<slug>/<sessionId>.jsonl`. The REAL encoding
+ * (decompiled from claude 2.1.215's own sanitizePath) replaces EVERY
+ * non-alphanumeric character with `-` — not just path separators — and
+ * truncates slugs over 200 chars with a private hash suffix we cannot
+ * reproduce. `--resume` searches ONLY the current cwd's slug dir (the
+ * `--cwd` flag request was closed not-planned), so a cross-directory fork
+ * copies the transcript into the TARGET's slug dir first. A too-long slug
+ * is refused loudly: copying to a guessed name would strand the transcript
+ * where claude never looks — a silent fork failure. */
+const SLUG_MAX = 200;
+export function projectSlug(cwd: string): string {
+  const slug = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  if (slug.length > SLUG_MAX) {
+    throw new Error(
+      `claude fork: the target path encodes to a ${slug.length}-char store slug ` +
+        `(claude truncates past ${SLUG_MAX} with a private hash) — fork into a shorter path`,
+    );
+  }
+  return slug;
+}
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -81,6 +104,7 @@ const plugin: KeepDeckPlugin = {
       supportsYolo: true,
       // The statusLine reporter pushes; no tail, no poll.
       usage: { normalize: normalizeClaudeStatusline },
+      history: claudeHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
           output.args = [
@@ -96,6 +120,48 @@ const plugin: KeepDeckPlugin = {
             ...yoloArgs(input.yolo),
             "--resume",
             input.sessionId,
+          ];
+        },
+        /** Cross-directory fork: copy the recorded transcript into the
+         * target cwd's slug dir, then spawn `--resume <id> --fork-session`
+         * THERE — claude finds the copy, and --fork-session mints a fresh
+         * session id for the continuation, leaving the original resumable
+         * where it was (no duplicate-id ambiguity). The copy lands inside
+         * `~/.claude/projects` only — exactly the manifest's fsWrite scope. */
+        "fork.plan": async (input, output) => {
+          const source = input.transcriptPath;
+          if (!source) {
+            // Without the reporter-delivered path there is nothing safe to
+            // copy — guessing the source slug would be store archaeology.
+            throw new Error(
+              `claude fork of ${input.sessionId}: no recorded transcript path`,
+            );
+          }
+          if (!/\.jsonl$/.test(source)) {
+            throw new Error(
+              `claude fork of ${input.sessionId}: transcript is not a .jsonl (${source})`,
+            );
+          }
+          // The projects root comes from the transcript itself — no home
+          // lookup, and a layout change breaks LOUDLY here instead of
+          // copying into a wrong tree.
+          const marker = "/projects/";
+          const at = source.lastIndexOf(marker);
+          if (at < 0) {
+            throw new Error(
+              `claude fork of ${input.sessionId}: unexpected store layout (${source})`,
+            );
+          }
+          const projectsRoot = source.slice(0, at + marker.length - 1);
+          const target = `${projectsRoot}/${projectSlug(input.cwd)}/${input.sessionId}.jsonl`;
+          await ctx.services.fsWrite.copyFile(source, target);
+          output.args = [
+            ...(await hookArgs(ctx.resources)),
+            ...skillsArgs(input.skills),
+            ...yoloArgs(input.yolo),
+            "--resume",
+            input.sessionId,
+            "--fork-session",
           ];
         },
       },

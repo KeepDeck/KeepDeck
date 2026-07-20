@@ -27,6 +27,16 @@ export type Capability =
    * same path scoping as `fs`. Writing (stage/commit) would be its own
    * capability; it deliberately does not exist yet. */
   | { kind: "git"; scope: "workspace" | "everywhere" }
+  /** WRITE files under the declared absolute path prefixes (a leading `~/`
+   * expands to the user's home). The read `fs` capability deliberately has
+   * no write surface; this one exists for agent plugins' session-store
+   * surgery (fork/relocate) and is scoped to exactly the store paths the
+   * plugin names — consent lists them verbatim. */
+  | { kind: "fsWrite"; paths: string[] }
+  /** Run read-only SELECTs against database files under the declared path
+   * prefixes — for agent stores that are SQLite, where `fs` reads are
+   * useless on the binary blob. Opened READ-ONLY host-side. */
+  | { kind: "sqliteReadonly"; paths: string[] }
   /** Network access from the plugin's own realm, enforced via the realm's
    * CSP. Domains are literal hosts; `*` is deliberately not supported. */
   | { kind: "net"; domains: string[] }
@@ -56,7 +66,9 @@ export type Capability =
 export const CAPABILITY_KINDS = [
   "exec",
   "fs",
+  "fsWrite",
   "git",
+  "sqliteReadonly",
   "net",
   "legacyDownloads",
   "ports",

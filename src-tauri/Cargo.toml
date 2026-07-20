@@ -24,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 keepdeck-pty = { path = "../crates/keepdeck-pty" }
 keepdeck-git = { path = "../crates/keepdeck-git" }
+keepdeck-index = { path = "../crates/keepdeck-index" }
 keepdeck-env = { path = "../crates/keepdeck-env" }
 notify = "6"
 infer = "0.19.0"

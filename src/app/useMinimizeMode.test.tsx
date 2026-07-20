@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { emptyJournal } from "../domain/journal";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -50,6 +51,7 @@ describe("useMinimizeMode", () => {
     const minimized: DeckState = {
       workspaces: [],
       activeId: "",
+      journal: emptyJournal,
       viewByWs: {
         a: { select: "a-1", minimized: ["a-2"] },
         b: { minimized: ["b-1"] },
@@ -71,6 +73,7 @@ describe("useMinimizeMode", () => {
       deck.hydrate({
         workspaces: [],
         activeId: "",
+        journal: emptyJournal,
         viewByWs: { a: { minimized: ["a-1"] } },
       }),
     );
@@ -84,6 +87,7 @@ describe("useMinimizeMode", () => {
       deck.hydrate({
         workspaces: [],
         activeId: "",
+        journal: emptyJournal,
         viewByWs: { a: { minimized: ["a-1"] } },
       }),
     );

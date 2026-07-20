@@ -87,6 +87,26 @@ describe("opencode plugin hooks", () => {
     expect(Object.fromEntries(out.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
   });
 
+  it("forks natively with -s --fork, reporter armed for the NEW session id", async () => {
+    const agent = activate("/App/resources/session-reporter.js");
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, sessionId: "ses_x", sourceCwd: "/same/project/wt-1" },
+      out,
+    );
+
+    expect(out.args).toEqual(["-s", "ses_x", "--fork"]);
+    expect(Object.fromEntries(out.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
+
+    const yolo = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, yolo: true, sessionId: "ses_x", sourceCwd: "/x" },
+      yolo,
+    );
+    expect(yolo.args[0]).not.toBe("-s"); // the yolo flag stays global/first
+    expect(yolo.args.slice(-3)).toEqual(["-s", "ses_x", "--fork"]);
+  });
+
   it("degrades to a bare spawn when the reporter is missing", async () => {
     const agent = activate(null);
     const out = output();

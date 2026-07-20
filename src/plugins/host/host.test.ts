@@ -57,6 +57,15 @@ function fakeDeps() {
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
     fs: { readDir: vi.fn(), readFile: vi.fn(), watch: vi.fn(() => ({ dispose: vi.fn() })) },
+    sqlite: {
+      query: vi.fn(() => Promise.resolve([])),
+    },
+    fsWrite: {
+      mkdir: vi.fn(() => Promise.resolve()),
+      copyFile: vi.fn(() => Promise.resolve()),
+      writeFile: vi.fn(() => Promise.resolve()),
+      appendLine: vi.fn(() => Promise.resolve()),
+    },
     git: {
       status: vi.fn(),
       diffFile: vi.fn(),

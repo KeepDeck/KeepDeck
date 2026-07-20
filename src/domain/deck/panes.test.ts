@@ -54,12 +54,24 @@ describe("makeProvisioningPanes", () => {
       {
         id: "pane-5",
         agentType: "codex",
-        provisioning: { repo: "/repo", baseDir: "/wt", workspace: "deck", index: 1 },
+        provisioning: {
+          repo: "/repo",
+          baseDir: "/wt",
+          runsSetup: true,
+          workspace: "deck",
+          index: 1,
+        },
       },
       {
         id: "pane-6",
         agentType: "codex",
-        provisioning: { repo: "/repo", baseDir: "/wt", workspace: "deck", index: 2 },
+        provisioning: {
+          repo: "/repo",
+          baseDir: "/wt",
+          runsSetup: true,
+          workspace: "deck",
+          index: 2,
+        },
       },
     ]);
   });

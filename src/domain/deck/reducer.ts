@@ -1,7 +1,25 @@
-import { resolveFocus, type Pane, type PaneSession } from "./panes";
+import {
+  paneAgentType,
+  paneFrozenTitle,
+  resolveFocus,
+  type Pane,
+  type PaneSession,
+} from "./panes";
+import {
+  emptyJournal,
+  flushJournalTail,
+  hydrateJournalSlice,
+  withJournalEvent,
+  type JournalEvent,
+  type JournalRecords,
+  type JournalSlice,
+} from "../journal";
 import {
   addAgentPane,
   closeAgent,
+  findPane,
+  findWorkspace,
+  paneExecutionCwd,
   closeWorkspace,
   moveWorkspace,
   renamePane,
@@ -53,6 +71,17 @@ export interface WorkspaceView {
 export interface DeckState {
   workspaces: Workspace[];
   activeId: string;
+  /** The workspace session journal ([F8]): folded records + the outbox of
+   * events awaiting their `journal.jsonl` append. Maintained by the SAME
+   * transitions that touch panes, so seal-on-close is atomic. Persisted in
+   * its own document, never in deck.json. */
+  journal: JournalSlice;
+  /** Workspace ids that came from deck.json this run (runtime-only, never
+   * persisted; absent = none restored). Journal hydration keeps a loaded key
+   * ONLY for these: `ws-N` ids are reusable slots, and a workspace CREATED
+   * this run must not adopt a crash-orphaned journal that raced its
+   * `wsDeleted` prune (the guard no-ops before the journal is hydrated). */
+  restoredWorkspaceIds?: ReadonlySet<string>;
   /** Per-workspace view state (maximize, selection, dock open, dock tab), one
    * entry per workspace (absent = all defaults). Replaces the old parallel
    * focusByWs/selectByWs/dockByWs maps: closing a workspace drops ONE entry,
@@ -63,16 +92,16 @@ export interface DeckState {
 
 export type DeckAction =
   | { type: "selectWorkspace"; id: string }
-  | { type: "createWorkspace"; workspace: Workspace }
-  /** Replace an (empty) workspace's panes — the count-picker start flow. */
-  | { type: "setPanes"; id: string; panes: Pane[] }
+  /** `at` guards against a reused `ws-N` id inheriting a crash-orphaned
+   * journal key (it stamps the pruning event). */
+  | { type: "createWorkspace"; workspace: Workspace; at: string }
   /** Append an already-formed agent pane (from the add-agent dialog). */
   | { type: "addAgentPane"; id: string; pane: Pane }
   | { type: "renameWorkspace"; id: string; name: string }
   /** Reorder the rail: move workspace `id` to `toIndex` (drag & drop). */
   | { type: "moveWorkspace"; id: string; toIndex: number }
-  | { type: "closeAgent"; wsId: string; paneId: string }
-  | { type: "closeWorkspace"; id: string }
+  | { type: "closeAgent"; wsId: string; paneId: string; at: string }
+  | { type: "closeWorkspace"; id: string; at: string }
   | { type: "toggleFocus"; wsId: string; paneId: string }
   /** Minimize a pane out of the grid, or restore it (the tray/strip styles). */
   | { type: "toggleMinimize"; wsId: string; paneId: string }
@@ -101,6 +130,11 @@ export type DeckAction =
       wsId: string;
       paneId: string;
       session: PaneSession | null;
+      /** The session's transcript file when the reporter delivered it —
+       * journal-only data, never stored on the pane. */
+      transcriptPath?: string;
+      /** Stamp for the journal seal of the previous binding, if any. */
+      at: string;
     }
   /** A background worktree create landed: pin the pane to it and mount its
    * terminal. */
@@ -130,12 +164,20 @@ export type DeckAction =
       workspaceInstance: WorkspaceInstance;
       pluginId: string;
       value: unknown;
-    };
+    }
+  /** Fold the loaded journal.jsonl in at boot (after the deck hydrated). */
+  | { type: "hydrateJournal"; records: JournalRecords; at: string }
+  /** Drop one journal row (the history list's ×) — metadata only, the agent
+   * store is untouched. */
+  | { type: "deleteJournalRecord"; wsId: string; sessionId: string; at: string }
+  /** The persistence hook appended the first `count` tail events to disk. */
+  | { type: "journalFlushed"; count: number };
 
 export const initialDeckState: DeckState = {
   workspaces: [],
   activeId: "",
   viewByWs: {},
+  journal: emptyJournal,
 };
 
 /** A workspace view with no set field is dropped from the map so `viewByWs`
@@ -184,6 +226,33 @@ function withDefaultSelection(
   return setViewField(viewByWs, wsId, "select", first);
 }
 
+/** The `bound` journal event for a pane's session — how a pane becomes a
+ * journal record, in ONE place: both binding paths (a reporter postback via
+ * `setPaneSession`, a resume-minted pane via `addAgentPane`) must record the
+ * same shape, or a field added to the model silently goes missing on one. */
+function boundEventFor(
+  ws: Workspace,
+  pane: Pane,
+  session: PaneSession,
+  transcriptPath?: string,
+): JournalEvent {
+  return {
+    e: "bound",
+    v: 1,
+    wsId: ws.id,
+    record: {
+      agent: paneAgentType(pane),
+      sessionId: session.id,
+      cwd: paneExecutionCwd(ws, pane) ?? ws.cwd,
+      ...(pane.branch !== undefined && { branch: pane.branch }),
+      ...(pane.yolo && { yolo: true }),
+      ...(transcriptPath !== undefined && { transcriptPath }),
+      boundAt: session.boundAt,
+      paneId: pane.id,
+    },
+  };
+}
+
 /** Rebuild deck state around a workspaces transform, but only when it actually
  * changed the array: a transform that returns the same ref (a no-op — a
  * same-value rebind, a repeated OSC title, a closed pane's late result) yields
@@ -220,20 +289,16 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       if (state.workspaces.some((ws) => ws.id === workspace.id)) return state;
       return {
         ...state,
+        // A reused `ws-N` slot must not inherit a crash-orphaned journal key.
+        journal: withJournalEvent(state.journal, {
+          e: "wsDeleted",
+          v: 1,
+          wsId: workspace.id,
+          at: action.at,
+        }),
         workspaces: [...state.workspaces, workspace],
         activeId: workspace.id,
         viewByWs: withDefaultSelection(state.viewByWs, workspace.id, workspace),
-      };
-    }
-    case "setPanes": {
-      const workspaces = state.workspaces.map((w) =>
-        w.id === action.id ? { ...w, panes: action.panes } : w,
-      );
-      const ws = workspaces.find((w) => w.id === action.id);
-      return {
-        ...state,
-        workspaces,
-        viewByWs: withDefaultSelection(state.viewByWs, action.id, ws),
       };
     }
     case "addAgentPane": {
@@ -248,7 +313,18 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // still points at the old pane) — the mirror of closeAgent's guard.
       let viewByWs = setViewField(state.viewByWs, action.id, "select", action.pane.id);
       viewByWs = setViewField(viewByWs, action.id, "focus", undefined);
-      return { ...state, workspaces, viewByWs };
+      // A pane arriving WITH a session (journal resume) claims its record:
+      // the reporter's later same-id re-report is a binding no-op, so this
+      // is the transition that flips the row back to live.
+      let journal = state.journal;
+      const ws = findWorkspace(workspaces, action.id);
+      if (ws && action.pane.session) {
+        journal = withJournalEvent(
+          journal,
+          boundEventFor(ws, action.pane, action.pane.session),
+        );
+      }
+      return { ...state, workspaces, viewByWs, journal };
     }
     case "renameWorkspace":
       return {
@@ -263,11 +339,22 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       );
     case "closeAgent": {
       const { wsId, paneId } = action;
-      const remaining =
-        state.workspaces
-          .find((w) => w.id === wsId)
-          ?.panes.filter((p) => p.id !== paneId) ?? [];
+      const panes = state.workspaces.find((w) => w.id === wsId)?.panes;
+      const closing = panes?.find((p) => p.id === paneId);
+      const remaining = panes?.filter((p) => p.id !== paneId) ?? [];
       const workspaces = closeAgent(state.workspaces, wsId, paneId);
+      // Seal the pane's journal record in the SAME transition that removes
+      // the pane — the row's title freezes to what the header showed.
+      const journal = closing?.session
+        ? withJournalEvent(state.journal, {
+            e: "sealed",
+            v: 1,
+            wsId,
+            sessionId: closing.session.id,
+            title: paneFrozenTitle(closing),
+            at: action.at,
+          })
+        : state.journal;
       const view = state.viewByWs[wsId];
       let viewByWs = state.viewByWs;
       // Drop the maximize unless it still RESOLVES over the survivors — not
@@ -299,7 +386,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           next.length > 0 ? next : undefined,
         );
       }
-      return { ...state, workspaces, viewByWs };
+      return { ...state, workspaces, viewByWs, journal };
     }
     case "closeWorkspace": {
       const workspaces = closeWorkspace(state.workspaces, action.id);
@@ -309,7 +396,23 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       const { [action.id]: _closed, ...remainingViews } = state.viewByWs;
       const newActive = workspaces.find((w) => w.id === activeId);
       const viewByWs = withDefaultSelection(remainingViews, activeId, newActive);
-      return { workspaces, activeId, viewByWs };
+      // The workspace's journal goes with it, in the same drop.
+      const journal = withJournalEvent(state.journal, {
+        e: "wsDeleted",
+        v: 1,
+        wsId: action.id,
+        at: action.at,
+      });
+      // Spread, like every other case: this literal once dropped
+      // `restoredWorkspaceIds`, and a close landing before the journal
+      // hydrated then pruned EVERY restored workspace's history as orphaned.
+      // The closed id leaves the restored set too — otherwise recreating
+      // the same ws-N BEFORE the journal hydrates would count as "restored"
+      // and adopt the dead workspace's history.
+      const restoredWorkspaceIds = state.restoredWorkspaceIds?.has(action.id)
+        ? new Set([...state.restoredWorkspaceIds].filter((id) => id !== action.id))
+        : state.restoredWorkspaceIds;
+      return { ...state, workspaces, activeId, viewByWs, journal, restoredWorkspaceIds };
     }
     case "toggleFocus": {
       const { wsId, paneId } = action;
@@ -399,8 +502,18 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         setPaneAutoTitle(state.workspaces, action.wsId, action.paneId, action.title),
       );
     case "hydrate":
+      // deck.json knows nothing of the journal — keep the live slice (its
+      // own hydration is the separate `hydrateJournal`, sequenced after) and
+      // remember WHICH ids the restore brought: only those may adopt loaded
+      // journal keys (a this-run workspace reusing a `ws-N` slot must not).
       return workspaceIdsAreUnique(action.state.workspaces)
-        ? action.state
+        ? {
+            ...action.state,
+            journal: state.journal,
+            restoredWorkspaceIds: new Set(
+              action.state.workspaces.map((w) => w.id),
+            ),
+          }
         : state;
     case "revivePane":
       // revivePane returns the same ref for an absent/already-live pane, so a
@@ -414,12 +527,38 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         resetPaneLocation(state.workspaces, action.wsId, action.paneId),
       );
-    case "setPaneSession":
-      // Same-id rebinds return the same ref — binding refreshes are no-ops.
-      return withWorkspaces(
-        state,
-        setPaneSession(state.workspaces, action.wsId, action.paneId, action.session),
-      );
+    case "setPaneSession": {
+      const { wsId, paneId, session } = action;
+      const ws = findWorkspace(state.workspaces, wsId);
+      const pane = ws && findPane(state.workspaces, wsId, paneId);
+      // Same-id rebinds return the same ref — binding refreshes are no-ops,
+      // for the journal too.
+      const workspaces = setPaneSession(state.workspaces, wsId, paneId, session);
+      if (workspaces === state.workspaces || !ws || !pane) {
+        return withWorkspaces(state, workspaces);
+      }
+      let journal = state.journal;
+      const prev = pane.session;
+      if (prev && prev.id !== session?.id) {
+        // The pane moved on (/clear, /new, start-new) — its old session is
+        // history now, titled as the header showed at the switch.
+        journal = withJournalEvent(journal, {
+          e: "sealed",
+          v: 1,
+          wsId,
+          sessionId: prev.id,
+          title: paneFrozenTitle(pane),
+          at: action.at,
+        });
+      }
+      if (session) {
+        journal = withJournalEvent(
+          journal,
+          boundEventFor(ws, pane, session, action.transcriptPath),
+        );
+      }
+      return { ...state, workspaces, journal };
+    }
     case "resolvePaneProvisioning":
       // Same ref when the pane was closed mid-create — the late result of a
       // background create must not resurrect anything.
@@ -466,5 +605,37 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           action.value,
         ),
       );
+    case "hydrateJournal": {
+      // A loaded key survives only for a workspace that is BOTH live and
+      // restored-from-disk: a this-run creation reusing a `ws-N` id gets a
+      // clean journal, whatever a crashed run left in the file.
+      const restored = state.restoredWorkspaceIds ?? new Set<string>();
+      const keepWsIds = new Set(
+        state.workspaces.map((w) => w.id).filter((id) => restored.has(id)),
+      );
+      return {
+        ...state,
+        journal: hydrateJournalSlice(
+          state.journal,
+          action.records,
+          keepWsIds,
+          action.at,
+        ),
+      };
+    }
+    case "deleteJournalRecord": {
+      const journal = withJournalEvent(state.journal, {
+        e: "deleted",
+        v: 1,
+        wsId: action.wsId,
+        sessionId: action.sessionId,
+        at: action.at,
+      });
+      return journal === state.journal ? state : { ...state, journal };
+    }
+    case "journalFlushed": {
+      const journal = flushJournalTail(state.journal, action.count);
+      return journal === state.journal ? state : { ...state, journal };
+    }
   }
 }

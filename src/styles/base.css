@@ -63,6 +63,33 @@ input[type="number"]::-webkit-outer-spin-button {
   margin: 0;
 }
 
+/* THE surface-close button (src/ui/CloseButton) — the ONE style behind every
+   header ✕: pane headers, the Settings/Skills dialogs, the transcript viewer.
+   Defined once so the surfaces cannot drift apart again (they had: a text ×,
+   two near-identical per-surface classes). */
+.ui-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Pixel-identical to .pane__action (pane.css) — the ✕ sits beside those
+     arrow buttons in pane headers and must not read as a different family. */
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ui-close:hover {
+  background-color: #1b2230;
+  color: #c5c8c6;
+}
+
 /* The floating label that follows the cursor while dragging a file (from the
    Files plugin tree) toward a pane's terminal — see src/app/usePaneDrag.ts.
    Positioned via `transform`; pointer-events: none so it never blocks the drop

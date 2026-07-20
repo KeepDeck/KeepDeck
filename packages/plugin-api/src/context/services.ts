@@ -12,6 +12,11 @@ export interface PluginServices {
   readonly ports: PluginPorts;
   readonly opener: PluginOpener;
   readonly fs: PluginFs;
+  /** Session-store surgery writes, gated by `fsWrite` (see the capability). */
+  readonly fsWrite: PluginFsWrite;
+  /** Read-only SQL over the plugin's own declared store dbs (capability:
+   * `sqliteReadonly`) — for stores that are databases, not files. */
+  readonly sqlite: PluginSqlite;
   readonly git: PluginGit;
   /** Generic host-managed network transfers into private plugin storage. */
   readonly downloads: PluginDownloads;
@@ -89,6 +94,35 @@ export interface PluginFs {
   watch(path: string, onChange: () => void): Disposable;
 }
 
+/** Narrow WRITE surface over the manifest's declared `fsWrite` path
+ * prefixes — the surgery side of session portability (fork/relocate). Every
+ * call is containment-checked host-side against those prefixes, on both ends
+ * of a copy; nothing here deletes. */
+export interface PluginFsWrite {
+  /** Create a directory (and missing parents). */
+  mkdir(path: string): Promise<void>;
+  /** Copy one file; `dst` parents are created. BOTH ends must sit inside the
+   * declared prefixes. An existing `dst` is overwritten (surgery may retry). */
+  copyFile(src: string, dst: string): Promise<void>;
+  /** Write a whole UTF-8 file atomically (tmp + rename). */
+  writeFile(path: string, text: string): Promise<void>;
+  /** Append one newline-terminated line — a single O_APPEND write. The line
+   * itself must not contain a newline. */
+  appendLine(path: string, line: string): Promise<void>;
+}
+
+/** A single parameterized SELECT against a declared store database, opened
+ * READ-ONLY host-side (the store cannot be mutated or locked). Rows come
+ * back as positional string cells (`null` for SQL NULL) — the plugin owns
+ * the schema knowledge and the typing. */
+export interface PluginSqlite {
+  query(
+    dbPath: string,
+    sql: string,
+    params?: string[],
+  ): Promise<(string | null)[][]>;
+}
+
 export interface FsReadFileOptions {
   /** Preferred read cap in bytes; the host clamps it to its own ceiling.
    * Reading stops there and `truncated` is set. */
@@ -103,6 +137,9 @@ export interface FsEntry {
   kind: FsEntryKind;
   /** Byte size of a regular file; absent for a directory or symlink. */
   size?: number;
+  /** Modification time (epoch ms) — what incremental store scans key change
+   * detection on. Absent when stat failed. */
+  mtime?: number;
 }
 
 /** What a child is, WITHOUT following symlinks — a symlink is reported as such,

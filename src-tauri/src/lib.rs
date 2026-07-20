@@ -16,6 +16,8 @@ mod menu;
 mod migration;
 mod paths;
 mod plugins_fs;
+mod plugins_fs_write;
+mod plugins_sqlite;
 mod ports;
 mod project_fs;
 mod project_git;
@@ -24,6 +26,8 @@ mod session;
 mod sessions;
 mod skills;
 mod voice;
+mod history;
+mod journal;
 mod state;
 mod worktree;
 
@@ -81,6 +85,7 @@ pub fn run() {
         })
         .menu(menu::build)
         .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
+        .manage(history::HistoryIndex::default())
         .manage(session::SessionRegistry::default())
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
@@ -149,6 +154,18 @@ pub fn run() {
             state::settings_quarantine,
             state::usage_cache_load,
             state::usage_cache_save,
+            journal::journal_load,
+            journal::journal_append,
+            journal::journal_compact,
+            history::index_refs,
+            history::index_upsert,
+            history::index_prune,
+            history::index_search,
+            plugins_sqlite::plugins_sqlite_query,
+            plugins_fs_write::plugins_fs_write_mkdir,
+            plugins_fs_write::plugins_fs_write_copy,
+            plugins_fs_write::plugins_fs_write_file,
+            plugins_fs_write::plugins_fs_write_append,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,
