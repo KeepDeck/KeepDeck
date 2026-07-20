@@ -28,8 +28,11 @@ export interface SessionsBrowserApi {
   search(query: string): void;
   /** Append the next page for the current query. */
   loadMore(): void;
-  /** Incremental store scan, then refresh the current results. Safe to call
-   * on browser mount — only new/changed sessions are opened. */
+  /** Store scan, then refresh the current results. Incremental at the STAT
+   * level: sessions are re-read when the (ref, mtime, size) fingerprint the
+   * plugin's `list()` reports differs from the index — an in-place rewrite
+   * preserving both stamps would be missed until either moves. Safe to call
+   * on browser mount. */
   scan(): void;
   /** One transcript page, via the owning plugin (live parse — the index
    * never renders transcripts). */

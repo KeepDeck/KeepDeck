@@ -48,7 +48,14 @@ function parseTurns(jsonl: string): ParsedTurn[] {
     // retry notices) are marked isMeta by claude itself — not conversation.
     if (record.isMeta === true) continue;
     const text = textOf(record.message).trim();
-    if (text) turns.push({ role: record.type, text });
+    if (!text) continue;
+    // Slash-command envelopes (<command-name>/<command-message>/… and the
+    // <local-command-stdout> echo) are stored as PLAIN user lines, not
+    // isMeta — mechanical wrapping, not what anyone said.
+    if (record.type === "user" && /^<(command-|local-command-stdout)/.test(text)) {
+      continue;
+    }
+    turns.push({ role: record.type, text });
   }
   return turns;
 }
@@ -113,6 +120,9 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
           (s as { sessionId: string }).sessionId === sessionId,
       ) as { firstPrompt?: unknown } | undefined;
       if (typeof entry?.firstPrompt !== "string") return undefined;
+      // Claude writes the LITERAL string "No prompt" for promptless
+      // sessions — a placeholder, not a title.
+      if (entry.firstPrompt.trim() === "No prompt") return undefined;
       // The recorded firstPrompt can itself be a preamble — same filter.
       return titleOf([{ role: "user", text: entry.firstPrompt.trim() }]);
     } catch {
@@ -150,6 +160,10 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       // entry does the capped FULL read run — skill bootstraps and
       // attachments push the first REAL user turn hundreds of KB in, so a
       // head alone left most sessions titled by their UUID.
+      // Precedence is DELIBERATE: a usable index title pre-empts even the
+      // store's own summary line — the summary lives megabytes into the
+      // transcript, and finding it would cost exactly the full read the
+      // index fast path exists to avoid.
       const head = await read(ref, 64 * 1024);
       const cwd = cwdOf(head.text ?? "") ?? "";
       const fromIndex = await indexedTitle(ref);

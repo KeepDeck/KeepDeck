@@ -1024,6 +1024,39 @@ describe("deckReducer journal", () => {
     ]);
   });
 
+  it("close-then-recreate of a RESTORED id before journal hydrate does not adopt the dead history", () => {
+    // ws-1 was restored from deck.json, closed, and recreated under the
+    // same id — all before the journal file loaded. The recreated ws-1 is
+    // a NEW workspace: the closed one's records must prune, not attach.
+    const restored = deckReducer(initialDeckState, {
+      type: "hydrate",
+      state: state({ workspaces: [journalWs()], activeId: "ws-1" }),
+    });
+    const closed = deckReducer(restored, { type: "closeWorkspace", id: "ws-1", at: AT });
+    const recreated = deckReducer(closed, {
+      type: "createWorkspace",
+      workspace: journalWs(),
+      at: AT,
+    });
+    const hydrated = deckReducer(recreated, {
+      type: "hydrateJournal",
+      records: {
+        "ws-1": [
+          {
+            agent: "claude",
+            sessionId: "dead-history",
+            cwd: "/repo",
+            boundAt: "2026-07-18T00:00:00.000Z",
+            state: "closed",
+            endedAt: "2026-07-18T01:00:00.000Z",
+          },
+        ],
+      },
+      at: AT,
+    });
+    expect(hydrated.journal.records).toEqual({});
+  });
+
   it("a workspace CREATED this run never adopts a crash-orphaned journal key for its reused id", () => {
     // Boot: deck.json restored EMPTY (the crashed run's close saved), the
     // journal file still carries ws-1 — and the user recreates ws-1 before

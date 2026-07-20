@@ -218,7 +218,10 @@ function App() {
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(
     deck,
-    (message) => setError({ title: "Worktree error", message }),
+    // First error wins, like the resume/fork catches — a second failure
+    // must not silently replace a dialog the user is reading.
+    (message) =>
+      setError((current) => current ?? { title: "Worktree error", message }),
     gitHeads,
   );
   // The command registry's core set — spawn/focus/close/switch/write behind

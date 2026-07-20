@@ -52,14 +52,20 @@ export function useJournalResume(
     if (!ws) return;
     // A session runs in at most one pane, ever — if some pane (any
     // workspace) already holds this binding, there is nothing to do.
-    const claimed = d.workspaces.some((w) =>
-      w.panes.some((p) => p.session?.id === record.sessionId),
-    );
+    const claimant = d.workspaces
+      .flatMap((w) => w.panes)
+      .find((p) => p.session?.id === record.sessionId);
     if (inFlight.current.has(record.sessionId)) return;
-    if (claimed) {
+    if (claimant) {
       // The browser shows Resume for every hit (it can't know lifecycle);
-      // an enabled button that does NOTHING reads as dead — say why.
-      throw new Error("The session is already running in a pane");
+      // an enabled button that does NOTHING reads as dead — say why. A
+      // DORMANT claimant isn't "running": the honest message points at the
+      // pane that owns the binding instead.
+      throw new Error(
+        claimant.dormant
+          ? "The session already belongs to a dormant pane — revive that pane instead"
+          : "The session is already running in a pane",
+      );
     }
 
     inFlight.current.add(record.sessionId);

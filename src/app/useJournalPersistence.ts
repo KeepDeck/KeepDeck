@@ -114,14 +114,17 @@ export function useJournalPersistence(deck: Deck, restoring: boolean, frozen: bo
   const retryTimer = useRef<number | null>(null);
   // An append rejecting AFTER unmount must not re-arm a leaked timer or
   // setState on a dead component — the disposed flag outlives the cleanup.
+  // Setup resets it: StrictMode's mount→unmount→mount probe would otherwise
+  // leave the SECOND mount marked disposed and kill the retry path for the
+  // whole dev session.
   const disposedRef = useRef(false);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    disposedRef.current = false;
+    return () => {
       disposedRef.current = true;
       if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
-    },
-    [],
-  );
+    };
+  }, []);
   const tail = deck.journal.tail;
   useEffect(() => {
     if (!hydrated || frozen || appendingRef.current || tail.length === 0) return;

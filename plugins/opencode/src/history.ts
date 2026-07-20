@@ -74,6 +74,12 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       // Ordered explicitly: an unordered LIMIT happens to follow id order
       // today, but that's an artifact, not a guarantee — and real sessions
       // already exceed 5k parts, so the cap must drop the TAIL, not a hole.
+      // `id`, not time_created: real sessions share ONE timestamp across
+      // thousands of parts, so ids (client-minted, sortable) are the only
+      // chronological key. One known store quirk rides along harmlessly: a
+      // synthetic `prt_0000000000_thinking` sentinel sorts before its
+      // session's first real part, but its type ("thinking") never yields
+      // text, so partText drops it.
       const rows = await query(
         "SELECT data FROM part WHERE session_id = ?1 ORDER BY id LIMIT 20000",
         [ref],

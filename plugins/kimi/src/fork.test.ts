@@ -142,6 +142,15 @@ describe("kimiForkPlan", () => {
         transcriptPath: "/odd/place/wire.jsonl",
       }),
     ).rejects.toThrow("unexpected store layout");
+    // A WELL-FORMED store path whose embedded session id belongs to a
+    // DIFFERENT session — the guard's second branch. Cloning it would fork
+    // someone else's history under this session's name.
+    await expect(
+      kimiForkPlan(fx.ctx, {
+        ...forkInput("/t"),
+        transcriptPath: `${HOME}/sessions/wd_a_3c3646ae2a28/session_OTHER/agents/main/wire.jsonl`,
+      }),
+    ).rejects.toThrow("unexpected store layout");
     expect(fx.writes.size).toBe(0);
     expect(fx.appends).toHaveLength(0);
   });

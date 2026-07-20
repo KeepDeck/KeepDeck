@@ -99,6 +99,23 @@ describe("claude history", () => {
     );
   });
 
+  it('the index\'s literal "No prompt" placeholder falls through to the full read', async () => {
+    const history = claudeHistory(
+      ctx(
+        {
+          "/p/-repo/f.jsonl": LINES,
+          "/p/-repo/sessions-index.json": JSON.stringify({
+            entries: [{ sessionId: "f", firstPrompt: "No prompt" }],
+          }),
+        },
+        {},
+      ),
+    );
+    expect((await history.describe("/p/-repo/f.jsonl")).title).toBe(
+      "fix the auth bug",
+    );
+  });
+
   it("a preamble firstPrompt in the index falls through to the full read", async () => {
     const history = claudeHistory(
       ctx(
@@ -161,5 +178,31 @@ describe("claude history", () => {
     expect(await history.content("/f.jsonl")).toContain("found it in refresh()");
     const page = await history.transcript("/f.jsonl", { offset: 0, limit: 10 });
     expect(page.map((e) => e.role)).toEqual(["user", "user", "user", "assistant"]);
+  });
+
+  it("slash-command envelopes (plain user lines, NOT isMeta) stay out of content and transcript", async () => {
+    const withEnvelopes = [
+      JSON.stringify({
+        type: "user",
+        cwd: "/repo/wt",
+        message: {
+          role: "user",
+          content: "<command-message>primo</command-message>\n<command-name>/primo</command-name>",
+        },
+      }),
+      JSON.stringify({
+        type: "user",
+        cwd: "/repo/wt",
+        message: { role: "user", content: "<local-command-stdout>ok</local-command-stdout>" },
+      }),
+      LINES,
+    ].join("\n");
+    const history = claudeHistory(ctx({ "/f.jsonl": withEnvelopes }, {}));
+    expect(await history.content("/f.jsonl")).not.toContain("command-message");
+    const page = await history.transcript("/f.jsonl", { offset: 0, limit: 10 });
+    expect(page.some((e) => e.text.includes("<command-"))).toBe(false);
+    expect(page.some((e) => e.text.includes("local-command-stdout"))).toBe(false);
+    // The real conversation survives the filter.
+    expect(page.map((e) => e.text)).toContain("fix the auth bug");
   });
 });

@@ -406,7 +406,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // Spread, like every other case: this literal once dropped
       // `restoredWorkspaceIds`, and a close landing before the journal
       // hydrated then pruned EVERY restored workspace's history as orphaned.
-      return { ...state, workspaces, activeId, viewByWs, journal };
+      // The closed id leaves the restored set too — otherwise recreating
+      // the same ws-N BEFORE the journal hydrates would count as "restored"
+      // and adopt the dead workspace's history.
+      const restoredWorkspaceIds = state.restoredWorkspaceIds?.has(action.id)
+        ? new Set([...state.restoredWorkspaceIds].filter((id) => id !== action.id))
+        : state.restoredWorkspaceIds;
+      return { ...state, workspaces, activeId, viewByWs, journal, restoredWorkspaceIds };
     }
     case "toggleFocus": {
       const { wsId, paneId } = action;
