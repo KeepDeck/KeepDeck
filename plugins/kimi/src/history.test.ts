@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { kimiHistory, parseWire } from "./history";
 
+// Shapes mirror a REAL kimi 0.27 wire: the user speaks in append_message;
+// the assistant streams as append_loop_event/content.part fragments (it
+// NEVER appears as an append_message — the old fixture invented that shape
+// and hid a parser that dropped every assistant turn).
 const WIRE = [
   JSON.stringify({ type: "metadata", protocol_version: "1.4" }),
   JSON.stringify({
@@ -10,8 +14,16 @@ const WIRE = [
   }),
   JSON.stringify({ type: "tool.call", tool: "bash" }),
   JSON.stringify({
+    type: "context.append_loop_event",
+    event: { type: "content.part", part: { type: "text", text: "все " } },
+  }),
+  JSON.stringify({
+    type: "context.append_loop_event",
+    event: { type: "content.part", part: { type: "text", text: "зелёные" } },
+  }),
+  JSON.stringify({
     type: "context.append_message",
-    message: { role: "assistant", content: [{ type: "text", text: "все зелёные" }] },
+    message: { role: "user", content: [{ type: "text", text: "спасибо" }] },
   }),
 ].join("\n");
 
@@ -68,7 +80,9 @@ describe("kimi history", () => {
     });
   });
 
-  it("parses only append_message events", () => {
-    expect(parseWire(WIRE).map((t) => t.role)).toEqual(["user", "assistant"]);
+  it("assistant fragments concatenate into one turn between user messages", () => {
+    const turns = parseWire(WIRE);
+    expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
+    expect(turns[1].text).toBe("все зелёные");
   });
 });

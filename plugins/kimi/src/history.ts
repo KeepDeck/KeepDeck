@@ -1,8 +1,9 @@
-import type {
-  AgentHistory,
-  AgentSessionStub,
-  AgentTranscriptEntry,
-  PluginContext,
+import {
+  textFromParts,
+  type AgentHistory,
+  type AgentSessionStub,
+  type AgentTranscriptEntry,
+  type PluginContext,
 } from "@keepdeck/plugin-api";
 
 /**
@@ -19,11 +20,23 @@ interface ParsedTurn {
   text: string;
 }
 
-/** Wire lines: `context.append_message` events carry whole messages with a
- * text-part content array; anything else (tool calls, thinking, usage) is
+/** Wire lines carry the TWO halves of a conversation in different shapes
+ * (verified against a real kimi 0.27 store):
+ * - the USER's messages are whole `context.append_message` events with a
+ *   text-part content array;
+ * - the ASSISTANT's text streams as `context.append_loop_event` events of
+ *   inner type `content.part`, one fragment each — NEVER as append_message.
+ * Contiguous assistant fragments concatenate into one turn, flushed when a
+ * user message (or the file's end) arrives. Tool calls/thinking/usage are
  * not conversation text. */
 export function parseWire(jsonl: string): ParsedTurn[] {
   const turns: ParsedTurn[] = [];
+  let assistant: string[] = [];
+  const flushAssistant = () => {
+    const text = assistant.join("").trim();
+    assistant = [];
+    if (text) turns.push({ role: "assistant", text });
+  };
   for (const line of jsonl.split("\n")) {
     if (!line.trim()) continue;
     let parsed: unknown;
@@ -35,26 +48,26 @@ export function parseWire(jsonl: string): ParsedTurn[] {
     const record = parsed as {
       type?: unknown;
       message?: { role?: unknown; content?: unknown };
+      event?: { type?: unknown; part?: { type?: unknown; text?: unknown } };
     };
+    if (record.type === "context.append_loop_event") {
+      const part = record.event?.type === "content.part" ? record.event.part : null;
+      if (part?.type === "text" && typeof part.text === "string") {
+        assistant.push(part.text);
+      }
+      continue;
+    }
     if (record.type !== "context.append_message") continue;
+    flushAssistant();
     const role = record.message?.role;
-    const content = record.message?.content;
-    if (!Array.isArray(content)) continue;
-    const text = content
-      .map((part) =>
-        typeof (part as { text?: unknown }).text === "string"
-          ? (part as { text: string }).text
-          : "",
-      )
-      .filter(Boolean)
-      .join("\n")
-      .trim();
+    const text = textFromParts(record.message?.content).trim();
     if (!text) continue;
     turns.push({
       role: role === "user" ? "user" : role === "assistant" ? "assistant" : "other",
       text,
     });
   }
+  flushAssistant();
   return turns;
 }
 

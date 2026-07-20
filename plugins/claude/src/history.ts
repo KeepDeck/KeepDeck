@@ -95,6 +95,30 @@ export function titleOf(turns: ParsedTurn[]): string | undefined {
 export function claudeHistory(ctx: PluginContext): AgentHistory {
   const read = (ref: string, maxBytes?: number) =>
     ctx.services.fs.readFile(ref, maxBytes === undefined ? undefined : { maxBytes });
+  /** The slug dir's `sessions-index.json` firstPrompt for this session, run
+   * through the same title heuristic — claude's own index is far cheaper
+   * than scanning megabytes of transcript. `undefined` = no usable entry. */
+  const indexedTitle = async (ref: string): Promise<string | undefined> => {
+    const dir = ref.slice(0, ref.lastIndexOf("/"));
+    const sessionId = ref.slice(dir.length + 1, -".jsonl".length);
+    try {
+      const file = await read(`${dir}/sessions-index.json`, 512 * 1024);
+      const parsed = JSON.parse(file.text ?? "") as {
+        entries?: unknown;
+      };
+      const list = Array.isArray(parsed.entries) ? parsed.entries : [];
+      const entry = list.find(
+        (s) =>
+          typeof (s as { sessionId?: unknown }).sessionId === "string" &&
+          (s as { sessionId: string }).sessionId === sessionId,
+      ) as { firstPrompt?: unknown } | undefined;
+      if (typeof entry?.firstPrompt !== "string") return undefined;
+      // The recorded firstPrompt can itself be a preamble — same filter.
+      return titleOf([{ role: "user", text: entry.firstPrompt.trim() }]);
+    } catch {
+      return undefined; // no index / foreign shape — full read decides
+    }
+  };
   return {
     async list(): Promise<AgentSessionStub[]> {
       const stubs: AgentSessionStub[] = [];
@@ -120,14 +144,22 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       return stubs;
     },
     async describe(ref) {
-      // Full read (capped), not a head: skill bootstraps and attachments
-      // routinely push the first REAL user turn hundreds of KB in — a 64KB
-      // head left the majority of real sessions titled by their UUID. The
-      // scan opens a session only when it changed, so the cost is bounded.
+      // cwd sits on the first lines — a 64KB head covers it. Titles first
+      // try claude's own per-project sessions-index.json (firstPrompt),
+      // which spares the full read; only when the index lacks a usable
+      // entry does the capped FULL read run — skill bootstraps and
+      // attachments push the first REAL user turn hundreds of KB in, so a
+      // head alone left most sessions titled by their UUID.
+      const head = await read(ref, 64 * 1024);
+      const cwd = cwdOf(head.text ?? "") ?? "";
+      const fromIndex = await indexedTitle(ref);
+      if (fromIndex !== undefined) {
+        return { cwd, title: fromIndex, transcriptPath: ref };
+      }
       const file = await read(ref, 8 * 1024 * 1024);
       const text = file.text ?? "";
       return {
-        cwd: cwdOf(text) ?? "",
+        cwd: cwd || (cwdOf(text) ?? ""),
         title: summaryOf(text) ?? titleOf(parseTurns(text)),
         transcriptPath: ref,
       };

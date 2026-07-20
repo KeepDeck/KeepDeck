@@ -79,6 +79,58 @@ describe("claude history", () => {
     });
   });
 
+  it("titles come from claude's own sessions-index firstPrompt when usable — sparing the full read", async () => {
+    const history = claudeHistory(
+      ctx(
+        {
+          "/p/-repo/f.jsonl": LINES,
+          "/p/-repo/sessions-index.json": JSON.stringify({
+            version: 1,
+            entries: [
+              { sessionId: "f", firstPrompt: "quick fix for the auth bug" },
+            ],
+          }),
+        },
+        {},
+      ),
+    );
+    expect((await history.describe("/p/-repo/f.jsonl")).title).toBe(
+      "quick fix for the auth bug",
+    );
+  });
+
+  it("a preamble firstPrompt in the index falls through to the full read", async () => {
+    const history = claudeHistory(
+      ctx(
+        {
+          "/p/-repo/f.jsonl": LINES,
+          "/p/-repo/sessions-index.json": JSON.stringify({
+            entries: [{ sessionId: "f", firstPrompt: "/prime" }],
+          }),
+        },
+        {},
+      ),
+    );
+    expect((await history.describe("/p/-repo/f.jsonl")).title).toBe(
+      "fix the auth bug",
+    );
+  });
+
+  it("a pasted absolute path IS a real title — only single-token /commands are preambles", async () => {
+    const pathFirst = [
+      JSON.stringify({
+        type: "user",
+        cwd: "/repo",
+        message: {
+          role: "user",
+          content: "/Users/a/Projects/FEEDBACK.md — проанализируй файл",
+        },
+      }),
+    ].join("\n");
+    const history = claudeHistory(ctx({ "/f.jsonl": pathFirst }, {}));
+    expect((await history.describe("/f.jsonl")).title).toContain("FEEDBACK.md");
+  });
+
   it("isMeta lines are framework noise — never a title, never content", async () => {
     const withMeta = [
       JSON.stringify({

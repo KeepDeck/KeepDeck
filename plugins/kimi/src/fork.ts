@@ -26,9 +26,11 @@ export async function kimiForkPlan(
       `kimi fork of ${input.sessionId}: no recorded transcript path`,
     );
   }
-  // …/sessions/wd_<key>/session_<id>/agents/main/wire.jsonl — walking the
-  // recorded path (never guessing the home) keeps a KIMI_CODE_HOME override
-  // working and makes a layout change fail LOUDLY here.
+  // …/sessions/wd_<key>/session_<id>/agents/main/wire.jsonl — the store root
+  // is derived from the recorded path, never guessed, so a layout change
+  // fails LOUDLY here. (A KIMI_CODE_HOME override still can't fork: writes
+  // are containment-scoped to the manifest's ~/.kimi-code prefix — and
+  // discovery wouldn't list such sessions anyway.)
   const match = wire.match(/^(.*\/sessions)\/(wd_[^/]+)\/(session_[^/]+)\/agents\/main\/wire\.jsonl$/);
   if (!match || match[3] !== input.sessionId) {
     throw new Error(
@@ -67,18 +69,12 @@ export async function kimiForkPlan(
   // (state.json — the resume gate — and the index line) land LAST, after the
   // conversation files. A failure mid-sequence then leaves only inert files
   // kimi never discovers — never a half-alive session.
-  await ctx.services.fsWrite.copyFile(
-    wire,
-    `${dstSessionDir}/agents/main/wire.jsonl`,
-  );
-  try {
-    await ctx.services.fsWrite.copyFile(
-      `${srcSessionDir}/logs/kimi-code.log`,
-      `${dstSessionDir}/logs/kimi-code.log`,
-    );
-  } catch {
-    // Optional diagnostics; a session that never logged has no file.
-  }
+  //
+  // The clone is the WHOLE session dir, not a fixed file list: real sessions
+  // carry blobs/ (pasted images the wire references by blobref:), tasks/,
+  // plans/ and agents/agent-N/ subagent trees — a wire-only copy would
+  // dangle. state.json is skipped here (the patched version lands last).
+  await copyTree(ctx, srcSessionDir, dstSessionDir);
   const patched = {
     ...state,
     workDir: input.cwd,
@@ -106,6 +102,30 @@ export async function kimiForkPlan(
     }),
   );
   return newId;
+}
+
+/** Copy every file under `srcDir` into the mirrored path under `dstDir`,
+ * EXCEPT the top-level `state.json` (its patched version is written last —
+ * it is the activation artifact). Depth-first via the read `fs` capability;
+ * symlinks are skipped (kimi's store has none, and following one out of the
+ * store would be refused by write containment anyway). */
+async function copyTree(
+  ctx: PluginContext,
+  srcDir: string,
+  dstDir: string,
+  root = true,
+): Promise<void> {
+  const entries = await ctx.services.fs.readDir(srcDir);
+  for (const entry of entries) {
+    const dst = `${dstDir}/${entry.name}`;
+    if (entry.kind === "dir") {
+      await copyTree(ctx, entry.path, dst, false);
+    } else if (entry.kind === "file") {
+      // Only the SESSION-ROOT state.json is deferred (patched, written last).
+      if (root && entry.name === "state.json") continue;
+      await ctx.services.fsWrite.copyFile(entry.path, dst);
+    }
+  }
 }
 
 /** `wd_<lowercased-basename>_<sha256(absolute-cwd)[:12]>` — the store folder

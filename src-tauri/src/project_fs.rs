@@ -244,7 +244,9 @@ pub fn project_fs_watch(
     roots: Vec<String>,
     everywhere: bool,
 ) -> Result<(), String> {
-    let dir = resolve_within(&path, &roots, everywhere)?;
+    // Same `~/` expansion as its read siblings — a dir a plugin can readDir
+    // must also be watchable by the same path string.
+    let dir = resolve_within(&expand_home(&path)?, &roots, everywhere)?;
     let emitter = app.clone();
     let watcher = spawn_project_watch(&dir, path.clone(), move |registered| {
         let _ = emitter.emit(

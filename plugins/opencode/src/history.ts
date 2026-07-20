@@ -71,8 +71,11 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       // Bounded on both axes: a row cap (the largest real session holds
       // ~5k parts) and a text-accumulation cap — a monster session must not
       // drag tens of MB across the IPC bridge into the index.
+      // Ordered explicitly: an unordered LIMIT happens to follow id order
+      // today, but that's an artifact, not a guarantee — and real sessions
+      // already exceed 5k parts, so the cap must drop the TAIL, not a hole.
       const rows = await query(
-        "SELECT data FROM part WHERE session_id = ?1 LIMIT 5000",
+        "SELECT data FROM part WHERE session_id = ?1 ORDER BY id LIMIT 20000",
         [ref],
       );
       const texts: string[] = [];
@@ -92,7 +95,7 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
         [ref],
       );
       const parts = await query(
-        "SELECT message_id, data FROM part WHERE session_id = ?1 LIMIT 5000",
+        "SELECT message_id, data FROM part WHERE session_id = ?1 ORDER BY id LIMIT 20000",
         [ref],
       );
       const byMessage = new Map<string, string[]>();

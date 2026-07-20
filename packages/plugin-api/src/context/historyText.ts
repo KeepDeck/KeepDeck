@@ -19,16 +19,25 @@ export function textFromParts(content: unknown): string {
 }
 
 /** Injected preambles that must never NAME a conversation: XML-ish tags,
- * slash commands, markdown instruction blobs, skill bootstraps, claude's
+ * markdown instruction blobs, bracketed notices, skill bootstraps, claude's
  * local-command caveat. */
-const PREAMBLE = /^([<#/[]|Base directory for this skill:|Caveat:)/;
+const PREAMBLE = /^([<#[]|Base directory for this skill:|Caveat:)/;
+
+/** A leading `/` is a slash COMMAND only when the whole message is one
+ * token (`/prime`) — a pasted absolute path ("/path/to/file — do X") is a
+ * real user message and a perfectly good title. */
+const SLASH_COMMAND = /^\/\S*$/;
 
 /** A human title: the first REAL user turn — skipping preambles. */
 export function firstMeaningfulUserTurn(
   turns: readonly { role: string; text: string }[],
 ): string | undefined {
   const real = turns.find(
-    (t) => t.role === "user" && !PREAMBLE.test(t.text) && t.text.length > 1,
+    (t) =>
+      t.role === "user" &&
+      !PREAMBLE.test(t.text) &&
+      !SLASH_COMMAND.test(t.text.trim()) &&
+      t.text.length > 1,
   );
   return real ? real.text.slice(0, 120) : undefined;
 }

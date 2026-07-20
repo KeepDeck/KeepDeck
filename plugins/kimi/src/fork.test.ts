@@ -28,6 +28,27 @@ interface Fx {
   appends: [string, string][];
 }
 
+/** A realistic session tree: wire + blobs (pasted image) + a subagent's own
+ * wire + logs — the store shape a fork must clone WHOLE. */
+const TREE: Record<string, { name: string; kind: "file" | "dir" }[]> = {
+  [SRC_DIR]: [
+    { name: "state.json", kind: "file" },
+    { name: "agents", kind: "dir" },
+    { name: "logs", kind: "dir" },
+  ],
+  [`${SRC_DIR}/agents`]: [
+    { name: "main", kind: "dir" },
+    { name: "agent-2", kind: "dir" },
+  ],
+  [`${SRC_DIR}/agents/main`]: [
+    { name: "wire.jsonl", kind: "file" },
+    { name: "blobs", kind: "dir" },
+  ],
+  [`${SRC_DIR}/agents/main/blobs`]: [{ name: "img1", kind: "file" }],
+  [`${SRC_DIR}/agents/agent-2`]: [{ name: "wire.jsonl", kind: "file" }],
+  [`${SRC_DIR}/logs`]: [{ name: "kimi-code.log", kind: "file" }],
+};
+
 function fixture(stateText: string | null = JSON.stringify(STATE)): Fx {
   const writes = new Map<string, string>();
   const copies: [string, string][] = [];
@@ -42,6 +63,11 @@ function fixture(stateText: string | null = JSON.stringify(STATE)): Fx {
           size: stateText?.length ?? 0,
           truncated: false,
         }),
+        readDir: async (path: string) =>
+          (TREE[path] ?? []).map((entry) => ({
+            ...entry,
+            path: `${path}/${entry.name}`,
+          })),
       },
       fsWrite: {
         writeFile: async (path: string, text: string) => {
@@ -126,6 +152,36 @@ describe("kimiForkPlan", () => {
       "layout changed",
     );
     expect(fx.writes.size).toBe(0);
+  });
+
+  it("clones the WHOLE session tree — blobs, subagents, logs — never a fixed file list", async () => {
+    const fx = fixture();
+    const newId = await kimiForkPlan(fx.ctx, forkInput("/new/target"));
+    const dstDir = `${HOME}/sessions/${await wdKey("/new/target")}/${newId}`;
+    const dsts = fx.copies.map(([, dst]) => dst);
+    expect(dsts).toContain(`${dstDir}/agents/main/blobs/img1`);
+    expect(dsts).toContain(`${dstDir}/agents/agent-2/wire.jsonl`);
+    expect(dsts).toContain(`${dstDir}/logs/kimi-code.log`);
+    // The source state.json is NOT copied — its patched version is written.
+    expect(dsts).not.toContain(`${dstDir}/state.json`);
+    expect(fx.writes.has(`${dstDir}/state.json`)).toBe(true);
+  });
+
+  it("a state-write failure leaves the index un-appended — activation lands last", async () => {
+    const fx = fixture();
+    const services = (
+      fx.ctx as unknown as {
+        services: { fsWrite: { writeFile(p: string, t: string): Promise<void> } };
+      }
+    ).services;
+    services.fsWrite.writeFile = async () => {
+      throw new Error("disk full at state");
+    };
+    await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow(
+      "disk full at state",
+    );
+    // Inert conversation files may exist; the ACTIVATING index line must not.
+    expect(fx.appends).toHaveLength(0);
   });
 
   it("a mid-sequence write failure leaves nothing resumable — state and index land last", async () => {
