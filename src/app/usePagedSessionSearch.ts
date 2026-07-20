@@ -152,6 +152,13 @@ export function usePagedSessionSearch<T>(
     // A refresh is a new page-zero generation too — it drops any in-flight
     // page and re-anchors what `loadMore` is allowed to extend.
     searchSeq.current += 1;
+    // Cancel a debounced search: refresh re-runs the current query right now,
+    // so letting the timer fire too would issue a second, same-generation
+    // page zero (both pass the landing guard → last-landed-wins width flicker).
+    if (debounce.current !== null) {
+      window.clearTimeout(debounce.current);
+      debounce.current = null;
+    }
     runSearch(queryRef.current, rowsRef.current.length);
   }, [runSearch]);
 

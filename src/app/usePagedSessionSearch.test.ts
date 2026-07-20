@@ -181,9 +181,41 @@ describe("usePagedSessionSearch", () => {
 
     // A subsequent page still fires (the default mock queues a resolver again).
     act(() => api.loadMore());
+    // page zero + the rejected loadMore + this retry — a still-wedged guard
+    // would leave this at 2 and fail here, not with a confusing resolvers[1].
+    expect(fetchPage).toHaveBeenCalledTimes(3);
     expect(fetchPage).toHaveBeenLastCalledWith("", NEXT_PAGE, 50);
     await act(async () => resolvers[1]({ rows: mkRows(50, 20), total: 100 }));
     expect(api.rows).toHaveLength(70);
+  });
+
+  it("a rejected page zero leaves the loaded rows intact and freezes paging until a fresh page lands", async () => {
+    await mount();
+    act(() => api.refresh());
+    await act(async () => resolvers[0]({ rows: mkRows(0, 50), total: 200 }));
+    expect(api.rows).toHaveLength(50);
+
+    // A new query whose page zero REJECTS: the old rows must NOT be corrupted,
+    // and loadMore must NOT splice the new query's page onto them — advancing
+    // loadedSeqRef on the reject would do exactly that, so paging stays frozen.
+    fetchPage.mockImplementationOnce(() => Promise.reject(new Error("boom")));
+    act(() => api.search("x"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150); // the page-zero fetch rejects
+    });
+    expect(api.rows).toHaveLength(50); // untouched — no foreign rows spliced
+    const afterReject = fetchPage.mock.calls.length;
+    act(() => api.loadMore());
+    expect(fetchPage.mock.calls.length).toBe(afterReject); // frozen, no fetch
+
+    // A later successful page zero recovers paging cleanly.
+    act(() => api.search("x"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    await act(async () => resolvers[1]({ rows: mkRows(0, 50), total: 200 }));
+    act(() => api.loadMore());
+    expect(fetchPage).toHaveBeenLastCalledWith("x", NEXT_PAGE, 50);
   });
 
   it("a search that lands empty clears rows and total", async () => {
