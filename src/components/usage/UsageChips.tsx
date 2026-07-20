@@ -252,6 +252,7 @@ export function UsageChips({
                   </span>
                 </div>
                 {panelWindows(account).map((window, i) => {
+                  const caption = windowResetCaption(window, now);
                   return (
                     <div key={i} className="usage-window">
                       <span className="usage-window__label">
@@ -260,7 +261,7 @@ export function UsageChips({
                       <Bar window={window} now={now} />
                       <span className="usage-window__detail">
                         <WindowValue window={window} display={display} now={now} />
-                        <small>{windowResetCaption(window, now)}</small>
+                        {caption && <small>{caption}</small>}
                       </span>
                     </div>
                   );

@@ -97,13 +97,14 @@ export function usageStale(reportedAt: number, now: number): boolean {
   return now - reportedAt > USAGE_STALE_AFTER_MS;
 }
 
-/** The caption under a window's percentage — the full window-kind
- * semantics in ONE place (its label sibling is [`windowLabel`]): a passed
- * reset, a live countdown, a rolling window whose reset the CLI didn't
- * share, or a clockless plan BALANCE (kimi's totalQuota — spent and topped
- * up, never reset). */
+/** The caption under a window's percentage — the full window-kind semantics
+ * in ONE place (its label sibling is [`windowLabel`]): a live countdown, a
+ * rolling window whose reset the CLI didn't share, or a clockless plan BALANCE
+ * (kimi's totalQuota — spent and topped up, never reset). An EXPIRED window
+ * gets NO caption (empty): the dimmed percentage already reads as stale, so the
+ * "awaiting report" note was just noise. */
 export function windowResetCaption(window: UsageWindow, now: number): string {
-  if (windowExpired(window, now)) return "reset passed · awaiting report";
+  if (windowExpired(window, now)) return "";
   const countdown = formatCountdown(window.resetsAt, now);
   if (countdown) return `resets in ${countdown}`;
   return window.windowMinutes !== null ? "reset unknown" : "plan allowance";

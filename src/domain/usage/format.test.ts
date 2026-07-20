@@ -125,9 +125,10 @@ describe("formatPct", () => {
 describe("windowResetCaption", () => {
   const NOW = 1_000_000_000_000;
   it("covers all four window kinds", () => {
+    // An expired window has no caption — the dimmed % already reads as stale.
     expect(
       windowResetCaption({ usedPct: 1, resetsAt: NOW - 1, windowMinutes: 300 }, NOW),
-    ).toBe("reset passed · awaiting report");
+    ).toBe("");
     expect(
       windowResetCaption(
         { usedPct: 1, resetsAt: NOW + 130 * 60_000, windowMinutes: 300 },
