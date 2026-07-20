@@ -186,10 +186,17 @@ export function AgentDialog({
   }, [startMode, agentType, sessionQuery]);
 
   // A pick belongs to ONE agent's store — switching agents voids it (and
-  // the typed filter; the fresh listing shouldn't open pre-narrowed).
+  // the typed filter; the fresh listing shouldn't open pre-narrowed). An
+  // auto-filled (untouched) name came from that pick's title, so drop it too;
+  // a hand-edited name stays the user's.
   useEffect(() => {
     setPicked(null);
     setSessionQuery("");
+    // Capture the prefill BEFORE clearing the ref — the setName updater runs
+    // later, by which point prefillRef.current would already be "".
+    const previous = prefillRef.current;
+    setName((cur) => (cur === previous ? "" : cur));
+    prefillRef.current = "";
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentType]);
 
@@ -325,10 +332,12 @@ export function AgentDialog({
   // A pick is only usable for the CURRENTLY selected agent. Switching agents
   // clears `picked`, but a click on a row still showing from the previous
   // agent (during the search's debounce window) can set a cross-agent handle;
-  // treat that as no pick so it can't be resumed/forked under the wrong agent.
-  const pickedValid = picked !== null && picked.handle.agent === agentType;
-  const pickedBlock = pickedValid && picked ? resumeBlockOf(picked) : null;
-  const sessionOk = canStartFromSession(startMode, pickedValid, pickedBlock);
+  // narrow it to null so it can't be resumed/forked — or highlighted — under
+  // the wrong agent. One derived value, so no read site can forget the guard.
+  const validPick =
+    picked && picked.handle.agent === agentType ? picked : null;
+  const pickedBlock = validPick ? resumeBlockOf(validPick) : null;
+  const sessionOk = canStartFromSession(startMode, validPick !== null, pickedBlock);
   // Resume ignores the location entirely (locked to the recorded cwd — the
   // whole worktree block is hidden); everything else gates on both.
   const valid =
@@ -381,9 +390,8 @@ export function AgentDialog({
               location: buildLocation(),
               yolo: yolo && supportsYolo,
               ...(startMode !== "new" &&
-                pickedValid &&
-                picked && {
-                  session: { mode: startMode, handle: picked.handle },
+                validPick && {
+                  session: { mode: startMode, handle: validPick.handle },
                 }),
             });
         }}
@@ -464,7 +472,7 @@ export function AgentDialog({
                 const block =
                   startMode === "resume" ? resumeBlockOf(row) : null;
                 const active =
-                  picked?.handle.sessionId === row.handle.sessionId;
+                  validPick?.handle.sessionId === row.handle.sessionId;
                 return (
                   <li key={`${row.handle.agent}:${row.handle.sessionId}`}>
                     <button
@@ -498,10 +506,10 @@ export function AgentDialog({
                 <li className="form__session-empty">No sessions match</li>
               )}
             </ul>
-            {startMode === "resume" && pickedValid && picked && (
+            {startMode === "resume" && validPick && (
               pickedBlock === null ? (
                 <span className="form__git">
-                  ✓ Resumes in {picked.handle.cwd}
+                  ✓ Resumes in {validPick.handle.cwd}
                 </span>
               ) : (
                 <span className="form__error">

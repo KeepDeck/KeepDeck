@@ -821,8 +821,8 @@ describe("AgentDialog cross-agent pick guard", () => {
       (b) => b.textContent === text || b.textContent?.includes(text),
     )!;
 
-  it("won't resume/fork a session whose agent differs from the selected agent", async () => {
-    await act(async () =>
+  const mount = () =>
+    act(async () =>
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
@@ -847,13 +847,28 @@ describe("AgentDialog cross-agent pick guard", () => {
       ),
     );
 
-    // Select codex, open Fork, pick the (claude) row.
-    act(() => typeBtn("Codex").click());
-    act(() => typeBtn("Fork…").click());
+  const settle = async () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(200);
     });
     await act(async () => {});
+  };
+
+  const nameField = () =>
+    document.querySelector<HTMLInputElement>('input[aria-label="Agent name"]')!;
+
+  const pickFirstRow = () =>
+    act(() =>
+      document.querySelector<HTMLButtonElement>(".form__session")!.click(),
+    );
+
+  it("won't resume/fork a session whose agent differs from the selected agent", async () => {
+    await mount();
+
+    // Select codex, open Fork, pick the (claude) row.
+    act(() => typeBtn("Codex").click());
+    act(() => typeBtn("Fork…").click());
+    await settle();
 
     const row = document.querySelector<HTMLButtonElement>(".form__session")!;
     expect(row.textContent).toContain("claude work");
@@ -863,5 +878,27 @@ describe("AgentDialog cross-agent pick guard", () => {
     expect(createBtn().disabled).toBe(true);
     submit();
     expect(confirmed).toEqual([]);
+  });
+
+  it("drops an auto-filled name when the agent is switched", async () => {
+    await mount();
+    // On claude, pick a session in Fork mode → the Name auto-fills from its title.
+    act(() => typeBtn("Fork…").click());
+    await settle();
+    await pickFirstRow();
+    expect(nameField().value).toBe("claude work");
+    // Switching agents voids the pick — the untouched name goes with it.
+    act(() => typeBtn("Codex").click());
+    expect(nameField().value).toBe("");
+  });
+
+  it("keeps a hand-edited name across an agent switch", async () => {
+    await mount();
+    act(() => typeBtn("Fork…").click());
+    await settle();
+    await pickFirstRow();
+    type(nameField(), "my agent");
+    act(() => typeBtn("Codex").click());
+    expect(nameField().value).toBe("my agent");
   });
 });
