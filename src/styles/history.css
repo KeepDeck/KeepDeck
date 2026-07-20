@@ -336,6 +336,10 @@
   background-color: #0e121a;
   border: 1px solid #242a37;
   border-radius: 10px;
+  /* Clip children to the rounded box — square row backgrounds must not
+   * poke into the corner curves. The viewer itself never scrolls (the
+   * body inside does), so this clip is safe. */
+  overflow: hidden;
   z-index: 5;
 }
 
@@ -368,7 +372,9 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px;
+  /* The wider right padding is a gutter for the overlay scrollbar: without
+   * it the thumb rides ON the turn rows and reads as a stray highlight. */
+  padding: 12px 20px 12px 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -376,6 +382,9 @@
 }
 
 .browser__turn {
+  /* Never shrink: a height-constrained flex column would otherwise squish
+   * every turn to a clipped sliver instead of scrolling. */
+  flex: none;
   padding: 8px 10px;
   border-radius: 8px;
   background-color: #11161f;
@@ -384,15 +393,18 @@
    * inter-row whitespace must never show beside the rounded rows. */
   white-space: pre-wrap;
   word-break: break-word;
-  overflow: hidden;
 }
 
+/* The role accent is an INSET SHADOW, not border-left: WebKit paints a
+ * rounded box's corner arcs as joins with the adjacent (zero-width,
+ * currentColor) borders, which left a faint colored curve on the RIGHT
+ * corners of every turn. A shadow hugs the left edge and nothing else. */
 .browser__turn--user {
-  border-left: 2px solid #58b368;
+  box-shadow: inset 2px 0 0 #58b368;
 }
 
 .browser__turn--assistant {
-  border-left: 2px solid #3a4658;
+  box-shadow: inset 2px 0 0 #3a4658;
 }
 
 .browser__turn--other {
