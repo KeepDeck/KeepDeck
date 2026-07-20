@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentSupportsYolo,
   canCreateAgent,
@@ -20,7 +20,9 @@ import {
 import { baseName } from "../../domain/deck";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
+import { usePagedSessionSearch } from "../../app/usePagedSessionSearch";
 import { useEscape } from "../../ui/useEscape";
+import { useScrollPaging } from "../../ui/useScrollPaging";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
@@ -73,10 +75,16 @@ interface AgentDialogProps {
   ): Promise<{ path: string; branch: string } | null>;
   /** Native folder picker; null when cancelled. Injected for the same reason. */
   pickFolder(title: string): Promise<string | null>;
-  /** One agent's sessions from the search index for the "Start from" picker
-   * (newest first on an empty query, FTS-matched otherwise). Injected — the
-   * dialog stays free of IPC. */
-  searchSessions(agent: AgentType, query: string): Promise<SessionPickRow[]>;
+  /** One PAGE of an agent's sessions from the search index for the "Start
+   * from" picker (newest first on an empty query, FTS-matched otherwise),
+   * plus the full match count. Injected — the dialog stays free of IPC; the
+   * dialog itself drives paging through the shared engine. */
+  searchSessions(
+    agent: AgentType,
+    query: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ rows: SessionPickRow[]; total: number }>;
   /** How a session is already held by a pane, for the resume dimming rule
    * — running, dormant, or free. Injected (deck state stays outside). */
   sessionClaim(sessionId: string): "running" | "dormant" | null;
@@ -140,7 +148,6 @@ export function AgentDialog({
   // or fork of one of the SELECTED agent's indexed sessions.
   const [startMode, setStartMode] = useState<SessionStartMode>("new");
   const [sessionQuery, setSessionQuery] = useState("");
-  const [sessions, setSessions] = useState<SessionPickRow[]>([]);
   const [picked, setPicked] = useState<SessionPickRow | null>(null);
   // What the Name field was last prefilled with (a picked session's title):
   // while name === prefill the field is untouched and follows the picks,
@@ -150,25 +157,31 @@ export function AgentDialog({
   const agentOptions = selectableAgents(agents);
   useEscape(onCancel);
 
-  // Load the picker's options: the selected agent's sessions, re-queried as
-  // the user types (FTS server-side — the index matches content, not just
-  // what a label would fuzzy-match). Debounced like the path probe.
+  // The picker's options, paged through the SAME engine as the global browser
+  // ([[usePagedSessionSearch]]) — the fetcher is scoped to the selected agent
+  // and re-scopes when the user switches. Virtualization/paging were missing
+  // here before: the list was capped at one page.
+  const pagedSessions = usePagedSessionSearch<SessionPickRow>(
+    useCallback(
+      (query, limit, offset) =>
+        searchSessions(agentType, query, limit, offset),
+      [searchSessions, agentType],
+    ),
+  );
+  const sessions = pagedSessions.rows;
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const onSessionsScroll = useScrollPaging(
+    listRef,
+    pagedSessions,
+    sessions.length,
+  );
+
+  // Re-query as the user types, switches agent, or opens resume/fork. Skipped
+  // for "new" (no picker shown); the shared engine debounces and pages.
+  const { search: searchSessionsPage } = pagedSessions;
   useEffect(() => {
     if (startMode === "new") return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      searchSessions(agentType, sessionQuery)
-        .then((rows) => {
-          if (!cancelled) setSessions(rows);
-        })
-        .catch(() => {
-          if (!cancelled) setSessions([]);
-        });
-    }, 200);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    searchSessionsPage(sessionQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startMode, agentType, sessionQuery]);
 
@@ -418,15 +431,29 @@ export function AgentDialog({
 
         {startMode !== "new" && (
           <>
-            <input
-              {...noAutoCorrect}
-              className="form__input"
-              value={sessionQuery}
-              onChange={(e) => setSessionQuery(e.target.value)}
-              placeholder="Search sessions — content, titles"
-              aria-label="Search sessions"
-            />
-            <ul className="form__sessions" aria-label="Sessions">
+            <div className="form__sessions-bar">
+              <input
+                {...noAutoCorrect}
+                className="form__input form__sessions-search"
+                value={sessionQuery}
+                onChange={(e) => setSessionQuery(e.target.value)}
+                placeholder="Search sessions — content, titles"
+                aria-label="Search sessions"
+              />
+              {pagedSessions.total > 0 && (
+                <span className="form__sessions-count">
+                  {pagedSessions.hasMore
+                    ? `${sessions.length} of ${pagedSessions.total}`
+                    : `${pagedSessions.total}`}
+                </span>
+              )}
+            </div>
+            <ul
+              className="form__sessions"
+              aria-label="Sessions"
+              ref={listRef}
+              onScroll={onSessionsScroll}
+            >
               {sessions.map((row) => {
                 const block =
                   startMode === "resume" ? resumeBlockOf(row) : null;
@@ -453,7 +480,15 @@ export function AgentDialog({
                   </li>
                 );
               })}
-              {sessions.length === 0 && (
+              {pagedSessions.loadingMore && (
+                <li
+                  className="form__session-more"
+                  aria-label="Loading more sessions"
+                >
+                  <span className="form__session-spinner" />
+                </li>
+              )}
+              {sessions.length === 0 && !pagedSessions.loadingMore && (
                 <li className="form__session-empty">No sessions match</li>
               )}
             </ul>

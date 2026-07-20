@@ -150,7 +150,7 @@ describe("AgentDialog worktree location flow", () => {
           occupancyAt: (p: string) => occupancyOf[p] ?? null,
           nextFreeLocation: async () => ({ path: "/base/kd-ws-3", branch: "kd/ws/3" }),
           pickFolder: async () => null,
-          searchSessions: async () => [],
+          searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
@@ -401,7 +401,7 @@ describe("AgentDialog agent picker", () => {
           occupancyAt: () => null,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
-          searchSessions: async () => [],
+          searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
           onConfirm: () => {},
           onCancel: () => {},
@@ -448,7 +448,7 @@ describe("AgentDialog YOLO toggle", () => {
           occupancyAt: () => null,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
-          searchSessions: async () => [],
+          searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
@@ -533,7 +533,7 @@ describe("AgentDialog start-from session picker", () => {
           occupancyAt: () => null,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
-          searchSessions: async () => SESSIONS,
+          searchSessions: async () => ({ rows: SESSIONS, total: SESSIONS.length }),
           sessionClaim: (id: string) => (id === "s-claimed" ? ("running" as const) : null),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
@@ -546,11 +546,11 @@ describe("AgentDialog start-from session picker", () => {
       (b) => b.textContent === label,
     )!;
   const rows = () => [...document.querySelectorAll<HTMLButtonElement>(".form__session")];
-  /** Let the 200ms search debounce fire, its promise land, and the
-   * presence probes settle. */
+  /** Let the shared engine's search debounce (150ms) fire, its page land, and
+   * the presence probes settle. */
   const settleSessions = async () => {
     await act(async () => {
-      vi.advanceTimersByTime(200);
+      await vi.advanceTimersByTimeAsync(200);
     });
     await act(async () => {});
   };
@@ -634,5 +634,93 @@ describe("AgentDialog start-from session picker", () => {
     submit();
     expect(confirmed).toHaveLength(1);
     expect(confirmed[0].session).toBeUndefined();
+  });
+});
+
+describe("AgentDialog start-from paging", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  const mkRows = (from: number, count: number): SessionPickRow[] =>
+    Array.from({ length: count }, (_, i) => ({
+      handle: {
+        agent: "claude",
+        sessionId: `s-${from + i}`,
+        cwd: "/repo/wt",
+        title: `session ${from + i}`,
+      },
+      mtime: 1000 - (from + i),
+    }));
+
+  const modeBtn = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+      (b) => b.textContent === label,
+    )!;
+  const sessionRows = () =>
+    [...document.querySelectorAll<HTMLButtonElement>(".form__session")];
+
+  it("pages the picker: pulls the next page at the loaded offset and shows the count", async () => {
+    const calls: Array<{ limit: number; offset: number }> = [];
+    // A first page of 50 with more behind it, then the 20-row tail — 70 total.
+    const searchSessions = vi.fn(
+      async (_agent: string, _query: string, limit: number, offset: number) => {
+        calls.push({ limit, offset });
+        return offset === 0
+          ? { rows: mkRows(0, 50), total: 70 }
+          : { rows: mkRows(50, 20), total: 70 };
+      },
+    );
+
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions,
+          sessionClaim: () => null,
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+    // Fork avoids the resume presence gate — the paging itself is the subject.
+    act(() => modeBtn("Fork…").click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    await act(async () => {});
+
+    // Page zero, then the scroll-fill pulled the next page at the loaded
+    // offset — before this fix the list stopped at one page.
+    expect(calls).toEqual([
+      { limit: 50, offset: 0 },
+      { limit: 20, offset: 50 },
+    ]);
+    expect(sessionRows()).toHaveLength(70);
+    // Everything loaded → the bare total; a partial load reads "N of 70".
+    expect(document.querySelector(".form__sessions-count")?.textContent).toBe(
+      "70",
+    );
   });
 });
