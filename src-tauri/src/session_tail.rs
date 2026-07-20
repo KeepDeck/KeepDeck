@@ -806,6 +806,43 @@ mod tests {
     }
 
     #[test]
+    fn catch_up_last_record_carries_the_full_session_cumulative() {
+        // The crux invariant, end to end: fold the whole drain in file order,
+        // THEN last_of_each keeps the last usage.record — which must carry the
+        // cumulative of ALL prior records, not just its own line (mirrors the
+        // order in usage_watch_session_file). A refactor that ran last_of_each
+        // first would silently drop the earlier records' tokens.
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        let mut state = tail(path.clone());
+        state.format = TailFormat::KimiWire;
+        let record = |input: u64| {
+            format!(
+                r#"{{"type":"usage.record","usage":{{"inputOther":{input},"output":10,"inputCacheRead":0,"inputCacheCreation":0}},"usageScope":"turn","time":1}}"#
+            )
+        };
+        fs::write(
+            &path,
+            format!("{}\n{}\n{}\n", record(100), record(200), record(300)),
+        )
+        .unwrap();
+
+        let mut drained = drain(&mut state);
+        for event in &mut drained {
+            accumulate_session_totals(&mut state.totals, TailFormat::KimiWire, event);
+        }
+        let kept = last_of_each(drained, TailFormat::KimiWire.catch_up_order());
+        let surviving = kept
+            .iter()
+            .find(|e| e.payload["type"] == "usage.record")
+            .expect("a usage.record survives catch-up");
+        assert_eq!(surviving.payload["sessionTotals"]["inputOther"], 600); // 100+200+300
+        assert_eq!(surviving.payload["sessionTotals"]["output"], 30);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn catch_up_keeps_only_the_last_of_each_kind_context_first() {
         let old = rollout_event(TURN_CONTEXT_LINE.as_bytes()).unwrap();
         let mut newer = old.clone();

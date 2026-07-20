@@ -20,6 +20,14 @@ function Probe({ paneId }: { paneId: string }) {
   return createElement("span", null, pct === undefined ? "—" : String(pct));
 }
 
+/** A probe that counts its own renders — for the narrow-subscription property. */
+let renders = 0;
+function CountingProbe({ paneId }: { paneId: string }) {
+  renders += 1;
+  const pct = usePaneContextPct(paneId);
+  return createElement("span", null, pct === undefined ? "—" : String(pct));
+}
+
 describe("usePaneContextPct", () => {
   let host: HTMLElement;
   let root: Root;
@@ -71,5 +79,18 @@ describe("usePaneContextPct", () => {
     report("p2", { usedPct: 99 });
     act(() => root.render(createElement(Probe, { paneId: "p1" })));
     expect(host.textContent).toBe("—");
+  });
+
+  it("re-renders ONLY when its own pane's context changes", () => {
+    renders = 0;
+    report("p1", { usedPct: 40 });
+    act(() => root.render(createElement(CountingProbe, { paneId: "p1" })));
+    expect(renders).toBe(1);
+    // Another pane's report emits, but p1's primitive is unchanged → no re-render.
+    act(() => report("p2", { usedPct: 99 }));
+    expect(renders).toBe(1);
+    // p1's own change does re-render.
+    act(() => report("p1", { usedPct: 41 }));
+    expect(renders).toBe(2);
   });
 });
