@@ -133,6 +133,36 @@ describe("useJournalFork", () => {
     expect(provisioning.runProvisioning.mock.calls[0][0]).toEqual([pane]);
   });
 
+  it("a full workspace fails loudly — no stranded plan, no ownerless worktree", async () => {
+    await mount();
+    act(() => {
+      for (let i = 0; i < 16; i++) {
+        deck.addAgentPane("ws-1", { id: `p-${i}`, agentType: "claude" });
+      }
+    });
+    await expect(
+      act(async () =>
+        api.fork("ws-1", record(), {
+          kind: "worktree",
+          path: "/repo-wt/f",
+          branch: "fork/x",
+        }),
+      ),
+    ).rejects.toThrow("full");
+    expect(provisioning.runProvisioning).not.toHaveBeenCalled();
+  });
+
+  it("a throwing surgery propagates its precise diagnostic to the caller", async () => {
+    plans.buildForkSpec.mockRejectedValueOnce(
+      new Error("kimi fork of s-1: unexpected store layout"),
+    );
+    await mount();
+    await expect(
+      act(async () => api.fork("ws-1", record(), { kind: "dir", cwd: "/x" })),
+    ).rejects.toThrow("unexpected store layout");
+    expect(deck.workspaces[0].panes).toHaveLength(0);
+  });
+
   it("rejects — and mints nothing — when the fork plan (surgery) fails", async () => {
     plans.buildForkSpec.mockResolvedValueOnce(false);
     await mount();

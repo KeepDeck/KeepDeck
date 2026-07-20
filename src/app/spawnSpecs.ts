@@ -300,17 +300,12 @@ export async function buildForkSpec(
     );
     return false;
   }
-  try {
-    return await buildAndCache(facts.paneId, () =>
-      buildPlan(plugins, agent, facts, ctx, { kind: "fork", ...fork }),
-    );
-  } catch (e) {
-    log.warn(
-      "web:agents",
-      `${agentType}: fork.plan for ${fork.sessionId} failed: ${describeError(e)}`,
-    );
-    return false;
-  }
+  // A throwing hook PROPAGATES (mirroring resume): the recipes throw
+  // precise, fail-loud diagnostics for store-layout drift, and muting them
+  // into a boolean left the caller a generic message and a double log line.
+  return buildAndCache(facts.paneId, () =>
+    buildPlan(plugins, agent, facts, ctx, { kind: "fork", ...fork }),
+  );
 }
 
 /**

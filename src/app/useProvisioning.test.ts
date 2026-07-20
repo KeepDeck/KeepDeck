@@ -2,7 +2,15 @@
 import { emptyJournal } from "../domain/journal";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const runs = vi.hoisted(() => ({
+  runProvisioning: vi.fn((..._args: unknown[]) => Promise.resolve()),
+}));
+vi.mock("./provisioning", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./provisioning")>()),
+  runProvisioning: runs.runProvisioning,
+}));
 import type { SpawnConfig } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
@@ -128,5 +136,57 @@ describe("useProvisioning workspace ids", () => {
 
     expect(deck.workspaces.map((ws) => ws.id)).toEqual([maxId]);
     expect(result).toEqual({ ok: false, reason: "sequence-exhausted" });
+  });
+});
+
+describe("useProvisioning retryPane", () => {
+  let root: Root;
+  beforeEach(() => {
+    runs.runProvisioning.mockClear();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const mountWith = async (provisioning: object) => {
+    await act(async () => root.render(createElement(Probe)));
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws-1",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        setup: "pnpm i",
+        panes: [
+          {
+            id: "pane-1",
+            agentType: "claude",
+            provisioning: {
+              repo: "/repo",
+              workspace: "ws-1",
+              index: 1,
+              error: "boom",
+              ...provisioning,
+            },
+          },
+        ],
+      }),
+    );
+  };
+
+  it("re-runs setup ONLY for batch panes — a dialog/fork retry must not widen the attempt", async () => {
+    // Dialog/fork intent: exact `path`, no baseDir → the initial run never
+    // executed setup, so the retry must not either.
+    await mountWith({ path: "/repo-wt/x", branch: "kd/x" });
+    act(() => provisioning.retryPane("ws-1", "pane-1"));
+    expect(runs.runProvisioning).toHaveBeenCalledTimes(1);
+    expect(runs.runProvisioning.mock.calls[0][2]).toBeUndefined();
+  });
+
+  it("batch panes (baseDir intent) keep their setup on retry", async () => {
+    await mountWith({ baseDir: "/repo-wt" });
+    act(() => provisioning.retryPane("ws-1", "pane-1"));
+    expect(runs.runProvisioning.mock.calls[0][2]).toBe("pnpm i");
   });
 });

@@ -951,8 +951,13 @@ describe("deckReducer journal", () => {
     expect(hydrated.journal).toBe(bound.journal);
   });
 
-  it("hydrateJournal folds the loaded records against live workspaces", () => {
-    const bound = boundState();
+  it("hydrateJournal folds the loaded records against live RESTORED workspaces", () => {
+    // ws-1 must count as restored-from-disk — journal keys only survive for
+    // those (a this-run creation reusing the id must not adopt them).
+    const bound = deckReducer(boundState(), {
+      type: "hydrate",
+      state: state({ workspaces: [journalWs()], activeId: "ws-1" }),
+    });
     const hydrated = deckReducer(bound, {
       type: "hydrateJournal",
       records: {
@@ -984,6 +989,44 @@ describe("deckReducer journal", () => {
       "past",
       "s-1",
     ]);
+  });
+
+  it("a workspace CREATED this run never adopts a crash-orphaned journal key for its reused id", () => {
+    // Boot: deck.json restored EMPTY (the crashed run's close saved), the
+    // journal file still carries ws-1 — and the user recreates ws-1 before
+    // the journal finishes loading. The stale key must not attach.
+    const empty = deckReducer(initialDeckState, {
+      type: "hydrate",
+      state: state({ workspaces: [], activeId: "" }),
+    });
+    const recreated = deckReducer(empty, {
+      type: "createWorkspace",
+      workspace: journalWs(),
+      at: AT,
+    });
+    const hydrated = deckReducer(recreated, {
+      type: "hydrateJournal",
+      records: {
+        "ws-1": [
+          {
+            agent: "claude",
+            sessionId: "phantom",
+            cwd: "/somewhere/else",
+            boundAt: "2026-07-18T00:00:00.000Z",
+            state: "closed",
+            endedAt: "2026-07-18T01:00:00.000Z",
+          },
+        ],
+      },
+      at: AT,
+    });
+    expect(hydrated.journal.records).toEqual({});
+    // The prune converges the file too.
+    expect(
+      hydrated.journal.tail.some(
+        (e) => e.e === "wsDeleted" && e.wsId === "ws-1",
+      ),
+    ).toBe(true);
   });
 
   it("deleteJournalRecord drops one row; journalFlushed trims the outbox", () => {

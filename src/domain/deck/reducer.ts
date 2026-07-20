@@ -75,6 +75,12 @@ export interface DeckState {
    * transitions that touch panes, so seal-on-close is atomic. Persisted in
    * its own document, never in deck.json. */
   journal: JournalSlice;
+  /** Workspace ids that came from deck.json this run (runtime-only, never
+   * persisted; absent = none restored). Journal hydration keeps a loaded key
+   * ONLY for these: `ws-N` ids are reusable slots, and a workspace CREATED
+   * this run must not adopt a crash-orphaned journal that raced its
+   * `wsDeleted` prune (the guard no-ops before the journal is hydrated). */
+  restoredWorkspaceIds?: ReadonlySet<string>;
   /** Per-workspace view state (maximize, selection, dock open, dock tab), one
    * entry per workspace (absent = all defaults). Replaces the old parallel
    * focusByWs/selectByWs/dockByWs maps: closing a workspace drops ONE entry,
@@ -470,9 +476,17 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       );
     case "hydrate":
       // deck.json knows nothing of the journal — keep the live slice (its
-      // own hydration is the separate `hydrateJournal`, sequenced after).
+      // own hydration is the separate `hydrateJournal`, sequenced after) and
+      // remember WHICH ids the restore brought: only those may adopt loaded
+      // journal keys (a this-run workspace reusing a `ws-N` slot must not).
       return workspaceIdsAreUnique(action.state.workspaces)
-        ? { ...action.state, journal: state.journal }
+        ? {
+            ...action.state,
+            journal: state.journal,
+            restoredWorkspaceIds: new Set(
+              action.state.workspaces.map((w) => w.id),
+            ),
+          }
         : state;
     case "revivePane":
       // revivePane returns the same ref for an absent/already-live pane, so a
@@ -578,13 +592,19 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         ),
       );
     case "hydrateJournal": {
-      const liveWsIds = new Set(state.workspaces.map((w) => w.id));
+      // A loaded key survives only for a workspace that is BOTH live and
+      // restored-from-disk: a this-run creation reusing a `ws-N` id gets a
+      // clean journal, whatever a crashed run left in the file.
+      const restored = state.restoredWorkspaceIds ?? new Set<string>();
+      const keepWsIds = new Set(
+        state.workspaces.map((w) => w.id).filter((id) => restored.has(id)),
+      );
       return {
         ...state,
         journal: hydrateJournalSlice(
           state.journal,
           action.records,
-          liveWsIds,
+          keepWsIds,
           action.at,
         ),
       };

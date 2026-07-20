@@ -720,9 +720,14 @@ function App() {
             journal={deck.journal.records}
             onDeleteJournalRecord={deck.deleteJournalRecord}
             onResumeSession={(wsId, record) =>
-              void journalResume.resume(wsId, record).catch(() => {
-                // Logged in the hook; the row simply stays for another try.
-              })
+              void journalResume.resume(wsId, record).catch((e: unknown) =>
+                // A user-requested continuation must fail VISIBLY — the row
+                // staying put with no signal reads as a dead button.
+                setError({
+                  title: "Could not resume the session",
+                  message: describeError(e),
+                }),
+              )
             }
             onForkSession={(wsId, record) => setForkDialog({ wsId, record })}
             browser={sessionsBrowser}
@@ -813,9 +818,14 @@ function App() {
               onConfirm={(target) => {
                 const { wsId, record } = forkDialog;
                 setForkDialog(null);
-                void journalFork.fork(wsId, record, target).catch(() => {
-                  // Logged in the hook; nothing was spawned.
-                });
+                void journalFork.fork(wsId, record, target).catch((e: unknown) =>
+                  // Surgery failures carry precise store diagnostics — show
+                  // them; a silently closing dialog reads as success.
+                  setError({
+                    title: "Could not fork the session",
+                    message: describeError(e),
+                  }),
+                );
               }}
               onCancel={() => setForkDialog(null)}
             />

@@ -3,6 +3,7 @@ import type { SpawnPlanContext } from "../domain/agents";
 import {
   findWorkspace,
   findWorkspaceByRef,
+  MAX_PANES,
   paneId,
   type Pane,
 } from "../domain/deck";
@@ -99,6 +100,13 @@ export function useJournalFork(
       if (!wsNow) {
         dropPaneSpawnSpec(pid);
         return;
+      }
+      // A full workspace would make addAgentPane a silent no-op — stranding
+      // the plan and, on the worktree path, provisioning an ownerless
+      // worktree on disk.
+      if (wsNow.panes.length >= MAX_PANES) {
+        dropPaneSpawnSpec(pid);
+        throw new Error("The workspace is full — close a pane first");
       }
       if (target.kind === "dir") {
         deckRef.current.addAgentPane(wsNow.id, {

@@ -73,9 +73,13 @@ export function useProvisioning(deck: Deck) {
     const ws = findWorkspace(deck.workspaces, wsId);
     const pane = findPane(deck.workspaces, wsId, paneId);
     if (!ws || !pane?.provisioning) return;
-    // Back to the creating card first, then re-run the same intent.
+    // Back to the creating card first, then re-run the same intent. The
+    // one-time setup command re-runs ONLY for batch panes (they carry
+    // `baseDir`): the "+ Agent"/fork flows never ran it in the first place,
+    // and a Retry must not have wider effects than the attempt it retries.
     deck.setPaneProvisioningError(wsId, paneId, null);
-    void runProvisioning([pane], provisionInto(deck, wsId), ws.setup);
+    const setup = pane.provisioning.baseDir !== undefined ? ws.setup : undefined;
+    void runProvisioning([pane], provisionInto(deck, wsId), setup);
   };
 
   return { createWorkspace, retryPane };

@@ -53,6 +53,25 @@ const addWorkspace = (id: string) =>
     panes: [{ id: `${id}-pane-1`, agentType: "claude" }],
   });
 
+/** Hydrate the deck with one workspace, as a real boot restore would —
+ * journal keys only attach to RESTORED workspace ids. */
+const restoreWorkspace = (id: string) =>
+  deck.hydrate({
+    workspaces: [
+      {
+        id,
+        instance: createWorkspaceInstance(),
+        name: id,
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [{ id: `${id}-pane-1`, agentType: "claude" }],
+      },
+    ],
+    activeId: id,
+    viewByWs: {},
+    journal: { records: {}, tail: [] },
+  });
+
 describe("useJournalPersistence", () => {
   let root: Root;
 
@@ -81,7 +100,7 @@ describe("useJournalPersistence", () => {
     ]);
     await mount({ restoring: true, frozen: false });
     act(() => {
-      addWorkspace("ws-1");
+      restoreWorkspace("ws-1");
     });
     expect(deck.journal.records).toEqual({}); // not hydrated while restoring
 
@@ -144,6 +163,33 @@ describe("useJournalPersistence", () => {
     expect(deck.journal.tail).toEqual([]);
     const calls = ipc.appendJournal.mock.calls;
     expect(calls[calls.length - 1][0]).toHaveLength(2);
+  });
+
+  it("a failed append re-arms itself on a timer — an idle quit must not lose the tail", async () => {
+    vi.useFakeTimers();
+    try {
+      ipc.loadJournal.mockResolvedValue([]);
+      await mount({ restoring: false, frozen: false });
+      act(() => {
+        addWorkspace("ws-1");
+      });
+      ipc.appendJournal.mockRejectedValueOnce(new Error("disk full"));
+
+      act(() =>
+        deck.setPaneSession("ws-1", "ws-1-pane-1", { id: "s-new", boundAt: T }),
+      );
+      await act(async () => {});
+      expect(deck.journal.tail).toHaveLength(1); // the flight failed
+
+      // NO further journal events happen — only the retry timer fires.
+      await act(async () => {
+        vi.advanceTimersByTime(2100);
+      });
+      await act(async () => {});
+      expect(deck.journal.tail).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("frozen: never hydrates and never appends — the parked deck must not prune history", async () => {

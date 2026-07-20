@@ -145,6 +145,40 @@ describe("useJournalResume", () => {
     expect(deck.workspaces[0].panes).toHaveLength(0);
   });
 
+  it("a full workspace fails loudly instead of stranding the plan in a silent no-op", async () => {
+    await mount();
+    act(() => {
+      for (let i = 0; i < 16; i++) {
+        deck.addAgentPane("ws-1", { id: `p-${i}`, agentType: "claude" });
+      }
+    });
+    await expect(
+      act(async () => api.resume("ws-1", record())),
+    ).rejects.toThrow("full");
+    expect(deck.workspaces[0].panes).toHaveLength(16);
+  });
+
+  it("re-checks the claim after the async build — a concurrent binder wins", async () => {
+    await mount();
+    plans.buildResumeSpec.mockImplementationOnce(
+      async (_p, _a, facts: { paneId: string }, _c, resumeId: string) => {
+        // The session gets claimed DURING the build (e.g. a revive landed).
+        act(() =>
+          deck.addAgentPane("ws-1", {
+            id: "pane-claimer",
+            agentType: "claude",
+            session: { id: "s-1", boundAt: "2026-07-19T00:00:00.000Z" },
+          }),
+        );
+        plans.specs.set(facts.paneId, { resumeOf: resumeId, resumeOrigin: "manual" });
+        return true;
+      },
+    );
+    await act(async () => api.resume("ws-1", record()));
+    // Only the claimer pane exists — no second pane bound to the session.
+    expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-claimer"]);
+  });
+
   it("drops the built plan when the workspace died during the build", async () => {
     await mount();
     plans.buildResumeSpec.mockImplementationOnce(

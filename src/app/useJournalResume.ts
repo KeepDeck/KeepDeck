@@ -1,7 +1,12 @@
 import { useRef } from "react";
 import type { SpawnPlanContext } from "../domain/agents";
-import { findWorkspaceByRef, paneId, type Pane } from "../domain/deck";
-import { findWorkspace } from "../domain/deck";
+import {
+  findWorkspace,
+  findWorkspaceByRef,
+  MAX_PANES,
+  paneId,
+  type Pane,
+} from "../domain/deck";
 import type { SessionRecord } from "../domain/journal";
 import { describeError, log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
@@ -91,6 +96,20 @@ export function useJournalResume(
       if (!wsNow) {
         dropPaneSpawnSpec(pid);
         return;
+      }
+      // Re-check what could have changed during the await: the session may
+      // have been claimed (a concurrent revive), and a full workspace would
+      // make addAgentPane a silent no-op that strands the built plan.
+      const claimedNow = deckRef.current.workspaces.some((w) =>
+        w.panes.some((p) => p.session?.id === record.sessionId),
+      );
+      if (claimedNow) {
+        dropPaneSpawnSpec(pid);
+        return;
+      }
+      if (wsNow.panes.length >= MAX_PANES) {
+        dropPaneSpawnSpec(pid);
+        throw new Error("The workspace is full — close a pane first");
       }
       const pane: Pane = {
         id: pid,

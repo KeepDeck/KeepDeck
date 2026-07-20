@@ -9,6 +9,13 @@ import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
+const worktreeIpc = vi.hoisted(() => ({
+  probeWorktree: vi.fn((_path: string) =>
+    Promise.resolve({ exists: true, isWorktree: false, branch: null }),
+  ),
+}));
+vi.mock("../../ipc/worktree", () => worktreeIpc);
+
 const hit = (over: Partial<SearchHit> = {}): SearchHit => ({
   agent: "claude",
   sessionId: "u-1",
@@ -99,6 +106,69 @@ describe("SessionsBrowser", () => {
       root.render(createElement(SessionsBrowser, { ...props, ready: true })),
     );
     expect(a.scan).toHaveBeenCalledTimes(1);
+  });
+
+  it("Resume is blocked for a pathless or deleted directory — Fork stays", async () => {
+    worktreeIpc.probeWorktree.mockImplementation((path: string) =>
+      Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
+    );
+    const a = api([
+      hit({ sessionId: "no-dir", cwd: "" }),
+      hit({ sessionId: "gone-dir", cwd: "/gone" }),
+      hit({ sessionId: "fine", cwd: "/repo/wt" }),
+    ]);
+    await act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: [],
+          ready: true,
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+    await act(async () => {});
+    const rows = document.querySelectorAll(".history__row");
+    const resumeOf = (row: Element) =>
+      row.querySelector<HTMLButtonElement>(".history__resume")!;
+    expect(resumeOf(rows[0]).disabled).toBe(true); // cwd ""
+    expect(resumeOf(rows[1]).disabled).toBe(true); // deleted dir
+    expect(resumeOf(rows[2]).disabled).toBe(false);
+    // Forking rescues both blocked rows.
+    expect(rows[0].querySelector(".history__fork")).not.toBeNull();
+    expect(rows[1].querySelector(".history__fork")).not.toBeNull();
+  });
+
+  it("a stale transcript response never renders under a newer row's header", async () => {
+    type Page = { role: "user"; text: string }[];
+    const resolvers: ((page: Page) => void)[] = [];
+    const a = api([hit(), hit({ sessionId: "u-2", title: "second" })]);
+    a.transcript = vi.fn(
+      () =>
+        new Promise<Page>((resolve) => {
+          resolvers.push(resolve);
+        }),
+    );
+    await act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: [],
+          ready: true,
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+    const opens = document.querySelectorAll<HTMLButtonElement>(".browser__open");
+    await act(async () => opens[0].click()); // row A — response delayed
+    await act(async () => opens[1].click()); // row B — response delayed
+    // A's SLOW response lands after B was opened: it must be dropped.
+    await act(async () => resolvers[0]([{ role: "user", text: "A's page" }]));
+    expect(document.body.textContent).not.toContain("A's page");
+    await act(async () => resolvers[1]([{ role: "user", text: "B's page" }]));
+    expect(document.body.textContent).toContain("B's page");
   });
 
   it("opening a row reads the transcript through the plugin", async () => {

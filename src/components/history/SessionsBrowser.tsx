@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
 import type { SessionRecord } from "../../domain/journal";
@@ -48,6 +49,11 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
   const [open, setOpen] = useState<SearchHit | null>(null);
   const [entries, setEntries] = useState<AgentTranscriptEntry[]>([]);
   const [exhausted, setExhausted] = useState(false);
+  // Resume needs a live original directory — same gate the journal rows use.
+  const presence = useDirPresence(api.hits.map((hit) => hit.cwd));
+  // Orders transcript responses: a stale page must never render under a
+  // newer row's header (the search path has searchSeq; this is its twin).
+  const viewSeq = useRef(0);
 
   // The scan waits for plugin activation (the registry is empty until
   // then), re-firing when readiness lands; the listing itself can show
@@ -62,19 +68,27 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
   }, [ready]);
 
   const loadMore = (hit: SearchHit, from: number) => {
+    const seq = viewSeq.current;
     void api
       .transcript(hit.agent, hit.reference, from, PAGE)
       .then((page) => {
+        if (viewSeq.current !== seq) return; // another row opened meanwhile
         setEntries((current) => (from === 0 ? page : [...current, ...page]));
         setExhausted(page.length < PAGE);
       });
   };
 
   const openViewer = (hit: SearchHit) => {
+    viewSeq.current += 1;
     setOpen(hit);
     setEntries([]);
     setExhausted(false);
     loadMore(hit, 0);
+  };
+
+  const closeViewer = () => {
+    viewSeq.current += 1;
+    setOpen(null);
   };
 
   const now = Date.now();
@@ -124,7 +138,14 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
               <button
                 type="button"
                 className="history__resume"
-                title={`Resume in ${hit.cwd}`}
+                disabled={!dirPresent(presence, hit.cwd)}
+                title={
+                  hit.cwd === ""
+                    ? "The session has no recorded directory"
+                    : dirPresent(presence, hit.cwd)
+                      ? `Resume in ${hit.cwd}`
+                      : "The session's directory no longer exists — fork it instead"
+                }
                 onClick={() => onResume(hitRecord(hit))}
               >
                 Resume
@@ -155,7 +176,7 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
               type="button"
               className="history__delete"
               aria-label="Close transcript"
-              onClick={() => setOpen(null)}
+              onClick={closeViewer}
             >
               ×
             </button>

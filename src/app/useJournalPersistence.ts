@@ -103,6 +103,17 @@ export function useJournalPersistence(deck: Deck, restoring: boolean, frozen: bo
 
   // 3) Drain the outbox: append queued events in order, one flight at a time.
   const appendingRef = useRef(false);
+  // A failed append re-arms the drain on a timer: waiting for "the next tail
+  // change" alone would lose the queued events if the user goes idle and
+  // quits — and durability-per-event is the journal's whole premise.
+  const [retryTick, setRetryTick] = useState(0);
+  const retryTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+    },
+    [],
+  );
   const tail = deck.journal.tail;
   useEffect(() => {
     if (!hydrated || frozen || appendingRef.current || tail.length === 0) return;
@@ -118,9 +129,13 @@ export function useJournalPersistence(deck: Deck, restoring: boolean, frozen: bo
         deckRef.current.journalFlushed(count);
       })
       .catch((e) => {
-        // The events stay queued; the next tail change retries the append.
         appendingRef.current = false;
         log.warn("web:journal", `journal append failed: ${describeError(e)}`);
+        if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
+        retryTimer.current = window.setTimeout(() => {
+          retryTimer.current = null;
+          setRetryTick((tick) => tick + 1);
+        }, 2000);
       });
-  }, [tail, hydrated, frozen]);
+  }, [tail, hydrated, frozen, retryTick]);
 }
