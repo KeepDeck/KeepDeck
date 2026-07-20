@@ -185,6 +185,34 @@ describe("UsageChips", () => {
     expect(row.textContent).toContain("$1.00");
   });
 
+  it("shows only the token half a session actually reports", () => {
+    reportUsage("pane-1", limitsReport(42), AT);
+    reportUsage(
+      "pane-1",
+      {
+        agent: "claude",
+        result: {
+          account: null,
+          pane: {
+            agent: "claude",
+            model: "Opus",
+            totalTokens: { input: 15_500 }, // output unknown, not zero
+            reportedAt: 0,
+          },
+        },
+      },
+      AT,
+    );
+    render();
+    act(() => {
+      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+    });
+    const row = host.querySelector(".usage-session")!;
+    expect(row.textContent).toContain("↑15.5k");
+    // The unknown output half is omitted, not shown as "↓0".
+    expect(row.textContent).not.toContain("↓");
+  });
+
   it("marks stale data instead of showing confident numbers", () => {
     reportUsage("pane-1", limitsReport(42), AT);
     vi.setSystemTime(AT + 31 * 60_000);

@@ -275,32 +275,41 @@ export function UsageChips({
                 <b>Sessions</b>
                 <span className="usage-panel__ago">live</span>
               </div>
-              {sessions.map(([paneId, usage]) => (
-                <div key={paneId} className="usage-session">
-                  <span className="usage-session__name">
-                    {paneNames.get(paneId) || usage.model || usage.agent}
-                  </span>
-                  {usage.model && (
-                    <span className="usage-session__model">{usage.model}</span>
-                  )}
-                  <span className="usage-session__stats">
-                    {usage.totalTokens &&
-                      (usage.totalTokens.input !== undefined ||
-                        usage.totalTokens.output !== undefined) && (
+              {sessions.map(([paneId, usage]) => {
+                // Show only the half a session actually reports — a missing
+                // input/output is unknown, not zero, so it is omitted rather
+                // than rendered as "0".
+                const total = usage.totalTokens;
+                const tokenLine = [
+                  total?.input !== undefined ? `↑${formatTokens(total.input)}` : "",
+                  total?.output !== undefined ? `↓${formatTokens(total.output)}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+                return (
+                  <div key={paneId} className="usage-session">
+                    <span className="usage-session__name">
+                      {paneNames.get(paneId) || usage.model || usage.agent}
+                    </span>
+                    {usage.model && (
+                      <span className="usage-session__model">{usage.model}</span>
+                    )}
+                    <span className="usage-session__stats">
+                      {tokenLine && (
                         <span
                           className="usage-session__tokens"
                           title="Session tokens — input ↑ / output ↓"
                         >
-                          ↑{formatTokens(usage.totalTokens.input ?? 0)} ↓
-                          {formatTokens(usage.totalTokens.output ?? 0)}
+                          {tokenLine}
                         </span>
                       )}
-                    {usage.costUsd !== undefined && (
-                      <span>${usage.costUsd.toFixed(2)}</span>
-                    )}
-                  </span>
-                </div>
-              ))}
+                      {usage.costUsd !== undefined && (
+                        <span>${usage.costUsd.toFixed(2)}</span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
