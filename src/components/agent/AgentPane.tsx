@@ -178,6 +178,11 @@ export function AgentPane({
     onRename(draft.trim());
     setEditing(false);
   };
+  // The context meter belongs on a LIVE pane only — a frozen, undimmed ctx% on
+  // an exited / dormant / unavailable / provisioning pane would read as live
+  // (its last usage report lingers in the store until the pane leaves the deck).
+  const paneLive =
+    !exit && !dormant && !provisioning && !unavailableAgent && !planPending;
   return (
     <section
       data-pane-id={paneId}
@@ -243,7 +248,7 @@ export function AgentPane({
           )}
         </div>
         <div className="pane__actions">
-          {ctxPct !== undefined && (
+          {ctxPct !== undefined && paneLive && (
             <span
               className={`pane__ctx${
                 contextLevel(ctxPct) === "ok"

@@ -225,13 +225,18 @@
   .pane__branch-label {
     display: none;
   }
+
+  /* The ctx meter is text with no icon to collapse to — it yields here rather
+     than staying full-width and clipping the window controls. */
+  .pane__ctx {
+    display: none;
+  }
 }
 
-/* Narrower: the chips yield entirely — branch identity and the context meter
-   go first, window controls last. */
+/* Narrower: the branch chip yields entirely — identity goes first, window
+   controls last. */
 @container (max-width: 200px) {
-  .pane__branch,
-  .pane__ctx {
+  .pane__branch {
     display: none;
   }
 }

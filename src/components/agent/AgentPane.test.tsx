@@ -85,6 +85,44 @@ describe("AgentPane — header badges", () => {
     expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
+  it("renders a calm context meter without a level class", () => {
+    registerUsageNormalizer(
+      "claude",
+      (payload) => (payload as { result: NormalizedUsage }).result,
+    );
+    reportUsage("ws:1", {
+      agent: "claude",
+      result: {
+        account: null,
+        pane: { agent: "claude", context: { usedPct: 40 }, reportedAt: 0 },
+      },
+    });
+    act(() => root.render(createElement(AgentPane, baseProps)));
+    const ctx = document.querySelector<HTMLElement>(".pane__ctx");
+    expect(ctx?.textContent).toBe("ctx 40%");
+    // Calm (< 75%) → no usage-level--* suffix appended.
+    expect(ctx?.className).toBe("pane__ctx");
+  });
+
+  it("hides the context meter on a non-live (dormant) pane despite usage", () => {
+    registerUsageNormalizer(
+      "claude",
+      (payload) => (payload as { result: NormalizedUsage }).result,
+    );
+    reportUsage("ws:1", {
+      agent: "claude",
+      result: {
+        account: null,
+        pane: { agent: "claude", context: { usedPct: 82 }, reportedAt: 0 },
+      },
+    });
+    act(() =>
+      root.render(createElement(AgentPane, { ...baseProps, dormant: true })),
+    );
+    // A frozen ctx% must not read as live on a pane that isn't running.
+    expect(document.querySelector(".pane__ctx")).toBeNull();
+  });
+
   it("renders a runtime git badge when provided", () => {
     act(() =>
       root.render(
