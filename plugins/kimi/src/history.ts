@@ -20,20 +20,25 @@ interface ParsedTurn {
   text: string;
 }
 
-/** Wire lines carry the TWO halves of a conversation in different shapes
- * (verified against a real kimi 0.27 store):
- * - the USER's messages are whole `context.append_message` events with a
- *   text-part content array;
+/** Wire lines carry a conversation in THREE shapes (verified against a real
+ * kimi 0.27 store):
+ * - the USER's turn-opening messages are whole `context.append_message`
+ *   events with a text-part content array;
+ * - the USER's MID-TURN interjections are `turn.steer` events with an
+ *   `input` part array — but only when `origin.kind` is "user"; the same
+ *   event type also delivers background-task notifications
+ *   (`origin.kind: "background_task"`), which are framework noise;
  * - the ASSISTANT's text streams as `context.append_loop_event` events of
- *   inner type `content.part`, one fragment each — NEVER as append_message.
- * Contiguous assistant fragments concatenate into one turn, flushed when a
- * user message (or the file's end) arrives. Tool calls/thinking/usage are
- * not conversation text. */
+ *   inner type `content.part`, one PER STEP — NEVER as append_message.
+ * Accumulated assistant fragments belong to distinct steps (tool calls run
+ * between them), so they join with a newline, flushed when a user message
+ * (or the file's end) arrives. Tool calls/thinking/usage are not
+ * conversation text. */
 export function parseWire(jsonl: string): ParsedTurn[] {
   const turns: ParsedTurn[] = [];
   let assistant: string[] = [];
   const flushAssistant = () => {
-    const text = assistant.join("").trim();
+    const text = assistant.join("\n").trim();
     assistant = [];
     if (text) turns.push({ role: "assistant", text });
   };
@@ -49,12 +54,21 @@ export function parseWire(jsonl: string): ParsedTurn[] {
       type?: unknown;
       message?: { role?: unknown; content?: unknown };
       event?: { type?: unknown; part?: { type?: unknown; text?: unknown } };
+      input?: unknown;
+      origin?: { kind?: unknown };
     };
     if (record.type === "context.append_loop_event") {
       const part = record.event?.type === "content.part" ? record.event.part : null;
       if (part?.type === "text" && typeof part.text === "string") {
         assistant.push(part.text);
       }
+      continue;
+    }
+    if (record.type === "turn.steer") {
+      if (record.origin?.kind !== "user") continue;
+      flushAssistant();
+      const text = textFromParts(record.input).trim();
+      if (text) turns.push({ role: "user", text });
       continue;
     }
     if (record.type !== "context.append_message") continue;

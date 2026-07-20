@@ -2,24 +2,44 @@ import { describe, expect, it } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { kimiHistory, parseWire } from "./history";
 
-// Shapes mirror a REAL kimi 0.27 wire: the user speaks in append_message;
-// the assistant streams as append_loop_event/content.part fragments (it
-// NEVER appears as an append_message — the old fixture invented that shape
-// and hid a parser that dropped every assistant turn).
+// Shapes mirror a REAL kimi 0.27 wire: the user opens turns in
+// append_message and interjects mid-turn via turn.steer (origin.kind
+// "user"); the assistant streams as append_loop_event/content.part, ONE
+// part per step with step/tool events between them (it NEVER appears as an
+// append_message — the old fixture invented that shape and hid a parser
+// that dropped every assistant turn). turn.steer ALSO delivers
+// background-task notifications — origin.kind tells them apart.
 const WIRE = [
   JSON.stringify({ type: "metadata", protocol_version: "1.4" }),
   JSON.stringify({
     type: "context.append_message",
     message: { role: "user", content: [{ type: "text", text: "проверь тесты" }] },
   }),
+  JSON.stringify({ type: "step.begin" }),
+  JSON.stringify({
+    type: "context.append_loop_event",
+    event: { type: "content.part", part: { type: "text", text: "запускаю тесты" } },
+  }),
   JSON.stringify({ type: "tool.call", tool: "bash" }),
   JSON.stringify({
     type: "context.append_loop_event",
-    event: { type: "content.part", part: { type: "text", text: "все " } },
+    event: { type: "content.part", part: { type: "text", text: "все зелёные" } },
+  }),
+  JSON.stringify({
+    type: "turn.steer",
+    input: [{ type: "text", text: "и линтер прогони" }],
+    origin: { kind: "user" },
+    time: 1784318704583,
+  }),
+  JSON.stringify({
+    type: "turn.steer",
+    input: [{ type: "text", text: '<notification id="task:bash-1:completed">done</notification>' }],
+    origin: { kind: "background_task", taskId: "bash-1" },
+    time: 1784318704600,
   }),
   JSON.stringify({
     type: "context.append_loop_event",
-    event: { type: "content.part", part: { type: "text", text: "зелёные" } },
+    event: { type: "content.part", part: { type: "text", text: "линтер чист" } },
   }),
   JSON.stringify({
     type: "context.append_message",
@@ -80,9 +100,24 @@ describe("kimi history", () => {
     });
   });
 
-  it("assistant fragments concatenate into one turn between user messages", () => {
+  it("per-step assistant fragments join with a newline, split by user speech", () => {
     const turns = parseWire(WIRE);
-    expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
-    expect(turns[1].text).toBe("все зелёные");
+    expect(turns.map((t) => t.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+    ]);
+    // Distinct steps (a tool ran between them) — never glued run-on.
+    expect(turns[1].text).toBe("запускаю тесты\nвсе зелёные");
+    expect(turns[3].text).toBe("линтер чист");
+  });
+
+  it("a user turn.steer is a real mid-turn user message; a background-task one is noise", () => {
+    const turns = parseWire(WIRE);
+    expect(turns[2]).toEqual({ role: "user", text: "и линтер прогони" });
+    // The notification steer (origin background_task) appears nowhere.
+    expect(turns.some((t) => t.text.includes("notification"))).toBe(false);
   });
 });
