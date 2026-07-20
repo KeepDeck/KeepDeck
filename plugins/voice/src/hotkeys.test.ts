@@ -123,6 +123,21 @@ describe("installPttHotkeys", () => {
     expect(c.start).toHaveBeenCalledWith("command");
   });
 
+  it("stands down while suspended (the settings recorder is capturing)", () => {
+    const state = { phase: "idle" as VoicePhase };
+    const c = fakeController(state);
+    let suspended = true;
+    uninstall = installPttHotkeys(c, () => DEFAULT_BINDINGS, () => suspended);
+
+    // A bound chord pressed during recording must not start a capture.
+    press("keydown", { code: "Space", key: " ", altKey: true });
+    expect(c.start).not.toHaveBeenCalled();
+
+    suspended = false;
+    press("keydown", { code: "Space", key: " ", altKey: true });
+    expect(c.start).toHaveBeenCalledWith("command");
+  });
+
   it("stops listening after uninstall", () => {
     const state = { phase: "idle" as VoicePhase };
     const c = fakeController(state);

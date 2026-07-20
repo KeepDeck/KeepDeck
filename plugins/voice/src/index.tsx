@@ -12,8 +12,10 @@ import { createVoiceController } from "./controller";
 import { createModelDownloads } from "./downloads";
 import { createModelsStore } from "./models";
 import { createBindingsStore } from "./bindingsStore";
+import { createRecordingLatch } from "./recordingLatch";
 import { installPttHotkeys } from "./hotkeys";
 import { clearRuntime, runtime, setRuntime } from "./runtime";
+import { HotkeysSection } from "./components/HotkeysSection";
 import { ModelsSection } from "./components/ModelsSection";
 import { VoiceOverlay } from "./components/VoiceOverlay";
 import { VoiceTab } from "./components/VoiceTab";
@@ -30,18 +32,27 @@ const plugin: KeepDeckPlugin = {
     // The live push-to-talk chords: seeded from settings, updated as the user
     // edits them, read by both the hotkey handler and the help copy.
     const bindings = createBindingsStore(ctx);
-    setRuntime({ ctx, controller, downloads, models, bindings });
+    // Silences push-to-talk while the settings recorder captures a new chord.
+    const recordingLatch = createRecordingLatch();
+    setRuntime({ ctx, controller, downloads, models, bindings, recordingLatch });
 
     ctx.ui.registerDockTab({ id: "voice", label: "Voice", Component: VoiceTab });
     ctx.ui.registerOverlay({ id: "pill", Component: VoiceOverlay });
-    // The whole section is the model manager — whisper detects the language
-    // by itself, so there is nothing else to configure.
+    // Two custom fields: the push-to-talk hotkey editor and the model manager
+    // (whisper auto-detects the language, so there is nothing else to set).
     ctx.settings.registerSection({
       label: "Voice",
-      fields: [{ kind: "custom", key: "models", Component: ModelsSection }],
+      fields: [
+        { kind: "custom", key: "hotkeys", Component: HotkeysSection },
+        { kind: "custom", key: "models", Component: ModelsSection },
+      ],
     });
 
-    uninstallHotkeys = installPttHotkeys(controller, () => bindings.get());
+    uninstallHotkeys = installPttHotkeys(
+      controller,
+      () => bindings.get(),
+      () => recordingLatch.active(),
+    );
   },
 
   async deactivate() {

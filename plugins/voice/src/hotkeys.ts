@@ -14,6 +14,7 @@ import { endsHold, pttMode, type Chord, type VoiceBindings } from "./binding";
 export function installPttHotkeys(
   controller: VoiceController,
   getBindings: () => VoiceBindings,
+  isSuspended: () => boolean = () => false,
 ): () => void {
   // Only a hold the KEY started may be stopped by a keyup — the mic button's
   // toggle session must survive stray key releases. The chord that started the
@@ -21,6 +22,8 @@ export function installPttHotkeys(
   let heldChord: Chord | null = null;
 
   const onKeyDown = (e: KeyboardEvent): void => {
+    // The settings recorder is capturing a new chord — leave its keys alone.
+    if (isSuspended()) return;
     if (e.key === "Escape" && controller.snapshot().phase === "listening") {
       e.preventDefault();
       e.stopPropagation();
@@ -39,6 +42,7 @@ export function installPttHotkeys(
   };
 
   const onKeyUp = (e: KeyboardEvent): void => {
+    if (isSuspended()) return;
     if (!heldChord || !endsHold(e, heldChord)) return;
     e.preventDefault();
     e.stopPropagation();

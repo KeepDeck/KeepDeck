@@ -506,3 +506,101 @@
     opacity: 0.4;
   }
 }
+
+/* The push-to-talk hotkey editor (a custom settings field). */
+.voice-hotkeys {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.voice-hotkeys__intro {
+  color: #9aa3af;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.voice-hotkeys__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.voice-hotkeys__labels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.voice-hotkeys__label {
+  font-weight: 600;
+  color: #c5c8c6;
+  font-size: 13px;
+}
+
+.voice-hotkeys__hint {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.voice-hotkeys__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.voice-hotkeys__chord {
+  font-family: inherit;
+  min-width: 96px;
+  background: #161b26;
+  border: 1px solid #2a3346;
+  border-radius: 4px;
+  padding: 4px 10px;
+  color: #c5c8c6;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.voice-hotkeys__chord:hover {
+  border-color: #3a4763;
+}
+
+.voice-hotkeys__chord--recording {
+  border-style: dashed;
+  border-color: #7fb88a;
+  color: #7fb88a;
+}
+
+.voice-hotkeys__reset {
+  background: none;
+  border: 1px solid #1c2230;
+  color: #9aa3af;
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.voice-hotkeys__reset:hover {
+  color: #c5c8c6;
+  border-color: #2a3346;
+}
+
+.voice-hotkeys__error {
+  flex-basis: 100%;
+  color: #e0806f;
+  font-size: 12px;
+  /* Never let a message explode the settings column sideways. */
+  overflow-wrap: anywhere;
+}
+
+.voice-hotkeys__warn {
+  flex-basis: 100%;
+  color: #e0a06f;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
