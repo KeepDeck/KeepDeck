@@ -160,9 +160,7 @@ export function createKimiServerManager(
             return;
           }
           settleReady(
-            new Error(
-              `Kimi setup server exited before it became ready on 127.0.0.1:${port}${event.code === null ? "" : ` (code ${event.code})`}. The fixed setup port may already be in use.`,
-            ),
+            new Error(startupExitMessage(port, event.code, startupOutput)),
           );
         },
       );
@@ -205,7 +203,7 @@ export function createKimiServerManager(
       const access = await withTimeout(
         ready,
         SERVER_START_TIMEOUT_MS,
-        `Timed out waiting for the Kimi setup server on 127.0.0.1:${port}. The fixed setup port may already be in use.`,
+        () => startupTimeoutMessage(port, startupOutput),
       );
       if (abort.signal.aborted) throw disposedError();
       return { access, handle, abort };
@@ -288,6 +286,47 @@ function stripTerminalControls(value: string): string {
     .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
+/** A short, single-line tail of what the setup server actually printed, with
+ * terminal control sequences and blank lines removed. Empty when it said
+ * nothing. This is the honest diagnostic — e.g. a Kimi deprecation notice or a
+ * bind error — instead of guessing at the cause. */
+function describeStartupOutput(raw: string): string {
+  const text = stripTerminalControls(raw)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join(" ")
+    .trim();
+  if (!text) return "";
+  const limit = 300;
+  return text.length > limit ? `…${text.slice(-limit)}` : text;
+}
+
+/** The setup-server process died before reporting its address. A busy port
+ * makes `kimi web` hang (→ timeout), not exit, so we never blame the port here;
+ * the server's own output is the real reason. */
+function startupExitMessage(
+  port: number,
+  code: number | null,
+  rawOutput: string,
+): string {
+  const codeText = code === null ? "" : ` (code ${code})`;
+  const detail = describeStartupOutput(rawOutput);
+  const base =
+    `Kimi setup server exited before it became ready on 127.0.0.1:${port}${codeText}.`;
+  return detail ? `${base} It reported: ${detail}` : base;
+}
+
+/** The setup server stayed up but never printed a parseable address in time.
+ * This is where a genuinely busy port lands (`kimi web` hangs on the bind), so
+ * the port hint belongs here — alongside the banner-changed possibility. */
+function startupTimeoutMessage(port: number, rawOutput: string): string {
+  const detail = describeStartupOutput(rawOutput);
+  const base =
+    `Timed out waiting for the Kimi setup server on 127.0.0.1:${port} to report its address. The port may already be in use, or Kimi changed its startup banner.`;
+  return detail ? `${base} It reported: ${detail}` : base;
+}
+
 function disposedError(): Error {
   return new Error(
     "Kimi setup was cancelled because the KeepDeck plugin stopped.",
@@ -297,10 +336,16 @@ function disposedError(): Error {
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  message: string,
+  message: string | (() => string),
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    const timeout = setTimeout(
+      () =>
+        reject(
+          new Error(typeof message === "function" ? message() : message),
+        ),
+      timeoutMs,
+    );
     promise.then(
       (value) => {
         clearTimeout(timeout);
