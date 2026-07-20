@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { downloadPercent, type DownloadState } from "@keepdeck/plugin-api";
+import { formatChord } from "../binding";
 import { runtime } from "../runtime";
 import { HelpPopover, InfoIcon } from "./HelpPopover";
 
@@ -9,8 +10,13 @@ import { HelpPopover, InfoIcon } from "./HelpPopover";
  * weights are never bundled, the picker IS the install surface).
  */
 export function VoiceTab() {
-  const { ctx, controller, downloads, models: store } = runtime();
+  const { ctx, controller, downloads, models: store, bindings: bindingsStore } =
+    runtime();
   const snap = useSyncExternalStore(controller.subscribe, controller.snapshot);
+  const bindings = useSyncExternalStore(
+    bindingsStore.subscribe,
+    bindingsStore.snapshot,
+  );
   const dl = useSyncExternalStore(downloads.subscribe, downloads.snapshot);
   // Install state from the shared store — a delete in settings or a finished
   // download refreshes it, so this prompt appears/clears without reopening.
@@ -68,7 +74,7 @@ export function VoiceTab() {
             listening ? void controller.stop() : void controller.start("command")
           }
           disabled={snap.phase === "transcribing"}
-          title="Toggle command listening (or hold ⌥Space)"
+          title={`Toggle command listening (or hold ${formatChord(bindings.command)})`}
         >
           {listening ? "◼ Stop" : "🎙 Listen"}
         </button>
@@ -122,9 +128,9 @@ export function VoiceTab() {
       <div className="voice__log" ref={logRef}>
         {snap.history.length === 0 && (
           <div className="voice__empty">
-            Hold <kbd>⌥Space</kbd> and say a command, or <kbd>⌥⇧Space</kbd> to
-            dictate. Hover <span className="voice__empty-i">ⓘ</span> for the
-            list.
+            Hold <kbd>{formatChord(bindings.command)}</kbd> and say a command, or{" "}
+            <kbd>{formatChord(bindings.dictation)}</kbd> to dictate. Hover{" "}
+            <span className="voice__empty-i">ⓘ</span> for the list.
           </div>
         )}
         {snap.history.map((entry) => (

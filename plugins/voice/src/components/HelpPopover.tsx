@@ -1,6 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import { COMMAND_DOCS } from "../commandList";
+import { formatChord } from "../binding";
+import { runtime } from "../runtime";
 
 /** A command template with its `<placeholder>` fragments dimmed as fill-in
  * slots — shared shape for the help list. */
@@ -62,6 +70,11 @@ export function HelpPopover({
 }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const { bindings: bindingsStore } = runtime();
+  const bindings = useSyncExternalStore(
+    bindingsStore.subscribe,
+    bindingsStore.snapshot,
+  );
 
   useLayoutEffect(() => {
     const rect = anchor.getBoundingClientRect();
@@ -114,7 +127,8 @@ export function HelpPopover({
       }}
     >
       <div className="voice__help-row">
-        <kbd>⌥Space</kbd> hold — speak a command, released = executed
+        <kbd>{formatChord(bindings.command)}</kbd> hold — speak a command,
+        released = executed
       </div>
       <ul className="voice__help-list">
         {COMMAND_DOCS.map((doc) => (
@@ -122,8 +136,8 @@ export function HelpPopover({
         ))}
       </ul>
       <div className="voice__help-row">
-        <kbd>⌥⇧Space</kbd> hold — dictate into the focused agent, released =
-        sent
+        <kbd>{formatChord(bindings.dictation)}</kbd> hold — dictate into the
+        focused agent, released = typed in
       </div>
       <div className="voice__help-row">
         <kbd>Esc</kbd> while holding — cancel
