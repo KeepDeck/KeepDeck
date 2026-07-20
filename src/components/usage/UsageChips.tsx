@@ -5,6 +5,7 @@ import {
   chipWindows,
   formatAge,
   formatPct,
+  formatTokens,
   limitLevel,
   panelWindows,
   usageStale,
@@ -282,6 +283,17 @@ export function UsageChips({
                     <span className="usage-session__model">{usage.model}</span>
                   )}
                   <span className="usage-session__stats">
+                    {usage.totalTokens &&
+                      (usage.totalTokens.input !== undefined ||
+                        usage.totalTokens.output !== undefined) && (
+                        <span
+                          className="usage-session__tokens"
+                          title="Session tokens — input ↑ / output ↓"
+                        >
+                          ↑{formatTokens(usage.totalTokens.input ?? 0)} ↓
+                          {formatTokens(usage.totalTokens.output ?? 0)}
+                        </span>
+                      )}
                     {usage.costUsd !== undefined && (
                       <span>${usage.costUsd.toFixed(2)}</span>
                     )}
