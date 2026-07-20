@@ -20,7 +20,7 @@ import {
 import { baseName } from "../../domain/deck";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
-import { usePagedSessionSearch } from "../../app/usePagedSessionSearch";
+import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
 import { useEscape } from "../../ui/useEscape";
 import { useScrollPaging } from "../../ui/useScrollPaging";
 import { noAutoCorrect } from "../../ui/inputProps";
@@ -84,7 +84,7 @@ interface AgentDialogProps {
     query: string,
     limit: number,
     offset: number,
-  ): Promise<{ rows: SessionPickRow[]; total: number }>;
+  ): Promise<Page<SessionPickRow>>;
   /** How a session is already held by a pane, for the resume dimming rule
    * — running, dormant, or free. Injected (deck state stays outside). */
   sessionClaim(sessionId: string): "running" | "dormant" | null;
@@ -322,8 +322,13 @@ export function AgentDialog({
   if (kind !== "checking") settledKindRef.current = kind;
   const layoutKind = settledKindRef.current;
   const baseOk = isKnownBaseBranch(baseBranch, branches);
-  const pickedBlock = picked ? resumeBlockOf(picked) : null;
-  const sessionOk = canStartFromSession(startMode, picked !== null, pickedBlock);
+  // A pick is only usable for the CURRENTLY selected agent. Switching agents
+  // clears `picked`, but a click on a row still showing from the previous
+  // agent (during the search's debounce window) can set a cross-agent handle;
+  // treat that as no pick so it can't be resumed/forked under the wrong agent.
+  const pickedValid = picked !== null && picked.handle.agent === agentType;
+  const pickedBlock = pickedValid && picked ? resumeBlockOf(picked) : null;
+  const sessionOk = canStartFromSession(startMode, pickedValid, pickedBlock);
   // Resume ignores the location entirely (locked to the recorded cwd — the
   // whole worktree block is hidden); everything else gates on both.
   const valid =
@@ -376,6 +381,7 @@ export function AgentDialog({
               location: buildLocation(),
               yolo: yolo && supportsYolo,
               ...(startMode !== "new" &&
+                pickedValid &&
                 picked && {
                   session: { mode: startMode, handle: picked.handle },
                 }),
@@ -492,7 +498,7 @@ export function AgentDialog({
                 <li className="form__session-empty">No sessions match</li>
               )}
             </ul>
-            {startMode === "resume" && picked && (
+            {startMode === "resume" && pickedValid && picked && (
               pickedBlock === null ? (
                 <span className="form__git">
                   ✓ Resumes in {picked.handle.cwd}

@@ -28,7 +28,13 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 // hook seam (the real hook would bootstrap the real plugin system). The
 // YOLO support flag is swappable per test — the toggle's visibility gates
 // on it.
-const catalog = vi.hoisted(() => ({ supportsYolo: true }));
+const catalog = vi.hoisted(() => ({
+  supportsYolo: true,
+  // Extra installed agents beyond claude — empty by default so every existing
+  // test sees a single-agent catalog; a test can add one to exercise the
+  // cross-agent guard.
+  extraAgents: [] as unknown[],
+}));
 vi.mock("../../app/useAgents", () => ({
   useAgents: () => ({
     agents: [
@@ -44,6 +50,7 @@ vi.mock("../../app/useAgents", () => ({
         installed: true,
         path: null,
       },
+      ...catalog.extraAgents,
     ],
     loading: false,
   }),
@@ -722,5 +729,139 @@ describe("AgentDialog start-from paging", () => {
     expect(document.querySelector(".form__sessions-count")?.textContent).toBe(
       "70",
     );
+  });
+
+  it("shows the partial 'X of N' count while more pages remain", async () => {
+    // Page zero is 50 of 200; the fill-triggered next page never resolves, so
+    // the list stays partial and the count must read loaded-of-total.
+    const searchSessions = vi.fn(
+      async (_a: string, _q: string, _l: number, offset: number) =>
+        offset === 0
+          ? { rows: mkRows(0, 50), total: 200 }
+          : new Promise<{ rows: SessionPickRow[]; total: number }>(() => {}),
+    );
+
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions,
+          sessionClaim: () => null,
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+    act(() => modeBtn("Fork…").click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    await act(async () => {});
+
+    // hasMore is true (50 of 200) and the second page is still loading.
+    expect(document.querySelector(".form__sessions-count")?.textContent).toBe(
+      "50 of 200",
+    );
+    expect(document.querySelector(".form__session-more")).not.toBeNull();
+  });
+});
+
+describe("AgentDialog cross-agent pick guard", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let confirmed: AgentDialogResult[];
+
+  // The picker keeps returning claude sessions even once codex is selected —
+  // this mirrors the previous agent's rows still rendered during the search's
+  // debounce window, where a click yields a cross-agent handle.
+  const CLAUDE_SESSIONS: SessionPickRow[] = [
+    {
+      handle: { agent: "claude", sessionId: "s-c", cwd: "/repo/wt", title: "claude work" },
+      mtime: 2,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    confirmed = [];
+    catalog.extraAgents = [
+      {
+        id: "codex",
+        label: "Codex",
+        icon: { viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z", color: "#fff" }] },
+        command: "codex",
+        supportsYolo: false,
+        installed: true,
+        path: null,
+      },
+    ];
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+    catalog.extraAgents = [];
+  });
+
+  const typeBtn = (text: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+      (b) => b.textContent === text || b.textContent?.includes(text),
+    )!;
+
+  it("won't resume/fork a session whose agent differs from the selected agent", async () => {
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions: async () => ({
+            rows: CLAUDE_SESSIONS,
+            total: CLAUDE_SESSIONS.length,
+          }),
+          sessionClaim: () => null,
+          onConfirm: (r: AgentDialogResult) => confirmed.push(r),
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+    // Select codex, open Fork, pick the (claude) row.
+    act(() => typeBtn("Codex").click());
+    act(() => typeBtn("Fork…").click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    await act(async () => {});
+
+    const row = document.querySelector<HTMLButtonElement>(".form__session")!;
+    expect(row.textContent).toContain("claude work");
+    act(() => row.click());
+
+    // Cross-agent pick → Create stays gated and confirm carries no session.
+    expect(createBtn().disabled).toBe(true);
+    submit();
+    expect(confirmed).toEqual([]);
   });
 });
