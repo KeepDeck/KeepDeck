@@ -111,7 +111,14 @@ export function chordsEqual(a: Chord, b: Chord): boolean {
 
 /** Read the bindings from the plugin's settings values, defaulting any missing
  * or malformed part — settings.json is hand-editable, so its shape is never
- * trusted. A garbage chord falls back to that slot's shipped default. */
+ * trusted. A garbage chord falls back to that slot's shipped default.
+ *
+ * This guards STRUCTURE only, not the semantic rules {@link validateChord}
+ * enforces in the recorder (Escape reserved, the two slots distinct). A hand
+ * edit that violates those loads as written rather than being silently
+ * rewritten, and stays deterministic: an Escape-coded chord is intercepted by
+ * the cancel handler, and equal slots resolve to dictation ({@link pttMode}
+ * checks it first), leaving command dead until the file is corrected. */
 export function parseBindings(values: Record<string, unknown>): VoiceBindings {
   const raw = values[HOTKEYS_KEY];
   if (!raw || typeof raw !== "object") return DEFAULT_BINDINGS;

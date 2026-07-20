@@ -137,6 +137,18 @@ describe("parseBindings", () => {
       dictation: chord({ code: "KeyH", meta: true }),
     });
   });
+
+  it("loads a hand-edited duplicate as-is (structure only), leaving command dead", () => {
+    // parseBindings does NOT re-enforce validateChord's distinctness rule; a
+    // structurally-valid but duplicate pair loads verbatim, and pttMode then
+    // deterministically resolves the shared keystroke to dictation.
+    const dup = chord({ code: "KeyD", ctrl: true, meta: true });
+    const parsed = parseBindings({ [HOTKEYS_KEY]: { command: dup, dictation: dup } });
+    expect(parsed).toEqual({ command: dup, dictation: dup });
+    expect(
+      pttMode(key({ code: "KeyD", key: "d", ctrlKey: true, metaKey: true }), parsed),
+    ).toBe("dictation");
+  });
 });
 
 describe("chordFromEvent / chordsEqual", () => {
