@@ -43,6 +43,9 @@ export const defaultScanOps: ScanIndexOps = {
 export async function scanAgentHistories(
   sources: HistorySource[],
   ops: ScanIndexOps = defaultScanOps,
+  /** Fires after every landed batch — lets the browser refresh its listing
+   * while a long first-ever scan is still filling the index. */
+  onProgress?: () => void,
 ): Promise<void> {
   for (const { agentId, history } of sources) {
     try {
@@ -81,12 +84,16 @@ export async function scanAgentHistories(
           }),
         );
         const usable = rows.filter((row): row is IndexRowInput => row !== null);
-        if (usable.length > 0) await ops.upsert(agentId, usable);
+        if (usable.length > 0) {
+          await ops.upsert(agentId, usable);
+          onProgress?.();
+        }
       }
-      await ops.prune(
+      const dropped = await ops.prune(
         agentId,
         stubs.map((stub) => stub.ref),
       );
+      if (dropped > 0) onProgress?.();
     } catch (e) {
       log.warn(
         "web:history",

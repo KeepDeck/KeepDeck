@@ -28,15 +28,23 @@ const hit = (over: Partial<SearchHit> = {}): SearchHit => ({
   ...over,
 });
 
-const api = (hits: SearchHit[]): SessionsBrowserApi => ({
+const api = (
+  hits: SearchHit[],
+  over: Partial<SessionsBrowserApi> = {},
+): SessionsBrowserApi => ({
   hits,
+  total: hits.length,
+  hasMore: false,
+  loadingMore: false,
   query: "",
   scanning: false,
   search: vi.fn(),
+  loadMore: vi.fn(),
   scan: vi.fn(),
   transcript: vi.fn(() =>
     Promise.resolve([{ role: "user" as const, text: "hello" }]),
   ),
+  ...over,
 });
 
 describe("hitRecord", () => {
@@ -190,5 +198,44 @@ describe("SessionsBrowser", () => {
     );
     expect(a.transcript).toHaveBeenCalledWith("claude", "/store/u-1.jsonl", 0, 100);
     expect(document.querySelector(".browser__turn--user")?.textContent).toBe("hello");
+  });
+
+  const mount = (a: SessionsBrowserApi) =>
+    act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: [],
+          ready: true,
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+
+  it("shows the paging counter: partial as 'X of N', complete as the plain total", async () => {
+    await mount(api([hit()], { total: 123, hasMore: true }));
+    expect(document.querySelector(".browser__count")?.textContent).toBe("1 of 123");
+
+    await mount(api([hit()], { total: 1 }));
+    expect(document.querySelector(".browser__count")?.textContent).toBe("1");
+  });
+
+  it("pulls the next page while the list is shorter than its viewport — scroll alone can't fire there", async () => {
+    const a = api([hit()], { total: 123, hasMore: true });
+    await mount(a);
+    // happy-dom's zero-height layout IS the unfilled-viewport case.
+    expect(a.loadMore).toHaveBeenCalled();
+  });
+
+  it("an empty transcript reads as empty, not as loading forever", async () => {
+    const a = api([hit()]);
+    a.transcript = vi.fn(() => Promise.resolve([]));
+    await mount(a);
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+    );
+    expect(document.body.textContent).toContain("No transcript content");
+    expect(document.body.textContent).not.toContain("Loading…");
   });
 });

@@ -115,16 +115,30 @@ pub fn index_prune(
     with_index(&state, |index| index.prune(&agent, &live))
 }
 
-/// Search the index (empty query = newest sessions).
+/// One page of hits plus the full match count — fetched together, under one
+/// lock hold, so "shown X of N" never mixes two index states.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchPageDto {
+    pub hits: Vec<SearchHitDto>,
+    pub total: i64,
+}
+
+/// Search the index (empty query = newest sessions), one page at a time.
+/// `agent` narrows to one CLI's sessions (the spawn-dialog picker).
 #[tauri::command(async)]
 pub fn index_search(
     state: State<'_, HistoryIndex>,
     query: String,
     limit: usize,
-) -> Result<Vec<SearchHitDto>, String> {
+    offset: usize,
+    agent: Option<String>,
+) -> Result<SearchPageDto, String> {
     with_index(&state, |index| {
-        Ok(index
-            .search(&query, limit.min(500))?
+        let agent = agent.as_deref();
+        let total = index.search_total(&query, agent)?;
+        let hits = index
+            .search(&query, limit, offset, agent)?
             .into_iter()
             .map(
                 |SearchHit {
@@ -147,6 +161,7 @@ pub fn index_search(
                     snippet,
                 },
             )
-            .collect())
+            .collect();
+        Ok(SearchPageDto { hits, total })
     })
 }

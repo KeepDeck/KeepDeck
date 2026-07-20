@@ -38,6 +38,9 @@
   padding: 0;
   list-style: none;
   overflow-y: auto;
+  /* Without a min-height floor the flex parent lets the list keep its full
+   * content height and the scrollbar never appears — paging depends on it. */
+  min-height: 0;
   border: 1px solid #1c2230;
   border-radius: 10px;
   background-color: #0e121a;
@@ -177,19 +180,24 @@
   flex-direction: column;
   gap: 20px;
   width: min(720px, calc(100% - 48px));
-  max-height: calc(100% - 48px);
+  /* Definite, not max-: the children's percentage heights (the journal's
+   * 40% cap) resolve against a real number, and the browser can flex into
+   * the rest instead of collapsing to content height. */
+  height: calc(100% - 48px);
 }
 
 .deck__setup-col .history {
   width: 100%;
   padding: 0;
+  flex: 0 1 auto;
   max-height: 40%;
 }
 
 .browser {
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 200px;
   position: relative;
 }
 
@@ -214,18 +222,43 @@
   border-color: #3a4658;
 }
 
-.browser__scanning {
+.browser__meta {
   position: absolute;
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.browser__scanning {
   font-size: 11px;
   color: #6b7280;
-  pointer-events: none;
+}
+
+/* "shown X of N" — the paging denominator, never a cap. */
+.browser__count {
+  font-size: 11px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
 }
 
 .browser__list {
   min-height: 0;
+}
+
+/* Rows are clickable (open the transcript) — say so on hover. Status rows
+ * (empty placeholder, the loading tail) are not. */
+.browser__list .history__row:not(.browser__empty):not(.browser__more):hover {
+  background-color: #131926;
+}
+
+.browser__more {
+  justify-content: center;
+  color: #6b7280;
+  font-size: 12px;
 }
 
 .browser__open {
@@ -290,7 +323,13 @@
   border-bottom: 1px solid #1c2230;
 }
 
+.browser__open:hover .browser__name {
+  color: #ffffff;
+}
+
 .browser__viewer-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px;
   display: flex;

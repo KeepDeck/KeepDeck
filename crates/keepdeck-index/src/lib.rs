@@ -193,64 +193,77 @@ impl SessionIndex {
         Ok(dropped)
     }
 
-    /// Search titles + content. An empty query lists everything newest-first
-    /// (the browser's initial view). Content matches carry a snippet.
-    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>, String> {
+    /// How many sessions match — the "shown X of N" denominator. Same
+    /// matching as [`search`] (agent filter, FTS ∪ title-LIKE), no paging.
+    pub fn search_total(&self, query: &str, agent: Option<&str>) -> Result<i64, String> {
         let q = query.trim();
+        let agent_clause = if agent.is_some() { " AND agent = ?A" } else { "" };
         if q.is_empty() {
-            let mut stmt = self
-                .conn
-                .prepare(
-                    "SELECT agent, session_id, ref, cwd, title, transcript_path, mtime
-                     FROM sessions ORDER BY mtime DESC LIMIT ?1",
-                )
-                .map_err(|e| e.to_string())?;
-            let rows = stmt
-                .query_map(params![limit as i64], |r| {
-                    Ok(SearchHit {
-                        agent: r.get(0)?,
-                        session_id: r.get(1)?,
-                        reference: r.get(2)?,
-                        cwd: r.get(3)?,
-                        title: r.get(4)?,
-                        transcript_path: r.get(5)?,
-                        mtime: r.get(6)?,
-                        snippet: None,
-                    })
-                })
-                .map_err(|e| e.to_string())?;
-            return rows.collect::<Result<_, _>>().map_err(|e| e.to_string());
+            let sql = format!(
+                "SELECT COUNT(*) FROM sessions WHERE 1=1{}",
+                agent_clause.replace("?A", "?1"),
+            );
+            let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let total = match agent {
+                Some(a) => stmt.query_row(params![a], |r| r.get(0)),
+                None => stmt.query_row([], |r| r.get(0)),
+            };
+            return total.map_err(|e| e.to_string());
         }
-        // FTS5 prefix query over content, unioned with a LIKE over titles —
-        // the user types fragments, not query syntax; quoting kills injection
-        // into the MATCH grammar.
+        let (fts_query, like) = Self::match_terms(q);
+        let sql = format!(
+            "SELECT COUNT(*) FROM (
+                SELECT s.agent, s.session_id FROM fts JOIN sessions s
+                  ON s.agent = fts.agent AND s.session_id = fts.session_id
+                WHERE fts MATCH ?1{a1}
+                UNION
+                SELECT agent, session_id FROM sessions
+                WHERE title LIKE ?2 ESCAPE '\\'{a2}
+             )",
+            a1 = agent_clause.replace("?A", "?3").replace("agent =", "s.agent ="),
+            a2 = agent_clause.replace("?A", "?3"),
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let total = match agent {
+            Some(a) => stmt.query_row(params![fts_query, like, a], |r| r.get(0)),
+            None => stmt.query_row(params![fts_query, like], |r| r.get(0)),
+        };
+        total.map_err(|e| e.to_string())
+    }
+
+    fn match_terms(q: &str) -> (String, String) {
         let fts_query = q
             .split_whitespace()
             .map(|term| format!("\"{}\"*", term.replace('"', "\"\"")))
             .collect::<Vec<_>>()
             .join(" ");
         let like = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
-        // A session matching BOTH branches yields two UNION rows (the snippet
-        // column differs), so fetch double and trim to `limit` AFTER the
-        // in-Rust dedup — SQL-side LIMIT alone under-fills the page.
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT s.agent, s.session_id, s.ref, s.cwd, s.title,
-                        s.transcript_path, s.mtime,
-                        snippet(fts, 0, '[', ']', '…', 12) AS snip
-                 FROM fts JOIN sessions s
-                   ON s.agent = fts.agent AND s.session_id = fts.session_id
-                 WHERE fts MATCH ?1
-                 UNION
-                 SELECT agent, session_id, ref, cwd, title, transcript_path,
-                        mtime, NULL
-                 FROM sessions WHERE title LIKE ?2 ESCAPE '\\'
-                 ORDER BY mtime DESC LIMIT ?3",
-            )
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map(params![fts_query, like, (limit * 2) as i64], |r| {
+        (fts_query, like)
+    }
+
+    /// Search titles + content, one page at a time. An empty query lists
+    /// everything newest-first (the browser's initial view); `offset` pages
+    /// through the FULL match set (no cap — paging replaced the old
+    /// truncation); `agent` narrows to one CLI's sessions (the spawn-dialog
+    /// picker). Content matches carry a snippet.
+    pub fn search(
+        &self,
+        query: &str,
+        limit: usize,
+        offset: usize,
+        agent: Option<&str>,
+    ) -> Result<Vec<SearchHit>, String> {
+        let q = query.trim();
+        let agent_clause = if agent.is_some() { " AND agent = ?A" } else { "" };
+        if q.is_empty() {
+            let sql = format!(
+                "SELECT agent, session_id, ref, cwd, title, transcript_path, mtime
+                 FROM sessions WHERE 1=1{}
+                 ORDER BY mtime DESC LIMIT ?1 OFFSET ?2",
+                agent_clause.replace("?A", "?3"),
+            );
+            let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let map = |r: &rusqlite::Row<'_>| {
                 Ok(SearchHit {
                     agent: r.get(0)?,
                     session_id: r.get(1)?,
@@ -259,22 +272,75 @@ impl SessionIndex {
                     title: r.get(4)?,
                     transcript_path: r.get(5)?,
                     mtime: r.get(6)?,
-                    snippet: r.get(7)?,
+                    snippet: None,
                 })
+            };
+            let rows = match agent {
+                Some(a) => stmt
+                    .query_map(params![limit as i64, offset as i64, a], map)
+                    .map_err(|e| e.to_string())?
+                    .collect::<Result<Vec<_>, _>>(),
+                None => stmt
+                    .query_map(params![limit as i64, offset as i64], map)
+                    .map_err(|e| e.to_string())?
+                    .collect::<Result<Vec<_>, _>>(),
+            };
+            return rows.map_err(|e| e.to_string());
+        }
+        // FTS5 prefix query over content, unioned with a LIKE over titles —
+        // the user types fragments, not query syntax; quoting kills injection
+        // into the MATCH grammar. The UNION would emit a double-matching
+        // session twice (differing snippet column), so pagination dedups in
+        // SQL: group by session, keep MAX(snip) (the non-NULL content hit),
+        // then page with LIMIT/OFFSET over the deduped set.
+        let (fts_query, like) = Self::match_terms(q);
+        let sql = format!(
+            "SELECT agent, session_id, ref, cwd, title, transcript_path,
+                    mtime, MAX(snip) AS snippet
+             FROM (
+                SELECT s.agent, s.session_id, s.ref, s.cwd, s.title,
+                       s.transcript_path, s.mtime,
+                       snippet(fts, 0, '[', ']', '…', 12) AS snip
+                FROM fts JOIN sessions s
+                  ON s.agent = fts.agent AND s.session_id = fts.session_id
+                WHERE fts MATCH ?1{a1}
+                UNION
+                SELECT agent, session_id, ref, cwd, title, transcript_path,
+                       mtime, NULL
+                FROM sessions WHERE title LIKE ?2 ESCAPE '\\'{a2}
+             )
+             GROUP BY agent, session_id
+             ORDER BY mtime DESC LIMIT ?3 OFFSET ?4",
+            a1 = agent_clause.replace("?A", "?5").replace("agent =", "s.agent ="),
+            a2 = agent_clause.replace("?A", "?5"),
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let map = |r: &rusqlite::Row<'_>| {
+            Ok(SearchHit {
+                agent: r.get(0)?,
+                session_id: r.get(1)?,
+                reference: r.get(2)?,
+                cwd: r.get(3)?,
+                title: r.get(4)?,
+                transcript_path: r.get(5)?,
+                mtime: r.get(6)?,
+                snippet: r.get(7)?,
             })
-            .map_err(|e| e.to_string())?;
-        let mut hits: Vec<SearchHit> =
-            rows.collect::<Result<_, _>>().map_err(|e| e.to_string())?;
-        // The UNION can yield one row twice (title AND content match) —
-        // keep the content hit, it carries the snippet.
-        hits.sort_by(|a, b| {
-            (&a.agent, &a.session_id, a.snippet.is_none())
-                .cmp(&(&b.agent, &b.session_id, b.snippet.is_none()))
-        });
-        hits.dedup_by(|a, b| a.agent == b.agent && a.session_id == b.session_id);
-        hits.sort_by(|a, b| b.mtime.cmp(&a.mtime));
-        hits.truncate(limit);
-        Ok(hits)
+        };
+        let rows = match agent {
+            Some(a) => stmt
+                .query_map(
+                    params![fts_query, like, limit as i64, offset as i64, a],
+                    map,
+                )
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>(),
+            None => stmt
+                .query_map(params![fts_query, like, limit as i64, offset as i64], map)
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>(),
+        };
+        rows.map_err(|e| e.to_string())
     }
 }
 
@@ -348,8 +414,81 @@ mod tests {
             })
             .collect();
         index.upsert(&rows).unwrap();
-        let hits = index.search("shared", 5).unwrap();
+        let hits = index.search("shared", 5, 0, None).unwrap();
         assert_eq!(hits.len(), 5); // not ~limit/2
+    }
+
+    #[test]
+    fn offset_pages_walk_the_full_match_set_without_gaps_or_repeats() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let rows: Vec<IndexRow> = (0..7)
+            .map(|i| {
+                // Double-matching rows: the dedup must happen BEFORE paging,
+                // or page boundaries would drop/duplicate sessions.
+                let mut r = row("claude", &format!("s{i}"), i, "paged token");
+                r.title = Some("paged".into());
+                r
+            })
+            .collect();
+        index.upsert(&rows).unwrap();
+
+        let walk = |query: &str| {
+            let mut seen = Vec::new();
+            let mut offset = 0;
+            loop {
+                let page = index.search(query, 3, offset, None).unwrap();
+                if page.is_empty() {
+                    break;
+                }
+                offset += page.len();
+                seen.extend(page.into_iter().map(|h| h.session_id));
+            }
+            seen
+        };
+        let newest_first: Vec<String> = (0..7).rev().map(|i| format!("s{i}")).collect();
+        assert_eq!(walk("paged"), newest_first);
+        assert_eq!(walk(""), newest_first);
+    }
+
+    #[test]
+    fn agent_filter_narrows_search_and_total() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        index
+            .upsert(&[
+                row("claude", "a", 3, "shared themes"),
+                row("codex", "b", 2, "shared themes"),
+                row("claude", "c", 1, "unrelated"),
+            ])
+            .unwrap();
+
+        let all = index.search("", 10, 0, Some("claude")).unwrap();
+        assert_eq!(
+            all.iter().map(|h| h.session_id.as_str()).collect::<Vec<_>>(),
+            ["a", "c"],
+        );
+        let hits = index.search("shared", 10, 0, Some("claude")).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].session_id, "a");
+        // Title-only matches obey the filter too (the LIKE arm).
+        let title = index.search("title b", 10, 0, Some("claude")).unwrap();
+        assert!(title.is_empty());
+
+        assert_eq!(index.search_total("", None).unwrap(), 3);
+        assert_eq!(index.search_total("", Some("claude")).unwrap(), 2);
+        assert_eq!(index.search_total("shared", None).unwrap(), 2);
+        assert_eq!(index.search_total("shared", Some("codex")).unwrap(), 1);
+    }
+
+    #[test]
+    fn total_counts_double_matching_sessions_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut index = SessionIndex::open(&dir.path().join("i.sqlite")).unwrap();
+        let mut r = row("claude", "s1", 1, "shared token");
+        r.title = Some("shared".into());
+        index.upsert(&[r]).unwrap();
+        assert_eq!(index.search_total("shared", None).unwrap(), 1);
     }
 
     #[test]
@@ -363,16 +502,16 @@ mod tests {
             ])
             .unwrap();
 
-        let all = index.search("", 10).unwrap();
+        let all = index.search("", 10, 0, None).unwrap();
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].session_id, "a"); // newest first
 
-        let hits = index.search("token refr", 10).unwrap();
+        let hits = index.search("token refr", 10, 0, None).unwrap();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].snippet.as_deref().unwrap().contains("[token]"));
 
         // Title match without a content match still surfaces.
-        let title = index.search("title b", 10).unwrap();
+        let title = index.search("title b", 10, 0, None).unwrap();
         assert_eq!(title.len(), 1);
         assert_eq!(title[0].session_id, "b");
     }
@@ -387,7 +526,7 @@ mod tests {
 
         let dropped = index.prune("claude", &["/store/a".into()]).unwrap();
         assert_eq!(dropped, 1);
-        assert_eq!(index.search("", 10).unwrap().len(), 1);
+        assert_eq!(index.search("", 10, 0, None).unwrap().len(), 1);
     }
 
     #[test]
@@ -403,7 +542,7 @@ mod tests {
             conn.execute_batch("PRAGMA user_version = 999;").unwrap();
         }
         let index = SessionIndex::open(&path).unwrap();
-        assert_eq!(index.search("", 10).unwrap().len(), 0); // rebuilt empty
+        assert_eq!(index.search("", 10, 0, None).unwrap().len(), 0); // rebuilt empty
     }
 
     #[test]

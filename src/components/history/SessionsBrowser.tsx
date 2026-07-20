@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
@@ -53,16 +53,29 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
   const viewSeq = useRef(0);
 
   // The scan waits for plugin activation (the registry is empty until
-  // then), re-firing when readiness lands; the listing itself can show
-  // whatever the index already holds from a previous run.
-  useEffect(() => {
-    api.search("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // then), re-firing when readiness lands; the listing itself is the hook's
+  // job — it ran the initial search once, and a second browser mount must
+  // not reset a query another instance is showing.
   useEffect(() => {
     if (ready) api.scan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
+
+  // Lazy paging of the hits list, scroll-driven: nearing the end pulls the
+  // next page in. The same check runs after every landed page so a viewport
+  // taller than the loaded rows (no scrollbar yet) still fills up.
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const { hasMore, loadMore: loadMoreHits, hits } = api;
+  const nearEnd = (el: HTMLElement) =>
+    el.scrollHeight - el.scrollTop - el.clientHeight < 240;
+  const maybeLoadHits = useCallback(() => {
+    const list = listRef.current;
+    // loadMore itself guards in-flight and exhausted states.
+    if (list && nearEnd(list)) loadMoreHits();
+  }, [loadMoreHits]);
+  useEffect(() => {
+    if (hasMore) maybeLoadHits();
+  }, [hasMore, maybeLoadHits, hits.length]);
 
   const loadMore = (hit: SearchHit, from: number) => {
     const seq = viewSeq.current;
@@ -78,6 +91,22 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
         if (viewSeq.current === seq) setLoadingPage(false);
       });
   };
+
+  // The transcript pages on scroll too ([F8] virtualized viewer): nearing
+  // the bottom fetches the next page; the mount-time check below keeps
+  // filling while the loaded turns are shorter than the viewer.
+  const viewerRef = useRef<HTMLDivElement | null>(null);
+  const maybeLoadPage = useCallback(() => {
+    // loadingPage doubles as the in-flight guard: a scroll storm must not
+    // fetch the same offset twice nor skip a page.
+    if (!open || exhausted || loadingPage) return;
+    const body = viewerRef.current;
+    if (body && nearEnd(body)) loadMore(open, entries.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, exhausted, loadingPage, entries.length]);
+  useEffect(() => {
+    maybeLoadPage();
+  }, [maybeLoadPage]);
 
   const openViewer = (hit: SearchHit) => {
     viewSeq.current += 1;
@@ -104,13 +133,26 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
           placeholder="Search all sessions — content, titles"
           onChange={(e) => api.search(e.target.value)}
         />
-        {api.scanning && api.hits.length > 0 && (
-          // Inside the field, so a background rescan neither shifts layout
-          // nor duplicates the empty-list placeholder.
-          <span className="browser__scanning">indexing…</span>
-        )}
+        <span className="browser__meta">
+          {api.scanning && api.hits.length > 0 && (
+            // Inside the field, so a background rescan neither shifts layout
+            // nor duplicates the empty-list placeholder.
+            <span className="browser__scanning">indexing…</span>
+          )}
+          {api.total > 0 && (
+            <span className="browser__count">
+              {api.hasMore
+                ? `${api.hits.length} of ${api.total}`
+                : `${api.total}`}
+            </span>
+          )}
+        </span>
       </div>
-      <ul className="history__list browser__list">
+      <ul
+        className="history__list browser__list"
+        ref={listRef}
+        onScroll={maybeLoadHits}
+      >
         {api.hits.map((hit) => {
           const agent = agents.find((a) => a.id === hit.agent);
           return (
@@ -161,6 +203,9 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
             </li>
           );
         })}
+        {api.loadingMore && (
+          <li className="history__row browser__more">Loading…</li>
+        )}
         {api.hits.length === 0 && (
           <li className="history__row browser__empty">
             {api.scanning ? "Indexing the stores…" : "No sessions match"}
@@ -181,7 +226,11 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
               ×
             </button>
           </div>
-          <div className="browser__viewer-body">
+          <div
+            className="browser__viewer-body"
+            ref={viewerRef}
+            onScroll={maybeLoadPage}
+          >
             {entries.map((entry, index) => (
               <div
                 key={index}
@@ -191,19 +240,14 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
               </div>
             ))}
             {entries.length === 0 && (
-              <div className="browser__empty">Loading…</div>
+              // A legitimately empty transcript (all lines were noise) must
+              // not read as a hang.
+              <div className="browser__empty">
+                {loadingPage ? "Loading…" : "No transcript content"}
+              </div>
             )}
-            {!exhausted && entries.length > 0 && (
-              <button
-                type="button"
-                className="history__resume"
-                // In-flight guard: a double-click would append the same page
-                // twice AND corrupt the next offset, skipping a real page.
-                disabled={loadingPage}
-                onClick={() => loadMore(open, entries.length)}
-              >
-                {loadingPage ? "Loading…" : "Load more"}
-              </button>
+            {loadingPage && entries.length > 0 && (
+              <div className="browser__more">Loading…</div>
             )}
           </div>
         </div>

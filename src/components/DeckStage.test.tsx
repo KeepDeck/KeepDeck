@@ -66,9 +66,13 @@ const callbacks = {
 
 const browser = {
   hits: [],
+  total: 0,
+  hasMore: false,
+  loadingMore: false,
   query: "",
   scanning: false,
   search: vi.fn(),
+  loadMore: vi.fn(),
   scan: vi.fn(),
   transcript: vi.fn(() => Promise.resolve([])),
 };

@@ -51,8 +51,19 @@ export function indexPrune(agent: string, live: string[]): Promise<number> {
   return invoke("index_prune", { agent, live });
 }
 
-export function indexSearch(query: string, limit: number): Promise<SearchHit[]> {
-  return invoke("index_search", { query, limit });
+/** One page of hits plus the full match count ("shown X of N"). */
+export interface SearchPage {
+  hits: SearchHit[];
+  total: number;
+}
+
+export function indexSearch(
+  query: string,
+  limit: number,
+  offset: number,
+  agent?: string,
+): Promise<SearchPage> {
+  return invoke("index_search", { query, limit, offset, agent: agent ?? null });
 }
 
 /** The `sqliteReadonly` capability's backend (containment-checked in Rust). */
