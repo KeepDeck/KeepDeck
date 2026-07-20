@@ -19,8 +19,8 @@ interface SessionsBrowserProps {
 }
 
 /** A search hit as the journal-record shape the resume/fork flows consume.
- * A path-looking ref doubles as the transcript path (claude/codex/kimi);
- * opencode's ref is its session id — no file to point at. */
+ * The transcript path comes from the index EXPLICITLY (the plugin's
+ * `describe` declared it) — the ref stays the opaque handle it claims to be. */
 export function hitRecord(hit: SearchHit): SessionRecord {
   const at = new Date(hit.mtime || 0).toISOString();
   return {
@@ -28,7 +28,7 @@ export function hitRecord(hit: SearchHit): SessionRecord {
     sessionId: hit.sessionId,
     cwd: hit.cwd,
     ...(hit.title !== null && { title: hit.title }),
-    ...(hit.reference.startsWith("/") && { transcriptPath: hit.reference }),
+    ...(hit.transcriptPath !== null && { transcriptPath: hit.transcriptPath }),
     boundAt: at,
     state: "closed",
     endedAt: at,

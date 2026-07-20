@@ -11,6 +11,10 @@ import { describeError, log } from "../ipc/log";
  * memory on a first-ever scan of a thousand-session store. */
 const BATCH = 16;
 
+/** Per-session cap on indexed text — bounds index growth and the IPC hop;
+ * search over the first 2 MB of a conversation is search enough. */
+const CONTENT_CAP = 2 * 1024 * 1024;
+
 export interface HistorySource {
   agentId: string;
   history: AgentHistory;
@@ -62,9 +66,10 @@ export async function scanAgentHistories(
                 reference: stub.ref,
                 cwd: facts.cwd,
                 title: facts.title ?? null,
+                transcriptPath: facts.transcriptPath ?? null,
                 mtime: stub.mtime,
                 size: stub.size,
-                content,
+                content: content.slice(0, CONTENT_CAP),
               };
             } catch (e) {
               log.warn(

@@ -91,7 +91,13 @@ describe("codex history", () => {
     expect(await history.describe("/r.jsonl")).toEqual({
       cwd: "/repo/wt",
       title: "rename the rail",
+      transcriptPath: "/r.jsonl",
     });
+  });
+
+  it("a head without a newline is taken whole, not slice(0,-1)-mangled", async () => {
+    const history = codexHistory(ctx({ "/r.jsonl": META }, {}));
+    expect((await history.describe("/r.jsonl")).cwd).toBe("/repo/wt");
   });
 
   it("parses only user/assistant message items", () => {

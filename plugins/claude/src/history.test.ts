@@ -75,7 +75,23 @@ describe("claude history", () => {
     expect(await history.describe("/f.jsonl")).toEqual({
       cwd: "/repo/wt",
       title: "fix the auth bug",
+      transcriptPath: "/f.jsonl",
     });
+  });
+
+  it("isMeta lines are framework noise — never a title, never content", async () => {
+    const withMeta = [
+      JSON.stringify({
+        type: "user",
+        isMeta: true,
+        cwd: "/repo/wt",
+        message: { role: "user", content: "Continue from where you left off." },
+      }),
+      LINES,
+    ].join("\n");
+    const history = claudeHistory(ctx({ "/f.jsonl": withMeta }, {}));
+    expect((await history.describe("/f.jsonl")).title).toBe("fix the auth bug");
+    expect(await history.content("/f.jsonl")).not.toContain("Continue from where");
   });
 
   it("the store's own summary line outranks the first user turn; the last summary wins", async () => {

@@ -137,6 +137,9 @@ export interface AgentSessionStub {
 export interface AgentSessionFacts {
   cwd: string;
   title?: string;
+  /** The session's transcript file, when the store has one — carried
+   * explicitly so consumers never infer it from the ref's shape. */
+  transcriptPath?: string;
 }
 
 export interface AgentTranscriptEntry {

@@ -127,4 +127,22 @@ describe("kimiForkPlan", () => {
     );
     expect(fx.writes.size).toBe(0);
   });
+
+  it("a mid-sequence write failure leaves nothing resumable — state and index land last", async () => {
+    const fx = fixture();
+    // The FIRST write (the wire copy) fails: nothing may exist afterwards.
+    const services = (
+      fx.ctx as unknown as {
+        services: { fsWrite: { copyFile(s: string, d: string): Promise<void> } };
+      }
+    ).services;
+    services.fsWrite.copyFile = async () => {
+      throw new Error("disk full");
+    };
+
+    await expect(kimiForkPlan(fx.ctx, forkInput("/t"))).rejects.toThrow("disk full");
+    // The activation artifacts never landed: no state.json, no index line.
+    expect(fx.writes.size).toBe(0);
+    expect(fx.appends).toHaveLength(0);
+  });
 });

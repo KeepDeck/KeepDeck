@@ -20,6 +20,7 @@ export interface IndexRowInput {
   reference: string;
   cwd: string;
   title?: string | null;
+  transcriptPath?: string | null;
   mtime: number;
   size: number;
   content: string;
@@ -32,6 +33,7 @@ export interface SearchHit {
   reference: string;
   cwd: string;
   title: string | null;
+  transcriptPath: string | null;
   mtime: number;
   /** FTS snippet with [ ] highlight markers, when content matched. */
   snippet: string | null;

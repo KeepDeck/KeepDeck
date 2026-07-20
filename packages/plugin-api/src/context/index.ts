@@ -45,6 +45,10 @@ export type {
   PluginCommandSpec,
   PluginCommands,
 } from "./commands.ts";
+export {
+  firstMeaningfulUserTurn,
+  textFromParts,
+} from "./historyText.ts";
 export type { PluginContext } from "./context.ts";
 export type { Disposable } from "./disposable.ts";
 export {

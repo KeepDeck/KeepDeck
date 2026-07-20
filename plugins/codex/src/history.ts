@@ -1,8 +1,10 @@
-import type {
-  AgentHistory,
-  AgentSessionStub,
-  AgentTranscriptEntry,
-  PluginContext,
+import {
+  firstMeaningfulUserTurn,
+  textFromParts,
+  type AgentHistory,
+  type AgentSessionStub,
+  type AgentTranscriptEntry,
+  type PluginContext,
 } from "@keepdeck/plugin-api";
 
 /**
@@ -38,26 +40,14 @@ export function parseRollout(jsonl: string): ParsedTurn[] {
     const payload = record.payload;
     if (payload?.type !== "message") continue;
     if (payload.role !== "user" && payload.role !== "assistant") continue;
-    if (!Array.isArray(payload.content)) continue;
-    const text = payload.content
-      .map((part) =>
-        typeof (part as { text?: unknown }).text === "string"
-          ? (part as { text: string }).text
-          : "",
-      )
-      .filter(Boolean)
-      .join("\n")
-      .trim();
+    const text = textFromParts(payload.content).trim();
     if (text) turns.push({ role: payload.role, text });
   }
   return turns;
 }
 
 export function titleOf(turns: ParsedTurn[]): string | undefined {
-  const real = turns.find(
-    (t) => t.role === "user" && !/^[<#/[]/.test(t.text) && t.text.length > 1,
-  );
-  return real ? real.text.slice(0, 120) : undefined;
+  return firstMeaningfulUserTurn(turns);
 }
 
 const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
@@ -92,9 +82,12 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
       return walk(ROOT);
     },
     async describe(ref) {
-      const head = await ctx.services.fs.readFile(ref, { maxBytes: 64 * 1024 });
+      const head = await ctx.services.fs.readFile(ref, { maxBytes: 256 * 1024 });
       const text = head.text ?? "";
-      const first = text.slice(0, text.indexOf("\n"));
+      const newline = text.indexOf("\n");
+      // No newline in the head = one giant meta line; take the whole head
+      // rather than slice(0,-1)'s silent last-char drop.
+      const first = newline < 0 ? text : text.slice(0, newline);
       let cwd = "";
       try {
         const meta = JSON.parse(first) as {
@@ -107,7 +100,7 @@ export function codexHistory(ctx: PluginContext): AgentHistory {
       } catch {
         // No meta line — an unexpected layout indexes with an empty cwd.
       }
-      return { cwd, title: titleOf(parseRollout(text)) };
+      return { cwd, title: titleOf(parseRollout(text)), transcriptPath: ref };
     },
     async content(ref) {
       const file = await ctx.services.fs.readFile(ref, { maxBytes: 8 * 1024 * 1024 });

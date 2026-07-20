@@ -63,8 +63,22 @@ export async function kimiForkPlan(
   const newId = `session_${crypto.randomUUID()}`;
   const dstSessionDir = `${sessionsRoot}/${await wdKey(input.cwd)}/${newId}`;
 
-  // Clone: patched state first (the gate), then the conversation wire; the
-  // diagnostic log is best-effort — kimi resumes fine without it.
+  // Write order is the contract: the artifacts that ACTIVATE a session
+  // (state.json — the resume gate — and the index line) land LAST, after the
+  // conversation files. A failure mid-sequence then leaves only inert files
+  // kimi never discovers — never a half-alive session.
+  await ctx.services.fsWrite.copyFile(
+    wire,
+    `${dstSessionDir}/agents/main/wire.jsonl`,
+  );
+  try {
+    await ctx.services.fsWrite.copyFile(
+      `${srcSessionDir}/logs/kimi-code.log`,
+      `${dstSessionDir}/logs/kimi-code.log`,
+    );
+  } catch {
+    // Optional diagnostics; a session that never logged has no file.
+  }
   const patched = {
     ...state,
     workDir: input.cwd,
@@ -80,18 +94,6 @@ export async function kimiForkPlan(
     `${dstSessionDir}/state.json`,
     JSON.stringify(patched, null, 2),
   );
-  await ctx.services.fsWrite.copyFile(
-    wire,
-    `${dstSessionDir}/agents/main/wire.jsonl`,
-  );
-  try {
-    await ctx.services.fsWrite.copyFile(
-      `${srcSessionDir}/logs/kimi-code.log`,
-      `${dstSessionDir}/logs/kimi-code.log`,
-    );
-  } catch {
-    // Optional diagnostics; a session that never logged has no file.
-  }
 
   // The index is how `--session <id>` finds the clone at all.
   const indexPath = `${sessionsRoot.slice(0, -"/sessions".length)}/session_index.jsonl`;

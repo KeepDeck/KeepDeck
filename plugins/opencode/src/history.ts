@@ -68,14 +68,23 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
       };
     },
     async content(ref) {
+      // Bounded on both axes: a row cap (the largest real session holds
+      // ~5k parts) and a text-accumulation cap — a monster session must not
+      // drag tens of MB across the IPC bridge into the index.
       const rows = await query(
-        "SELECT data FROM part WHERE session_id = ?1",
+        "SELECT data FROM part WHERE session_id = ?1 LIMIT 5000",
         [ref],
       );
-      return rows
-        .map(([data]) => (data ? partText(data) : null))
-        .filter((text): text is string => text !== null)
-        .join("\n");
+      const texts: string[] = [];
+      let total = 0;
+      for (const [data] of rows) {
+        const text = data ? partText(data) : null;
+        if (text === null) continue;
+        texts.push(text);
+        total += text.length;
+        if (total >= 2 * 1024 * 1024) break;
+      }
+      return texts.join("\n");
     },
     async transcript(ref, page): Promise<AgentTranscriptEntry[]> {
       const messages = await query(
@@ -83,7 +92,7 @@ export function opencodeHistory(ctx: PluginContext): AgentHistory {
         [ref],
       );
       const parts = await query(
-        "SELECT message_id, data FROM part WHERE session_id = ?1",
+        "SELECT message_id, data FROM part WHERE session_id = ?1 LIMIT 5000",
         [ref],
       );
       const byMessage = new Map<string, string[]>();

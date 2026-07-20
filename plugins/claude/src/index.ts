@@ -69,12 +69,26 @@ const skillsArgs = (skills: SpawnSkillsInput | undefined): string[] =>
   skills ? ["--plugin-dir", skills.claudePluginDir] : [];
 
 /** Claude encodes a session's project dir into the store path:
- * `~/.claude/projects/<slug>/<sessionId>.jsonl`, slug = the absolute cwd
- * with `/`, `.` and `_` each replaced by `-`. `--resume` searches ONLY the
- * current cwd's slug dir (the `--cwd` flag request was closed not-planned),
- * so a cross-directory fork copies the transcript into the TARGET's slug
- * dir first — the community-verified relocation recipe. */
-const projectSlug = (cwd: string): string => cwd.replace(/[/._]/g, "-");
+ * `~/.claude/projects/<slug>/<sessionId>.jsonl`. The REAL encoding
+ * (decompiled from claude 2.1.215's own sanitizePath) replaces EVERY
+ * non-alphanumeric character with `-` — not just path separators — and
+ * truncates slugs over 200 chars with a private hash suffix we cannot
+ * reproduce. `--resume` searches ONLY the current cwd's slug dir (the
+ * `--cwd` flag request was closed not-planned), so a cross-directory fork
+ * copies the transcript into the TARGET's slug dir first. A too-long slug
+ * is refused loudly: copying to a guessed name would strand the transcript
+ * where claude never looks — a silent fork failure. */
+const SLUG_MAX = 200;
+export function projectSlug(cwd: string): string {
+  const slug = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  if (slug.length > SLUG_MAX) {
+    throw new Error(
+      `claude fork: the target path encodes to a ${slug.length}-char store slug ` +
+        `(claude truncates past ${SLUG_MAX} with a private hash) — fork into a shorter path`,
+    );
+  }
+  return slug;
+}
 
 const plugin: KeepDeckPlugin = {
   activate(ctx) {

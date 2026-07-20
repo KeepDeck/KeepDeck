@@ -15,6 +15,7 @@ const hit = (over: Partial<SearchHit> = {}): SearchHit => ({
   reference: "/store/u-1.jsonl",
   cwd: "/repo/wt",
   title: "auth bug",
+  transcriptPath: "/store/u-1.jsonl",
   mtime: 1752900000000,
   snippet: "the [auth] bug",
   ...over,
@@ -31,7 +32,7 @@ const api = (hits: SearchHit[]): SessionsBrowserApi => ({
 });
 
 describe("hitRecord", () => {
-  it("maps a path ref to transcriptPath; an id ref stays pathless", () => {
+  it("carries the index's explicit transcript path; a null one stays absent", () => {
     expect(hitRecord(hit())).toMatchObject({
       agent: "claude",
       sessionId: "u-1",
@@ -41,7 +42,8 @@ describe("hitRecord", () => {
       state: "closed",
     });
     expect(
-      "transcriptPath" in hitRecord(hit({ agent: "opencode", reference: "ses_1" })),
+      "transcriptPath" in
+        hitRecord(hit({ agent: "opencode", reference: "ses_1", transcriptPath: null })),
     ).toBe(false);
   });
 });

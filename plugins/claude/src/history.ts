@@ -1,8 +1,10 @@
-import type {
-  AgentHistory,
-  AgentSessionStub,
-  AgentTranscriptEntry,
-  PluginContext,
+import {
+  firstMeaningfulUserTurn,
+  textFromParts,
+  type AgentHistory,
+  type AgentSessionStub,
+  type AgentTranscriptEntry,
+  type PluginContext,
 } from "@keepdeck/plugin-api";
 
 /**
@@ -18,15 +20,7 @@ function textOf(message: unknown): string {
   if (typeof message !== "object" || message === null) return "";
   const content = (message as { content?: unknown }).content;
   if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((part) =>
-      typeof (part as { text?: unknown }).text === "string"
-        ? ((part as { text: string }).text)
-        : "",
-    )
-    .filter(Boolean)
-    .join("\n");
+  return textFromParts(content);
 }
 
 interface ParsedTurn {
@@ -44,8 +38,15 @@ function parseTurns(jsonl: string): ParsedTurn[] {
     } catch {
       continue; // a torn tail or foreign line never sinks the session
     }
-    const record = parsed as { type?: unknown; message?: unknown };
+    const record = parsed as {
+      type?: unknown;
+      message?: unknown;
+      isMeta?: unknown;
+    };
     if (record.type !== "user" && record.type !== "assistant") continue;
+    // Framework-injected lines ("Continue from where you left off.", tool
+    // retry notices) are marked isMeta by claude itself — not conversation.
+    if (record.isMeta === true) continue;
     const text = textOf(record.message).trim();
     if (text) turns.push({ role: record.type, text });
   }
@@ -86,17 +87,9 @@ export function summaryOf(jsonl: string): string | undefined {
   return latest;
 }
 
-/** A human title: the first REAL user message — command/meta preambles
- * (XML-ish tags, slash commands, skill bootstraps, the local-command
- * caveat) don't name a conversation. */
+/** A human title: the shared first-real-user-turn heuristic. */
 export function titleOf(turns: ParsedTurn[]): string | undefined {
-  const real = turns.find(
-    (t) =>
-      t.role === "user" &&
-      !/^([<#/[]|Base directory for this skill:|Caveat:)/.test(t.text) &&
-      t.text.length > 1,
-  );
-  return real ? real.text.slice(0, 120) : undefined;
+  return firstMeaningfulUserTurn(turns);
 }
 
 export function claudeHistory(ctx: PluginContext): AgentHistory {
@@ -127,11 +120,16 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       return stubs;
     },
     async describe(ref) {
-      const head = await read(ref, 64 * 1024);
-      const text = head.text ?? "";
+      // Full read (capped), not a head: skill bootstraps and attachments
+      // routinely push the first REAL user turn hundreds of KB in — a 64KB
+      // head left the majority of real sessions titled by their UUID. The
+      // scan opens a session only when it changed, so the cost is bounded.
+      const file = await read(ref, 8 * 1024 * 1024);
+      const text = file.text ?? "";
       return {
         cwd: cwdOf(text) ?? "",
         title: summaryOf(text) ?? titleOf(parseTurns(text)),
+        transcriptPath: ref,
       };
     },
     async content(ref) {

@@ -235,4 +235,30 @@ describe("claude fork.plan", () => {
       ),
     ).rejects.toThrow("not a .jsonl");
   });
+
+  it("slugs EVERY non-alphanumeric char like real claude, not just / . _", async () => {
+    const copies: [string, string][] = [];
+    const agent = activate(SESSION_HOOK, copies);
+    await agent.hooks["fork.plan"]!(
+      { ...forkInput, cwd: "/Users/John Doe/Projects/app (v2)" },
+      output(),
+    );
+    // Spaces and parens become dashes too — the store encoding claude's own
+    // sanitizePath applies (decompiled 2.1.215).
+    expect(copies[0][1]).toBe(
+      "/Users/u/.claude/projects/-Users-John-Doe-Projects-app--v2-/uuid-1.jsonl",
+    );
+  });
+
+  it("refuses a >200-char slug loudly — claude truncates with a private hash we can't reproduce", async () => {
+    const copies: [string, string][] = [];
+    const agent = activate(SESSION_HOOK, copies);
+    await expect(
+      agent.hooks["fork.plan"]!(
+        { ...forkInput, cwd: `/${"very-long-segment/".repeat(15)}end` },
+        output(),
+      ),
+    ).rejects.toThrow("shorter path");
+    expect(copies).toEqual([]); // zero writes on refusal
+  });
 });

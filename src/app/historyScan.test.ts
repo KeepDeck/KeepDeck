@@ -55,6 +55,7 @@ describe("scanAgentHistories", () => {
         reference: "/s/b",
         cwd: "/cwd/s/b",
         title: "t/s/b",
+        transcriptPath: null,
         mtime: 9,
         size: 20,
         content: "content of /s/b",

@@ -106,9 +106,10 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
           cwd: typeof parsed.workDir === "string" ? parsed.workDir : "",
           ...(typeof parsed.title === "string" &&
             parsed.title !== "" && { title: parsed.title.slice(0, 120) }),
+          transcriptPath: ref,
         };
       } catch {
-        return { cwd: "" };
+        return { cwd: "", transcriptPath: ref };
       }
     },
     async content(ref) {

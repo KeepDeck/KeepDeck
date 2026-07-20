@@ -61,7 +61,11 @@ describe("kimi history", () => {
     );
     expect(
       await history.describe("/k/wd_a_1/session_s1/agents/main/wire.jsonl"),
-    ).toEqual({ cwd: "/repo/wt", title: "test run" });
+    ).toEqual({
+      cwd: "/repo/wt",
+      title: "test run",
+      transcriptPath: "/k/wd_a_1/session_s1/agents/main/wire.jsonl",
+    });
   });
 
   it("parses only append_message events", () => {
