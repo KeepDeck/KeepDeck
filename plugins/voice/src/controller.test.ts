@@ -111,7 +111,7 @@ describe("createVoiceController", () => {
     );
   });
 
-  it("dictation types the transcript into the focused pane and submits", async () => {
+  it("dictation types the transcript into the focused pane without submitting", async () => {
     const { host, controller } = setup({
       text: "please refactor the parser",
       silence: false,
@@ -123,12 +123,12 @@ describe("createVoiceController", () => {
       { id: "workspace.list", args: {} },
       {
         id: "pane.write",
-        args: { text: "please refactor the parser", submit: true },
+        args: { text: "please refactor the parser" },
       },
     ]);
     expect(texts(controller)).toEqual([
       ["heard", "please refactor the parser"],
-      ["done", "sent to the focused agent"],
+      ["done", "typed into the input"],
     ]);
   });
 

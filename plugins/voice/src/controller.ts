@@ -271,7 +271,10 @@ export function createVoiceController(
           }
         } else if (finished === "dictation") {
           push("heard", transcript.text);
-          await execute("pane.write", { text: transcript.text, submit: true });
+          // Dictation only fills the input — the user reviews and sends it
+          // themselves. No `submit`, or the transcript fires off to the agent
+          // the instant push-to-talk is released.
+          await execute("pane.write", { text: transcript.text });
         } else {
           push("heard", transcript.text);
           const parsed = parseCommand(transcript.text);
@@ -327,7 +330,7 @@ function describeDone(id: string, args: CommandArgs): string {
     case "agent.close":
       return "close dialog opened";
     case "pane.write":
-      return "sent to the focused agent";
+      return "typed into the input";
     default:
       return `${id} done`;
   }
