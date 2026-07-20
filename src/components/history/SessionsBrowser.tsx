@@ -7,7 +7,7 @@ import { formatAge } from "../../domain/usage/format";
 import type { SearchHit } from "../../ipc/history";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { AgentGlyph } from "../../ui/AgentGlyph";
-import { CloseButton } from "../../ui/CloseButton";
+import { BackIcon } from "../../ui/icons";
 import { baseName } from "../../domain/deck";
 
 interface SessionsBrowserProps {
@@ -225,10 +225,21 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
 
       {open && (
         <div className="browser__viewer" role="dialog" aria-label="Session transcript">
-          <div className="browser__viewer-head">
-            <span className="browser__name">{open.title ?? open.sessionId}</span>
-            <CloseButton label="Close transcript" onClick={closeViewer} />
-          </div>
+          <button
+            type="button"
+            // The git plugin's drill-back idiom, verbatim: a full-width row
+            // at the top, left chevron + the drilled-into label — backing
+            // out of a drill-in is navigation, not a window close.
+            className="browser__back"
+            onClick={closeViewer}
+            title="Back to the sessions list"
+            aria-label="Back to the sessions list"
+          >
+            <BackIcon />
+            <span className="browser__backlabel">
+              {open.title ?? open.sessionId}
+            </span>
+          </button>
           <div
             className="browser__viewer-body"
             ref={viewerRef}

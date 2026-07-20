@@ -48,6 +48,17 @@ export function CloseIcon() {
   );
 }
 
+/** Back out of a drilled-in view to its list — a left chevron. The same
+ * glyph the git plugin draws for its drill-back rows; drill-in navigation
+ * backs out at the top LEFT, it does not "close". */
+export function BackIcon() {
+  return (
+    <svg {...iconProps}>
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
 /** Minimize — the conventional window-control underscore (a single bottom
  * line). */
 export function MinimizeIcon() {

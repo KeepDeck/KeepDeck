@@ -343,13 +343,37 @@
   z-index: 5;
 }
 
-.browser__viewer-head {
+/* Backing out of an opened transcript to the sessions list — the git
+ * plugin's drill-back row, verbatim: full-width, left chevron + the
+ * drilled-into label, top LEFT. No close cross: this is navigation. */
+.browser__back {
+  flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 6px;
+  width: 100%;
+  border: 0;
   border-bottom: 1px solid #1c2230;
+  background: transparent;
+  color: #8b93a3;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser__back:hover {
+  color: #c5c8c6;
+}
+
+.browser__backlabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .browser__open:hover .browser__name {

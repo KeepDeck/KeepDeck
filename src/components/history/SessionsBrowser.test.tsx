@@ -243,6 +243,19 @@ describe("SessionsBrowser", () => {
     expect(a.transcript).toHaveBeenCalledTimes(1);
   });
 
+  it("the viewer backs out via the git-style drill-back row, labeled with the session", async () => {
+    const a = api([hit()]);
+    await mount(a);
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+    );
+    const back = document.querySelector<HTMLButtonElement>(".browser__back")!;
+    expect(back.textContent).toContain("auth bug");
+    await act(async () => back.click());
+    expect(document.querySelector(".browser__viewer")).toBeNull();
+    expect(document.querySelector(".history__row")).not.toBeNull(); // the list again
+  });
+
   it("shows the paging counter: partial as 'X of N', complete as the plain total", async () => {
     await mount(api([hit()], { total: 123, hasMore: true }));
     expect(document.querySelector(".browser__count")?.textContent).toBe("1 of 123");
