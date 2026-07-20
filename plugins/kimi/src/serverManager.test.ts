@@ -101,13 +101,17 @@ describe("Kimi server manager", () => {
     expect(spawn).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "kimi",
-        args: expect.arrayContaining([
-          "server",
-          "run",
-          "--foreground",
+        // `kimi web`, not the removed-in-0.28 `kimi server run`.
+        args: [
+          "web",
+          "--no-open",
+          "--host",
+          "127.0.0.1",
           "--port",
           String(KIMI_SETUP_SERVER_PORT),
-        ]),
+          "--log-level",
+          "silent",
+        ],
       }),
       expect.any(Function),
     );

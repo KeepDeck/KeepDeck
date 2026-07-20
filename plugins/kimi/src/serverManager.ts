@@ -131,10 +131,14 @@ export function createKimiServerManager(
       spawn = sessions.spawn(
         {
           command: "kimi",
+          // `kimi server run` was removed in Kimi Code 0.28; `kimi web` is its
+          // replacement and runs the same authenticated loopback server in the
+          // foreground. `--no-open` suppresses the browser it would otherwise
+          // launch; the `http://127.0.0.1:<port>/#token=…` banner extractServerAccess
+          // parses is unchanged. `--host 127.0.0.1` keeps the bind loopback-only.
           args: [
-            "server",
-            "run",
-            "--foreground",
+            "web",
+            "--no-open",
             "--host",
             "127.0.0.1",
             "--port",
