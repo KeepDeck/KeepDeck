@@ -1,61 +1,48 @@
-import type { VoiceController, VoiceMode } from "./controller";
+import type { VoiceController } from "./controller";
+import { endsHold, pttMode, type Chord, type VoiceBindings } from "./binding";
 
 /**
- * Push-to-talk hotkeys, in-app for the MVP (global shortcuts arrive later):
- * hold ⌥Space to speak a COMMAND, ⌥⇧Space to DICTATE into the focused pane;
- * releasing either key stops and transcribes; Escape while holding cancels.
- * Handlers run in the CAPTURE phase with preventDefault so the terminal
- * never sees the chord (the Shift+Enter keymap precedent).
+ * Push-to-talk hotkeys, in-app for now (global shortcuts arrive later). The
+ * chords are user-configurable (see binding.ts): the handler reads the LIVE
+ * bindings through a getter, so an edit in settings takes effect at once with
+ * no reinstall. Hold the command chord to speak a COMMAND, the dictation chord
+ * to DICTATE into the focused pane; releasing a held key of that chord stops
+ * and transcribes; Escape while holding cancels. Handlers run in the CAPTURE
+ * phase with preventDefault so the terminal never sees the chord (the
+ * Shift+Enter keymap precedent).
  */
-export interface KeyLike {
-  code: string;
-  key: string;
-  altKey: boolean;
-  shiftKey: boolean;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  repeat: boolean;
-}
-
-/** Which PTT mode a keydown starts, if any. Pure — the golden tests pin the
- * chords. */
-export function pttMode(e: KeyLike): VoiceMode | null {
-  if (e.code !== "Space" || !e.altKey || e.ctrlKey || e.metaKey) return null;
-  return e.shiftKey ? "dictation" : "command";
-}
-
-/** Whether a keyup ends the hold: the space itself or either modifier. */
-export function endsHold(e: KeyLike): boolean {
-  return e.code === "Space" || e.key === "Alt" || e.key === "Shift";
-}
-
-export function installPttHotkeys(controller: VoiceController): () => void {
+export function installPttHotkeys(
+  controller: VoiceController,
+  getBindings: () => VoiceBindings,
+): () => void {
   // Only a hold the KEY started may be stopped by a keyup — the mic button's
-  // toggle session must survive stray key releases.
-  let heldByKey = false;
+  // toggle session must survive stray key releases. The chord that started the
+  // hold decides which releases end it, even if settings change mid-hold.
+  let heldChord: Chord | null = null;
 
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === "Escape" && controller.snapshot().phase === "listening") {
       e.preventDefault();
       e.stopPropagation();
-      heldByKey = false;
+      heldChord = null;
       void controller.cancel();
       return;
     }
-    const mode = pttMode(e);
+    const bindings = getBindings();
+    const mode = pttMode(e, bindings);
     if (!mode) return;
     e.preventDefault();
     e.stopPropagation();
     if (e.repeat || controller.snapshot().phase !== "idle") return;
-    heldByKey = true;
+    heldChord = bindings[mode];
     void controller.start(mode);
   };
 
   const onKeyUp = (e: KeyboardEvent): void => {
-    if (!heldByKey || !endsHold(e)) return;
+    if (!heldChord || !endsHold(e, heldChord)) return;
     e.preventDefault();
     e.stopPropagation();
-    heldByKey = false;
+    heldChord = null;
     void controller.stop();
   };
 

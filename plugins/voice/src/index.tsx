@@ -11,6 +11,7 @@ import type { KeepDeckPlugin, PluginContext } from "@keepdeck/plugin-api";
 import { createVoiceController } from "./controller";
 import { createModelDownloads } from "./downloads";
 import { createModelsStore } from "./models";
+import { createBindingsStore } from "./bindingsStore";
 import { installPttHotkeys } from "./hotkeys";
 import { clearRuntime, runtime, setRuntime } from "./runtime";
 import { ModelsSection } from "./components/ModelsSection";
@@ -26,7 +27,10 @@ const plugin: KeepDeckPlugin = {
     // A finished download refreshes the shared model list, so the tab's
     // "no model" prompt clears without reopening.
     const downloads = createModelDownloads(ctx, () => void models.refresh());
-    setRuntime({ ctx, controller, downloads, models });
+    // The live push-to-talk chords: seeded from settings, updated as the user
+    // edits them, read by both the hotkey handler and the help copy.
+    const bindings = createBindingsStore(ctx);
+    setRuntime({ ctx, controller, downloads, models, bindings });
 
     ctx.ui.registerDockTab({ id: "voice", label: "Voice", Component: VoiceTab });
     ctx.ui.registerOverlay({ id: "pill", Component: VoiceOverlay });
@@ -37,20 +41,23 @@ const plugin: KeepDeckPlugin = {
       fields: [{ kind: "custom", key: "models", Component: ModelsSection }],
     });
 
-    uninstallHotkeys = installPttHotkeys(controller);
+    uninstallHotkeys = installPttHotkeys(controller, () => bindings.get());
   },
 
   async deactivate() {
     uninstallHotkeys?.();
     uninstallHotkeys = null;
-    await runtimeController()?.cancel();
+    runtimeMember((rt) => rt.bindings.dispose());
+    await runtimeMember((rt) => rt.controller.cancel());
     clearRuntime();
   },
 };
 
-function runtimeController() {
+/** Run `fn` against the live runtime if the plugin is active; a deactivate that
+ * races activation (no runtime yet) is a no-op. */
+function runtimeMember<T>(fn: (rt: ReturnType<typeof runtime>) => T): T | null {
   try {
-    return runtime().controller;
+    return fn(runtime());
   } catch {
     return null;
   }
