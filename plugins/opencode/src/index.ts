@@ -12,6 +12,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { opencodeHistory } from "./history";
+import { normalizeOpencodeUsage } from "./usage";
 
 /** The per-invocation config injecting the reporter; `[]` when the reporter
  * file is missing (identity off, the spawn itself still fine). */
@@ -52,6 +53,9 @@ const plugin: KeepDeckPlugin = {
       detect: { bin: "opencode" },
       supportsYolo: true,
       history: opencodeHistory(ctx),
+      // Pane usage from the injected reporter's `message.updated` envelopes.
+      // No account windows — opencode exposes none (see [`normalizeOpencodeUsage`]).
+      usage: { normalize: normalizeOpencodeUsage },
       hooks: {
         "spawn.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
