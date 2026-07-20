@@ -125,6 +125,21 @@ describe("reportUsage", () => {
     });
     dispose();
   });
+
+  it("a stale session's echo (older source mtime) cannot clobber a fresher one", () => {
+    // The account-jumping bug: the claude reporter stamps each report with the
+    // transcript's mtime (the session's last-turn time). An active pane's turn
+    // and an idle pane's frozen refresh echo then race across panes — the echo
+    // is DELIVERED later but carries an OLDER capture time, so it must lose.
+    const dispose = registerUsageNormalizer("fake", (_payload, at) => reported(at));
+    reportUsage("pane-active", { agent: "fake", sourceMtimeMs: 10_000 }, 50_000);
+    reportUsage("pane-idle", { agent: "fake", sourceMtimeMs: 3_000 }, 60_000);
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 10_000,
+      sourcePaneId: "pane-active",
+    });
+    dispose();
+  });
 });
 
 describe("retainUsagePanes", () => {

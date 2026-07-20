@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -120,6 +121,39 @@ describe("kd-usage-statusline.sh", () => {
     expect(readdirSync(dir)).toHaveLength(1);
 
     expect(stdout.trim()).toBe("Opus · ctx 8%");
+  });
+
+  it("stamps the report with the transcript's mtime as sourceMtimeMs", () => {
+    // The session's last-turn time rides along so freshest-wins ranks account
+    // windows by capture time, not delivery time — an idle refresh echo (or a
+    // long-idle session seen on a workspace switch) carries this OLD stamp and
+    // cannot clobber an active session's fresher reading.
+    const dir = inbox();
+    const transcript = join(tmp(), "transcript.jsonl");
+    writeFileSync(transcript, "{}");
+    run(JSON.stringify({ ...STATUSLINE, transcript_path: transcript }), {
+      v: 1,
+      dir,
+      pane: "p",
+      token: "t",
+    });
+    const envelope = JSON.parse(readFileSync(join(dir, envelopes(dir)[0]), "utf8"));
+    // Whole-second precision (BSD `stat -f %m` / GNU `%Y`), promoted to ms.
+    const expected = Math.floor(statSync(transcript).mtimeMs / 1000) * 1000;
+    expect(envelope.payload.sourceMtimeMs).toBe(expected);
+    // Reading transcript_path never strips the verbatim statusline.
+    expect(envelope.payload.statusline.transcript_path).toBe(transcript);
+  });
+
+  it("omits sourceMtimeMs when the transcript file is absent", () => {
+    // No file to stat → no stamp, and the report still publishes verbatim so
+    // the chip degrades to arrival-time ranking rather than losing the report.
+    const dir = inbox();
+    const statusline = { ...STATUSLINE, transcript_path: "/no/such/kd-transcript.jsonl" };
+    run(JSON.stringify(statusline), { v: 1, dir, pane: "p", token: "t" });
+    const envelope = JSON.parse(readFileSync(join(dir, envelopes(dir)[0]), "utf8"));
+    expect(envelope.payload.sourceMtimeMs).toBeUndefined();
+    expect(envelope.payload.statusline).toEqual(statusline);
   });
 
   it("still prints the footer when the bridge env is absent", () => {
