@@ -350,17 +350,16 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   border: 0;
   border-bottom: 1px solid #1c2230;
   background: transparent;
   color: #8b93a3;
-  padding: 8px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  /* The label is a session TITLE, not the git plugin's short scope tag —
+   * sentence case at content size, with a comfortable row height. */
+  padding: 12px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
@@ -374,6 +373,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: #c5c8c6;
 }
 
 .browser__open:hover .browser__name {
