@@ -186,4 +186,77 @@ describe("opencode session reporter", () => {
     expect(envelope.payload.windowTokens).toBeUndefined();
     expect(envelope.payload.contextTokens).toBe(6200);
   });
+
+  it("retries the provider catalog after a transient first failure", async () => {
+    let calls = 0;
+    const flaky = {
+      config: {
+        providers: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error("SDK not ready");
+          return {
+            data: {
+              providers: [
+                { models: { "claude-sonnet-5": { limit: { context: 200_000 } } } },
+              ],
+            },
+          };
+        },
+      },
+    };
+    const { event } = await reporter({ client: flaky });
+    await event(assistantMessage()); // call 1 throws → window unresolved
+    await event(assistantMessage({ id: "msg_2" })); // call 2 succeeds → resolved
+
+    const reports = envelopes().sort(
+      (a, b) => a.payload.totals.input - b.payload.totals.input,
+    );
+    expect(reports[0].payload.windowTokens).toBeUndefined();
+    expect(reports[reports.length - 1].payload.windowTokens).toBe(200_000);
+  });
+
+  it("skips usage from a subagent (child) session", async () => {
+    const { event } = await reporter({ client });
+    // A child session is announced — its id is remembered, not bound.
+    await event({
+      event: {
+        type: "session.created",
+        properties: { info: { id: "ses_child", parentID: "ses_root" } },
+      },
+    });
+    // The subagent's completed message must NOT hijack the pane's usage.
+    await event(assistantMessage({ sessionID: "ses_child" }));
+    expect(envelopes().filter((e) => e.type === "usage.report")).toEqual([]);
+    // A root-session message still reports.
+    await event(assistantMessage({ sessionID: "ses_root" }));
+    expect(envelopes().filter((e) => e.type === "usage.report")).toHaveLength(1);
+  });
+
+  it("does not double-count when the same message id re-fires", async () => {
+    const { event } = await reporter({ client });
+    await event(assistantMessage());
+    await event(assistantMessage()); // the SAME id (msg_1) again
+
+    // Both envelopes carry msg_1's cumulative — the map replaced, not stacked.
+    for (const r of envelopes()) expect(r.payload.totals.input).toBe(1000);
+  });
+
+  it("reads a message that sits directly on properties (no info nesting)", async () => {
+    const { event } = await reporter({ client });
+    await event({
+      event: {
+        type: "message.updated",
+        properties: {
+          id: "msg_1",
+          role: "assistant",
+          sessionID: "ses_root",
+          modelID: "claude-sonnet-5",
+          time: { completed: 1 },
+          cost: 0.1,
+          tokens: { input: 1000, output: 200, reasoning: 0, cache: { read: 5000, write: 0 } },
+        },
+      },
+    });
+    expect(envelopes()).toHaveLength(1);
+  });
 });

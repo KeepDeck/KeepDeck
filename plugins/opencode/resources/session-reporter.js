@@ -53,6 +53,9 @@ export default async (input = {}) => {
   // Per-message latest snapshot, summed into the session cumulative. Keyed by
   // message id so a streamed message's repeated updates replace, not stack.
   const messages = new Map();
+  // Child (subagent) session ids seen via session.created(parentID) — their
+  // messages are skipped so the pane's usage tracks the ROOT conversation.
+  const childSessions = new Set();
   const sum = (key) => {
     let total = 0;
     for (const m of messages.values()) total += m[key] ?? 0;
@@ -60,23 +63,27 @@ export default async (input = {}) => {
   };
 
   // modelID → context-window size, resolved lazily from the provider catalog
-  // and cached. Degrades to undefined (tokens shown without a %) on any error.
+  // and cached ONCE ON SUCCESS. A transient first failure (e.g. the SDK server
+  // not ready at session start) leaves it unresolved so the NEXT message
+  // retries — rather than disabling the % for the whole session. Tokens still
+  // emit meanwhile (window omitted → shown without a %).
   let windowByModel;
   const contextWindow = async (modelID) => {
     if (!modelID || !client?.config?.providers) return undefined;
     if (!windowByModel) {
-      windowByModel = new Map();
       try {
         const res = await client.config.providers();
         const providers = res?.data?.providers ?? res?.providers ?? [];
+        const resolved = new Map();
         for (const provider of providers) {
           for (const [id, model] of Object.entries(provider?.models ?? {})) {
             const ctx = model?.limit?.context;
-            if (typeof ctx === "number") windowByModel.set(id, ctx);
+            if (typeof ctx === "number") resolved.set(id, ctx);
           }
         }
+        windowByModel = resolved; // cache only after a successful fetch
       } catch {
-        // degrade: no window size available
+        return undefined; // leave unresolved → retry on the next message
       }
     }
     return windowByModel.get(modelID);
@@ -88,9 +95,13 @@ export default async (input = {}) => {
         // Root sessions only. opencode's task/subagent tool creates CHILD
         // sessions in this same process, each firing `session.created` with
         // `parentID` set — binding to one would rebind the pane to a transient
-        // leaf, and the next restore would resume that leaf.
-        if (event.properties?.info?.parentID) return;
-        const sessionId = event.properties?.info?.id;
+        // leaf. Remember the child id so its usage messages are skipped too.
+        const created = event.properties?.info;
+        if (created?.parentID) {
+          if (created.id) childSessions.add(created.id);
+          return;
+        }
+        const sessionId = created?.id;
         if (!sessionId) return;
         publish({
           v: 1,
@@ -104,10 +115,17 @@ export default async (input = {}) => {
 
       if (event?.type !== "message.updated") return;
       const info = event.properties?.info ?? event.properties;
-      // Assistant messages only, and only once the turn is DONE — message.updated
-      // fires repeatedly as a message streams; the completed frame carries the
-      // final counts, so gating on it emits ~once per turn.
-      if (!info || info.role !== "assistant" || !info.time?.completed || !info.id) {
+      // Assistant messages only, once the turn is DONE (message.updated fires
+      // repeatedly as a message streams; the completed frame carries the final
+      // counts), and only for the ROOT conversation — a subagent's child-session
+      // messages must not hijack the pane's occupancy.
+      if (
+        !info ||
+        info.role !== "assistant" ||
+        !info.time?.completed ||
+        !info.id ||
+        childSessions.has(info.sessionID)
+      ) {
         return;
       }
       const t = info.tokens ?? {};
