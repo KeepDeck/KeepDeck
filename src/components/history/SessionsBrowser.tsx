@@ -8,7 +8,7 @@ import type { SearchHit } from "../../ipc/history";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { BackIcon } from "../../ui/icons";
-import { useScrollPaging } from "../../ui/useScrollPaging";
+import { useScrollPaging, NEAR_END } from "../../ui/useScrollPaging";
 import { baseName } from "../../domain/deck";
 
 interface SessionsBrowserProps {
@@ -61,7 +61,7 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
   const listRef = useRef<HTMLUListElement | null>(null);
   const maybeLoadHits = useScrollPaging(listRef, api, api.hits.length);
   const nearEnd = (el: HTMLElement) =>
-    el.scrollHeight - el.scrollTop - el.clientHeight < 240;
+    el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END;
 
   const loadMore = (hit: SearchHit, from: number) => {
     const seq = viewSeq.current;

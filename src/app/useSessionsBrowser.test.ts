@@ -20,7 +20,8 @@ vi.mock("./runtimeContext", () => ({
   }),
 }));
 
-import { FIRST_PAGE, NEXT_PAGE, useSessionsBrowser } from "./useSessionsBrowser";
+import { useSessionsBrowser } from "./useSessionsBrowser";
+import { FIRST_PAGE, NEXT_PAGE } from "./usePagedSessionSearch";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;

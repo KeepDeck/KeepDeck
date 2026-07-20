@@ -6,10 +6,6 @@ import { scanAgentHistories } from "./historyScan";
 import { useAppRuntime } from "./runtimeContext";
 import { usePagedSessionSearch } from "./usePagedSessionSearch";
 
-// Re-exported for the browser's own tests and any caller still reaching for
-// the page sizes; the engine now owns them.
-export { FIRST_PAGE, NEXT_PAGE } from "./usePagedSessionSearch";
-
 export interface SessionsBrowserApi {
   /** Loaded pages of hits for the current query, in match order. */
   hits: SearchHit[];

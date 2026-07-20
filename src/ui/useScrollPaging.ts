@@ -1,7 +1,9 @@
 import { type RefObject, useCallback, useEffect } from "react";
 
-/** How close to the end (px) pulls the next page in. */
-const NEAR_END = 240;
+/** How close to the end (px) pulls the next page in. Exported so every
+ * scroll-driven pager (incl. the browser's transcript viewer, which runs its
+ * own offset paging) shares one trigger distance. */
+export const NEAR_END = 240;
 
 /**
  * Scroll-driven lazy paging shared by the session lists ([F8]): fetch the next
