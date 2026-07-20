@@ -215,21 +215,42 @@ describe("opencode session reporter", () => {
     expect(reports[reports.length - 1].payload.windowTokens).toBe(200_000);
   });
 
-  it("skips usage from a subagent (child) session", async () => {
+  it("counts subagent spend but keeps occupancy on the root conversation", async () => {
     const { event } = await reporter({ client });
-    // A child session is announced — its id is remembered, not bound.
+    // A child (subagent) session is announced.
     await event({
       event: {
         type: "session.created",
         properties: { info: { id: "ses_child", parentID: "ses_root" } },
       },
     });
-    // The subagent's completed message must NOT hijack the pane's usage.
-    await event(assistantMessage({ sessionID: "ses_child" }));
-    expect(envelopes().filter((e) => e.type === "usage.report")).toEqual([]);
-    // A root-session message still reports.
-    await event(assistantMessage({ sessionID: "ses_root" }));
-    expect(envelopes().filter((e) => e.type === "usage.report")).toHaveLength(1);
+    // A root turn establishes occupancy + identity.
+    await event(
+      assistantMessage({
+        id: "msg_root",
+        sessionID: "ses_root",
+        cost: 0.1,
+        tokens: { input: 1000, output: 200, reasoning: 0, cache: { read: 5000, write: 0 } },
+      }),
+    );
+    // A subagent turn: its cost/tokens count, its occupancy must NOT.
+    await event(
+      assistantMessage({
+        id: "msg_child",
+        sessionID: "ses_child",
+        cost: 0.4,
+        tokens: { input: 300, output: 50, reasoning: 0, cache: { read: 0, write: 0 } },
+      }),
+    );
+
+    const reports = envelopes().sort((a, b) => a.payload.costUsd - b.payload.costUsd);
+    const last = reports[reports.length - 1];
+    // The cumulative INCLUDES the subagent's real spend.
+    expect(last.payload.costUsd).toBeCloseTo(0.5);
+    expect(last.payload.totals.input).toBe(1300); // 1000 + 300
+    // Occupancy + identity stay the ROOT's, never the subagent's.
+    expect(last.payload.sessionId).toBe("ses_root");
+    expect(last.payload.contextTokens).toBe(6200); // root's 1000+200+5000
   });
 
   it("does not double-count when the same message id re-fires", async () => {

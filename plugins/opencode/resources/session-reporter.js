@@ -53,9 +53,12 @@ export default async (input = {}) => {
   // Per-message latest snapshot, summed into the session cumulative. Keyed by
   // message id so a streamed message's repeated updates replace, not stack.
   const messages = new Map();
-  // Child (subagent) session ids seen via session.created(parentID) — their
-  // messages are skipped so the pane's usage tracks the ROOT conversation.
+  // Child (subagent) session ids seen via session.created(parentID). Their
+  // spend still sums into the cumulative, but only a ROOT turn sets the pane's
+  // occupancy + identity (tracked in `root`).
   const childSessions = new Set();
+  // The latest ROOT assistant turn — defines occupancy/identity, not spend.
+  let root;
   const sum = (key) => {
     let total = 0;
     for (const m of messages.values()) total += m[key] ?? 0;
@@ -117,31 +120,33 @@ export default async (input = {}) => {
       const info = event.properties?.info ?? event.properties;
       // Assistant messages only, once the turn is DONE (message.updated fires
       // repeatedly as a message streams; the completed frame carries the final
-      // counts), and only for the ROOT conversation — a subagent's child-session
-      // messages must not hijack the pane's occupancy.
-      if (
-        !info ||
-        info.role !== "assistant" ||
-        !info.time?.completed ||
-        !info.id ||
-        childSessions.has(info.sessionID)
-      ) {
+      // counts).
+      if (!info || info.role !== "assistant" || !info.time?.completed || !info.id) {
         return;
       }
       const t = info.tokens ?? {};
       const cache = t.cache ?? {};
-      messages.set(info.id, {
+      const turn = {
         input: t.input ?? 0,
         output: t.output ?? 0,
         reasoning: t.reasoning ?? 0,
         cacheRead: cache.read ?? 0,
         cacheWrite: cache.write ?? 0,
         cost: info.cost ?? 0,
-      });
-      const last = messages.get(info.id);
+      };
+      // Every assistant turn — ROOT or subagent — is real session spend and
+      // sums into the cumulative. But a subagent's context is ITS own, not the
+      // pane's conversation, so only a ROOT turn sets occupancy + identity.
+      messages.set(info.id, turn);
+      if (!childSessions.has(info.sessionID)) {
+        root = { sessionID: info.sessionID, modelID: info.modelID, turn };
+      }
+      if (!root) return; // no root turn seen yet — accumulate, publish later
+
+      const occ = root.turn;
       const contextTokens =
-        last.input + last.output + last.reasoning + last.cacheRead + last.cacheWrite;
-      const windowTokens = await contextWindow(info.modelID);
+        occ.input + occ.output + occ.reasoning + occ.cacheRead + occ.cacheWrite;
+      const windowTokens = await contextWindow(root.modelID);
       publish({
         v: 1,
         type: "usage.report",
@@ -149,8 +154,8 @@ export default async (input = {}) => {
         token,
         payload: {
           agent: "opencode",
-          sessionId: info.sessionID,
-          model: info.modelID,
+          sessionId: root.sessionID,
+          model: root.modelID,
           ...(windowTokens !== undefined ? { windowTokens } : {}),
           contextTokens,
           totals: {
@@ -161,11 +166,11 @@ export default async (input = {}) => {
             cacheWrite: sum("cacheWrite"),
           },
           lastTurn: {
-            input: last.input,
-            output: last.output,
-            reasoning: last.reasoning,
-            cacheRead: last.cacheRead,
-            cacheWrite: last.cacheWrite,
+            input: occ.input,
+            output: occ.output,
+            reasoning: occ.reasoning,
+            cacheRead: occ.cacheRead,
+            cacheWrite: occ.cacheWrite,
           },
           costUsd: sum("cost"),
         },
