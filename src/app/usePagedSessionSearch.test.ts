@@ -146,4 +146,59 @@ describe("usePagedSessionSearch", () => {
     expect(api.rows).toHaveLength(70);
     expect(api.total).toBe(124);
   });
+
+  it("refuses to page while a fresh search is pending — no splicing onto stale rows", async () => {
+    await mount();
+    act(() => api.refresh());
+    await act(async () => resolvers[0]({ rows: mkRows(0, 50), total: 200 }));
+    expect(api.hasMore).toBe(true);
+    const before = fetchPage.mock.calls.length; // 1 (the page-zero)
+
+    // A new query is queued (debounce pending) → the loaded rows are now stale.
+    act(() => api.search("x"));
+    act(() => api.loadMore()); // must be a NO-OP, not a fetch at the old offset
+    expect(fetchPage.mock.calls.length).toBe(before);
+
+    // Once the new page zero lands, paging resumes against it.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    expect(fetchPage).toHaveBeenLastCalledWith("x", FIRST_PAGE, 0);
+    await act(async () => resolvers[1]({ rows: mkRows(0, 50), total: 80 }));
+    act(() => api.loadMore());
+    expect(fetchPage).toHaveBeenLastCalledWith("x", NEXT_PAGE, 50);
+  });
+
+  it("a rejected loadMore clears the in-flight guard so paging can retry", async () => {
+    await mount();
+    act(() => api.refresh());
+    await act(async () => resolvers[0]({ rows: mkRows(0, 50), total: 100 }));
+
+    fetchPage.mockImplementationOnce(() => Promise.reject(new Error("boom")));
+    act(() => api.loadMore());
+    await act(async () => {}); // let the rejection settle through .catch/.finally
+    expect(api.loadingMore).toBe(false); // the guard was released, not wedged
+
+    // A subsequent page still fires (the default mock queues a resolver again).
+    act(() => api.loadMore());
+    expect(fetchPage).toHaveBeenLastCalledWith("", NEXT_PAGE, 50);
+    await act(async () => resolvers[1]({ rows: mkRows(50, 20), total: 100 }));
+    expect(api.rows).toHaveLength(70);
+  });
+
+  it("a search that lands empty clears rows and total", async () => {
+    await mount();
+    act(() => api.refresh());
+    await act(async () => resolvers[0]({ rows: mkRows(0, 50), total: 100 }));
+    expect(api.rows).toHaveLength(50);
+
+    act(() => api.search("nomatch"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    await act(async () => resolvers[1]({ rows: [], total: 0 }));
+    expect(api.rows).toHaveLength(0);
+    expect(api.total).toBe(0);
+    expect(api.hasMore).toBe(false);
+  });
 });

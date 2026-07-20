@@ -70,7 +70,12 @@ export function usePagedSessionSearch<T>(
   const rowsRef = useRef<T[]>([]);
   const totalRef = useRef(0);
   const loadingMoreRef = useRef(false);
+  // The generation of the latest REQUESTED page zero (bumped synchronously by
+  // `search`/`refresh`). `loadedSeqRef` is the generation the current `rows`
+  // actually belong to (set when a page zero lands). While they differ, a
+  // search is pending or its page zero is still in flight.
   const searchSeq = useRef(0);
+  const loadedSeqRef = useRef(0);
   const debounce = useRef<number | null>(null);
 
   const apply = useCallback((next: T[], count: number) => {
@@ -84,11 +89,13 @@ export function usePagedSessionSearch<T>(
    * shrinks what the user already scrolled into view. */
   const runSearch = useCallback(
     (q: string, atLeast = 0) => {
-      const seq = ++searchSeq.current;
+      // The caller (`search`/`refresh`) has already advanced the generation.
+      const seq = searchSeq.current;
       void fetchRef
         .current(q, Math.max(FIRST_PAGE, atLeast), 0)
         .then((page) => {
           if (searchSeq.current !== seq) return;
+          loadedSeqRef.current = seq;
           apply(page.rows, page.total);
         })
         .catch((e) =>
@@ -102,14 +109,26 @@ export function usePagedSessionSearch<T>(
     (q: string) => {
       queryRef.current = q;
       setQuery(q);
+      // Advance the generation NOW, not when the debounced fetch fires: it
+      // marks the loaded rows stale immediately, so a `loadMore` fired during
+      // the debounce window can't splice the new query's (or new agent's) page
+      // onto the old rows.
+      searchSeq.current += 1;
       if (debounce.current !== null) window.clearTimeout(debounce.current);
-      debounce.current = window.setTimeout(() => runSearch(q), debounceMs);
+      debounce.current = window.setTimeout(() => {
+        debounce.current = null;
+        runSearch(q);
+      }, debounceMs);
     },
     [runSearch, debounceMs],
   );
 
   const loadMore = useCallback(() => {
     if (loadingMoreRef.current) return;
+    // The loaded rows must belong to the CURRENT generation. If a search is
+    // pending, or its page zero hasn't landed yet, paging would append the new
+    // request's page onto stale rows — wait for page zero instead.
+    if (loadedSeqRef.current !== searchSeq.current) return;
     if (rowsRef.current.length >= totalRef.current) return; // nothing beyond
     const seq = searchSeq.current;
     loadingMoreRef.current = true;
@@ -130,8 +149,20 @@ export function usePagedSessionSearch<T>(
   }, [apply]);
 
   const refresh = useCallback(() => {
+    // A refresh is a new page-zero generation too — it drops any in-flight
+    // page and re-anchors what `loadMore` is allowed to extend.
+    searchSeq.current += 1;
     runSearch(queryRef.current, rowsRef.current.length);
   }, [runSearch]);
+
+  // Cancel a pending debounced search on unmount: the spawn dialog's picker
+  // mounts/unmounts per dialog, so a close mid-type would otherwise fire a
+  // fetch and a no-op setState on the dead hook.
+  useEffect(() => {
+    return () => {
+      if (debounce.current !== null) window.clearTimeout(debounce.current);
+    };
+  }, []);
 
   return {
     rows,
