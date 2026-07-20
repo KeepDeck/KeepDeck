@@ -13,9 +13,15 @@ import {
  * Kimi usage — two normalizers because kimi splits its data in two:
  *
  * - Per-pane tokens/context live in the session's wire.jsonl, tailed by the
- *   host (`{agent:"kimi", event}`): a `usage.record` per LLM request (token
- *   counts; their sum IS the context occupancy) and a trimmed `llm.request`
- *   (model + maxTokens = the window size). The store merges the two.
+ *   host (`{agent:"kimi", event}`): a PER-REQUEST `usage.record` (its input
+ *   components sum to THAT turn's context occupancy — occupancy is the latest
+ *   record, never a sum across records) and a trimmed `llm.request` (model +
+ *   maxTokens = the window size). The store merges the two. Kimi writes no
+ *   session token total, so the host tailer folds the per-request records into
+ *   a cumulative and stamps it as `sessionTotals` → `totalTokens` below. NOTE:
+ *   this on-disk `usage.record` shape is kimi-code's less-documented internal
+ *   log (not the documented wire-mode JSON-RPC surface) — kimi has changed it
+ *   once already.
  * - Account rate-limit windows exist NOWHERE on disk — kimi's own /usage
  *   queries the network. The host polls the usages endpoint while a kimi
  *   pane is live; [`normalizeKimiUsages`] reads the response document.
@@ -66,12 +72,28 @@ export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
       ? (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)
       : undefined;
 
+  // The host tailer stamps a running SESSION cumulative onto each record —
+  // kimi itself carries no per-session total. Buckets are summed separately
+  // (inputCacheRead, the re-read prefix, stays out of fresh input).
+  const totals = isJsonRecord(event.sessionTotals) ? event.sessionTotals : undefined;
+  const totalTokens = totals
+    ? collectTokenCounts({
+        input: totals.inputOther,
+        output: totals.output,
+        cacheRead: totals.inputCacheRead,
+        cacheWrite: totals.inputCacheCreation,
+        reasoning: undefined,
+        total: undefined,
+      })
+    : undefined;
+
   return {
     account: null,
     pane: {
       agent: "kimi",
       ...(model ? { model } : {}),
       ...(lastTurnTokens ? { lastTurnTokens } : {}),
+      ...(totalTokens ? { totalTokens } : {}),
       ...(occupied !== undefined ? { context: { usedTokens: occupied } } : {}),
       reportedAt: at,
     },
