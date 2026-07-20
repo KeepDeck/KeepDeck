@@ -126,6 +126,21 @@ describe("HotkeysSection", () => {
     expect(latch.active()).toBe(false);
   });
 
+  it("cancels recording when the pointer presses outside the editor", () => {
+    render();
+    click(chordButtons()[0]);
+    expect(chordButtons()[0].textContent).toBe("Press keys…");
+    // A press on the settings nav (outside .voice-hotkeys) abandons recording.
+    act(() => {
+      document.body.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(write).not.toHaveBeenCalled();
+    expect(chordButtons()[0].textContent).toBe("⌥Space");
+    expect(latch.active()).toBe(false);
+  });
+
   it("warns, but still binds, a chord with no ⌥/⌃/⌘ modifier", () => {
     render();
     click(chordButtons()[0]);

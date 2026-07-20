@@ -67,9 +67,19 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
       setError(null);
       setRecording(null);
     };
+    // A pointer press outside the editor abandons the recording. The settings
+    // dialog keeps every section mounted and merely hides inactive ones, so
+    // navigating away mid-recording would otherwise leave PTT globally
+    // suspended and the next keystroke hijacked.
+    const onPointerDown = (e: PointerEvent): void => {
+      const target = e.target as Element | null;
+      if (!target?.closest(".voice-hotkeys")) setRecording(null);
+    };
     window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onPointerDown, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onPointerDown, true);
       recordingLatch.end();
     };
   }, [recording, bindings, write]);
