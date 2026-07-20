@@ -19,9 +19,12 @@ import { runtime } from "../runtime";
  * kept but flagged, since the in-app handler swallows it from the terminal.
  * Escape is reserved for cancelling and can't be bound.
  *
- * Display reads the shared bindings store (one truth with the handler and the
- * help copy); a pick persists through the host `write`, which round-trips back
- * to the store, so the row updates on its own.
+ * Display reads the shared bindings STORE — not the `values` prop that sibling
+ * fields like ModelsSection read — because the PTT handler reads that same
+ * store and both must show one truth, and the store applies per-slot defaults
+ * so the `{...bindings, [slot]: next}` write is always a complete pair. A pick
+ * still persists through the host `write`, which round-trips back to the store,
+ * so the row updates on its own.
  */
 const ROWS: { slot: keyof VoiceBindings; label: string; hint: string }[] = [
   { slot: "command", label: "Command", hint: "Hold to speak a deck command" },
@@ -93,8 +96,9 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
   return (
     <div className="voice-hotkeys">
       <div className="voice-hotkeys__intro">
-        Hold a chord to talk, release to run or send. Click a shortcut and press
-        a new combination to rebind it; Escape cancels recording.
+        Hold a chord to talk, release to run a command or fill in dictation.
+        Click a shortcut and press a new combination to rebind it; Escape
+        cancels recording.
       </div>
       {ROWS.map((row) => {
         const isRecording = recording === row.slot;
