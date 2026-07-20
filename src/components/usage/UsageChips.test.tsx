@@ -61,6 +61,7 @@ const paneReport = (): { agent: string; result: NormalizedUsage } => ({
       model: "Opus",
       context: { usedPct: 62 },
       costUsd: 4.128,
+      totalTokens: { input: 15_500, output: 1200 },
       reportedAt: 0,
     },
   },
@@ -154,8 +155,89 @@ describe("UsageChips", () => {
     const row = host.querySelector(".usage-session")!;
     expect(row.textContent).toContain("auth-refactor");
     expect(row.textContent).toContain("Opus");
-    expect(row.textContent).toContain("ctx 62%");
+    // Context% moved to the pane header — the popover row no longer carries it.
+    expect(row.textContent).not.toContain("ctx");
+    // In/out session tokens, compact.
+    expect(row.textContent).toContain("↑15.5k");
+    expect(row.textContent).toContain("↓1.2k");
     expect(row.textContent).toContain("$4.13");
+  });
+
+  it("omits the token line when a session reports no token totals", () => {
+    reportUsage("pane-1", limitsReport(42), AT);
+    reportUsage(
+      "pane-1",
+      {
+        agent: "claude",
+        result: {
+          account: null,
+          pane: { agent: "claude", model: "Opus", costUsd: 1, reportedAt: 0 },
+        },
+      },
+      AT,
+    );
+    render();
+    act(() => {
+      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+    });
+    const row = host.querySelector(".usage-session")!;
+    expect(row.querySelector(".usage-session__tokens")).toBeNull();
+    expect(row.textContent).toContain("$1.00");
+  });
+
+  it("shows only the token half a session actually reports", () => {
+    reportUsage("pane-1", limitsReport(42), AT);
+    reportUsage(
+      "pane-1",
+      {
+        agent: "claude",
+        result: {
+          account: null,
+          pane: {
+            agent: "claude",
+            model: "Opus",
+            totalTokens: { input: 15_500 }, // output unknown, not zero
+            reportedAt: 0,
+          },
+        },
+      },
+      AT,
+    );
+    render();
+    act(() => {
+      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+    });
+    const row = host.querySelector(".usage-session")!;
+    expect(row.textContent).toContain("↑15.5k");
+    // The unknown output half is omitted, not shown as "↓0".
+    expect(row.textContent).not.toContain("↓");
+  });
+
+  it("shows only the output half when input is absent", () => {
+    reportUsage("pane-1", limitsReport(42), AT);
+    reportUsage(
+      "pane-1",
+      {
+        agent: "claude",
+        result: {
+          account: null,
+          pane: {
+            agent: "claude",
+            model: "Opus",
+            totalTokens: { output: 1200 }, // input unknown, not zero
+            reportedAt: 0,
+          },
+        },
+      },
+      AT,
+    );
+    render();
+    act(() => {
+      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+    });
+    const row = host.querySelector(".usage-session")!;
+    expect(row.textContent).toContain("↓1.2k");
+    expect(row.textContent).not.toContain("↑");
   });
 
   it("marks stale data instead of showing confident numbers", () => {

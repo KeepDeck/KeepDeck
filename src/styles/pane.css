@@ -185,6 +185,26 @@
   min-width: 0;
 }
 
+/* Live context-occupancy meter, moved here off the usage popover (its
+   per-session rows crowded together). Text-only, calm by default — colour
+   appears only at the context thresholds via the shared .usage-level--*,
+   which win by import order (usage.css loads after pane.css). */
+.pane__ctx {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: #9aa3b2;
+  background-color: rgba(255, 255, 255, 0.035);
+  border: 1px solid #3b4250;
+  flex: none;
+}
+
 /* Narrow pane: drop the branch label and center the chip on its icon alone, so
    in a crowded header it reads as a clean icon dot instead of a clipped, shifted
    badge. `display:none` (not ellipsis-to-nothing) takes the label out of the
@@ -205,10 +225,16 @@
   .pane__branch-label {
     display: none;
   }
+
+  /* The ctx meter is text with no icon to collapse to — it yields here rather
+     than staying full-width and clipping the window controls. */
+  .pane__ctx {
+    display: none;
+  }
 }
 
-/* Narrower: the chip yields entirely — branch identity is the first thing to
-   go, window controls the last. */
+/* Narrower: the branch chip yields entirely — identity goes first, window
+   controls last. */
 @container (max-width: 200px) {
   .pane__branch {
     display: none;

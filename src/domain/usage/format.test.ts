@@ -5,6 +5,7 @@ import {
   formatAge,
   formatCountdown,
   formatPct,
+  formatTokens,
   limitLevel,
   panelWindows,
   usageStale,
@@ -124,9 +125,10 @@ describe("formatPct", () => {
 describe("windowResetCaption", () => {
   const NOW = 1_000_000_000_000;
   it("covers all four window kinds", () => {
+    // An expired window has no caption — the dimmed % already reads as stale.
     expect(
       windowResetCaption({ usedPct: 1, resetsAt: NOW - 1, windowMinutes: 300 }, NOW),
-    ).toBe("reset passed · awaiting report");
+    ).toBe("");
     expect(
       windowResetCaption(
         { usedPct: 1, resetsAt: NOW + 130 * 60_000, windowMinutes: 300 },
@@ -156,5 +158,34 @@ describe("staleness and age", () => {
     expect(formatAge(NOW - 5000, NOW)).toBe("now");
     expect(formatAge(NOW - 3 * 60_000, NOW)).toBe("3m ago");
     expect(formatAge(NOW - 2 * 3_600_000, NOW)).toBe("2h ago");
+  });
+});
+
+describe("formatTokens", () => {
+  it("keeps sub-thousand counts exact", () => {
+    expect(formatTokens(0)).toBe("0");
+    expect(formatTokens(812)).toBe("812");
+    expect(formatTokens(999)).toBe("999");
+    expect(formatTokens(1499.6)).toBe("1.5k"); // rounds at the thousands scale
+  });
+
+  it("abbreviates thousands and millions, dropping a whole-number decimal", () => {
+    expect(formatTokens(1000)).toBe("1k");
+    expect(formatTokens(1500)).toBe("1.5k");
+    expect(formatTokens(15_500)).toBe("15.5k");
+    expect(formatTokens(262_144)).toBe("262.1k");
+    expect(formatTokens(1_200_000)).toBe("1.2M");
+    expect(formatTokens(1_048_576)).toBe("1M");
+  });
+
+  it("promotes k→M at the boundary so nothing renders as 1000k", () => {
+    expect(formatTokens(999_000)).toBe("999k");
+    expect(formatTokens(999_999)).toBe("1M");
+  });
+
+  it("is 0 for non-finite or negative input", () => {
+    expect(formatTokens(-5)).toBe("0");
+    expect(formatTokens(Number.NaN)).toBe("0");
+    expect(formatTokens(Number.POSITIVE_INFINITY)).toBe("0");
   });
 });

@@ -237,6 +237,12 @@
   white-space: nowrap;
 }
 
+/* Session in/out token totals — muted below the cost, which is the headline. */
+.usage-session__tokens {
+  color: #6b7280;
+  font-size: 11px;
+}
+
 /* Narrow bar: shed chip detail before the cluster crowds the actions —
    the second window first, then the labels; the chip keeps its glyph +
    first percentage, the title carries the rest. The panel is anchored and

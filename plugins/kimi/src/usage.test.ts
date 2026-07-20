@@ -39,6 +39,48 @@ describe("normalizeKimiWire", () => {
     });
   });
 
+  it("reads the host's session cumulative into totalTokens", () => {
+    const result = normalizeKimiWire(
+      {
+        agent: "kimi",
+        event: {
+          type: "usage.record",
+          model: "kimi-code/k3",
+          usage: {
+            inputOther: 800,
+            output: 50,
+            inputCacheRead: 41_000,
+            inputCacheCreation: 0,
+          },
+          usageScope: "turn",
+          time: AT,
+          // Stamped by the host tailer, summed across the session's records.
+          sessionTotals: {
+            inputOther: 2000,
+            output: 350,
+            inputCacheRead: 81_000,
+            inputCacheCreation: 900,
+          },
+        },
+      },
+      AT,
+    );
+    // Cumulative in/out for the session — each bucket summed separately.
+    expect(result?.pane?.totalTokens).toEqual({
+      input: 2000,
+      output: 350,
+      cacheRead: 81_000,
+      cacheWrite: 900,
+    });
+    // The per-request counts still land as the last turn.
+    expect(result?.pane?.lastTurnTokens).toEqual({
+      input: 800,
+      output: 50,
+      cacheRead: 41_000,
+      cacheWrite: 0,
+    });
+  });
+
   it("maps a trimmed llm.request to the window size and model", () => {
     const result = normalizeKimiWire(
       {

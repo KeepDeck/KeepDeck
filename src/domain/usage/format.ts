@@ -97,13 +97,14 @@ export function usageStale(reportedAt: number, now: number): boolean {
   return now - reportedAt > USAGE_STALE_AFTER_MS;
 }
 
-/** The caption under a window's percentage — the full window-kind
- * semantics in ONE place (its label sibling is [`windowLabel`]): a passed
- * reset, a live countdown, a rolling window whose reset the CLI didn't
- * share, or a clockless plan BALANCE (kimi's totalQuota — spent and topped
- * up, never reset). */
+/** The caption under a window's percentage — the full window-kind semantics
+ * in ONE place (its label sibling is [`windowLabel`]): a live countdown, a
+ * rolling window whose reset the CLI didn't share, or a clockless plan BALANCE
+ * (kimi's totalQuota — spent and topped up, never reset). An EXPIRED window
+ * gets NO caption (empty): the dimmed percentage already reads as stale, so the
+ * "awaiting report" note was just noise. */
 export function windowResetCaption(window: UsageWindow, now: number): string {
-  if (windowExpired(window, now)) return "reset passed · awaiting report";
+  if (windowExpired(window, now)) return "";
   const countdown = formatCountdown(window.resetsAt, now);
   if (countdown) return `resets in ${countdown}`;
   return window.windowMinutes !== null ? "reset unknown" : "plan allowance";
@@ -116,4 +117,19 @@ export function formatAge(reportedAt: number, now: number): string {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86_400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86_400)}d ago`;
+}
+
+/** A token count as a compact, glanceable string: "812", "15.5k", "1.2M".
+ * One decimal that a whole number drops ("15.0k" → "15k"); sub-thousand
+ * counts stay exact. Non-finite or ≤0 is "0". The k→M boundary promotes at
+ * 999.95k so a value never renders as "1000k". */
+export function formatTokens(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  if (n < 1000) return String(Math.round(n));
+  const oneDp = (x: number) => {
+    const v = Math.round(x * 10) / 10;
+    return Number.isInteger(v) ? String(v) : v.toFixed(1);
+  };
+  const k = n / 1000;
+  return k < 999.95 ? `${oneDp(k)}k` : `${oneDp(n / 1_000_000)}M`;
 }

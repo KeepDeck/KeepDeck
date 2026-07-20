@@ -10,7 +10,13 @@ vi.mock("../terminal/TerminalPane", () => ({
   TerminalPane: vi.fn(() => null),
 }));
 
+import type { NormalizedUsage } from "@keepdeck/plugin-api";
 import { TerminalPane } from "../terminal/TerminalPane";
+import {
+  registerUsageNormalizer,
+  reportUsage,
+  resetUsageManager,
+} from "../../app/usageManager";
 import { AgentPane } from "./AgentPane";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -41,6 +47,7 @@ describe("AgentPane — header badges", () => {
   let root: Root;
 
   beforeEach(() => {
+    resetUsageManager();
     document.body.innerHTML = "";
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -49,6 +56,121 @@ describe("AgentPane — header badges", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    resetUsageManager();
+  });
+
+  it("shows the context meter in the header from live pane usage", () => {
+    registerUsageNormalizer(
+      "claude",
+      (payload) => (payload as { result: NormalizedUsage }).result,
+    );
+    reportUsage("ws:1", {
+      agent: "claude",
+      result: {
+        account: null,
+        pane: { agent: "claude", context: { usedPct: 82 }, reportedAt: 0 },
+      },
+    });
+    act(() => root.render(createElement(AgentPane, baseProps)));
+
+    const ctx = document.querySelector<HTMLElement>(".pane__ctx");
+    expect(ctx).not.toBeNull();
+    expect(ctx!.textContent).toBe("ctx 82%");
+    // 82% is autocompact territory → amber, not calm.
+    expect(ctx!.className).toContain("usage-level--warn");
+  });
+
+  it("shows no context meter when the pane reports no usage", () => {
+    act(() => root.render(createElement(AgentPane, baseProps)));
+    expect(document.querySelector(".pane__ctx")).toBeNull();
+  });
+
+  it("renders a calm context meter without a level class", () => {
+    registerUsageNormalizer(
+      "claude",
+      (payload) => (payload as { result: NormalizedUsage }).result,
+    );
+    reportUsage("ws:1", {
+      agent: "claude",
+      result: {
+        account: null,
+        pane: { agent: "claude", context: { usedPct: 40 }, reportedAt: 0 },
+      },
+    });
+    act(() => root.render(createElement(AgentPane, baseProps)));
+    const ctx = document.querySelector<HTMLElement>(".pane__ctx");
+    expect(ctx?.textContent).toBe("ctx 40%");
+    // Calm (< 75%) → no usage-level--* suffix appended.
+    expect(ctx?.className).toBe("pane__ctx");
+  });
+
+  it("hides the context meter on a non-live (dormant) pane despite usage", () => {
+    registerUsageNormalizer(
+      "claude",
+      (payload) => (payload as { result: NormalizedUsage }).result,
+    );
+    reportUsage("ws:1", {
+      agent: "claude",
+      result: {
+        account: null,
+        pane: { agent: "claude", context: { usedPct: 82 }, reportedAt: 0 },
+      },
+    });
+    act(() =>
+      root.render(createElement(AgentPane, { ...baseProps, dormant: true })),
+    );
+    // A frozen ctx% must not read as live on a pane that isn't running.
+    expect(document.querySelector(".pane__ctx")).toBeNull();
+  });
+
+  it.each([
+    [
+      "provisioning",
+      { provisioning: { repo: "/r", baseDir: "/w", branch: "b", workspace: "w", index: 1 } },
+    ],
+    ["unavailable", { unavailableAgent: "gemini" }],
+    ["plan-pending", { planPending: true }],
+  ] as const)(
+    "hides the context meter on a %s pane despite usage",
+    (_label, override) => {
+      registerUsageNormalizer(
+        "claude",
+        (payload) => (payload as { result: NormalizedUsage }).result,
+      );
+      reportUsage("ws:1", {
+        agent: "claude",
+        result: {
+          account: null,
+          pane: { agent: "claude", context: { usedPct: 82 }, reportedAt: 0 },
+        },
+      });
+      act(() =>
+        root.render(createElement(AgentPane, { ...baseProps, ...override })),
+      );
+      expect(document.querySelector(".pane__ctx")).toBeNull();
+    },
+  );
+
+  it("hides the context meter once the pane's process has exited", () => {
+    registerUsageNormalizer(
+      "claude",
+      (payload) => (payload as { result: NormalizedUsage }).result,
+    );
+    reportUsage("ws:1", {
+      agent: "claude",
+      result: {
+        account: null,
+        pane: { agent: "claude", context: { usedPct: 82 }, reportedAt: 0 },
+      },
+    });
+    vi.mocked(TerminalPane).mockClear();
+    act(() => root.render(createElement(AgentPane, baseProps)));
+    expect(document.querySelector(".pane__ctx")).not.toBeNull(); // live → shown
+    // The PTY exits → the now-frozen ctx% must go.
+    const calls = vi.mocked(TerminalPane).mock.calls;
+    const terminalProps = calls[calls.length - 1]?.[0];
+    act(() => terminalProps?.onExit?.(0, false));
+    expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
   it("renders a runtime git badge when provided", () => {

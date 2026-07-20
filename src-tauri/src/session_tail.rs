@@ -97,6 +97,20 @@ struct TailedEvent {
     source_mtime_ms: Option<u64>,
 }
 
+/// Kimi's running per-tail token cumulative. Kimi writes only per-request
+/// counts (`usage.record`), never a session total, and catch-up collapses to
+/// the last record — so the sum is held here and stamped onto each event as
+/// `sessionTotals`. Each bucket sums SEPARATELY: `inputCacheRead` is the
+/// re-read context prefix (occupancy), NOT fresh input, so it never joins the
+/// fresh-input total. Stays zero for codex, which carries its own cumulative.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct KimiTotals {
+    input_other: u64,
+    output: u64,
+    input_cache_read: u64,
+    input_cache_creation: u64,
+}
+
 /// One followed session file: where we are in it and how to attribute what
 /// we find. The token is the pane's spawn-plan secret, passed by the webview
 /// at watch time so tailer reports ride the same verification path as
@@ -110,6 +124,8 @@ struct TailState {
     partial: Vec<u8>,
     /// Inside an abandoned oversized line — drop bytes until its newline.
     skipping: bool,
+    /// Running token cumulative for kimi (see [`KimiTotals`]); zero otherwise.
+    totals: KimiTotals,
 }
 
 /// A pathological line (megabytes with no newline yet) must not buffer
@@ -226,10 +242,13 @@ fn drain(state: &mut TailState) -> Vec<TailedEvent> {
     if len < state.offset {
         // A rotated/truncated file is a fresh start — including out of an
         // abandoned-line skip, or the new file's FIRST line would be
-        // silently dropped as the monster's tail (review finding).
+        // silently dropped as the monster's tail (review finding). The token
+        // cumulative resets too, so the new session sums from zero rather than
+        // carrying the old file's totals forward.
         state.offset = 0;
         state.partial.clear();
         state.skipping = false;
+        state.totals = KimiTotals::default();
     }
     if len == state.offset || file.seek(SeekFrom::Start(state.offset)).is_err() {
         return Vec::new();
@@ -288,6 +307,46 @@ fn last_of_each(events: Vec<TailedEvent>, order: [&str; 2]) -> Vec<TailedEvent> 
     last.into_iter().flatten().collect()
 }
 
+/// Fold one event's per-request token buckets into the running kimi cumulative
+/// and stamp the cumulative onto the event as `sessionTotals`, so the store
+/// gets a session total even though catch-up collapses to the last record.
+/// Only kimi `usage.record` events count; codex (native cumulative) and every
+/// other event pass through untouched. Buckets sum SEPARATELY — `inputCacheRead`
+/// (the re-read context prefix) is kept out of the fresh-input total.
+fn accumulate_session_totals(
+    totals: &mut KimiTotals,
+    format: TailFormat,
+    event: &mut TailedEvent,
+) {
+    if format != TailFormat::KimiWire
+        || event.payload.get("type").and_then(Value::as_str) != Some("usage.record")
+    {
+        return;
+    }
+    let usage = event.payload.get("usage");
+    let bucket =
+        |key: &str| usage.and_then(|u| u.get(key)).and_then(Value::as_u64).unwrap_or(0);
+    let input_other = bucket("inputOther");
+    let output = bucket("output");
+    let input_cache_read = bucket("inputCacheRead");
+    let input_cache_creation = bucket("inputCacheCreation");
+    totals.input_other += input_other;
+    totals.output += output;
+    totals.input_cache_read += input_cache_read;
+    totals.input_cache_creation += input_cache_creation;
+    if let Some(object) = event.payload.as_object_mut() {
+        object.insert(
+            "sessionTotals".to_string(),
+            json!({
+                "inputOther": totals.input_other,
+                "output": totals.output,
+                "inputCacheRead": totals.input_cache_read,
+                "inputCacheCreation": totals.input_cache_creation,
+            }),
+        );
+    }
+}
+
 /// Wrap one session-file event into the bridge's wire shape. `agent` and
 /// `catchUp` are HOST-owned transport keys on the payload: `catchUp` marks
 /// events replayed from the EXISTING file at arm time — the store must not
@@ -331,7 +390,9 @@ fn spawn_tailer(
                     break;
                 }
                 let Ok(mut s) = state.lock() else { break };
-                for event in drain(&mut s) {
+                let format = s.format;
+                for mut event in drain(&mut s) {
+                    accumulate_session_totals(&mut s.totals, format, &mut event);
                     deliver(report(&s, event, false));
                 }
             }
@@ -364,6 +425,7 @@ pub fn usage_watch_session_file(
         offset: 0,
         partial: Vec::new(),
         skipping: false,
+        totals: KimiTotals::default(),
     }));
 
     // Watcher FIRST, catch-up second: an append landing during the catch-up
@@ -383,7 +445,14 @@ pub fn usage_watch_session_file(
     })?;
     let caught_up = {
         let mut s = state.lock().expect("tail state poisoned");
-        let events = last_of_each(drain(&mut s), format.catch_up_order());
+        // Fold the WHOLE catch-up drain into the running cumulative in file
+        // order BEFORE last_of_each collapses it — the surviving last
+        // usage.record then carries the session total of everything before it.
+        let mut drained = drain(&mut s);
+        for event in &mut drained {
+            accumulate_session_totals(&mut s.totals, format, event);
+        }
+        let events = last_of_each(drained, format.catch_up_order());
         let count = events.len();
         for event in events {
             let _ = app.emit(USAGE_REPORT_EVENT, &report(&s, event, true));
@@ -487,6 +556,7 @@ fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
             offset: 0,
             partial: Vec::new(),
             skipping: false,
+            totals: KimiTotals::default(),
         };
         let event = last_of_each(drain(&mut state), TailFormat::Codex.catch_up_order())
             .into_iter()
@@ -566,6 +636,7 @@ mod tests {
             offset: 0,
             partial: Vec::new(),
             skipping: false,
+            totals: KimiTotals::default(),
         }
     }
 
@@ -652,6 +723,123 @@ mod tests {
 
         assert_eq!(wire_event(br#"{"type":"turn.prompt","text":"hi"}"#), None);
         assert_eq!(wire_event(b"not json"), None);
+    }
+
+    #[test]
+    fn kimi_session_totals_sum_each_bucket_separately() {
+        let mut totals = KimiTotals::default();
+        // USAGE_RECORD_LINE: inputOther 1200, output 300, inputCacheRead 40000,
+        // inputCacheCreation 900.
+        let mut first = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
+        accumulate_session_totals(&mut totals, TailFormat::KimiWire, &mut first);
+        assert_eq!(
+            first.payload["sessionTotals"],
+            serde_json::json!({
+                "inputOther": 1200, "output": 300,
+                "inputCacheRead": 40000, "inputCacheCreation": 900
+            })
+        );
+
+        let line2 = r#"{"type":"usage.record","usage":{"inputOther":800,"output":50,"inputCacheRead":41000,"inputCacheCreation":0},"usageScope":"turn","time":1784800001000}"#;
+        let mut second = wire_event(line2.as_bytes()).unwrap();
+        accumulate_session_totals(&mut totals, TailFormat::KimiWire, &mut second);
+        // Fresh input (inputOther) and the re-read prefix (inputCacheRead) sum
+        // in SEPARATE buckets — the prefix never inflates fresh input.
+        assert_eq!(
+            second.payload["sessionTotals"],
+            serde_json::json!({
+                "inputOther": 2000, "output": 350,
+                "inputCacheRead": 81000, "inputCacheCreation": 900
+            })
+        );
+        assert_eq!(
+            totals,
+            KimiTotals {
+                input_other: 2000,
+                output: 350,
+                input_cache_read: 81000,
+                input_cache_creation: 900,
+            }
+        );
+    }
+
+    #[test]
+    fn accumulate_leaves_codex_and_non_usage_events_alone() {
+        let mut totals = KimiTotals::default();
+        // Codex owns a native cumulative — never stamped, even for a
+        // usage.record-shaped line under the codex format.
+        let mut codex = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
+        accumulate_session_totals(&mut totals, TailFormat::Codex, &mut codex);
+        assert!(codex.payload.get("sessionTotals").is_none());
+        assert_eq!(totals, KimiTotals::default());
+        // A kimi llm.request carries no counts — untouched.
+        let mut request = wire_event(LLM_REQUEST_LINE.as_bytes()).unwrap();
+        accumulate_session_totals(&mut totals, TailFormat::KimiWire, &mut request);
+        assert!(request.payload.get("sessionTotals").is_none());
+        assert_eq!(totals, KimiTotals::default());
+    }
+
+    #[test]
+    fn drain_rotation_resets_the_kimi_cumulative() {
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        let mut state = tail(path.clone());
+        state.format = TailFormat::KimiWire;
+
+        fs::write(&path, format!("{USAGE_RECORD_LINE}\n{USAGE_RECORD_LINE}\n")).unwrap();
+        for mut event in drain(&mut state) {
+            accumulate_session_totals(&mut state.totals, TailFormat::KimiWire, &mut event);
+        }
+        assert_eq!(state.totals.input_other, 2400);
+
+        // A shrunk file (rotation / new session): drain zeroes the cumulative
+        // so the new session sums from scratch, not atop the old one.
+        fs::write(&path, format!("{USAGE_RECORD_LINE}\n")).unwrap();
+        let events = drain(&mut state);
+        assert_eq!(state.totals, KimiTotals::default());
+        for mut event in events {
+            accumulate_session_totals(&mut state.totals, TailFormat::KimiWire, &mut event);
+        }
+        assert_eq!(state.totals.input_other, 1200);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn catch_up_last_record_carries_the_full_session_cumulative() {
+        // The crux invariant, end to end: fold the whole drain in file order,
+        // THEN last_of_each keeps the last usage.record — which must carry the
+        // cumulative of ALL prior records, not just its own line (mirrors the
+        // order in usage_watch_session_file). A refactor that ran last_of_each
+        // first would silently drop the earlier records' tokens.
+        let dir = temp_dir();
+        let path = dir.join("wire.jsonl");
+        let mut state = tail(path.clone());
+        state.format = TailFormat::KimiWire;
+        let record = |input: u64| {
+            format!(
+                r#"{{"type":"usage.record","usage":{{"inputOther":{input},"output":10,"inputCacheRead":0,"inputCacheCreation":0}},"usageScope":"turn","time":1}}"#
+            )
+        };
+        fs::write(
+            &path,
+            format!("{}\n{}\n{}\n", record(100), record(200), record(300)),
+        )
+        .unwrap();
+
+        let mut drained = drain(&mut state);
+        for event in &mut drained {
+            accumulate_session_totals(&mut state.totals, TailFormat::KimiWire, event);
+        }
+        let kept = last_of_each(drained, TailFormat::KimiWire.catch_up_order());
+        let surviving = kept
+            .iter()
+            .find(|e| e.payload["type"] == "usage.record")
+            .expect("a usage.record survives catch-up");
+        assert_eq!(surviving.payload["sessionTotals"]["inputOther"], 600); // 100+200+300
+        assert_eq!(surviving.payload["sessionTotals"]["output"], 30);
+
+        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

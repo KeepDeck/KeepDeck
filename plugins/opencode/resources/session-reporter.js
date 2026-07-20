@@ -9,18 +9,25 @@
  * attribution is exact even when several agents spawn in parallel, and `/new`
  * typed inside the TUI is caught too.
  *
- * Every ROOT `session.created` in this process becomes a bridge-protocol-v1
- * `session.bound` envelope in the bridge inbox — a uniquely named file
- * (randomUUID, so parallel events never collide), written as `.tmp` and
- * renamed so the watcher never sees a torn file. Reporting is best-effort: a
- * KeepDeck-less environment (or a full disk) must never break the user's
- * session.
+ * Two jobs, both best-effort (a KeepDeck-less environment, or a full disk,
+ * must never break the user's session):
+ *  - Every ROOT `session.created` becomes a bridge-protocol-v1 `session.bound`
+ *    envelope — the pane ⇄ session identity.
+ *  - Every COMPLETED assistant `message.updated` becomes a `usage.report`
+ *    envelope. OpenCode reports tokens/cost PER MESSAGE, so the running session
+ *    cumulative is kept here (latest snapshot per message id, summed); the
+ *    context-window size is resolved once from the SDK client's provider
+ *    catalog and cached. OpenCode exposes no account rate-limit windows, so the
+ *    report is pane usage only.
+ *
+ * Envelopes are uniquely named (randomUUID, so parallel events never collide),
+ * written as `.tmp` and renamed so the watcher never sees a torn file.
  */
 import { randomUUID } from "node:crypto";
 import { renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export default async () => {
+export default async (input = {}) => {
   let bridge;
   try {
     bridge = JSON.parse(process.env.KEEPDECK_BRIDGE ?? "");
@@ -30,33 +37,144 @@ export default async () => {
   const { dir, pane, token } = bridge ?? {};
   if (!dir || !pane || !token) return {};
 
+  const client = input?.client;
+
+  /** Atomically drop one bridge envelope into the inbox. Best-effort. */
+  const publish = (envelope) => {
+    try {
+      const base = join(dir, `${envelope.type}-${randomUUID()}`);
+      writeFileSync(`${base}.tmp`, JSON.stringify(envelope));
+      renameSync(`${base}.tmp`, `${base}.json`);
+    } catch {
+      // best-effort by design
+    }
+  };
+
+  // Per-message latest snapshot, summed into the session cumulative. Keyed by
+  // message id so a streamed message's repeated updates replace, not stack.
+  const messages = new Map();
+  // Child (subagent) session ids seen via session.created(parentID). Their
+  // spend still sums into the cumulative, but only a ROOT turn sets the pane's
+  // occupancy + identity (tracked in `root`).
+  const childSessions = new Set();
+  // The latest ROOT assistant turn — defines occupancy/identity, not spend.
+  let root;
+  const sum = (key) => {
+    let total = 0;
+    for (const m of messages.values()) total += m[key] ?? 0;
+    return total;
+  };
+
+  // modelID → context-window size, resolved lazily from the provider catalog
+  // and cached ONCE ON SUCCESS. A transient first failure (e.g. the SDK server
+  // not ready at session start) leaves it unresolved so the NEXT message
+  // retries — rather than disabling the % for the whole session. Tokens still
+  // emit meanwhile (window omitted → shown without a %).
+  let windowByModel;
+  const contextWindow = async (modelID) => {
+    if (!modelID || !client?.config?.providers) return undefined;
+    if (!windowByModel) {
+      try {
+        const res = await client.config.providers();
+        const providers = res?.data?.providers ?? res?.providers ?? [];
+        const resolved = new Map();
+        for (const provider of providers) {
+          for (const [id, model] of Object.entries(provider?.models ?? {})) {
+            const ctx = model?.limit?.context;
+            if (typeof ctx === "number") resolved.set(id, ctx);
+          }
+        }
+        windowByModel = resolved; // cache only after a successful fetch
+      } catch {
+        return undefined; // leave unresolved → retry on the next message
+      }
+    }
+    return windowByModel.get(modelID);
+  };
+
   return {
     event: async ({ event }) => {
-      if (event?.type !== "session.created") return;
-      // Root sessions only. opencode's task/subagent tool creates CHILD
-      // sessions in this same process, each firing `session.created` with
-      // `parentID` set. Binding the pane to one would rebind it to a
-      // transient leaf, and the next restore would resume that leaf instead
-      // of the conversation the user is actually having.
-      if (event.properties?.info?.parentID) return;
-      const sessionId = event.properties?.info?.id;
-      if (!sessionId) return;
-      try {
-        const base = join(dir, `session.bound-${randomUUID()}`);
-        writeFileSync(
-          `${base}.tmp`,
-          JSON.stringify({
-            v: 1,
-            type: "session.bound",
-            paneId: pane,
-            token,
-            payload: { sessionId, agent: "opencode" },
-          }),
-        );
-        renameSync(`${base}.tmp`, `${base}.json`);
-      } catch {
-        // best-effort by design
+      if (event?.type === "session.created") {
+        // Root sessions only. opencode's task/subagent tool creates CHILD
+        // sessions in this same process, each firing `session.created` with
+        // `parentID` set — binding to one would rebind the pane to a transient
+        // leaf. Remember the child id so its usage messages are skipped too.
+        const created = event.properties?.info;
+        if (created?.parentID) {
+          if (created.id) childSessions.add(created.id);
+          return;
+        }
+        const sessionId = created?.id;
+        if (!sessionId) return;
+        publish({
+          v: 1,
+          type: "session.bound",
+          paneId: pane,
+          token,
+          payload: { sessionId, agent: "opencode" },
+        });
+        return;
       }
+
+      if (event?.type !== "message.updated") return;
+      const info = event.properties?.info ?? event.properties;
+      // Assistant messages only, once the turn is DONE (message.updated fires
+      // repeatedly as a message streams; the completed frame carries the final
+      // counts).
+      if (!info || info.role !== "assistant" || !info.time?.completed || !info.id) {
+        return;
+      }
+      const t = info.tokens ?? {};
+      const cache = t.cache ?? {};
+      const turn = {
+        input: t.input ?? 0,
+        output: t.output ?? 0,
+        reasoning: t.reasoning ?? 0,
+        cacheRead: cache.read ?? 0,
+        cacheWrite: cache.write ?? 0,
+        cost: info.cost ?? 0,
+      };
+      // Every assistant turn — ROOT or subagent — is real session spend and
+      // sums into the cumulative. But a subagent's context is ITS own, not the
+      // pane's conversation, so only a ROOT turn sets occupancy + identity.
+      messages.set(info.id, turn);
+      if (!childSessions.has(info.sessionID)) {
+        root = { sessionID: info.sessionID, modelID: info.modelID, turn };
+      }
+      if (!root) return; // no root turn seen yet — accumulate, publish later
+
+      const occ = root.turn;
+      const contextTokens =
+        occ.input + occ.output + occ.reasoning + occ.cacheRead + occ.cacheWrite;
+      const windowTokens = await contextWindow(root.modelID);
+      publish({
+        v: 1,
+        type: "usage.report",
+        paneId: pane,
+        token,
+        payload: {
+          agent: "opencode",
+          sessionId: root.sessionID,
+          model: root.modelID,
+          ...(windowTokens !== undefined ? { windowTokens } : {}),
+          contextTokens,
+          totals: {
+            input: sum("input"),
+            output: sum("output"),
+            reasoning: sum("reasoning"),
+            cacheRead: sum("cacheRead"),
+            cacheWrite: sum("cacheWrite"),
+          },
+          lastTurn: {
+            input: occ.input,
+            output: occ.output,
+            reasoning: occ.reasoning,
+            cacheRead: occ.cacheRead,
+            cacheWrite: occ.cacheWrite,
+          },
+          costUsd: sum("cost"),
+        },
+      });
     },
   };
 };
