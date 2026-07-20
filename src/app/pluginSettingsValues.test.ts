@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { SettingsSectionContribution } from "@keepdeck/plugin-api";
 import { mergeSectionValues } from "./pluginSettingsValues";
 
+// A no-op component stands in for a real custom field's body — mergeSectionValues
+// never renders it, it only reads the stored value at the field key.
+const NoopComponent = () => null;
+
 const section: SettingsSectionContribution = {
   label: "Sample",
   fields: [
@@ -24,6 +28,7 @@ const section: SettingsSectionContribution = {
       label: "Apps",
       default: ["VS Code"],
     },
+    { kind: "custom", key: "blob", Component: NoopComponent },
   ],
 };
 
@@ -75,6 +80,18 @@ describe("mergeSectionValues", () => {
     expect(mergeSectionValues(section, { mode: "manual" }).mode).toBe(
       "manual",
     );
+  });
+
+  it("passes a custom field's stored value through unchanged", () => {
+    // Regression: a custom field has no host-known type, so without an explicit
+    // pass-through pick() dropped it — breaking every plugin that reads its own
+    // custom state via ctx.settings.read()/onChange (e.g. the voice hotkeys).
+    const blob = { command: { code: "KeyJ", meta: true }, dictation: {} };
+    expect(mergeSectionValues(section, { blob }).blob).toEqual(blob);
+  });
+
+  it("a custom field is undefined (unset) when nothing is stored for it", () => {
+    expect(mergeSectionValues(section, { note: "x" }).blob).toBeUndefined();
   });
 
   it("keys the section does not declare never come through", () => {
