@@ -22,7 +22,9 @@ export function installPttHotkeys(
   let heldChord: Chord | null = null;
 
   const onKeyDown = (e: KeyboardEvent): void => {
-    // The settings recorder is capturing a new chord — leave its keys alone.
+    // The settings recorder is capturing a new chord — don't START a hold on
+    // its keys. A keyup is NOT gated (see onKeyUp): a hold already in progress
+    // must still be releasable, or its mic capture is stranded open.
     if (isSuspended()) return;
     if (e.key === "Escape" && controller.snapshot().phase === "listening") {
       e.preventDefault();
@@ -42,7 +44,9 @@ export function installPttHotkeys(
   };
 
   const onKeyUp = (e: KeyboardEvent): void => {
-    if (isSuspended()) return;
+    // Deliberately NOT gated by isSuspended: if a hold was active when the
+    // recorder started, its release must still end the capture. With no hold
+    // (heldChord null) this is a no-op, so recorder keys pass through harmless.
     if (!heldChord || !endsHold(e, heldChord)) return;
     e.preventDefault();
     e.stopPropagation();

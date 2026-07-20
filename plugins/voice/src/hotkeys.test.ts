@@ -138,6 +138,22 @@ describe("installPttHotkeys", () => {
     expect(c.start).toHaveBeenCalledWith("command");
   });
 
+  it("still ends an in-progress hold when suspension begins mid-hold", () => {
+    const state = { phase: "idle" as VoicePhase };
+    const c = fakeController(state);
+    let suspended = false;
+    uninstall = installPttHotkeys(c, () => DEFAULT_BINDINGS, () => suspended);
+
+    // Hold ⌥Space → a command capture is open.
+    press("keydown", { code: "Space", key: " ", altKey: true });
+    expect(c.start).toHaveBeenCalledWith("command");
+    // The recorder opens mid-hold (suspended); releasing must STILL stop, or
+    // the mic capture is stranded open.
+    suspended = true;
+    press("keyup", { code: "Space", key: " ", altKey: true });
+    expect(c.stop).toHaveBeenCalledTimes(1);
+  });
+
   it("stops listening after uninstall", () => {
     const state = { phase: "idle" as VoicePhase };
     const c = fakeController(state);
