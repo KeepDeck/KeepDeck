@@ -14,7 +14,7 @@ import { createModelsStore } from "./models";
 import { createBindingsStore } from "./bindingsStore";
 import { createRecordingLatch } from "./recordingLatch";
 import { installPttHotkeys } from "./hotkeys";
-import { clearRuntime, runtime, setRuntime } from "./runtime";
+import { clearRuntime, runtime, setRuntime, type VoiceRuntime } from "./runtime";
 import { HotkeysSection } from "./components/HotkeysSection";
 import { ModelsSection } from "./components/ModelsSection";
 import { VoiceOverlay } from "./components/VoiceOverlay";
@@ -58,17 +58,18 @@ const plugin: KeepDeckPlugin = {
   async deactivate() {
     uninstallHotkeys?.();
     uninstallHotkeys = null;
-    runtimeMember((rt) => rt.bindings.dispose());
-    await runtimeMember((rt) => rt.controller.cancel());
+    const rt = tryRuntime();
+    rt?.bindings.dispose();
+    await rt?.controller.cancel();
     clearRuntime();
   },
 };
 
-/** Run `fn` against the live runtime if the plugin is active; a deactivate that
- * races activation (no runtime yet) is a no-op. */
-function runtimeMember<T>(fn: (rt: ReturnType<typeof runtime>) => T): T | null {
+/** The live runtime if the plugin is active, else null — a deactivate that
+ * races activation (no runtime yet) reads null and no-ops. */
+function tryRuntime(): VoiceRuntime | null {
   try {
-    return fn(runtime());
+    return runtime();
   } catch {
     return null;
   }
