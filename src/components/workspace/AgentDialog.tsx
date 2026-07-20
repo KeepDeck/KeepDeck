@@ -185,18 +185,23 @@ export function AgentDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startMode, agentType, sessionQuery]);
 
-  // A pick belongs to ONE agent's store — switching agents voids it (and
-  // the typed filter; the fresh listing shouldn't open pre-narrowed). An
-  // auto-filled (untouched) name came from that pick's title, so drop it too;
-  // a hand-edited name stays the user's.
+  // Prefill the Name from a session title while the field is UNTOUCHED (name
+  // still equals the last prefill); a hand-edited name stays the user's. The
+  // previous prefill is captured BEFORE reassigning the ref — setName's updater
+  // runs later, by which point prefillRef.current would already be `next`.
+  const applyPrefill = (next: string) => {
+    const previous = prefillRef.current;
+    setName((current) => (current === previous ? next : current));
+    prefillRef.current = next;
+  };
+
+  // A pick belongs to ONE agent's store — switching agents voids it (and the
+  // typed filter; the fresh listing shouldn't open pre-narrowed). An
+  // auto-filled (untouched) name came from that pick's title, so drop it too.
   useEffect(() => {
     setPicked(null);
     setSessionQuery("");
-    // Capture the prefill BEFORE clearing the ref — the setName updater runs
-    // later, by which point prefillRef.current would already be "".
-    const previous = prefillRef.current;
-    setName((cur) => (cur === previous ? "" : cur));
-    prefillRef.current = "";
+    applyPrefill("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentType]);
 
@@ -224,14 +229,13 @@ export function AgentDialog({
   };
 
   const pickSession = (row: SessionPickRow) => {
+    // Ignore a click on a row from a DIFFERENT agent than the selected one —
+    // reachable only on a row still rendered from the previous agent during the
+    // search debounce window. `validPick` already blocks it downstream; this
+    // also stops the Name from prefilling off a pick that can't be used.
+    if (row.handle.agent !== agentType) return;
     setPicked(row);
-    // Prefill the name from the session title while the field is untouched.
-    // The previous prefill is captured OUTSIDE the updater — the ref is
-    // reassigned below, and updaters run later.
-    const title = row.handle.title ?? "";
-    const previous = prefillRef.current;
-    setName((current) => (current === previous ? title : current));
-    prefillRef.current = title;
+    applyPrefill(row.handle.title ?? "");
   };
 
   // Snap the pre-selected type onto the installed set once detection resolves

@@ -874,7 +874,9 @@ describe("AgentDialog cross-agent pick guard", () => {
     expect(row.textContent).toContain("claude work");
     act(() => row.click());
 
-    // Cross-agent pick → Create stays gated and confirm carries no session.
+    // Cross-agent click is ignored: no name prefill, Create stays gated, and
+    // confirm carries no session.
+    expect(nameField().value).toBe("");
     expect(createBtn().disabled).toBe(true);
     submit();
     expect(confirmed).toEqual([]);
