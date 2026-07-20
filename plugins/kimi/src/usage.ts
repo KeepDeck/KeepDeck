@@ -5,9 +5,26 @@ import {
   collectTokenCounts,
   isJsonRecord,
   type LimitsNormalizer,
+  type TokenCounts,
   type UsageNormalizer,
   type UsageWindow,
 } from "@keepdeck/plugin-api";
+
+/** A kimi token bag ({inputOther, output, inputCacheRead, inputCacheCreation})
+ * → normalized counts. The per-request `usage` and the host tailer's cumulative
+ * `sessionTotals` share this exact shape (the latter is the former summed), so
+ * both map through here — a rename touches ONE place. */
+function tokens(bag: Record<string, unknown> | undefined): TokenCounts | undefined {
+  if (!bag) return undefined;
+  return collectTokenCounts({
+    input: bag.inputOther,
+    output: bag.output,
+    cacheRead: bag.inputCacheRead,
+    cacheWrite: bag.inputCacheCreation,
+    reasoning: undefined,
+    total: undefined,
+  });
+}
 
 /**
  * Kimi usage — two normalizers because kimi splits its data in two:
@@ -55,16 +72,7 @@ export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
   const input = usage ? asFiniteNumber(usage.inputOther) : undefined;
   const cacheRead = usage ? asFiniteNumber(usage.inputCacheRead) : undefined;
   const cacheWrite = usage ? asFiniteNumber(usage.inputCacheCreation) : undefined;
-  const lastTurnTokens = usage
-    ? collectTokenCounts({
-        input: usage.inputOther,
-        output: usage.output,
-        cacheRead: usage.inputCacheRead,
-        cacheWrite: usage.inputCacheCreation,
-        reasoning: undefined,
-        total: undefined,
-      })
-    : undefined;
+  const lastTurnTokens = tokens(usage);
   // The request's full input (fresh + cache read + cache write) is what
   // occupies the context; the window size arrives via llm.request.
   const occupied =
@@ -76,16 +84,7 @@ export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
   // kimi itself carries no per-session total. Buckets are summed separately
   // (inputCacheRead, the re-read prefix, stays out of fresh input).
   const totals = isJsonRecord(event.sessionTotals) ? event.sessionTotals : undefined;
-  const totalTokens = totals
-    ? collectTokenCounts({
-        input: totals.inputOther,
-        output: totals.output,
-        cacheRead: totals.inputCacheRead,
-        cacheWrite: totals.inputCacheCreation,
-        reasoning: undefined,
-        total: undefined,
-      })
-    : undefined;
+  const totalTokens = tokens(totals);
 
   return {
     account: null,
