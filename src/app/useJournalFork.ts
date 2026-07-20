@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import type { SpawnPlanContext } from "../domain/agents";
 import {
   findWorkspace,
@@ -7,13 +6,14 @@ import {
   paneId,
   type Pane,
 } from "../domain/deck";
-import type { SessionRecord } from "../domain/journal";
+import type { SessionHandle } from "../domain/journal";
 import { describeError, log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
 import { provisionInto, runProvisioning } from "./provisioning";
 import { buildForkSpec, dropPaneSpawnSpec } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
+import { useLiveRefs } from "./useLiveRefs";
 
 /** Where a fork lands: an existing directory (the workspace folder, or an
  * attached worktree), or a NEW worktree the fork provisions first. */
@@ -24,7 +24,7 @@ export type ForkTarget =
 export interface JournalForkApi {
   /** Fork a journal record into `target` as a new pane of the workspace.
    * Rejects when no plan could be prepared (surgery failures included). */
-  fork(wsId: string, record: SessionRecord, target: ForkTarget): Promise<void>;
+  fork(wsId: string, record: SessionHandle, target: ForkTarget): Promise<void>;
 }
 
 /**
@@ -46,15 +46,11 @@ export function useJournalFork(
   ctx: SpawnPlanContext | null,
 ): JournalForkApi {
   const { plugins } = useAppRuntime();
-  const inFlight = useRef(new Set<string>());
-  const deckRef = useRef(deck);
-  deckRef.current = deck;
-  const ctxRef = useRef(ctx);
-  ctxRef.current = ctx;
+  const { deckRef, ctxRef, inFlight } = useLiveRefs(deck, ctx);
 
   const fork = async (
     wsId: string,
-    record: SessionRecord,
+    record: SessionHandle,
     target: ForkTarget,
   ): Promise<void> => {
     const spawnCtx = ctxRef.current;

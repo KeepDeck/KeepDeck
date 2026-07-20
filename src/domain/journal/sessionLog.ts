@@ -36,6 +36,16 @@ export type SessionRecord =
   | (SessionRecordBase & { state: "live"; paneId: string })
   | (SessionRecordBase & { state: "closed"; endedAt: string });
 
+/** What the resume/fork flows actually consume — the session's identity and
+ * shape, WITHOUT the journal's lifecycle fields. Journal records satisfy it
+ * structurally; non-journal producers (the search browser) build it honestly
+ * instead of fabricating boundAt/state, and a future field the flows depend
+ * on fails the build at every producer rather than silently vanishing. */
+export type SessionHandle = Pick<
+  SessionRecordBase,
+  "agent" | "sessionId" | "cwd" | "branch" | "yolo" | "title" | "transcriptPath"
+>;
+
 /** Journal records per workspace id. Within one workspace, `sessionId` is the
  * record key — a rebind of the same session upserts its record. */
 export type JournalRecords = Record<string, SessionRecord[]>;

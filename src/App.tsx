@@ -19,7 +19,7 @@ import { useJournalResume } from "./app/useJournalResume";
 import { useJournalFork } from "./app/useJournalFork";
 import { useSessionsBrowser } from "./app/useSessionsBrowser";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
-import type { SessionRecord } from "./domain/journal";
+import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
 import { useSessionBinding } from "./app/useSessionBinding";
@@ -145,7 +145,7 @@ function App() {
   // The fork-target dialog's subject, when one is open.
   const [forkDialog, setForkDialog] = useState<{
     wsId: string;
-    record: SessionRecord;
+    record: SessionHandle;
   } | null>(null);
   // Every live pane's spawn plan, built through its agent plugin's hooks
   // (async — the pane's terminal waits for its plan; mounting is what

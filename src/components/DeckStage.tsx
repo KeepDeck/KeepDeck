@@ -26,7 +26,7 @@ import { MinimizedTray } from "./deck/MinimizedTray";
 import {
   journalRows,
   type JournalRecords,
-  type SessionRecord,
+  type SessionHandle,
 } from "../domain/journal";
 import { WorkspaceHistory } from "./workspace/WorkspaceHistory";
 import { SessionsBrowser } from "./history/SessionsBrowser";
@@ -71,9 +71,9 @@ interface DeckStageProps {
   /** Forget one journal row (the history list's ×). */
   onDeleteJournalRecord(wsId: string, sessionId: string): void;
   /** Resume a journal record into a new pane of its workspace. */
-  onResumeSession(wsId: string, record: SessionRecord): void;
+  onResumeSession(wsId: string, record: SessionHandle): void;
   /** Open the fork-target dialog for a journal record. */
-  onForkSession(wsId: string, record: SessionRecord): void;
+  onForkSession(wsId: string, record: SessionHandle): void;
   /** The global sessions browser's engine (search/scan/transcript). */
   browser: SessionsBrowserApi;
   onSelectPane(wsId: string, paneId: string): void;

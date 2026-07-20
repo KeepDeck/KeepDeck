@@ -7,12 +7,12 @@ import {
   type Occupancy,
   type PathProbe,
 } from "../../domain/agents";
-import type { SessionRecord } from "../../domain/journal";
+import type { SessionHandle } from "../../domain/journal";
 import type { ForkTarget } from "../../app/useJournalFork";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 
 interface ForkTargetDialogProps {
-  record: SessionRecord;
+  record: SessionHandle;
   agents: AgentInfo[];
   /** The workspace's own folder — the empty-path default target. */
   workspaceCwd: string;

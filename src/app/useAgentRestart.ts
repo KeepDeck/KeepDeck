@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { AgentRestartMode, SpawnPlanContext } from "../domain/agents";
 import {
   findWorkspace,
@@ -19,6 +19,7 @@ import {
 } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
+import { useLiveRefs } from "./useLiveRefs";
 
 export interface AgentRestartApi {
   /** Per-pane mount generation. Bumping one remounts its terminal view after
@@ -56,11 +57,7 @@ export function useAgentRestart(
 ): AgentRestartApi {
   const { plugins } = useAppRuntime();
   const [epochs, setEpochs] = useState<ReadonlyMap<string, number>>(new Map());
-  const inFlight = useRef(new Set<string>());
-  const deckRef = useRef(deck);
-  deckRef.current = deck;
-  const ctxRef = useRef(ctx);
-  ctxRef.current = ctx;
+  const { deckRef, ctxRef, inFlight } = useLiveRefs(deck, ctx);
 
   const bumpEpoch = (paneId: string) =>
     setEpochs((current) =>

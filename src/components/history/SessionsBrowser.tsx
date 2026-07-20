@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
-import type { SessionRecord } from "../../domain/journal";
+import type { SessionHandle } from "../../domain/journal";
 import { formatAge } from "../../domain/usage/format";
 import type { SearchHit } from "../../ipc/history";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
@@ -15,24 +15,21 @@ interface SessionsBrowserProps {
   /** The agent plugins finished activating — before that a scan would see
    * an empty registry and "successfully" index zero stores. */
   ready: boolean;
-  onResume(record: SessionRecord): void;
-  onFork(record: SessionRecord): void;
+  onResume(record: SessionHandle): void;
+  onFork(record: SessionHandle): void;
 }
 
-/** A search hit as the journal-record shape the resume/fork flows consume.
- * The transcript path comes from the index EXPLICITLY (the plugin's
- * `describe` declared it) — the ref stays the opaque handle it claims to be. */
-export function hitRecord(hit: SearchHit): SessionRecord {
-  const at = new Date(hit.mtime || 0).toISOString();
+/** A search hit as the SessionHandle the resume/fork flows consume — no
+ * fabricated journal lifecycle fields. The transcript path comes from the
+ * index EXPLICITLY (the plugin's `describe` declared it) — the ref stays
+ * the opaque handle it claims to be. */
+export function hitRecord(hit: SearchHit): SessionHandle {
   return {
     agent: hit.agent,
     sessionId: hit.sessionId,
     cwd: hit.cwd,
     ...(hit.title !== null && { title: hit.title }),
     ...(hit.transcriptPath !== null && { transcriptPath: hit.transcriptPath }),
-    boundAt: at,
-    state: "closed",
-    endedAt: at,
   };
 }
 
@@ -124,7 +121,7 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
                 title="Read this session"
                 onClick={() => openViewer(hit)}
               >
-                <span className="history__name">
+                <span className="browser__name">
                   {hit.title ?? hit.sessionId}
                 </span>
                 {hit.snippet !== null && (
@@ -171,7 +168,7 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
       {open && (
         <div className="browser__viewer" role="dialog" aria-label="Session transcript">
           <div className="browser__viewer-head">
-            <span className="history__name">{open.title ?? open.sessionId}</span>
+            <span className="browser__name">{open.title ?? open.sessionId}</span>
             <button
               type="button"
               className="history__delete"

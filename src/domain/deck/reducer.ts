@@ -10,6 +10,7 @@ import {
   flushJournalTail,
   hydrateJournalSlice,
   withJournalEvent,
+  type JournalEvent,
   type JournalRecords,
   type JournalSlice,
 } from "../journal";
@@ -225,6 +226,33 @@ function withDefaultSelection(
   return setViewField(viewByWs, wsId, "select", first);
 }
 
+/** The `bound` journal event for a pane's session — how a pane becomes a
+ * journal record, in ONE place: both binding paths (a reporter postback via
+ * `setPaneSession`, a resume-minted pane via `addAgentPane`) must record the
+ * same shape, or a field added to the model silently goes missing on one. */
+function boundEventFor(
+  ws: Workspace,
+  pane: Pane,
+  session: PaneSession,
+  transcriptPath?: string,
+): JournalEvent {
+  return {
+    e: "bound",
+    v: 1,
+    wsId: ws.id,
+    record: {
+      agent: paneAgentType(pane),
+      sessionId: session.id,
+      cwd: paneExecutionCwd(ws, pane) ?? ws.cwd,
+      ...(pane.branch !== undefined && { branch: pane.branch }),
+      ...(pane.yolo && { yolo: true }),
+      ...(transcriptPath !== undefined && { transcriptPath }),
+      boundAt: session.boundAt,
+      paneId: pane.id,
+    },
+  };
+}
+
 /** Rebuild deck state around a workspaces transform, but only when it actually
  * changed the array: a transform that returns the same ref (a no-op — a
  * same-value rebind, a repeated OSC title, a closed pane's late result) yields
@@ -291,20 +319,10 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       let journal = state.journal;
       const ws = findWorkspace(workspaces, action.id);
       if (ws && action.pane.session) {
-        journal = withJournalEvent(journal, {
-          e: "bound",
-          v: 1,
-          wsId: action.id,
-          record: {
-            agent: paneAgentType(action.pane),
-            sessionId: action.pane.session.id,
-            cwd: paneExecutionCwd(ws, action.pane) ?? ws.cwd,
-            ...(action.pane.branch !== undefined && { branch: action.pane.branch }),
-            ...(action.pane.yolo && { yolo: true }),
-            boundAt: action.pane.session.boundAt,
-            paneId: action.pane.id,
-          },
-        });
+        journal = withJournalEvent(
+          journal,
+          boundEventFor(ws, action.pane, action.pane.session),
+        );
       }
       return { ...state, workspaces, viewByWs, journal };
     }
@@ -525,23 +543,10 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         });
       }
       if (session) {
-        journal = withJournalEvent(journal, {
-          e: "bound",
-          v: 1,
-          wsId,
-          record: {
-            agent: paneAgentType(pane),
-            sessionId: session.id,
-            cwd: paneExecutionCwd(ws, pane) ?? ws.cwd,
-            ...(pane.branch !== undefined && { branch: pane.branch }),
-            ...(pane.yolo && { yolo: true }),
-            ...(action.transcriptPath !== undefined && {
-              transcriptPath: action.transcriptPath,
-            }),
-            boundAt: session.boundAt,
-            paneId,
-          },
-        });
+        journal = withJournalEvent(
+          journal,
+          boundEventFor(ws, pane, session, action.transcriptPath),
+        );
       }
       return { ...state, workspaces, journal };
     }

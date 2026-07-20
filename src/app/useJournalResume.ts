@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import type { SpawnPlanContext } from "../domain/agents";
 import {
   findWorkspace,
@@ -7,7 +6,7 @@ import {
   paneId,
   type Pane,
 } from "../domain/deck";
-import type { SessionRecord } from "../domain/journal";
+import type { SessionHandle } from "../domain/journal";
 import { describeError, log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
 import {
@@ -17,12 +16,13 @@ import {
 } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
+import { useLiveRefs } from "./useLiveRefs";
 
 export interface JournalResumeApi {
   /** Resume a journal record into a new pane of its workspace. Rejects when
    * no plan could be prepared; a quiet no-op when the record's session is
    * already running somewhere. */
-  resume(wsId: string, record: SessionRecord): Promise<void>;
+  resume(wsId: string, record: SessionHandle): Promise<void>;
 }
 
 /**
@@ -42,16 +42,11 @@ export function useJournalResume(
   ctx: SpawnPlanContext | null,
 ): JournalResumeApi {
   const { plugins } = useAppRuntime();
-  const inFlight = useRef(new Set<string>());
-  const deckRef = useRef(deck);
-  deckRef.current = deck;
-  const ctxRef = useRef(ctx);
-  ctxRef.current = ctx;
+  const { deckRef, ctxRef, inFlight } = useLiveRefs(deck, ctx);
 
-  const resume = async (wsId: string, record: SessionRecord): Promise<void> => {
+  const resume = async (wsId: string, record: SessionHandle): Promise<void> => {
     const spawnCtx = ctxRef.current;
     if (!spawnCtx) throw new Error("Agent spawn context is unavailable");
-    if (record.state === "live") return;
     const d = deckRef.current;
     const ws = findWorkspace(d.workspaces, wsId);
     if (!ws) return;

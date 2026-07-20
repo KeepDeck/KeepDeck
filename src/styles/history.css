@@ -243,9 +243,16 @@
   overflow: hidden;
 }
 
-.browser__open .history__name {
-  flex: none;
+/* The browser's own name element — structurally different from the journal
+ * row's flexing name (a column child that must clip, not flex) — so a tweak
+ * to one list can't silently restyle the other. */
+.browser__name {
   max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #d6d9df;
 }
 
 .browser__snippet {

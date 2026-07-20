@@ -40,13 +40,13 @@ const api = (hits: SearchHit[]): SessionsBrowserApi => ({
 
 describe("hitRecord", () => {
   it("carries the index's explicit transcript path; a null one stays absent", () => {
-    expect(hitRecord(hit())).toMatchObject({
+    // A handle, not a fabricated journal record: no state/boundAt/endedAt.
+    expect(hitRecord(hit())).toEqual({
       agent: "claude",
       sessionId: "u-1",
       cwd: "/repo/wt",
       title: "auth bug",
       transcriptPath: "/store/u-1.jsonl",
-      state: "closed",
     });
     expect(
       "transcriptPath" in

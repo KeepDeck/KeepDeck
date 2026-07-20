@@ -10,6 +10,7 @@ export {
   type JournalEvent,
   type JournalRecords,
   type JournalSlice,
+  type SessionHandle,
   type SessionRecord,
   type SessionRecordBase,
 } from "./sessionLog";
