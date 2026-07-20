@@ -85,6 +85,15 @@ export function usePagedSessionSearch<T>(
     setTotal(count);
   }, []);
 
+  // Cancel an armed debounce timer. Shared by `search` (before re-arming),
+  // `refresh` (which re-runs the current query immediately), and unmount.
+  const cancelPendingSearch = useCallback(() => {
+    if (debounce.current !== null) {
+      window.clearTimeout(debounce.current);
+      debounce.current = null;
+    }
+  }, []);
+
   /** Fetch page zero. `atLeast` widens the page so a post-scan refresh never
    * shrinks what the user already scrolled into view. */
   const runSearch = useCallback(
@@ -114,13 +123,13 @@ export function usePagedSessionSearch<T>(
       // the debounce window can't splice the new query's (or new agent's) page
       // onto the old rows.
       searchSeq.current += 1;
-      if (debounce.current !== null) window.clearTimeout(debounce.current);
+      cancelPendingSearch();
       debounce.current = window.setTimeout(() => {
         debounce.current = null;
         runSearch(q);
       }, debounceMs);
     },
-    [runSearch, debounceMs],
+    [runSearch, debounceMs, cancelPendingSearch],
   );
 
   const loadMore = useCallback(() => {
@@ -155,21 +164,14 @@ export function usePagedSessionSearch<T>(
     // Cancel a debounced search: refresh re-runs the current query right now,
     // so letting the timer fire too would issue a second, same-generation
     // page zero (both pass the landing guard → last-landed-wins width flicker).
-    if (debounce.current !== null) {
-      window.clearTimeout(debounce.current);
-      debounce.current = null;
-    }
+    cancelPendingSearch();
     runSearch(queryRef.current, rowsRef.current.length);
-  }, [runSearch]);
+  }, [runSearch, cancelPendingSearch]);
 
   // Cancel a pending debounced search on unmount: the spawn dialog's picker
   // mounts/unmounts per dialog, so a close mid-type would otherwise fire a
   // fetch and a no-op setState on the dead hook.
-  useEffect(() => {
-    return () => {
-      if (debounce.current !== null) window.clearTimeout(debounce.current);
-    };
-  }, []);
+  useEffect(() => cancelPendingSearch, [cancelPendingSearch]);
 
   return {
     rows,

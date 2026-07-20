@@ -147,6 +147,27 @@ describe("usePagedSessionSearch", () => {
     expect(api.total).toBe(124);
   });
 
+  it("refresh cancels a pending search — no duplicate page zero fires", async () => {
+    await mount();
+    act(() => api.refresh());
+    await act(async () => resolvers[0]({ rows: mkRows(0, 50), total: 100 }));
+    const before = fetchPage.mock.calls.length; // 1 (the page zero)
+
+    // Arm a keystroke's debounce, then refresh (a scan tick) before it fires.
+    act(() => api.search("x"));
+    expect(fetchPage.mock.calls.length).toBe(before); // still debounced
+    act(() => api.refresh());
+    // refresh runs the typed query immediately — ONE fetch, not a second one.
+    expect(fetchPage.mock.calls.length).toBe(before + 1);
+    expect(fetchPage).toHaveBeenLastCalledWith("x", FIRST_PAGE, 0);
+
+    // The armed debounce was cancelled — advancing time must not double-fetch.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    expect(fetchPage.mock.calls.length).toBe(before + 1);
+  });
+
   it("refuses to page while a fresh search is pending — no splicing onto stale rows", async () => {
     await mount();
     act(() => api.refresh());
