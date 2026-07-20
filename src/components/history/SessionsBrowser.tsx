@@ -7,6 +7,7 @@ import { formatAge } from "../../domain/usage/format";
 import type { SearchHit } from "../../ipc/history";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { AgentGlyph } from "../../ui/AgentGlyph";
+import { CloseButton } from "../../ui/CloseButton";
 import { baseName } from "../../domain/deck";
 
 interface SessionsBrowserProps {
@@ -226,14 +227,7 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
         <div className="browser__viewer" role="dialog" aria-label="Session transcript">
           <div className="browser__viewer-head">
             <span className="browser__name">{open.title ?? open.sessionId}</span>
-            <button
-              type="button"
-              className="history__delete"
-              aria-label="Close transcript"
-              onClick={closeViewer}
-            >
-              ×
-            </button>
+            <CloseButton label="Close transcript" onClick={closeViewer} />
           </div>
           <div
             className="browser__viewer-body"

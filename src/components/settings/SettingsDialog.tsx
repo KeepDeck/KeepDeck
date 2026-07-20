@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useAppRuntime } from "../../app/runtimeContext";
 import { useContributions, useInstalledPlugins } from "../../plugins";
-import { CloseIcon } from "../../ui/icons";
+import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { PluginPage, RescanButton, sectionFor } from "./PluginPage";
@@ -85,15 +85,7 @@ export function SettingsDialog({
       >
         <div className="settings__head">
           <h2 className="form__title settings__title">Settings</h2>
-          <button
-            type="button"
-            className="settings__close"
-            onClick={onClose}
-            title="Close settings"
-            aria-label="Close settings"
-          >
-            <CloseIcon />
-          </button>
+          <CloseButton label="Close settings" onClick={onClose} />
         </div>
 
         <div className="settings__body">

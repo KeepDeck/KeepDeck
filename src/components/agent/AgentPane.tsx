@@ -6,12 +6,12 @@ import { noAutoCorrect } from "../../ui/inputProps";
 import {
   BoltIcon,
   ChevronDownIcon,
-  CloseIcon,
   GitBranchIcon,
   MaximizeIcon,
   MinimizeIcon,
   RestoreIcon,
 } from "../../ui/icons";
+import { CloseButton } from "../../ui/CloseButton";
 import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
@@ -275,19 +275,14 @@ export function AgentPane({
               {focused ? <RestoreIcon /> : <MaximizeIcon />}
             </button>
           )}
-          <button
-            type="button"
-            className="pane__close"
+          <CloseButton
+            label={`Close ${title}`}
             onClick={(e) => {
               // Own click: closing a folded row must not also expand it.
               e.stopPropagation();
               onClose();
             }}
-            title="Close agent"
-            aria-label={`Close ${title}`}
-          >
-            <CloseIcon />
-          </button>
+          />
         </div>
       </header>
       <div className="pane__body">

@@ -225,8 +225,9 @@
   }
 }
 
-.pane__action,
-.pane__close {
+/* The header's ✕ is the shared .ui-close (base.css) — these arrows mirror
+   its metrics exactly so the control cluster reads as one family. */
+.pane__action {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -242,8 +243,7 @@
   cursor: pointer;
 }
 
-.pane__action:hover,
-.pane__close:hover {
+.pane__action:hover {
   background-color: #1b2230;
   color: #c5c8c6;
 }
