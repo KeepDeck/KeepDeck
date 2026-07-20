@@ -44,5 +44,12 @@ function pick(field: SettingsField, stored: unknown): unknown {
         stored.every((item) => typeof item === "string")
         ? stored
         : field.default;
+    case "custom":
+      // A custom (built-in-tier) field's shape is the plugin's own — the host
+      // has no type or default to enforce, so pass the stored value through as
+      // it went in. Without this the round-trip (`ctx.settings.read`/`onChange`)
+      // silently drops every custom field, so a plugin reading its own custom
+      // state that way (not just via the render prop) never sees it.
+      return stored;
   }
 }

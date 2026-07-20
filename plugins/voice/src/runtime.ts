@@ -2,6 +2,8 @@ import type { PluginContext } from "@keepdeck/plugin-api";
 import type { VoiceController } from "./controller";
 import type { ModelDownloads } from "./downloads";
 import type { ModelsStore } from "./models";
+import type { BindingsStore } from "./bindingsStore";
+import type { RecordingLatch } from "./recordingLatch";
 
 /**
  * The runtime holder — `activate` stashes the context, controller, download
@@ -15,6 +17,8 @@ export interface VoiceRuntime {
   controller: VoiceController;
   downloads: ModelDownloads;
   models: ModelsStore;
+  bindings: BindingsStore;
+  recordingLatch: RecordingLatch;
 }
 
 let current: VoiceRuntime | null = null;
