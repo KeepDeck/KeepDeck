@@ -734,3 +734,46 @@ describe("createCapabilityGate — fsWrite", () => {
     expect(backend.fsWrite.mkdir).not.toHaveBeenCalled();
   });
 });
+
+describe("createCapabilityGate — sqlite", () => {
+  it("forwards a declared query and injects the manifest's prefixes as roots", async () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "sqliteReadonly", paths: ["~/.local/share/opencode"] }]),
+      backend,
+      { diagnostics: "silent", log },
+    );
+
+    await gate.sqlite.query("~/.local/share/opencode/opencode.db", "SELECT 1", ["a"]);
+    expect(backend.sqlite.query).toHaveBeenCalledWith(
+      "~/.local/share/opencode/opencode.db",
+      "SELECT 1",
+      ["a"],
+      ["~/.local/share/opencode"],
+    );
+    // Omitted params normalize to an empty array before the backend.
+    await gate.sqlite.query("/db", "SELECT 2");
+    expect(backend.sqlite.query).toHaveBeenLastCalledWith("/db", "SELECT 2", [], [
+      "~/.local/share/opencode",
+    ]);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("missing sqliteReadonly denies the query — fs/fsWrite do not cover it", () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([
+        { kind: "fs", scope: "everywhere" },
+        { kind: "fsWrite", paths: ["/x"] },
+      ]),
+      backend,
+      { diagnostics: "silent", log },
+    );
+    expect(() => gate.sqlite.query("/db", "SELECT 1")).toThrow(
+      '"sqliteReadonly" capability',
+    );
+    expect(backend.sqlite.query).not.toHaveBeenCalled();
+  });
+});

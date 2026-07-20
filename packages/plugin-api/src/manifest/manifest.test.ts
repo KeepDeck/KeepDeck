@@ -211,6 +211,8 @@ describe("readManifest", () => {
       [{ kind: "fs", scope: "disk" }, '"workspace" or "everywhere"'],
       [{ kind: "fsWrite", paths: [] }, "non-empty"],
       [{ kind: "fsWrite" }, "non-empty"],
+      [{ kind: "sqliteReadonly", paths: [] }, "non-empty"],
+      [{ kind: "sqliteReadonly" }, "non-empty"],
       [{ kind: "git", scope: "disk" }, '"workspace" or "everywhere"'],
       [{ kind: "git" }, '"workspace" or "everywhere"'],
       [{ kind: "net", domains: ["*.evil.com"] }, "bare hostnames"],

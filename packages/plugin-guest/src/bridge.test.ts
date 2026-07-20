@@ -291,6 +291,46 @@ describe("external plugin bridge", () => {
     expect(file.isBinary).toBe(false);
   });
 
+  it("round-trips fsWrite.* and sqlite.query with args in host order", async () => {
+    const host = createFakeHost();
+    const calls: [string, unknown[]][] = [];
+    host.ctx.services.fsWrite.mkdir = async (path) => {
+      calls.push(["mkdir", [path]]);
+    };
+    host.ctx.services.fsWrite.copyFile = async (src, dst) => {
+      calls.push(["copyFile", [src, dst]]);
+    };
+    host.ctx.services.fsWrite.writeFile = async (path, text) => {
+      calls.push(["writeFile", [path, text]]);
+    };
+    host.ctx.services.fsWrite.appendLine = async (path, line) => {
+      calls.push(["appendLine", [path, line]]);
+    };
+    host.ctx.services.sqlite.query = async (dbPath, sql, params) => {
+      calls.push(["query", [dbPath, sql, params]]);
+      return [["row", null]];
+    };
+    const { ctxReady } = wireCapturingCtx(host);
+    const ctx = await ctxReady;
+
+    await ctx.services.fsWrite.mkdir("/store/dir");
+    await ctx.services.fsWrite.copyFile("/a", "/b");
+    await ctx.services.fsWrite.writeFile("/p", "text");
+    await ctx.services.fsWrite.appendLine("/idx", "line");
+    const rows = await ctx.services.sqlite.query("/db", "SELECT 1", ["x"]);
+
+    // A positional-argument regression between the guest proxy and
+    // hostDispatch would land here as swapped/missing args.
+    expect(calls).toEqual([
+      ["mkdir", ["/store/dir"]],
+      ["copyFile", ["/a", "/b"]],
+      ["writeFile", ["/p", "text"]],
+      ["appendLine", ["/idx", "line"]],
+      ["query", ["/db", "SELECT 1", ["x"]]],
+    ]);
+    expect(rows).toEqual([["row", null]]);
+  });
+
   it("round-trips an fs.watch subscription: change fans in, dispose unwatches", async () => {
     const host = createFakeHost();
     const unwatched: string[] = [];
