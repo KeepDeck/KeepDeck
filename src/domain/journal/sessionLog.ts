@@ -46,6 +46,27 @@ export type SessionHandle = Pick<
   "agent" | "sessionId" | "cwd" | "branch" | "yolo" | "title" | "transcriptPath"
 >;
 
+/** A search-index hit as the [`SessionHandle`] the resume/fork flows consume
+ * — no fabricated journal lifecycle fields. The transcript path comes from
+ * the index EXPLICITLY (the plugin's `describe` declared it) — the ref stays
+ * the opaque handle it claims to be. Structural input, so the ipc layer's
+ * `SearchHit` satisfies it without this domain importing ipc. */
+export function handleFromHit(hit: {
+  agent: string;
+  sessionId: string;
+  cwd: string;
+  title: string | null;
+  transcriptPath: string | null;
+}): SessionHandle {
+  return {
+    agent: hit.agent,
+    sessionId: hit.sessionId,
+    cwd: hit.cwd,
+    ...(hit.title !== null && { title: hit.title }),
+    ...(hit.transcriptPath !== null && { transcriptPath: hit.transcriptPath }),
+  };
+}
+
 /** Journal records per workspace id. Within one workspace, `sessionId` is the
  * record key — a rebind of the same session upserts its record. */
 export type JournalRecords = Record<string, SessionRecord[]>;

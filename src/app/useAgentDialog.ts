@@ -4,6 +4,7 @@ import {
   type AgentDialogResult,
   type AgentInfo,
   type AgentType,
+  type SessionPickRow,
 } from "../domain/agents";
 import {
   baseName,
@@ -14,12 +15,28 @@ import {
   type Pane,
   type Workspace,
 } from "../domain/deck";
+import { handleFromHit, type SessionHandle } from "../domain/journal";
+import { indexSearch } from "../ipc/history";
 import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";
 import { provisionInto, runProvisioning } from "./provisioning";
 import type { Deck } from "./useDeck";
+import type { ForkTarget } from "./useJournalFork";
+
+/** The continuation flows the dialog's "Start from" choice routes into —
+ * injected by App with its error surfacing already attached, so confirm
+ * stays synchronous here. */
+export interface AgentDialogJournalRouting {
+  resume(wsId: string, handle: SessionHandle, opts: { name?: string }): void;
+  fork(
+    wsId: string,
+    handle: SessionHandle,
+    target: ForkTarget,
+    opts: { name?: string; branch?: string },
+  ): void;
+}
 
 /** Everything the "+ Agent" dialog needs to render, captured at open time. */
 export interface AgentDialogSpec {
@@ -46,7 +63,11 @@ export interface AgentDialogSpec {
  * worktree lands optimistically: the pane joins the grid as a provisioning
  * card at once and the create runs in the background.
  */
-export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
+export function useAgentDialog(
+  deck: Deck,
+  agents: AgentInfo[],
+  journal?: AgentDialogJournalRouting,
+) {
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
   const deckRef = useRef(deck);
   deckRef.current = deck;
@@ -118,7 +139,13 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
     });
   };
 
-  const confirm = ({ agentType, name, location, yolo }: AgentDialogResult) => {
+  const confirm = ({
+    agentType,
+    name,
+    location,
+    yolo,
+    session,
+  }: AgentDialogResult) => {
     const dlg = dialog;
     if (!dlg) return;
     setDialog(null);
@@ -126,6 +153,33 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
     const ws = findWorkspaceByRef(currentDeck.workspaces, dlg.workspace);
     if (!ws) return;
     const paneName = name.trim() || undefined;
+    // "Start from" a picked session: hand off to the journal flows — they
+    // own plan-building, claim re-checks and (for a new worktree)
+    // provisioning. Resume ignores the location by design: the session runs
+    // where it was recorded.
+    if (session && journal) {
+      if (session.mode === "resume") {
+        journal.resume(dlg.workspace.id, session.handle, { name: paneName });
+        return;
+      }
+      const target: ForkTarget =
+        location.kind === "new"
+          ? {
+              kind: "worktree",
+              path: location.path,
+              branch: location.branch,
+              ...(location.baseBranch && { base: location.baseBranch }),
+            }
+          : location.kind === "existing"
+            ? { kind: "dir", cwd: location.path }
+            : { kind: "dir", cwd: ws.cwd };
+      journal.fork(dlg.workspace.id, session.handle, target, {
+        name: paneName,
+        ...(location.kind === "existing" &&
+          location.branch && { branch: location.branch }),
+      });
+      return;
+    }
     // Sparse like persistence: only the armed mode lands on the pane.
     const paneYolo = yolo ? { yolo: true as const } : {};
     // Main repo: a bare pane that runs in the workspace cwd.
@@ -227,7 +281,47 @@ export function useAgentDialog(deck: Deck, agents: AgentInfo[]) {
     return folder;
   };
 
+  /**
+   * The "Start from" picker's option source: one agent's sessions from the
+   * search index, newest first (an empty query), or content/title-matched
+   * (FTS — the same engine as the global browser). One page of 50: the
+   * picker is a launcher, not a browser — typing narrows, it never pages.
+   */
+  const searchSessions = async (
+    agent: AgentType,
+    query: string,
+  ): Promise<SessionPickRow[]> => {
+    const page = await indexSearch(query, 50, 0, agent);
+    return page.hits.map((hit) => ({
+      handle: handleFromHit(hit),
+      mtime: hit.mtime,
+    }));
+  };
+
+  /** How a session is already held by a pane: running behind a live PTY,
+   * dormant (restored, not yet revived), or not at all — the picker dims
+   * claimed rows for resume with the honest wording. */
+  const sessionClaim = (sessionId: string): "running" | "dormant" | null => {
+    for (const w of deckRef.current.workspaces) {
+      for (const p of w.panes) {
+        if (p.session?.id === sessionId) {
+          return p.dormant ? "dormant" : "running";
+        }
+      }
+    }
+    return null;
+  };
+
   const cancel = () => setDialog(null);
 
-  return { dialog, openFor, confirm, cancel, nextFree, branchFor };
+  return {
+    dialog,
+    openFor,
+    confirm,
+    cancel,
+    nextFree,
+    branchFor,
+    searchSessions,
+    sessionClaim,
+  };
 }

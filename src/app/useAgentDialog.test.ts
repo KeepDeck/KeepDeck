@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentDialogResult } from "../domain/agents";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { inspectRepo } from "../ipc/worktree";
@@ -284,5 +285,131 @@ describe("useAgentDialog suggestions", () => {
 
     expect(oldAdd).not.toHaveBeenCalled();
     expect(replacementAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe("useAgentDialog start-from routing", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let flow: ReturnType<typeof useAgentDialog>;
+
+  const journal = { resume: vi.fn(), fork: vi.fn() };
+  const handle = {
+    agent: "claude",
+    sessionId: "s-1",
+    cwd: "/repo/wt",
+    title: "auth",
+  };
+
+  function Host({ deck }: { deck: Deck }) {
+    flow = useAgentDialog(deck, [], journal);
+    return null;
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    journal.resume.mockClear();
+    journal.fork.mockClear();
+  });
+  afterEach(() => act(() => root.unmount()));
+
+  const mountAndOpen = async (ws: Workspace, addAgentPane = vi.fn()) => {
+    const deck = { workspaces: [ws], addAgentPane } as unknown as Deck;
+    await act(async () => root.render(createElement(Host, { deck })));
+    await act(async () => flow.openFor(ws));
+    return addAgentPane;
+  };
+
+  it("resume routes to the journal flow with the pane name — the location is not consulted", async () => {
+    const ws = workspace({});
+    const addAgentPane = await mountAndOpen(ws);
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "  api  ",
+        // A leftover location from before the mode switch — must be ignored.
+        location: { kind: "new", path: "/x", branch: "b" },
+        yolo: false,
+        session: { mode: "resume", handle },
+      }),
+    );
+    expect(journal.resume).toHaveBeenCalledExactlyOnceWith("ws-1", handle, {
+      name: "api",
+    });
+    expect(journal.fork).not.toHaveBeenCalled();
+    expect(addAgentPane).not.toHaveBeenCalled(); // the flow owns the pane
+  });
+
+  it("fork maps every location kind onto its ForkTarget", async () => {
+    const ws = workspace({});
+    const confirmFork = async (
+      location: AgentDialogResult["location"],
+    ) => {
+      await act(async () => flow.openFor(ws));
+      await act(async () =>
+        flow.confirm({
+          agentType: "claude",
+          name: "",
+          location,
+          yolo: false,
+          session: { mode: "fork", handle },
+        }),
+      );
+    };
+    await mountAndOpen(ws);
+
+    await confirmFork({ kind: "main" });
+    expect(journal.fork).toHaveBeenLastCalledWith(
+      "ws-1",
+      handle,
+      { kind: "dir", cwd: "/repo" },
+      { name: undefined },
+    );
+
+    await confirmFork({ kind: "existing", path: "/wt/x", branch: "kd/x" });
+    expect(journal.fork).toHaveBeenLastCalledWith(
+      "ws-1",
+      handle,
+      { kind: "dir", cwd: "/wt/x" },
+      // The attached worktree's branch rides along — the pane owns it.
+      { name: undefined, branch: "kd/x" },
+    );
+
+    await confirmFork({
+      kind: "new",
+      path: "/base/kd-KeepDeck-1",
+      branch: "kd/KeepDeck/1",
+      baseBranch: "develop",
+    });
+    expect(journal.fork).toHaveBeenLastCalledWith(
+      "ws-1",
+      handle,
+      {
+        kind: "worktree",
+        path: "/base/kd-KeepDeck-1",
+        branch: "kd/KeepDeck/1",
+        base: "develop",
+      },
+      { name: undefined },
+    );
+  });
+
+  it("sessionClaim reads the panes' bindings, dormancy included", async () => {
+    const ws = workspace({
+      panes: [
+        { id: "p1", session: { id: "s-run", boundAt: "2026-07-20T00:00:00Z" } },
+        {
+          id: "p2",
+          dormant: true,
+          session: { id: "s-dorm", boundAt: "2026-07-20T00:00:00Z" },
+        },
+      ],
+    });
+    await mountAndOpen(ws);
+    expect(flow.sessionClaim("s-run")).toBe("running");
+    expect(flow.sessionClaim("s-dorm")).toBe("dormant");
+    expect(flow.sessionClaim("s-free")).toBeNull();
   });
 });

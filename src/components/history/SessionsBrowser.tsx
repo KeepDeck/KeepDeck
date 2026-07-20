@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
-import type { SessionHandle } from "../../domain/journal";
+import { handleFromHit, type SessionHandle } from "../../domain/journal";
 import { formatAge } from "../../domain/usage/format";
 import type { SearchHit } from "../../ipc/history";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
@@ -19,19 +19,9 @@ interface SessionsBrowserProps {
   onFork(record: SessionHandle): void;
 }
 
-/** A search hit as the SessionHandle the resume/fork flows consume — no
- * fabricated journal lifecycle fields. The transcript path comes from the
- * index EXPLICITLY (the plugin's `describe` declared it) — the ref stays
- * the opaque handle it claims to be. */
-export function hitRecord(hit: SearchHit): SessionHandle {
-  return {
-    agent: hit.agent,
-    sessionId: hit.sessionId,
-    cwd: hit.cwd,
-    ...(hit.title !== null && { title: hit.title }),
-    ...(hit.transcriptPath !== null && { transcriptPath: hit.transcriptPath }),
-  };
-}
+/** The domain's hit→handle mapping under this file's historical name (the
+ * spawn dialog's picker shares the same mapping via the domain export). */
+export const hitRecord = handleFromHit;
 
 /** Transcript paging mirrors the list ([F8] virtualized viewer): a viewport
  * fill first, then small increments as scrolling nears the bottom. */

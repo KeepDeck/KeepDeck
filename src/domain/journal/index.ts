@@ -3,6 +3,7 @@ export {
   emptyJournal,
   flushJournalTail,
   foldJournal,
+  handleFromHit,
   hydrateJournalSlice,
   journalRows,
   snapshotJournal,

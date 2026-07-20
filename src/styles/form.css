@@ -273,6 +273,75 @@
   margin-bottom: 24px;
 }
 
+/* The "Start from" session picker ([F8] spawn-time continuation): a search
+   field over a bounded scrolling list of the selected agent's sessions. */
+.form__sessions {
+  margin: 8px 0 20px;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background-color: #0e121a;
+}
+
+.form__session {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-bottom: 1px solid #151a24;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.form__sessions li:last-child .form__session {
+  border-bottom: none;
+}
+
+.form__session:hover {
+  background-color: #131926;
+}
+
+.form__session--active {
+  background-color: #161d29;
+}
+
+/* Un-resumable rows stay CLICKABLE (picking one shows the full reason and
+   the Fork way out) — dimmed, not disabled. */
+.form__session--blocked {
+  opacity: 0.55;
+}
+
+.form__session-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: #d6d9df;
+}
+
+.form__session-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.form__session-empty {
+  padding: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: #6b7280;
+}
+
 .form__actions {
   display: flex;
   justify-content: flex-end;

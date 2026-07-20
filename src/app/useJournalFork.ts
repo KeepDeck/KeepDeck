@@ -23,8 +23,16 @@ export type ForkTarget =
 
 export interface JournalForkApi {
   /** Fork a journal record into `target` as a new pane of the workspace.
-   * Rejects when no plan could be prepared (surgery failures included). */
-  fork(wsId: string, record: SessionHandle, target: ForkTarget): Promise<void>;
+   * Rejects when no plan could be prepared (surgery failures included).
+   * `opts.name` names the pane; `opts.branch` stamps a dir-target pane's
+   * worktree branch (an attached existing worktree — the spawn dialog knows
+   * it, a journal fork doesn't). */
+  fork(
+    wsId: string,
+    record: SessionHandle,
+    target: ForkTarget,
+    opts?: { name?: string; branch?: string },
+  ): Promise<void>;
 }
 
 /**
@@ -52,6 +60,7 @@ export function useJournalFork(
     wsId: string,
     record: SessionHandle,
     target: ForkTarget,
+    opts?: { name?: string; branch?: string },
   ): Promise<void> => {
     const spawnCtx = ctxRef.current;
     if (!spawnCtx) throw new Error("Agent spawn context is unavailable");
@@ -104,12 +113,15 @@ export function useJournalFork(
         dropPaneSpawnSpec(pid);
         throw new Error("The workspace is full — close a pane first");
       }
+      const name = opts?.name?.trim();
       if (target.kind === "dir") {
         deckRef.current.addAgentPane(wsNow.id, {
           id: pid,
           agentType: record.agent,
           ...(target.cwd !== wsNow.cwd && { cwd: target.cwd }),
+          ...(opts?.branch && { branch: opts.branch }),
           ...(record.yolo && { yolo: true }),
+          ...(name && { name }),
         });
         return;
       }
@@ -120,6 +132,7 @@ export function useJournalFork(
         id: pid,
         agentType: record.agent,
         ...(record.yolo && { yolo: true }),
+        ...(name && { name }),
         provisioning: {
           repo: wsNow.cwd,
           path: target.path,

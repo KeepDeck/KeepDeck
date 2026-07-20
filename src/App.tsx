@@ -214,7 +214,24 @@ function App() {
   const provisioning = useProvisioning(deck);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
-  const agentFlow = useAgentDialog(deck, agents);
+  const agentFlow = useAgentDialog(deck, agents, {
+    // The dialog's "Start from" continuations, with the same visible-failure
+    // contract as the journal rows' Resume/Fork below.
+    resume: (wsId, handle, opts) =>
+      void journalResume.resume(wsId, handle, opts).catch((e: unknown) =>
+        setError((current) => current ?? {
+          title: "Could not resume the session",
+          message: describeError(e),
+        }),
+      ),
+    fork: (wsId, handle, target, opts) =>
+      void journalFork.fork(wsId, handle, target, opts).catch((e: unknown) =>
+        setError((current) => current ?? {
+          title: "Could not fork the session",
+          message: describeError(e),
+        }),
+      ),
+  });
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(
     deck,
@@ -805,6 +822,8 @@ function App() {
               occupancyAt={(path) => pathOccupancy(deck.workspaces, path)}
               nextFreeLocation={agentFlow.nextFree}
               pickFolder={pickFolder}
+              searchSessions={agentFlow.searchSessions}
+              sessionClaim={agentFlow.sessionClaim}
               onConfirm={agentFlow.confirm}
               onCancel={agentFlow.cancel}
             />

@@ -7,11 +7,22 @@ import type {
   AgentDialogResult,
   Occupancy,
   PathProbe,
+  SessionPickRow,
 } from "../../domain/agents";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
+
+// The picker's resume gate probes directories via useDirPresence → the
+// worktree ipc; pin it at the module seam (the dialog's PATH probe is a
+// prop and stays unaffected).
+const worktreeIpc = vi.hoisted(() => ({
+  probeWorktree: vi.fn((_path: string) =>
+    Promise.resolve({ exists: true, isWorktree: false, branch: null }),
+  ),
+}));
+vi.mock("../../ipc/worktree", () => worktreeIpc);
 
 // The dialog pulls the agent catalog via useAgents; pin one agent at the
 // hook seam (the real hook would bootstrap the real plugin system). The
@@ -139,6 +150,8 @@ describe("AgentDialog worktree location flow", () => {
           occupancyAt: (p: string) => occupancyOf[p] ?? null,
           nextFreeLocation: async () => ({ path: "/base/kd-ws-3", branch: "kd/ws/3" }),
           pickFolder: async () => null,
+          searchSessions: async () => [],
+          sessionClaim: () => null,
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
         }),
@@ -388,6 +401,8 @@ describe("AgentDialog agent picker", () => {
           occupancyAt: () => null,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
+          searchSessions: async () => [],
+          sessionClaim: () => null,
           onConfirm: () => {},
           onCancel: () => {},
         }),
@@ -433,6 +448,8 @@ describe("AgentDialog YOLO toggle", () => {
           occupancyAt: () => null,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
+          searchSessions: async () => [],
+          sessionClaim: () => null,
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
         }),
@@ -463,5 +480,159 @@ describe("AgentDialog YOLO toggle", () => {
     submit();
     // A remembered tick must not leak through a non-supporting agent.
     expect(confirmed).toMatchObject([{ yolo: false }]);
+  });
+});
+
+describe("AgentDialog start-from session picker", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let confirmed: AgentDialogResult[];
+
+  const SESSIONS: SessionPickRow[] = [
+    {
+      handle: { agent: "claude", sessionId: "s-live", cwd: "/repo/wt", title: "auth bug" },
+      mtime: 3,
+    },
+    {
+      handle: { agent: "claude", sessionId: "s-gone", cwd: "/gone", title: "old work" },
+      mtime: 2,
+    },
+    {
+      handle: { agent: "claude", sessionId: "s-claimed", cwd: "/repo/wt", title: "busy" },
+      mtime: 1,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    confirmed = [];
+    worktreeIpc.probeWorktree.mockImplementation((path: string) =>
+      Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
+    );
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  const mount = () =>
+    act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions: async () => SESSIONS,
+          sessionClaim: (id: string) => (id === "s-claimed" ? ("running" as const) : null),
+          onConfirm: (r: AgentDialogResult) => confirmed.push(r),
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+  const modeBtn = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+      (b) => b.textContent === label,
+    )!;
+  const rows = () => [...document.querySelectorAll<HTMLButtonElement>(".form__session")];
+  /** Let the 200ms search debounce fire, its promise land, and the
+   * presence probes settle. */
+  const settleSessions = async () => {
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    await act(async () => {});
+  };
+
+  it("Resume… lists sessions, locks the location away, and the result carries the pick", async () => {
+    await mount();
+    act(() => modeBtn("Resume…").click());
+    await settleSessions();
+
+    expect(rows().map((r) => r.querySelector(".form__session-name")!.textContent)).toEqual(
+      ["auth bug", "old work", "busy"],
+    );
+    // Location is the recorded cwd — the whole worktree block is gone.
+    expect(document.querySelector('input[aria-label="Worktree path"]')).toBeNull();
+    // Nothing picked yet → Create gated.
+    expect(createBtn().disabled).toBe(true);
+
+    act(() => rows()[0].click());
+    // The pane name follows the session title while untouched.
+    expect(
+      document.querySelector<HTMLInputElement>('input[aria-label="Agent name"]')!.value,
+    ).toBe("auth bug");
+    expect(document.body.textContent).toContain("Resumes in /repo/wt");
+    expect(createBtn().disabled).toBe(false);
+    expect(createBtn().textContent).toBe("Resume session");
+    submit();
+    expect(confirmed).toMatchObject([
+      {
+        name: "auth bug",
+        session: { mode: "resume", handle: { sessionId: "s-live" } },
+      },
+    ]);
+  });
+
+  it("un-resumable rows are dimmed with the reason, and picking one keeps Create gated", async () => {
+    await mount();
+    act(() => modeBtn("Resume…").click());
+    await settleSessions();
+
+    const gone = rows()[1];
+    const claimed = rows()[2];
+    expect(gone.className).toContain("form__session--blocked");
+    expect(gone.textContent).toContain("directory is gone — fork instead");
+    expect(claimed.className).toContain("form__session--blocked");
+    expect(claimed.textContent).toContain("already in a pane");
+
+    act(() => gone.click());
+    expect(createBtn().disabled).toBe(true);
+    expect(errorText()).toContain("directory is gone");
+  });
+
+  it("Fork… keeps the location free and takes exactly the sessions resume refuses", async () => {
+    await mount();
+    act(() => modeBtn("Fork…").click());
+    await settleSessions();
+
+    // The worktree field stays — a fork picks its own home.
+    expect(document.querySelector('input[aria-label="Worktree path"]')).not.toBeNull();
+    // No dimming in fork mode: these rows are what forking is FOR.
+    expect(rows().every((r) => !r.className.includes("form__session--blocked"))).toBe(true);
+
+    act(() => rows()[1].click()); // dir-gone — forkable
+    expect(createBtn().disabled).toBe(false);
+    submit();
+    expect(confirmed).toMatchObject([
+      {
+        location: { kind: "main" },
+        session: { mode: "fork", handle: { sessionId: "s-gone" } },
+      },
+    ]);
+  });
+
+  it("backing out to New session ignores the stale pick", async () => {
+    await mount();
+    act(() => modeBtn("Resume…").click());
+    await settleSessions();
+    act(() => rows()[0].click());
+    act(() => modeBtn("New session").click());
+    expect(createBtn().disabled).toBe(false);
+    expect(createBtn().textContent).toBe("Create agent");
+    submit();
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0].session).toBeUndefined();
   });
 });

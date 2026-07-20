@@ -21,8 +21,13 @@ import { useLiveRefs } from "./useLiveRefs";
 export interface JournalResumeApi {
   /** Resume a journal record into a new pane of its workspace. Rejects when
    * no plan could be prepared; a quiet no-op when the record's session is
-   * already running somewhere. */
-  resume(wsId: string, record: SessionHandle): Promise<void>;
+   * already running somewhere. `opts.name` names the pane (the spawn
+   * dialog's field — journal rows pass none). */
+  resume(
+    wsId: string,
+    record: SessionHandle,
+    opts?: { name?: string },
+  ): Promise<void>;
 }
 
 /**
@@ -44,7 +49,11 @@ export function useJournalResume(
   const { plugins } = useAppRuntime();
   const { deckRef, ctxRef, inFlight } = useLiveRefs(deck, ctx);
 
-  const resume = async (wsId: string, record: SessionHandle): Promise<void> => {
+  const resume = async (
+    wsId: string,
+    record: SessionHandle,
+    opts?: { name?: string },
+  ): Promise<void> => {
     const spawnCtx = ctxRef.current;
     if (!spawnCtx) throw new Error("Agent spawn context is unavailable");
     const d = deckRef.current;
@@ -117,6 +126,7 @@ export function useJournalResume(
         dropPaneSpawnSpec(pid);
         throw new Error("The workspace is full — close a pane first");
       }
+      const name = opts?.name?.trim();
       const pane: Pane = {
         id: pid,
         agentType: record.agent,
@@ -126,6 +136,7 @@ export function useJournalResume(
         ...(record.cwd !== wsNow.cwd && { cwd: record.cwd }),
         ...(record.branch !== undefined && { branch: record.branch }),
         ...(record.yolo && { yolo: true }),
+        ...(name && { name }),
         session: { id: record.sessionId, boundAt: new Date().toISOString() },
       };
       deckRef.current.addAgentPane(wsNow.id, pane);
