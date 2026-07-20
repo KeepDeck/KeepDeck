@@ -55,7 +55,12 @@ export function useJournalResume(
     const claimed = d.workspaces.some((w) =>
       w.panes.some((p) => p.session?.id === record.sessionId),
     );
-    if (claimed || inFlight.current.has(record.sessionId)) return;
+    if (inFlight.current.has(record.sessionId)) return;
+    if (claimed) {
+      // The browser shows Resume for every hit (it can't know lifecycle);
+      // an enabled button that does NOTHING reads as dead — say why.
+      throw new Error("The session is already running in a pane");
+    }
 
     inFlight.current.add(record.sessionId);
     try {

@@ -96,21 +96,31 @@ export function useRevive(
       if (sessionId && ctxRef.current) {
         // Built through the agent plugin's resume.plan hook and cached
         // BEFORE the pane wakes — the mounting terminal reads it.
-        await buildResumeSpec(
-          plugins,
-          agentType,
-          {
-            paneId: pane.id,
-            workspace: { id: active.id, instance: active.instance },
-            cwd: dir,
-            branch: pane.branch,
-            yolo: pane.yolo,
-            wsSkillRoots: skillRootsOf(active),
-          },
-          ctxRef.current,
-          sessionId,
-          "restore",
-        );
+        // Resume hooks PROPAGATE their failures now; on the restore path a
+        // fresh wake is the accepted degradation — but logged as what it is,
+        // not as a probe failure.
+        try {
+          await buildResumeSpec(
+            plugins,
+            agentType,
+            {
+              paneId: pane.id,
+              workspace: { id: active.id, instance: active.instance },
+              cwd: dir,
+              branch: pane.branch,
+              yolo: pane.yolo,
+              wsSkillRoots: skillRootsOf(active),
+            },
+            ctxRef.current,
+            sessionId,
+            "restore",
+          );
+        } catch (e) {
+          log.warn(
+            "web:revive",
+            `${pane.id}: resume plan build failed — waking fresh: ${describeError(e)}`,
+          );
+        }
       }
       deckRef.current.revivePane(active.id, pane.id);
     };

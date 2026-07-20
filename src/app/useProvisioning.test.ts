@@ -184,9 +184,17 @@ describe("useProvisioning retryPane", () => {
     expect(runs.runProvisioning.mock.calls[0][2]).toBeUndefined();
   });
 
-  it("batch panes (baseDir intent) keep their setup on retry", async () => {
-    await mountWith({ baseDir: "/repo-wt" });
+  it("batch panes (runsSetup intent) keep their setup on retry", async () => {
+    await mountWith({ baseDir: "/repo-wt", runsSetup: true });
     act(() => provisioning.retryPane("ws-1", "pane-1"));
     expect(runs.runProvisioning.mock.calls[0][2]).toBe("pnpm i");
+  });
+
+  it("an auto-placed pane WITHOUT the runsSetup stamp still skips setup on retry", async () => {
+    // The discriminator is the explicit stamp, not baseDir's presence — a
+    // future auto-placing dialog flow must not accidentally widen Retry.
+    await mountWith({ baseDir: "/repo-wt" });
+    act(() => provisioning.retryPane("ws-1", "pane-1"));
+    expect(runs.runProvisioning.mock.calls[0][2]).toBeUndefined();
   });
 });

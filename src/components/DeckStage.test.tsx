@@ -66,6 +66,7 @@ const callbacks = {
 
 const browser = {
   hits: [],
+  query: "",
   scanning: false,
   search: vi.fn(),
   scan: vi.fn(),

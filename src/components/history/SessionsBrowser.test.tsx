@@ -30,6 +30,7 @@ const hit = (over: Partial<SearchHit> = {}): SearchHit => ({
 
 const api = (hits: SearchHit[]): SessionsBrowserApi => ({
   hits,
+  query: "",
   scanning: false,
   search: vi.fn(),
   scan: vi.fn(),

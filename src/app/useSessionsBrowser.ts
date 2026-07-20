@@ -8,6 +8,10 @@ import { useAppRuntime } from "./runtimeContext";
 export interface SessionsBrowserApi {
   /** Hits for the current query (empty query = newest sessions). */
   hits: SearchHit[];
+  /** The query the hits answer — lives HERE so every empty-workspace mount
+   * of the browser shows box and results in agreement (hits are shared;
+   * per-instance query state desynced them). */
+  query: string;
   scanning: boolean;
   /** Run the debounced search; called on every keystroke. */
   search(query: string): void;
@@ -31,6 +35,7 @@ export function useSessionsBrowser(): SessionsBrowserApi {
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [scanning, setScanning] = useState(false);
   const queryRef = useRef("");
+  const [query, setQuery] = useState("");
   const searchSeq = useRef(0);
   const debounce = useRef<number | null>(null);
   const scanningRef = useRef(false);
@@ -49,6 +54,7 @@ export function useSessionsBrowser(): SessionsBrowserApi {
   const search = useCallback(
     (query: string) => {
       queryRef.current = query;
+      setQuery(query);
       if (debounce.current !== null) window.clearTimeout(debounce.current);
       debounce.current = window.setTimeout(() => runSearch(query), 150);
     },
@@ -86,5 +92,5 @@ export function useSessionsBrowser(): SessionsBrowserApi {
     [plugins],
   );
 
-  return { hits, scanning, search, scan, transcript };
+  return { hits, query, scanning, search, scan, transcript };
 }

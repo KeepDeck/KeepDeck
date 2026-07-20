@@ -42,10 +42,10 @@ const PAGE = 100;
  * the session's ORIGINAL directory; Fork picks a new home.
  */
 export function SessionsBrowser({ api, agents, ready, onResume, onFork }: SessionsBrowserProps) {
-  const [query, setQuery] = useState("");
   const [open, setOpen] = useState<SearchHit | null>(null);
   const [entries, setEntries] = useState<AgentTranscriptEntry[]>([]);
   const [exhausted, setExhausted] = useState(false);
+  const [loadingPage, setLoadingPage] = useState(false);
   // Resume needs a live original directory — same gate the journal rows use.
   const presence = useDirPresence(api.hits.map((hit) => hit.cwd));
   // Orders transcript responses: a stale page must never render under a
@@ -66,12 +66,16 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
 
   const loadMore = (hit: SearchHit, from: number) => {
     const seq = viewSeq.current;
+    setLoadingPage(true);
     void api
       .transcript(hit.agent, hit.reference, from, PAGE)
       .then((page) => {
         if (viewSeq.current !== seq) return; // another row opened meanwhile
         setEntries((current) => (from === 0 ? page : [...current, ...page]));
         setExhausted(page.length < PAGE);
+      })
+      .finally(() => {
+        if (viewSeq.current === seq) setLoadingPage(false);
       });
   };
 
@@ -80,12 +84,14 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
     setOpen(hit);
     setEntries([]);
     setExhausted(false);
+    setLoadingPage(false);
     loadMore(hit, 0);
   };
 
   const closeViewer = () => {
     viewSeq.current += 1;
     setOpen(null);
+    setLoadingPage(false);
   };
 
   const now = Date.now();
@@ -94,12 +100,9 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
       <div className="browser__bar">
         <input
           className="browser__search"
-          value={query}
+          value={api.query}
           placeholder="Search all sessions — content, titles"
-          onChange={(e) => {
-            setQuery(e.target.value);
-            api.search(e.target.value);
-          }}
+          onChange={(e) => api.search(e.target.value)}
         />
         {api.scanning && api.hits.length > 0 && (
           // Inside the field, so a background rescan neither shifts layout
@@ -194,9 +197,12 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
               <button
                 type="button"
                 className="history__resume"
+                // In-flight guard: a double-click would append the same page
+                // twice AND corrupt the next offset, skipping a real page.
+                disabled={loadingPage}
                 onClick={() => loadMore(open, entries.length)}
               >
-                Load more
+                {loadingPage ? "Loading…" : "Load more"}
               </button>
             )}
           </div>

@@ -403,7 +403,10 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         wsId: action.id,
         at: action.at,
       });
-      return { workspaces, activeId, viewByWs, journal };
+      // Spread, like every other case: this literal once dropped
+      // `restoredWorkspaceIds`, and a close landing before the journal
+      // hydrated then pruned EVERY restored workspace's history as orphaned.
+      return { ...state, workspaces, activeId, viewByWs, journal };
     }
     case "toggleFocus": {
       const { wsId, paneId } = action;

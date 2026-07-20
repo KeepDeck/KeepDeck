@@ -77,9 +77,14 @@ export function useJournalPersistence(deck: Deck, restoring: boolean, frozen: bo
   }, []);
 
   // 2) Compact (when earned), then hydrate — once, after the deck restored.
+  // The ref (not the state flag) gates re-entry: under StrictMode's
+  // mount→cleanup→remount both effect runs would otherwise enter before
+  // `hydrated` commits, compacting twice with an append racing the second.
+  const hydrateStartedRef = useRef(false);
   useEffect(() => {
     if (restoring || frozen || loaded === null || hydrated) return;
-    let cancelled = false;
+    if (hydrateStartedRef.current) return;
+    hydrateStartedRef.current = true;
     const run = async () => {
       if (loaded.compact) {
         try {
@@ -91,14 +96,13 @@ export function useJournalPersistence(deck: Deck, restoring: boolean, frozen: bo
           log.warn("web:journal", `journal compact failed: ${describeError(e)}`);
         }
       }
-      if (cancelled) return;
+      // No cleanup-cancellation here: hydrating the store is idempotent and
+      // the store outlives the render — cancelling on a StrictMode remount
+      // (with the once-only ref above) would leave the journal unhydrated.
       deckRef.current.hydrateJournal(loaded.records);
       setHydrated(true);
     };
     void run();
-    return () => {
-      cancelled = true;
-    };
   }, [restoring, frozen, loaded, hydrated]);
 
   // 3) Drain the outbox: append queued events in order, one flight at a time.
@@ -108,8 +112,12 @@ export function useJournalPersistence(deck: Deck, restoring: boolean, frozen: bo
   // quits — and durability-per-event is the journal's whole premise.
   const [retryTick, setRetryTick] = useState(0);
   const retryTimer = useRef<number | null>(null);
+  // An append rejecting AFTER unmount must not re-arm a leaked timer or
+  // setState on a dead component — the disposed flag outlives the cleanup.
+  const disposedRef = useRef(false);
   useEffect(
     () => () => {
+      disposedRef.current = true;
       if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
     },
     [],
@@ -131,6 +139,7 @@ export function useJournalPersistence(deck: Deck, restoring: boolean, frozen: bo
       .catch((e) => {
         appendingRef.current = false;
         log.warn("web:journal", `journal append failed: ${describeError(e)}`);
+        if (disposedRef.current) return;
         if (retryTimer.current !== null) window.clearTimeout(retryTimer.current);
         retryTimer.current = window.setTimeout(() => {
           retryTimer.current = null;

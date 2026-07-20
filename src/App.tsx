@@ -722,8 +722,10 @@ function App() {
             onResumeSession={(wsId, record) =>
               void journalResume.resume(wsId, record).catch((e: unknown) =>
                 // A user-requested continuation must fail VISIBLY — the row
-                // staying put with no signal reads as a dead button.
-                setError({
+                // staying put with no signal reads as a dead button. First
+                // error wins while its dialog is up: a slow earlier failure
+                // must not be clobbered by a later one.
+                setError((current) => current ?? {
                   title: "Could not resume the session",
                   message: describeError(e),
                 }),
@@ -821,7 +823,7 @@ function App() {
                 void journalFork.fork(wsId, record, target).catch((e: unknown) =>
                   // Surgery failures carry precise store diagnostics — show
                   // them; a silently closing dialog reads as success.
-                  setError({
+                  setError((current) => current ?? {
                     title: "Could not fork the session",
                     message: describeError(e),
                   }),

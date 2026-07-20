@@ -122,7 +122,7 @@ describe("useJournalResume", () => {
     expect(deck.workspaces[0].panes[0].cwd).toBeUndefined();
   });
 
-  it("no-ops when some pane already holds the session", async () => {
+  it("an already-claimed session fails LOUDLY — an enabled button must not be dead", async () => {
     await mount();
     act(() =>
       deck.addAgentPane("ws-1", {
@@ -131,7 +131,9 @@ describe("useJournalResume", () => {
         session: { id: "s-1", boundAt: "2026-07-19T00:00:00.000Z" },
       }),
     );
-    await act(async () => api.resume("ws-1", record()));
+    await expect(
+      act(async () => api.resume("ws-1", record())),
+    ).rejects.toThrow("already running");
     expect(deck.workspaces[0].panes).toHaveLength(1);
     expect(plans.buildResumeSpec).not.toHaveBeenCalled();
   });

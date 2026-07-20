@@ -23,6 +23,11 @@ export interface PaneProvisioning {
   repo: string;
   /** Batch flow: the folder the worktree dir is auto-placed under. */
   baseDir?: string;
+  /** This pane's create runs the workspace's one-time setup command — set by
+   * the batch flow, absent for "+ Agent"/fork panes. A Retry consults THIS,
+   * not a placement field's presence: a retry must never have wider effects
+   * than the attempt it retries. */
+  runsSetup?: true;
   /** Exact user-chosen worktree path (the "+ Agent" dialog flow). */
   path?: string;
   /** Explicit branch to create; the batch flow auto-names on the Rust side. */
@@ -243,6 +248,7 @@ export function makeProvisioningPanes(
     provisioning: {
       repo: ws.cwd,
       baseDir: ws.baseDir,
+      runsSetup: true,
       workspace: ws.name,
       index: i + 1,
     },
