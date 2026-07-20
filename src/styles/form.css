@@ -274,7 +274,29 @@
 }
 
 /* The "Start from" session picker ([F8] spawn-time continuation): a search
-   field over a bounded scrolling list of the selected agent's sessions. */
+   field over a bounded scrolling list of the selected agent's sessions,
+   lazily paged as the user scrolls (the shared engine behind the browser). */
+.form__sessions-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The search field owns the row with the count beside it — the list below
+   carries the spacing the standalone input used to. */
+.form__sessions-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.form__sessions-count {
+  flex: none;
+  font-size: 11px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
 .form__sessions {
   margin: 8px 0 20px;
   padding: 0;
@@ -340,6 +362,25 @@
   text-align: center;
   font-size: 12px;
   color: #6b7280;
+}
+
+/* The loading tail — a spinner as the last row while the next page is
+   fetched, mirroring the browser's list. Reuses the browser-spin keyframe. */
+.form__session-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.form__session-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #2b3446;
+  border-top-color: #9aa3af;
+  border-radius: 50%;
+  animation: browser-spin 0.7s linear infinite;
 }
 
 .form__actions {

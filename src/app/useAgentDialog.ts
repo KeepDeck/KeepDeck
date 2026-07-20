@@ -17,6 +17,7 @@ import {
 } from "../domain/deck";
 import { handleFromHit, type SessionHandle } from "../domain/journal";
 import { indexSearch } from "../ipc/history";
+import type { Page } from "./usePagedSessionSearch";
 import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { mintAgentSeq } from "./ids";
@@ -282,20 +283,26 @@ export function useAgentDialog(
   };
 
   /**
-   * The "Start from" picker's option source: one agent's sessions from the
-   * search index, newest first (an empty query), or content/title-matched
-   * (FTS — the same engine as the global browser). One page of 50: the
-   * picker is a launcher, not a browser — typing narrows, it never pages.
+   * The "Start from" picker's paged option source: one agent's sessions from
+   * the search index, newest first (an empty query) or content/title-matched
+   * (FTS — the same engine as the global browser). The dialog drives paging
+   * through the shared engine ([[usePagedSessionSearch]]); this maps one page
+   * of hits into pick rows and forwards the full match count.
    */
   const searchSessions = async (
     agent: AgentType,
     query: string,
-  ): Promise<SessionPickRow[]> => {
-    const page = await indexSearch(query, 50, 0, agent);
-    return page.hits.map((hit) => ({
-      handle: handleFromHit(hit),
-      mtime: hit.mtime,
-    }));
+    limit: number,
+    offset: number,
+  ): Promise<Page<SessionPickRow>> => {
+    const page = await indexSearch(query, limit, offset, agent);
+    return {
+      rows: page.hits.map((hit) => ({
+        handle: handleFromHit(hit),
+        mtime: hit.mtime,
+      })),
+      total: page.total,
+    };
   };
 
   /** How a session is already held by a pane: running behind a live PTY,

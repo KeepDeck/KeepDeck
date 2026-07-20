@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentSupportsYolo,
   canCreateAgent,
@@ -20,7 +20,9 @@ import {
 import { baseName } from "../../domain/deck";
 import { formatAge } from "../../domain/usage/format";
 import { useAgents } from "../../app/useAgents";
+import { usePagedSessionSearch, type Page } from "../../app/usePagedSessionSearch";
 import { useEscape } from "../../ui/useEscape";
+import { useScrollPaging } from "../../ui/useScrollPaging";
 import { noAutoCorrect } from "../../ui/inputProps";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
@@ -73,10 +75,16 @@ interface AgentDialogProps {
   ): Promise<{ path: string; branch: string } | null>;
   /** Native folder picker; null when cancelled. Injected for the same reason. */
   pickFolder(title: string): Promise<string | null>;
-  /** One agent's sessions from the search index for the "Start from" picker
-   * (newest first on an empty query, FTS-matched otherwise). Injected — the
-   * dialog stays free of IPC. */
-  searchSessions(agent: AgentType, query: string): Promise<SessionPickRow[]>;
+  /** One PAGE of an agent's sessions from the search index for the "Start
+   * from" picker (newest first on an empty query, FTS-matched otherwise),
+   * plus the full match count. Injected — the dialog stays free of IPC; the
+   * dialog itself drives paging through the shared engine. */
+  searchSessions(
+    agent: AgentType,
+    query: string,
+    limit: number,
+    offset: number,
+  ): Promise<Page<SessionPickRow>>;
   /** How a session is already held by a pane, for the resume dimming rule
    * — running, dormant, or free. Injected (deck state stays outside). */
   sessionClaim(sessionId: string): "running" | "dormant" | null;
@@ -140,7 +148,6 @@ export function AgentDialog({
   // or fork of one of the SELECTED agent's indexed sessions.
   const [startMode, setStartMode] = useState<SessionStartMode>("new");
   const [sessionQuery, setSessionQuery] = useState("");
-  const [sessions, setSessions] = useState<SessionPickRow[]>([]);
   const [picked, setPicked] = useState<SessionPickRow | null>(null);
   // What the Name field was last prefilled with (a picked session's title):
   // while name === prefill the field is untouched and follows the picks,
@@ -150,33 +157,51 @@ export function AgentDialog({
   const agentOptions = selectableAgents(agents);
   useEscape(onCancel);
 
-  // Load the picker's options: the selected agent's sessions, re-queried as
-  // the user types (FTS server-side — the index matches content, not just
-  // what a label would fuzzy-match). Debounced like the path probe.
+  // The picker's options, paged through the SAME engine as the global browser
+  // ([[usePagedSessionSearch]]) — the fetcher is scoped to the selected agent
+  // and re-scopes when the user switches. Virtualization/paging were missing
+  // here before: the list was capped at one page.
+  const pagedSessions = usePagedSessionSearch<SessionPickRow>(
+    useCallback(
+      (query, limit, offset) =>
+        searchSessions(agentType, query, limit, offset),
+      [searchSessions, agentType],
+    ),
+  );
+  const sessions = pagedSessions.rows;
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const onSessionsScroll = useScrollPaging(
+    listRef,
+    pagedSessions,
+    sessions.length,
+  );
+
+  // Re-query as the user types, switches agent, or opens resume/fork. Skipped
+  // for "new" (no picker shown); the shared engine debounces and pages.
+  const { search: searchSessionsPage } = pagedSessions;
   useEffect(() => {
     if (startMode === "new") return;
-    let cancelled = false;
-    const timer = setTimeout(() => {
-      searchSessions(agentType, sessionQuery)
-        .then((rows) => {
-          if (!cancelled) setSessions(rows);
-        })
-        .catch(() => {
-          if (!cancelled) setSessions([]);
-        });
-    }, 200);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    searchSessionsPage(sessionQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startMode, agentType, sessionQuery]);
 
-  // A pick belongs to ONE agent's store — switching agents voids it (and
-  // the typed filter; the fresh listing shouldn't open pre-narrowed).
+  // Prefill the Name from a session title while the field is UNTOUCHED (name
+  // still equals the last prefill); a hand-edited name stays the user's. The
+  // previous prefill is captured BEFORE reassigning the ref — setName's updater
+  // runs later, by which point prefillRef.current would already be `next`.
+  const applyPrefill = (next: string) => {
+    const previous = prefillRef.current;
+    setName((current) => (current === previous ? next : current));
+    prefillRef.current = next;
+  };
+
+  // A pick belongs to ONE agent's store — switching agents voids it (and the
+  // typed filter; the fresh listing shouldn't open pre-narrowed). An
+  // auto-filled (untouched) name came from that pick's title, so drop it too.
   useEffect(() => {
     setPicked(null);
     setSessionQuery("");
+    applyPrefill("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentType]);
 
@@ -204,14 +229,13 @@ export function AgentDialog({
   };
 
   const pickSession = (row: SessionPickRow) => {
+    // Ignore a click on a row from a DIFFERENT agent than the selected one —
+    // reachable only on a row still rendered from the previous agent during the
+    // search debounce window. `validPick` already blocks it downstream; this
+    // also stops the Name from prefilling off a pick that can't be used.
+    if (row.handle.agent !== agentType) return;
     setPicked(row);
-    // Prefill the name from the session title while the field is untouched.
-    // The previous prefill is captured OUTSIDE the updater — the ref is
-    // reassigned below, and updaters run later.
-    const title = row.handle.title ?? "";
-    const previous = prefillRef.current;
-    setName((current) => (current === previous ? title : current));
-    prefillRef.current = title;
+    applyPrefill(row.handle.title ?? "");
   };
 
   // Snap the pre-selected type onto the installed set once detection resolves
@@ -309,8 +333,15 @@ export function AgentDialog({
   if (kind !== "checking") settledKindRef.current = kind;
   const layoutKind = settledKindRef.current;
   const baseOk = isKnownBaseBranch(baseBranch, branches);
-  const pickedBlock = picked ? resumeBlockOf(picked) : null;
-  const sessionOk = canStartFromSession(startMode, picked !== null, pickedBlock);
+  // A pick is only usable for the CURRENTLY selected agent. Switching agents
+  // clears `picked`, but a click on a row still showing from the previous
+  // agent (during the search's debounce window) can set a cross-agent handle;
+  // narrow it to null so it can't be resumed/forked — or highlighted — under
+  // the wrong agent. One derived value, so no read site can forget the guard.
+  const validPick =
+    picked && picked.handle.agent === agentType ? picked : null;
+  const pickedBlock = validPick ? resumeBlockOf(validPick) : null;
+  const sessionOk = canStartFromSession(startMode, validPick !== null, pickedBlock);
   // Resume ignores the location entirely (locked to the recorded cwd — the
   // whole worktree block is hidden); everything else gates on both.
   const valid =
@@ -363,8 +394,8 @@ export function AgentDialog({
               location: buildLocation(),
               yolo: yolo && supportsYolo,
               ...(startMode !== "new" &&
-                picked && {
-                  session: { mode: startMode, handle: picked.handle },
+                validPick && {
+                  session: { mode: startMode, handle: validPick.handle },
                 }),
             });
         }}
@@ -418,20 +449,34 @@ export function AgentDialog({
 
         {startMode !== "new" && (
           <>
-            <input
-              {...noAutoCorrect}
-              className="form__input"
-              value={sessionQuery}
-              onChange={(e) => setSessionQuery(e.target.value)}
-              placeholder="Search sessions — content, titles"
-              aria-label="Search sessions"
-            />
-            <ul className="form__sessions" aria-label="Sessions">
+            <div className="form__sessions-bar">
+              <input
+                {...noAutoCorrect}
+                className="form__input form__sessions-search"
+                value={sessionQuery}
+                onChange={(e) => setSessionQuery(e.target.value)}
+                placeholder="Search sessions — content, titles"
+                aria-label="Search sessions"
+              />
+              {pagedSessions.total > 0 && (
+                <span className="form__sessions-count">
+                  {pagedSessions.hasMore
+                    ? `${sessions.length} of ${pagedSessions.total}`
+                    : `${pagedSessions.total}`}
+                </span>
+              )}
+            </div>
+            <ul
+              className="form__sessions"
+              aria-label="Sessions"
+              ref={listRef}
+              onScroll={onSessionsScroll}
+            >
               {sessions.map((row) => {
                 const block =
                   startMode === "resume" ? resumeBlockOf(row) : null;
                 const active =
-                  picked?.handle.sessionId === row.handle.sessionId;
+                  validPick?.handle.sessionId === row.handle.sessionId;
                 return (
                   <li key={`${row.handle.agent}:${row.handle.sessionId}`}>
                     <button
@@ -453,14 +498,22 @@ export function AgentDialog({
                   </li>
                 );
               })}
-              {sessions.length === 0 && (
+              {pagedSessions.loadingMore && (
+                <li
+                  className="form__session-more"
+                  aria-label="Loading more sessions"
+                >
+                  <span className="form__session-spinner" />
+                </li>
+              )}
+              {sessions.length === 0 && !pagedSessions.loadingMore && (
                 <li className="form__session-empty">No sessions match</li>
               )}
             </ul>
-            {startMode === "resume" && picked && (
+            {startMode === "resume" && validPick && (
               pickedBlock === null ? (
                 <span className="form__git">
-                  ✓ Resumes in {picked.handle.cwd}
+                  ✓ Resumes in {validPick.handle.cwd}
                 </span>
               ) : (
                 <span className="form__error">

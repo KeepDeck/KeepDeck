@@ -28,7 +28,13 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 // hook seam (the real hook would bootstrap the real plugin system). The
 // YOLO support flag is swappable per test — the toggle's visibility gates
 // on it.
-const catalog = vi.hoisted(() => ({ supportsYolo: true }));
+const catalog = vi.hoisted(() => ({
+  supportsYolo: true,
+  // Extra installed agents beyond claude — empty by default so every existing
+  // test sees a single-agent catalog; a test can add one to exercise the
+  // cross-agent guard.
+  extraAgents: [] as unknown[],
+}));
 vi.mock("../../app/useAgents", () => ({
   useAgents: () => ({
     agents: [
@@ -44,6 +50,7 @@ vi.mock("../../app/useAgents", () => ({
         installed: true,
         path: null,
       },
+      ...catalog.extraAgents,
     ],
     loading: false,
   }),
@@ -150,7 +157,7 @@ describe("AgentDialog worktree location flow", () => {
           occupancyAt: (p: string) => occupancyOf[p] ?? null,
           nextFreeLocation: async () => ({ path: "/base/kd-ws-3", branch: "kd/ws/3" }),
           pickFolder: async () => null,
-          searchSessions: async () => [],
+          searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
@@ -401,7 +408,7 @@ describe("AgentDialog agent picker", () => {
           occupancyAt: () => null,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
-          searchSessions: async () => [],
+          searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
           onConfirm: () => {},
           onCancel: () => {},
@@ -448,7 +455,7 @@ describe("AgentDialog YOLO toggle", () => {
           occupancyAt: () => null,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
-          searchSessions: async () => [],
+          searchSessions: async () => ({ rows: [], total: 0 }),
           sessionClaim: () => null,
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
@@ -533,7 +540,7 @@ describe("AgentDialog start-from session picker", () => {
           occupancyAt: () => null,
           nextFreeLocation: async () => null,
           pickFolder: async () => null,
-          searchSessions: async () => SESSIONS,
+          searchSessions: async () => ({ rows: SESSIONS, total: SESSIONS.length }),
           sessionClaim: (id: string) => (id === "s-claimed" ? ("running" as const) : null),
           onConfirm: (r: AgentDialogResult) => confirmed.push(r),
           onCancel: () => {},
@@ -546,11 +553,11 @@ describe("AgentDialog start-from session picker", () => {
       (b) => b.textContent === label,
     )!;
   const rows = () => [...document.querySelectorAll<HTMLButtonElement>(".form__session")];
-  /** Let the 200ms search debounce fire, its promise land, and the
-   * presence probes settle. */
+  /** Let the shared engine's search debounce (150ms) fire, its page land, and
+   * the presence probes settle. */
   const settleSessions = async () => {
     await act(async () => {
-      vi.advanceTimersByTime(200);
+      await vi.advanceTimersByTimeAsync(200);
     });
     await act(async () => {});
   };
@@ -634,5 +641,266 @@ describe("AgentDialog start-from session picker", () => {
     submit();
     expect(confirmed).toHaveLength(1);
     expect(confirmed[0].session).toBeUndefined();
+  });
+});
+
+describe("AgentDialog start-from paging", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  const mkRows = (from: number, count: number): SessionPickRow[] =>
+    Array.from({ length: count }, (_, i) => ({
+      handle: {
+        agent: "claude",
+        sessionId: `s-${from + i}`,
+        cwd: "/repo/wt",
+        title: `session ${from + i}`,
+      },
+      mtime: 1000 - (from + i),
+    }));
+
+  const modeBtn = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+      (b) => b.textContent === label,
+    )!;
+  const sessionRows = () =>
+    [...document.querySelectorAll<HTMLButtonElement>(".form__session")];
+
+  it("pages the picker: pulls the next page at the loaded offset and shows the count", async () => {
+    const calls: Array<{ limit: number; offset: number }> = [];
+    // A first page of 50 with more behind it, then the 20-row tail — 70 total.
+    const searchSessions = vi.fn(
+      async (_agent: string, _query: string, limit: number, offset: number) => {
+        calls.push({ limit, offset });
+        return offset === 0
+          ? { rows: mkRows(0, 50), total: 70 }
+          : { rows: mkRows(50, 20), total: 70 };
+      },
+    );
+
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions,
+          sessionClaim: () => null,
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+    // Fork avoids the resume presence gate — the paging itself is the subject.
+    act(() => modeBtn("Fork…").click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    await act(async () => {});
+
+    // Page zero, then the scroll-fill pulled the next page at the loaded
+    // offset — before this fix the list stopped at one page.
+    expect(calls).toEqual([
+      { limit: 50, offset: 0 },
+      { limit: 20, offset: 50 },
+    ]);
+    expect(sessionRows()).toHaveLength(70);
+    // Everything loaded → the bare total; a partial load reads "N of 70".
+    expect(document.querySelector(".form__sessions-count")?.textContent).toBe(
+      "70",
+    );
+  });
+
+  it("shows the partial 'X of N' count while more pages remain", async () => {
+    // Page zero is 50 of 200; the fill-triggered next page never resolves, so
+    // the list stays partial and the count must read loaded-of-total.
+    const searchSessions = vi.fn(
+      async (_a: string, _q: string, _l: number, offset: number) =>
+        offset === 0
+          ? { rows: mkRows(0, 50), total: 200 }
+          : new Promise<{ rows: SessionPickRow[]; total: number }>(() => {}),
+    );
+
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions,
+          sessionClaim: () => null,
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+    act(() => modeBtn("Fork…").click());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    await act(async () => {});
+
+    // hasMore is true (50 of 200) and the second page is still loading.
+    expect(document.querySelector(".form__sessions-count")?.textContent).toBe(
+      "50 of 200",
+    );
+    expect(document.querySelector(".form__session-more")).not.toBeNull();
+  });
+});
+
+describe("AgentDialog cross-agent pick guard", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let confirmed: AgentDialogResult[];
+
+  // The picker keeps returning claude sessions even once codex is selected —
+  // this mirrors the previous agent's rows still rendered during the search's
+  // debounce window, where a click yields a cross-agent handle.
+  const CLAUDE_SESSIONS: SessionPickRow[] = [
+    {
+      handle: { agent: "claude", sessionId: "s-c", cwd: "/repo/wt", title: "claude work" },
+      mtime: 2,
+    },
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    confirmed = [];
+    catalog.extraAgents = [
+      {
+        id: "codex",
+        label: "Codex",
+        icon: { viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z", color: "#fff" }] },
+        command: "codex",
+        supportsYolo: false,
+        installed: true,
+        path: null,
+      },
+    ];
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+    catalog.extraAgents = [];
+  });
+
+  const typeBtn = (text: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>(".form__type")].find(
+      (b) => b.textContent === text || b.textContent?.includes(text),
+    )!;
+
+  const mount = () =>
+    act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "claude" as const,
+          defaultYolo: false,
+          repo: { cwd: "/repo", branch: "main" },
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => ["main"],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions: async () => ({
+            rows: CLAUDE_SESSIONS,
+            total: CLAUDE_SESSIONS.length,
+          }),
+          sessionClaim: () => null,
+          onConfirm: (r: AgentDialogResult) => confirmed.push(r),
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+  const settle = async () => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    await act(async () => {});
+  };
+
+  const nameField = () =>
+    document.querySelector<HTMLInputElement>('input[aria-label="Agent name"]')!;
+
+  const pickFirstRow = () =>
+    act(() =>
+      document.querySelector<HTMLButtonElement>(".form__session")!.click(),
+    );
+
+  it("won't resume/fork a session whose agent differs from the selected agent", async () => {
+    await mount();
+
+    // Select codex, open Fork, pick the (claude) row.
+    act(() => typeBtn("Codex").click());
+    act(() => typeBtn("Fork…").click());
+    await settle();
+
+    const row = document.querySelector<HTMLButtonElement>(".form__session")!;
+    expect(row.textContent).toContain("claude work");
+    act(() => row.click());
+
+    // Cross-agent click is ignored: no name prefill, Create stays gated, and
+    // confirm carries no session.
+    expect(nameField().value).toBe("");
+    expect(createBtn().disabled).toBe(true);
+    submit();
+    expect(confirmed).toEqual([]);
+  });
+
+  it("drops an auto-filled name when the agent is switched", async () => {
+    await mount();
+    // On claude, pick a session in Fork mode → the Name auto-fills from its title.
+    act(() => typeBtn("Fork…").click());
+    await settle();
+    await pickFirstRow();
+    expect(nameField().value).toBe("claude work");
+    // Switching agents voids the pick — the untouched name goes with it.
+    act(() => typeBtn("Codex").click());
+    expect(nameField().value).toBe("");
+  });
+
+  it("keeps a hand-edited name across an agent switch", async () => {
+    await mount();
+    act(() => typeBtn("Fork…").click());
+    await settle();
+    await pickFirstRow();
+    type(nameField(), "my agent");
+    act(() => typeBtn("Codex").click());
+    expect(nameField().value).toBe("my agent");
   });
 });

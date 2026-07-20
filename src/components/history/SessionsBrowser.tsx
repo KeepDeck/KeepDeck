@@ -8,6 +8,7 @@ import type { SearchHit } from "../../ipc/history";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { BackIcon } from "../../ui/icons";
+import { useScrollPaging, NEAR_END } from "../../ui/useScrollPaging";
 import { baseName } from "../../domain/deck";
 
 interface SessionsBrowserProps {
@@ -55,21 +56,12 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
-  // Lazy paging of the hits list, scroll-driven: nearing the end pulls the
-  // next page in. The same check runs after every landed page so a viewport
-  // taller than the loaded rows (no scrollbar yet) still fills up.
+  // Lazy paging of the hits list, scroll-driven (the shared engine also feeds
+  // the spawn dialog's picker).
   const listRef = useRef<HTMLUListElement | null>(null);
-  const { hasMore, loadMore: loadMoreHits, hits } = api;
+  const maybeLoadHits = useScrollPaging(listRef, api, api.hits.length);
   const nearEnd = (el: HTMLElement) =>
-    el.scrollHeight - el.scrollTop - el.clientHeight < 240;
-  const maybeLoadHits = useCallback(() => {
-    const list = listRef.current;
-    // loadMore itself guards in-flight and exhausted states.
-    if (list && nearEnd(list)) loadMoreHits();
-  }, [loadMoreHits]);
-  useEffect(() => {
-    if (hasMore) maybeLoadHits();
-  }, [hasMore, maybeLoadHits, hits.length]);
+    el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_END;
 
   const loadMore = (hit: SearchHit, from: number) => {
     const seq = viewSeq.current;
