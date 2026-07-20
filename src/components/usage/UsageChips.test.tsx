@@ -154,7 +154,8 @@ describe("UsageChips", () => {
     const row = host.querySelector(".usage-session")!;
     expect(row.textContent).toContain("auth-refactor");
     expect(row.textContent).toContain("Opus");
-    expect(row.textContent).toContain("ctx 62%");
+    // Context% moved to the pane header — the popover row no longer carries it.
+    expect(row.textContent).not.toContain("ctx");
     expect(row.textContent).toContain("$4.13");
   });
 

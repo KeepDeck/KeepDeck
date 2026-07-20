@@ -10,7 +10,13 @@ vi.mock("../terminal/TerminalPane", () => ({
   TerminalPane: vi.fn(() => null),
 }));
 
+import type { NormalizedUsage } from "@keepdeck/plugin-api";
 import { TerminalPane } from "../terminal/TerminalPane";
+import {
+  registerUsageNormalizer,
+  reportUsage,
+  resetUsageManager,
+} from "../../app/usageManager";
 import { AgentPane } from "./AgentPane";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -41,6 +47,7 @@ describe("AgentPane — header badges", () => {
   let root: Root;
 
   beforeEach(() => {
+    resetUsageManager();
     document.body.innerHTML = "";
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -49,6 +56,33 @@ describe("AgentPane — header badges", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    resetUsageManager();
+  });
+
+  it("shows the context meter in the header from live pane usage", () => {
+    registerUsageNormalizer(
+      "claude",
+      (payload) => (payload as { result: NormalizedUsage }).result,
+    );
+    reportUsage("ws:1", {
+      agent: "claude",
+      result: {
+        account: null,
+        pane: { agent: "claude", context: { usedPct: 82 }, reportedAt: 0 },
+      },
+    });
+    act(() => root.render(createElement(AgentPane, baseProps)));
+
+    const ctx = document.querySelector<HTMLElement>(".pane__ctx");
+    expect(ctx).not.toBeNull();
+    expect(ctx!.textContent).toBe("ctx 82%");
+    // 82% is autocompact territory → amber, not calm.
+    expect(ctx!.className).toContain("usage-level--warn");
+  });
+
+  it("shows no context meter when the pane reports no usage", () => {
+    act(() => root.render(createElement(AgentPane, baseProps)));
+    expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
   it("renders a runtime git badge when provided", () => {

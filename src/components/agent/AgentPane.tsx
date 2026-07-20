@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import type { AgentRestartMode } from "../../domain/agents";
 import type { PaneProvisioning } from "../../domain/deck";
+import { contextLevel } from "../../domain/usage";
+import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 import {
@@ -140,6 +142,11 @@ export function AgentPane({
   onStartFresh,
   onRetryProvision,
 }: AgentPaneProps) {
+  // The live context-occupancy meter for this pane's header — moved off the
+  // usage popover, where the per-session rows crowded together and were hard
+  // to track. A narrow selector: only this pane re-renders when its own ctx%
+  // changes.
+  const ctxPct = usePaneContextPct(paneId);
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
   // A successful restart remounts the whole pane via its epoch. Until then,
@@ -236,6 +243,18 @@ export function AgentPane({
           )}
         </div>
         <div className="pane__actions">
+          {ctxPct !== undefined && (
+            <span
+              className={`pane__ctx${
+                contextLevel(ctxPct) === "ok"
+                  ? ""
+                  : ` usage-level--${contextLevel(ctxPct)}`
+              }`}
+              title={`Context ${Math.ceil(ctxPct)}% used`}
+            >
+              ctx {Math.ceil(ctxPct)}%
+            </span>
+          )}
           {yolo && (
             <span
               className="pane__yolo"

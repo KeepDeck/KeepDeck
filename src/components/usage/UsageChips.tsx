@@ -3,8 +3,6 @@ import type { AgentInfo } from "../../domain/agents";
 import { DEFAULT_SETTINGS, type UsageDisplay } from "../../domain/settings";
 import {
   chipWindows,
-  contextLevel,
-  contextPct,
   formatAge,
   formatPct,
   limitLevel,
@@ -275,35 +273,21 @@ export function UsageChips({
                 <b>Sessions</b>
                 <span className="usage-panel__ago">live</span>
               </div>
-              {sessions.map(([paneId, usage]) => {
-                const ctx = contextPct(usage.context);
-                return (
-                  <div key={paneId} className="usage-session">
-                    <span className="usage-session__name">
-                      {paneNames.get(paneId) || usage.model || usage.agent}
-                    </span>
-                    {usage.model && (
-                      <span className="usage-session__model">{usage.model}</span>
+              {sessions.map(([paneId, usage]) => (
+                <div key={paneId} className="usage-session">
+                  <span className="usage-session__name">
+                    {paneNames.get(paneId) || usage.model || usage.agent}
+                  </span>
+                  {usage.model && (
+                    <span className="usage-session__model">{usage.model}</span>
+                  )}
+                  <span className="usage-session__stats">
+                    {usage.costUsd !== undefined && (
+                      <span>${usage.costUsd.toFixed(2)}</span>
                     )}
-                    <span className="usage-session__stats">
-                      {ctx !== undefined && (
-                        <span
-                          className={
-                            contextLevel(ctx) === "ok"
-                              ? ""
-                              : `usage-level--${contextLevel(ctx)}`
-                          }
-                        >
-                          ctx {Math.ceil(ctx)}%
-                        </span>
-                      )}
-                      {usage.costUsd !== undefined && (
-                        <span>${usage.costUsd.toFixed(2)}</span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </div>
