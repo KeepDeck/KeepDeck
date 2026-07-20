@@ -123,6 +123,56 @@ describe("AgentPane — header badges", () => {
     expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
+  it.each([
+    [
+      "provisioning",
+      { provisioning: { repo: "/r", baseDir: "/w", branch: "b", workspace: "w", index: 1 } },
+    ],
+    ["unavailable", { unavailableAgent: "gemini" }],
+    ["plan-pending", { planPending: true }],
+  ] as const)(
+    "hides the context meter on a %s pane despite usage",
+    (_label, override) => {
+      registerUsageNormalizer(
+        "claude",
+        (payload) => (payload as { result: NormalizedUsage }).result,
+      );
+      reportUsage("ws:1", {
+        agent: "claude",
+        result: {
+          account: null,
+          pane: { agent: "claude", context: { usedPct: 82 }, reportedAt: 0 },
+        },
+      });
+      act(() =>
+        root.render(createElement(AgentPane, { ...baseProps, ...override })),
+      );
+      expect(document.querySelector(".pane__ctx")).toBeNull();
+    },
+  );
+
+  it("hides the context meter once the pane's process has exited", () => {
+    registerUsageNormalizer(
+      "claude",
+      (payload) => (payload as { result: NormalizedUsage }).result,
+    );
+    reportUsage("ws:1", {
+      agent: "claude",
+      result: {
+        account: null,
+        pane: { agent: "claude", context: { usedPct: 82 }, reportedAt: 0 },
+      },
+    });
+    vi.mocked(TerminalPane).mockClear();
+    act(() => root.render(createElement(AgentPane, baseProps)));
+    expect(document.querySelector(".pane__ctx")).not.toBeNull(); // live → shown
+    // The PTY exits → the now-frozen ctx% must go.
+    const calls = vi.mocked(TerminalPane).mock.calls;
+    const terminalProps = calls[calls.length - 1]?.[0];
+    act(() => terminalProps?.onExit?.(0, false));
+    expect(document.querySelector(".pane__ctx")).toBeNull();
+  });
+
   it("renders a runtime git badge when provided", () => {
     act(() =>
       root.render(

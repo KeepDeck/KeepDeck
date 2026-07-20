@@ -213,6 +213,33 @@ describe("UsageChips", () => {
     expect(row.textContent).not.toContain("↓");
   });
 
+  it("shows only the output half when input is absent", () => {
+    reportUsage("pane-1", limitsReport(42), AT);
+    reportUsage(
+      "pane-1",
+      {
+        agent: "claude",
+        result: {
+          account: null,
+          pane: {
+            agent: "claude",
+            model: "Opus",
+            totalTokens: { output: 1200 }, // input unknown, not zero
+            reportedAt: 0,
+          },
+        },
+      },
+      AT,
+    );
+    render();
+    act(() => {
+      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+    });
+    const row = host.querySelector(".usage-session")!;
+    expect(row.textContent).toContain("↓1.2k");
+    expect(row.textContent).not.toContain("↑");
+  });
+
   it("marks stale data instead of showing confident numbers", () => {
     reportUsage("pane-1", limitsReport(42), AT);
     vi.setSystemTime(AT + 31 * 60_000);

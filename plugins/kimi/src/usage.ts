@@ -10,22 +10,6 @@ import {
   type UsageWindow,
 } from "@keepdeck/plugin-api";
 
-/** A kimi token bag ({inputOther, output, inputCacheRead, inputCacheCreation})
- * → normalized counts. The per-request `usage` and the host tailer's cumulative
- * `sessionTotals` share this exact shape (the latter is the former summed), so
- * both map through here — a rename touches ONE place. */
-function tokens(bag: Record<string, unknown> | undefined): TokenCounts | undefined {
-  if (!bag) return undefined;
-  return collectTokenCounts({
-    input: bag.inputOther,
-    output: bag.output,
-    cacheRead: bag.inputCacheRead,
-    cacheWrite: bag.inputCacheCreation,
-    reasoning: undefined,
-    total: undefined,
-  });
-}
-
 /**
  * Kimi usage — two normalizers because kimi splits its data in two:
  *
@@ -43,6 +27,22 @@ function tokens(bag: Record<string, unknown> | undefined): TokenCounts | undefin
  *   queries the network. The host polls the usages endpoint while a kimi
  *   pane is live; [`normalizeKimiUsages`] reads the response document.
  */
+
+/** A kimi token bag ({inputOther, output, inputCacheRead, inputCacheCreation})
+ * → normalized counts. The per-request `usage` and the host tailer's cumulative
+ * `sessionTotals` share this exact shape (the latter is the former summed), so
+ * both map through here — a rename touches ONE place. */
+function tokens(bag: Record<string, unknown> | undefined): TokenCounts | undefined {
+  if (!bag) return undefined;
+  return collectTokenCounts({
+    input: bag.inputOther,
+    output: bag.output,
+    cacheRead: bag.inputCacheRead,
+    cacheWrite: bag.inputCacheCreation,
+    reasoning: undefined,
+    total: undefined,
+  });
+}
 
 export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
   if (!isJsonRecord(payload)) return null;
