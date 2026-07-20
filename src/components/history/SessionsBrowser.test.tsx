@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { SearchHit } from "../../ipc/history";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
@@ -196,7 +197,8 @@ describe("SessionsBrowser", () => {
     await act(async () =>
       document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
-    expect(a.transcript).toHaveBeenCalledWith("claude", "/store/u-1.jsonl", 0, 100);
+    // First transcript page is a viewport fill (50); later pages come in 20s.
+    expect(a.transcript).toHaveBeenCalledWith("claude", "/store/u-1.jsonl", 0, 50);
     expect(document.querySelector(".browser__turn--user")?.textContent).toBe("hello");
   });
 
@@ -212,6 +214,34 @@ describe("SessionsBrowser", () => {
         }),
       ),
     );
+
+  it("the WHOLE row opens the transcript; the action buttons stay their own targets", async () => {
+    const a = api([hit()]);
+    const onResume = vi.fn();
+    await act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: [],
+          ready: true,
+          onResume,
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+    // Resume must NOT bubble into opening the viewer.
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".history__resume")!.click(),
+    );
+    expect(onResume).toHaveBeenCalledTimes(1);
+    expect(a.transcript).not.toHaveBeenCalled();
+
+    // A click on the row itself (not the text button) opens it.
+    await act(async () =>
+      document.querySelector<HTMLLIElement>(".history__row")!.click(),
+    );
+    expect(a.transcript).toHaveBeenCalledTimes(1);
+  });
 
   it("shows the paging counter: partial as 'X of N', complete as the plain total", async () => {
     await mount(api([hit()], { total: 123, hasMore: true }));
@@ -236,6 +266,24 @@ describe("SessionsBrowser", () => {
       document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
     );
     expect(document.body.textContent).toContain("No transcript content");
-    expect(document.body.textContent).not.toContain("Loading…");
+    expect(document.querySelector(".browser__spinner")).toBeNull();
+  });
+
+  it("a loading page shows a spinner as the list/viewer tail, not an empty stall", async () => {
+    const a = api([hit()], { total: 123, hasMore: true, loadingMore: true });
+    a.transcript = vi.fn(
+      () => new Promise<AgentTranscriptEntry[]>(() => {}), // never resolves
+    );
+    await mount(a);
+    expect(
+      document.querySelector(".browser__list .browser__more .browser__spinner"),
+    ).not.toBeNull();
+
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>(".browser__open")!.click(),
+    );
+    expect(
+      document.querySelector(".browser__viewer-body .browser__spinner"),
+    ).not.toBeNull();
   });
 });

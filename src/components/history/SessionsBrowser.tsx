@@ -33,7 +33,10 @@ export function hitRecord(hit: SearchHit): SessionHandle {
   };
 }
 
-const PAGE = 100;
+/** Transcript paging mirrors the list ([F8] virtualized viewer): a viewport
+ * fill first, then small increments as scrolling nears the bottom. */
+const FIRST_TURNS = 50;
+const NEXT_TURNS = 20;
 
 /**
  * The global sessions browser ([F8]): every session of every agent store,
@@ -79,13 +82,14 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
 
   const loadMore = (hit: SearchHit, from: number) => {
     const seq = viewSeq.current;
+    const limit = from === 0 ? FIRST_TURNS : NEXT_TURNS;
     setLoadingPage(true);
     void api
-      .transcript(hit.agent, hit.reference, from, PAGE)
+      .transcript(hit.agent, hit.reference, from, limit)
       .then((page) => {
         if (viewSeq.current !== seq) return; // another row opened meanwhile
         setEntries((current) => (from === 0 ? page : [...current, ...page]));
-        setExhausted(page.length < PAGE);
+        setExhausted(page.length < limit);
       })
       .finally(() => {
         if (viewSeq.current === seq) setLoadingPage(false);
@@ -156,16 +160,19 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
         {api.hits.map((hit) => {
           const agent = agents.find((a) => a.id === hit.agent);
           return (
-            <li key={`${hit.agent}:${hit.sessionId}`} className="history__row">
+            <li
+              key={`${hit.agent}:${hit.sessionId}`}
+              className="history__row"
+              // The WHOLE row opens the transcript — aiming at the text
+              // alone is a hidden hit-target. The action buttons stop the
+              // bubble; the inner button stays for keyboard access (its
+              // synthesized click bubbles here too).
+              onClick={() => openViewer(hit)}
+            >
               <span className="history__glyph">
                 <AgentGlyph icon={agent?.icon} />
               </span>
-              <button
-                type="button"
-                className="browser__open"
-                title="Read this session"
-                onClick={() => openViewer(hit)}
-              >
+              <button type="button" className="browser__open" title="Read this session">
                 <span className="browser__name">
                   {hit.title ?? hit.sessionId}
                 </span>
@@ -173,9 +180,13 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
                   <span className="browser__snippet">{hit.snippet}</span>
                 )}
               </button>
-              <span className="history__chip" title={hit.cwd}>
-                {baseName(hit.cwd) || hit.cwd}
-              </span>
+              {hit.cwd !== "" && (
+                // No chip at all for a cwd-less session — an empty pill
+                // renders as a stray outline sliver.
+                <span className="history__chip" title={hit.cwd}>
+                  {baseName(hit.cwd) || hit.cwd}
+                </span>
+              )}
               <span className="history__when">{formatAge(hit.mtime, now)}</span>
               <button
                 type="button"
@@ -188,7 +199,10 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
                       ? `Resume in ${hit.cwd}`
                       : "The session's directory no longer exists — fork it instead"
                 }
-                onClick={() => onResume(hitRecord(hit))}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onResume(hitRecord(hit));
+                }}
               >
                 Resume
               </button>
@@ -196,7 +210,10 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
                 type="button"
                 className="history__fork"
                 title="Fork — a new conversation continuing from this session"
-                onClick={() => onFork(hitRecord(hit))}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFork(hitRecord(hit));
+                }}
               >
                 Fork…
               </button>
@@ -204,7 +221,9 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
           );
         })}
         {api.loadingMore && (
-          <li className="history__row browser__more">Loading…</li>
+          <li className="history__row browser__more" aria-label="Loading more sessions">
+            <span className="browser__spinner" />
+          </li>
         )}
         {api.hits.length === 0 && (
           <li className="history__row browser__empty">
@@ -239,15 +258,15 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
                 {entry.text}
               </div>
             ))}
-            {entries.length === 0 && (
+            {entries.length === 0 && !loadingPage && (
               // A legitimately empty transcript (all lines were noise) must
               // not read as a hang.
-              <div className="browser__empty">
-                {loadingPage ? "Loading…" : "No transcript content"}
-              </div>
+              <div className="browser__empty">No transcript content</div>
             )}
-            {loadingPage && entries.length > 0 && (
-              <div className="browser__more">Loading…</div>
+            {loadingPage && (
+              <div className="browser__more" aria-label="Loading transcript">
+                <span className="browser__spinner" />
+              </div>
             )}
           </div>
         </div>

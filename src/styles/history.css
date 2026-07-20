@@ -249,16 +249,41 @@
   min-height: 0;
 }
 
-/* Rows are clickable (open the transcript) — say so on hover. Status rows
- * (empty placeholder, the loading tail) are not. */
+/* The WHOLE row is clickable (opens the transcript) — say so on hover.
+ * Status rows (empty placeholder, the loading tail) are not. */
+.browser__list .history__row:not(.browser__empty):not(.browser__more) {
+  cursor: pointer;
+}
+
 .browser__list .history__row:not(.browser__empty):not(.browser__more):hover {
   background-color: #131926;
 }
 
+/* The loading tail — a spinner as the LAST element while the next page is
+ * fetched (both the sessions list and the transcript viewer). */
 .browser__more {
+  display: flex;
+  align-items: center;
   justify-content: center;
+  padding: 8px 0;
   color: #6b7280;
   font-size: 12px;
+}
+
+.browser__spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #2b3446;
+  border-top-color: #9aa3af;
+  border-radius: 50%;
+  animation: browser-spin 0.7s linear infinite;
+}
+
+@keyframes browser-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .browser__open {
@@ -327,6 +352,18 @@
   color: #ffffff;
 }
 
+/* The click already opened the viewer — a lingering WebKit focus ring on
+ * the row button reads as a stray highlight. Keyboard focus keeps one. */
+.browser__open:focus {
+  outline: none;
+}
+
+.browser__open:focus-visible {
+  outline: 1px solid #3a4658;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .browser__viewer-body {
   flex: 1 1 auto;
   min-height: 0;
@@ -336,8 +373,6 @@
   flex-direction: column;
   gap: 10px;
   font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 .browser__turn {
@@ -345,6 +380,11 @@
   border-radius: 8px;
   background-color: #11161f;
   color: #c5c8c6;
+  /* On the TURN, not the container: selection/paint of the container's
+   * inter-row whitespace must never show beside the rounded rows. */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
 }
 
 .browser__turn--user {
