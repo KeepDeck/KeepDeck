@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { normalizeClaudeStatusline } from "../../plugins/claude/src/usage";
 import type { NormalizedUsage } from "../domain/usage";
 import {
   getUsageSnapshot,
@@ -122,6 +123,49 @@ describe("reportUsage", () => {
     reportUsage("pane-1", { agent: "fake", sourceAt: 2_500 }, 4_000);
     expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
       reportedAt: 2_500,
+    });
+    dispose();
+  });
+
+  it("a stale session's echo (older source mtime) cannot clobber a fresher one", () => {
+    // The account-jumping bug: the claude reporter stamps each report with the
+    // transcript's mtime (the session's last-turn time). An active pane's turn
+    // and an idle pane's frozen refresh echo then race across panes — the echo
+    // is DELIVERED later but carries an OLDER capture time, so it must lose.
+    const dispose = registerUsageNormalizer("fake", (_payload, at) => reported(at));
+    reportUsage("pane-active", { agent: "fake", sourceMtimeMs: 10_000 }, 50_000);
+    reportUsage("pane-idle", { agent: "fake", sourceMtimeMs: 3_000 }, 60_000);
+    expect(getUsageSnapshot().accounts.get("fake")).toMatchObject({
+      reportedAt: 10_000,
+      sourcePaneId: "pane-active",
+    });
+    dispose();
+  });
+
+  it("ranks the REAL claude account by the reporter's sourceMtimeMs, end to end", () => {
+    // The whole chain in one test: a reporter-shaped envelope (verbatim
+    // statusline + a sibling sourceMtimeMs) → reportUsage derives the capture
+    // time from it → the real normalizeClaudeStatusline stamps the account →
+    // freshest ranks by it. The idle 3% echo (older mtime, delivered LATER)
+    // must not clobber the active 6% reading.
+    const dispose = registerUsageNormalizer("claude", normalizeClaudeStatusline);
+    const win = (p: number) => ({
+      rate_limits: { five_hour: { used_percentage: p, resets_at: 1_800_000_000 } },
+    });
+    reportUsage(
+      "pane-active",
+      { agent: "claude", statusline: win(6), sourceMtimeMs: 2_000 },
+      9_000,
+    );
+    reportUsage(
+      "pane-idle",
+      { agent: "claude", statusline: win(3), sourceMtimeMs: 1_000 },
+      9_999,
+    );
+    expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
+      reportedAt: 2_000,
+      sourcePaneId: "pane-active",
+      windows: [{ usedPct: 6 }],
     });
     dispose();
   });
