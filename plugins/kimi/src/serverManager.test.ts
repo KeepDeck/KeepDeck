@@ -6,6 +6,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import {
   createKimiServerManager,
+  describeStartupOutput,
   extractServerAccess,
   KIMI_SETUP_SERVER_PORT,
 } from "./serverManager";
@@ -63,6 +64,26 @@ describe("Kimi setup server access", () => {
   });
 });
 
+describe("describeStartupOutput", () => {
+  it("collapses multi-line output and strips terminal control sequences", () => {
+    expect(
+      describeStartupOutput(
+        "\u001b[31mError:\u001b[0m bind failed\r\n\r\n  on port 19120\n",
+      ),
+    ).toBe("Error: bind failed on port 19120");
+  });
+
+  it("keeps the head and marks truncation when the output is long", () => {
+    const result = describeStartupOutput("E".repeat(400));
+    expect(result).toBe(`${"E".repeat(300)}…`);
+    expect(result).toHaveLength(301);
+  });
+
+  it("returns empty when the output is only whitespace or control codes", () => {
+    expect(describeStartupOutput("\u001b[2J\r\n   \n")).toBe("");
+  });
+});
+
 describe("Kimi server manager", () => {
   it("uses one fixed-port foreground server for queued operations", async () => {
     const { manager, spawn, close } = sessionHarness();
@@ -101,13 +122,17 @@ describe("Kimi server manager", () => {
     expect(spawn).toHaveBeenCalledWith(
       expect.objectContaining({
         command: "kimi",
-        args: expect.arrayContaining([
-          "server",
-          "run",
-          "--foreground",
+        // `kimi web`, not the removed-in-0.28 `kimi server run`.
+        args: [
+          "web",
+          "--no-open",
+          "--host",
+          "127.0.0.1",
           "--port",
           String(KIMI_SETUP_SERVER_PORT),
-        ]),
+          "--log-level",
+          "silent",
+        ],
       }),
       expect.any(Function),
     );
@@ -198,7 +223,7 @@ describe("Kimi server manager", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("reports a fixed-port collision on an early Kimi exit", async () => {
+  it("reports an early exit by code without blaming the port", async () => {
     const close = vi.fn(async () => {});
     const spawn = vi.fn(
       async (_opts: unknown, onEvent: (event: PluginSessionEvent) => void) => {
@@ -215,9 +240,122 @@ describe("Kimi server manager", () => {
       { spawn } as unknown as PluginSessions,
     );
 
-    await expect(manager.run(async () => {})).rejects.toThrow(
-      "fixed setup port may already be in use",
+    const failure = manager.run(async () => {});
+    await expect(failure).rejects.toThrow(
+      `exited before it became ready on 127.0.0.1:${KIMI_SETUP_SERVER_PORT} (code 1)`,
     );
+    // A busy port makes `kimi web` hang, not exit, so it must not be blamed here.
+    await expect(failure).rejects.not.toThrow("port may already be in use");
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("omits the code and the port hint when a signal kills the server", async () => {
+    const close = vi.fn(async () => {});
+    const spawn = vi.fn(
+      async (_opts: unknown, onEvent: (event: PluginSessionEvent) => void) => {
+        onEvent({ type: "exit", code: null });
+        return {
+          id: "signal-killed-kimi-setup",
+          write: vi.fn(async () => {}),
+          resize: vi.fn(async () => {}),
+          close,
+        };
+      },
+    );
+    const manager = createKimiServerManager(
+      { spawn } as unknown as PluginSessions,
+    );
+
+    const failure = manager.run(async () => {});
+    await expect(failure).rejects.toThrow(
+      `exited before it became ready on 127.0.0.1:${KIMI_SETUP_SERVER_PORT}.`,
+    );
+    await expect(failure).rejects.not.toThrow("(code");
+    await expect(failure).rejects.not.toThrow("port may already be in use");
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces the server's own output when it exits early", async () => {
+    const notice = "`kimi server` has been deprecated and no longer works.";
+    const close = vi.fn(async () => {});
+    const spawn = vi.fn(
+      async (_opts: unknown, onEvent: (event: PluginSessionEvent) => void) => {
+        onEvent({ type: "output", bytes: encoder.encode(`${notice}\r\n`) });
+        onEvent({ type: "exit", code: 1 });
+        return {
+          id: "deprecated-kimi-setup",
+          write: vi.fn(async () => {}),
+          resize: vi.fn(async () => {}),
+          close,
+        };
+      },
+    );
+    const manager = createKimiServerManager(
+      { spawn } as unknown as PluginSessions,
+    );
+
+    await expect(manager.run(async () => {})).rejects.toThrow(notice);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("blames a busy port or changed banner only on a startup timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const close = vi.fn(async () => {});
+      const handle: PluginSessionHandle = {
+        id: "silent-kimi-setup",
+        write: vi.fn(async () => {}),
+        resize: vi.fn(async () => {}),
+        close,
+      };
+      // Resolves a live handle but never reports an address and never exits.
+      const spawn = vi.fn(async () => handle);
+      const manager = createKimiServerManager(
+        { spawn } as unknown as PluginSessions,
+      );
+
+      const failure = manager.run(async () => {});
+      failure.catch(() => {});
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      await expect(failure).rejects.toThrow("to report its address");
+      await expect(failure).rejects.toThrow("port may already be in use");
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("includes the server's own output in a startup-timeout message", async () => {
+    vi.useFakeTimers();
+    try {
+      const partial = "Listening on a different interface; still binding";
+      const close = vi.fn(async () => {});
+      const spawn = vi.fn(
+        async (_opts: unknown, onEvent: (event: PluginSessionEvent) => void) => {
+          // Prints partial output but never a parseable address, then hangs.
+          onEvent({ type: "output", bytes: encoder.encode(`${partial}\r\n`) });
+          return {
+            id: "hung-kimi-setup",
+            write: vi.fn(async () => {}),
+            resize: vi.fn(async () => {}),
+            close,
+          };
+        },
+      );
+      const manager = createKimiServerManager(
+        { spawn } as unknown as PluginSessions,
+      );
+
+      const failure = manager.run(async () => {});
+      failure.catch(() => {});
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      await expect(failure).rejects.toThrow("to report its address");
+      await expect(failure).rejects.toThrow(`It reported: ${partial}`);
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
