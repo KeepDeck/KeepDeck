@@ -48,6 +48,10 @@ from source instead, see [Package (macOS)](#package-macos).
   newline instead of submitting.
 - **Native menu + hotkeys** — ⌘N new workspace, ⌘T new agent, ⌘W close agent
   (an empty workspace closes itself), ⇧⌘M maximize the focused pane.
+- **Usage without mixed meanings** — the top bar shows provider account-limit
+  windows only. Per-session tokens and cost have their own `Settings → Stats`
+  page with 24h/7d/30d/90d views, model/session breakdowns and 90-day local
+  history. OpenCode contributes pane telemetry but no account-limit chip.
 
 ## Stack
 
