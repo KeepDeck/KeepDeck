@@ -123,7 +123,6 @@ export function recordPaneUsage(
       occurredAt: usage.reportedAt,
       capturedAt,
       agent: usage.agent,
-      ...(usage.providerId ? { providerId: usage.providerId } : {}),
       ...(usage.model ? { model: usage.model } : {}),
       workspaceId: context.workspaceId,
       workspaceName: context.workspaceName,

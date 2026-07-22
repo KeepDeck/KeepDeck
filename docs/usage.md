@@ -29,8 +29,9 @@ of double-counting. A root session owns one generation:
 - resume hydrates the root plus descendant session histories through the SDK;
 - child/subagent spend rolls up to the root, but only root messages define the
   pane's current context/model;
-- context limits are keyed by provider + model, because model ids are not
-  globally unique;
+- OpenCode keeps provider + model as an internal catalog key because model ids
+  are not globally unique, but the shared telemetry schema groups by CLI agent
+  and model instead of exposing a provider field other adapters cannot fill;
 - event callbacks run through a promise queue because OpenCode does not await
   plugin event handlers.
 
@@ -56,7 +57,7 @@ baseline without counting the same usage twice.
 Writes are append-only and fsynced. Loading is tolerant per line, deduplicates
 event ids and atomically compacts old data. Analytics retains 90 days; at most
 one older checkpoint per session remains on disk solely to preserve the replay
-baseline. Records include agent/provider/model, workspace, pane, root session,
+baseline. Records include agent/model, workspace, pane, root session,
 worktree metadata, token buckets, cost provenance and pricing version.
 
 Provider-reported cost always wins. When cost is absent, KeepDeck currently

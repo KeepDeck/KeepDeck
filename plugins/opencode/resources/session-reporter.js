@@ -256,7 +256,6 @@ export default async (input = {}) => {
       payload: {
         agent: "opencode",
         sessionId: currentRoot.sessionID,
-        providerId: currentRoot.providerID,
         model: currentRoot.modelID,
         sequence: ++sequence,
         ...(windowTokens !== undefined ? { windowTokens } : {}),

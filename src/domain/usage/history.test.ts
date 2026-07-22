@@ -132,7 +132,6 @@ describe("usage event codec", () => {
     occurredAt: 10,
     capturedAt: 11,
     agent: "opencode",
-    providerId: "anthropic",
     model: "claude-sonnet",
     workspaceId: "ws-1",
     workspaceName: "KeepDeck",

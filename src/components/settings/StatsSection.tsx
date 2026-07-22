@@ -120,7 +120,7 @@ function StatsTable({
               </b>
               <small>
                 {mode === "model"
-                  ? [row.agent, row.providerId].filter(Boolean).join(" · ")
+                  ? row.agent
                   : [row.workspaceName, row.agent, shortSession(row.sessionId)]
                       .filter(Boolean)
                       .join(" · ")}

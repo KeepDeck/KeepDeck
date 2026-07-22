@@ -147,7 +147,6 @@ describe("opencode session reporter", () => {
         payload: {
           agent: "opencode",
           sessionId: "ses_root",
-          providerId: "anthropic",
           model: "claude-sonnet-5",
           sequence: 1,
           windowTokens: 200_000,

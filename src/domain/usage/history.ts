@@ -22,7 +22,6 @@ export interface UsageEventV1 {
   occurredAt: number;
   capturedAt: number;
   agent: string;
-  providerId?: string;
   model?: string;
   workspaceId: string;
   workspaceName: string;
@@ -174,7 +173,7 @@ export function decodeUsageEvent(line: string): UsageEventV1 | null {
       return null;
     }
   }
-  for (const key of ["providerId", "model", "pricingVersion"]) {
+  for (const key of ["model", "pricingVersion"]) {
     if (value[key] !== undefined && typeof value[key] !== "string") return null;
   }
   return value as unknown as UsageEventV1;
@@ -212,7 +211,6 @@ export interface UsageStatsTotals {
 export interface UsageStatsRow extends UsageStatsTotals {
   key: string;
   agent: string;
-  providerId?: string;
   model?: string;
   workspaceName?: string;
   paneName?: string;
@@ -246,9 +244,7 @@ export function queryUsageStats(
 
   for (const event of selected) {
     addEvent(totals, event);
-    const modelKey = [event.agent, event.providerId ?? "", event.model ?? "unknown"].join(
-      "\0",
-    );
+    const modelKey = [event.agent, event.model ?? "unknown"].join("\0");
     const model = rowFor(modelRows, modelKey, event);
     addEvent(model, event);
 
@@ -258,7 +254,6 @@ export function queryUsageStats(
       session.workspaceName = event.workspaceName;
       session.paneName = event.paneName;
       session.model = event.model;
-      session.providerId = event.providerId;
     }
     addEvent(session, event);
   }
@@ -302,7 +297,6 @@ function rowFor(
     row = {
       key,
       agent: event.agent,
-      ...(event.providerId ? { providerId: event.providerId } : {}),
       ...(event.model ? { model: event.model } : {}),
       ...(event.workspaceName ? { workspaceName: event.workspaceName } : {}),
       ...(event.paneName ? { paneName: event.paneName } : {}),
