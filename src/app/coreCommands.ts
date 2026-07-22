@@ -22,7 +22,7 @@ import {
 import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
 import { commands } from "./commandRegistry";
 import { mintAgentSeq } from "./ids";
-import { paneInputReady, pasteToPane } from "./paneInput";
+import { paneInputReady, pasteToPane, writeToPane } from "./paneInput";
 import { provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
 import type { Deck } from "./useDeck";
@@ -67,10 +67,16 @@ export async function deliverTask(
   }
   if (!paneInputReady(paneIdToWrite)) return false;
   await wait(TASK_SETTLE_MS);
-  // PASTE channel: xterm applies bracketed paste when the TUI enabled it, so
-  // the task text reaches a bracketed-paste TUI (e.g. opencode) instead of
-  // being dropped as a bare raw stream.
-  return pasteToPane(paneIdToWrite, text + "\r");
+  // Paste the task text so xterm applies its paste framing when the TUI
+  // enabled bracketed paste (a bare raw stream is dropped by such TUIs).
+  if (!pasteToPane(paneIdToWrite, text)) return false;
+  // Send the submit Enter as a RAW keystroke AFTER the paste. xterm wraps the
+  // WHOLE argument of term.paste in the bracketed-paste markers, so a "\r"
+  // concatenated onto the pasted text would arrive as pasted content, not as
+  // Enter — the task would sit unsent. A raw CR outside the paste is a real
+  // keystroke that submits regardless of the TUI's paste mode.
+  writeToPane(paneIdToWrite, "\r");
+  return true;
 }
 
 function str(args: CommandArgs, name: string): string | undefined {
@@ -350,13 +356,12 @@ export function registerCoreCommands(
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, deps.agents(), ws, str(args, "agent"));
         const text = args.text as string;
-        // PASTE channel (xterm term.paste) — see deliverTask. submit appends
-        // a CR after the text, outside the bracketed-paste wrapping.
-        const written = pasteToPane(
-          pane.id,
-          args.submit === true ? text + "\r" : text,
-        );
-        if (!written) throw new Error("the pane has no live session");
+        if (!pasteToPane(pane.id, text)) {
+          throw new Error("the pane has no live session");
+        }
+        // Submit Enter is a separate RAW keystroke after the paste — see
+        // deliverTask for why the CR cannot ride inside the pasted payload.
+        if (args.submit === true) writeToPane(pane.id, "\r");
         return { workspaceId: ws.id, paneId: pane.id };
       },
     }),

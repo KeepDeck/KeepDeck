@@ -12,7 +12,8 @@ import {
 } from "../../app/ptyManager";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
-import { registerPaneInput, registerPanePaste } from "../../app/paneInput";
+import { registerPaneInput } from "../../app/paneInput";
+import { terminalPaneInput } from "./paneInputBinding";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
@@ -244,18 +245,16 @@ export function TerminalPane({
     };
     ta?.addEventListener("keydown", blockShiftEnterDefault, true);
 
-    // Route window-level input (a dropped file path, [F4]) into this session
-    // as RAW bytes — drag-and-drop shapes its own bracketed-paste wrapping.
-    const unregister = registerPaneInput(paneId, (text) => {
-      writePane(paneId, text);
-    });
-    // Programmatic TEXT insertion (voice dictation, spawn task delivery) goes
-    // through xterm's paste path so xterm applies its bracketed-paste wrapping
-    // exactly when the TUI enabled it — a bare raw stream is dropped by
+    // Route window-level input into this session: TYPE (raw PTY bytes) for
+    // file drag-and-drop, which shapes its own paste framing around image
+    // paths; PASTE through xterm's term.paste for programmatic TEXT (voice
+    // dictation, spawn task delivery), so xterm applies its paste framing
+    // the same way a hand ⌘V does — a bare raw stream is dropped by
     // bracketed-paste TUIs (e.g. opencode) and the text never lands.
-    const unregisterPaste = registerPanePaste(paneId, (text) => {
-      term.paste(text);
-    });
+    const unregister = registerPaneInput(
+      paneId,
+      terminalPaneInput(term, (text) => writePane(paneId, text)),
+    );
 
     // Auto-naming ([F11]): mirror the terminal title (OSC 0/1/2) up to the pane.
     const titleSub = term.onTitleChange((t) => onTitleRef.current?.(t));
@@ -361,7 +360,6 @@ export function TerminalPane({
       observer.disconnect();
       input.dispose();
       unregister();
-      unregisterPaste();
       links.dispose();
       titleSub.dispose();
       selectionSub.dispose();

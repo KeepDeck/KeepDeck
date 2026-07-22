@@ -3,7 +3,7 @@ import type { AgentInfo } from "../domain/agents";
 import { createCommandRegistry } from "../domain/commands";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { registerPaneInput, registerPanePaste } from "./paneInput";
+import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
 import type { Deck } from "./useDeck";
 
@@ -261,15 +261,19 @@ describe("agent.spawn", () => {
     );
     expect(result.ok).toBe(true);
     const paneId = deck.workspaces[0].panes[0].id;
+    const pasted: string[] = [];
     const written: string[] = [];
-    // TerminalPane registers both channels on mount: TYPE feeds paneInputReady
-    // (what the poll reads), PASTE is what deliverTask writes through.
-    const offReady = registerPaneInput(paneId, () => {});
-    const off = registerPanePaste(paneId, (text) => written.push(text));
+    // One entry carries both channels — TerminalPane registers them together.
+    const off = registerPaneInput(paneId, {
+      write: (t) => written.push(t),
+      paste: (t) => pasted.push(t),
+    });
     await vi.advanceTimersByTimeAsync(5_000);
     off();
-    offReady();
-    expect(written).toEqual(["fix the header\r"]);
+    // The task text is PASTED (xterm framing), the submit Enter is a separate
+    // RAW write — a CR inside the paste payload would be content, not Enter.
+    expect(pasted).toEqual(["fix the header"]);
+    expect(written).toEqual(["\r"]);
   });
 });
 
@@ -305,10 +309,14 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(info?.destructive).toBe(true);
   });
 
-  it("writes into the addressed pane over the PASTE channel, submit appends Enter", async () => {
+  it("pastes text into the addressed pane; submit sends Enter as a separate raw write", async () => {
     const { registry } = setup([twoPanes()]);
+    const pasted: string[] = [];
     const written: string[] = [];
-    const off = registerPanePaste("p2", (text) => written.push(text));
+    const off = registerPaneInput("p2", {
+      write: (t) => written.push(t),
+      paste: (t) => pasted.push(t),
+    });
     const result = await registry.execute(
       "pane.write",
       { agent: "reviewer", text: "hello", submit: true },
@@ -316,7 +324,10 @@ describe("agent.focus / agent.close / pane.write", () => {
     );
     off();
     expect(result.ok).toBe(true);
-    expect(written).toEqual(["hello\r"]);
+    expect(pasted).toEqual(["hello"]);
+    // Enter rides outside the paste — see deliverTask for why a "\r" inside the
+    // pasted payload would be content, not a submit.
+    expect(written).toEqual(["\r"]);
   });
 
   it("write without a live session fails; without a selection it refuses", async () => {
