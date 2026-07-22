@@ -103,7 +103,10 @@ const plugin: KeepDeckPlugin = {
       detect: { bin: "claude" },
       supportsYolo: true,
       // The statusLine reporter pushes; no tail, no poll.
-      usage: { normalize: normalizeClaudeStatusline },
+      usage: {
+        capabilities: ["paneTelemetry", "accountLimits"],
+        normalize: normalizeClaudeStatusline,
+      },
       history: claudeHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {

@@ -107,6 +107,12 @@ export type UsageTailFormat = "codex" | "kimi-wire";
 /** Native polled limit sources the host offers. */
 export type UsageLimitsSource = "codex-app-server" | "kimi-usages";
 
+/** Which half of the usage contract an agent can actually populate. Pane
+ * telemetry (context/tokens/cost) and account limits (rolling windows) have
+ * different UI homes and lifetimes; declaring either one must never imply the
+ * other. */
+export type UsageCapability = "paneTelemetry" | "accountLimits";
+
 /** The usage half of an agent contribution.
  *
  * BUILT-IN (in-process) agents only for now: the external tier does not
@@ -114,6 +120,10 @@ export type UsageLimitsSource = "codex-app-server" | "kimi-usages";
  * synchronously per report, and a cross-realm proxy is necessarily async.
  * An external plugin's declaration is ignored with a host-log warning. */
 export interface AgentUsage {
+  /** Static routing hints for the host UI. The normalizer remains tolerant and
+   * may return a partial report, but an account-limits chip is created only for
+   * agents that explicitly declare `accountLimits`. */
+  capabilities: readonly UsageCapability[];
   /** Normalize this agent's bridge usage payloads (statusLine reports,
    * tailed session-file events — whatever its reporters emit). */
   normalize: UsageNormalizer;

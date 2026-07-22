@@ -79,7 +79,7 @@ function toAgentInfo(
     supportsYolo: entry.supportsYolo === true,
     installed: status?.installed ?? true,
     path: status?.path ?? null,
-    reportsUsage: entry.usage !== undefined,
+    usageCapabilities: entry.usage?.capabilities ?? [],
   };
 }
 

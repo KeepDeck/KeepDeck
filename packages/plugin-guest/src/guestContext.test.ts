@@ -140,7 +140,7 @@ describe("agent registration payload", () => {
       label: "Codex",
       detect: { bin: "codex" },
       hooks: {},
-      usage: { normalize: () => null },
+      usage: { capabilities: ["paneTelemetry"], normalize: () => null },
     });
     await bundle.registrationsSettled();
     const warn = call.mock.calls.find(([path]) => path === "log.warn");

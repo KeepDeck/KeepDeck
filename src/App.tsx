@@ -164,8 +164,9 @@ function App() {
   // pane usage as panes close; the chips read the store on their own.
   useUsageChannel(deck);
   // Pane display titles for the usage panel's session rows, and the agent
-  // ids present in the deck — every one earns a chip immediately, so the
-  // usage roster is stable instead of appearing report by report.
+  // ids present in the deck — account-limit-capable ones earn a chip
+  // immediately, so the limits roster is stable instead of appearing report
+  // by report. Pane-only telemetry never enters the top bar.
   const usagePaneNames = useMemo(() => {
     const names = new Map<string, string>();
     for (const ws of deck.workspaces) {

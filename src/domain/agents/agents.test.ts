@@ -17,7 +17,7 @@ function agent(
     label: id,
     command: id,
     supportsYolo: false,
-    reportsUsage: true,
+    usageCapabilities: ["paneTelemetry", "accountLimits"],
     installed,
     path: null,
     ...extra,

@@ -45,6 +45,7 @@ const plugin: KeepDeckPlugin = {
       // Per-pane tokens/context stay in the rollout; current account limits
       // come from the host's one shared official app-server manager.
       usage: {
+        capabilities: ["paneTelemetry", "accountLimits"],
         normalize: normalizeCodexRollout,
         tail: "codex",
         limits: {

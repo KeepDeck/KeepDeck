@@ -101,13 +101,20 @@ describe("useUsageChannel", () => {
     ipc.contributions = [
       {
         pluginId: "keepdeck.claude",
-        entry: { id: "claude", usage: { normalize: (_p, at) => reported(at) } },
+        entry: {
+          id: "claude",
+          usage: {
+            capabilities: ["paneTelemetry", "accountLimits"],
+            normalize: (_p, at) => reported(at),
+          },
+        },
       },
       {
         pluginId: "keepdeck.codex",
         entry: {
           id: "codex",
           usage: {
+            capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
             tail: "codex",
             limits: {
@@ -349,6 +356,7 @@ describe("useUsageChannel", () => {
         entry: {
           id: "kimi",
           usage: {
+            capabilities: ["paneTelemetry", "accountLimits"],
             normalize: (_p, at) => reported(at),
             tail: "kimi-wire",
             limits: {

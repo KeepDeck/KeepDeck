@@ -21,9 +21,10 @@ import { useUsage } from "../../app/useUsage";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 
 /**
- * The top-bar usage cluster: one chip per usage-declaring agent with a
+ * The top-bar usage cluster: one chip per ACCOUNT-LIMIT-capable agent with a
  * pane in the deck (immediately — "···" until data) or with a reported
- * account (persisted snapshots keep the bar full after a restart). Calm
+ * account (persisted snapshots keep the bar full after a restart). Pane-only
+ * telemetry belongs to pane headers / Stats and never creates a limits chip. Calm
  * by default — color only at the 60/80 thresholds. Clicking a chip opens
  * the anchored panel (the bell's manners) scoped to THAT provider: its
  * windows with client-side reset countdowns and its live session rows
@@ -132,8 +133,8 @@ export function UsageChips({
   paneNames,
 }: {
   agents: AgentInfo[];
-  /** Agent ids with a pane in the deck — every one earns a chip, data or
-   * not, so the roster is stable and predictable. */
+  /** Agent ids with a pane in the deck — account-limit-capable ones earn a
+   * chip immediately, so that roster is stable and predictable. */
   liveAgents: ReadonlySet<string>;
   /** Pane id → display title, for the panel's session rows. */
   paneNames: ReadonlyMap<string, string>;
@@ -145,13 +146,14 @@ export function UsageChips({
   const [openProvider, setOpenProvider] = useState<string | null>(null);
   const rootRef = useRef<HTMLSpanElement>(null);
 
-  // Catalog order keeps the cluster stable. A chip exists for every agent
-  // WITH A PANE (immediately — "···" until data) and for every REPORTED
-  // account (persisted snapshots keep the bar populated after a restart,
-  // honestly aged). The "unavailable" contract arm has no producer today.
+  // Catalog order keeps the cluster stable. A chip exists for every
+  // ACCOUNT-LIMIT-capable agent WITH A PANE (immediately — "···" until data)
+  // and for every REPORTED account (persisted snapshots keep the bar populated
+  // after a restart, honestly aged). The "unavailable" arm has no producer.
   const providers = agents.filter(
     (agent) =>
-      (agent.reportsUsage === true && liveAgents.has(agent.id)) ||
+      (agent.usageCapabilities?.includes("accountLimits") === true &&
+        liveAgents.has(agent.id)) ||
       accounts.get(agent.id)?.kind === "reported",
   );
 

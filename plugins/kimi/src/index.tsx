@@ -64,6 +64,7 @@ const plugin: KeepDeckPlugin = {
       // Tokens/context ride the tailed wire.jsonl; rate windows exist only
       // behind the polled usages endpoint (kimi's own /usage queries it too).
       usage: {
+        capabilities: ["paneTelemetry", "accountLimits"],
         normalize: normalizeKimiWire,
         tail: "kimi-wire",
         limits: { poll: "kimi-usages", normalize: normalizeKimiUsages },

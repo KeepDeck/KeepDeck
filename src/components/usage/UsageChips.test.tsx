@@ -29,7 +29,15 @@ const CLAUDE: AgentInfo = {
   supportsYolo: true,
   installed: true,
   path: null,
-  reportsUsage: true,
+  usageCapabilities: ["paneTelemetry", "accountLimits"],
+};
+
+const OPENCODE: AgentInfo = {
+  ...CLAUDE,
+  id: "opencode",
+  label: "OpenCode",
+  command: "opencode",
+  usageCapabilities: ["paneTelemetry"],
 };
 
 const AT = 1_738_400_000_000;
@@ -98,10 +106,11 @@ describe("UsageChips", () => {
   const render = (
     paneNames: ReadonlyMap<string, string> = new Map(),
     liveAgents: ReadonlySet<string> = new Set(),
+    agents: AgentInfo[] = [CLAUDE],
   ) =>
     act(() =>
       root.render(
-        createElement(UsageChips, { agents: [CLAUDE], liveAgents, paneNames }),
+        createElement(UsageChips, { agents, liveAgents, paneNames }),
       ),
     );
 
@@ -115,6 +124,11 @@ describe("UsageChips", () => {
     const chip = host.querySelector(".usage-chip")!;
     expect(chip.textContent).toContain("···");
     expect(chip.getAttribute("title")).toContain("waiting");
+  });
+
+  it("does not create an account chip for a live pane-only agent", () => {
+    render(new Map(), new Set(["opencode"]), [OPENCODE]);
+    expect(host.querySelector(".usage-chip")).toBeNull();
   });
 
   it("shows both account windows, calm below the thresholds", () => {
