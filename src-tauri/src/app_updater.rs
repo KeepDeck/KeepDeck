@@ -125,8 +125,9 @@ pub async fn app_update_check(
     // separate blocking task (ureq must stay off the async runtime, like the
     // kimi usages fetch); failure is non-fatal — the update is still valid and
     // installable, the user just sees no notes. Most common miss: the channel
-    // has not published changelog.json yet.
-    let changelog = tauri::async_runtime::spawn_blocking(move || {
+    // has not published changelog.json yet. A task panic is caught here too so
+    // the docstring's "non-fatal" promise holds for every failure mode.
+    let changelog = match tauri::async_runtime::spawn_blocking(move || {
         match fetch_changelog(&endpoint) {
             Ok(entries) => entries,
             Err(error) => {
@@ -136,7 +137,13 @@ pub async fn app_update_check(
         }
     })
     .await
-    .map_err(|e| e.to_string())?;
+    {
+        Ok(entries) => entries,
+        Err(error) => {
+            log::warn!("changelog task failed: {error}");
+            Vec::new()
+        }
+    };
     let dto = AvailableUpdateDto {
         id: id.clone(),
         version: update.version.clone(),
@@ -221,17 +228,35 @@ fn sibling_url(endpoint: &str, name: &str) -> Result<String, String> {
     Ok(url.to_string())
 }
 
-/// Fetch a small artifact's bytes with a tight timeout. Used for the
-/// changelog — never the update bundle (that goes through the resumable
-/// download engine).
+/// A changelog is a few KB of JSON; cap the fetch so a misconfigured or
+/// compromised endpoint can't exhaust memory or stall the check. Two MiB is
+/// ~100x any realistic release-notes document.
+const MAX_CHANGELOG_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Fetch a small artifact's bytes with a tight timeout and a hard size cap.
+/// Used for the changelog — never the update bundle (that goes through the
+/// resumable download engine, which caps via its integrity metadata).
 fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
     let response = ureq::get(url)
         .timeout(Duration::from_secs(10))
         .call()
         .map_err(changelog_http_error)?;
+    if let Some(len) = response
+        .header("Content-Length")
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        if len > MAX_CHANGELOG_BYTES {
+            return Err(format!(
+                "changelog too large: {len} bytes (limit {MAX_CHANGELOG_BYTES})"
+            ));
+        }
+    }
     let mut bytes = Vec::new();
+    // `.take` bounds the read even when Content-Length is missing or lies; a
+    // truncated body then fails to parse downstream (non-fatal, empty list).
     response
         .into_reader()
+        .take(MAX_CHANGELOG_BYTES)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("changelog body unreadable: {e}"))?;
     Ok(bytes)
