@@ -261,11 +261,19 @@ describe("agent.spawn", () => {
     );
     expect(result.ok).toBe(true);
     const paneId = deck.workspaces[0].panes[0].id;
+    const pasted: string[] = [];
     const written: string[] = [];
-    const off = registerPaneInput(paneId, (text) => written.push(text));
+    // One entry carries both channels — TerminalPane registers them together.
+    const off = registerPaneInput(paneId, {
+      write: (t) => written.push(t),
+      paste: (t) => pasted.push(t),
+    });
     await vi.advanceTimersByTimeAsync(5_000);
     off();
-    expect(written).toEqual(["fix the header\r"]);
+    // The task text is PASTED (xterm framing), the submit Enter is a separate
+    // RAW write — a CR inside the paste payload would be content, not Enter.
+    expect(pasted).toEqual(["fix the header"]);
+    expect(written).toEqual(["\r"]);
   });
 });
 
@@ -301,10 +309,14 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(info?.destructive).toBe(true);
   });
 
-  it("writes into the addressed pane, submit appends Enter", async () => {
+  it("pastes text into the addressed pane; submit sends Enter as a separate raw write", async () => {
     const { registry } = setup([twoPanes()]);
+    const pasted: string[] = [];
     const written: string[] = [];
-    const off = registerPaneInput("p2", (text) => written.push(text));
+    const off = registerPaneInput("p2", {
+      write: (t) => written.push(t),
+      paste: (t) => pasted.push(t),
+    });
     const result = await registry.execute(
       "pane.write",
       { agent: "reviewer", text: "hello", submit: true },
@@ -312,7 +324,10 @@ describe("agent.focus / agent.close / pane.write", () => {
     );
     off();
     expect(result.ok).toBe(true);
-    expect(written).toEqual(["hello\r"]);
+    expect(pasted).toEqual(["hello"]);
+    // Enter rides outside the paste — see deliverTask for why a "\r" inside the
+    // pasted payload would be content, not a submit.
+    expect(written).toEqual(["\r"]);
   });
 
   it("write without a live session fails; without a selection it refuses", async () => {
@@ -329,6 +344,23 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(unaddressed.ok).toBe(false);
     if (!unaddressed.ok)
       expect(unaddressed.error.message).toBe('no agent selected in workspace "web"');
+  });
+
+  it("a live TYPE-only pane refuses paste with a distinct message", async () => {
+    const { registry } = setup([twoPanes()]);
+    // TYPE-only: live entry (paneInputReady true) but no paste channel. A live
+    // TerminalPane always registers both, so this models a future TYPE-only
+    // registrant — the error must name the real cause, not "no live session".
+    const off = registerPaneInput("p2", { write: () => {} });
+    const result = await registry.execute(
+      "pane.write",
+      { agent: "reviewer", text: "hello" },
+      HOST,
+    );
+    off();
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error.message).toBe("the pane has no paste channel");
   });
 });
 

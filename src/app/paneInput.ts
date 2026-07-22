@@ -1,37 +1,73 @@
 /**
- * A tiny registry mapping a pane id to a function that writes text into that
- * pane's live PTY session. It lets a window-level handler (file drag-and-drop,
- * [F4]) target the specific pane under the cursor without threading session
- * handles up through React — each `TerminalPane` registers its writer on mount
- * and removes it on unmount. Pane ids are unique across the whole app (one
- * global counter), so there are no collisions.
+ * A tiny registry mapping a pane id to the two ways text can reach its live
+ * PTY session:
+ *
+ *  - `write` — RAW bytes straight into the PTY, in the vein of keyboard
+ *    `onData`. Reached via `writeRawToPane` (the name flags it as the niche
+ *    raw path). Used by file drag-and-drop, which shapes its own paste
+ *    framing around image paths and must not be re-framed.
+ *  - `paste` — framed paste, routed by the registrant through whatever the
+ *    pane's renderer does for a hand paste. Used by programmatic TEXT
+ *    insertion (voice dictation, spawn task delivery) so the text reaches the
+ *    agent the same way a hand paste would; the renderer (not this registry)
+ *    decides the framing.
+ *
+ * One entry per pane: a single `registerPaneInput` call registers both
+ * together, so `paneInputReady` (which gates the one entry) is a faithful
+ * readiness signal for whichever channel a caller writes through — there is no
+ * "the ready channel is not the delivery channel" gap. Each `TerminalPane`
+ * registers on mount and removes on unmount. Pane ids are unique across the
+ * whole app (one global counter), so there are no collisions.
  */
-const writers = new Map<string, (text: string) => void>();
+export interface PaneInput {
+  write: (text: string) => void;
+  /** Optional: a TYPE-only registrant (e.g. a drag-drop test stub) omits
+   * it, and `pasteToPane` then reports the pane as not paste-capable. A live
+   * `TerminalPane` always provides both. */
+  paste?: (text: string) => void;
+}
 
-/** Register a pane's input writer; returns an unregister fn for cleanup. */
+const entries = new Map<string, PaneInput>();
+
+/** Register a pane's input (both channels); returns an unregister fn for
+ * cleanup. */
 export function registerPaneInput(
   id: string,
-  write: (text: string) => void,
+  input: PaneInput,
 ): () => void {
-  writers.set(id, write);
+  entries.set(id, input);
   return () => {
     // Only delete if it's still ours — guards against a re-mount that already
     // replaced the entry (e.g. a StrictMode double-mount).
-    if (writers.get(id) === write) writers.delete(id);
+    if (entries.get(id) === input) entries.delete(id);
   };
 }
 
-/** Whether a pane currently has a live input writer — its terminal is
- * mounted and its session spawned. The task-delivery poll reads this instead
- * of probing with an empty write. */
+/** Whether a pane currently has a live input — its terminal is mounted and
+ * its session spawned. The task-delivery poll reads this instead of probing
+ * with an empty write. */
 export function paneInputReady(id: string): boolean {
-  return writers.has(id);
+  return entries.has(id);
 }
 
-/** Write text into a pane's session. Returns false if no such pane is live. */
-export function writeToPane(id: string, text: string): boolean {
-  const write = writers.get(id);
-  if (!write) return false;
-  write(text);
+/** Write text into a pane's session as RAW bytes (TYPE channel — keystroke
+ * semantics, no paste framing). The name carries the caveat: a NEW caller
+ * sending programmatic TEXT almost always wants `pasteToPane` instead, or a
+ * bracketed-paste TUI (opencode) will drop the bare stream. Returns false if
+ * no such pane is live. */
+export function writeRawToPane(id: string, text: string): boolean {
+  const input = entries.get(id);
+  if (!input) return false;
+  input.write(text);
+  return true;
+}
+
+/** Paste text into a pane's session through the renderer's paste path.
+ * Returns false if no such pane is live, or if it did not register a paste
+ * channel (a TYPE-only pane cannot accept a paste). */
+export function pasteToPane(id: string, text: string): boolean {
+  const input = entries.get(id);
+  if (!input?.paste) return false;
+  input.paste(text);
   return true;
 }

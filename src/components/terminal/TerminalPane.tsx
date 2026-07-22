@@ -12,7 +12,7 @@ import {
 } from "../../app/ptyManager";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
-import { registerPaneInput } from "../../app/paneInput";
+import { registerTerminalPaneInput } from "./paneInputBinding";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
@@ -244,10 +244,18 @@ export function TerminalPane({
     };
     ta?.addEventListener("keydown", blockShiftEnterDefault, true);
 
-    // Route window-level input (a dropped file path, [F4]) into this session.
-    const unregister = registerPaneInput(paneId, (text) => {
-      writePane(paneId, text);
-    });
+    // Route window-level input into this session: TYPE (raw PTY bytes) for
+    // file drag-and-drop, which shapes its own paste framing around image
+    // paths; PASTE through xterm's term.paste for programmatic TEXT (voice
+    // dictation, spawn task delivery), so xterm applies its paste framing
+    // the same way a hand ⌘V does — a bare raw stream is dropped by
+    // bracketed-paste TUIs (e.g. opencode) and the text never lands. The glue
+    // is tested via registerTerminalPaneInput (no mount needed).
+    const unregister = registerTerminalPaneInput(
+      paneId,
+      term,
+      (text) => writePane(paneId, text),
+    );
 
     // Auto-naming ([F11]): mirror the terminal title (OSC 0/1/2) up to the pane.
     const titleSub = term.onTitleChange((t) => onTitleRef.current?.(t));

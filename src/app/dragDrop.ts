@@ -1,6 +1,6 @@
 import { paneAtPoint, type PaneRect } from "../domain/deck";
 import { formatDroppedPaths } from "../domain/terminal";
-import { writeToPane } from "./paneInput";
+import { writeRawToPane } from "./paneInput";
 
 /**
  * Snapshot the live viewport rects of the panes in the ACTIVE workspace.
@@ -35,7 +35,7 @@ export function deliverDrop(
   isImage: boolean[],
 ): boolean {
   if (!paneId || paths.length === 0) return false;
-  return writeToPane(paneId, formatDroppedPaths(paths, isImage));
+  return writeRawToPane(paneId, formatDroppedPaths(paths, isImage));
 }
 
 /**
