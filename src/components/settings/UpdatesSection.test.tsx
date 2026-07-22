@@ -6,7 +6,10 @@ import { initUpdates, resetUpdateManager } from "../../app/updateManager";
 import type { AvailableUpdate } from "../../ipc/updater";
 import { UpdatesSection } from "./UpdatesSection";
 
-vi.mock("../../ipc/app", () => ({ fetchAppInfo: vi.fn() }));
+vi.mock("../../ipc/app", () => ({
+  fetchAppInfo: vi.fn(),
+  openUrl: vi.fn(async () => {}),
+}));
 vi.mock("../../ipc/updater", () => ({
   checkForUpdate: vi.fn(),
   discardUpdate: vi.fn(async () => {}),
@@ -153,6 +156,44 @@ describe("UpdatesSection", () => {
     await act(async () => button("Dismiss").click());
     expect(hints()).toContain("Up to date");
     expect(button("Check for updates").disabled).toBe(false);
+  });
+
+  it("renders the accumulated changelog for a found update", async () => {
+    mockInfo.mockResolvedValue({ name: "KeepDeck", version: "0.13.0", updater: true });
+    mockCheck.mockResolvedValue({
+      ...fakeUpdate("1.2.0"),
+      changelog: [
+        { version: "1.0.0", notes: "First **bold** step.", date: "2026-07-01" },
+        { version: "1.2.0", notes: "- a\n- b" },
+      ],
+    });
+    await initUpdates(downloads);
+    await render();
+
+    const versions = [...host.querySelectorAll(".settings__changelog-version span")].map(
+      (el) => el.textContent,
+    );
+    expect(versions).toEqual(["1.0.0", "1.2.0"]);
+    // Markdown renders: bold becomes <strong>, a bullet list becomes <ul><li>.
+    expect(host.querySelector(".settings__changelog-entry strong")).not.toBeNull();
+    expect(host.querySelectorAll(".settings__changelog-entry li")).toHaveLength(2);
+    expect(host.querySelector(".settings__changelog .form__label")!.textContent).toBe(
+      "What's new",
+    );
+  });
+
+  it("hides the changelog once the update is dismissed", async () => {
+    mockInfo.mockResolvedValue({ name: "KeepDeck", version: "0.13.0", updater: true });
+    mockCheck.mockResolvedValue({
+      ...fakeUpdate("1.2.0"),
+      changelog: [{ version: "1.2.0", notes: "notes" }],
+    });
+    await initUpdates(downloads);
+    await render();
+    expect(host.querySelector(".settings__changelog")).not.toBeNull();
+
+    await act(async () => button("Dismiss").click());
+    expect(host.querySelector(".settings__changelog")).toBeNull();
   });
 
   it("surfaces a failed check without blocking the next one", async () => {
