@@ -8,8 +8,11 @@ import {
   type PathProbe,
 } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
+import { baseName } from "../../domain/deck";
 import type { ForkTarget } from "../../app/useJournalFork";
 import { ModalOverlay } from "../../ui/ModalOverlay";
+import { SuggestedInput } from "../../ui/SuggestedInput";
+import { noAutoCorrect } from "../../ui/inputProps";
 
 interface ForkTargetDialogProps {
   record: SessionHandle;
@@ -44,7 +47,6 @@ export function ForkTargetDialog({
   const [branch, setBranch] = useState("");
   const [probed, setProbed] = useState<PathProbe | null>(null);
   const probeSeq = useRef(0);
-
   const trimmed = path.trim();
   useEffect(() => {
     if (!trimmed) {
@@ -63,6 +65,18 @@ export function ForkTargetDialog({
 
   const kind: LocationKind = classifyLocation(trimmed, probed, occupancy(trimmed));
   const valid = canCreateAgent(kind, kind === "new" ? branch : "-");
+
+  // The branch suggestion follows the path's folder name until the user edits
+  // the branch: while `branch === derived` it is untouched and keeps
+  // following, an edit detaches it, the ↺ reset re-attaches — SuggestedInput's
+  // own state machine (the same one the "+ Agent" dialog hand-rolls).
+  const derived = baseName(trimmed);
+  const derivedRef = useRef(derived);
+  useEffect(() => {
+    const previous = derivedRef.current;
+    setBranch((prev) => (prev === previous ? derived : prev));
+    derivedRef.current = derived;
+  }, [derived]);
 
   const agentLabel =
     agents.find((a) => a.id === record.agent)?.label ?? record.agent;
@@ -106,44 +120,52 @@ export function ForkTargetDialog({
         }}
       >
         <h2 className="form__title">Fork session</h2>
-        <p className="form__git">
+        <p className="form__desc">
           {record.title ?? agentLabel} — a new {agentLabel} conversation
           continuing from this session; the original stays untouched
         </p>
 
         <span className="form__label">Where</span>
         <div className="form__path">
-          <input
-            className="form__input"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="Empty = the workspace folder"
-            autoFocus
-          />
-          {trimmed !== "" && (
-            <button
-              type="button"
-              className="form__field-btn"
-              aria-label="Clear path"
-              onClick={() => setPath("")}
-            >
-              ×
-            </button>
-          )}
+          <div className="form__field form__path-field">
+            <input
+              {...noAutoCorrect}
+              className="form__input form__field-input"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="Empty = the workspace folder"
+              aria-label="Fork path"
+              autoFocus
+            />
+            {trimmed !== "" && (
+              <button
+                type="button"
+                className="form__field-btn"
+                aria-label="Clear path"
+                onClick={() => setPath("")}
+              >
+                ×
+              </button>
+            )}
+          </div>
           <button type="button" className="form__dir-btn" onClick={() => void choosePath()}>
             Choose…
           </button>
         </div>
-        <p className="form__git">{hint}</p>
+        <p className="form__git" title={hint}>
+          {hint}
+        </p>
 
         {kind === "new" && (
           <>
             <span className="form__label">Branch</span>
-            <input
-              className="form__input"
+            <SuggestedInput
               value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder="Branch for the new worktree"
+              suggestion={derived}
+              onChange={setBranch}
+              className="form__field--gap"
+              ariaLabel="Branch name"
+              resetTitle="Reset to the suggested branch"
             />
           </>
         )}
