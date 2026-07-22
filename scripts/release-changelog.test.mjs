@@ -1,12 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildNotes } from "./release-notes.mjs";
 import {
   MAX_ENTRIES,
   buildChangelog,
   cleanNotes,
+  listReleases,
   parseArgs,
   versionFromTag,
 } from "./release-changelog.mjs";
+
+// `listReleases` shells out to `gh`; mock the process so the contract — the
+// exact gh api path and per_page — is pinned without the CLI installed. Hoisted
+// above imports; the other tests touch only pure functions, never execFileSync.
+vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
+import { execFileSync } from "node:child_process";
 
 describe("parseArgs", () => {
   it("parses repo and out", () => {
@@ -111,5 +118,20 @@ describe("buildChangelog", () => {
     expect(buildChangelog(releases, now).releases).toHaveLength(MAX_ENTRIES);
     // Newest-first: the highest patch numbers survive.
     expect(buildChangelog(releases, now).releases[0].version).toBe(`0.0.${MAX_ENTRIES + 4}`);
+  });
+});
+
+describe("listReleases", () => {
+  it("calls gh api repos/:repo/releases with per_page=100 (the contract that was broken once)", () => {
+    vi.mocked(execFileSync).mockReturnValueOnce(
+      JSON.stringify([{ tag_name: "1.0.0", body: "x", published_at: "2026-07-20" }]),
+    );
+    const releases = listReleases("KeepDeck/KeepDeck");
+    expect(execFileSync).toHaveBeenCalledWith(
+      "gh",
+      ["api", "repos/KeepDeck/KeepDeck/releases?per_page=100"],
+      { encoding: "utf8" },
+    );
+    expect(releases).toEqual([{ tag_name: "1.0.0", body: "x", published_at: "2026-07-20" }]);
   });
 });

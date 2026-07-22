@@ -93,8 +93,10 @@ export function buildChangelog(releases, now = () => new Date()) {
 
 /** List published releases via the GitHub REST endpoint. `body` is not a field
  *  `gh release list --json` exposes, and its default page is 30 — REST returns
- *  both in one call. */
-function listReleases(repo) {
+ *  both in one call. per_page=100 is GitHub's max for this endpoint and covers
+ *  MAX_ENTRIES (50) with 2× headroom; `main` rejects a MAX_ENTRIES raised past
+ *  100 rather than silently truncating, since this call does not paginate. */
+export function listReleases(repo) {
   const stdout = execFileSync(
     "gh",
     ["api", `repos/${repo}/releases?per_page=100`],
@@ -104,6 +106,11 @@ function listReleases(repo) {
 }
 
 export function main(argv = process.argv.slice(2)) {
+  if (MAX_ENTRIES > 100) {
+    throw new Error(
+      "MAX_ENTRIES exceeds gh api's per_page=100 cap; add pagination before raising it",
+    );
+  }
   const args = parseArgs(argv);
   const changelog = buildChangelog(listReleases(args.repo));
   writeFileSync(args.out, `${JSON.stringify(changelog, null, 2)}\n`);

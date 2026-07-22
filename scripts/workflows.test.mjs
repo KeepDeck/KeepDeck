@@ -283,8 +283,8 @@ describe("release workflow", () => {
 
   it("builds the accumulated changelog only after the version is archived", () => {
     // The changelog is derived from published versioned releases via
-    // gh release list, so it must follow the archive step — and it uploads to
-    // the rolling "latest" release, where the app fetches it.
+    // gh api repos/:repo/releases, so it must follow the archive step — and
+    // it uploads to the rolling "latest" release, where the app fetches it.
     const steps = release.jobs.publish.steps.map((s) => s.name);
     const changelog = release.jobs.publish.steps.find(
       (s) => s.name === "Build and upload the accumulated changelog",
