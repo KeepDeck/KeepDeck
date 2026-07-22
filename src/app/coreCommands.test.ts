@@ -84,13 +84,15 @@ function setup(workspaces: Workspace[]) {
   const deck = fakeDeck(workspaces);
   const requestCloseAgent = vi.fn();
   const openSettings = vi.fn();
+  const openUsage = vi.fn();
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
     requestCloseAgent,
     openSettings,
+    openUsage,
   });
-  return { registry, deck, requestCloseAgent, openSettings, dispose };
+  return { registry, deck, requestCloseAgent, openSettings, openUsage, dispose };
 }
 
 beforeEach(() => {
@@ -343,6 +345,16 @@ describe("settings.open", () => {
 
     await registry.execute("settings.open", {}, HOST);
     expect(openSettings).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe("usage.open", () => {
+  it("opens the global usage statistics surface", async () => {
+    const { registry, openUsage } = setup([workspace({})]);
+    const result = await registry.execute("usage.open", {}, HOST);
+
+    expect(result).toEqual({ ok: true, value: { opened: true } });
+    expect(openUsage).toHaveBeenCalledOnce();
   });
 });
 

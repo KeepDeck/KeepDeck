@@ -78,6 +78,7 @@ const paneReport = (): { agent: string; result: NormalizedUsage } => ({
 describe("UsageChips", () => {
   let root: Root;
   let host: HTMLElement;
+  const openStats = vi.fn();
 
   beforeEach(() => {
     resetUsageManager();
@@ -91,6 +92,7 @@ describe("UsageChips", () => {
       };
     });
     settingsMock.updateSettings.mockReset();
+    openStats.mockReset();
     vi.setSystemTime(AT);
     document.body.innerHTML = "<div id='host'></div>";
     host = document.getElementById("host")!;
@@ -109,7 +111,7 @@ describe("UsageChips", () => {
   ) =>
     act(() =>
       root.render(
-        createElement(UsageChips, { agents, liveAgents }),
+        createElement(UsageChips, { agents, liveAgents, onOpenStats: openStats }),
       ),
     );
 
@@ -233,5 +235,20 @@ describe("UsageChips", () => {
     expect(settingsMock.updateSettings).toHaveBeenCalledWith({
       usageDisplay: "left",
     });
+  });
+
+  it("leaves account limits for the global usage statistics screen", () => {
+    reportUsage("pane-1", limitsReport(42), AT);
+    render();
+    act(() => {
+      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+    });
+
+    const open = host.querySelector<HTMLButtonElement>(".usage-panel__stats")!;
+    expect(open.textContent).toContain("Open usage statistics");
+    act(() => open.click());
+
+    expect(openStats).toHaveBeenCalledOnce();
+    expect(host.querySelector("#usage-panel")).toBeNull();
   });
 });

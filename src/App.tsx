@@ -4,6 +4,7 @@ import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
+import { StatsDialog } from "./components/stats/StatsDialog";
 import { SkillsDialog } from "./components/skills/SkillsDialog";
 import { fetchAppInfo, type AppInfo } from "./ipc/app";
 import { restartToUpdate } from "./app/updateManager";
@@ -195,6 +196,9 @@ function App() {
   // a plugin's `openSettings`. When a plugin opens it, the target section id
   // rides along so the dialog lands on that plugin's page.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Global observational data has its own surface, independent of Settings
+  // and of the active workspace's contribution-driven dock.
+  const [statsOpen, setStatsOpen] = useState(false);
   // The shared-skills library editor ([skills]) — opened from the top bar.
   const [skillsOpen, setSkillsOpen] = useState(false);
   // Which section the dialog opens on: the gear opens the first section, the
@@ -242,6 +246,7 @@ function App() {
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
     },
+    openUsage: () => setStatsOpen(true),
   });
   // The plugin system: the bridge wires deck accessors + deck events; the
   // built-ins boot once settings settle (enabled flags live there); the
@@ -347,7 +352,8 @@ function App() {
     frozen && !frozenAck ? frozen : null,
   ];
   const dialogOpen = transactions.some((t) => t !== null);
-  const modalOpen = showForm || dialogOpen || settingsOpen || skillsOpen;
+  const modalOpen =
+    showForm || dialogOpen || settingsOpen || statsOpen || skillsOpen;
   // The single "can add an agent" rule — a workspace is active, room under the
   // cap, and nothing modal is up. Both the ⌘T hotkey and the + Agent button
   // gate on this so they can't diverge (the button used to ignore modals).
@@ -438,9 +444,9 @@ function App() {
       // The create form is a passive surface, not a transaction — settings
       // open over it (on first run the form is the only screen there is, so
       // blocking would make settings unreachable). Its Esc yields while the
-      // settings dialog is on top. The Skills dialog DOES block: stacking
-      // Settings over it would give one Escape two layers to peel.
-      if (dialogOpen || settingsOpen || skillsOpen) return;
+      // settings dialog is on top. The Stats and Skills dialogs DO block:
+      // stacking Settings over either would give one Escape two layers to peel.
+      if (dialogOpen || settingsOpen || statsOpen || skillsOpen) return;
       setSettingsSection(undefined);
       setSettingsOpen(true);
     },
@@ -506,7 +512,7 @@ function App() {
           n.source,
           preciseTargetResolved,
         );
-        if (section !== null && !dialogOpen && !settingsOpen) {
+        if (section !== null && !dialogOpen && !settingsOpen && !statsOpen) {
           setSettingsSection(section);
           setSettingsOpen(true);
         }
@@ -516,7 +522,7 @@ function App() {
         // Same guard as the top bar's update chip: the dialog reads its
         // section only at open, so setting it over an open dialog would
         // silently not navigate.
-        if (!dialogOpen && !settingsOpen) {
+        if (!dialogOpen && !settingsOpen && !statsOpen) {
           setSettingsSection(
             settingsSectionForNotification(n.source) ?? undefined,
           );
@@ -602,7 +608,7 @@ function App() {
               onClick={() => {
                 if (updateState.phase === "ready") {
                   void restartToUpdate();
-                } else if (!dialogOpen && !settingsOpen) {
+                } else if (!dialogOpen && !settingsOpen && !statsOpen) {
                   setSettingsSection("updates");
                   setSettingsOpen(true);
                 }
@@ -630,7 +636,18 @@ function App() {
           <UsageChips
             agents={agents}
             liveAgents={usageLiveAgents}
+            onOpenStats={() => setStatsOpen(true)}
           />
+          <button
+            type="button"
+            className="bar__icon"
+            onClick={() => setStatsOpen(true)}
+            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
+            title="Usage statistics"
+            aria-label="Open usage statistics"
+          >
+            <StatsIcon />
+          </button>
           <button
             type="button"
             className="bar__action"
@@ -679,7 +696,7 @@ function App() {
             className="bar__icon"
             onClick={() => setSkillsOpen(true)}
             // Same modal etiquette as the gear: one dialog at a time.
-            disabled={dialogOpen || settingsOpen || skillsOpen}
+            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
             title="Skills"
             aria-label="Open skills"
           >
@@ -695,7 +712,7 @@ function App() {
             // Mirrors the ⌘, guard. The create form does NOT disable this:
             // on first run it's the only screen, and settings must stay
             // reachable over it (e.g. to pick the default agent first).
-            disabled={dialogOpen || settingsOpen || skillsOpen}
+            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
             title="Settings"
             aria-label="Open settings"
           >
@@ -778,10 +795,14 @@ function App() {
               <ModalOverlay>
                 <WorkspaceForm
                   onCreate={handleCreateWorkspace}
-                  // Esc must peel one layer at a time: while the settings
+                  // Esc must peel one layer at a time: while another global
                   // dialog is above this form, the form's own Esc yields
                   // (an undefined onCancel also hides the covered button).
-                  onCancel={settingsOpen || skillsOpen ? undefined : () => setCreating(false)}
+                  onCancel={
+                    settingsOpen || statsOpen || skillsOpen
+                      ? undefined
+                      : () => setCreating(false)
+                  }
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
                 />
@@ -883,6 +904,8 @@ function App() {
             />
           )}
 
+          {statsOpen && <StatsDialog onClose={() => setStatsOpen(false)} />}
+
           {skillsOpen && (
             <SkillsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}
@@ -950,6 +973,27 @@ function App() {
           independent of the dock. What they render is theirs. */}
       <PluginOverlays />
     </div>
+  );
+}
+
+function StatsIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 20V10" />
+      <path d="M10 20V4" />
+      <path d="M16 20v-7" />
+      <path d="M22 20H2" />
+    </svg>
   );
 }
 

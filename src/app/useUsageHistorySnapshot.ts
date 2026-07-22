@@ -5,7 +5,7 @@ import {
   type UsageHistorySnapshot,
 } from "./usageHistoryManager";
 
-/** Read-only durable usage history for Settings → Stats. */
+/** Read-only durable usage history for the global Usage statistics screen. */
 export function useUsageHistorySnapshot(): UsageHistorySnapshot {
   return useSyncExternalStore(
     subscribeUsageHistory,

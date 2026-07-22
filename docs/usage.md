@@ -7,8 +7,11 @@ KeepDeck treats two similarly named capabilities as different products:
 - `accountLimits` is a provider-account allowance or rolling limit window.
 
 An agent declares either capability explicitly. The top-bar chips and their
-popover consume only `accountLimits`; session tokens and cost live in
-`Settings → Stats`. This is why OpenCode can report useful usage without
+popover consume only `accountLimits`; session tokens and cost live in the
+separate top-bar **Usage statistics** screen. It is global rather than a
+Settings section or workspace dock because its ledger spans every CLI and
+workspace. The same screen is reachable from the account-limits popover and
+the `usage.open` command. This is why OpenCode can report useful usage without
 appearing as an empty account-limit chip.
 
 ## Agent sources

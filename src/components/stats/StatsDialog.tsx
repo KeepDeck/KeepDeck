@@ -1,11 +1,14 @@
 import { useState } from "react";
+import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
+import { formatAge, formatTokens } from "../../domain/usage";
 import {
   queryUsageStats,
   type UsageStatsPeriodDays,
   type UsageStatsRow,
 } from "../../domain/usage/history";
-import { formatAge, formatTokens } from "../../domain/usage";
-import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
+import { CloseButton } from "../../ui/CloseButton";
+import { ModalOverlay } from "../../ui/ModalOverlay";
+import { useEscape } from "../../ui/useEscape";
 
 const PERIODS: readonly { days: UsageStatsPeriodDays; label: string }[] = [
   { days: 1, label: "24h" },
@@ -14,9 +17,38 @@ const PERIODS: readonly { days: UsageStatsPeriodDays; label: string }[] = [
   { days: 90, label: "90d" },
 ];
 
-/** Detailed local usage analytics. Session telemetry has its own home here;
- * the top-bar popover remains strictly about account limit windows. */
-export function StatsSection() {
+/** Global usage analytics has its own app surface: it is observational data,
+ * not a setting, and it spans every workspace and CLI. */
+export function StatsDialog({ onClose }: { onClose(): void }) {
+  useEscape(onClose);
+  return (
+    <ModalOverlay>
+      <div
+        className="form stats-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Usage statistics"
+      >
+        <div className="stats-dialog__head">
+          <h2 className="form__title stats-dialog__title">Usage statistics</h2>
+          <CloseButton label="Close usage statistics" onClick={onClose} />
+        </div>
+        <div className="stats-dialog__body">
+          <UsageStats />
+        </div>
+        <div className="confirm__actions">
+          <button type="button" className="form__create" onClick={onClose} autoFocus>
+            Done
+          </button>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
+/** Detailed local usage analytics. Account-limit windows deliberately remain
+ * in the top-bar popover; this view consumes only the durable pane ledger. */
+export function UsageStats() {
   const history = useUsageHistorySnapshot();
   const [period, setPeriod] = useState<UsageStatsPeriodDays>(7);
   const now = Date.now();
@@ -25,12 +57,10 @@ export function StatsSection() {
   return (
     <div className="stats">
       <div className="stats__head">
-        <div>
-          <h3 className="settings__section-title">Stats</h3>
-          <p className="settings__hint stats__intro">
-            Local token and cost history. Retained for 90 days.
-          </p>
-        </div>
+        <p className="stats__intro">
+          Local token and cost history across every CLI and workspace. Retained for 90
+          days.
+        </p>
         <div className="stats__period" aria-label="Statistics period">
           {PERIODS.map((candidate) => (
             <button
@@ -57,7 +87,7 @@ export function StatsSection() {
       ) : (
         <>
           {history.error && (
-            <p className="settings__hint settings__hint--warn stats__warning">
+            <p className="stats__warning">
               Some history could not be loaded: {history.error}
             </p>
           )}
@@ -108,7 +138,7 @@ function StatsTable({
   if (rows.length === 0) return null;
   return (
     <section className="stats__section">
-      <h4>{title}</h4>
+      <h3>{title}</h3>
       <div className="stats__table" role="table" aria-label={title}>
         {rows.map((row) => (
           <div className="stats__row" role="row" key={row.key}>

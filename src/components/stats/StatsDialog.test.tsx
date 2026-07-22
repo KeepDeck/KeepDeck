@@ -11,7 +11,7 @@ vi.mock("../../app/useUsageHistorySnapshot", () => ({
   useUsageHistorySnapshot: () => history.snapshot,
 }));
 
-import { StatsSection } from "./StatsSection";
+import { StatsDialog, UsageStats } from "./StatsDialog";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -39,7 +39,7 @@ const usageEvent = (over: Partial<UsageEventV1> = {}): UsageEventV1 => ({
   ...over,
 });
 
-describe("StatsSection", () => {
+describe("UsageStats", () => {
   let root: Root;
   let host: HTMLElement;
 
@@ -56,8 +56,22 @@ describe("StatsSection", () => {
     vi.useRealTimers();
   });
 
+  it("renders as its own global dialog, not a settings section", () => {
+    const close = vi.fn();
+    act(() => root.render(createElement(StatsDialog, { onClose: close })));
+
+    const dialog = document.body.querySelector('[role="dialog"]')!;
+    expect(dialog.getAttribute("aria-label")).toBe("Usage statistics");
+    expect(dialog.textContent).toContain("across every CLI and workspace");
+    expect(dialog.closest(".modal-overlay")).not.toBeNull();
+    expect(dialog.closest(".settings")).toBeNull();
+
+    act(() => dialog.querySelector<HTMLButtonElement>(".ui-close")!.click());
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("shows period totals plus model and session drill-downs", () => {
-    act(() => root.render(createElement(StatsSection)));
+    act(() => root.render(createElement(UsageStats)));
 
     expect(host.textContent).toContain("1.6k");
     expect(host.textContent).toContain("≈$0.25");
@@ -73,7 +87,7 @@ describe("StatsSection", () => {
       events: [usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })],
       error: null,
     };
-    act(() => root.render(createElement(StatsSection)));
+    act(() => root.render(createElement(UsageStats)));
     expect(host.textContent).toContain("gpt-5.6-terra"); // default 7d
 
     const day = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -89,7 +103,7 @@ describe("StatsSection", () => {
       events: [usageEvent({ costUsd: undefined, costSource: "unavailable" })],
       error: null,
     };
-    act(() => root.render(createElement(StatsSection)));
+    act(() => root.render(createElement(UsageStats)));
 
     expect(host.textContent).toContain("Cost unavailable");
     const costCard = [...host.querySelectorAll(".stats__card")].find((card) =>

@@ -15,7 +15,7 @@ export interface UsageObservation {
 }
 
 /** One canonical usage delta. Provider payloads remain plugin-owned; this is
- * the stable host record consumed by Settings → Stats. */
+ * the stable host record consumed by the global Usage statistics screen. */
 export interface UsageEventV1 {
   schemaVersion: typeof USAGE_EVENT_SCHEMA_VERSION;
   eventId: string;

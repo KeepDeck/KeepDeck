@@ -23,12 +23,12 @@ import { AgentGlyph } from "../../ui/AgentGlyph";
  * The top-bar usage cluster: one chip per ACCOUNT-LIMIT-capable agent with a
  * pane in the deck (immediately — "···" until data) or with a reported
  * account (persisted snapshots keep the bar full after a restart). Pane-only
- * telemetry belongs to pane headers / Stats and never creates a limits chip. Calm
- * by default — color only at the 60/80 thresholds. Clicking a chip opens
- * the anchored panel (the bell's manners) scoped to THAT provider: its
- * windows with client-side reset countdowns. Session tokens/cost live in
- * Settings → Stats; mixing their lifetime into this account-limits popover
- * was the original source of the misleading OpenCode row.
+ * telemetry belongs to pane headers / Usage statistics and never creates a
+ * limits chip. Calm by default — color only at the 60/80 thresholds. Clicking
+ * a chip opens the anchored panel (the bell's manners) scoped to THAT provider: its
+ * windows with client-side reset countdowns. A footer links to the separate
+ * global statistics surface; mixing session lifetime into this account-limits
+ * popover was the original source of the misleading OpenCode row.
  *
  * Which windows a chip shows (and in what order) is domain policy:
  * [`chipWindows`]/[`panelWindows`].
@@ -129,11 +129,14 @@ function Chip({
 export function UsageChips({
   agents,
   liveAgents,
+  onOpenStats,
 }: {
   agents: AgentInfo[];
   /** Agent ids with a pane in the deck — account-limit-capable ones earn a
    * chip immediately, so that roster is stable and predictable. */
   liveAgents: ReadonlySet<string>;
+  /** Leave account limits and open the global session-usage surface. */
+  onOpenStats(): void;
 }) {
   const { accounts } = useUsage();
   const settings = useSettings();
@@ -207,9 +210,14 @@ export function UsageChips({
         />
       ))}
       {open && (
-        <div className="usage-panel" id="usage-panel" role="group" aria-label="Usage">
+        <div
+          className="usage-panel"
+          id="usage-panel"
+          role="group"
+          aria-label="Account limits"
+        >
           <div className="usage-panel__head">
-            <span className="usage-panel__title">Usage</span>
+            <span className="usage-panel__title">Account limits</span>
             <button
               type="button"
               className="usage-panel__toggle"
@@ -263,6 +271,17 @@ export function UsageChips({
               </div>
             );
           })}
+          <button
+            type="button"
+            className="usage-panel__stats"
+            onClick={() => {
+              setOpenProvider(null);
+              onOpenStats();
+            }}
+          >
+            Open usage statistics
+            <span aria-hidden>→</span>
+          </button>
         </div>
       )}
     </span>
