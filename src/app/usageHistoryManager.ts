@@ -10,6 +10,7 @@ import {
   type UsageEventV1,
   type UsageObservation,
 } from "../domain/usage/history";
+import { estimateUsageCost } from "../domain/usage/pricing";
 import {
   appendUsageHistory,
   compactUsageHistory,
@@ -108,6 +109,9 @@ export function recordPaneUsage(
       baselines.set(key, delta.observation);
       return;
     }
+    const estimated = delta.hasReportedCost
+      ? null
+      : estimateUsageCost(usage.agent, usage.model, delta.tokens);
     const event: UsageEventV1 = {
       schemaVersion: USAGE_EVENT_SCHEMA_VERSION,
       eventId: eventId(
@@ -132,8 +136,15 @@ export function recordPaneUsage(
       tokens: delta.tokens,
       ...(delta.hasReportedCost
         ? { costUsd: delta.reportedCostUsd }
-        : {}),
-      costSource: delta.hasReportedCost ? "reported" : "unavailable",
+        : estimated
+          ? { costUsd: estimated.usd }
+          : {}),
+      costSource: delta.hasReportedCost
+        ? "reported"
+        : estimated
+          ? "estimated"
+          : "unavailable",
+      ...(estimated ? { pricingVersion: estimated.pricingVersion } : {}),
       observation: delta.observation,
     };
 

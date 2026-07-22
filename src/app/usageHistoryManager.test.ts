@@ -120,6 +120,27 @@ describe("usageHistoryManager", () => {
     expect(ipc.appendUsageHistory).not.toHaveBeenCalled();
   });
 
+  it("estimates exact Codex models and preserves the pricing version", async () => {
+    await initUsageHistory(NOW);
+    await recordPaneUsage(
+      {
+        agent: "codex",
+        model: "gpt-5.6-terra high",
+        totalTokens: { input: 1_000_000, cacheRead: 800_000, output: 100_000 },
+        reportedAt: NOW,
+      },
+      { ...context, sessionId: "codex-session" },
+      NOW,
+    );
+
+    const written = JSON.parse(ipc.appendUsageHistory.mock.calls[0][0][0]);
+    expect(written).toMatchObject({
+      costSource: "estimated",
+      costUsd: 2.2,
+      pricingVersion: "openai-standard-2026-07-22",
+    });
+  });
+
   it("deduplicates damage and retains one expired baseline checkpoint", async () => {
     const expired = event({
       eventId: "old-latest",
