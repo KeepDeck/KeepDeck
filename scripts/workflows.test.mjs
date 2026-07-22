@@ -280,6 +280,21 @@ describe("release workflow", () => {
       expect(batch).toContain(`assets/KeepDeck-macos-${arch}.app.tar.gz.sig`);
     }
   });
+
+  it("builds the accumulated changelog only after the version is archived", () => {
+    // The changelog is derived from published versioned releases via
+    // gh release list, so it must follow the archive step — and it uploads to
+    // the rolling "latest" release, where the app fetches it.
+    const steps = release.jobs.publish.steps.map((s) => s.name);
+    const changelog = release.jobs.publish.steps.find(
+      (s) => s.name === "Build and upload the accumulated changelog",
+    );
+    expect(changelog.run).toContain("scripts/release-changelog.mjs");
+    expect(changelog.run).toContain("gh release upload latest assets/changelog.json --clobber");
+    expect(steps.indexOf("Build and upload the accumulated changelog")).toBeGreaterThan(
+      steps.indexOf("Archive this version as its own release"),
+    );
+  });
 });
 
 describe("version-bump workflow", () => {
