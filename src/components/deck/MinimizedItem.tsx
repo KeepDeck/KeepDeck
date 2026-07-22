@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { BoltIcon, GitBranchIcon, RestoreUpIcon } from "../../ui/icons";
+import { Chip } from "../../ui/Chip";
 import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { MinimizedDetailsTooltip } from "./MinimizedDetailsTooltip";
@@ -55,10 +56,13 @@ export function MinimizedItemContent({
         </span>
       )}
       {gitBadge && (
-        <span className="minimized__branch" aria-hidden>
-          <GitBranchIcon />
-          <span className="minimized__branch-label">{gitBadge.label}</span>
-        </span>
+        <Chip
+          size="sm"
+          className="minimized__branch"
+          icon={<GitBranchIcon />}
+          label={gitBadge.label}
+          aria-hidden
+        />
       )}
       <span className="minimized__restore" aria-hidden>
         <RestoreUpIcon />

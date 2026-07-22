@@ -163,31 +163,10 @@
 }
 
 .minimized__branch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 500;
-  color: #cdd2da;
-  background-color: rgba(255, 255, 255, 0.035);
-  border: 1px solid #3b4250;
-  overflow: hidden;
   max-width: 160px;
   flex: 0 1 auto;
   min-width: 0;
-}
-.minimized__branch svg {
-  flex: none;
-  color: #c3c8d4;
-}
-.minimized__branch-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+  color: #cdd2da;
 }
 .minimized--chip .minimized__branch {
   max-width: 120px;
