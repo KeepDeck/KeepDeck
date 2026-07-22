@@ -282,8 +282,38 @@ describe("update manager", () => {
   it("manual checks run only from idle", async () => {
     mockCheck.mockResolvedValue(null);
     await initUpdates(downloads);
-    checkForUpdatesNow();
+    await checkForUpdatesNow();
     await Promise.resolve();
     expect(mockCheck).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not slice the changelog before boot captures the installed version", async () => {
+    // A manual check that races initUpdates' fetchAppInfo must wait for boot,
+    // otherwise it would slice with currentVersion="" and show notes for
+    // versions the user already has.
+    let resolveBoot!: (info: { name: string; version: string; updater: boolean }) => void;
+    mockInfo.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveBoot = resolve;
+      }),
+    );
+    mockCheck.mockResolvedValue({
+      ...available("1.2.0"),
+      changelog: [
+        { version: "0.13.0", notes: "owned, must be excluded" },
+        { version: "1.2.0", notes: "target" },
+      ],
+    });
+    const init = initUpdates(downloads);
+    const checking = checkForUpdatesNow();
+    // Boot unresolved: the manual check is held — no IPC, no slice yet.
+    await Promise.resolve();
+    expect(mockCheck).not.toHaveBeenCalled();
+    expect(getUpdateState().phase).toBe("idle");
+    resolveBoot({ name: "KeepDeck", version: "0.13.0", updater: true });
+    await Promise.all([init, checking]);
+    expect(getUpdateState()).toMatchObject({ phase: "available", version: "1.2.0" });
+    // Sliced with currentVersion=0.13.0: the owned 0.13.0 entry is excluded.
+    expect(getUpdateState().changelog.map((e) => e.version)).toEqual(["1.2.0"]);
   });
 });

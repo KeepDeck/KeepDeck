@@ -116,8 +116,14 @@ export function initUpdates(
 }
 
 /** Manual "Check for updates" from settings. A no-op while anything is in
- * flight or already found — those states have their own actions. */
-export function checkForUpdatesNow(): void {
+ * flight or already found — those states have their own actions. Awaits boot
+ * first so `currentVersion` is captured before `runCheck` slices the
+ * changelog; without that, a click racing `initUpdates`' fetchAppInfo would
+ * slice with `currentVersion=""` and surface notes for versions the user
+ * already runs. */
+export async function checkForUpdatesNow(): Promise<void> {
+  if (state.phase !== "idle") return;
+  if (boot) await boot;
   if (state.phase !== "idle") return;
   void runCheck();
 }
