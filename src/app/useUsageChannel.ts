@@ -8,6 +8,7 @@ import { useUsageNormalizers } from "./useUsageNormalizers";
 import { useUsageReports } from "./useUsageReports";
 import { useUsageRetention } from "./useUsageRetention";
 import { useUsageTails } from "./useUsageTails";
+import { useUsageHistory } from "./useUsageHistory";
 import type { Deck } from "./useDeck";
 
 /**
@@ -48,4 +49,5 @@ export function useUsageChannel(deck: Deck): void {
   useLimitsPolling(deck, usageByAgent);
   useUsageBootSweep(usageByAgent);
   useUsageRetention(deck);
+  useUsageHistory(deck);
 }

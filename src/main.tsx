@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { initSettings } from "./app/settingsManager";
 import { initUsagePersistence } from "./app/usagePersistence";
+import { initUsageHistory } from "./app/usageHistoryManager";
 import { initUpdates } from "./app/updateManager";
 import { initUpdateNotifications } from "./app/notificationProducers";
 import { initWindowFocus } from "./app/windowFocus";
@@ -19,6 +20,9 @@ void initSettings();
 // Usage snapshots: hydrate last-known limit windows and keep saving them —
 // the bar starts full (honestly aged) instead of blank until CLIs speak.
 initUsagePersistence();
+// Detailed Stats: load the durable delta log before live pane snapshots begin
+// appending. Capture itself is deck-aware and mounts with the usage channel.
+void initUsageHistory();
 // Update checks are background-only chatter — nothing gates on them. In dev
 // builds the manager probes app_info once and stays disabled.
 const runtime = createAppRuntime();
