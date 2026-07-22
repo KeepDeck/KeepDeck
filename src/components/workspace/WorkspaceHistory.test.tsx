@@ -145,7 +145,7 @@ describe("WorkspaceHistory", () => {
     ).toBe(false);
   });
 
-  it("Fork… is offered on every row — a gone dir is exactly what forking rescues", async () => {
+  it("Fork is offered on every row — a gone dir is exactly what forking rescues", async () => {
     worktreeIpc.probeWorktree.mockImplementation(() =>
       Promise.resolve({ exists: false, isWorktree: false, branch: null }),
     );

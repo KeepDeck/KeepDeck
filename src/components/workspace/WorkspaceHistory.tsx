@@ -95,7 +95,7 @@ export function WorkspaceHistory({ rows, agents, onDelete, onResume, onFork }: W
                 title="Fork — a new conversation continuing from this session"
                 onClick={() => onFork(row)}
               >
-                Fork…
+                Fork
               </button>
               <button
                 type="button"

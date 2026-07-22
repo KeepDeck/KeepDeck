@@ -432,8 +432,8 @@ export function AgentDialog({
           {(
             [
               ["new", "New session"],
-              ["resume", "Resume…"],
-              ["fork", "Fork…"],
+              ["resume", "Resume"],
+              ["fork", "Fork"],
             ] as const
           ).map(([mode, label]) => (
             <button
