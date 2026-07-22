@@ -9,7 +9,9 @@ describe("normalizeOpencodeUsage", () => {
       {
         agent: "opencode",
         sessionId: "ses_1",
+        providerId: "anthropic",
         model: "claude-sonnet-5",
+        sequence: 7,
         windowTokens: 200_000,
         contextTokens: 50_000,
         totals: {
@@ -35,6 +37,8 @@ describe("normalizeOpencodeUsage", () => {
     expect(result?.pane).toEqual({
       agent: "opencode",
       sessionId: "ses_1",
+      providerId: "anthropic",
+      sequence: 7,
       model: "claude-sonnet-5",
       context: { usedTokens: 50_000, windowTokens: 200_000 },
       costUsd: 0.42,

@@ -38,7 +38,9 @@ export const normalizeOpencodeUsage: UsageNormalizer = (payload, at) => {
   if (!isJsonRecord(payload)) return null;
 
   const sessionId = asNonEmptyString(payload.sessionId);
+  const providerId = asNonEmptyString(payload.providerId);
   const model = asNonEmptyString(payload.model);
+  const sequence = asFiniteNumber(payload.sequence);
   const windowTokens = asFiniteNumber(payload.windowTokens);
   const contextTokens = asFiniteNumber(payload.contextTokens);
   const cost = asFiniteNumber(payload.costUsd);
@@ -48,6 +50,8 @@ export const normalizeOpencodeUsage: UsageNormalizer = (payload, at) => {
   const pane: PaneUsage = {
     agent: "opencode",
     ...(sessionId ? { sessionId } : {}),
+    ...(providerId ? { providerId } : {}),
+    ...(sequence !== undefined ? { sequence } : {}),
     ...(model ? { model } : {}),
     // usedTokens + windowTokens; the host derives the % (and shows tokens
     // without a % when the window size couldn't be resolved).

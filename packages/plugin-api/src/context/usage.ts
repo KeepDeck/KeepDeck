@@ -62,6 +62,11 @@ export interface TokenCounts {
 export interface PaneUsage {
   agent: string;
   sessionId?: string;
+  /** Provider identity when model ids are only unique inside a provider. */
+  providerId?: string;
+  /** Monotonic within one reporter session generation; lets the host reject an
+   * older async/file delivery after a newer snapshot. */
+  sequence?: number;
   /** Human model name ("Opus") when the CLI offers one; else the raw id. */
   model?: string;
   context?: {
