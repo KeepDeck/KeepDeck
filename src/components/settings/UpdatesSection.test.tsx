@@ -82,6 +82,7 @@ function fakeUpdate(version: string): AvailableUpdate {
     id: `update-${version}`,
     version,
     downloaded: false,
+    changelog: [],
     download: {
       source: { url: "https://example.com/update" },
       target: { kind: "file", path: `updates/${version}.bundle` },

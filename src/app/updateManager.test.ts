@@ -43,6 +43,7 @@ const available = (version = "1.2.0"): AvailableUpdate => ({
   id: `update-${version}`,
   version,
   downloaded: false,
+  changelog: [],
   download: {
     source: { url: "https://example.com/update" },
     target: { kind: "file", path: `updates/${version}.bundle` },
@@ -105,6 +106,42 @@ describe("update manager", () => {
     await initUpdates(downloads);
     expect(getUpdateState()).toMatchObject({ phase: "available", version: "1.2.0" });
     expect(downloads.start).not.toHaveBeenCalled();
+  });
+
+  it("slices the changelog to the installed→target range", async () => {
+    // Installed build is 0.13.2 (mockInfo default); target 1.2.0.
+    mockCheck.mockResolvedValue({
+      ...available("1.2.0"),
+      changelog: [
+        { version: "1.3.0", notes: "future" },
+        { version: "1.2.0", notes: "target" },
+        { version: "1.0.0", notes: "after" },
+        { version: "0.13.2", notes: "current, excluded" },
+        { version: "0.13.0", notes: "older" },
+      ],
+    });
+    await initUpdates(downloads);
+    expect(getUpdateState().changelog.map((e) => e.version)).toEqual([
+      "1.0.0",
+      "1.2.0",
+    ]);
+  });
+
+  it("exposes an empty changelog when the channel published none", async () => {
+    mockCheck.mockResolvedValue(available());
+    await initUpdates(downloads);
+    expect(getUpdateState().changelog).toEqual([]);
+  });
+
+  it("clears the changelog on dismiss", async () => {
+    mockCheck.mockResolvedValue({
+      ...available("1.2.0"),
+      changelog: [{ version: "1.2.0", notes: "target" }],
+    });
+    await initUpdates(downloads);
+    expect(getUpdateState().changelog).toHaveLength(1);
+    await dismissUpdate();
+    expect(getUpdateState().changelog).toEqual([]);
   });
 
   it("reuses a previously verified deterministic artifact after restart", async () => {

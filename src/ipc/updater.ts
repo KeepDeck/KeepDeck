@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import type { DownloadRequest } from "@keepdeck/plugin-api";
+import type { ChangelogEntry } from "../domain/changelog";
 
 interface AvailableUpdateDto {
   id: string;
@@ -10,12 +11,15 @@ interface AvailableUpdateDto {
   publicKey: string;
   target: string;
   downloaded: boolean;
+  changelog: ChangelogEntry[];
 }
 
 export interface AvailableUpdate {
   id: string;
   version: string;
   downloaded: boolean;
+  /** Every published release between the installed version and this one. */
+  changelog: ChangelogEntry[];
   download: Omit<DownloadRequest, "id">;
 }
 
@@ -26,6 +30,7 @@ export async function checkForUpdate(): Promise<AvailableUpdate | null> {
     id: update.id,
     version: update.version,
     downloaded: update.downloaded,
+    changelog: update.changelog,
     download: {
       source: { url: update.url },
       target: { kind: "file", path: update.target },
