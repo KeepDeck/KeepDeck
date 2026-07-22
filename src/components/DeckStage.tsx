@@ -28,7 +28,6 @@ import {
   type JournalRecords,
   type SessionHandle,
 } from "../domain/journal";
-import { WorkspaceHistory } from "./workspace/WorkspaceHistory";
 import { SessionsBrowser } from "./history/SessionsBrowser";
 import type { SessionsBrowserApi } from "../app/useSessionsBrowser";
 
@@ -178,17 +177,12 @@ export function DeckStage({
               }}
             >
               <div className="deck__setup-col">
-                <WorkspaceHistory
-                  rows={journalRows(journal, ws.id)}
-                  agents={agents}
-                  onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
-                  onResume={(record) => onResumeSession(ws.id, record)}
-                  onFork={(record) => onForkSession(ws.id, record)}
-                />
                 <SessionsBrowser
                   api={browser}
                   agents={agents}
                   ready={agentsReady}
+                  rows={journalRows(journal, ws.id)}
+                  onDelete={(sessionId) => onDeleteJournalRecord(ws.id, sessionId)}
                   onResume={(record) => onResumeSession(ws.id, record)}
                   onFork={(record) => onForkSession(ws.id, record)}
                 />

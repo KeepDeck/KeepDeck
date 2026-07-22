@@ -174,23 +174,16 @@
   color: #9aa3af;
 }
 
-/* Global sessions browser (under the workspace history) */
+/* The unified sessions surface: the workspace's journal pinned above the
+ * global, searchable index hits — one column, one scrolling list. */
 .deck__setup-col {
   display: flex;
   flex-direction: column;
   gap: 20px;
   width: min(720px, calc(100% - 48px));
-  /* Definite, not max-: the children's percentage heights (the journal's
-   * 40% cap) resolve against a real number, and the browser can flex into
-   * the rest instead of collapsing to content height. */
+  /* Definite, not max-: the browser flexes into a real number instead of
+   * collapsing to content height. */
   height: calc(100% - 48px);
-}
-
-.deck__setup-col .history {
-  width: 100%;
-  padding: 0;
-  flex: 0 1 auto;
-  max-height: 40%;
 }
 
 .browser {
@@ -249,14 +242,23 @@
   min-height: 0;
 }
 
-/* The WHOLE row is clickable (opens the transcript) — say so on hover.
- * Status rows (empty placeholder, the loading tail) are not. */
-.browser__list .history__row:not(.browser__empty):not(.browser__more) {
+/* Only HIT rows are clickable (they open the transcript) — journal rows and
+ * status rows (the section label, empty placeholder, loading tail) are not. */
+.browser__list .history__row:not(.browser__empty):not(.browser__more):not(.browser__journal) {
   cursor: pointer;
 }
 
-.browser__list .history__row:not(.browser__empty):not(.browser__more):hover {
+.browser__list .history__row:not(.browser__empty):not(.browser__more):not(.browser__journal):hover {
   background-color: #131926;
+}
+
+/* The label between the pinned journal rows and the global hits. */
+.browser__section {
+  padding: 6px 12px 4px;
+  border-bottom: 1px solid #151a24;
+  font-size: 11px;
+  color: #6b7280;
+  user-select: none;
 }
 
 /* The loading tail — a spinner as the LAST element while the next page is
