@@ -4,10 +4,12 @@
  * opencode's native `-s <id> --fork` copies a session but re-homes it to the
  * SOURCE session's `directory` and drops its project to `global` — the target
  * directory KeepDeck launches it in is ignored (probe-verified, 1.18.4). The
- * portable fork therefore goes through `opencode export → rekey → import`:
- * `import` sets the new session's `directory` from the JSON's `info.directory`
- * and RE-DERIVES the project from that directory, so rewriting `info.directory`
- * is what actually relocates the fork.
+ * portable fork therefore goes through `opencode export → rekey → import`, run
+ * FROM the target directory: `import` binds the new session's `directory` to
+ * its launch CWD (NOT the JSON's `info.directory`) and re-derives the project
+ * from it. So the relocation is driven by the import CWD (see `fork.ts`); this
+ * module still sets `info.directory` to the target so the clone's declared
+ * directory matches where import places it, but that field is not what moves it.
  *
  * The catch is `import` DEDUPS by global id: a message/part whose `id` already
  * exists in the store is silently skipped (leaving the source untouched — safe,
@@ -73,8 +75,9 @@ export function remintId(old: string, bytes: (len: number) => Uint8Array): strin
 }
 
 export interface RekeyOptions {
-  /** The fork's target directory — becomes `info.directory`, which `import`
-   * uses to place the session AND re-derive its project. */
+  /** The fork's target directory. Written to `info.directory` so the clone's
+   * declared directory is honest; the actual placement comes from the CWD
+   * `import` is launched in (fork.ts runs it from the target). */
   directory: string;
   /** Byte source for id minting; defaults to Web Crypto. Injected in tests for
    * deterministic ids. */
