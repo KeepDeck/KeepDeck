@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentUsage, NormalizedUsage } from "@keepdeck/plugin-api";
+import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
 import { getUsageSnapshot, resetUsageManager } from "./usageManager";
 import { useUsageChannel } from "./useUsageChannel";
@@ -165,6 +166,33 @@ describe("useUsageChannel", () => {
     expect(getUsageSnapshot().accounts.get("claude")).toMatchObject({
       kind: "reported",
       sourcePaneId: "pane-1",
+    });
+  });
+
+  it("carries Codex's baseline-adjusted context percentage into the pane store", async () => {
+    ipc.contributions[1]!.entry.usage!.normalize = normalizeCodexRollout;
+    await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
+
+    await act(async () => {
+      emit({
+        paneId: "pane-1",
+        token: "tok-1",
+        payload: {
+          agent: "codex",
+          event: {
+            type: "token_count",
+            info: {
+              last_token_usage: { total_tokens: 37_696 },
+              model_context_window: 258_400,
+            },
+          },
+        },
+      });
+    });
+
+    expect(getUsageSnapshot().panes.get("pane-1")?.context).toEqual({
+      usedPct: 10,
+      windowTokens: 258_400,
     });
   });
 
