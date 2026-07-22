@@ -198,6 +198,13 @@ describe("SettingsDialog", () => {
     expect(agentsIpc.detectBins).not.toHaveBeenCalled();
   });
 
+  it("exposes detailed usage through its own Stats entry", async () => {
+    await mount();
+    act(() => button("Stats").click());
+    expect(button("Stats").className).toContain("settings__nav-item--active");
+    expect(panelOf(button("24h")).hasAttribute("hidden")).toBe(false);
+  });
+
   it("an uncommitted scrollback draft survives a section round-trip", async () => {
     await mount();
     toTerminal();

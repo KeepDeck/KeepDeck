@@ -5,7 +5,6 @@ import {
   chipWindows,
   formatAge,
   formatPct,
-  formatTokens,
   limitLevel,
   panelWindows,
   usageStale,
@@ -27,9 +26,9 @@ import { AgentGlyph } from "../../ui/AgentGlyph";
  * telemetry belongs to pane headers / Stats and never creates a limits chip. Calm
  * by default — color only at the 60/80 thresholds. Clicking a chip opens
  * the anchored panel (the bell's manners) scoped to THAT provider: its
- * windows with client-side reset countdowns and its live session rows
- * (model, context, cost). Idle panes stop reporting but the countdown
- * clocks keep ticking from the absolute `resetsAt`.
+ * windows with client-side reset countdowns. Session tokens/cost live in
+ * Settings → Stats; mixing their lifetime into this account-limits popover
+ * was the original source of the misleading OpenCode row.
  *
  * Which windows a chip shows (and in what order) is domain policy:
  * [`chipWindows`]/[`panelWindows`].
@@ -130,16 +129,13 @@ function Chip({
 export function UsageChips({
   agents,
   liveAgents,
-  paneNames,
 }: {
   agents: AgentInfo[];
   /** Agent ids with a pane in the deck — account-limit-capable ones earn a
    * chip immediately, so that roster is stable and predictable. */
   liveAgents: ReadonlySet<string>;
-  /** Pane id → display title, for the panel's session rows. */
-  paneNames: ReadonlyMap<string, string>;
 }) {
-  const { accounts, panes } = useUsage();
+  const { accounts } = useUsage();
   const settings = useSettings();
   const display = settings?.usageDisplay ?? DEFAULT_SETTINGS.usageDisplay;
   // The open PANEL is per provider — a chip opens ITS agent's details.
@@ -195,10 +191,6 @@ export function UsageChips({
 
   if (providers.length === 0) return null;
   const now = Date.now();
-  const sessions = [...panes.entries()]
-    .filter(([, usage]) => usage.agent === openProvider)
-    .sort(([a], [b]) => a.localeCompare(b));
-
   return (
     <span className="usage" ref={rootRef}>
       {providers.map((agent) => (
@@ -271,49 +263,6 @@ export function UsageChips({
               </div>
             );
           })}
-          {sessions.length > 0 && (
-            <div className="usage-panel__section">
-              <div className="usage-panel__provider">
-                <b>Sessions</b>
-                <span className="usage-panel__ago">live</span>
-              </div>
-              {sessions.map(([paneId, usage]) => {
-                // Show only the half a session actually reports — a missing
-                // input/output is unknown, not zero, so it is omitted rather
-                // than rendered as "0".
-                const total = usage.totalTokens;
-                const tokenLine = [
-                  total?.input !== undefined ? `↑${formatTokens(total.input)}` : "",
-                  total?.output !== undefined ? `↓${formatTokens(total.output)}` : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ");
-                return (
-                  <div key={paneId} className="usage-session">
-                    <span className="usage-session__name">
-                      {paneNames.get(paneId) || usage.model || usage.agent}
-                    </span>
-                    {usage.model && (
-                      <span className="usage-session__model">{usage.model}</span>
-                    )}
-                    <span className="usage-session__stats">
-                      {tokenLine && (
-                        <span
-                          className="usage-session__tokens"
-                          title="Session tokens — input ↑ / output ↓"
-                        >
-                          {tokenLine}
-                        </span>
-                      )}
-                      {usage.costUsd !== undefined && (
-                        <span>${usage.costUsd.toFixed(2)}</span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
       )}
     </span>

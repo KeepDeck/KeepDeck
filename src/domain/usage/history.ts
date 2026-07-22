@@ -197,6 +197,153 @@ export function tokenTotal(tokens: TokenCounts): number {
   );
 }
 
+export type UsageStatsPeriodDays = 1 | 7 | 30 | 90;
+
+export interface UsageStatsTotals {
+  tokens: TokenCounts;
+  totalTokens: number;
+  costUsd: number;
+  reportedCostUsd: number;
+  estimatedCostUsd: number;
+  pricedEvents: number;
+  unpricedEvents: number;
+}
+
+export interface UsageStatsRow extends UsageStatsTotals {
+  key: string;
+  agent: string;
+  providerId?: string;
+  model?: string;
+  workspaceName?: string;
+  paneName?: string;
+  sessionId?: string;
+  lastOccurredAt: number;
+}
+
+export interface UsageStats {
+  periodDays: UsageStatsPeriodDays;
+  eventCount: number;
+  sessionCount: number;
+  totals: UsageStatsTotals;
+  byModel: UsageStatsRow[];
+  sessions: UsageStatsRow[];
+}
+
+/** Aggregate immutable deltas for the Stats screen. `now` is injected so
+ * period boundaries and tests stay deterministic. */
+export function queryUsageStats(
+  events: readonly UsageEventV1[],
+  periodDays: UsageStatsPeriodDays,
+  now = Date.now(),
+): UsageStats {
+  const cutoff = now - periodDays * 24 * 60 * 60 * 1_000;
+  const selected = events.filter(
+    (event) => event.occurredAt >= cutoff && event.occurredAt <= now,
+  );
+  const modelRows = new Map<string, UsageStatsRow>();
+  const sessionRows = new Map<string, UsageStatsRow>();
+  const totals = emptyTotals();
+
+  for (const event of selected) {
+    addEvent(totals, event);
+    const modelKey = [event.agent, event.providerId ?? "", event.model ?? "unknown"].join(
+      "\0",
+    );
+    const model = rowFor(modelRows, modelKey, event);
+    addEvent(model, event);
+
+    const sessionKey = usageSessionKey(event);
+    const session = rowFor(sessionRows, sessionKey, event);
+    if (event.occurredAt >= session.lastOccurredAt) {
+      session.workspaceName = event.workspaceName;
+      session.paneName = event.paneName;
+      session.model = event.model;
+      session.providerId = event.providerId;
+    }
+    addEvent(session, event);
+  }
+
+  const ranked = (rows: Map<string, UsageStatsRow>) =>
+    [...rows.values()].sort(
+      (left, right) =>
+        right.costUsd - left.costUsd ||
+        right.totalTokens - left.totalTokens ||
+        right.lastOccurredAt - left.lastOccurredAt,
+    );
+  return {
+    periodDays,
+    eventCount: selected.length,
+    sessionCount: sessionRows.size,
+    totals,
+    byModel: ranked(modelRows),
+    sessions: ranked(sessionRows),
+  };
+}
+
+function emptyTotals(): UsageStatsTotals {
+  return {
+    tokens: {},
+    totalTokens: 0,
+    costUsd: 0,
+    reportedCostUsd: 0,
+    estimatedCostUsd: 0,
+    pricedEvents: 0,
+    unpricedEvents: 0,
+  };
+}
+
+function rowFor(
+  rows: Map<string, UsageStatsRow>,
+  key: string,
+  event: UsageEventV1,
+): UsageStatsRow {
+  let row = rows.get(key);
+  if (!row) {
+    row = {
+      key,
+      agent: event.agent,
+      ...(event.providerId ? { providerId: event.providerId } : {}),
+      ...(event.model ? { model: event.model } : {}),
+      ...(event.workspaceName ? { workspaceName: event.workspaceName } : {}),
+      ...(event.paneName ? { paneName: event.paneName } : {}),
+      sessionId: event.sessionId,
+      lastOccurredAt: event.occurredAt,
+      ...emptyTotals(),
+    };
+    rows.set(key, row);
+  }
+  return row;
+}
+
+function addEvent(
+  target: UsageStatsTotals & { lastOccurredAt?: number },
+  event: UsageEventV1,
+) {
+  for (const key of TOKEN_KEYS) {
+    const value = event.tokens[key];
+    if (value !== undefined) target.tokens[key] = (target.tokens[key] ?? 0) + value;
+  }
+  target.totalTokens += tokenTotal(event.tokens);
+  if (event.costSource === "reported") {
+    target.reportedCostUsd = addMoney(target.reportedCostUsd, event.costUsd ?? 0);
+    target.costUsd = addMoney(target.costUsd, event.costUsd ?? 0);
+    target.pricedEvents += 1;
+  } else if (event.costSource === "estimated") {
+    target.estimatedCostUsd = addMoney(target.estimatedCostUsd, event.costUsd ?? 0);
+    target.costUsd = addMoney(target.costUsd, event.costUsd ?? 0);
+    target.pricedEvents += 1;
+  } else {
+    target.unpricedEvents += 1;
+  }
+  if ("lastOccurredAt" in target) {
+    target.lastOccurredAt = Math.max(target.lastOccurredAt ?? 0, event.occurredAt);
+  }
+}
+
+function addMoney(left: number, right: number): number {
+  return Math.round((left + right) * 1_000_000_000_000) / 1_000_000_000_000;
+}
+
 function readTokens(value: Record<string, unknown>): TokenCounts | null {
   const result: TokenCounts = {};
   for (const key of TOKEN_KEYS) {

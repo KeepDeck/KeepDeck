@@ -206,43 +206,6 @@
   font-size: 10.5px;
 }
 
-/* Live per-pane session rows. */
-.usage-session {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 3px 0;
-}
-
-.usage-session__name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #c5c8c6;
-}
-
-.usage-session__model {
-  color: #6b7280;
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.usage-session__stats {
-  display: inline-flex;
-  gap: 8px;
-  color: #8b93a3;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* Session in/out token totals — muted below the cost, which is the headline. */
-.usage-session__tokens {
-  color: #6b7280;
-  font-size: 11px;
-}
-
 /* Narrow bar: shed chip detail before the cluster crowds the actions —
    the second window first, then the labels; the chip keeps its glyph +
    first percentage, the title carries the rest. The panel is anchored and

@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { GeneralSection } from "./GeneralSection";
 import { NotificationsSection } from "./NotificationsSection";
+import { StatsSection } from "./StatsSection";
 import { TerminalSection } from "./TerminalSection";
 import { UpdatesSection } from "./UpdatesSection";
 
@@ -20,5 +21,6 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "general", label: "General", Component: GeneralSection },
   { id: "terminal", label: "Terminal", Component: TerminalSection },
   { id: "notifications", label: "Notifications", Component: NotificationsSection },
+  { id: "stats", label: "Stats", Component: StatsSection },
   { id: "updates", label: "Updates", Component: UpdatesSection },
 ];

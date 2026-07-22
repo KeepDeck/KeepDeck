@@ -73,7 +73,6 @@ import {
   MAX_PANES,
   maximizeHotkeyTarget,
   paneAgentType,
-  paneDisplayTitle,
   paneOnScreen,
   pathOccupancy,
   type SpawnConfig,
@@ -163,19 +162,9 @@ function App() {
   // Wire bridge usage reports into the usage store (single mount) and prune
   // pane usage as panes close; the chips read the store on their own.
   useUsageChannel(deck);
-  // Pane display titles for the usage panel's session rows, and the agent
-  // ids present in the deck — account-limit-capable ones earn a chip
+  // Agent ids present in the deck — account-limit-capable ones earn a chip
   // immediately, so the limits roster is stable instead of appearing report
   // by report. Pane-only telemetry never enters the top bar.
-  const usagePaneNames = useMemo(() => {
-    const names = new Map<string, string>();
-    for (const ws of deck.workspaces) {
-      ws.panes.forEach((pane, index) => {
-        names.set(pane.id, paneDisplayTitle(pane, index, agents));
-      });
-    }
-    return names;
-  }, [deck.workspaces, agents]);
   const usageLiveAgents = useMemo(() => {
     const ids = new Set<string>();
     for (const ws of deck.workspaces) {
@@ -641,7 +630,6 @@ function App() {
           <UsageChips
             agents={agents}
             liveAgents={usageLiveAgents}
-            paneNames={usagePaneNames}
           />
           <button
             type="button"
