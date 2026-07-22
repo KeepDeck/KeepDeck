@@ -11,6 +11,7 @@
  * vocabulary.
  */
 export { AgentGlyph, type AgentGlyphIcon } from "./AgentGlyph.tsx";
+export { Chip, type ChipProps } from "./Chip.tsx";
 export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
 export { Combobox, fuzzyFilter } from "./Combobox.tsx";
 export { Peek, type PeekProps } from "./Peek.tsx";

@@ -8,6 +8,7 @@ import type { SearchHit } from "../../ipc/history";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { BackIcon } from "../../ui/icons";
+import { Chip } from "../../ui/Chip";
 import { useScrollPaging, NEAR_END } from "../../ui/useScrollPaging";
 import { baseName } from "../../domain/deck";
 
@@ -166,9 +167,12 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
               {hit.cwd !== "" && (
                 // No chip at all for a cwd-less session — an empty pill
                 // renders as a stray outline sliver.
-                <span className="history__chip" title={hit.cwd}>
-                  {baseName(hit.cwd) || hit.cwd}
-                </span>
+                <Chip
+                  size="inline"
+                  className="history__chip"
+                  title={hit.cwd}
+                  label={baseName(hit.cwd) || hit.cwd}
+                />
               )}
               <span className="history__when">{formatAge(hit.mtime, now)}</span>
               <button

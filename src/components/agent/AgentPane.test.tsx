@@ -101,7 +101,7 @@ describe("AgentPane — header badges", () => {
     const ctx = document.querySelector<HTMLElement>(".pane__ctx");
     expect(ctx?.textContent).toBe("ctx 40%");
     // Calm (< 75%) → no usage-level--* suffix appended.
-    expect(ctx?.className).toBe("pane__ctx");
+    expect(ctx?.className).toBe("chip pane__ctx");
   });
 
   it("hides the context meter on a non-live (dormant) pane despite usage", () => {
@@ -200,7 +200,7 @@ describe("AgentPane — header badges", () => {
     );
 
     const actions = document.querySelector(".pane__actions");
-    expect(actions?.children[0]?.className).toBe("pane__branch");
+    expect(actions?.children[0]?.className).toBe("chip pane__branch");
   });
 
   it("can receive restored focus without entering the tab order", () => {

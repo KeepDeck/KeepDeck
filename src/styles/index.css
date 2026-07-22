@@ -7,6 +7,7 @@
    stylesheet in its bundle (plugins/<name>/src/styles.css), loaded after all
    of these — the same tail position the old run/files/git imports held. */
 @import "./base.css";
+@import "./chip.css";
 @import "./deck.css";
 @import "./rail.css";
 @import "./pane.css";

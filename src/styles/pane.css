@@ -133,56 +133,24 @@
   -webkit-user-select: text;
 }
 
-/* Standing YOLO warning chip: same anatomy as the branch chip, tinted amber —
-   the pane's disabled-prompts state must stay visible, not just at creation.
+/* Standing YOLO warning chip: the shared Chip pill in the warn tone — the
+   pane's disabled-prompts state must stay visible, not just at creation.
    It joins the narrow-header cascade below: label off at ≤280px (a bolt dot),
    gone at ≤150px so maximize/close keep their never-hide guarantee. */
 .pane__yolo {
-  display: inline-flex;
-  align-items: center;
+  flex: none;
   gap: 4px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 999px;
-  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  white-space: nowrap;
-  color: #e0b568;
-  background-color: rgba(224, 181, 104, 0.08);
-  border: 1px solid #6b5327;
-  flex: none;
 }
 
 .pane__branch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
-  color: #e5e7eb;
-  background-color: rgba(255, 255, 255, 0.035);
-  border: 1px solid #3b4250;
   overflow: hidden;
   max-width: min(180px, 44vw);
   flex: 0 1 auto;
+  font-size: 12px;
   /* No min-width:0 — the chip must never shrink below its icon. The label
-     ellipsizes; the icon stays whole (see .pane__branch-label min-width:0). */
-}
-
-.pane__branch svg {
-  flex: none;
-  color: #c3c8d4;
-}
-
-.pane__branch-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
+     ellipsizes; the icon stays whole (see .chip__label in chip.css). */
 }
 
 /* Live context-occupancy meter, moved here off the usage popover (its
@@ -190,20 +158,11 @@
    appears only at the context thresholds via the shared .usage-level--*,
    which win by import order (usage.css loads after pane.css). */
 .pane__ctx {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 999px;
-  font-size: 11px;
+  flex: none;
   font-weight: 600;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
   color: #9aa3b2;
-  background-color: rgba(255, 255, 255, 0.035);
-  border: 1px solid #3b4250;
-  flex: none;
 }
 
 /* Narrow pane: drop the branch label and center the chip on its icon alone, so
@@ -219,11 +178,8 @@
     justify-content: center;
   }
 
-  .pane__yolo-label {
-    display: none;
-  }
-
-  .pane__branch-label {
+  .pane__yolo .chip__label,
+  .pane__branch .chip__label {
     display: none;
   }
 

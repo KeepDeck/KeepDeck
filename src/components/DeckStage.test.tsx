@@ -293,3 +293,133 @@ describe("DeckStage — agent identity on the pane header", () => {
     ).toBeNull();
   });
 });
+
+describe("DeckStage — a maximized pane minimizes the rest", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    vi.mocked(TerminalPane).mockClear();
+    for (const callback of Object.values(callbacks)) callback.mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const render = (overrides: Record<string, unknown> = {}) =>
+    act(() => root.render(createElement(DeckStage, props(overrides))));
+
+  // happy-dom reports zero widths, so every tray chip lands in the +N
+  // popover — the click target for a restore is the popover item.
+  const overflowItems = () =>
+    document.querySelectorAll<HTMLButtonElement>(
+      "[role='dialog'] .minimized--chip",
+    );
+  const openOverflow = () =>
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>(".minimized-overflow__trigger")!
+        .click(),
+    );
+
+  it("lists the panes a maximize hides in the tray, and empties when un-maximized", () => {
+    render({ viewByWs: { "ws-1": { focus: "pane-1" } } });
+    expect(
+      document
+        .querySelector<HTMLElement>("[data-pane-id='pane-2']")!
+        .classList.contains("pane--hidden"),
+    ).toBe(true);
+    expect(document.querySelector(".deck__tray-label")!.textContent).toBe(
+      "Minimized · 1",
+    );
+
+    render({ viewByWs: { "ws-1": {} } });
+    expect(document.querySelector(".deck__tray")).toBeNull();
+  });
+
+  it("switches the spotlight when a maximize-hidden entry is restored (tray)", () => {
+    render({ viewByWs: { "ws-1": { focus: "pane-1" } } });
+    openOverflow();
+    expect(overflowItems()).toHaveLength(1);
+    expect(overflowItems()[0].textContent).toContain("Codex 2");
+
+    act(() => overflowItems()[0].click());
+    expect(callbacks.onSelectPane).toHaveBeenCalledWith("ws-1", "pane-2");
+    expect(callbacks.onToggleFocus).toHaveBeenCalledWith("ws-1", "pane-2");
+    expect(callbacks.onToggleMinimize).not.toHaveBeenCalled();
+  });
+
+  it("switches the spotlight when a maximize-hidden entry is restored (strip)", () => {
+    render({
+      minimizeStyle: "strip",
+      viewByWs: { "ws-1": { focus: "pane-1" } },
+    });
+    const bars = document.querySelectorAll<HTMLButtonElement>(
+      ".deck__folds .minimized--bar",
+    );
+    expect(bars).toHaveLength(1);
+    expect(bars[0].textContent).toContain("Codex 2");
+
+    act(() => bars[0].click());
+    expect(callbacks.onSelectPane).toHaveBeenCalledWith("ws-1", "pane-2");
+    expect(callbacks.onToggleFocus).toHaveBeenCalledWith("ws-1", "pane-2");
+    expect(callbacks.onToggleMinimize).not.toHaveBeenCalled();
+  });
+
+  it("mixes explicit minimizes and maximize-hidden panes in pane order, each with its own restore", () => {
+    render({
+      workspaces: [
+        {
+          ...workspaces[0],
+          panes: [
+            { id: "pane-1", agentType: "codex" },
+            { id: "pane-2", agentType: "codex" },
+            { id: "pane-3", agentType: "codex" },
+          ],
+        },
+      ],
+      specByPane: {
+        "pane-1": { command: "codex", args: [], env: [] },
+        "pane-2": { command: "codex", args: [], env: [] },
+        "pane-3": { command: "codex", args: [], env: [] },
+      },
+      viewByWs: { "ws-1": { focus: "pane-1", minimized: ["pane-2"] } },
+    });
+    expect(document.querySelector(".deck__tray-label")!.textContent).toBe(
+      "Minimized · 2",
+    );
+
+    openOverflow();
+    expect(overflowItems()).toHaveLength(2);
+    expect(overflowItems()[0].textContent).toContain("Codex 2");
+    expect(overflowItems()[1].textContent).toContain("Codex 3");
+
+    // The explicit minimize keeps its classic restore...
+    act(() => overflowItems()[0].click());
+    expect(callbacks.onToggleMinimize).toHaveBeenCalledWith("ws-1", "pane-2");
+    expect(callbacks.onSelectPane).not.toHaveBeenCalled();
+    expect(callbacks.onToggleFocus).not.toHaveBeenCalled();
+
+    // ...the maximize-hidden one switches the spotlight.
+    openOverflow();
+    act(() => overflowItems()[1].click());
+    expect(callbacks.onSelectPane).toHaveBeenCalledWith("ws-1", "pane-3");
+    expect(callbacks.onToggleFocus).toHaveBeenCalledWith("ws-1", "pane-3");
+  });
+
+  it("leaves the none style without any minimize zone, maximized or not", () => {
+    render({
+      minimizeStyle: "none",
+      viewByWs: { "ws-1": { focus: "pane-1" } },
+    });
+    expect(
+      document
+        .querySelector<HTMLElement>("[data-pane-id='pane-2']")!
+        .classList.contains("pane--hidden"),
+    ).toBe(true);
+    expect(document.querySelector(".deck__tray")).toBeNull();
+    expect(document.querySelector(".deck__folds")).toBeNull();
+  });
+});

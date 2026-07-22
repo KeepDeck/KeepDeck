@@ -18,6 +18,7 @@ import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
 import { useUsage } from "../../app/useUsage";
 import { AgentGlyph } from "../../ui/AgentGlyph";
+import { Chip } from "../../ui/Chip";
 
 /**
  * The top-bar usage cluster: one chip per ACCOUNT-LIMIT-capable agent with a
@@ -72,7 +73,7 @@ function Bar({ window, now }: { window: UsageWindow; now: number }) {
   );
 }
 
-function Chip({
+function UsageChip({
   agent,
   account,
   display,
@@ -96,17 +97,14 @@ function Chip({
       ? `${agent.label}: showing data from ${formatAge(account.reportedAt, now)}`
       : `${agent.label} usage`;
   return (
-    <button
-      type="button"
+    <Chip
       className={`usage-chip${stale ? " usage-chip--dim" : ""}`}
+      icon={<AgentGlyph icon={agent.icon} />}
       onClick={onToggle}
       title={title}
       aria-expanded={open}
       aria-controls="usage-panel"
     >
-      <span className="usage-chip__glyph" aria-hidden>
-        <AgentGlyph icon={agent.icon} />
-      </span>
       {windows.length === 0 ? (
         <span className="usage-chip__na">···</span>
       ) : (
@@ -122,7 +120,7 @@ function Chip({
           ⚠
         </span>
       )}
-    </button>
+    </Chip>
   );
 }
 
@@ -197,7 +195,7 @@ export function UsageChips({
   return (
     <span className="usage" ref={rootRef}>
       {providers.map((agent) => (
-        <Chip
+        <UsageChip
           key={agent.id}
           agent={agent}
           account={accounts.get(agent.id)}
