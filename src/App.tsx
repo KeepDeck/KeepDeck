@@ -653,9 +653,22 @@ function App() {
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
           </span>
+          {pluginDockTabs.length > 0 && (
+            // The dock is the first icon in the utility cluster: it changes
+            // the deck's primary layout, so transient tools must not move it.
+            <button
+              type="button"
+              className="bar__icon"
+              onClick={() => active && deck.toggleDock(active.id)}
+              title={dockOpen ? "Hide the dock" : "Show the dock"}
+              aria-label="Toggle dock panel"
+            >
+              <DockIcon />
+            </button>
+          )}
           {pluginTopBarActions.map((c) => (
-            // Plugin top-bar actions, in contribution order, before the
-            // built-in cluster.
+            // Plugin top-bar actions follow the stable layout toggle, in
+            // contribution order, before the remaining built-in tools.
             <button
               key={`${c.pluginId}:${c.entry.id}`}
               type="button"
@@ -677,19 +690,6 @@ function App() {
           >
             <StatsIcon />
           </button>
-          {pluginDockTabs.length > 0 && (
-            // The dock toggle exists only while some plugin contributes a
-            // dock tab — the dock is contribution-driven chrome.
-            <button
-              type="button"
-              className="bar__icon"
-              onClick={() => active && deck.toggleDock(active.id)}
-              title={dockOpen ? "Hide the dock" : "Show the dock"}
-              aria-label="Toggle dock panel"
-            >
-              <DockIcon />
-            </button>
-          )}
           {showBell && <NotificationBell onOpen={openNotification} />}
           <button
             type="button"
