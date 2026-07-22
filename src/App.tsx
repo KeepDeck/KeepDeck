@@ -640,16 +640,6 @@ function App() {
           />
           <button
             type="button"
-            className="bar__icon"
-            onClick={() => setStatsOpen(true)}
-            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
-            title="Usage statistics"
-            aria-label="Open usage statistics"
-          >
-            <StatsIcon />
-          </button>
-          <button
-            type="button"
             className="bar__action"
             onClick={() => {
               if (canAddAgent) void agentFlow.openFor(active);
@@ -677,6 +667,16 @@ function App() {
               {c.entry.Icon ? <c.entry.Icon /> : c.entry.title.slice(0, 1)}
             </button>
           ))}
+          <button
+            type="button"
+            className="bar__icon"
+            onClick={() => setStatsOpen(true)}
+            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
+            title="Usage statistics"
+            aria-label="Open usage statistics"
+          >
+            <StatsIcon />
+          </button>
           {pluginDockTabs.length > 0 && (
             // The dock toggle exists only while some plugin contributes a
             // dock tab — the dock is contribution-driven chrome.
