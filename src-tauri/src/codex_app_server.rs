@@ -518,6 +518,11 @@ impl Worker {
     }
 
     fn handle_request(&mut self, request: ClientRequest) {
+        // `recv_timeout` may return a newly queued request even when the
+        // timeout elapsed first if the worker was not scheduled at the idle
+        // deadline. Re-check here so a late request cannot revive an expired
+        // generation merely because both events became observable together.
+        self.stop_server_if_idle(Instant::now());
         if self.server.is_none() {
             if let Err(error) = self.start_server() {
                 let _ = request.reply.send(Err(error));
@@ -694,11 +699,17 @@ impl Worker {
             self.stop_server(Some(failure));
             return;
         }
-        if matches!(server.phase, ServerPhase::Ready)
-            && server.pending.is_empty()
-            && server.queued.is_empty()
-            && now.duration_since(server.last_activity) >= self.config.idle_timeout
-        {
+        self.stop_server_if_idle(now);
+    }
+
+    fn stop_server_if_idle(&mut self, now: Instant) {
+        let expired = self.server.as_ref().is_some_and(|server| {
+            matches!(server.phase, ServerPhase::Ready)
+                && server.pending.is_empty()
+                && server.queued.is_empty()
+                && now.saturating_duration_since(server.last_activity) >= self.config.idle_timeout
+        });
+        if expired {
             self.stop_server(None);
         }
     }
@@ -978,13 +989,58 @@ mod tests {
 
     #[test]
     fn idle_child_is_reaped_and_the_next_request_starts_a_new_generation() {
-        let (manager, starts, stops) = fake_manager(FakeMode::Normal, Duration::from_millis(30));
-        manager.read_rate_limits().unwrap();
-        thread::sleep(Duration::from_millis(100));
-        manager.read_rate_limits().unwrap();
+        let starts = Arc::new(AtomicUsize::new(1));
+        let stops = Arc::new(AtomicUsize::new(0));
+        let crashed = Arc::new(AtomicBool::new(false));
+        let (events, commands) = mpsc::channel();
+        let idle_timeout = Duration::from_millis(30);
+        let mut worker = Worker::new(
+            WorkerConfig {
+                launcher: Arc::new(FakeLauncher {
+                    mode: FakeMode::Normal,
+                    starts: Arc::clone(&starts),
+                    stops: Arc::clone(&stops),
+                    crashed: Arc::clone(&crashed),
+                }),
+                idle_timeout,
+                startup_timeout: Duration::from_secs(1),
+                request_timeout: Duration::from_secs(1),
+            },
+            commands,
+            events.clone(),
+        );
+        worker.next_generation = 2;
+        worker.server = Some(RunningServer {
+            generation: 1,
+            transport: Box::new(FakeTransport {
+                mode: FakeMode::Normal,
+                generation: 1,
+                events,
+                stops: Arc::clone(&stops),
+                crashed,
+                reversed: Vec::new(),
+                stopped: false,
+            }),
+            phase: ServerPhase::Ready,
+            queued: VecDeque::new(),
+            pending: HashMap::new(),
+            next_request_id: 2,
+            last_activity: Instant::now() - idle_timeout,
+        });
+
+        let (reply, _response) = mpsc::sync_channel(1);
+        worker.handle_request(ClientRequest {
+            method: "account/rateLimits/read".into(),
+            params: None,
+            reply,
+        });
 
         assert_eq!(starts.load(Ordering::SeqCst), 2);
-        assert!(stops.load(Ordering::SeqCst) >= 1);
+        assert_eq!(stops.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            worker.server.as_ref().map(|server| server.generation),
+            Some(2)
+        );
     }
 
     #[test]
