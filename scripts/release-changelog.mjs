@@ -95,9 +95,12 @@ export function buildChangelog(releases, now = () => new Date()) {
  *  `gh release list --json` exposes, and its default page is 30 — REST returns
  *  both in one call. per_page=100 is GitHub's max for this endpoint and covers
  *  MAX_ENTRIES (50) with 2× headroom; `main` rejects a MAX_ENTRIES raised past
- *  100 rather than silently truncating, since this call does not paginate. */
-export function listReleases(repo) {
-  const stdout = execFileSync(
+ *  100 rather than silently truncating, since this call does not paginate.
+ *  `exec` is injected (defaulting to execFileSync) so the contract can be
+ *  tested without mocking a node builtin — mirrors release-manifest.mjs's
+ *  `buildManifest(args, read, now)` DI shape. */
+export function listReleases(repo, exec = execFileSync) {
+  const stdout = exec(
     "gh",
     ["api", `repos/${repo}/releases?per_page=100`],
     { encoding: "utf8" },
