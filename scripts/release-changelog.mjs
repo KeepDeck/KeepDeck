@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 // Builds changelog.json — the accumulated per-version release notes the
 // in-app updater shows when an update is available. Each published versioned
-// release becomes one entry (newest-first); the rolling "latest" release and
-// prereleases/drafts are skipped. The notes are the release bodies
+// release becomes one entry (newest-first); the rolling "latest" release,
+// drafts and prereleases are skipped. The notes are the release bodies
 // (composed by release-notes.mjs at publish time) with their per-entry chrome
 // stripped — the leading "KeepDeck X." line and the trailing "Install:"
 // footer — so only the change content remains. Zero dependencies; CI runs it
 // in release.yml's publish job, and it works locally the same way.
 //
 //   node scripts/release-changelog.mjs --repo owner/name --out changelog.json
+//
+// Source is `gh api repos/:repo/releases` (REST), NOT `gh release list`:
+// `gh release list --json` does not expose `body` (only gh release view does),
+// and its default page is 30. The REST list returns `body` in-list and takes
+// per_page, so one call covers the whole tail MAX_ENTRIES needs.
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -51,7 +56,11 @@ export function cleanNotes(body) {
 }
 
 /** Numeric compare of two dotted versions (the tags are validated semver by
- *  versionFromTag, so plain Number arithmetic is exact for these magnitudes). */
+ *  versionFromTag, so plain Number arithmetic is exact for these magnitudes).
+ *  Mirrors src/domain/changelog.ts's compareVersions, deliberately not shared:
+ *  that one runs in the bundled app (BigInt + a non-numeric fallback), this
+ *  one in a zero-build Node script on validated inputs — change both if the
+ *  version ranking rules ever move (e.g. prerelease ordering). */
 function compareVersions(a, b) {
   const aa = a.split(".");
   const bb = b.split(".");
@@ -63,36 +72,32 @@ function compareVersions(a, b) {
   return 0;
 }
 
-/** Pure builder: sort published versioned releases newest-first, strip chrome,
- *  and cap to the tail. `releases` is the raw `gh release list --json` shape. */
+/** Pure builder over the raw GitHub REST release list (`gh api .../releases`):
+ * drops drafts/prereleases/non-version tags (the rolling "latest"), strips each
+ * body's per-entry chrome, sorts newest-first, and caps to the tail. */
 export function buildChangelog(releases, now = () => new Date()) {
   const entries = [];
   for (const release of releases) {
-    const version = versionFromTag(release.tagName ?? "");
+    if (release.draft || release.prerelease) continue;
+    const version = versionFromTag(release.tag_name ?? "");
     if (!version) continue; // the rolling "latest" tag, or a non-version tag
     entries.push({
       version,
       notes: cleanNotes(release.body ?? ""),
-      ...(release.publishedAt ? { date: release.publishedAt } : {}),
+      ...(release.published_at ? { date: release.published_at } : {}),
     });
   }
   entries.sort((a, b) => compareVersions(b.version, a.version));
   return { schema: SCHEMA, generatedAt: now().toISOString(), releases: entries.slice(0, MAX_ENTRIES) };
 }
 
+/** List published releases via the GitHub REST endpoint. `body` is not a field
+ *  `gh release list --json` exposes, and its default page is 30 — REST returns
+ *  both in one call. */
 function listReleases(repo) {
   const stdout = execFileSync(
     "gh",
-    [
-      "release",
-      "list",
-      "--repo",
-      repo,
-      "--exclude-drafts",
-      "--exclude-pre-releases",
-      "--json",
-      "tagName,publishedAt,body",
-    ],
+    ["api", `repos/${repo}/releases?per_page=100`],
     { encoding: "utf8" },
   );
   return JSON.parse(stdout);

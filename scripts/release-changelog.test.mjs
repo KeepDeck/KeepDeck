@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildNotes } from "./release-notes.mjs";
 import {
   MAX_ENTRIES,
   buildChangelog,
@@ -49,16 +50,34 @@ describe("cleanNotes", () => {
   it("is resilient to a missing body", () => {
     expect(cleanNotes(undefined)).toBe("");
   });
+
+  it("round-trips release-notes.mjs buildNotes output (drift contract)", () => {
+    // If release-notes.mjs changes its header/footer wording, cleanNotes would
+    // silently leak chrome into every entry — this pins the two together.
+    const body = buildNotes({
+      version: "1.2.0",
+      repo: "KeepDeck/KeepDeck",
+      changes: ["Add foo", "Fix bar"],
+    });
+    expect(cleanNotes(body)).toBe("Changes:\n- Add foo\n- Fix bar");
+  });
 });
 
 describe("buildChangelog", () => {
   const now = () => new Date("2026-07-22T10:00:00Z");
 
-  it("keeps only versioned releases, sorted newest-first", () => {
+  // The raw GitHub REST release-list shape (`gh api repos/:repo/releases`).
+  const rest = (fields) => ({
+    draft: false,
+    prerelease: false,
+    ...fields,
+  });
+
+  it("keeps only published versioned releases, sorted newest-first", () => {
     const releases = [
-      { tagName: "latest", body: "rolling", publishedAt: "2026-07-22T09:00:00Z" },
-      { tagName: "0.15.0", body: "KeepDeck 0.15.0.\n\nChanges:\n- fifteen", publishedAt: "2026-07-10T00:00:00Z" },
-      { tagName: "0.16.0", body: "KeepDeck 0.16.0.\n\nChanges:\n- sixteen", publishedAt: "2026-07-20T00:00:00Z" },
+      rest({ tag_name: "latest", body: "rolling", published_at: "2026-07-22T09:00:00Z" }),
+      rest({ tag_name: "0.15.0", body: "KeepDeck 0.15.0.\n\nChanges:\n- fifteen", published_at: "2026-07-10T00:00:00Z" }),
+      rest({ tag_name: "0.16.0", body: "KeepDeck 0.16.0.\n\nChanges:\n- sixteen", published_at: "2026-07-20T00:00:00Z" }),
     ];
     const out = buildChangelog(releases, now);
     expect(out.schema).toBe(1);
@@ -71,16 +90,24 @@ describe("buildChangelog", () => {
     });
   });
 
+  it("drops drafts and prereleases (REST has no --exclude flag)", () => {
+    const releases = [
+      rest({ tag_name: "0.16.0", body: "sixteen" }),
+      rest({ tag_name: "0.16.1-rc", body: "rc", prerelease: true }),
+      rest({ tag_name: "0.17.0", body: "next", draft: true }),
+    ];
+    expect(buildChangelog(releases, now).releases.map((r) => r.version)).toEqual(["0.16.0"]);
+  });
+
   it("omits date when the release was not published", () => {
-    const out = buildChangelog([{ tagName: "1.0.0", body: "x" }], now);
+    const out = buildChangelog([rest({ tag_name: "1.0.0", body: "x" })], now);
     expect(out.releases[0].date).toBeUndefined();
   });
 
   it("caps the tail at MAX_ENTRIES", () => {
-    const releases = Array.from({ length: MAX_ENTRIES + 5 }, (_, i) => ({
-      tagName: `0.0.${i}`,
-      body: "",
-    }));
+    const releases = Array.from({ length: MAX_ENTRIES + 5 }, (_, i) =>
+      rest({ tag_name: `0.0.${i}`, body: "" }),
+    );
     expect(buildChangelog(releases, now).releases).toHaveLength(MAX_ENTRIES);
     // Newest-first: the highest patch numbers survive.
     expect(buildChangelog(releases, now).releases[0].version).toBe(`0.0.${MAX_ENTRIES + 4}`);
