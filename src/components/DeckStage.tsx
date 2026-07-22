@@ -22,7 +22,7 @@ import type { MinimizeStyle, DeckLayout } from "../domain/settings";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane } from "./agent/AgentPane";
 import { MinimizedItem } from "./deck/MinimizedItem";
-import { MinimizedTray } from "./deck/MinimizedTray";
+import { MinimizedTray, type MinimizedTrayEntry } from "./deck/MinimizedTray";
 import {
   journalRows,
   type JournalRecords,
@@ -122,7 +122,9 @@ interface DeckStageProps {
  * - `grid` layout: the square grid. An agent can be minimized out of it (its
  *   tile is hidden and the grid retiles to fill the space); it's shown as a
  *   `MinimizedItem` in a zone below — `tray` chips or `strip` bars — that
- *   restores it. Maximize still spotlights one live tile.
+ *   restores it. Maximize still spotlights one live tile, and the tiles it
+ *   hides are listed in that same zone as if minimized — restoring one of
+ *   them switches the spotlight to it instead of exiting maximize.
  * - `list` layout: a vertical accordion — the selected agent expanded to its
  *   terminal, the rest folded to header bars. A display mode, not a minimize:
  *   every agent stays, one is shown at a time. An empty workspace shows the
@@ -268,6 +270,43 @@ export function DeckStage({
           };
         };
 
+        // ── Minimize zone (tray / strip) entries. ─────────────────────────
+        // While a pane is maximized, the panes it hides count as minimized
+        // too — otherwise a fullscreen grid gives no sign the others exist.
+        // Purely a render-time derivation: the session's minimized set stays
+        // untouched, so un-maximizing brings the grid back exactly as it was.
+        const restoreById = new Map<string, () => void>();
+        for (const pane of minimized) {
+          restoreById.set(pane.id, () => onToggleMinimize(ws.id, pane.id));
+        }
+        if (canMinimize && focusedHere !== null) {
+          for (const pane of live) {
+            if (pane.id === focusedHere) continue;
+            // Not the minimized-restore (that exits maximize): switch the
+            // spotlight to this pane, keeping the fullscreen mode.
+            restoreById.set(pane.id, () => {
+              onSelectPane(ws.id, pane.id);
+              onToggleFocus(ws.id, pane.id);
+            });
+          }
+        }
+        // Pane order, so an explicit minimize and a maximize-hidden pane sit
+        // where their tiles were.
+        const trayPanes = ws.panes.filter((pane) => restoreById.has(pane.id));
+        const trayEntries: MinimizedTrayEntry[] = trayPanes.map((pane) => {
+          const title = titleOf(pane);
+          return {
+            id: pane.id,
+            title,
+            icon:
+              agents.find((a) => a.id === paneAgentType(pane))?.icon ?? null,
+            gitBadge: badgeOf(pane),
+            yolo: pane.yolo,
+            label: `Restore ${title}`,
+            onRestore: restoreById.get(pane.id)!,
+          };
+        });
+
         // Resolve one pane into a full AgentPane. The catalog / spec / cwd /
         // badge resolution lives in ONE place; `layout` carries positioning.
         const renderPane = (pane: Pane) => {
@@ -360,46 +399,24 @@ export function DeckStage({
                 </div>
               )}
             </div>
-{!isList && minimized.length > 0 &&
+{!isList && trayEntries.length > 0 &&
               (minimizeStyle === "tray" ? (
-                <MinimizedTray
-                  active={isActive}
-                  entries={minimized.map((pane) => {
-                    const title = titleOf(pane);
-                    return {
-                      id: pane.id,
-                      title,
-                      icon:
-                        agents.find((a) => a.id === paneAgentType(pane))
-                          ?.icon ?? null,
-                      gitBadge: badgeOf(pane),
-                      yolo: pane.yolo,
-                      label: `Restore ${title}`,
-                      onRestore: () => onToggleMinimize(ws.id, pane.id),
-                    };
-                  })}
-                />
+                <MinimizedTray active={isActive} entries={trayEntries} />
               ) : (
                 <div className="deck__folds">
-                  {minimized.map((pane) => {
-                    const title = titleOf(pane);
-                    return (
-                      <MinimizedItem
-                        key={pane.id}
-                        variant="bar"
-                        title={title}
-                        icon={
-                          agents.find((a) => a.id === paneAgentType(pane))
-                            ?.icon ?? null
-                        }
-                        gitBadge={badgeOf(pane)}
-                        yolo={pane.yolo}
-                        label={`Restore ${title}`}
-                        active={isActive}
-                        onClick={() => onToggleMinimize(ws.id, pane.id)}
-                      />
-                    );
-                  })}
+                  {trayEntries.map((entry) => (
+                    <MinimizedItem
+                      key={entry.id}
+                      variant="bar"
+                      title={entry.title}
+                      icon={entry.icon}
+                      gitBadge={entry.gitBadge}
+                      yolo={entry.yolo}
+                      label={entry.label}
+                      active={isActive}
+                      onClick={entry.onRestore}
+                    />
+                  ))}
                 </div>
               ))}
           </main>
