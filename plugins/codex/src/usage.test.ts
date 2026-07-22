@@ -49,7 +49,7 @@ describe("normalizeCodexRollout", () => {
     expect(result?.pane).toEqual({
       agent: "codex",
       context: {
-        usedPct: (171_847 / 258_400) * 100,
+        usedPct: 65,
         windowTokens: 258_400,
       },
       totalTokens: {
@@ -68,6 +68,33 @@ describe("normalizeCodexRollout", () => {
       },
       reportedAt: AT,
     });
+  });
+
+  it("matches the Codex status line after excluding its fixed baseline", () => {
+    const screenshot = structuredClone(TOKEN_COUNT);
+    screenshot.event.info.last_token_usage = {
+      input_tokens: 37_179,
+      cached_input_tokens: 11_008,
+      output_tokens: 517,
+      reasoning_output_tokens: 226,
+      total_tokens: 37_696,
+    };
+
+    expect(normalizeCodexRollout(screenshot, AT)?.pane?.context).toEqual({
+      usedPct: 10,
+      windowTokens: 258_400,
+    });
+  });
+
+  it("reports no user-controlled usage inside the baseline and clamps overflow", () => {
+    const reportAt = (totalTokens: number) => {
+      const sample = structuredClone(TOKEN_COUNT);
+      sample.event.info.last_token_usage.total_tokens = totalTokens;
+      return normalizeCodexRollout(sample, AT)?.pane?.context?.usedPct;
+    };
+
+    expect(reportAt(12_000)).toBe(0);
+    expect(reportAt(300_000)).toBe(100);
   });
 
   it("keeps both windows when a plan has them", () => {

@@ -102,6 +102,24 @@ function tokens(value: unknown): TokenCounts | undefined {
   });
 }
 
+// Codex excludes the fixed system prompt and tool instructions from the
+// percentage shown in its status line. Keep this formula byte-for-byte in
+// step with TokenUsage::percent_of_context_window_remaining in codex-cli:
+// normalize both sides by the baseline, round remaining, then invert.
+const CODEX_BASELINE_TOKENS = 12_000;
+
+function contextUsedPct(inContext: number, contextWindow: number): number {
+  if (contextWindow <= CODEX_BASELINE_TOKENS) return 100;
+
+  const effectiveWindow = contextWindow - CODEX_BASELINE_TOKENS;
+  const used = Math.max(0, inContext - CODEX_BASELINE_TOKENS);
+  const remaining = Math.max(0, effectiveWindow - used);
+  const remainingPct = Math.round(
+    clampPercent((remaining / effectiveWindow) * 100),
+  );
+  return clampPercent(100 - remainingPct);
+}
+
 /**
  * Windows come from primary/secondary WITHOUT positional meaning: on some
  * plans primary IS the weekly window and secondary is null (verified live)
@@ -143,14 +161,15 @@ export const normalizeCodexRollout: UsageNormalizer = (payload, at) => {
   const windowTokens = info ? asFiniteNumber(info.model_context_window) : undefined;
   const lastTurnTokens = info ? tokens(info.last_token_usage) : undefined;
   const totalTokens = info ? tokens(info.total_token_usage) : undefined;
-  // last_token_usage.total_tokens IS the context occupancy (verified live).
+  // last_token_usage.total_tokens is the raw occupancy. Codex's own UI
+  // removes its fixed baseline before presenting the user-controlled share.
   const inContext = lastTurnTokens?.total;
   const pane: PaneUsage = {
     agent: "codex",
     ...(inContext !== undefined && windowTokens !== undefined && windowTokens > 0
       ? {
           context: {
-            usedPct: clampPercent((inContext / windowTokens) * 100),
+            usedPct: contextUsedPct(inContext, windowTokens),
             windowTokens,
           },
         }
