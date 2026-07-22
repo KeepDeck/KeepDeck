@@ -181,10 +181,9 @@
 
 .skills__scope {
   padding: 2px 8px;
-  border: 1px solid #262d3d;
-  border-radius: 999px;
+  border-color: #262d3d;
+  background-color: transparent;
   color: #6b7280;
-  font-size: 11px;
 }
 
 /* Name/description keep a readable measure; the instructions editor below

@@ -1,4 +1,5 @@
 import { DestructiveButton } from "../../ui/DestructiveButton";
+import { Chip } from "../../ui/Chip";
 
 /** The editable fields; `extraFrontmatter` rides along invisibly so saving
  * an edited skill keeps hand-added keys. */
@@ -63,7 +64,7 @@ export function SkillEditor({
             />
           )}
         </h3>
-        <span className="skills__scope">{scopeLabel}</span>
+        <Chip size="inline" className="skills__scope" label={scopeLabel} />
       </div>
 
       <div className="skills__meta">

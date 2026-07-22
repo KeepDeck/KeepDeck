@@ -98,14 +98,6 @@
   flex: none;
   max-width: 180px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background-color: rgba(255, 255, 255, 0.035);
-  border: 1px solid #3b4250;
-  font-size: 11px;
-  color: #e5e7eb;
 }
 
 .history__when {
@@ -156,12 +148,6 @@
 
 .history__missing {
   flex: none;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background-color: rgba(177, 60, 60, 0.12);
-  border: 1px solid #5a2e2e;
-  font-size: 11px;
-  color: #d98c8c;
 }
 
 .history__resume:disabled {

@@ -3,6 +3,7 @@ import type { SessionRecord } from "../../domain/journal";
 import { formatAge } from "../../domain/usage/format";
 import { dirPresent, useDirPresence } from "../history/useDirPresence";
 import { AgentGlyph } from "../../ui/AgentGlyph";
+import { Chip } from "../../ui/Chip";
 
 interface WorkspaceHistoryProps {
   /** The workspace's journal, newest binding first (`journalRows`). */
@@ -59,20 +60,24 @@ export function WorkspaceHistory({ rows, agents, onDelete, onResume, onFork }: W
                 {row.title ?? agent?.label ?? row.agent}
               </span>
               {row.branch !== undefined && (
-                <span className="history__chip" title={row.cwd}>
-                  {row.branch}
-                </span>
+                <Chip
+                  size="inline"
+                  className="history__chip"
+                  title={row.cwd}
+                  label={row.branch}
+                />
               )}
               <span className="history__when">
                 {formatAge(Date.parse(when), now)}
               </span>
               {dirMissing && (
-                <span
+                <Chip
+                  size="inline"
+                  tone="error"
                   className="history__missing"
                   title={`${row.cwd} no longer exists — the session cannot resume in place`}
-                >
-                  dir gone
-                </span>
+                  label="dir gone"
+                />
               )}
               {row.state === "closed" && (
                 <button
