@@ -3,7 +3,7 @@ import type { AgentInfo } from "../domain/agents";
 import { createCommandRegistry } from "../domain/commands";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { registerPaneInput } from "./paneInput";
+import { registerPaneInput, registerPanePaste } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
 import type { Deck } from "./useDeck";
 
@@ -262,9 +262,13 @@ describe("agent.spawn", () => {
     expect(result.ok).toBe(true);
     const paneId = deck.workspaces[0].panes[0].id;
     const written: string[] = [];
-    const off = registerPaneInput(paneId, (text) => written.push(text));
+    // TerminalPane registers both channels on mount: TYPE feeds paneInputReady
+    // (what the poll reads), PASTE is what deliverTask writes through.
+    const offReady = registerPaneInput(paneId, () => {});
+    const off = registerPanePaste(paneId, (text) => written.push(text));
     await vi.advanceTimersByTimeAsync(5_000);
     off();
+    offReady();
     expect(written).toEqual(["fix the header\r"]);
   });
 });
@@ -301,10 +305,10 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(info?.destructive).toBe(true);
   });
 
-  it("writes into the addressed pane, submit appends Enter", async () => {
+  it("writes into the addressed pane over the PASTE channel, submit appends Enter", async () => {
     const { registry } = setup([twoPanes()]);
     const written: string[] = [];
-    const off = registerPaneInput("p2", (text) => written.push(text));
+    const off = registerPanePaste("p2", (text) => written.push(text));
     const result = await registry.execute(
       "pane.write",
       { agent: "reviewer", text: "hello", submit: true },

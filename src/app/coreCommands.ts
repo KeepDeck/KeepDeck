@@ -22,7 +22,7 @@ import {
 import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
 import { commands } from "./commandRegistry";
 import { mintAgentSeq } from "./ids";
-import { paneInputReady, writeToPane } from "./paneInput";
+import { paneInputReady, pasteToPane } from "./paneInput";
 import { provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
 import type { Deck } from "./useDeck";
@@ -67,7 +67,10 @@ export async function deliverTask(
   }
   if (!paneInputReady(paneIdToWrite)) return false;
   await wait(TASK_SETTLE_MS);
-  return writeToPane(paneIdToWrite, text + "\r");
+  // PASTE channel: xterm applies bracketed paste when the TUI enabled it, so
+  // the task text reaches a bracketed-paste TUI (e.g. opencode) instead of
+  // being dropped as a bare raw stream.
+  return pasteToPane(paneIdToWrite, text + "\r");
 }
 
 function str(args: CommandArgs, name: string): string | undefined {
@@ -347,7 +350,9 @@ export function registerCoreCommands(
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, deps.agents(), ws, str(args, "agent"));
         const text = args.text as string;
-        const written = writeToPane(
+        // PASTE channel (xterm term.paste) — see deliverTask. submit appends
+        // a CR after the text, outside the bracketed-paste wrapping.
+        const written = pasteToPane(
           pane.id,
           args.submit === true ? text + "\r" : text,
         );
