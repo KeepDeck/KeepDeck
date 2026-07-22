@@ -182,3 +182,15 @@ jobs:
             assets/KeepDeck-macos-x64.app.tar.gz \
             assets/KeepDeck-macos-x64.app.tar.gz.sig \
             --clobber
+
+      - name: Build and upload the accumulated changelog
+        # changelog.json is derived from the published versioned releases, so
+        # it must run AFTER the version above is archived — otherwise the
+        # just-released version's notes would be missing until the next publish.
+        # GH_TOKEN/GH_REPO come from the job-level env. Uploads to the rolling
+        # "latest" release, where the app fetches it alongside latest.json.
+        run: |
+          node scripts/release-changelog.mjs \
+            --repo "${{ github.repository }}" \
+            --out assets/changelog.json
+          gh release upload latest assets/changelog.json --clobber

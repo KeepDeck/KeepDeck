@@ -6,7 +6,10 @@ import { initUpdates, resetUpdateManager } from "../../app/updateManager";
 import type { AvailableUpdate } from "../../ipc/updater";
 import { UpdatesSection } from "./UpdatesSection";
 
-vi.mock("../../ipc/app", () => ({ fetchAppInfo: vi.fn() }));
+vi.mock("../../ipc/app", () => ({
+  fetchAppInfo: vi.fn(),
+  openUrl: vi.fn(async () => {}),
+}));
 vi.mock("../../ipc/updater", () => ({
   checkForUpdate: vi.fn(),
   discardUpdate: vi.fn(async () => {}),
@@ -18,12 +21,13 @@ vi.mock("../../ipc/log", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { fetchAppInfo } from "../../ipc/app";
+import { fetchAppInfo, openUrl } from "../../ipc/app";
 import { checkForUpdate, installUpdate } from "../../ipc/updater";
 
 const mockInfo = vi.mocked(fetchAppInfo);
 const mockCheck = vi.mocked(checkForUpdate);
 const mockInstall = vi.mocked(installUpdate);
+const mockOpenUrl = vi.mocked(openUrl);
 const downloads = {
   start: vi.fn((request: { id: string }) => ({
     async *[Symbol.asyncIterator]() {
@@ -82,6 +86,7 @@ function fakeUpdate(version: string): AvailableUpdate {
     id: `update-${version}`,
     version,
     downloaded: false,
+    changelog: [],
     download: {
       source: { url: "https://example.com/update" },
       target: { kind: "file", path: `updates/${version}.bundle` },
@@ -152,6 +157,75 @@ describe("UpdatesSection", () => {
     await act(async () => button("Dismiss").click());
     expect(hints()).toContain("Up to date");
     expect(button("Check for updates").disabled).toBe(false);
+  });
+
+  it("renders the accumulated changelog for a found update", async () => {
+    mockInfo.mockResolvedValue({ name: "KeepDeck", version: "0.13.0", updater: true });
+    mockCheck.mockResolvedValue({
+      ...fakeUpdate("1.2.0"),
+      changelog: [
+        { version: "1.0.0", notes: "First **bold** step.", date: "2026-07-01" },
+        { version: "1.2.0", notes: "- a\n- b" },
+      ],
+    });
+    await initUpdates(downloads);
+    await render();
+
+    const versions = [...host.querySelectorAll(".settings__changelog-version span")].map(
+      (el) => el.textContent,
+    );
+    expect(versions).toEqual(["1.0.0", "1.2.0"]);
+    // Markdown renders: bold becomes <strong>, a bullet list becomes <ul><li>.
+    expect(host.querySelector(".settings__changelog-entry strong")).not.toBeNull();
+    expect(host.querySelectorAll(".settings__changelog-entry li")).toHaveLength(2);
+    expect(host.querySelector(".settings__changelog .form__label")!.textContent).toBe(
+      "What's new",
+    );
+  });
+
+  it("hides the changelog once the update is dismissed", async () => {
+    mockInfo.mockResolvedValue({ name: "KeepDeck", version: "0.13.0", updater: true });
+    mockCheck.mockResolvedValue({
+      ...fakeUpdate("1.2.0"),
+      changelog: [{ version: "1.2.0", notes: "notes" }],
+    });
+    await initUpdates(downloads);
+    await render();
+    expect(host.querySelector(".settings__changelog")).not.toBeNull();
+
+    await act(async () => button("Dismiss").click());
+    expect(host.querySelector(".settings__changelog")).toBeNull();
+  });
+
+  it("opens external changelog links in the browser and drops non-http ones", async () => {
+    // The link override is the one place untrusted notes touch privileged
+    // behavior: http(s) opens via openUrl; react-markdown strips javascript:
+    // to "" so the gate never fires openUrl for it.
+    mockInfo.mockResolvedValue({ name: "KeepDeck", version: "0.13.0", updater: true });
+    mockCheck.mockResolvedValue({
+      ...fakeUpdate("1.2.0"),
+      changelog: [
+        {
+          version: "1.2.0",
+          notes: "Read [the site](https://example.com) and skip [bad](javascript:alert(1))",
+        },
+      ],
+    });
+    await initUpdates(downloads);
+    await render();
+
+    const links = host.querySelectorAll<HTMLAnchorElement>(".settings__changelog-entry a");
+    expect(links).toHaveLength(2);
+    // react-markdown's default URL transform already neutralized javascript:.
+    expect(links[0].getAttribute("href")).toBe("https://example.com");
+    expect(links[1].getAttribute("href")).toBe("");
+
+    await act(async () => links[0].click());
+    expect(mockOpenUrl).toHaveBeenCalledWith("https://example.com");
+
+    mockOpenUrl.mockClear();
+    await act(async () => links[1].click());
+    expect(mockOpenUrl).not.toHaveBeenCalled();
   });
 
   it("surfaces a failed check without blocking the next one", async () => {

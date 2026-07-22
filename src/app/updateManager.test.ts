@@ -43,6 +43,7 @@ const available = (version = "1.2.0"): AvailableUpdate => ({
   id: `update-${version}`,
   version,
   downloaded: false,
+  changelog: [],
   download: {
     source: { url: "https://example.com/update" },
     target: { kind: "file", path: `updates/${version}.bundle` },
@@ -105,6 +106,42 @@ describe("update manager", () => {
     await initUpdates(downloads);
     expect(getUpdateState()).toMatchObject({ phase: "available", version: "1.2.0" });
     expect(downloads.start).not.toHaveBeenCalled();
+  });
+
+  it("slices the changelog to the installed→target range", async () => {
+    // Installed build is 0.13.2 (mockInfo default); target 1.2.0.
+    mockCheck.mockResolvedValue({
+      ...available("1.2.0"),
+      changelog: [
+        { version: "1.3.0", notes: "future" },
+        { version: "1.2.0", notes: "target" },
+        { version: "1.0.0", notes: "after" },
+        { version: "0.13.2", notes: "current, excluded" },
+        { version: "0.13.0", notes: "older" },
+      ],
+    });
+    await initUpdates(downloads);
+    expect(getUpdateState().changelog.map((e) => e.version)).toEqual([
+      "1.0.0",
+      "1.2.0",
+    ]);
+  });
+
+  it("exposes an empty changelog when the channel published none", async () => {
+    mockCheck.mockResolvedValue(available());
+    await initUpdates(downloads);
+    expect(getUpdateState().changelog).toEqual([]);
+  });
+
+  it("clears the changelog on dismiss", async () => {
+    mockCheck.mockResolvedValue({
+      ...available("1.2.0"),
+      changelog: [{ version: "1.2.0", notes: "target" }],
+    });
+    await initUpdates(downloads);
+    expect(getUpdateState().changelog).toHaveLength(1);
+    await dismissUpdate();
+    expect(getUpdateState().changelog).toEqual([]);
   });
 
   it("reuses a previously verified deterministic artifact after restart", async () => {
@@ -245,8 +282,38 @@ describe("update manager", () => {
   it("manual checks run only from idle", async () => {
     mockCheck.mockResolvedValue(null);
     await initUpdates(downloads);
-    checkForUpdatesNow();
+    await checkForUpdatesNow();
     await Promise.resolve();
     expect(mockCheck).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not slice the changelog before boot captures the installed version", async () => {
+    // A manual check that races initUpdates' fetchAppInfo must wait for boot,
+    // otherwise it would slice with currentVersion="" and show notes for
+    // versions the user already has.
+    let resolveBoot!: (info: { name: string; version: string; updater: boolean }) => void;
+    mockInfo.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveBoot = resolve;
+      }),
+    );
+    mockCheck.mockResolvedValue({
+      ...available("1.2.0"),
+      changelog: [
+        { version: "0.13.0", notes: "owned, must be excluded" },
+        { version: "1.2.0", notes: "target" },
+      ],
+    });
+    const init = initUpdates(downloads);
+    const checking = checkForUpdatesNow();
+    // Boot unresolved: the manual check is held — no IPC, no slice yet.
+    await Promise.resolve();
+    expect(mockCheck).not.toHaveBeenCalled();
+    expect(getUpdateState().phase).toBe("idle");
+    resolveBoot({ name: "KeepDeck", version: "0.13.0", updater: true });
+    await Promise.all([init, checking]);
+    expect(getUpdateState()).toMatchObject({ phase: "available", version: "1.2.0" });
+    // Sliced with currentVersion=0.13.0: the owned 0.13.0 entry is excluded.
+    expect(getUpdateState().changelog.map((e) => e.version)).toEqual(["1.2.0"]);
   });
 });

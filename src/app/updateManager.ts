@@ -7,6 +7,7 @@ import {
   relaunchApp,
   type AvailableUpdate,
 } from "../ipc/updater";
+import { sliceChangelog, type ChangelogEntry } from "../domain/changelog";
 import type { DownloadManager } from "./downloadManager";
 
 type UpdateDownloads = Pick<DownloadManager, "start" | "cancel">;
@@ -51,6 +52,9 @@ export interface UpdateState {
   error: string | null;
   /** Epoch ms of the last completed check. */
   checkedAt: number | null;
+  /** Accumulated release notes since the installed version — empty until an
+   * update is `available`, and sliced to the installed→target range. */
+  changelog: ChangelogEntry[];
 }
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
@@ -63,12 +67,16 @@ function initial(): UpdateState {
     total: null,
     error: null,
     checkedAt: null,
+    changelog: [],
   };
 }
 
 let state: UpdateState = initial();
 /** Metadata retained by the native updater until it is installed or dismissed. */
 let update: AvailableUpdate | null = null;
+/** The running build's version, captured at boot so the changelog can be
+ * sliced to the installed→target range without a second `app_info` round-trip. */
+let currentVersion = "";
 let downloads: UpdateDownloads | null = null;
 let downloadJobId: string | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -91,6 +99,7 @@ export function initUpdates(
   downloads = manager;
   boot ??= fetchAppInfo()
     .then((info) => {
+      currentVersion = info.version;
       if (!info.updater) {
         apply({ phase: "disabled" });
         return;
@@ -107,8 +116,14 @@ export function initUpdates(
 }
 
 /** Manual "Check for updates" from settings. A no-op while anything is in
- * flight or already found — those states have their own actions. */
-export function checkForUpdatesNow(): void {
+ * flight or already found — those states have their own actions. Awaits boot
+ * first so `currentVersion` is captured before `runCheck` slices the
+ * changelog; without that, a click racing `initUpdates`' fetchAppInfo would
+ * slice with `currentVersion=""` and surface notes for versions the user
+ * already runs. */
+export async function checkForUpdatesNow(): Promise<void> {
+  if (state.phase !== "idle") return;
+  if (boot) await boot;
   if (state.phase !== "idle") return;
   void runCheck();
 }
@@ -130,6 +145,7 @@ async function runCheck(): Promise<void> {
       phase: found.downloaded ? "ready" : "available",
       version: found.version,
       checkedAt: Date.now(),
+      changelog: sliceChangelog(found.changelog, currentVersion, found.version),
     });
   } catch (e) {
     // Transient by assumption (offline, mid-publish window…): surface in
@@ -187,7 +203,7 @@ export async function dismissUpdate(): Promise<void> {
   try {
     await discardUpdate(dismissed.id);
     if (update === dismissed) update = null;
-    apply({ phase: "idle", version: null, received: 0, total: null });
+    apply({ phase: "idle", version: null, received: 0, total: null, changelog: [] });
   } catch (error) {
     const message = describeError(error);
     log.warn("web:update", `update discard failed: ${message}`);
@@ -242,6 +258,7 @@ export function subscribeUpdates(listener: () => void): () => void {
 export function resetUpdateManager(): void {
   state = initial();
   update = null;
+  currentVersion = "";
   downloads = null;
   downloadJobId = null;
   if (timer) clearInterval(timer);
