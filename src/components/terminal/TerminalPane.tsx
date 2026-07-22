@@ -12,7 +12,7 @@ import {
 } from "../../app/ptyManager";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
-import { registerPaneInput } from "../../app/paneInput";
+import { registerPaneInput, registerPanePaste } from "../../app/paneInput";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
@@ -244,9 +244,17 @@ export function TerminalPane({
     };
     ta?.addEventListener("keydown", blockShiftEnterDefault, true);
 
-    // Route window-level input (a dropped file path, [F4]) into this session.
+    // Route window-level input (a dropped file path, [F4]) into this session
+    // as RAW bytes — drag-and-drop shapes its own bracketed-paste wrapping.
     const unregister = registerPaneInput(paneId, (text) => {
       writePane(paneId, text);
+    });
+    // Programmatic TEXT insertion (voice dictation, spawn task delivery) goes
+    // through xterm's paste path so xterm applies its bracketed-paste wrapping
+    // exactly when the TUI enabled it — a bare raw stream is dropped by
+    // bracketed-paste TUIs (e.g. opencode) and the text never lands.
+    const unregisterPaste = registerPanePaste(paneId, (text) => {
+      term.paste(text);
     });
 
     // Auto-naming ([F11]): mirror the terminal title (OSC 0/1/2) up to the pane.
@@ -353,6 +361,7 @@ export function TerminalPane({
       observer.disconnect();
       input.dispose();
       unregister();
+      unregisterPaste();
       links.dispose();
       titleSub.dispose();
       selectionSub.dispose();
