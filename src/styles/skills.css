@@ -187,14 +187,13 @@
   font-size: 11px;
 }
 
-/* Name/description keep a readable measure; the instructions editor below
-   is the only full-width element. A column so labels and inputs stack and
-   stretch exactly like direct children of the editor column would. */
+/* Name/description stretch the full editor width, same as the instructions
+   editor below. A column so labels and inputs stack and stretch exactly
+   like direct children of the editor column would. */
 .skills__meta {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  max-width: 560px;
 }
 
 /* The description textarea reads like the inputs around it — it wraps
