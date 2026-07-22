@@ -4,6 +4,7 @@ import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
 import { AgentDialog } from "./components/workspace/AgentDialog";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
+import { StatsDialog } from "./components/stats/StatsDialog";
 import { SkillsDialog } from "./components/skills/SkillsDialog";
 import { fetchAppInfo, type AppInfo } from "./ipc/app";
 import { restartToUpdate } from "./app/updateManager";
@@ -73,7 +74,6 @@ import {
   MAX_PANES,
   maximizeHotkeyTarget,
   paneAgentType,
-  paneDisplayTitle,
   paneOnScreen,
   pathOccupancy,
   type SpawnConfig,
@@ -163,18 +163,9 @@ function App() {
   // Wire bridge usage reports into the usage store (single mount) and prune
   // pane usage as panes close; the chips read the store on their own.
   useUsageChannel(deck);
-  // Pane display titles for the usage panel's session rows, and the agent
-  // ids present in the deck — every one earns a chip immediately, so the
-  // usage roster is stable instead of appearing report by report.
-  const usagePaneNames = useMemo(() => {
-    const names = new Map<string, string>();
-    for (const ws of deck.workspaces) {
-      ws.panes.forEach((pane, index) => {
-        names.set(pane.id, paneDisplayTitle(pane, index, agents));
-      });
-    }
-    return names;
-  }, [deck.workspaces, agents]);
+  // Agent ids present in the deck — account-limit-capable ones earn a chip
+  // immediately, so the limits roster is stable instead of appearing report
+  // by report. Pane-only telemetry never enters the top bar.
   const usageLiveAgents = useMemo(() => {
     const ids = new Set<string>();
     for (const ws of deck.workspaces) {
@@ -205,6 +196,9 @@ function App() {
   // a plugin's `openSettings`. When a plugin opens it, the target section id
   // rides along so the dialog lands on that plugin's page.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Global observational data has its own surface, independent of Settings
+  // and of the active workspace's contribution-driven dock.
+  const [statsOpen, setStatsOpen] = useState(false);
   // The shared-skills library editor ([skills]) — opened from the top bar.
   const [skillsOpen, setSkillsOpen] = useState(false);
   // Which section the dialog opens on: the gear opens the first section, the
@@ -252,6 +246,7 @@ function App() {
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
     },
+    openUsage: () => setStatsOpen(true),
   });
   // The plugin system: the bridge wires deck accessors + deck events; the
   // built-ins boot once settings settle (enabled flags live there); the
@@ -357,7 +352,8 @@ function App() {
     frozen && !frozenAck ? frozen : null,
   ];
   const dialogOpen = transactions.some((t) => t !== null);
-  const modalOpen = showForm || dialogOpen || settingsOpen || skillsOpen;
+  const modalOpen =
+    showForm || dialogOpen || settingsOpen || statsOpen || skillsOpen;
   // The single "can add an agent" rule — a workspace is active, room under the
   // cap, and nothing modal is up. Both the ⌘T hotkey and the + Agent button
   // gate on this so they can't diverge (the button used to ignore modals).
@@ -448,9 +444,9 @@ function App() {
       // The create form is a passive surface, not a transaction — settings
       // open over it (on first run the form is the only screen there is, so
       // blocking would make settings unreachable). Its Esc yields while the
-      // settings dialog is on top. The Skills dialog DOES block: stacking
-      // Settings over it would give one Escape two layers to peel.
-      if (dialogOpen || settingsOpen || skillsOpen) return;
+      // settings dialog is on top. The Stats and Skills dialogs DO block:
+      // stacking Settings over either would give one Escape two layers to peel.
+      if (dialogOpen || settingsOpen || statsOpen || skillsOpen) return;
       setSettingsSection(undefined);
       setSettingsOpen(true);
     },
@@ -516,7 +512,7 @@ function App() {
           n.source,
           preciseTargetResolved,
         );
-        if (section !== null && !dialogOpen && !settingsOpen) {
+        if (section !== null && !dialogOpen && !settingsOpen && !statsOpen) {
           setSettingsSection(section);
           setSettingsOpen(true);
         }
@@ -526,7 +522,7 @@ function App() {
         // Same guard as the top bar's update chip: the dialog reads its
         // section only at open, so setting it over an open dialog would
         // silently not navigate.
-        if (!dialogOpen && !settingsOpen) {
+        if (!dialogOpen && !settingsOpen && !statsOpen) {
           setSettingsSection(
             settingsSectionForNotification(n.source) ?? undefined,
           );
@@ -612,7 +608,7 @@ function App() {
               onClick={() => {
                 if (updateState.phase === "ready") {
                   void restartToUpdate();
-                } else if (!dialogOpen && !settingsOpen) {
+                } else if (!dialogOpen && !settingsOpen && !statsOpen) {
                   setSettingsSection("updates");
                   setSettingsOpen(true);
                 }
@@ -640,7 +636,7 @@ function App() {
           <UsageChips
             agents={agents}
             liveAgents={usageLiveAgents}
-            paneNames={usagePaneNames}
+            onOpenStats={() => setStatsOpen(true)}
           />
           <button
             type="button"
@@ -657,9 +653,22 @@ function App() {
             {activeCount} {activeCount === 1 ? "pane" : "panes"}
             {info ? ` · ${info.version}` : ""}
           </span>
+          {pluginDockTabs.length > 0 && (
+            // The dock is the first icon in the utility cluster: it changes
+            // the deck's primary layout, so transient tools must not move it.
+            <button
+              type="button"
+              className="bar__icon"
+              onClick={() => active && deck.toggleDock(active.id)}
+              title={dockOpen ? "Hide the dock" : "Show the dock"}
+              aria-label="Toggle dock panel"
+            >
+              <DockIcon />
+            </button>
+          )}
           {pluginTopBarActions.map((c) => (
-            // Plugin top-bar actions, in contribution order, before the
-            // built-in cluster.
+            // Plugin top-bar actions follow the stable layout toggle, in
+            // contribution order, before the remaining built-in tools.
             <button
               key={`${c.pluginId}:${c.entry.id}`}
               type="button"
@@ -671,26 +680,23 @@ function App() {
               {c.entry.Icon ? <c.entry.Icon /> : c.entry.title.slice(0, 1)}
             </button>
           ))}
-          {pluginDockTabs.length > 0 && (
-            // The dock toggle exists only while some plugin contributes a
-            // dock tab — the dock is contribution-driven chrome.
-            <button
-              type="button"
-              className="bar__icon"
-              onClick={() => active && deck.toggleDock(active.id)}
-              title={dockOpen ? "Hide the dock" : "Show the dock"}
-              aria-label="Toggle dock panel"
-            >
-              <DockIcon />
-            </button>
-          )}
+          <button
+            type="button"
+            className="bar__icon"
+            onClick={() => setStatsOpen(true)}
+            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
+            title="Usage statistics"
+            aria-label="Open usage statistics"
+          >
+            <StatsIcon />
+          </button>
           {showBell && <NotificationBell onOpen={openNotification} />}
           <button
             type="button"
             className="bar__icon"
             onClick={() => setSkillsOpen(true)}
             // Same modal etiquette as the gear: one dialog at a time.
-            disabled={dialogOpen || settingsOpen || skillsOpen}
+            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
             title="Skills"
             aria-label="Open skills"
           >
@@ -706,7 +712,7 @@ function App() {
             // Mirrors the ⌘, guard. The create form does NOT disable this:
             // on first run it's the only screen, and settings must stay
             // reachable over it (e.g. to pick the default agent first).
-            disabled={dialogOpen || settingsOpen || skillsOpen}
+            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
             title="Settings"
             aria-label="Open settings"
           >
@@ -789,10 +795,14 @@ function App() {
               <ModalOverlay>
                 <WorkspaceForm
                   onCreate={handleCreateWorkspace}
-                  // Esc must peel one layer at a time: while the settings
+                  // Esc must peel one layer at a time: while another global
                   // dialog is above this form, the form's own Esc yields
                   // (an undefined onCancel also hides the covered button).
-                  onCancel={settingsOpen || skillsOpen ? undefined : () => setCreating(false)}
+                  onCancel={
+                    settingsOpen || statsOpen || skillsOpen
+                      ? undefined
+                      : () => setCreating(false)
+                  }
                   pickFolder={pickFolder}
                   inspectDir={inspectRepo}
                 />
@@ -894,6 +904,8 @@ function App() {
             />
           )}
 
+          {statsOpen && <StatsDialog onClose={() => setStatsOpen(false)} />}
+
           {skillsOpen && (
             <SkillsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}
@@ -961,6 +973,27 @@ function App() {
           independent of the dock. What they render is theirs. */}
       <PluginOverlays />
     </div>
+  );
+}
+
+function StatsIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={15}
+      height={15}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 20V10" />
+      <path d="M10 20V4" />
+      <path d="M16 20v-7" />
+      <path d="M22 20H2" />
+    </svg>
   );
 }
 

@@ -61,6 +61,9 @@ const pty = vi.hoisted(() => ({
 }));
 vi.mock("./ptyManager", () => pty);
 
+const usage = vi.hoisted(() => ({ clearPaneUsage: vi.fn() }));
+vi.mock("./usageManager", () => usage);
+
 const postbacks = vi.hoisted(() => ({ postbackCount: vi.fn(() => 0) }));
 vi.mock("./postbacks", () => postbacks);
 
@@ -115,6 +118,7 @@ describe("useAgentRestart", () => {
     plans.buildResumeSpec.mockClear();
     plans.dropPaneSpawnSpec.mockClear();
     pty.closePane.mockReset().mockResolvedValue(undefined);
+    usage.clearPaneUsage.mockClear();
     postbacks.postbackCount.mockReset().mockReturnValue(0);
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -149,6 +153,7 @@ describe("useAgentRestart", () => {
       "manual",
     );
     expect(pty.closePane).toHaveBeenCalledWith("pane-1");
+    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
     expect(restart.epochs.get("pane-1")).toBe(1);
     expect(pane()).toMatchObject({
       cwd: "/worktree",
@@ -164,6 +169,7 @@ describe("useAgentRestart", () => {
 
     expect(plans.buildResumeSpec).not.toHaveBeenCalled();
     expect(pty.closePane).toHaveBeenCalledOnce();
+    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
     expect(pane()).toMatchObject({
       cwd: "/worktree",
       branch: "feature/restart",
@@ -179,6 +185,7 @@ describe("useAgentRestart", () => {
 
     expect(plans.buildResumeSpec).not.toHaveBeenCalled();
     expect(pty.closePane).toHaveBeenCalledOnce();
+    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
     expect(restart.epochs.get("pane-1")).toBe(1);
   });
 

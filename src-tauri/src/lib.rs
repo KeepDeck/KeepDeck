@@ -29,6 +29,7 @@ mod voice;
 mod history;
 mod journal;
 mod state;
+mod usage_history;
 mod worktree;
 
 use serde::Serialize;
@@ -154,6 +155,9 @@ pub fn run() {
             state::settings_quarantine,
             state::usage_cache_load,
             state::usage_cache_save,
+            usage_history::usage_history_load,
+            usage_history::usage_history_append,
+            usage_history::usage_history_compact,
             journal::journal_load,
             journal::journal_append,
             journal::journal_compact,

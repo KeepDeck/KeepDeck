@@ -8,6 +8,8 @@ import {
 import { probeWorktree } from "../ipc/worktree";
 import { discardWorktrees } from "./provisioning";
 import { closePanes } from "./ptyManager";
+import { dropPaneSpawnSpec } from "./spawnSpecs";
+import { clearPaneUsage } from "./usageManager";
 import type { Deck } from "./useDeck";
 
 /** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
@@ -118,6 +120,12 @@ export function useCloseFlow(
     // A closing workspace's plugin-owned resources (e.g. the Run plugin's
     // sessions) die through the plugin event bridge's onWorkspaceClosed —
     // no manual per-feature teardown here.
+    for (const paneId of paneIds) {
+      // Revoke bridge authentication before the reducer drops membership;
+      // neither an in-flight reporter nor a reused pane id may write again.
+      dropPaneSpawnSpec(paneId);
+      clearPaneUsage(paneId);
+    }
     if (closing.kind === "agent") deck.closeAgent(closing.wsId, closing.paneId);
     else deck.closeWorkspace(closing.id);
     setClosing(null);

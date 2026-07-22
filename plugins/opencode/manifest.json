@@ -2,7 +2,7 @@
   "id": "keepdeck.opencode",
   "name": "OpenCode",
   "version": "0.1.0",
-  "minApiVersion": 24,
+  "minApiVersion": 25,
   "category": "cli",
   "description": "Teaches KeepDeck the OpenCode CLI: catalog identity and detection; spawn, resume and session identity move in next.",
   "capabilities": [

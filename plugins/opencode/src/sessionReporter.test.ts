@@ -21,6 +21,7 @@ const assistantMessage = (over: Record<string, unknown> = {}) => ({
         id: "msg_1",
         role: "assistant",
         sessionID: "ses_root",
+        providerID: "anthropic",
         modelID: "claude-sonnet-5",
         time: { completed: 1 },
         cost: 0.1,
@@ -36,7 +37,12 @@ const client = {
   config: {
     providers: async () => ({
       data: {
-        providers: [{ models: { "claude-sonnet-5": { limit: { context: 200_000 } } } }],
+        providers: [
+          {
+            id: "anthropic",
+            models: { "claude-sonnet-5": { limit: { context: 200_000 } } },
+          },
+        ],
       },
     }),
   },
@@ -66,6 +72,11 @@ describe("opencode session reporter", () => {
       .filter((f) => f.endsWith(".json"))
       .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
 
+  const usageReports = () =>
+    envelopes()
+      .filter((envelope) => envelope.type === "usage.report")
+      .sort((a, b) => a.payload.sequence - b.payload.sequence);
+
   it("binds the pane to a root session", async () => {
     const { event } = await reporter();
     await event(created("ses_root"));
@@ -81,11 +92,29 @@ describe("opencode session reporter", () => {
     ]);
   });
 
-  it("ignores a child session so the pane never rebinds to a leaf", async () => {
+  it("binds a resumed child event to its root, never to the leaf", async () => {
     const { event } = await reporter();
     await event(created("ses_child", "ses_root"));
 
-    expect(envelopes()).toEqual([]);
+    expect(envelopes()).toEqual([
+      expect.objectContaining({
+        type: "session.bound",
+        payload: { sessionId: "ses_root", agent: "opencode" },
+      }),
+    ]);
+  });
+
+  it("ignores a child that belongs to another active root", async () => {
+    const { event } = await reporter();
+    await event(created("ses_root"));
+    await event(created("ses_other_child", "ses_other_root"));
+
+    expect(envelopes()).toEqual([
+      expect.objectContaining({
+        type: "session.bound",
+        payload: { sessionId: "ses_root", agent: "opencode" },
+      }),
+    ]);
   });
 
   it("ignores events that are not a session creation", async () => {
@@ -109,7 +138,7 @@ describe("opencode session reporter", () => {
     const { event } = await reporter({ client });
     await event(assistantMessage());
 
-    expect(envelopes()).toEqual([
+    expect(usageReports()).toEqual([
       {
         v: 1,
         type: "usage.report",
@@ -119,6 +148,7 @@ describe("opencode session reporter", () => {
           agent: "opencode",
           sessionId: "ses_root",
           model: "claude-sonnet-5",
+          sequence: 1,
           windowTokens: 200_000,
           contextTokens: 6200, // 1000 + 200 + 0 + 5000 + 0
           totals: { input: 1000, output: 200, reasoning: 0, cacheRead: 5000, cacheWrite: 0 },
@@ -140,11 +170,8 @@ describe("opencode session reporter", () => {
       }),
     );
 
-    // Inbox filenames are random UUIDs, so read order is arbitrary — the
-    // final cumulative is the report with the largest (monotonic) total.
-    const reports = envelopes().sort(
-      (a, b) => a.payload.totals.input - b.payload.totals.input,
-    );
+    // Inbox filenames are random UUIDs, so order by the reporter sequence.
+    const reports = usageReports();
     const last = reports[reports.length - 1];
     expect(last.payload.totals).toEqual({
       input: 1500,
@@ -156,6 +183,150 @@ describe("opencode session reporter", () => {
     expect(last.payload.costUsd).toBeCloseTo(0.3);
     // Occupancy reflects the LATEST message only, not the sum.
     expect(last.payload.contextTokens).toBe(6600);
+  });
+
+  it("starts a clean usage generation when /new creates another root", async () => {
+    const { event } = await reporter({ client });
+    await event(created("ses_old"));
+    await event(
+      assistantMessage({
+        sessionID: "ses_old",
+        tokens: { input: 10, output: 1, cache: {} },
+        cost: 0.1,
+      }),
+    );
+    await event(created("ses_new"));
+    await event(
+      assistantMessage({
+        sessionID: "ses_new",
+        tokens: { input: 20, output: 2, cache: {} },
+        cost: 0.2,
+      }),
+    );
+
+    const reports = usageReports();
+    expect(reports).toHaveLength(2);
+    expect(reports.find((report) => report.payload.sessionId === "ses_new")?.payload).toMatchObject({
+      sessionId: "ses_new",
+      sequence: 1,
+      totals: { input: 20, output: 2 },
+      costUsd: 0.2,
+    });
+  });
+
+  it("hydrates root and child history before reporting a resumed turn", async () => {
+    const rootOld = assistantMessage({
+      id: "msg_old",
+      tokens: { input: 100, output: 10, cache: {} },
+      cost: 1,
+    }).event.properties.info;
+    const childOld = assistantMessage({
+      id: "msg_child_old",
+      sessionID: "ses_child",
+      tokens: { input: 50, output: 5, cache: {} },
+      cost: 0.5,
+    }).event.properties.info;
+    const hydrated = {
+      ...client,
+      session: {
+        messages: async ({ sessionID }: { sessionID: string }) => ({
+          data: sessionID === "ses_root" ? [{ info: rootOld }] : [{ info: childOld }],
+        }),
+        children: async ({ sessionID }: { sessionID: string }) => ({
+          data: sessionID === "ses_root" ? [{ id: "ses_child" }] : [],
+        }),
+      },
+    };
+    const { event } = await reporter({ client: hydrated });
+    await event(
+      assistantMessage({
+        id: "msg_new",
+        tokens: { input: 20, output: 2, cache: {} },
+        cost: 0.2,
+        time: { completed: 2 },
+      }),
+    );
+
+    expect(usageReports()[0].payload).toMatchObject({
+      sessionId: "ses_root",
+      totals: { input: 170, output: 17 },
+      lastTurn: { input: 20, output: 2 },
+      costUsd: 1.7,
+    });
+  });
+
+  it("resolves duplicate model ids inside the message's provider", async () => {
+    const duplicateModels = {
+      config: {
+        providers: async () => ({
+          data: {
+            providers: [
+              { id: "provider-a", models: { shared: { limit: { context: 100 } } } },
+              { id: "provider-b", models: { shared: { limit: { context: 1000 } } } },
+            ],
+          },
+        }),
+      },
+    };
+    const { event } = await reporter({ client: duplicateModels });
+    await event(
+      assistantMessage({ providerID: "provider-a", modelID: "shared" }),
+    );
+    expect(usageReports()[0].payload.windowTokens).toBe(100);
+  });
+
+  it("serializes callbacks that OpenCode itself invokes without awaiting", async () => {
+    let resolveCatalog!: (value: unknown) => void;
+    let catalogStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      catalogStarted = resolve;
+    });
+    let calls = 0;
+    const delayed = {
+      config: {
+        providers: () => {
+          calls += 1;
+          return new Promise((resolve) => {
+            resolveCatalog = resolve;
+            catalogStarted();
+          });
+        },
+      },
+    };
+    const { event } = await reporter({ client: delayed });
+    const first = event(
+      assistantMessage({
+        id: "msg_a",
+        providerID: "provider-a",
+        modelID: "model-a",
+        tokens: { input: 10, output: 1, cache: {} },
+      }),
+    );
+    const second = event(
+      assistantMessage({
+        id: "msg_b",
+        providerID: "provider-b",
+        modelID: "model-b",
+        tokens: { input: 20, output: 2, cache: {} },
+        time: { completed: 2 },
+      }),
+    );
+    await started;
+    resolveCatalog({
+      data: {
+        providers: [
+          { id: "provider-a", models: { "model-a": { limit: { context: 100 } } } },
+          { id: "provider-b", models: { "model-b": { limit: { context: 200 } } } },
+        ],
+      },
+    });
+    await Promise.all([first, second]);
+
+    expect(calls).toBe(1);
+    expect(usageReports().map((report) => report.payload)).toMatchObject([
+      { model: "model-a", windowTokens: 100, contextTokens: 11, sequence: 1 },
+      { model: "model-b", windowTokens: 200, contextTokens: 22, sequence: 2 },
+    ]);
   });
 
   it("ignores a streaming (not-yet-completed) assistant message", async () => {
@@ -182,7 +353,7 @@ describe("opencode session reporter", () => {
     });
     await event(assistantMessage());
 
-    const [envelope] = envelopes();
+    const [envelope] = usageReports();
     expect(envelope.payload.windowTokens).toBeUndefined();
     expect(envelope.payload.contextTokens).toBe(6200);
   });
@@ -197,7 +368,10 @@ describe("opencode session reporter", () => {
           return {
             data: {
               providers: [
-                { models: { "claude-sonnet-5": { limit: { context: 200_000 } } } },
+                {
+                  id: "anthropic",
+                  models: { "claude-sonnet-5": { limit: { context: 200_000 } } },
+                },
               ],
             },
           };
@@ -208,9 +382,7 @@ describe("opencode session reporter", () => {
     await event(assistantMessage()); // call 1 throws → window unresolved
     await event(assistantMessage({ id: "msg_2" })); // call 2 succeeds → resolved
 
-    const reports = envelopes().sort(
-      (a, b) => a.payload.totals.input - b.payload.totals.input,
-    );
+    const reports = usageReports();
     expect(reports[0].payload.windowTokens).toBeUndefined();
     expect(reports[reports.length - 1].payload.windowTokens).toBe(200_000);
   });
@@ -243,7 +415,7 @@ describe("opencode session reporter", () => {
       }),
     );
 
-    const reports = envelopes().sort((a, b) => a.payload.costUsd - b.payload.costUsd);
+    const reports = usageReports();
     const last = reports[reports.length - 1];
     // The cumulative INCLUDES the subagent's real spend.
     expect(last.payload.costUsd).toBeCloseTo(0.5);
@@ -259,7 +431,7 @@ describe("opencode session reporter", () => {
     await event(assistantMessage()); // the SAME id (msg_1) again
 
     // Both envelopes carry msg_1's cumulative — the map replaced, not stacked.
-    for (const r of envelopes()) expect(r.payload.totals.input).toBe(1000);
+    for (const r of usageReports()) expect(r.payload.totals.input).toBe(1000);
   });
 
   it("reads a message that sits directly on properties (no info nesting)", async () => {
@@ -271,6 +443,7 @@ describe("opencode session reporter", () => {
           id: "msg_1",
           role: "assistant",
           sessionID: "ses_root",
+          providerID: "anthropic",
           modelID: "claude-sonnet-5",
           time: { completed: 1 },
           cost: 0.1,
@@ -278,6 +451,6 @@ describe("opencode session reporter", () => {
         },
       },
     });
-    expect(envelopes()).toHaveLength(1);
+    expect(usageReports()).toHaveLength(1);
   });
 });

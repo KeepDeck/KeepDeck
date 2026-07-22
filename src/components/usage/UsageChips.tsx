@@ -5,7 +5,6 @@ import {
   chipWindows,
   formatAge,
   formatPct,
-  formatTokens,
   limitLevel,
   panelWindows,
   usageStale,
@@ -21,14 +20,15 @@ import { useUsage } from "../../app/useUsage";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 
 /**
- * The top-bar usage cluster: one chip per usage-declaring agent with a
+ * The top-bar usage cluster: one chip per ACCOUNT-LIMIT-capable agent with a
  * pane in the deck (immediately — "···" until data) or with a reported
- * account (persisted snapshots keep the bar full after a restart). Calm
- * by default — color only at the 60/80 thresholds. Clicking a chip opens
- * the anchored panel (the bell's manners) scoped to THAT provider: its
- * windows with client-side reset countdowns and its live session rows
- * (model, context, cost). Idle panes stop reporting but the countdown
- * clocks keep ticking from the absolute `resetsAt`.
+ * account (persisted snapshots keep the bar full after a restart). Pane-only
+ * telemetry belongs to pane headers / Usage statistics and never creates a
+ * limits chip. Calm by default — color only at the 60/80 thresholds. Clicking
+ * a chip opens the anchored panel (the bell's manners) scoped to THAT provider: its
+ * windows with client-side reset countdowns. A footer links to the separate
+ * global statistics surface; mixing session lifetime into this account-limits
+ * popover was the original source of the misleading OpenCode row.
  *
  * Which windows a chip shows (and in what order) is domain policy:
  * [`chipWindows`]/[`panelWindows`].
@@ -129,29 +129,30 @@ function Chip({
 export function UsageChips({
   agents,
   liveAgents,
-  paneNames,
+  onOpenStats,
 }: {
   agents: AgentInfo[];
-  /** Agent ids with a pane in the deck — every one earns a chip, data or
-   * not, so the roster is stable and predictable. */
+  /** Agent ids with a pane in the deck — account-limit-capable ones earn a
+   * chip immediately, so that roster is stable and predictable. */
   liveAgents: ReadonlySet<string>;
-  /** Pane id → display title, for the panel's session rows. */
-  paneNames: ReadonlyMap<string, string>;
+  /** Leave account limits and open the global session-usage surface. */
+  onOpenStats(): void;
 }) {
-  const { accounts, panes } = useUsage();
+  const { accounts } = useUsage();
   const settings = useSettings();
   const display = settings?.usageDisplay ?? DEFAULT_SETTINGS.usageDisplay;
   // The open PANEL is per provider — a chip opens ITS agent's details.
   const [openProvider, setOpenProvider] = useState<string | null>(null);
   const rootRef = useRef<HTMLSpanElement>(null);
 
-  // Catalog order keeps the cluster stable. A chip exists for every agent
-  // WITH A PANE (immediately — "···" until data) and for every REPORTED
-  // account (persisted snapshots keep the bar populated after a restart,
-  // honestly aged). The "unavailable" contract arm has no producer today.
+  // Catalog order keeps the cluster stable. A chip exists for every
+  // ACCOUNT-LIMIT-capable agent WITH A PANE (immediately — "···" until data)
+  // and for every REPORTED account (persisted snapshots keep the bar populated
+  // after a restart, honestly aged). The "unavailable" arm has no producer.
   const providers = agents.filter(
     (agent) =>
-      (agent.reportsUsage === true && liveAgents.has(agent.id)) ||
+      (agent.usageCapabilities?.includes("accountLimits") === true &&
+        liveAgents.has(agent.id)) ||
       accounts.get(agent.id)?.kind === "reported",
   );
 
@@ -193,10 +194,6 @@ export function UsageChips({
 
   if (providers.length === 0) return null;
   const now = Date.now();
-  const sessions = [...panes.entries()]
-    .filter(([, usage]) => usage.agent === openProvider)
-    .sort(([a], [b]) => a.localeCompare(b));
-
   return (
     <span className="usage" ref={rootRef}>
       {providers.map((agent) => (
@@ -213,9 +210,14 @@ export function UsageChips({
         />
       ))}
       {open && (
-        <div className="usage-panel" id="usage-panel" role="group" aria-label="Usage">
+        <div
+          className="usage-panel"
+          id="usage-panel"
+          role="group"
+          aria-label="Account limits"
+        >
           <div className="usage-panel__head">
-            <span className="usage-panel__title">Usage</span>
+            <span className="usage-panel__title">Account limits</span>
             <button
               type="button"
               className="usage-panel__toggle"
@@ -269,49 +271,17 @@ export function UsageChips({
               </div>
             );
           })}
-          {sessions.length > 0 && (
-            <div className="usage-panel__section">
-              <div className="usage-panel__provider">
-                <b>Sessions</b>
-                <span className="usage-panel__ago">live</span>
-              </div>
-              {sessions.map(([paneId, usage]) => {
-                // Show only the half a session actually reports — a missing
-                // input/output is unknown, not zero, so it is omitted rather
-                // than rendered as "0".
-                const total = usage.totalTokens;
-                const tokenLine = [
-                  total?.input !== undefined ? `↑${formatTokens(total.input)}` : "",
-                  total?.output !== undefined ? `↓${formatTokens(total.output)}` : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ");
-                return (
-                  <div key={paneId} className="usage-session">
-                    <span className="usage-session__name">
-                      {paneNames.get(paneId) || usage.model || usage.agent}
-                    </span>
-                    {usage.model && (
-                      <span className="usage-session__model">{usage.model}</span>
-                    )}
-                    <span className="usage-session__stats">
-                      {tokenLine && (
-                        <span
-                          className="usage-session__tokens"
-                          title="Session tokens — input ↑ / output ↓"
-                        >
-                          {tokenLine}
-                        </span>
-                      )}
-                      {usage.costUsd !== undefined && (
-                        <span>${usage.costUsd.toFixed(2)}</span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <button
+            type="button"
+            className="usage-panel__stats"
+            onClick={() => {
+              setOpenProvider(null);
+              onOpenStats();
+            }}
+          >
+            Open usage statistics
+            <span aria-hidden>→</span>
+          </button>
         </div>
       )}
     </span>

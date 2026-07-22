@@ -5,6 +5,9 @@
  *  pane must surface "agent unavailable", never silently run a default. */
 export type AgentType = string;
 
+/** The host-side structural twin of the plugin usage capability contract. */
+export type AgentUsageCapability = "paneTelemetry" | "accountLimits";
+
 /** A brand mark as bare SVG path data — the domain's structural twin of the
  *  plugin contract's icon (no plugin-api import; data, never markup).
  *  Multi-tone artwork is a stack of layers, painted in order. */
@@ -41,10 +44,9 @@ export interface AgentInfo {
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */
   path: string | null;
-  /** Whether the plugin declares a usage contribution — gates the agent's
-   * chip in the usage bar (an agent that never reports must not sit there
-   * as an eternal "waiting"). Absent = false. */
-  reportsUsage?: boolean;
+  /** The independently declared usage surfaces this agent can populate.
+   * Absent/empty = no usage contribution. */
+  usageCapabilities?: readonly AgentUsageCapability[];
 }
 
 /** Agents to offer in the picker: installed only, but the full catalog when none
@@ -75,4 +77,3 @@ export function agentSupportsYolo(
 ): boolean {
   return agents.find((a) => a.id === type)?.supportsYolo ?? false;
 }
-

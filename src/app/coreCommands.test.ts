@@ -47,8 +47,8 @@ vi.mock("./settingsManager", () => ({
 }));
 
 const AGENTS: AgentInfo[] = [
-  { id: "claude", label: "Claude", command: "claude", supportsYolo: true, installed: true, path: "/c", reportsUsage: true },
-  { id: "codex", label: "Codex", command: "codex", supportsYolo: false, installed: true, path: "/x", reportsUsage: true },
+  { id: "claude", label: "Claude", command: "claude", supportsYolo: true, installed: true, path: "/c", usageCapabilities: ["paneTelemetry", "accountLimits"] },
+  { id: "codex", label: "Codex", command: "codex", supportsYolo: false, installed: true, path: "/x", usageCapabilities: ["paneTelemetry", "accountLimits"] },
 ];
 
 const workspace = (over: Partial<Workspace>): Workspace => ({
@@ -84,13 +84,15 @@ function setup(workspaces: Workspace[]) {
   const deck = fakeDeck(workspaces);
   const requestCloseAgent = vi.fn();
   const openSettings = vi.fn();
+  const openUsage = vi.fn();
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
     requestCloseAgent,
     openSettings,
+    openUsage,
   });
-  return { registry, deck, requestCloseAgent, openSettings, dispose };
+  return { registry, deck, requestCloseAgent, openSettings, openUsage, dispose };
 }
 
 beforeEach(() => {
@@ -375,6 +377,16 @@ describe("settings.open", () => {
 
     await registry.execute("settings.open", {}, HOST);
     expect(openSettings).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe("usage.open", () => {
+  it("opens the global usage statistics surface", async () => {
+    const { registry, openUsage } = setup([workspace({})]);
+    const result = await registry.execute("usage.open", {}, HOST);
+
+    expect(result).toEqual({ ok: true, value: { opened: true } });
+    expect(openUsage).toHaveBeenCalledOnce();
   });
 });
 

@@ -1,7 +1,7 @@
 /* Settings dialog ([F6]) — the .form card with a left section nav over a
    panel area (sections registry: components/settings/sections.ts). */
 .settings {
-  max-width: 640px;
+  max-width: 780px;
 }
 
 .settings__head {
@@ -24,6 +24,7 @@
   gap: 24px;
   /* Room for the tallest section — switching must not resize the dialog. */
   min-height: 180px;
+  max-height: min(620px, 70vh);
   margin-bottom: 8px;
 }
 
@@ -83,6 +84,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 /* The author display:flex above would defeat the `hidden` attribute the
@@ -330,4 +333,10 @@
   flex: none;
   padding: 4px 10px;
   font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .settings {
+    max-width: calc(100vw - 40px);
+  }
 }

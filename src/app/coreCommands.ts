@@ -43,6 +43,8 @@ export interface CoreCommandDeps {
   /** Open the settings dialog; `sectionId` lands it on a specific section
    * (a plugin's `plugin:<id>`), null on the first. */
   openSettings(sectionId: string | null): void;
+  /** Open the global usage-statistics surface. */
+  openUsage(): void;
 }
 
 /** How long task delivery waits for the pane's PTY writer to appear (a
@@ -384,6 +386,16 @@ export function registerCoreCommands(
         return { opened: true };
       },
     }),
+
+    registry.register({
+      id: "usage.open",
+      title: "Open usage statistics",
+      args: [],
+      run: () => {
+        deps.openUsage();
+        return { opened: true };
+      },
+    }),
   ];
 
   return () => {
@@ -399,6 +411,7 @@ export function useCoreCommands(deps: {
   agents: AgentInfo[];
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
   openSettings(sectionId: string | null): void;
+  openUsage(): void;
 }): void {
   const ref = useRef(deps);
   ref.current = deps;
@@ -410,6 +423,7 @@ export function useCoreCommands(deps: {
         requestCloseAgent: (wsId, paneIdToClose, label) =>
           ref.current.requestCloseAgent(wsId, paneIdToClose, label),
         openSettings: (sectionId) => ref.current.openSettings(sectionId),
+        openUsage: () => ref.current.openUsage(),
       }),
     [],
   );

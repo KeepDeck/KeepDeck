@@ -92,7 +92,7 @@ describe("useAgents", () => {
         supportsYolo: true,
         installed: false,
         path: null,
-        reportsUsage: false,
+        usageCapabilities: [],
       },
     ]);
     expect(seen.loading).toBe(false);
@@ -103,6 +103,18 @@ describe("useAgents", () => {
     ipc.detectBins.mockReturnValue(new Promise(() => {})); // never settles
     await mount();
     expect(seen.agents[0]?.installed).toBe(true);
+  });
+
+  it("preserves pane and account usage capabilities independently", async () => {
+    register({
+      ...claude,
+      usage: { capabilities: ["paneTelemetry"], normalize: () => null },
+    });
+    ipc.detectBins.mockResolvedValue([
+      { bin: "claude", installed: true, path: "/usr/bin/claude" },
+    ]);
+    await mount();
+    expect(seen.agents[0]?.usageCapabilities).toEqual(["paneTelemetry"]);
   });
 
   it("a remount seeds from the cached detection instead of flashing installed", async () => {

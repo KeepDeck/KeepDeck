@@ -8,6 +8,7 @@ import { useUsageNormalizers } from "./useUsageNormalizers";
 import { useUsageReports } from "./useUsageReports";
 import { useUsageRetention } from "./useUsageRetention";
 import { useUsageTails } from "./useUsageTails";
+import { useUsageHistory } from "./useUsageHistory";
 import type { Deck } from "./useDeck";
 
 /**
@@ -43,9 +44,10 @@ export function useUsageChannel(deck: Deck): void {
   }, [contributions]);
 
   useUsageNormalizers(usageByAgent);
-  useUsageReports();
+  useUsageReports(deck);
   useUsageTails(deck, usageByAgent);
   useLimitsPolling(deck, usageByAgent);
   useUsageBootSweep(usageByAgent);
   useUsageRetention(deck);
+  useUsageHistory(deck);
 }

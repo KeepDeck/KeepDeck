@@ -67,7 +67,7 @@ const catalog = {
     supportsYolo: false,
     installed: true,
     path: null,
-    reportsUsage: true,
+    usageCapabilities: ["paneTelemetry", "accountLimits"] as const,
   })),
   ready: true,
 };

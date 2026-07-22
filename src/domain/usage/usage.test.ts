@@ -71,6 +71,45 @@ describe("mergePaneUsage", () => {
     expect(mergePaneUsage(codex, claude)).toBe(claude);
     expect(mergePaneUsage(undefined, claude)).toBe(claude);
   });
+
+  it("replaces wholesale when an identified session changes", () => {
+    const oldSession = {
+      agent: "opencode",
+      sessionId: "session-old",
+      model: "old-model",
+      sequence: 12,
+      costUsd: 9,
+      reportedAt: 1,
+    };
+    const newSession = {
+      agent: "opencode",
+      sessionId: "session-new",
+      sequence: 1,
+      costUsd: 0.1,
+      reportedAt: 2,
+    };
+
+    expect(mergePaneUsage(oldSession, newSession)).toBe(newSession);
+  });
+
+  it("rejects an older sequence inside the same session", () => {
+    const current = {
+      agent: "opencode",
+      sessionId: "session-1",
+      sequence: 3,
+      costUsd: 0.3,
+      reportedAt: 3,
+    };
+    const delayed = {
+      agent: "opencode",
+      sessionId: "session-1",
+      sequence: 2,
+      costUsd: 0.2,
+      reportedAt: 4,
+    };
+
+    expect(mergePaneUsage(current, delayed)).toBe(current);
+  });
 });
 
 describe("contextPct", () => {

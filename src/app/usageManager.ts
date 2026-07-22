@@ -140,6 +140,27 @@ export function retainUsagePanes(liveIds: ReadonlySet<string>): void {
   emit();
 }
 
+/** Start a pane's telemetry lifetime over. Used when its session generation
+ * changes or its process is deliberately retired. Account state survives: it
+ * describes the provider account, not this pane. Live provenance must reset
+ * too so a resumed session's catch-up can seed the empty pane again. */
+export function clearPaneUsage(paneId: string): void {
+  livePanes.delete(paneId);
+  if (!panes.has(paneId)) return;
+  const next = new Map(panes);
+  next.delete(paneId);
+  panes = next;
+  emit();
+}
+
+/** Accept a binding for a new session generation without erasing a report
+ * from that same generation if filesystem delivery happened to overtake the
+ * earlier `session.bound` envelope. */
+export function beginPaneUsageSession(paneId: string, sessionId: string): void {
+  if (panes.get(paneId)?.sessionId === sessionId) return;
+  clearPaneUsage(paneId);
+}
+
 /** The live snapshot (stable between changes — the `useSyncExternalStore`
  * snapshot contract). */
 export function getUsageSnapshot(): UsageSnapshot {

@@ -5,6 +5,7 @@ import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import { bumpPostback } from "./postbacks";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
+import { beginPaneUsageSession } from "./usageManager";
 import type { Deck } from "./useDeck";
 
 /**
@@ -49,6 +50,11 @@ export function useSessionBinding(deck: Deck): void {
       // closed) — no workspace match means there's nothing to bind.
       const ws = findWorkspaceOfPane(d.workspaces, paneId);
       if (ws) {
+        const previousSessionId = ws.panes.find((pane) => pane.id === paneId)
+          ?.session?.id;
+        if (previousSessionId && previousSessionId !== sessionId) {
+          beginPaneUsageSession(paneId, sessionId);
+        }
         d.setPaneSession(
           ws.id,
           paneId,

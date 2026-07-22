@@ -18,6 +18,17 @@ const pty = vi.hoisted(() => ({
 }));
 vi.mock("./ptyManager", () => pty);
 
+const lifecycle = vi.hoisted(() => ({
+  dropPaneSpawnSpec: vi.fn(),
+  clearPaneUsage: vi.fn(),
+}));
+vi.mock("./spawnSpecs", () => ({
+  dropPaneSpawnSpec: lifecycle.dropPaneSpawnSpec,
+}));
+vi.mock("./usageManager", () => ({
+  clearPaneUsage: lifecycle.clearPaneUsage,
+}));
+
 const worktrees = vi.hoisted(() => ({
   order: [] as string[],
   discardWorktrees: vi.fn<() => Promise<string[]>>(() => {
@@ -76,6 +87,8 @@ describe("useCloseFlow + ptyManager", () => {
 
   beforeEach(() => {
     pty.closePanes.mockClear();
+    lifecycle.dropPaneSpawnSpec.mockClear();
+    lifecycle.clearPaneUsage.mockClear();
     worktrees.discardWorktrees.mockClear();
     worktrees.order.length = 0;
     probes.probeWorktree.mockReset();
@@ -95,6 +108,8 @@ describe("useCloseFlow + ptyManager", () => {
     act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     act(() => flow.confirmClose());
     expect(pty.closePanes).toHaveBeenCalledWith(["pane-1"]);
+    expect(lifecycle.dropPaneSpawnSpec).toHaveBeenCalledWith("pane-1");
+    expect(lifecycle.clearPaneUsage).toHaveBeenCalledWith("pane-1");
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
   });
 
@@ -104,6 +119,14 @@ describe("useCloseFlow + ptyManager", () => {
     await act(async () => flow.requestCloseWorkspace(wsId));
     act(() => flow.confirmClose());
     expect(pty.closePanes).toHaveBeenCalledWith(["pane-1", "pane-2"]);
+    expect(lifecycle.dropPaneSpawnSpec.mock.calls).toEqual([
+      ["pane-1"],
+      ["pane-2"],
+    ]);
+    expect(lifecycle.clearPaneUsage.mock.calls).toEqual([
+      ["pane-1"],
+      ["pane-2"],
+    ]);
     expect(deck.workspaces).toHaveLength(0);
   });
 

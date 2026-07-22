@@ -29,7 +29,15 @@ const CLAUDE: AgentInfo = {
   supportsYolo: true,
   installed: true,
   path: null,
-  reportsUsage: true,
+  usageCapabilities: ["paneTelemetry", "accountLimits"],
+};
+
+const OPENCODE: AgentInfo = {
+  ...CLAUDE,
+  id: "opencode",
+  label: "OpenCode",
+  command: "opencode",
+  usageCapabilities: ["paneTelemetry"],
 };
 
 const AT = 1_738_400_000_000;
@@ -70,6 +78,7 @@ const paneReport = (): { agent: string; result: NormalizedUsage } => ({
 describe("UsageChips", () => {
   let root: Root;
   let host: HTMLElement;
+  const openStats = vi.fn();
 
   beforeEach(() => {
     resetUsageManager();
@@ -83,6 +92,7 @@ describe("UsageChips", () => {
       };
     });
     settingsMock.updateSettings.mockReset();
+    openStats.mockReset();
     vi.setSystemTime(AT);
     document.body.innerHTML = "<div id='host'></div>";
     host = document.getElementById("host")!;
@@ -96,12 +106,12 @@ describe("UsageChips", () => {
   });
 
   const render = (
-    paneNames: ReadonlyMap<string, string> = new Map(),
     liveAgents: ReadonlySet<string> = new Set(),
+    agents: AgentInfo[] = [CLAUDE],
   ) =>
     act(() =>
       root.render(
-        createElement(UsageChips, { agents: [CLAUDE], liveAgents, paneNames }),
+        createElement(UsageChips, { agents, liveAgents, onOpenStats: openStats }),
       ),
     );
 
@@ -111,10 +121,15 @@ describe("UsageChips", () => {
   });
 
   it("gives a live agent its chip immediately, waiting for data", () => {
-    render(new Map(), new Set(["claude"]));
+    render(new Set(["claude"]));
     const chip = host.querySelector(".usage-chip")!;
     expect(chip.textContent).toContain("···");
     expect(chip.getAttribute("title")).toContain("waiting");
+  });
+
+  it("does not create an account chip for a live pane-only agent", () => {
+    render(new Set(["opencode"]), [OPENCODE]);
+    expect(host.querySelector(".usage-chip")).toBeNull();
   });
 
   it("shows both account windows, calm below the thresholds", () => {
@@ -145,99 +160,17 @@ describe("UsageChips", () => {
     expect(host.querySelector(".usage-chip")).toBeNull();
   });
 
-  it("lists live session rows in the panel", () => {
+  it("keeps session tokens and cost out of the account-limits panel", () => {
     reportUsage("pane-1", limitsReport(42), AT);
     reportUsage("pane-1", paneReport(), AT);
-    render(new Map([["pane-1", "auth-refactor"]]));
-    act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
-    });
-    const row = host.querySelector(".usage-session")!;
-    expect(row.textContent).toContain("auth-refactor");
-    expect(row.textContent).toContain("Opus");
-    // Context% moved to the pane header — the popover row no longer carries it.
-    expect(row.textContent).not.toContain("ctx");
-    // In/out session tokens, compact.
-    expect(row.textContent).toContain("↑15.5k");
-    expect(row.textContent).toContain("↓1.2k");
-    expect(row.textContent).toContain("$4.13");
-  });
-
-  it("omits the token line when a session reports no token totals", () => {
-    reportUsage("pane-1", limitsReport(42), AT);
-    reportUsage(
-      "pane-1",
-      {
-        agent: "claude",
-        result: {
-          account: null,
-          pane: { agent: "claude", model: "Opus", costUsd: 1, reportedAt: 0 },
-        },
-      },
-      AT,
-    );
     render();
     act(() => {
       (host.querySelector(".usage-chip") as HTMLButtonElement).click();
     });
-    const row = host.querySelector(".usage-session")!;
-    expect(row.querySelector(".usage-session__tokens")).toBeNull();
-    expect(row.textContent).toContain("$1.00");
-  });
-
-  it("shows only the token half a session actually reports", () => {
-    reportUsage("pane-1", limitsReport(42), AT);
-    reportUsage(
-      "pane-1",
-      {
-        agent: "claude",
-        result: {
-          account: null,
-          pane: {
-            agent: "claude",
-            model: "Opus",
-            totalTokens: { input: 15_500 }, // output unknown, not zero
-            reportedAt: 0,
-          },
-        },
-      },
-      AT,
-    );
-    render();
-    act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
-    });
-    const row = host.querySelector(".usage-session")!;
-    expect(row.textContent).toContain("↑15.5k");
-    // The unknown output half is omitted, not shown as "↓0".
-    expect(row.textContent).not.toContain("↓");
-  });
-
-  it("shows only the output half when input is absent", () => {
-    reportUsage("pane-1", limitsReport(42), AT);
-    reportUsage(
-      "pane-1",
-      {
-        agent: "claude",
-        result: {
-          account: null,
-          pane: {
-            agent: "claude",
-            model: "Opus",
-            totalTokens: { output: 1200 }, // input unknown, not zero
-            reportedAt: 0,
-          },
-        },
-      },
-      AT,
-    );
-    render();
-    act(() => {
-      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
-    });
-    const row = host.querySelector(".usage-session")!;
-    expect(row.textContent).toContain("↓1.2k");
-    expect(row.textContent).not.toContain("↑");
+    const panel = host.querySelector("#usage-panel")!;
+    expect(panel.textContent).not.toContain("Sessions");
+    expect(panel.textContent).not.toContain("Opus");
+    expect(panel.textContent).not.toContain("$4.13");
   });
 
   it("marks stale data instead of showing confident numbers", () => {
@@ -302,5 +235,20 @@ describe("UsageChips", () => {
     expect(settingsMock.updateSettings).toHaveBeenCalledWith({
       usageDisplay: "left",
     });
+  });
+
+  it("leaves account limits for the global usage statistics screen", () => {
+    reportUsage("pane-1", limitsReport(42), AT);
+    render();
+    act(() => {
+      (host.querySelector(".usage-chip") as HTMLButtonElement).click();
+    });
+
+    const open = host.querySelector<HTMLButtonElement>(".usage-panel__stats")!;
+    expect(open.textContent).toContain("Open usage statistics");
+    act(() => open.click());
+
+    expect(openStats).toHaveBeenCalledOnce();
+    expect(host.querySelector("#usage-panel")).toBeNull();
   });
 });

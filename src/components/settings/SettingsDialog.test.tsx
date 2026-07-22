@@ -198,6 +198,15 @@ describe("SettingsDialog", () => {
     expect(agentsIpc.detectBins).not.toHaveBeenCalled();
   });
 
+  it("keeps observational usage statistics out of settings", async () => {
+    await mount();
+    const labels = [...document.querySelectorAll(".settings__nav-item")].map(
+      (entry) => entry.textContent,
+    );
+    expect(labels).not.toContain("Stats");
+    expect(button("24h")).toBeUndefined();
+  });
+
   it("an uncommitted scrollback draft survives a section round-trip", async () => {
     await mount();
     toTerminal();

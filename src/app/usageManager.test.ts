@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { normalizeClaudeStatusline } from "../../plugins/claude/src/usage";
 import type { NormalizedUsage } from "../domain/usage";
 import {
+  beginPaneUsageSession,
+  clearPaneUsage,
   getUsageSnapshot,
   registerUsageNormalizer,
   reportUsage,
@@ -199,6 +201,56 @@ describe("retainUsagePanes", () => {
     retainUsagePanes(new Set(["pane-1", "pane-ghost"]));
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
+  });
+});
+
+describe("clearPaneUsage", () => {
+  it("starts a pane generation over while preserving account usage", () => {
+    const dispose = fake({
+      account: { kind: "reported", windows: [], reportedAt: 1, sourcePaneId: "" },
+      pane: { agent: "fake", sessionId: "old", reportedAt: 1 },
+    });
+    reportUsage("pane-1", { agent: "fake" });
+
+    clearPaneUsage("pane-1");
+
+    expect(getUsageSnapshot().panes.has("pane-1")).toBe(false);
+    expect(getUsageSnapshot().accounts.get("fake")).toBeDefined();
+    dispose();
+  });
+
+  it("resets live provenance so resumed catch-up can seed the pane", () => {
+    const live = fake({
+      account: null,
+      pane: { agent: "fake", sessionId: "old", reportedAt: 1 },
+    });
+    reportUsage("pane-1", { agent: "fake" });
+    live();
+    clearPaneUsage("pane-1");
+
+    const replay = fake({
+      account: null,
+      pane: { agent: "fake", sessionId: "resumed", reportedAt: 2 },
+    });
+    reportUsage("pane-1", { agent: "fake", catchUp: true });
+
+    expect(getUsageSnapshot().panes.get("pane-1")?.sessionId).toBe("resumed");
+    replay();
+  });
+
+  it("keeps a new-session report that overtook its binding", () => {
+    const dispose = fake({
+      account: null,
+      pane: { agent: "fake", sessionId: "session-new", reportedAt: 2 },
+    });
+    reportUsage("pane-1", { agent: "fake" });
+    const beforeBinding = getUsageSnapshot();
+
+    beginPaneUsageSession("pane-1", "session-new");
+
+    expect(getUsageSnapshot()).toBe(beforeBinding);
+    expect(getUsageSnapshot().panes.get("pane-1")?.sessionId).toBe("session-new");
+    dispose();
   });
 });
 

@@ -55,7 +55,10 @@ const plugin: KeepDeckPlugin = {
       history: opencodeHistory(ctx),
       // Pane usage from the injected reporter's `message.updated` envelopes.
       // No account windows — opencode exposes none (see [`normalizeOpencodeUsage`]).
-      usage: { normalize: normalizeOpencodeUsage },
+      usage: {
+        capabilities: ["paneTelemetry"],
+        normalize: normalizeOpencodeUsage,
+      },
       hooks: {
         "spawn.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
