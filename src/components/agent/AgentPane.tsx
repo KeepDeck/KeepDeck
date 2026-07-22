@@ -14,6 +14,7 @@ import {
   RestoreIcon,
 } from "../../ui/icons";
 import { CloseButton } from "../../ui/CloseButton";
+import { Chip } from "../../ui/Chip";
 import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
@@ -249,31 +250,32 @@ export function AgentPane({
         </div>
         <div className="pane__actions">
           {ctxPct !== undefined && paneLive && (
-            <span
+            <Chip
               className={`pane__ctx${
                 contextLevel(ctxPct) === "ok"
                   ? ""
                   : ` usage-level--${contextLevel(ctxPct)}`
               }`}
               title={`Context ${Math.ceil(ctxPct)}% used`}
-            >
-              ctx {Math.ceil(ctxPct)}%
-            </span>
+              label={`ctx ${Math.ceil(ctxPct)}%`}
+            />
           )}
           {yolo && (
-            <span
+            <Chip
+              tone="warn"
               className="pane__yolo"
+              icon={<BoltIcon />}
               title="YOLO mode — runs without permission prompts"
-            >
-              <BoltIcon />
-              <span className="pane__yolo-label">YOLO</span>
-            </span>
+              label="YOLO"
+            />
           )}
           {gitBadge && (
-            <span className="pane__branch" title={gitBadge.title}>
-              <GitBranchIcon />
-              <span className="pane__branch-label">{gitBadge.label}</span>
-            </span>
+            <Chip
+              className="pane__branch"
+              icon={<GitBranchIcon />}
+              title={gitBadge.title}
+              label={gitBadge.label}
+            />
           )}
           {onMinimize && !focused && !folded && (
             <button
