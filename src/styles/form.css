@@ -135,11 +135,26 @@
   color: #6b7280;
 }
 
+/* Dialog lede under the title (what this dialog does) — neutral text, not
+   the green of a status hint; same pull-up metrics as .form__git so the
+   rhythm matches when a form uses both. */
+.form__desc {
+  margin-top: -12px;
+  margin-bottom: 20px;
+  font-size: 12px;
+  color: #9aa3af;
+}
+
 .form__git {
   margin-top: -12px;
   margin-bottom: 20px;
   font-size: 12px;
   color: #58b368;
+  /* Hints carry paths — clip an over-long one instead of letting it push
+     past the dialog edge; call sites put the full text in `title`. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .form__error {
