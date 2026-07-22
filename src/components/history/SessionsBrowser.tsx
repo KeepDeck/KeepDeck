@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../../domain/agents";
-import { handleFromHit, type SessionHandle } from "../../domain/journal";
+import {
+  handleFromHit,
+  type SessionHandle,
+  type SessionRecord,
+} from "../../domain/journal";
 import { formatAge } from "../../domain/usage/format";
 import type { SearchHit } from "../../ipc/history";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
@@ -15,9 +19,14 @@ import { baseName } from "../../domain/deck";
 interface SessionsBrowserProps {
   api: SessionsBrowserApi;
   agents: AgentInfo[];
+  /** The workspace's journal, newest binding first (`journalRows`). */
+  rows: SessionRecord[];
   /** The agent plugins finished activating — before that a scan would see
    * an empty registry and "successfully" index zero stores. */
   ready: boolean;
+  /** Forget one journal record — journal metadata only, the agent store is
+   * untouched. */
+  onDelete(sessionId: string): void;
   onResume(record: SessionHandle): void;
   onFork(record: SessionHandle): void;
 }
@@ -32,18 +41,33 @@ const FIRST_TURNS = 50;
 const NEXT_TURNS = 20;
 
 /**
- * The global sessions browser ([F8]): every session of every agent store,
- * searchable by content and title. Search hits only the Rust index; opening
- * a row reads the transcript live through the owning plugin. Resume runs in
- * the session's ORIGINAL directory; Fork picks a new home.
+ * The empty-workspace sessions surface ([F8]): ONE list with the search bar
+ * on top. The workspace's own journal pins first — the sessions that ran here,
+ * with their lifecycle affordances (live/closed dot, branch, forget). Below a
+ * divider, every other session of every agent store, searchable by content
+ * and title. Search hits only the Rust index; opening a hit row reads the
+ * transcript live through the owning plugin (a journal row has no store
+ * reference, so it stays non-clickable). Resume runs in the session's
+ * ORIGINAL directory; Fork picks a new home.
  */
-export function SessionsBrowser({ api, agents, ready, onResume, onFork }: SessionsBrowserProps) {
+export function SessionsBrowser({
+  api,
+  agents,
+  rows,
+  ready,
+  onDelete,
+  onResume,
+  onFork,
+}: SessionsBrowserProps) {
   const [open, setOpen] = useState<SearchHit | null>(null);
   const [entries, setEntries] = useState<AgentTranscriptEntry[]>([]);
   const [exhausted, setExhausted] = useState(false);
   const [loadingPage, setLoadingPage] = useState(false);
-  // Resume needs a live original directory — same gate the journal rows use.
-  const presence = useDirPresence(api.hits.map((hit) => hit.cwd));
+  // Resume needs a live original directory — same gate for both sections.
+  const presence = useDirPresence([
+    ...rows.map((row) => row.cwd),
+    ...api.hits.map((hit) => hit.cwd),
+  ]);
   // Orders transcript responses: a stale page must never render under a
   // newer row's header (the search path has searchSeq; this is its twin).
   const viewSeq = useRef(0);
@@ -111,9 +135,29 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
     setLoadingPage(false);
   };
 
+  // The journal section under an active query: the index search matches
+  // CONTENT the client never sees, so the pinned section filters on what it
+  // has — title, directory, branch, session id.
+  const query = api.query.trim().toLowerCase();
+  const journalRows =
+    query === ""
+      ? rows
+      : rows.filter((row) =>
+          [row.title, row.cwd, row.branch, row.sessionId].some(
+            (field) => field !== undefined && field.toLowerCase().includes(query),
+          ),
+        );
+  // Dedupe against the VISIBLE journal rows, not the full journal: a session
+  // the query hid from the pinned section (its match is content-only) must
+  // still show below with its snippet, not vanish entirely.
+  const pinned = new Set(journalRows.map((row) => `${row.agent}:${row.sessionId}`));
+  const hits = api.hits.filter((hit) => !pinned.has(`${hit.agent}:${hit.sessionId}`));
+  const emptyList = journalRows.length === 0 && hits.length === 0;
+
   const now = Date.now();
   return (
     <div className="browser">
+      <h2 className="history__title">Sessions</h2>
       <div className="browser__bar">
         <input
           className="browser__search"
@@ -141,7 +185,86 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
         ref={listRef}
         onScroll={maybeLoadHits}
       >
-        {api.hits.map((hit) => {
+        {journalRows.map((row) => {
+          const agent = agents.find((a) => a.id === row.agent);
+          const when = row.state === "closed" ? row.endedAt : row.boundAt;
+          const dirMissing = !dirPresent(presence, row.cwd);
+          return (
+            <li
+              key={`${row.agent}:${row.sessionId}`}
+              className="history__row browser__journal"
+            >
+              <span
+                className={`history__state${
+                  row.state === "live" ? " history__state--live" : ""
+                }`}
+                title={row.state === "live" ? "Running" : "Closed"}
+              />
+              <span className="history__glyph">
+                <AgentGlyph icon={agent?.icon} />
+              </span>
+              <span className="history__name" title={row.sessionId}>
+                {row.title ?? agent?.label ?? row.agent}
+              </span>
+              {row.branch !== undefined && (
+                <Chip
+                  size="inline"
+                  className="history__chip"
+                  title={row.cwd}
+                  label={row.branch}
+                />
+              )}
+              <span className="history__when">
+                {formatAge(Date.parse(when), now)}
+              </span>
+              {dirMissing && (
+                <Chip
+                  size="inline"
+                  tone="error"
+                  className="history__missing"
+                  title={`${row.cwd} no longer exists — the session cannot resume in place`}
+                  label="dir gone"
+                />
+              )}
+              {row.state === "closed" && (
+                <button
+                  type="button"
+                  className="history__resume"
+                  disabled={dirMissing}
+                  title={
+                    dirMissing
+                      ? "The session's directory no longer exists"
+                      : "Resume this session in a new pane"
+                  }
+                  onClick={() => onResume(row)}
+                >
+                  Resume
+                </button>
+              )}
+              <button
+                type="button"
+                className="history__fork"
+                title="Fork — a new conversation continuing from this session"
+                onClick={() => onFork(row)}
+              >
+                Fork
+              </button>
+              <button
+                type="button"
+                className="history__delete"
+                aria-label="Forget session"
+                title="Forget this session"
+                onClick={() => onDelete(row.sessionId)}
+              >
+                ×
+              </button>
+            </li>
+          );
+        })}
+        {journalRows.length > 0 && hits.length > 0 && (
+          <li className="browser__section">All sessions</li>
+        )}
+        {hits.map((hit) => {
           const agent = agents.find((a) => a.id === hit.agent);
           return (
             <li
@@ -212,9 +335,13 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
             <span className="browser__spinner" />
           </li>
         )}
-        {api.hits.length === 0 && (
+        {emptyList && (
           <li className="history__row browser__empty">
-            {api.scanning ? "Indexing the stores…" : "No sessions match"}
+            {api.scanning
+              ? "Indexing the stores…"
+              : query !== "" || rows.length > 0
+                ? "No sessions match"
+                : 'No sessions yet — add an agent with "+ Agent"'}
           </li>
         )}
       </ul>
