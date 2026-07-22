@@ -18,7 +18,8 @@ export interface AvailableUpdate {
   id: string;
   version: string;
   downloaded: boolean;
-  /** Every published release between the installed version and this one. */
+  /** The channel's full release list; `updateManager` slices it to the
+   * installed→target range before the UI renders it. */
   changelog: ChangelogEntry[];
   download: Omit<DownloadRequest, "id">;
 }

@@ -6,15 +6,17 @@ import { openUrl } from "../../ipc/app";
 /**
  * The accumulated release notes a user will move to by accepting this update —
  * every published release between the installed version and the target. The
- * updater fetches and signature-verifies these from the channel's
- * `changelog.json`; this component only renders them. Entries arrive already
- * sliced and oldest-first (see `sliceChangelog`).
+ * updater fetches these from the channel's `changelog.json` over TLS; this
+ * component only renders them. Entries arrive already sliced and oldest-first
+ * (see `sliceChangelog`).
  *
- * Notes are the release bodies as written (Markdown). react-markdown compiles
- * to React elements, so raw HTML in a note is dropped (no rehype-raw) — the
- * channel is trusted (minisign-verified), but rendering stays inert by
- * construction. Links open in the user's browser; the webview hosts the deck,
- * not the document.
+ * The notes are NOT trusted: the changelog is fetched unsigned (only the
+ * update BUNDLE is minisign-verified, on install). Rendering is therefore
+ * inert by construction — react-markdown compiles to React elements so raw
+ * HTML in a note is dropped (no rehype-raw here, deliberately), and its
+ * default URL transform strips non-http(s) protocols so `javascript:` etc.
+ * can never reach the link override below. Links open in the user's browser;
+ * the webview hosts the deck, not the document.
  */
 export function UpdateChangelog({
   entries,
