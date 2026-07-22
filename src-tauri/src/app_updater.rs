@@ -41,7 +41,7 @@ pub struct AvailableUpdateDto {
     /// Accumulated release notes a user moving to this update should see:
     /// every published release between their installed version and this one.
     /// Empty when the channel has no `changelog.json` yet, or the fetch or
-    /// signature check failed (the update itself stays valid either way).
+    /// parse failed (the update itself stays valid either way).
     changelog: Vec<ChangelogEntry>,
 }
 
@@ -126,9 +126,8 @@ pub async fn app_update_check(
     // kimi usages fetch); failure is non-fatal — the update is still valid and
     // installable, the user just sees no notes. Most common miss: the channel
     // has not published changelog.json yet.
-    let changelog_key = public_key.clone();
     let changelog = tauri::async_runtime::spawn_blocking(move || {
-        match fetch_changelog(&endpoint, &changelog_key) {
+        match fetch_changelog(&endpoint) {
             Ok(entries) => entries,
             Err(error) => {
                 log::warn!("changelog unavailable: {error}");
@@ -209,8 +208,8 @@ fn artifact_id(url: &str, signature: &str) -> String {
 }
 
 /// Replace the manifest filename in `endpoint` with `name`, keeping scheme,
-/// host and directory intact. Derives `changelog.json` / `changelog.sig` from
-/// the configured updater endpoint so no second URL needs configuring.
+/// host and directory intact. Derives the changelog URL from the configured
+/// updater endpoint so no second URL needs configuring.
 fn sibling_url(endpoint: &str, name: &str) -> Result<String, String> {
     let mut url = Url::parse(endpoint).map_err(|e| format!("invalid updater endpoint: {e}"))?;
     let mut segments = url
@@ -222,9 +221,9 @@ fn sibling_url(endpoint: &str, name: &str) -> Result<String, String> {
     Ok(url.to_string())
 }
 
-/// Fetch a small artifact's bytes with a tight timeout. Used for changelog
-/// JSON and its signature — never the update bundle (that goes through the
-/// resumable download engine).
+/// Fetch a small artifact's bytes with a tight timeout. Used for the
+/// changelog — never the update bundle (that goes through the resumable
+/// download engine).
 fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
     let response = ureq::get(url)
         .timeout(Duration::from_secs(10))
@@ -236,16 +235,6 @@ fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| format!("changelog body unreadable: {e}"))?;
     Ok(bytes)
-}
-
-/// Fetch a small text artifact (the base64 minisign signature sidecar).
-fn fetch_text(url: &str) -> Result<String, String> {
-    ureq::get(url)
-        .timeout(Duration::from_secs(10))
-        .call()
-        .map_err(changelog_http_error)?
-        .into_string()
-        .map_err(|e| format!("changelog signature unreadable: {e}"))
 }
 
 fn changelog_http_error(error: ureq::Error) -> String {
@@ -264,18 +253,15 @@ fn parse_changelog(bytes: &[u8]) -> Result<Vec<ChangelogEntry>, String> {
     Ok(manifest.releases)
 }
 
-/// Fetch, signature-verify and parse the channel's accumulated changelog. The
-/// signature sidecar (`changelog.sig`) carries the base64 minisign text in the
-/// SAME encoding the bundle signature uses in `latest.json`, so the existing
-/// `verify_minisign_bytes` verifies it against the release public key without
-/// a second key or format.
-fn fetch_changelog(endpoint: &str, public_key: &str) -> Result<Vec<ChangelogEntry>, String> {
+/// Fetch and parse the channel's accumulated changelog. The changelog is
+/// display-only release notes; the update BUNDLE remains the integrity-
+/// critical artifact and is minisign-verified separately on install. If a
+/// future hardening signs the changelog, a `changelog.sig` fetched alongside
+/// and `downloads::verify_minisign_bytes(&bytes, &sig, public_key)` here is
+/// the whole change — the DTO and UI stay as-is.
+fn fetch_changelog(endpoint: &str) -> Result<Vec<ChangelogEntry>, String> {
     let json_url = sibling_url(endpoint, "changelog.json")?;
-    let sig_url = sibling_url(endpoint, "changelog.sig")?;
     let bytes = fetch_bytes(&json_url)?;
-    let signature = fetch_text(&sig_url)?;
-    // A trailing newline in the sidecar would break base64 decoding.
-    downloads::verify_minisign_bytes(&bytes, signature.trim(), public_key)?;
     parse_changelog(&bytes)
 }
 
