@@ -198,7 +198,7 @@ export function SessionsBrowser({ api, agents, ready, onResume, onFork }: Sessio
                   onFork(hitRecord(hit));
                 }}
               >
-                Fork…
+                Fork
               </button>
             </li>
           );

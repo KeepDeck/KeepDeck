@@ -562,9 +562,9 @@ describe("AgentDialog start-from session picker", () => {
     await act(async () => {});
   };
 
-  it("Resume… lists sessions, locks the location away, and the result carries the pick", async () => {
+  it("Resume lists sessions, locks the location away, and the result carries the pick", async () => {
     await mount();
-    act(() => modeBtn("Resume…").click());
+    act(() => modeBtn("Resume").click());
     await settleSessions();
 
     expect(rows().map((r) => r.querySelector(".form__session-name")!.textContent)).toEqual(
@@ -594,7 +594,7 @@ describe("AgentDialog start-from session picker", () => {
 
   it("un-resumable rows are dimmed with the reason, and picking one keeps Create gated", async () => {
     await mount();
-    act(() => modeBtn("Resume…").click());
+    act(() => modeBtn("Resume").click());
     await settleSessions();
 
     const gone = rows()[1];
@@ -609,9 +609,9 @@ describe("AgentDialog start-from session picker", () => {
     expect(errorText()).toContain("directory is gone");
   });
 
-  it("Fork… keeps the location free and takes exactly the sessions resume refuses", async () => {
+  it("Fork keeps the location free and takes exactly the sessions resume refuses", async () => {
     await mount();
-    act(() => modeBtn("Fork…").click());
+    act(() => modeBtn("Fork").click());
     await settleSessions();
 
     // The worktree field stays — a fork picks its own home.
@@ -632,7 +632,7 @@ describe("AgentDialog start-from session picker", () => {
 
   it("backing out to New session ignores the stale pick", async () => {
     await mount();
-    act(() => modeBtn("Resume…").click());
+    act(() => modeBtn("Resume").click());
     await settleSessions();
     act(() => rows()[0].click());
     act(() => modeBtn("New session").click());
@@ -712,7 +712,7 @@ describe("AgentDialog start-from paging", () => {
     );
 
     // Fork avoids the resume presence gate — the paging itself is the subject.
-    act(() => modeBtn("Fork…").click());
+    act(() => modeBtn("Fork").click());
     await act(async () => {
       await vi.advanceTimersByTimeAsync(200);
     });
@@ -763,7 +763,7 @@ describe("AgentDialog start-from paging", () => {
       ),
     );
 
-    act(() => modeBtn("Fork…").click());
+    act(() => modeBtn("Fork").click());
     await act(async () => {
       await vi.advanceTimersByTimeAsync(200);
     });
@@ -867,7 +867,7 @@ describe("AgentDialog cross-agent pick guard", () => {
 
     // Select codex, open Fork, pick the (claude) row.
     act(() => typeBtn("Codex").click());
-    act(() => typeBtn("Fork…").click());
+    act(() => typeBtn("Fork").click());
     await settle();
 
     const row = document.querySelector<HTMLButtonElement>(".form__session")!;
@@ -885,7 +885,7 @@ describe("AgentDialog cross-agent pick guard", () => {
   it("drops an auto-filled name when the agent is switched", async () => {
     await mount();
     // On claude, pick a session in Fork mode → the Name auto-fills from its title.
-    act(() => typeBtn("Fork…").click());
+    act(() => typeBtn("Fork").click());
     await settle();
     await pickFirstRow();
     expect(nameField().value).toBe("claude work");
@@ -896,7 +896,7 @@ describe("AgentDialog cross-agent pick guard", () => {
 
   it("keeps a hand-edited name across an agent switch", async () => {
     await mount();
-    act(() => typeBtn("Fork…").click());
+    act(() => typeBtn("Fork").click());
     await settle();
     await pickFirstRow();
     type(nameField(), "my agent");
