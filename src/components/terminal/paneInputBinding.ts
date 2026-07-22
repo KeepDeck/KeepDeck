@@ -7,7 +7,7 @@
  * that fixes the "voice dictation never reached opencode" bug, so a regression
  * that swaps `paste` back onto `writePane` must turn a test red.
  */
-import type { PaneInput } from "../../app/paneInput";
+import { registerPaneInput, type PaneInput } from "../../app/paneInput";
 
 /** The slice of an xterm Terminal the PASTE channel needs. */
 export interface PasteTarget {
@@ -26,4 +26,20 @@ export function terminalPaneInput(
     write: writeRaw,
     paste: (text) => term.paste(text),
   };
+}
+
+/**
+ * Register a `TerminalPane`'s input with the pane-input registry. Owns the
+ * call-site glue so the channel wiring is testable through the real registry
+ * (no component mount): a `pasteToPane(paneId, ...)` after this must drive
+ * `term.paste`, never the raw writer. Call sites should use this rather than
+ * composing `registerPaneInput` + `terminalPaneInput` by hand, so the
+ * paste-routing choice stays in one tested place.
+ */
+export function registerTerminalPaneInput(
+  paneId: string,
+  term: PasteTarget,
+  writeRaw: RawWriter,
+): () => void {
+  return registerPaneInput(paneId, terminalPaneInput(term, writeRaw));
 }

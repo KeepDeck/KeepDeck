@@ -12,8 +12,7 @@ import {
 } from "../../app/ptyManager";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
 import { readImageTempPath, readText, writeText } from "../../ipc/clipboard";
-import { registerPaneInput } from "../../app/paneInput";
-import { terminalPaneInput } from "./paneInputBinding";
+import { registerTerminalPaneInput } from "./paneInputBinding";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import {
@@ -250,10 +249,12 @@ export function TerminalPane({
     // paths; PASTE through xterm's term.paste for programmatic TEXT (voice
     // dictation, spawn task delivery), so xterm applies its paste framing
     // the same way a hand ⌘V does — a bare raw stream is dropped by
-    // bracketed-paste TUIs (e.g. opencode) and the text never lands.
-    const unregister = registerPaneInput(
+    // bracketed-paste TUIs (e.g. opencode) and the text never lands. The glue
+    // is tested via registerTerminalPaneInput (no mount needed).
+    const unregister = registerTerminalPaneInput(
       paneId,
-      terminalPaneInput(term, (text) => writePane(paneId, text)),
+      term,
+      (text) => writePane(paneId, text),
     );
 
     // Auto-naming ([F11]): mirror the terminal title (OSC 0/1/2) up to the pane.
