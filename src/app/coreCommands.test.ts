@@ -345,6 +345,23 @@ describe("agent.focus / agent.close / pane.write", () => {
     if (!unaddressed.ok)
       expect(unaddressed.error.message).toBe('no agent selected in workspace "web"');
   });
+
+  it("a live TYPE-only pane refuses paste with a distinct message", async () => {
+    const { registry } = setup([twoPanes()]);
+    // TYPE-only: live entry (paneInputReady true) but no paste channel. A live
+    // TerminalPane always registers both, so this models a future TYPE-only
+    // registrant — the error must name the real cause, not "no live session".
+    const off = registerPaneInput("p2", { write: () => {} });
+    const result = await registry.execute(
+      "pane.write",
+      { agent: "reviewer", text: "hello" },
+      HOST,
+    );
+    off();
+    expect(result.ok).toBe(false);
+    if (!result.ok)
+      expect(result.error.message).toBe("the pane has no paste channel");
+  });
 });
 
 describe("settings.open", () => {

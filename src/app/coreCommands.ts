@@ -22,7 +22,7 @@ import {
 import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
 import { commands } from "./commandRegistry";
 import { mintAgentSeq } from "./ids";
-import { paneInputReady, pasteToPane, writeToPane } from "./paneInput";
+import { paneInputReady, pasteToPane, writeRawToPane } from "./paneInput";
 import { provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
 import type { Deck } from "./useDeck";
@@ -75,7 +75,7 @@ export async function deliverTask(
   // concatenated onto the pasted text would arrive as pasted content, not as
   // Enter — the task would sit unsent. A raw CR outside the paste is a real
   // keystroke that submits regardless of the TUI's paste mode.
-  writeToPane(paneIdToWrite, "\r");
+  writeRawToPane(paneIdToWrite, "\r");
   return true;
 }
 
@@ -356,12 +356,17 @@ export function registerCoreCommands(
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, deps.agents(), ws, str(args, "agent"));
         const text = args.text as string;
-        if (!pasteToPane(pane.id, text)) {
+        if (!paneInputReady(pane.id)) {
           throw new Error("the pane has no live session");
+        }
+        // A live but TYPE-only pane (no paste channel) cannot accept
+        // programmatic text — name that distinctly from "no session".
+        if (!pasteToPane(pane.id, text)) {
+          throw new Error("the pane has no paste channel");
         }
         // Submit Enter is a separate RAW keystroke after the paste — see
         // deliverTask for why the CR cannot ride inside the pasted payload.
-        if (args.submit === true) writeToPane(pane.id, "\r");
+        if (args.submit === true) writeRawToPane(pane.id, "\r");
         return { workspaceId: ws.id, paneId: pane.id };
       },
     }),

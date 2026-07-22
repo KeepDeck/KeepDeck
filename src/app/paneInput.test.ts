@@ -3,19 +3,17 @@ import {
   paneInputReady,
   pasteToPane,
   registerPaneInput,
-  writeToPane,
+  writeRawToPane,
 } from "./paneInput";
 
 const entry = () => ({ write: vi.fn(), paste: vi.fn() });
 
 describe("pane input registry", () => {
   it("routes `write` to the TYPE channel and `paste` to the PASTE channel", () => {
-    const off = registerPaneInput("pane-1", entry());
     const e = entry();
-    // Re-register with the one we assert against (registration is last-wins).
-    registerPaneInput("pane-1", e);
+    const off = registerPaneInput("pane-1", e);
 
-    expect(writeToPane("pane-1", "raw")).toBe(true);
+    expect(writeRawToPane("pane-1", "raw")).toBe(true);
     expect(e.write).toHaveBeenCalledWith("raw");
     expect(e.paste).not.toHaveBeenCalled();
 
@@ -27,21 +25,22 @@ describe("pane input registry", () => {
   });
 
   it("returns false for an unknown / unregistered pane", () => {
-    expect(writeToPane("pane-x", "y")).toBe(false);
+    expect(writeRawToPane("pane-x", "y")).toBe(false);
     expect(pasteToPane("pane-x", "y")).toBe(false);
     const off = registerPaneInput("pane-2", entry());
     off();
-    expect(writeToPane("pane-2", "y")).toBe(false);
+    expect(writeRawToPane("pane-2", "y")).toBe(false);
     expect(pasteToPane("pane-2", "y")).toBe(false);
   });
 
   it("stale unregister doesn't drop a newer entry for the same id", () => {
     const offFirst = registerPaneInput("pane-3", entry());
     const second = entry();
-    registerPaneInput("pane-3", second); // re-mount replaces the entry
+    const offSecond = registerPaneInput("pane-3", second); // re-mount replaces
     offFirst(); // stale cleanup must not drop the new entry
-    expect(writeToPane("pane-3", "z")).toBe(true);
+    expect(writeRawToPane("pane-3", "z")).toBe(true);
     expect(second.write).toHaveBeenCalledWith("z");
+    offSecond();
   });
 
   it("paneInputReady tracks the single entry, not a per-channel flag", () => {
@@ -58,7 +57,7 @@ describe("pane input registry", () => {
   it("a TYPE-only entry accepts write but reports no paste channel", () => {
     const write = vi.fn();
     const off = registerPaneInput("pane-5", { write });
-    expect(writeToPane("pane-5", "raw")).toBe(true);
+    expect(writeRawToPane("pane-5", "raw")).toBe(true);
     expect(write).toHaveBeenCalledWith("raw");
     // No paste channel registered — pasteToPane refuses instead of silently
     // no-op'ing, so a caller can tell the pane cannot accept a paste.

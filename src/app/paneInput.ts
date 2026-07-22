@@ -3,8 +3,9 @@
  * PTY session:
  *
  *  - `write` — RAW bytes straight into the PTY, in the vein of keyboard
- *    `onData`. Used by file drag-and-drop, which shapes its own paste framing
- *    around image paths and must not be re-framed.
+ *    `onData`. Reached via `writeRawToPane` (the name flags it as the niche
+ *    raw path). Used by file drag-and-drop, which shapes its own paste
+ *    framing around image paths and must not be re-framed.
  *  - `paste` — framed paste, routed by the registrant through whatever the
  *    pane's renderer does for a hand paste. Used by programmatic TEXT
  *    insertion (voice dictation, spawn task delivery) so the text reaches the
@@ -49,9 +50,12 @@ export function paneInputReady(id: string): boolean {
   return entries.has(id);
 }
 
-/** Write text into a pane's session as RAW bytes. Returns false if no such
- * pane is live. */
-export function writeToPane(id: string, text: string): boolean {
+/** Write text into a pane's session as RAW bytes (TYPE channel — keystroke
+ * semantics, no paste framing). The name carries the caveat: a NEW caller
+ * sending programmatic TEXT almost always wants `pasteToPane` instead, or a
+ * bracketed-paste TUI (opencode) will drop the bare stream. Returns false if
+ * no such pane is live. */
+export function writeRawToPane(id: string, text: string): boolean {
   const input = entries.get(id);
   if (!input) return false;
   input.write(text);
