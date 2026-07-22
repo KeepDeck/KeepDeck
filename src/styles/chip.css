@@ -1,0 +1,77 @@
+/* The shared chip/pill primitive (@keepdeck/ui-kit Chip): ONE anatomy for
+   every bordered badge in the chrome — pane-header badges (branch, YOLO,
+   ctx), the minimized stand-in's branch badge, the top-bar usage chips, the
+   history and skills pills. Per-site stylesheets keep only layout extras
+   (max-widths, hovers, container queries) on their own class hooks; the
+   pill itself lives here so the sites cannot drift apart. Imported early so
+   the site stylesheets win at equal specificity. */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid #3b4250;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.035);
+  color: #e5e7eb;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+button.chip {
+  cursor: pointer;
+}
+
+/* sm: the minimized stand-in's badge — a notch tighter than the header's. */
+.chip--sm {
+  height: 20px;
+  padding: 0 8px;
+}
+
+/* inline: no fixed height — a pill riding a text row (history, skills). */
+.chip--inline {
+  height: auto;
+  padding: 1px 8px;
+}
+
+.chip--warn {
+  color: #e0b568;
+  background-color: rgba(224, 181, 104, 0.08);
+  border-color: #6b5327;
+}
+
+.chip--error {
+  color: #d98c8c;
+  background-color: rgba(177, 60, 60, 0.12);
+  border-color: #5a2e2e;
+}
+
+.chip__icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: #c3c8d4;
+}
+/* A toned chip tints its glyph with the tone, not the structural gray. */
+.chip--warn .chip__icon,
+.chip--error .chip__icon {
+  color: inherit;
+}
+
+.chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  /* Optical centering: flex centers the label's LINE BOX, and system-ui's
+     large ascent (~0.95em) leaves the x-height band ~2px below the chip's
+     geometric center (measured on the branch badge, 11px in a 20px pill),
+     while the icon — a bare box — centers exactly. Nudge the label back up. */
+  transform: translateY(-1px);
+}

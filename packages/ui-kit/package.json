@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./AgentGlyph": "./src/AgentGlyph.tsx",
+    "./Chip": "./src/Chip.tsx",
     "./icons": "./src/icons.tsx",
     "./Dropdown": "./src/Dropdown.tsx",
     "./Combobox": "./src/Combobox.tsx",
