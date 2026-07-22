@@ -241,15 +241,10 @@ fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
         .timeout(Duration::from_secs(10))
         .call()
         .map_err(changelog_http_error)?;
-    if let Some(len) = response
-        .header("Content-Length")
-        .and_then(|value| value.parse::<u64>().ok())
-    {
-        if len > MAX_CHANGELOG_BYTES {
-            return Err(format!(
-                "changelog too large: {len} bytes (limit {MAX_CHANGELOG_BYTES})"
-            ));
-        }
+    if let Some(len) = announced_length(response.header("Content-Length")) {
+        return Err(format!(
+            "changelog too large: {len} bytes (limit {MAX_CHANGELOG_BYTES})"
+        ));
     }
     let mut bytes = Vec::new();
     // `.take` bounds the read even when Content-Length is missing or lies; a
@@ -260,6 +255,17 @@ fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| format!("changelog body unreadable: {e}"))?;
     Ok(bytes)
+}
+
+/// The Content-Length, when the header both parses as an integer AND exceeds
+/// the cap — the fetch's fast-fail gate. Returns the offending length so the
+/// error names it; `None` (header absent, unparsable, or within the cap) means
+/// let the `.take` bound enforce the read instead. Extracted so the security
+/// decision is unit-testable without a live socket.
+fn announced_length(header: Option<&str>) -> Option<u64> {
+    header
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|&len| len > MAX_CHANGELOG_BYTES)
 }
 
 fn changelog_http_error(error: ureq::Error) -> String {
@@ -470,5 +476,21 @@ mod tests {
         assert!(parse_changelog(b"not json").is_err());
         // `releases` must be a list when present.
         assert!(parse_changelog(b"{\"releases\":\"nope\"}").is_err());
+    }
+
+    #[test]
+    fn announced_length_flags_only_oversized_valid_headers() {
+        // Within the cap — no fast-fail (the .take bound still enforces the read).
+        assert_eq!(announced_length(Some("0")), None);
+        assert_eq!(
+            announced_length(Some(&format!("{}", MAX_CHANGELOG_BYTES))),
+            None
+        );
+        // Over the cap — the offending length surfaces in the error.
+        let over = MAX_CHANGELOG_BYTES + 1;
+        assert_eq!(announced_length(Some(&over.to_string())), Some(over));
+        // Absent or unparseable — unknown, let the read bound handle it.
+        assert_eq!(announced_length(None), None);
+        assert_eq!(announced_length(Some("chunked")), None);
     }
 }
