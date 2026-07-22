@@ -50,7 +50,7 @@ describe("Chip", () => {
   it("an onClick chip renders a real button and fires it", () => {
     const onClick = vi.fn();
     render({ onClick, label: "Usage", "aria-expanded": false });
-    const chip = host.querySelector("button.chip")!;
+    const chip = host.querySelector<HTMLElement>("button.chip")!;
     expect(chip.getAttribute("type")).toBe("button");
     expect(chip.getAttribute("aria-expanded")).toBe("false");
     act(() => chip.click());
