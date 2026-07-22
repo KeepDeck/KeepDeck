@@ -189,6 +189,24 @@ describe("useUsageChannel", () => {
     expect(getUsageSnapshot().accounts.get("claude")).toBeDefined();
   });
 
+  it("rejects a late report after close even while its old token is cached", async () => {
+    await mount(deckWith([{ id: "pane-1" }]));
+    await act(async () => {
+      emit({ paneId: "pane-1", token: "tok-1", payload: { agent: "claude" } });
+    });
+    await mount(deckWith([]));
+    const afterClose = getUsageSnapshot();
+
+    await act(async () => {
+      // The spawn-spec mock deliberately still accepts tok-1. Membership is
+      // the independent guard against a report racing the close render.
+      emit({ paneId: "pane-1", token: "tok-1", payload: { agent: "claude" } });
+    });
+
+    expect(getUsageSnapshot()).toBe(afterClose);
+    expect(getUsageSnapshot().panes.has("pane-1")).toBe(false);
+  });
+
   it("arms the declared tail for a binding carrying a transcript", async () => {
     await mount(deckWith([{ id: "pane-1", agentType: "codex" }]));
     await act(async () => {

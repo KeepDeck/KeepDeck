@@ -42,14 +42,28 @@ export function freshest(
 /** Merge a pane's usage across partial reports: codex delivers the model
  * (`turn_context`) and the numbers (`token_count`) as separate events, kimi
  * splits window size from token counts — neither may erase the other.
- * Incoming fields win, the context bag merges field-wise; a different agent
- * (pane respawned as another CLI) replaces wholesale. Relies on builders
- * OMITTING absent fields rather than setting them undefined. */
+ * Incoming fields win, the context bag merges field-wise. A different agent
+ * or an explicitly different session replaces wholesale; a lower sequence in
+ * the same session is an out-of-order delivery and is ignored. Relies on
+ * builders OMITTING absent fields rather than setting them undefined. */
 export function mergePaneUsage(
   current: PaneUsage | undefined,
   incoming: PaneUsage,
 ): PaneUsage {
   if (!current || current.agent !== incoming.agent) return incoming;
+  if (
+    incoming.sessionId !== undefined &&
+    current.sessionId !== incoming.sessionId
+  ) {
+    return incoming;
+  }
+  if (
+    incoming.sequence !== undefined &&
+    current.sequence !== undefined &&
+    incoming.sequence < current.sequence
+  ) {
+    return current;
+  }
   const context =
     current.context || incoming.context
       ? { ...current.context, ...incoming.context }

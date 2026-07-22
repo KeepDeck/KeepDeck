@@ -43,7 +43,7 @@ export function useUsageChannel(deck: Deck): void {
   }, [contributions]);
 
   useUsageNormalizers(usageByAgent);
-  useUsageReports();
+  useUsageReports(deck);
   useUsageTails(deck, usageByAgent);
   useLimitsPolling(deck, usageByAgent);
   useUsageBootSweep(usageByAgent);

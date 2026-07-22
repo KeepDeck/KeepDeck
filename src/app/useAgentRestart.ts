@@ -18,6 +18,7 @@ import {
   resumeDiedSilently,
 } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
+import { clearPaneUsage } from "./usageManager";
 import type { Deck } from "./useDeck";
 import { useLiveRefs } from "./useLiveRefs";
 
@@ -68,6 +69,7 @@ export function useAgentRestart(
     // Invalidate the old bridge token before anything can report late from the
     // retired process. The next spawn-plan sweep is triggered by the epoch.
     dropPaneSpawnSpec(target.paneId);
+    clearPaneUsage(target.paneId);
     await closePane(target.paneId);
     if (!findTarget(deckRef.current, target.workspace, target.paneId)) return;
     // Fresh means fresh on the next app launch too. Keep cwd/branch/worktree;
@@ -129,6 +131,7 @@ export function useAgentRestart(
       throw new Error("Agent could not prepare a resume plan");
     }
 
+    clearPaneUsage(target.paneId);
     await closePane(target.paneId);
     const afterClose = findTarget(
       deckRef.current,
@@ -186,6 +189,7 @@ export function useAgentRestart(
     );
     deckRef.current.setPaneSession(target.workspace.id, paneId, null);
     dropPaneSpawnSpec(paneId);
+    clearPaneUsage(paneId);
     void closePane(paneId)
       .then(() => {
         if (findTarget(deckRef.current, target.workspace, paneId))
