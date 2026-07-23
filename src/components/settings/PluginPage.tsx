@@ -219,5 +219,9 @@ function describe(cap: Capability): string {
       return "use the microphone (local speech-to-text)";
     case "notifications":
       return "send notifications";
+    case "clipboardWrite":
+      return "copy text to the clipboard";
+    case "clipboardRead":
+      return "read the clipboard (sensitive — it can hold secrets)";
   }
 }

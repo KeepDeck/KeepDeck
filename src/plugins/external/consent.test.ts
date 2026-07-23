@@ -92,4 +92,14 @@ describe("capabilityFingerprint", () => {
     );
     expect(after).not.toBe(before);
   });
+
+  it("gaining clipboardRead (the sensitive direction) changes the fingerprint", () => {
+    // A copy-only plugin widening to read is exactly the upgrade a malicious
+    // update would push; the stored consent must not cover it.
+    const writeOnly = capabilityFingerprint(manifest([{ kind: "clipboardWrite" }]));
+    const widened = capabilityFingerprint(
+      manifest([{ kind: "clipboardWrite" }, { kind: "clipboardRead" }]),
+    );
+    expect(widened).not.toBe(writeOnly);
+  });
 });

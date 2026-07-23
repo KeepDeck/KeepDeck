@@ -50,6 +50,10 @@ function fakeBackend() {
         cancel: vi.fn(async () => {}),
       })),
     },
+    clipboard: {
+      writeText: vi.fn(async () => {}),
+      readText: vi.fn(async () => ""),
+    },
     sessions: { spawn: vi.fn(async () => handle) },
     opener: {
       openUrl: vi.fn(async () => {}),
@@ -476,6 +480,95 @@ describe("createCapabilityGate — zero capabilities", () => {
       '"open" capability',
     );
     expect(hard.backend.opener.openPathWith).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCapabilityGate — clipboard", () => {
+  it("writeText is admitted by clipboardWrite and forwarded verbatim", async () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "clipboardWrite" }]),
+      backend,
+      { diagnostics: "silent", log },
+    );
+
+    await gate.clipboard.writeText("hello");
+
+    expect(backend.clipboard.writeText).toHaveBeenCalledWith("hello");
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("readText is admitted by clipboardRead and forwarded verbatim", async () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "clipboardRead" }]),
+      backend,
+      { diagnostics: "silent", log },
+    );
+
+    await gate.clipboard.readText();
+
+    expect(backend.clipboard.readText).toHaveBeenCalledTimes(1);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("the split is enforced: clipboardWrite does NOT grant read (the sensitive direction)", () => {
+    const { backend } = fakeBackend();
+    const log = fakeLog();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "clipboardWrite" }]),
+      backend,
+      { diagnostics: "log", log },
+    );
+
+    expect(() => gate.clipboard.readText()).toThrow('"clipboardRead" capability');
+    expect(backend.clipboard.readText).not.toHaveBeenCalled();
+    // Write still works — only the undeclared direction is refused.
+    expect(() => gate.clipboard.writeText("x")).not.toThrow();
+  });
+
+  it("the split is enforced: clipboardRead does NOT grant write", () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "clipboardRead" }]),
+      backend,
+      { diagnostics: "silent", log: fakeLog() },
+    );
+
+    expect(() => gate.clipboard.writeText("x")).toThrow(
+      '"clipboardWrite" capability',
+    );
+    expect(backend.clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  it("with neither capability declared, both directions are denied", () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(manifest([]), backend, {
+      diagnostics: "silent",
+      log: fakeLog(),
+    });
+
+    expect(() => gate.clipboard.writeText("x")).toThrow('"clipboardWrite"');
+    expect(() => gate.clipboard.readText()).toThrow('"clipboardRead"');
+    expect(backend.clipboard.writeText).not.toHaveBeenCalled();
+    expect(backend.clipboard.readText).not.toHaveBeenCalled();
+  });
+
+  it("declaring BOTH capabilities admits both directions together", async () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "clipboardWrite" }, { kind: "clipboardRead" }]),
+      backend,
+      { diagnostics: "silent", log: fakeLog() },
+    );
+
+    await gate.clipboard.writeText("both");
+    await gate.clipboard.readText();
+
+    expect(backend.clipboard.writeText).toHaveBeenCalledWith("both");
+    expect(backend.clipboard.readText).toHaveBeenCalledTimes(1);
   });
 });
 

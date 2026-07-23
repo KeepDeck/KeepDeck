@@ -91,6 +91,7 @@ export type {
   PluginOpener,
   PluginPorts,
   PluginServices,
+  PluginClipboard,
   PluginSessionEvent,
   PluginSessionHandle,
   PluginSessions,

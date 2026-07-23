@@ -225,6 +225,40 @@
   display: flex;
   gap: 8px;
   align-items: baseline;
+  /* Click-to-copy: the whole row is the hit target. Negative margin keeps the
+     visual gap to neighbors identical now that the row carries its own padding
+     + rounded background. */
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background-color 90ms linear;
+}
+
+.voice__entry:hover {
+  background: #161b26;
+}
+
+/* Keyboard focus ring for the clickable rows — Tab into the log to copy. */
+.voice__entry:focus-visible {
+  outline: 1px solid #3a4763;
+  outline-offset: -1px;
+}
+
+/* The brief "copied" flash — the row's text is replaced by "Copied" for a
+   moment; the accent tint + green word mark the confirmation. A rejection
+   flashes the same slot red as "Copy failed" so a failed copy is not silent.
+   The .voice__text COLOR for these states is declared below the tone rules
+   (which also set .voice__text color at equal specificity) so it wins the
+   cascade — a row carries BOTH its tone class and the feedback class. */
+.voice__entry--copied,
+.voice__entry--copied:hover {
+  background: #12211a;
+}
+
+.voice__entry--failed,
+.voice__entry--failed:hover {
+  background: #2a1515;
 }
 
 .voice__tone {
@@ -249,6 +283,19 @@
 
 .voice__entry--info .voice__text {
   color: #9aa3af;
+}
+
+/* Feedback word color — MUST follow the tone rules above: the selectors are
+   equally specific (0,2,0), so source order decides, and a copied/failed row
+   still carries its tone class. Without this ordering the tone color would
+   override the green/red confirmation word on heard/info rows (and invert it
+   for done+failed / error+copied). */
+.voice__entry--copied .voice__text {
+  color: #7fb88a;
+}
+
+.voice__entry--failed .voice__text {
+  color: #e0806f;
 }
 
 .voice__model-btn {

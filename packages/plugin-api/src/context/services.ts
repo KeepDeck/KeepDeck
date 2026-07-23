@@ -22,6 +22,23 @@ export interface PluginServices {
   readonly downloads: PluginDownloads;
   /** Microphone capture + local speech-to-text (capability: `mic`). */
   readonly speech: PluginSpeech;
+  /** OS clipboard text, gated by `clipboardWrite` / `clipboardRead`. The host
+   * routes both directions through its single native clipboard path — the same
+   * one panes and the copy chord use — so a plugin never touches WebKit's
+   * sandboxed bridge. Read is the SENSITIVE direction (see `clipboardRead`). */
+  readonly clipboard: PluginClipboard;
+}
+
+/** Text access to the OS clipboard. Each method is gated INDEPENDENTLY:
+ * `writeText` needs `clipboardWrite`, `readText` needs `clipboardRead` — a
+ * plugin declares exactly the direction it uses, never both by default. */
+export interface PluginClipboard {
+  /** Put text on the OS clipboard (a copy). Requires `clipboardWrite`. */
+  writeText(text: string): Promise<void>;
+  /** Read the OS clipboard's text (a paste). Rejects when the clipboard holds
+   * no text; the caller treats the rejection as "nothing to paste". Requires
+   * the sensitive `clipboardRead` capability. */
+  readText(): Promise<string>;
 }
 
 export interface PluginSessions {

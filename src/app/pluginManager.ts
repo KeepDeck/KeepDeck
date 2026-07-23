@@ -6,6 +6,7 @@ import {
   pluginsFsWriteFile,
   pluginsFsWriteMkdir,
 } from "../ipc/pluginsFsWrite";
+import { readText as clipboardReadText, writeText as clipboardWriteText } from "../ipc/clipboard";
 import {
   readManifest,
   type DownloadRequest,
@@ -382,6 +383,10 @@ export function createPluginManager(appDownloads: DownloadManager) {
       engines: () => voiceEngines(),
       startCapture: (pluginId, onLevel) =>
         voiceCaptureStart(pluginId, (rms) => onLevel?.(rms)),
+    },
+    clipboard: {
+      writeText: (text) => clipboardWriteText(text),
+      readText: () => clipboardReadText(),
     },
     opener: {
       openUrl: (url) => openUrl(url),

@@ -194,6 +194,19 @@ describe("readManifest", () => {
     ]);
   });
 
+  it("accepts the paramless clipboard capabilities", () => {
+    const result = readManifest({
+      ...GOLDEN,
+      capabilities: [{ kind: "clipboardWrite" }, { kind: "clipboardRead" }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.manifest.capabilities).toEqual([
+      { kind: "clipboardWrite" },
+      { kind: "clipboardRead" },
+    ]);
+  });
+
   it("fails closed on an unknown capability kind", () => {
     const result = readManifest({
       ...GOLDEN,

@@ -53,5 +53,9 @@ function canonical(cap: Capability): string {
       return "mic";
     case "notifications":
       return "notifications";
+    case "clipboardWrite":
+      return "clipboardWrite";
+    case "clipboardRead":
+      return "clipboardRead";
   }
 }

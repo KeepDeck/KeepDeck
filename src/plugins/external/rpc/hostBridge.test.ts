@@ -84,6 +84,10 @@ function makeStub(): { ctx: PluginContext; infos: string[] } {
           cancel: async () => {},
         }),
       },
+      clipboard: {
+        writeText: async () => {},
+        readText: async () => "",
+      },
       sessions: {
         spawn: async () => ({
           id: "s1",

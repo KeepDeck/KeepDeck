@@ -122,6 +122,13 @@ export interface ServiceBackends {
       onLevel?: Parameters<PluginSpeech["startCapture"]>[0],
     ): ReturnType<PluginSpeech["startCapture"]>;
   };
+  /** Text clipboard backend. No scope of its own — the gate admits each
+   * direction by its OWN capability (write vs read), so the backend is just
+   * the host's single native clipboard path, unparametrized. */
+  clipboard: {
+    writeText(text: string): Promise<void>;
+    readText(): Promise<string>;
+  };
 }
 
 /**
@@ -400,11 +407,46 @@ export function createCapabilityGate(
         return backend.speech.startCapture(manifest.id, onLevel);
       },
     },
+    clipboard: {
+      writeText(text) {
+        admit(
+          hasCapability(manifest.capabilities, "clipboardWrite"),
+          `clipboard.writeText requires a "clipboardWrite" capability, which the manifest does not declare`,
+        );
+        return backend.clipboard.writeText(text);
+      },
+      readText() {
+        admit(
+          hasCapability(manifest.capabilities, "clipboardRead"),
+          `clipboard.readText requires a "clipboardRead" capability, which the manifest does not declare`,
+        );
+        return backend.clipboard.readText();
+      },
+    },
   };
 }
 
 function hasMicCapability(capabilities: Capability[]): boolean {
-  return capabilities.some((capability) => capability.kind === "mic");
+  return hasCapability(capabilities, "mic");
+}
+
+/** Membership test for a kind with no parameters — the gate's paramless
+ * capabilities all reduce to "is this kind declared at all". The kind set is
+ * pinned to the paramless union so a scope-bearing kind (fs/git/net/…) can't
+ * be passed here by mistake (those need their scope/domain, not membership). */
+type ParamlessCapabilityKind =
+  | "ports"
+  | "open"
+  | "mic"
+  | "notifications"
+  | "clipboardWrite"
+  | "clipboardRead";
+
+function hasCapability(
+  capabilities: Capability[],
+  kind: ParamlessCapabilityKind,
+): boolean {
+  return capabilities.some((capability) => capability.kind === kind);
 }
 
 function netCovers(capabilities: Capability[], rawUrl: string): boolean {
@@ -426,11 +468,11 @@ function netDomains(capabilities: Capability[]): string[] {
 }
 
 function hasPortsCapability(capabilities: Capability[]): boolean {
-  return capabilities.some((capability) => capability.kind === "ports");
+  return hasCapability(capabilities, "ports");
 }
 
 function hasOpenCapability(capabilities: Capability[]): boolean {
-  return capabilities.some((capability) => capability.kind === "open");
+  return hasCapability(capabilities, "open");
 }
 
 function hasFsCapability(capabilities: Capability[]): boolean {

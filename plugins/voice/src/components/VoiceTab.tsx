@@ -41,6 +41,34 @@ export function VoiceTab() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [snap.history.length]);
 
+  // Click-to-copy: a row copies its text on click, briefly REPLACING the row's
+  // text with "Copied" (or "Copy failed" on rejection) + an accent tint. A
+  // drag-select inside the SAME row also ends in a click, so the handler bails
+  // when the active selection touches this row — the manual select-and-copy
+  // fallback stays intact and never gets hijacked. A selection ELSEWHERE does
+  // not block the copy (it belongs to another element).
+  const [feedback, setFeedback] = useState<{ key: string; ok: boolean } | null>(
+    null,
+  );
+  const feedbackTimer = useRef<number | null>(null);
+  const flash = (key: string, ok: boolean) => {
+    if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+    setFeedback({ key, ok });
+    feedbackTimer.current = window.setTimeout(() => setFeedback(null), 1200);
+  };
+  useEffect(
+    () => () => {
+      if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+    },
+    [],
+  );
+  const copyEntry = (text: string, key: string) => {
+    void ctx.services.clipboard
+      .writeText(text)
+      .then(() => flash(key, true))
+      .catch(() => flash(key, false));
+  };
+
   // No model installed (and none arriving): the whole surface is a prompt to
   // get one — voice can't do anything without a model. A download in flight
   // shows the strip instead, so the user sees progress here too.
@@ -133,12 +161,58 @@ export function VoiceTab() {
             <span className="voice__empty-i">ⓘ</span> for the list.
           </div>
         )}
-        {snap.history.map((entry) => (
-          <div key={`${entry.at}-${entry.text}`} className={`voice__entry voice__entry--${entry.tone}`}>
-            <span className="voice__tone">{TONE_GLYPH[entry.tone]}</span>
-            <span className="voice__text">{entry.text}</span>
-          </div>
-        ))}
+        {snap.history.map((entry) => {
+          const key = `${entry.at}-${entry.text}`;
+          const rowFeedback = feedback?.key === key ? feedback : null;
+          // One derivation of the flash variant + its label drives the class,
+          // the title, and the row text (kept in sync by construction).
+          const variant = rowFeedback
+            ? rowFeedback.ok
+              ? "copied"
+              : "failed"
+            : null;
+          const label =
+            variant === "copied"
+              ? "Copied"
+              : variant === "failed"
+                ? "Copy failed"
+                : null;
+          return (
+            <div
+              key={key}
+              className={`voice__entry voice__entry--${entry.tone}${
+                variant ? ` voice__entry--${variant}` : ""
+              }`}
+              role="button"
+              tabIndex={0}
+              title={label ?? "Click to copy"}
+              onClick={(event) => {
+                // Bail only for a selection inside THIS row (a drag-select in
+                // progress); a selection elsewhere is unrelated and must not
+                // block the copy.
+                const selection = window.getSelection();
+                if (
+                  selection &&
+                  selection.toString() &&
+                  selection.containsNode(event.currentTarget, true)
+                ) {
+                  return;
+                }
+                copyEntry(entry.text, key);
+              }}
+              onKeyDown={(event) => {
+                if (event.repeat) return;
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  copyEntry(entry.text, key);
+                }
+              }}
+            >
+              <span className="voice__tone">{TONE_GLYPH[entry.tone]}</span>
+              <span className="voice__text">{label ?? entry.text}</span>
+            </div>
+          );
+        })}
       </div>
 
     </div>

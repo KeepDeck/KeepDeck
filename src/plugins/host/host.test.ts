@@ -53,6 +53,10 @@ function fakeDeps() {
         cancel: vi.fn(async () => {}),
       })),
     },
+    clipboard: {
+      writeText: vi.fn(async () => {}),
+      readText: vi.fn(async () => ""),
+    },
     sessions: { spawn: vi.fn() },
     ports: { allocate: vi.fn() },
     opener: { openUrl: vi.fn(), openPath: vi.fn(), openPathWith: vi.fn() },
