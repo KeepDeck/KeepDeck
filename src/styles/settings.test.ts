@@ -14,17 +14,23 @@ function rule(selector: string): string {
 }
 
 describe("Settings layout", () => {
-  it("bounds the shared content row instead of letting sections paint into the footer", () => {
+  it("bounds the whole surface and gives the body its remaining height", () => {
+    const surface = rule(".settings");
+    expect(surface).toMatch(/box-sizing:\s*border-box/);
+    expect(surface).toMatch(/height:\s*min\(760px,\s*calc\(100vh\s*-\s*32px\)\)/);
+
     const body = rule(".settings__body");
-    expect(body).toMatch(/height:\s*min\(620px,\s*70vh\)/);
+    expect(body).toMatch(/flex:\s*1/);
+    expect(body).toMatch(/min-height:\s*0/);
     expect(body).toMatch(/grid-template-rows:\s*minmax\(0,\s*1fr\)/);
   });
 
-  it("makes both potentially tall columns own their overflow", () => {
+  it("makes both tall columns own overflow with breathing room at the edge", () => {
     for (const selector of [".settings__nav", ".settings__section"]) {
       const declarations = rule(selector);
       expect(declarations).toMatch(/min-height:\s*0/);
       expect(declarations).toMatch(/overflow-y:\s*auto/);
+      expect(declarations).toMatch(/padding:\s*0\s+\d+px\s+20px\s+0/);
     }
   });
 });

@@ -306,9 +306,12 @@ describe("SettingsDialog", () => {
     expect(ipc.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("Done, the ✕ and Escape only dismiss", async () => {
+  it("the ✕ and Escape only dismiss; instant-apply needs no Done footer", async () => {
     await mount();
-    act(() => button("Done").click());
+    expect(button("Done")).toBeUndefined();
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Close settings",
+    );
     act(() =>
       document
         .querySelector<HTMLButtonElement>('[aria-label="Close settings"]')!
@@ -317,7 +320,7 @@ describe("SettingsDialog", () => {
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(closed).toBe(3);
+    expect(closed).toBe(2);
     expect(ipc.saveSettings).not.toHaveBeenCalled();
   });
 
@@ -348,12 +351,15 @@ describe("SettingsDialog", () => {
       expect(panelOf(enable).hasAttribute("hidden")).toBe(false);
       expect(panelOf(feature).hasAttribute("hidden")).toBe(false);
       expect(feature.checked).toBe(true); // the schema default, no stored value
-      // The section owns scrolling inside the bounded settings body; the
-      // footer remains its sibling so long plugin pages can never paint over
-      // the Done action again.
+      // The section owns scrolling inside the bounded settings body; the only
+      // dismiss control lives in the fixed header, outside that scroll area.
       const body = document.querySelector(".settings__body")!;
       expect(body.contains(panelOf(feature))).toBe(true);
-      expect(body.contains(button("Done"))).toBe(false);
+      expect(
+        body.contains(
+          document.querySelector('[aria-label="Close settings"]')!,
+        ),
+      ).toBe(false);
     } finally {
       section.dispose();
     }

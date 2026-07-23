@@ -18,11 +18,12 @@ interface SettingsDialogProps {
 /**
  * Global settings ([F6]) — an in-app modal (no system windows): a left nav of
  * sections over a panel area. Sections talk to the settings store themselves;
- * controls apply instantly, Done/Esc only dismiss. App sections come from the
- * `SETTINGS_SECTIONS` registry; below them, under the nav's "Plugins" group
- * header (which carries the global Rescan), EVERY installed plugin is its own
- * section — enable toggle, access, restart and its contributed settings in
- * one place. There is deliberately no all-plugins page (user decision).
+ * controls apply instantly; the header close/Esc dismiss. App sections come
+ * from the `SETTINGS_SECTIONS` registry; below them, under the nav's "Plugins"
+ * group header (which carries the global Rescan), EVERY installed plugin is
+ * its own section — enable toggle, access, restart and its contributed
+ * settings in one place. There is deliberately no all-plugins page (user
+ * decision), and no redundant bottom Done footer stealing content space.
  */
 export function SettingsDialog({
   onClose,
@@ -85,7 +86,7 @@ export function SettingsDialog({
       >
         <div className="settings__head">
           <h2 className="form__title settings__title">Settings</h2>
-          <CloseButton label="Close settings" onClick={onClose} />
+          <CloseButton label="Close settings" onClick={onClose} autoFocus />
         </div>
 
         <div className="settings__body">
@@ -120,16 +121,6 @@ export function SettingsDialog({
           ))}
         </div>
 
-        <div className="confirm__actions">
-          <button
-            type="button"
-            className="form__create"
-            onClick={onClose}
-            autoFocus
-          >
-            Done
-          </button>
-        </div>
       </div>
     </ModalOverlay>
   );
