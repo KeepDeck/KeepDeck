@@ -10,6 +10,6 @@
     { "kind": "fs", "scope": "everywhere" }
   ],
   "contributes": {
-    "agents": [{ "id": "codex", "label": "Codex" }]
+    "agents": [{ "id": "codex", "label": "Codex", "bin": "codex" }]
   }
 }

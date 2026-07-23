@@ -9,7 +9,7 @@
  * package.json version (that one is just an npm semver so the workspace
  * resolves the package). This is the load-bearing one.
  */
-export const API_VERSION = 25; // 25: usage capabilities split into paneTelemetry/accountLimits; PaneUsage sequence; 24: + fork.plan hook, fsWrite + sqliteReadonly capabilities (PluginFsWrite/PluginSqlite services), AgentContribution.history discovery, FsEntry.mtime; 23: + env defaults (SpawnPlanOutput.envDefaults); 22: + staged shared skills (SpawnPlanInput.skills)
+export const API_VERSION = 26; // 26: agents contribution summary gains an optional static `bin` (pre-activation availability); 25: usage capabilities split into paneTelemetry/accountLimits; PaneUsage sequence; 24: + fork.plan hook, fsWrite + sqliteReadonly capabilities (PluginFsWrite/PluginSqlite services), AgentContribution.history discovery, FsEntry.mtime; 23: + env defaults (SpawnPlanOutput.envDefaults); 22: + staged shared skills (SpawnPlanInput.skills)
 
 /** Oldest contract the current host can execute. Raise only for a breaking change. */
 export const MIN_COMPATIBLE_API_VERSION = 21;

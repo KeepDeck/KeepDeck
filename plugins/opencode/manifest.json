@@ -13,6 +13,6 @@
     { "kind": "notifications" }
   ],
   "contributes": {
-    "agents": [{ "id": "opencode", "label": "OpenCode" }]
+    "agents": [{ "id": "opencode", "label": "OpenCode", "bin": "opencode" }]
   }
 }

@@ -50,7 +50,7 @@ export interface PluginManifest {
     /** Resident overlays: components the host keeps mounted while the
      * plugin is active, independent of dock/panel state. */
     overlays?: ContributionSummary[];
-    agents?: ContributionSummary[];
+    agents?: AgentContributionSummary[];
     /** Commands the plugin registers in the command registry. Entry ids are
      * plain tokens; the registry id becomes `<pluginId>.<entryId>`. */
     commands?: ContributionSummary[];
@@ -63,6 +63,22 @@ export interface PluginManifest {
 export interface ContributionSummary {
   id: string;
   label: string;
+}
+
+/** An agent contribution additionally declares the program its agent needs
+ * on PATH (`detect.bin` at registration — the host enforces the match). This
+ * is what lets the host know a cli plugin's binary BEFORE any plugin code
+ * runs, so availability (installed vs not) can gate activation centrally. */
+export interface AgentContributionSummary extends ContributionSummary {
+  bin?: string;
+}
+
+/** The binaries a plugin's declared agents need — the host's pre-activation
+ * input to one shared detection pass and its activation gate. */
+export function declaredAgentBins(manifest: PluginManifest): string[] {
+  return (manifest.contributes.agents ?? [])
+    .map((agent) => agent.bin)
+    .filter((bin): bin is string => typeof bin === "string" && bin !== "");
 }
 
 /** Plugin categories. `cli` teaches KeepDeck a coding agent — it may
@@ -346,7 +362,7 @@ function readContributes(
   if (fileOpeners) out.fileOpeners = fileOpeners;
   const overlays = readSummaries(value.overlays, "overlays", errors);
   if (overlays) out.overlays = overlays;
-  const agents = readSummaries(value.agents, "agents", errors);
+  const agents = readAgentSummaries(value.agents, errors);
   if (agents) out.agents = agents;
   const commands = readSummaries(value.commands, "commands", errors);
   if (commands) out.commands = commands;
@@ -395,6 +411,29 @@ function readSummaries(
     read.push({ id: entry.id, label: entry.label });
   });
   return read.length > 0 ? read : undefined;
+}
+
+/** Agent summaries share the base {id, label} rules and add the optional
+ * `bin` — when present it must be a non-empty plain program name (it is
+ * resolved against PATH at detection time, so no paths or whitespace). */
+function readAgentSummaries(
+  value: unknown,
+  errors: string[],
+): AgentContributionSummary[] | undefined {
+  const base = readSummaries(value, "agents", errors);
+  if (!base) return undefined;
+  const raw = Array.isArray(value) ? (value as unknown[]) : [];
+  return base.map((entry, i) => {
+    const bin = isRecord(raw[i]) ? raw[i].bin : undefined;
+    if (bin === undefined) return entry;
+    if (typeof bin !== "string" || !CONTRIB_ID.test(bin)) {
+      errors.push(
+        `contributes.agents[${i}]: bin must be a plain program name (alphanumerics, "-" or "_")`,
+      );
+      return entry;
+    }
+    return { ...entry, bin };
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

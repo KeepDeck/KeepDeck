@@ -11,6 +11,6 @@
     { "kind": "fsWrite", "paths": ["~/.claude/projects"] }
   ],
   "contributes": {
-    "agents": [{ "id": "claude", "label": "Claude Code" }]
+    "agents": [{ "id": "claude", "label": "Claude Code", "bin": "claude" }]
   }
 }

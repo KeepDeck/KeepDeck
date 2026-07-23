@@ -13,7 +13,7 @@
     { "kind": "fsWrite", "paths": ["~/.kimi-code"] }
   ],
   "contributes": {
-    "agents": [{ "id": "kimi", "label": "Kimi Code" }],
+    "agents": [{ "id": "kimi", "label": "Kimi Code", "bin": "kimi" }],
     "settings": true
   }
 }
