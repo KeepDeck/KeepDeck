@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAppRuntime } from "../../app/runtimeContext";
 import { useContributions, useInstalledPlugins } from "../../plugins";
 import { CloseButton } from "../../ui/CloseButton";
@@ -63,6 +63,17 @@ export function SettingsDialog({
   );
   // An uninstalled plugin's section can vanish while open — fall back.
   const active = sections.find((s) => s.id === activeId) ?? sections[0];
+  const navRef = useRef<HTMLElement>(null);
+
+  // A command/notification may open Settings directly on a plugin below the
+  // nav fold. Keep the selected row visible without stealing entry focus from
+  // the dialog's close control; the same path reveals General after an active
+  // plugin disappears.
+  useEffect(() => {
+    navRef.current
+      ?.querySelector<HTMLElement>("[aria-current]")
+      ?.scrollIntoView({ block: "nearest" });
+  }, [active.id]);
 
   const navItem = (s: { id: string; label: string }) => (
     <button
@@ -90,7 +101,11 @@ export function SettingsDialog({
         </div>
 
         <div className="settings__body">
-          <nav className="settings__nav" aria-label="Settings sections">
+          <nav
+            ref={navRef}
+            className="settings__nav"
+            aria-label="Settings sections"
+          >
             {appSections.map(navItem)}
             {/* The group header doubles as home for the global Rescan — the
                 one plugins action that belongs to no single plugin. */}

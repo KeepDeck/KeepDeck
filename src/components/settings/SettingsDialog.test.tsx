@@ -160,14 +160,22 @@ describe("SettingsDialog", () => {
     resetSettingsManager();
   });
 
-  const mount = async (overrides: Partial<Settings> = {}) => {
+  const mount = async (
+    overrides: Partial<Settings> = {},
+    initialSectionId?: string,
+  ) => {
     await initSettings();
     if (Object.keys(overrides).length > 0) updateSettings(overrides);
     // Seeding writes aren't under test — let the queued save land, then drop it.
     await new Promise((resolve) => setTimeout(resolve, 0));
     ipc.saveSettings.mockClear();
     await act(async () =>
-      root.render(createElement(SettingsDialog, { onClose: () => closed++ })),
+      root.render(
+        createElement(SettingsDialog, {
+          onClose: () => closed++,
+          initialSectionId,
+        }),
+      ),
     );
     await act(async () => {}); // flush the agent-catalog load
   };
@@ -362,6 +370,31 @@ describe("SettingsDialog", () => {
       ).toBe(false);
     } finally {
       section.dispose();
+    }
+  });
+
+  it("reveals a plugin opened directly below the navigation fold", async () => {
+    const plugins = Array.from({ length: 12 }, (_, index) => ({
+      ...FILES_PLUGIN,
+      manifest: {
+        ...FILES_PLUGIN.manifest,
+        id: `example.plugin-${index}`,
+        name: `Plugin ${index}`,
+      },
+    }));
+    pluginStore.set(plugins);
+    let revealed: Element | null = null;
+    const reveal = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(function (this: Element) {
+        revealed = this;
+      });
+    try {
+      await mount({}, "plugin:example.plugin-11");
+      expect(button("Plugin 11").getAttribute("aria-current")).toBe("true");
+      expect(revealed).toBe(button("Plugin 11"));
+    } finally {
+      reveal.mockRestore();
     }
   });
 
