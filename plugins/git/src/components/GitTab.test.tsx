@@ -652,6 +652,48 @@ describe("GitTab", () => {
     );
   });
 
+  it("a status refresh while a history scope is waiting refetches its file list", async () => {
+    vi.useFakeTimers();
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", {
+      forkSha: null,
+      ahead: null,
+      commits: [
+        { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "add feature" },
+      ],
+    });
+    // A never-resolving fetch keeps the scope waiting (row null) throughout,
+    // so the refresh lands in the null-row window the gap is about.
+    git.changedFiles = vi.fn(
+      async () => new Promise<GitChangedFile[]>(() => {}),
+    );
+    setRuntime(makeCtx(git));
+
+    await render();
+    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
+      (el) => el.textContent === "History",
+    ) as HTMLButtonElement;
+    await act(async () => historyBtn.click());
+    const commitRow = [...host.querySelectorAll(".git__list button.git__row")].find((el) =>
+      el.textContent?.includes("add feature"),
+    ) as HTMLButtonElement;
+    await act(async () => commitRow.click());
+    await settle(0);
+
+    // Waiting — no file seeded yet.
+    expect(host.querySelector(".peek")).toBeTruthy();
+    expect(host.querySelector(".peek__aside .git__row--on")).toBeNull();
+
+    // A repo change bumps the status feed's version; the rail refetches the
+    // scope's files even though no file is chosen yet.
+    const before = git.changedFiles.mock.calls.length;
+    git.fireChange("/repo");
+    await settle(301);
+    expect(git.changedFiles.mock.calls.length).toBeGreaterThan(before);
+    expect(host.querySelector(".peek")).toBeTruthy();
+  });
+
   it("without a fork point History is a plain log with no since-fork row", async () => {
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus());
