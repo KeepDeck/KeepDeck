@@ -294,6 +294,12 @@ describe("release workflow", () => {
     expect(steps.indexOf("Build and upload the accumulated changelog")).toBeGreaterThan(
       steps.indexOf("Archive this version as its own release"),
     );
+    // The just-published version is injected as an authoritative head entry so
+    // it survives the releases-list endpoint's read-after-write lag (without
+    // it, changelog.json dropped the very version being published).
+    expect(changelog.run).toContain("--version");
+    expect(changelog.run).toContain("--notes notes.md");
+    expect(changelog.env).toMatchObject({ VERSION: "${{ steps.version.outputs.version }}" });
   });
 });
 
