@@ -239,11 +239,20 @@
   background: #161b26;
 }
 
-/* The brief "copied" flash — accent-tinted background plus the tone glyph
-   swaps to a checkmark (see VoiceTab). */
+/* The brief "copied" flash — accent-tinted background plus a "Скопировано"
+   label pushed to the row's right edge (the tone glyph stays put). */
 .voice__entry--copied,
 .voice__entry--copied:hover {
   background: #12211a;
+}
+
+.voice__copied {
+  margin-left: auto;
+  padding-left: 8px;
+  color: #7fb88a;
+  font-size: 11px;
+  flex: none;
+  align-self: center;
 }
 
 .voice__tone {

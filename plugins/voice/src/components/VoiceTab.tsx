@@ -41,10 +41,10 @@ export function VoiceTab() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [snap.history.length]);
 
-  // Click-to-copy: a row copies its text on click, flashing a brief ✓. A
-  // drag-select also ends in a click on the row, so the handler bails when
-  // there is an active text selection — the manual select-and-copy fallback
-  // stays intact and never gets hijacked by the copy action.
+  // Click-to-copy: a row copies its text on click, flashing a brief accent +
+  // a "Скопировано" label. A drag-select also ends in a click on the row, so
+  // the handler bails when there is an active text selection — the manual
+  // select-and-copy fallback stays intact and never gets hijacked by the copy.
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const copiedTimer = useRef<number | null>(null);
   const flashCopied = (key: string) => {
@@ -180,8 +180,9 @@ export function VoiceTab() {
                 }
               }}
             >
-              <span className="voice__tone">{copied ? "✓" : TONE_GLYPH[entry.tone]}</span>
+              <span className="voice__tone">{TONE_GLYPH[entry.tone]}</span>
               <span className="voice__text">{entry.text}</span>
+              {copied && <span className="voice__copied">Скопировано</span>}
             </div>
           );
         })}
