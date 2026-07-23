@@ -703,6 +703,34 @@ describe("agent availability gate", () => {
     expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
     expect(registries.agents.list()).toHaveLength(1);
   });
+
+  it("names every missing bin when a plugin declares several agents", async () => {
+    const { deps, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn((bin: string) => bin === "alpha");
+    const install = {
+      manifest: manifest("keepdeck.multi", {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: ["alpha", "beta", "gamma"] }],
+        contributes: {
+          agents: [
+            { id: "a1", label: "a1", bin: "beta" },
+            { id: "a2", label: "a2", bin: "gamma" },
+            { id: "a3", label: "a3", bin: "alpha" },
+          ],
+        },
+      }),
+      load: vi.fn(async () => registrar()),
+    };
+    host.install(install, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.multi")).toEqual({
+      kind: "unavailable",
+      reason: 'agents "beta", "gamma" are not installed',
+    });
+    expect(install.load).not.toHaveBeenCalled();
+  });
 });
 
 

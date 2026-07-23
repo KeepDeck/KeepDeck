@@ -329,8 +329,11 @@ describe("AgentPane — the unavailable-agent card", () => {
       ),
     );
 
-    expect(document.body.textContent).toContain('agent "kimi" is not installed');
-    expect(document.body.textContent).toContain("re-enable the plugin");
+    // The exact composed sentence, not just substrings — a broken join or a
+    // dropped suffix must fail this.
+    expect(document.body.textContent).toContain(
+      'agent "kimi" is not installed — install it, then re-enable the plugin in Settings → Plugins',
+    );
     expect(document.body.textContent).not.toContain("No plugin provides");
     expect(TerminalPane).not.toHaveBeenCalled();
   });

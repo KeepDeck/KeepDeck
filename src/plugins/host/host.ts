@@ -144,16 +144,21 @@ export class PluginHost {
 
     // The centralized availability gate: an agent plugin whose declared
     // binary is not installed on this machine never runs its code. One rule
-    // for every agent — each plugin only declares `bin` in its manifest.
-    const missingBin = declaredAgentBins(entry.manifest).find(
+    // for every agent — each plugin only declares `bin` in its manifest. The
+    // reason names EVERY missing bin: a multi-agent plugin gated as a unit
+    // must not leave the user guessing which of its CLIs is absent.
+    const missingBins = declaredAgentBins(entry.manifest).filter(
       (bin) => !(this.deps.isAgentBinInstalled?.(bin) ?? true),
     );
-    if (missingBin !== undefined) {
+    if (missingBins.length > 0) {
       entry.plugin = null;
       entry.disposeAll = null;
       entry.status = {
         kind: "unavailable",
-        reason: `agent "${missingBin}" is not installed`,
+        reason:
+          missingBins.length === 1
+            ? `agent "${missingBins[0]}" is not installed`
+            : `agents ${missingBins.map((bin) => `"${bin}"`).join(", ")} are not installed`,
       };
       this.notify();
       return;
