@@ -37,7 +37,7 @@ interface Fx {
   writes: Map<string, string>;
   spawns: { args: string[]; cwd?: string }[];
   warns: string[];
-  notifies: { title: string; severity?: string }[];
+  notifies: { title: string; severity?: string; tag?: string }[];
   closes: number;
 }
 
@@ -46,12 +46,12 @@ function fixture(opts?: { targetMissing?: boolean; behavior?: Behavior }): Fx {
   const writes = new Map<string, string>();
   const spawns: { args: string[]; cwd?: string }[] = [];
   const warns: string[] = [];
-  const notifies: { title: string; severity?: string }[] = [];
+  const notifies: { title: string; severity?: string; tag?: string }[] = [];
   const state = { closes: 0 };
   const enc = (s: string) => new TextEncoder().encode(s);
   const ctx = {
     log: { info() {}, warn: (m: string) => warns.push(m), error() {} },
-    notify: (n: { title: string; severity?: string }) => notifies.push(n),
+    notify: (n: { title: string; severity?: string; tag?: string }) => notifies.push(n),
     services: {
       fs: {
         readDir: async (path: string) => {
@@ -201,6 +201,10 @@ describe("relocatingForkId", () => {
     // A real breakage is surfaced to the user, not just logged.
     expect(fx.notifies).toHaveLength(1);
     expect(fx.notifies[0].severity).toBe("warning");
+    // Title must NOT self-prefix "OpenCode" (the host prepends the plugin name);
+    // the per-pane tag replaces (not stacks) repeated failures on one pane.
+    expect(fx.notifies[0].title).toBe("Fork opened in the original directory");
+    expect(fx.notifies[0].tag).toBe("fork-relocate-pane-7");
   });
 });
 

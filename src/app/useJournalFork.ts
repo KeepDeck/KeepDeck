@@ -9,8 +9,11 @@ import {
 import type { SessionHandle } from "../domain/journal";
 import { describeError, log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
-import { provisionInto, runProvisioning } from "./provisioning";
-import { removeWorktree } from "../ipc/worktree";
+import {
+  provisionInto,
+  registerPostProvision,
+  runProvisioning,
+} from "./provisioning";
 import { buildForkSpec, dropPaneSpawnSpec } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
@@ -37,13 +40,14 @@ export interface JournalForkApi {
 }
 
 /**
- * Fork-from-journal ([F8]): the agent plugin's `fork.plan` performs its
- * store surgery and yields the spawn args; the pane then lands like any
- * other. None of the recipes need the TARGET directory to exist at
- * plan-build time (surgery touches the agent's store, not the target), so
- * a new-worktree fork builds its plan first and provisions the worktree
- * through the ordinary background runner — the pane shows the provisioning
- * card until the dir lands, then spawns with the cached fork plan.
+ * Fork-from-journal ([F8]): the agent plugin's `fork.plan` performs its store
+ * surgery and yields the spawn args; the pane then lands like any other. The
+ * surgery runs bound to the directory the fork will LIVE in — for a DIR target
+ * that exists up front, but for a NEW worktree only AFTER provisioning creates
+ * it (via a registered post-provision step), because opencode's `import` binds
+ * the session's directory to the launch cwd, which must be the created
+ * worktree. The pane shows a provisioning card until the worktree lands, then
+ * spawns with the cached fork plan; the step runs on Retry too.
  *
  * The forked CLI reports its own NEW session id like a fresh spawn, so the
  * pane starts unbound and the journal records the fork when the reporter
@@ -133,15 +137,18 @@ export function useJournalFork(
       }
 
       // New worktree. The pane lands as a provisioning card; the background
-      // create resolves it, and only THEN — with the worktree on disk — does
-      // the surgery run (from the created worktree), cache its fork plan, and
-      // resolve the card, which spawns the terminal with that plan. A surgery
-      // failure rolls the worktree back and flips the card to the failed state.
+      // create lands the worktree, and only THEN does the surgery run — as a
+      // registered post-provision step, bound to the CREATED worktree, so
+      // opencode's import relocates the session there. The step runs on the
+      // initial create AND on Retry (both go through provisionPane), which
+      // rolls the worktree back and fails the card if the surgery throws.
       const wsNow = findWorkspaceByRef(deckRef.current.workspaces, {
         id: ws.id,
         instance: ws.instance,
       });
       if (!wsNow) return;
+      // A full workspace would make addAgentPane a silent no-op — stranding a
+      // provisioned, ownerless worktree on disk.
       if (wsNow.panes.length >= MAX_PANES) {
         throw new Error("The workspace is full — close a pane first");
       }
@@ -159,41 +166,15 @@ export function useJournalFork(
           index: wsNow.panes.length + 1,
         },
       };
-      deckRef.current.addAgentPane(wsNow.id, pane);
-      const sinks = provisionInto(deckRef.current, wsNow.id);
-      void runProvisioning([pane], {
-        ...sinks,
-        onResolved: async (paneId, worktree) => {
-          let built = false;
-          try {
-            built = await forkSurgery(worktree.cwd);
-          } catch (e) {
-            log.warn(
-              "web:journal",
-              `fork surgery after provisioning failed for ${paneId}: ${describeError(e)}`,
-            );
-          }
-          if (!built) {
-            dropPaneSpawnSpec(paneId);
-            // Roll the just-created worktree back (Retry re-creates cleanly)
-            // and surface the failure on the card, rather than spawning a
-            // non-fork pane in it.
-            await removeWorktree(wsNow.cwd, worktree.cwd, {
-              force: true,
-              branch: worktree.branch,
-            }).catch((err) =>
-              log.warn(
-                "web:journal",
-                `fork rollback failed for ${worktree.cwd}: ${describeError(err)}`,
-              ),
-            );
-            sinks.onFailed(paneId, "Fork could not be prepared");
-            return;
-          }
-          // Fork plan cached — resolving spawns the terminal with it.
-          sinks.onResolved(paneId, worktree);
-        },
+      // Throwing (via forkSurgery's !built guard) makes provisionPane treat it
+      // as a failed step: roll back the worktree and fail the card.
+      registerPostProvision(pid, async (worktree) => {
+        if (!(await forkSurgery(worktree.cwd))) {
+          throw new Error("Agent could not prepare a fork plan");
+        }
       });
+      deckRef.current.addAgentPane(wsNow.id, pane);
+      void runProvisioning([pane], provisionInto(deckRef.current, wsNow.id));
     } catch (error) {
       log.warn(
         "web:journal",

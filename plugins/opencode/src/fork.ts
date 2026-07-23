@@ -7,9 +7,11 @@
  * constraint learned from probing: **`import` records the session's directory
  * from the CWD it is launched in**, NOT from the JSON's `info.directory`, and a
  * later `-s` resume does NOT rebind it. So the import must run FROM the target
- * directory — which means the target must already exist. That holds for a
- * workspace-folder or existing-worktree target; a not-yet-provisioned worktree
- * is handled by `relocatingForkId` (native fork fallback until [[provision-first]]).
+ * directory — which means the target must already exist, and the host
+ * guarantees it: a dir target exists up front, and a NEW worktree is
+ * provisioned BEFORE this runs (useJournalFork's post-provision step). So
+ * `relocatingForkId`'s `targetExists` guard is a safety net, and its native
+ * fork fallback fires only on a genuine recipe failure (which it also surfaces).
  *
  * Plugins run in the frontend with no filesystem/spawn of their own: `export`
  * and `import` go through `ctx.services.sessions.spawn` (a PTY, covered by the
@@ -203,7 +205,8 @@ export async function relocatingForkId(
       }`,
     );
     ctx.notify({
-      title: "OpenCode fork opened in the original directory",
+      // The host prefixes the plugin name ("OpenCode · …"), so the title omits it.
+      title: "Fork opened in the original directory",
       body: "Couldn't relocate the forked session to the chosen folder — it continues where the source ran.",
       severity: "warning",
       workspace: input.workspace,

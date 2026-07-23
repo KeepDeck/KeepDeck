@@ -54,6 +54,52 @@ export function provisionInto(
 }
 
 /**
+ * Post-provision steps, keyed by pane id: a JS step run AFTER a pane's worktree
+ * is created (and setup passed) but BEFORE its card resolves — the seam where a
+ * journal fork runs its store surgery bound to the CREATED worktree. It runs on
+ * the initial create AND on every Retry (both go through `provisionPane`), so a
+ * retried fork re-runs its surgery instead of silently resolving into a plain
+ * (non-fork) pane. A step THROWS to fail (the worktree is rolled back and the
+ * card fails); it is consumed once it succeeds, and kept across a failed attempt
+ * so the retry re-runs it.
+ */
+const postProvisionSteps = new Map<
+  string,
+  (worktree: { cwd: string; branch: string }) => Promise<void>
+>();
+
+/** Register a step to run after `paneId`'s worktree lands (see the map doc). */
+export function registerPostProvision(
+  paneId: string,
+  step: (worktree: { cwd: string; branch: string }) => Promise<void>,
+): void {
+  postProvisionSteps.set(paneId, step);
+}
+
+/** Forget a pane's post-provision step (the fork was abandoned before it ran). */
+export function clearPostProvision(paneId: string): void {
+  postProvisionSteps.delete(paneId);
+}
+
+/** Run the registered step, if any. Returns null on success (or when none is
+ * registered — a plain pane) and the failure message otherwise; a successful
+ * step is consumed, a failed one is KEPT so a Retry re-runs it. */
+async function runPostProvision(
+  paneId: string,
+  worktree: { cwd: string; branch: string },
+): Promise<string | null> {
+  const step = postProvisionSteps.get(paneId);
+  if (!step) return null;
+  try {
+    await step(worktree);
+    postProvisionSteps.delete(paneId);
+    return null;
+  } catch (e) {
+    return describeError(e);
+  }
+}
+
+/**
  * Build `count` panes for a workspace, synchronously. In worktree mode each
  * pane carries its create intent (a status card until `runProvisioning`
  * resolves it); otherwise plain panes that run in the workspace cwd.
@@ -152,23 +198,49 @@ async function provisionPane(
         "web:provisioning",
         `setup failed for ${paneId} in ${rec.path}: ${result.tail}`,
       );
-      // Roll the half-prepared worktree back; best-effort — a failing remove
-      // leaves the card error as the source of truth and Retry surfaces the
-      // "already exists" from the next create.
-      await removeWorktree(intent.repo, rec.path, {
-        force: true,
-        branch: rec.branch,
-      }).catch((e) =>
-        log.warn(
-          "web:provisioning",
-          `setup rollback failed for ${rec.path}: ${describeError(e)}`,
-        ),
-      );
+      await rollbackWorktree(intent.repo, rec);
       cb.onFailed(paneId, `Setup failed: ${result.tail}`);
       return;
     }
   }
+
+  // The worktree is on disk — run any registered post-provision step (a journal
+  // fork's store surgery, bound to the CREATED worktree). A failure rolls the
+  // worktree back and fails the card; the step stays registered, so Retry
+  // re-runs it rather than resolving into a plain (non-fork) pane.
+  const stepError = await runPostProvision(paneId, {
+    cwd: rec.path,
+    branch: rec.branch,
+  });
+  if (stepError !== null) {
+    log.error(
+      "web:provisioning",
+      `post-provision step failed for ${paneId} in ${rec.path}: ${stepError}`,
+    );
+    await rollbackWorktree(intent.repo, rec);
+    cb.onFailed(paneId, stepError);
+    return;
+  }
+
   cb.onResolved(paneId, { cwd: rec.path, branch: rec.branch });
+}
+
+/** Best-effort teardown of a half-prepared worktree so Retry re-creates cleanly
+ * instead of hitting "already exists"; a failing remove leaves the card error as
+ * the source of truth. */
+async function rollbackWorktree(
+  repo: string,
+  rec: { path: string; branch: string },
+): Promise<void> {
+  await removeWorktree(repo, rec.path, {
+    force: true,
+    branch: rec.branch,
+  }).catch((e) =>
+    log.warn(
+      "web:provisioning",
+      `worktree rollback failed for ${rec.path}: ${describeError(e)}`,
+    ),
+  );
 }
 
 /** Output tail kept for the failed card — enough to see the actual error. */
