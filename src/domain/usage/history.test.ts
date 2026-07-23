@@ -6,7 +6,7 @@ import {
   tokenTotal,
   usageDelta,
   usageDeltaEmpty,
-  type UsageEventV1,
+  type UsageEventV2,
 } from "./history";
 
 describe("usageDelta", () => {
@@ -17,8 +17,7 @@ describe("usageDelta", () => {
     );
     expect(delta).toEqual({
       tokens: { input: 50, output: 15 },
-      reportedCostUsd: 0.5,
-      hasReportedCost: true,
+      cost: { source: "provider", usd: 0.5 },
       observation: { tokens: { input: 150, output: 20 }, costUsd: 1.5 },
     });
   });
@@ -31,7 +30,7 @@ describe("usageDelta", () => {
       ),
     ).toEqual({
       tokens: { input: 20 },
-      hasReportedCost: false,
+      cost: { source: "unavailable" },
       observation: { tokens: { input: 20, output: 7 }, costUsd: 2 },
     });
   });
@@ -43,11 +42,85 @@ describe("usageDelta", () => {
     );
     expect(usageDeltaEmpty(delta)).toBe(true);
   });
+
+  it("seeds a resumed session without backfilling lifetime usage", () => {
+    expect(
+      usageDelta(
+        {
+          totalTokens: { input: 100, output: 10 },
+          costUsd: 9,
+        },
+        undefined,
+        { baselineOnly: true },
+      ),
+    ).toEqual({
+      tokens: {},
+      cost: { source: "unavailable" },
+      observation: { tokens: { input: 100, output: 10 }, costUsd: 9 },
+    });
+  });
+
+  it("seeds independently arriving resumed cost and token dimensions", () => {
+    const cost = usageDelta(
+      { costUsd: 9 },
+      undefined,
+      { baselineOnly: true },
+    );
+    expect(cost).toEqual({
+      tokens: {},
+      cost: { source: "unavailable" },
+      observation: { tokens: {}, costUsd: 9 },
+    });
+
+    const tokens = usageDelta(
+      { totalTokens: { input: 100, output: 10 } },
+      cost.observation,
+      { baselineOnly: true },
+    );
+    expect(tokens).toEqual({
+      tokens: {},
+      cost: { source: "unavailable" },
+      observation: {
+        tokens: { input: 100, output: 10 },
+        costUsd: 9,
+      },
+    });
+
+    expect(
+      usageDelta(
+        { totalTokens: { input: 105, output: 12 }, costUsd: 9.5 },
+        tokens.observation,
+        { baselineOnly: true },
+      ),
+    ).toEqual({
+      tokens: { input: 5, output: 2 },
+      cost: { source: "provider", usd: 0.5 },
+      observation: {
+        tokens: { input: 105, output: 12 },
+        costUsd: 9.5,
+      },
+    });
+  });
+
+  it("preserves an explicit initial provider cost of zero", () => {
+    const delta = usageDelta({ costUsd: 0 });
+    expect(delta).toEqual({
+      tokens: {},
+      cost: { source: "provider", usd: 0 },
+      observation: { tokens: {}, costUsd: 0 },
+    });
+    expect(usageDeltaEmpty(delta)).toBe(false);
+    expect(
+      usageDeltaEmpty(
+        usageDelta({ costUsd: 0 }, { tokens: {}, costUsd: 0 }),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("queryUsageStats", () => {
-  const base: UsageEventV1 = {
-    schemaVersion: 1,
+  const base: UsageEventV2 = {
+    schemaVersion: 2,
     eventId: "event-base",
     occurredAt: 1_000,
     capturedAt: 1_000,
@@ -62,8 +135,7 @@ describe("queryUsageStats", () => {
     rootSessionId: "session-1",
     tokens: { input: 100, output: 10 },
     costUsd: 0.2,
-    costSource: "estimated",
-    pricingVersion: "prices-v1",
+    costSource: "provider",
     observation: { tokens: { input: 100, output: 10 } },
   };
 
@@ -77,7 +149,7 @@ describe("queryUsageStats", () => {
           occurredAt: 1_100,
           tokens: { input: 50, cacheRead: 20 },
           costUsd: 0.1,
-          costSource: "reported",
+          costSource: "provider",
         },
         {
           ...base,
@@ -95,9 +167,8 @@ describe("queryUsageStats", () => {
     expect(stats.totals).toMatchObject({
       tokens: { input: 150, output: 10, cacheRead: 20 },
       totalTokens: 180,
-      costUsd: 0.3,
-      reportedCostUsd: 0.1,
-      estimatedCostUsd: 0.2,
+      providerCostUsd: 0.3,
+      costEvents: 2,
     });
     expect(stats.byModel[0]).toMatchObject({
       agent: "codex",
@@ -111,23 +182,22 @@ describe("queryUsageStats", () => {
     });
   });
 
-  it("tracks cost coverage instead of treating unavailable as zero", () => {
+  it("does not treat unavailable provider cost as zero", () => {
     const stats = queryUsageStats(
       [{ ...base, costUsd: undefined, costSource: "unavailable" }],
       90,
       2_000,
     );
     expect(stats.totals).toMatchObject({
-      costUsd: 0,
-      pricedEvents: 0,
-      unpricedEvents: 1,
+      providerCostUsd: 0,
+      costEvents: 0,
     });
   });
 });
 
 describe("usage event codec", () => {
-  const event: UsageEventV1 = {
-    schemaVersion: 1,
+  const event: UsageEventV2 = {
+    schemaVersion: 2,
     eventId: "event-1",
     occurredAt: 10,
     capturedAt: 11,
@@ -142,15 +212,84 @@ describe("usage event codec", () => {
     rootSessionId: "ses-1",
     tokens: { input: 10, output: 2 },
     costUsd: 0.1,
-    costSource: "reported",
+    costSource: "provider",
     observation: { tokens: { input: 50, output: 8 }, costUsd: 0.4 },
   };
 
   it("round-trips a valid line and rejects malformed or future lines", () => {
     expect(decodeUsageEvent(encodeUsageEvent(event))).toEqual(event);
     expect(decodeUsageEvent("{")).toBeNull();
-    expect(decodeUsageEvent(JSON.stringify({ ...event, schemaVersion: 2 }))).toBeNull();
+    expect(decodeUsageEvent(JSON.stringify({ ...event, schemaVersion: 3 }))).toBeNull();
     expect(decodeUsageEvent(JSON.stringify({ ...event, tokens: { input: -1 } }))).toBeNull();
+    expect(
+      decodeUsageEvent(
+        JSON.stringify({ ...event, costSource: "provider", costUsd: undefined }),
+      ),
+    ).toBeNull();
+    expect(
+      decodeUsageEvent(
+        JSON.stringify({ ...event, costSource: "unavailable", costUsd: 0.1 }),
+      ),
+    ).toBeNull();
+  });
+
+  it("migrates v1 without retaining local estimates or bad Claude tokens", () => {
+    const v1 = { ...event, schemaVersion: 1 };
+    expect(
+      decodeUsageEvent(
+        JSON.stringify({
+          ...v1,
+          costSource: "reported",
+          costUsd: 0.1,
+          pricingVersion: undefined,
+        }),
+      ),
+    ).toMatchObject({
+      schemaVersion: 2,
+      tokens: { input: 10, output: 2 },
+      costSource: "provider",
+      costUsd: 0.1,
+    });
+    const estimated = decodeUsageEvent(
+      JSON.stringify({
+        ...v1,
+        costSource: "estimated",
+        pricingVersion: "old-local-table",
+      }),
+    );
+    expect(estimated).toMatchObject({
+      schemaVersion: 2,
+      tokens: { input: 10, output: 2 },
+      costSource: "unavailable",
+    });
+    expect(estimated).not.toHaveProperty("costUsd");
+
+    expect(
+      decodeUsageEvent(
+        JSON.stringify({
+          ...v1,
+          agent: "claude",
+          costSource: "estimated",
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      decodeUsageEvent(
+        JSON.stringify({
+          ...v1,
+          agent: "claude",
+          costSource: "reported",
+          costUsd: 0.1,
+        }),
+      ),
+    ).toMatchObject({
+      schemaVersion: 2,
+      agent: "claude",
+      tokens: {},
+      costSource: "provider",
+      costUsd: 0.1,
+      observation: { tokens: {} },
+    });
   });
 
   it("uses a source total when present and otherwise sums buckets", () => {

@@ -51,6 +51,31 @@ function window(
  */
 export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
   if (!isJsonRecord(payload)) return null;
+  const tailed = payload.event;
+  if (isJsonRecord(tailed) && tailed.type === "assistant.usage") {
+    const totals = isJsonRecord(tailed.sessionTotals)
+      ? tailed.sessionTotals
+      : undefined;
+    const totalTokens = totals
+      ? collectTokenCounts({
+          input: totals.input_tokens,
+          output: totals.output_tokens,
+          cacheRead: totals.cache_read_input_tokens,
+          cacheWrite: totals.cache_creation_input_tokens,
+          reasoning: undefined,
+          total: undefined,
+        })
+      : undefined;
+    if (!totalTokens) return { account: null, pane: null };
+    return {
+      account: null,
+      pane: {
+        agent: "claude",
+        totalTokens,
+        reportedAt: at,
+      },
+    };
+  }
   const line = payload.statusline;
   if (!isJsonRecord(line)) return null;
 
@@ -90,16 +115,10 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
     context && isJsonRecord(context.current_usage)
       ? context.current_usage
       : undefined;
-  const totalTokens = context
-    ? collectTokenCounts({
-        input: context.total_input_tokens,
-        output: context.total_output_tokens,
-        cacheRead: undefined,
-        cacheWrite: undefined,
-        reasoning: undefined,
-        total: undefined,
-      })
-    : undefined;
+  // Since Claude Code 2.1.132 the statusLine's `total_*` fields describe the
+  // CURRENT context/response, not cumulative session usage. Durable totals
+  // come from the transcript tail above; current_usage remains useful only as
+  // the live last-turn breakdown.
   const lastTurnTokens = current
     ? collectTokenCounts({
         input: current.input_tokens,
@@ -126,7 +145,6 @@ export const normalizeClaudeStatusline: UsageNormalizer = (payload, at) => {
         }
       : {}),
     ...(cost !== undefined ? { costUsd: cost } : {}),
-    ...(totalTokens ? { totalTokens } : {}),
     ...(lastTurnTokens ? { lastTurnTokens } : {}),
     reportedAt: at,
   };

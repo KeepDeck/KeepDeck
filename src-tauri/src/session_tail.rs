@@ -1,7 +1,9 @@
-//! Usage tailer — per-pane session-file followers (codex rollouts, kimi
-//! wire logs).
+//! Usage tailer — per-pane session-file followers (Claude transcripts,
+//! Codex rollouts, Kimi wire logs).
 //!
-//! Codex embeds rate-limit and token data in its session rollout file (one
+//! Claude appends assistant-message usage to its transcript (with repeated
+//! rows sharing a message id); Codex embeds rate-limit and token data in its
+//! session rollout file (one
 //! `token_count` event per turn, a `turn_context` per turn for the model);
 //! kimi appends a `usage.record` per LLM request to its wire.jsonl (window
 //! size rides the `llm.request` before it). No hook carries usage in either
@@ -12,21 +14,25 @@
 //! own the payload schema.
 //!
 //! Three deliberate choices:
-//! - The ONE file is POLLED (a 2s stat + drain-on-growth thread), not
+//! - Session files are POLLED (a 2s stat + drain-on-growth thread), not
 //!   OS-watched: every CLI keeps its session file OPEN and appends without
 //!   closing, and FSEvents is blind to exactly that pattern until
 //!   close/rename (reproduced by the open-handle test below — the chip
 //!   froze on stale catch-up data in the field), while notify's PollWatcher
 //!   compares mtime at SECONDS granularity and misses same-second appends.
-//!   Statting one file per tick is cheaper than either, and a
+//!   Statting the root file (plus Claude's subagent transcripts) per tick is
+//!   cheaper than either, and a
 //!   not-yet-created file (or parent) simply arrives on a later tick.
 //! - Registration immediately drains the EXISTING file and emits only the
 //!   LAST token_count and turn_context found — instant restore of limits
 //!   and model after an app restart, without replaying a session's history.
-//! - Reads are incremental (offset + carried partial line, both byte-wise —
+//! - Reads are incremental and bounded (offset + carried partial line,
+//!   processed in fixed-size chunks — no whole-file buffer or front-shifting
+//!   vector); both are byte-wise, so
 //!   a torn multi-byte character or half-written line never breaks parsing;
-//!   it completes on the next fs event).
+//!   it completes on the next poll).
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
@@ -48,6 +54,8 @@ use crate::fswatch;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TailFormat {
+    /// Claude transcript `.jsonl`: deduplicated assistant-message usage.
+    Claude,
     /// Codex rollout `.jsonl`: `token_count` + `turn_context`.
     Codex,
     /// Kimi wire `.jsonl`: `usage.record` + trimmed `llm.request`.
@@ -57,6 +65,7 @@ pub enum TailFormat {
 impl TailFormat {
     fn agent(self) -> &'static str {
         match self {
+            TailFormat::Claude => "claude",
             TailFormat::Codex => "codex",
             TailFormat::KimiWire => "kimi",
         }
@@ -64,15 +73,17 @@ impl TailFormat {
 
     /// Catch-up kinds, context first so the model/window lands before the
     /// numbers it qualifies.
-    fn catch_up_order(self) -> [&'static str; 2] {
+    fn catch_up_order(self) -> &'static [&'static str] {
         match self {
-            TailFormat::Codex => ["turn_context", "token_count"],
-            TailFormat::KimiWire => ["llm.request", "usage.record"],
+            TailFormat::Claude => &["assistant.usage"],
+            TailFormat::Codex => &["turn_context", "token_count"],
+            TailFormat::KimiWire => &["llm.request", "usage.record"],
         }
     }
 
     fn event(self, line: &[u8]) -> Option<TailedEvent> {
         match self {
+            TailFormat::Claude => claude_event(line),
             TailFormat::Codex => rollout_event(line),
             TailFormat::KimiWire => wire_event(line),
         }
@@ -111,21 +122,78 @@ struct KimiTotals {
     input_cache_creation: u64,
 }
 
-/// One followed session file: where we are in it and how to attribute what
-/// we find. The token is the pane's spawn-plan secret, passed by the webview
-/// at watch time so tailer reports ride the same verification path as
-/// reporter envelopes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ClaudeUsage {
+    input: u64,
+    output: u64,
+    cache_read: u64,
+    cache_creation: u64,
+}
+
+impl ClaudeUsage {
+    fn max(self, other: Self) -> Self {
+        Self {
+            input: self.input.max(other.input),
+            output: self.output.max(other.output),
+            cache_read: self.cache_read.max(other.cache_read),
+            cache_creation: self.cache_creation.max(other.cache_creation),
+        }
+    }
+
+    fn add_assign(&mut self, other: Self) {
+        self.input += other.input;
+        self.output += other.output;
+        self.cache_read += other.cache_read;
+        self.cache_creation += other.cache_creation;
+    }
+
+    fn subtract(self, other: Self) -> Self {
+        Self {
+            input: self.input.saturating_sub(other.input),
+            output: self.output.saturating_sub(other.output),
+            cache_read: self.cache_read.saturating_sub(other.cache_read),
+            cache_creation: self.cache_creation.saturating_sub(other.cache_creation),
+        }
+    }
+}
+
+/// Claude repeats one assistant message id across content/tool rows. Keep the
+/// per-id maxima (the CLI's documented dedup rule) and a running session sum.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ClaudeTotals {
+    by_message: HashMap<String, ClaudeUsage>,
+    sum: ClaudeUsage,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct SessionTotals {
+    kimi: KimiTotals,
+    claude: ClaudeTotals,
+}
+
+#[derive(Default)]
+struct TailCursor {
+    offset: u64,
+    partial: Vec<u8>,
+    /// Inside an abandoned oversized line — drop bytes until its newline.
+    skipping: bool,
+}
+
+/// One followed session: where every source file is up to and how to
+/// attribute what it yields. Claude owns a root transcript plus lazily
+/// appearing `<session>/subagents/*.jsonl`; the other formats use only root.
+/// The token is the pane's spawn-plan secret, passed by the webview at watch
+/// time so tailer reports ride the reporter envelope's verification path.
 struct TailState {
     path: PathBuf,
     pane_id: String,
     token: String,
     format: TailFormat,
-    offset: u64,
-    partial: Vec<u8>,
-    /// Inside an abandoned oversized line — drop bytes until its newline.
-    skipping: bool,
-    /// Running token cumulative for kimi (see [`KimiTotals`]); zero otherwise.
-    totals: KimiTotals,
+    root: TailCursor,
+    subagents: HashMap<PathBuf, TailCursor>,
+    /// Running token cumulatives for formats whose files expose per-request
+    /// rows rather than a native session total.
+    totals: SessionTotals,
 }
 
 /// A pathological line (megabytes with no newline yet) must not buffer
@@ -155,6 +223,53 @@ impl Drop for TailPoller {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
     }
+}
+
+/// One Claude transcript line → a content-free assistant usage event. The
+/// transcript can repeat the same message id as tool/content blocks arrive;
+/// deduplication happens while accumulating session totals below.
+fn claude_event(line: &[u8]) -> Option<TailedEvent> {
+    let value: Value = serde_json::from_slice(line).ok()?;
+    if value.get("type")?.as_str()? != "assistant" {
+        return None;
+    }
+    let message = value.get("message")?.as_object()?;
+    if message.get("model").and_then(Value::as_str) == Some("<synthetic>") {
+        return None;
+    }
+    let message_id = message.get("id")?.as_str()?;
+    if message_id.is_empty() {
+        return None;
+    }
+    let usage = message.get("usage")?.as_object()?;
+    let mut trimmed_usage = serde_json::Map::new();
+    for key in [
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    ] {
+        if let Some(value) = usage.get(key).and_then(Value::as_u64) {
+            trimmed_usage.insert(key.to_string(), value.into());
+        }
+    }
+    if trimmed_usage.is_empty() {
+        return None;
+    }
+
+    let source_at = value
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .map(|at| SourceTimestamp::Iso(at.to_string()));
+    Some(TailedEvent {
+        payload: json!({
+            "type": "assistant.usage",
+            "messageId": message_id,
+            "usage": Value::Object(trimmed_usage),
+        }),
+        source_at,
+        source_mtime_ms: None,
+    })
 }
 
 /// One rollout line → the payload event worth forwarding, if any:
@@ -220,13 +335,17 @@ fn wire_event(line: &[u8]) -> Option<TailedEvent> {
     })
 }
 
-/// Read everything appended since the recorded offset and return the events
-/// of the COMPLETE new lines; a trailing partial line is carried for the
-/// next call. A missing file is "nothing yet"; a shrunk file (rotation)
-/// restarts from zero.
-fn drain(state: &mut TailState) -> Vec<TailedEvent> {
-    let Ok(mut file) = File::open(&state.path) else {
-        return Vec::new();
+/// Read appended bytes in fixed-size chunks, returning events from complete
+/// lines while carrying at most one bounded partial line. No prefix is ever
+/// drained from a Vec, so catch-up remains linear even for large transcripts.
+/// The bool reports a truncated/rotated file.
+fn drain_file(
+    path: &std::path::Path,
+    cursor: &mut TailCursor,
+    format: TailFormat,
+) -> (Vec<TailedEvent>, bool) {
+    let Ok(mut file) = File::open(path) else {
+        return (Vec::new(), false);
     };
     let (len, file_mtime_ms) = file
         .metadata()
@@ -239,63 +358,137 @@ fn drain(state: &mut TailState) -> Vec<TailedEvent> {
             (metadata.len(), modified)
         })
         .unwrap_or((0, None));
-    if len < state.offset {
-        // A rotated/truncated file is a fresh start — including out of an
-        // abandoned-line skip, or the new file's FIRST line would be
-        // silently dropped as the monster's tail (review finding). The token
-        // cumulative resets too, so the new session sums from zero rather than
-        // carrying the old file's totals forward.
-        state.offset = 0;
-        state.partial.clear();
-        state.skipping = false;
-        state.totals = KimiTotals::default();
+    let rotated = len < cursor.offset;
+    if rotated {
+        cursor.offset = 0;
+        cursor.partial.clear();
+        cursor.skipping = false;
     }
-    if len == state.offset || file.seek(SeekFrom::Start(state.offset)).is_err() {
-        return Vec::new();
-    }
-    let mut fresh = Vec::new();
-    let Ok(read) = file.read_to_end(&mut fresh) else {
-        return Vec::new();
-    };
-    state.offset += read as u64;
-    state.partial.extend_from_slice(&fresh);
-
-    // Resync after an abandoned oversized line: drop through its newline.
-    if state.skipping {
-        match state.partial.iter().position(|b| *b == b'\n') {
-            Some(nl) => {
-                state.partial.drain(..=nl);
-                state.skipping = false;
-            }
-            None => {
-                state.partial.clear(); // still inside the monster line
-                return Vec::new();
-            }
-        }
+    if len == cursor.offset || file.seek(SeekFrom::Start(cursor.offset)).is_err() {
+        return (Vec::new(), rotated);
     }
 
     let mut events = Vec::new();
-    while let Some(nl) = state.partial.iter().position(|b| *b == b'\n') {
-        let line: Vec<u8> = state.partial.drain(..=nl).collect();
-        if let Some(mut event) = state.format.event(&line[..line.len() - 1]) {
-            event.source_mtime_ms = file_mtime_ms;
-            if event.source_at.is_none() {
-                event.source_at = file_mtime_ms.map(SourceTimestamp::UnixMillis);
-            }
-            events.push(event);
+    let mut chunk = [0_u8; 64 * 1024];
+    loop {
+        let Ok(read) = file.read(&mut chunk) else {
+            break;
+        };
+        if read == 0 {
+            break;
         }
+        cursor.offset += read as u64;
+        parse_chunk(cursor, &chunk[..read], format, file_mtime_ms, &mut events);
     }
-    if state.partial.len() > MAX_PARTIAL_BYTES {
-        state.partial.clear();
-        state.skipping = true;
+    (events, rotated)
+}
+
+fn parse_chunk(
+    cursor: &mut TailCursor,
+    chunk: &[u8],
+    format: TailFormat,
+    file_mtime_ms: Option<u64>,
+    events: &mut Vec<TailedEvent>,
+) {
+    let mut start = 0;
+    if cursor.skipping {
+        let Some(nl) = chunk.iter().position(|byte| *byte == b'\n') else {
+            return;
+        };
+        cursor.skipping = false;
+        start = nl + 1;
+    }
+
+    while let Some(relative_nl) = chunk[start..].iter().position(|byte| *byte == b'\n') {
+        let nl = start + relative_nl;
+        let fragment = &chunk[start..nl];
+        if cursor.partial.len() + fragment.len() <= MAX_PARTIAL_BYTES {
+            if cursor.partial.is_empty() {
+                push_event(format, fragment, file_mtime_ms, events);
+            } else {
+                cursor.partial.extend_from_slice(fragment);
+                push_event(format, &cursor.partial, file_mtime_ms, events);
+                cursor.partial.clear();
+            }
+        } else {
+            cursor.partial.clear();
+        }
+        start = nl + 1;
+    }
+
+    let remainder = &chunk[start..];
+    if cursor.partial.len() + remainder.len() > MAX_PARTIAL_BYTES {
+        cursor.partial.clear();
+        cursor.skipping = true;
+    } else {
+        cursor.partial.extend_from_slice(remainder);
+    }
+}
+
+fn push_event(
+    format: TailFormat,
+    line: &[u8],
+    file_mtime_ms: Option<u64>,
+    events: &mut Vec<TailedEvent>,
+) {
+    if let Some(mut event) = format.event(line) {
+        event.source_mtime_ms = file_mtime_ms;
+        if event.source_at.is_none() {
+            event.source_at = file_mtime_ms.map(SourceTimestamp::UnixMillis);
+        }
+        events.push(event);
+    }
+}
+
+/// Drain only the session's root file. A root rotation is a fresh session
+/// generation and resets the running totals.
+fn drain(state: &mut TailState) -> Vec<TailedEvent> {
+    let (events, rotated) = drain_file(&state.path, &mut state.root, state.format);
+    if rotated {
+        state.totals = SessionTotals::default();
+    }
+    events
+}
+
+/// Claude subagents write their own assistant rows next to the root
+/// transcript. Discover them every poll because the directory and files can
+/// appear after the watch is armed.
+fn claude_subagent_paths(root: &std::path::Path) -> Vec<PathBuf> {
+    let directory = root.with_extension("").join("subagents");
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mut paths = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let jsonl = path.extension().and_then(|ext| ext.to_str()) == Some("jsonl");
+            let file = entry.file_type().ok().is_some_and(|kind| kind.is_file());
+            (jsonl && file).then_some(path)
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths
+}
+
+fn drain_all(state: &mut TailState) -> Vec<TailedEvent> {
+    let mut events = drain(state);
+    if state.format != TailFormat::Claude {
+        return events;
+    }
+    let paths = claude_subagent_paths(&state.path);
+    for path in paths {
+        let cursor = state.subagents.entry(path.clone()).or_default();
+        let (mut appended, _) = drain_file(&path, cursor, TailFormat::Claude);
+        events.append(&mut appended);
     }
     events
 }
 
 /// The catch-up summary: of everything drained from an existing file, only
 /// the LAST of each kind matters, emitted in the format's declared order.
-fn last_of_each(events: Vec<TailedEvent>, order: [&str; 2]) -> Vec<TailedEvent> {
-    let mut last: [Option<TailedEvent>; 2] = [None, None];
+fn last_of_each(events: Vec<TailedEvent>, order: &[&str]) -> Vec<TailedEvent> {
+    let mut last = vec![None; order.len()];
     for event in events {
         let Some(kind) = event.payload.get("type").and_then(|t| t.as_str()) else {
             continue;
@@ -307,43 +500,86 @@ fn last_of_each(events: Vec<TailedEvent>, order: [&str; 2]) -> Vec<TailedEvent> 
     last.into_iter().flatten().collect()
 }
 
-/// Fold one event's per-request token buckets into the running kimi cumulative
-/// and stamp the cumulative onto the event as `sessionTotals`, so the store
-/// gets a session total even though catch-up collapses to the last record.
-/// Only kimi `usage.record` events count; codex (native cumulative) and every
-/// other event pass through untouched. Buckets sum SEPARATELY — `inputCacheRead`
-/// (the re-read context prefix) is kept out of the fresh-input total.
+/// Fold per-request/message token buckets into running session cumulatives and
+/// stamp `sessionTotals` onto the event. Kimi sums every usage record. Claude
+/// deduplicates repeated assistant rows by message id, retaining each bucket's
+/// maximum. Codex carries a native cumulative and passes through untouched.
 fn accumulate_session_totals(
-    totals: &mut KimiTotals,
+    totals: &mut SessionTotals,
     format: TailFormat,
     event: &mut TailedEvent,
 ) {
-    if format != TailFormat::KimiWire
-        || event.payload.get("type").and_then(Value::as_str) != Some("usage.record")
-    {
-        return;
-    }
-    let usage = event.payload.get("usage");
-    let bucket =
-        |key: &str| usage.and_then(|u| u.get(key)).and_then(Value::as_u64).unwrap_or(0);
-    let input_other = bucket("inputOther");
-    let output = bucket("output");
-    let input_cache_read = bucket("inputCacheRead");
-    let input_cache_creation = bucket("inputCacheCreation");
-    totals.input_other += input_other;
-    totals.output += output;
-    totals.input_cache_read += input_cache_read;
-    totals.input_cache_creation += input_cache_creation;
-    if let Some(object) = event.payload.as_object_mut() {
-        object.insert(
-            "sessionTotals".to_string(),
-            json!({
-                "inputOther": totals.input_other,
-                "output": totals.output,
-                "inputCacheRead": totals.input_cache_read,
-                "inputCacheCreation": totals.input_cache_creation,
-            }),
-        );
+    let kind = event.payload.get("type").and_then(Value::as_str);
+    match (format, kind) {
+        (TailFormat::KimiWire, Some("usage.record")) => {
+            let usage = event.payload.get("usage");
+            let bucket = |key: &str| {
+                usage
+                    .and_then(|u| u.get(key))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+            };
+            totals.kimi.input_other += bucket("inputOther");
+            totals.kimi.output += bucket("output");
+            totals.kimi.input_cache_read += bucket("inputCacheRead");
+            totals.kimi.input_cache_creation += bucket("inputCacheCreation");
+            if let Some(object) = event.payload.as_object_mut() {
+                object.insert(
+                    "sessionTotals".to_string(),
+                    json!({
+                        "inputOther": totals.kimi.input_other,
+                        "output": totals.kimi.output,
+                        "inputCacheRead": totals.kimi.input_cache_read,
+                        "inputCacheCreation": totals.kimi.input_cache_creation,
+                    }),
+                );
+            }
+        }
+        (TailFormat::Claude, Some("assistant.usage")) => {
+            let Some(message_id) = event
+                .payload
+                .get("messageId")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            else {
+                return;
+            };
+            let usage = event.payload.get("usage");
+            let bucket = |key: &str| {
+                usage
+                    .and_then(|u| u.get(key))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+            };
+            let incoming = ClaudeUsage {
+                input: bucket("input_tokens"),
+                output: bucket("output_tokens"),
+                cache_read: bucket("cache_read_input_tokens"),
+                cache_creation: bucket("cache_creation_input_tokens"),
+            };
+            let previous = totals
+                .claude
+                .by_message
+                .get(&message_id)
+                .copied()
+                .unwrap_or_default();
+            let next = previous.max(incoming);
+            totals.claude.sum.add_assign(next.subtract(previous));
+            totals.claude.by_message.insert(message_id, next);
+
+            if let Some(object) = event.payload.as_object_mut() {
+                object.insert(
+                    "sessionTotals".to_string(),
+                    json!({
+                        "input_tokens": totals.claude.sum.input,
+                        "output_tokens": totals.claude.sum.output,
+                        "cache_read_input_tokens": totals.claude.sum.cache_read,
+                        "cache_creation_input_tokens": totals.claude.sum.cache_creation,
+                    }),
+                );
+            }
+        }
+        _ => {}
     }
 }
 
@@ -391,7 +627,7 @@ fn spawn_tailer(
                 }
                 let Ok(mut s) = state.lock() else { break };
                 let format = s.format;
-                for mut event in drain(&mut s) {
+                for mut event in drain_all(&mut s) {
                     accumulate_session_totals(&mut s.totals, format, &mut event);
                     deliver(report(&s, event, false));
                 }
@@ -422,10 +658,9 @@ pub fn usage_watch_session_file(
         pane_id: pane_id.clone(),
         token,
         format,
-        offset: 0,
-        partial: Vec::new(),
-        skipping: false,
-        totals: KimiTotals::default(),
+        root: TailCursor::default(),
+        subagents: HashMap::new(),
+        totals: SessionTotals::default(),
     }));
 
     // Watcher FIRST, catch-up second: an append landing during the catch-up
@@ -448,7 +683,7 @@ pub fn usage_watch_session_file(
         // Fold the WHOLE catch-up drain into the running cumulative in file
         // order BEFORE last_of_each collapses it — the surviving last
         // usage.record then carries the session total of everything before it.
-        let mut drained = drain(&mut s);
+        let mut drained = drain_all(&mut s);
         for event in &mut drained {
             accumulate_session_totals(&mut s.totals, format, event);
         }
@@ -553,10 +788,9 @@ fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
             pane_id: String::new(),
             token: String::new(),
             format: TailFormat::Codex,
-            offset: 0,
-            partial: Vec::new(),
-            skipping: false,
-            totals: KimiTotals::default(),
+            root: TailCursor::default(),
+            subagents: HashMap::new(),
+            totals: SessionTotals::default(),
         };
         let event = last_of_each(drain(&mut state), TailFormat::Codex.catch_up_order())
             .into_iter()
@@ -614,18 +848,17 @@ mod tests {
 
     fn temp_dir() -> PathBuf {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir()
-            .join(format!("keepdeck-rollout-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("keepdeck-rollout-{}-{n}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
 
     const SOURCE_ISO: &str = "2026-07-16T22:13:08.000Z";
     const TOKEN_COUNT_LINE: &str = r#"{"timestamp":"2026-07-16T22:13:08.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":100},"last_token_usage":{"total_tokens":40},"model_context_window":258400},"rate_limits":{"primary":{"used_percent":75.0,"window_minutes":10080,"resets_at":1784834810},"secondary":null,"plan_type":"plus"}}}"#;
-    const TURN_CONTEXT_LINE: &str =
-        r#"{"timestamp":"2026-07-16T22:13:08.000Z","type":"turn_context","payload":{"model":"gpt-5.6-sol","effort":"xhigh","cwd":"/x"}}"#;
+    const TURN_CONTEXT_LINE: &str = r#"{"timestamp":"2026-07-16T22:13:08.000Z","type":"turn_context","payload":{"model":"gpt-5.6-sol","effort":"xhigh","cwd":"/x"}}"#;
     const USAGE_RECORD_LINE: &str = r#"{"type":"usage.record","model":"kimi-code/k3","usage":{"inputOther":1200,"output":300,"inputCacheRead":40000,"inputCacheCreation":900},"usageScope":"turn","time":1784800000000}"#;
     const LLM_REQUEST_LINE: &str = r#"{"type":"llm.request","model":"kimi-code/k3","maxTokens":1048576,"messages":[{"role":"user","content":"SECRET PROMPT"}]}"#;
+    const CLAUDE_ASSISTANT_LINE: &str = r#"{"type":"assistant","message":{"id":"msg-1","model":"claude-opus-4-8","content":[{"type":"text","text":"SECRET ANSWER"}],"usage":{"input_tokens":12,"output_tokens":30,"cache_read_input_tokens":40000,"cache_creation_input_tokens":900}},"timestamp":"2026-07-16T22:13:08.000Z"}"#;
 
     fn tail(path: PathBuf) -> TailState {
         TailState {
@@ -633,10 +866,9 @@ mod tests {
             pane_id: "pane-1".into(),
             token: "tok".into(),
             format: TailFormat::Codex,
-            offset: 0,
-            partial: Vec::new(),
-            skipping: false,
-            totals: KimiTotals::default(),
+            root: TailCursor::default(),
+            subagents: HashMap::new(),
+            totals: SessionTotals::default(),
         }
     }
 
@@ -664,6 +896,45 @@ mod tests {
         );
         assert_eq!(rollout_event(br#"{"type":"session_meta"}"#), None);
         assert_eq!(rollout_event(b"not json"), None);
+    }
+
+    #[test]
+    fn claude_event_forwards_only_message_identity_and_token_buckets() {
+        let event = claude_event(CLAUDE_ASSISTANT_LINE.as_bytes()).expect("assistant usage");
+        assert_eq!(
+            event.payload,
+            serde_json::json!({
+                "type": "assistant.usage",
+                "messageId": "msg-1",
+                "usage": {
+                    "input_tokens": 12,
+                    "output_tokens": 30,
+                    "cache_read_input_tokens": 40000,
+                    "cache_creation_input_tokens": 900,
+                }
+            })
+        );
+        assert_eq!(
+            event.source_at,
+            Some(SourceTimestamp::Iso(SOURCE_ISO.into()))
+        );
+        assert!(
+            !event.payload.to_string().contains("SECRET"),
+            "transcript content must never ride the event bus"
+        );
+
+        assert_eq!(claude_event(br#"{"type":"user","message":{}}"#), None);
+        assert_eq!(
+            claude_event(
+                br#"{"type":"assistant","message":{"id":"x","model":"<synthetic>","usage":{"output_tokens":2}}}"#
+            ),
+            None
+        );
+        assert_eq!(
+            claude_event(br#"{"type":"assistant","message":{"id":"x","usage":{}}}"#),
+            None
+        );
+        assert_eq!(claude_event(b"not json"), None);
     }
 
     #[test]
@@ -727,7 +998,7 @@ mod tests {
 
     #[test]
     fn kimi_session_totals_sum_each_bucket_separately() {
-        let mut totals = KimiTotals::default();
+        let mut totals = SessionTotals::default();
         // USAGE_RECORD_LINE: inputOther 1200, output 300, inputCacheRead 40000,
         // inputCacheCreation 900.
         let mut first = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
@@ -753,7 +1024,7 @@ mod tests {
             })
         );
         assert_eq!(
-            totals,
+            totals.kimi,
             KimiTotals {
                 input_other: 2000,
                 output: 350,
@@ -765,18 +1036,80 @@ mod tests {
 
     #[test]
     fn accumulate_leaves_codex_and_non_usage_events_alone() {
-        let mut totals = KimiTotals::default();
+        let mut totals = SessionTotals::default();
         // Codex owns a native cumulative — never stamped, even for a
         // usage.record-shaped line under the codex format.
         let mut codex = wire_event(USAGE_RECORD_LINE.as_bytes()).unwrap();
         accumulate_session_totals(&mut totals, TailFormat::Codex, &mut codex);
         assert!(codex.payload.get("sessionTotals").is_none());
-        assert_eq!(totals, KimiTotals::default());
+        assert_eq!(totals, SessionTotals::default());
         // A kimi llm.request carries no counts — untouched.
         let mut request = wire_event(LLM_REQUEST_LINE.as_bytes()).unwrap();
         accumulate_session_totals(&mut totals, TailFormat::KimiWire, &mut request);
         assert!(request.payload.get("sessionTotals").is_none());
-        assert_eq!(totals, KimiTotals::default());
+        assert_eq!(totals, SessionTotals::default());
+    }
+
+    #[test]
+    fn claude_session_totals_deduplicate_repeated_message_rows() {
+        let mut totals = SessionTotals::default();
+        let mut first = claude_event(CLAUDE_ASSISTANT_LINE.as_bytes()).unwrap();
+        accumulate_session_totals(&mut totals, TailFormat::Claude, &mut first);
+        assert_eq!(
+            first.payload["sessionTotals"],
+            serde_json::json!({
+                "input_tokens": 12,
+                "output_tokens": 30,
+                "cache_read_input_tokens": 40000,
+                "cache_creation_input_tokens": 900,
+            })
+        );
+
+        // Same id: each bucket advances only to its maximum, never sums the
+        // repeated transcript row.
+        let repeated = CLAUDE_ASSISTANT_LINE
+            .replace(r#""output_tokens":30"#, r#""output_tokens":45"#)
+            .replace(
+                r#""cache_creation_input_tokens":900"#,
+                r#""cache_creation_input_tokens":800"#,
+            );
+        let mut second = claude_event(repeated.as_bytes()).unwrap();
+        accumulate_session_totals(&mut totals, TailFormat::Claude, &mut second);
+        assert_eq!(
+            second.payload["sessionTotals"],
+            serde_json::json!({
+                "input_tokens": 12,
+                "output_tokens": 45,
+                "cache_read_input_tokens": 40000,
+                "cache_creation_input_tokens": 900,
+            })
+        );
+
+        // A different assistant message contributes its own maxima.
+        let next_message = CLAUDE_ASSISTANT_LINE
+            .replace("msg-1", "msg-2")
+            .replace(r#""input_tokens":12"#, r#""input_tokens":2"#)
+            .replace(r#""output_tokens":30"#, r#""output_tokens":5"#)
+            .replace(
+                r#""cache_read_input_tokens":40000"#,
+                r#""cache_read_input_tokens":100"#,
+            )
+            .replace(
+                r#""cache_creation_input_tokens":900"#,
+                r#""cache_creation_input_tokens":3"#,
+            );
+        let mut third = claude_event(next_message.as_bytes()).unwrap();
+        accumulate_session_totals(&mut totals, TailFormat::Claude, &mut third);
+        assert_eq!(
+            third.payload["sessionTotals"],
+            serde_json::json!({
+                "input_tokens": 14,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 40100,
+                "cache_creation_input_tokens": 903,
+            })
+        );
+        assert_eq!(totals.claude.by_message.len(), 2);
     }
 
     #[test]
@@ -790,17 +1123,17 @@ mod tests {
         for mut event in drain(&mut state) {
             accumulate_session_totals(&mut state.totals, TailFormat::KimiWire, &mut event);
         }
-        assert_eq!(state.totals.input_other, 2400);
+        assert_eq!(state.totals.kimi.input_other, 2400);
 
         // A shrunk file (rotation / new session): drain zeroes the cumulative
         // so the new session sums from scratch, not atop the old one.
         fs::write(&path, format!("{USAGE_RECORD_LINE}\n")).unwrap();
         let events = drain(&mut state);
-        assert_eq!(state.totals, KimiTotals::default());
+        assert_eq!(state.totals, SessionTotals::default());
         for mut event in events {
             accumulate_session_totals(&mut state.totals, TailFormat::KimiWire, &mut event);
         }
-        assert_eq!(state.totals.input_other, 1200);
+        assert_eq!(state.totals.kimi.input_other, 1200);
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -838,6 +1171,111 @@ mod tests {
             .expect("a usage.record survives catch-up");
         assert_eq!(surviving.payload["sessionTotals"]["inputOther"], 600); // 100+200+300
         assert_eq!(surviving.payload["sessionTotals"]["output"], 30);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn claude_catch_up_keeps_the_full_deduplicated_session_cumulative() {
+        let dir = temp_dir();
+        let path = dir.join("claude.jsonl");
+        let mut state = tail(path.clone());
+        state.format = TailFormat::Claude;
+        let repeated =
+            CLAUDE_ASSISTANT_LINE.replace(r#""output_tokens":30"#, r#""output_tokens":45"#);
+        let next = CLAUDE_ASSISTANT_LINE
+            .replace("msg-1", "msg-2")
+            .replace(r#""output_tokens":30"#, r#""output_tokens":5"#);
+        fs::write(
+            &path,
+            format!("{CLAUDE_ASSISTANT_LINE}\n{repeated}\n{next}\n"),
+        )
+        .unwrap();
+
+        let mut drained = drain(&mut state);
+        for event in &mut drained {
+            accumulate_session_totals(&mut state.totals, TailFormat::Claude, event);
+        }
+        let kept = last_of_each(drained, TailFormat::Claude.catch_up_order());
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].payload["type"], "assistant.usage");
+        assert_eq!(kept[0].payload["sessionTotals"]["output_tokens"], 50);
+        assert_eq!(
+            kept[0].payload["sessionTotals"]["cache_read_input_tokens"],
+            80000
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn claude_catch_up_includes_subagent_transcripts() {
+        let dir = temp_dir();
+        let path = dir.join("session-1.jsonl");
+        let subagents = dir.join("session-1/subagents");
+        fs::create_dir_all(&subagents).unwrap();
+        fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
+        let subagent = CLAUDE_ASSISTANT_LINE
+            .replace("msg-1", "msg-subagent")
+            .replace(r#""input_tokens":12"#, r#""input_tokens":2"#)
+            .replace(r#""output_tokens":30"#, r#""output_tokens":7"#)
+            .replace(
+                r#""cache_read_input_tokens":40000"#,
+                r#""cache_read_input_tokens":100"#,
+            )
+            .replace(
+                r#""cache_creation_input_tokens":900"#,
+                r#""cache_creation_input_tokens":3"#,
+            );
+        fs::write(subagents.join("agent-a.jsonl"), format!("{subagent}\n")).unwrap();
+
+        let mut state = tail(path);
+        state.format = TailFormat::Claude;
+        let mut drained = drain_all(&mut state);
+        assert_eq!(drained.len(), 2);
+        assert!(
+            drained
+                .iter()
+                .all(|event| !event.payload.to_string().contains("SECRET")),
+            "root and subagent transcript content must stay private"
+        );
+        for event in &mut drained {
+            accumulate_session_totals(&mut state.totals, TailFormat::Claude, event);
+        }
+        let kept = last_of_each(drained, TailFormat::Claude.catch_up_order());
+        assert_eq!(kept[0].payload["sessionTotals"]["input_tokens"], 14);
+        assert_eq!(kept[0].payload["sessionTotals"]["output_tokens"], 37);
+        assert_eq!(
+            kept[0].payload["sessionTotals"]["cache_read_input_tokens"],
+            40100
+        );
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn claude_discovers_a_subagent_file_created_after_arming() {
+        let dir = temp_dir();
+        let path = dir.join("session-late.jsonl");
+        fs::write(&path, format!("{CLAUDE_ASSISTANT_LINE}\n")).unwrap();
+        let mut state = tail(path);
+        state.format = TailFormat::Claude;
+        for mut event in drain_all(&mut state) {
+            accumulate_session_totals(&mut state.totals, TailFormat::Claude, &mut event);
+        }
+
+        let subagents = dir.join("session-late/subagents");
+        fs::create_dir_all(&subagents).unwrap();
+        let subagent = CLAUDE_ASSISTANT_LINE
+            .replace("msg-1", "msg-late")
+            .replace(r#""output_tokens":30"#, r#""output_tokens":5"#);
+        fs::write(subagents.join("agent-late.jsonl"), format!("{subagent}\n")).unwrap();
+
+        let mut appended = drain_all(&mut state);
+        assert_eq!(appended.len(), 1);
+        accumulate_session_totals(&mut state.totals, TailFormat::Claude, &mut appended[0]);
+        assert_eq!(appended[0].payload["sessionTotals"]["output_tokens"], 35);
+        assert!(drain_all(&mut state).is_empty());
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -884,6 +1322,12 @@ mod tests {
         assert_eq!(wrapped.payload["agent"], "kimi");
         assert_eq!(wrapped.payload["catchUp"], true);
         assert_eq!(wrapped.payload["sourceAt"], 1_784_800_000_000_u64);
+
+        state.format = TailFormat::Claude;
+        let event = claude_event(CLAUDE_ASSISTANT_LINE.as_bytes()).unwrap();
+        let wrapped = report(&state, event, true);
+        assert_eq!(wrapped.payload["agent"], "claude");
+        assert_eq!(wrapped.payload["event"]["type"], "assistant.usage");
     }
 
     #[test]
@@ -895,8 +1339,8 @@ mod tests {
         // A monster line spilling past the cap, no newline yet.
         fs::write(&path, vec![b'x'; MAX_PARTIAL_BYTES + 64]).unwrap();
         assert!(drain(&mut state).is_empty());
-        assert!(state.skipping, "the line is abandoned, not buffered");
-        assert!(state.partial.is_empty());
+        assert!(state.root.skipping, "the line is abandoned, not buffered");
+        assert!(state.root.partial.is_empty());
 
         // Its newline finally lands, followed by a healthy line — the tail
         // resyncs and parses only the healthy one.
@@ -906,7 +1350,7 @@ mod tests {
         let events = drain(&mut state);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].payload["type"], "turn_context");
-        assert!(!state.skipping);
+        assert!(!state.root.skipping);
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -920,7 +1364,7 @@ mod tests {
         // Monster line puts the tail into skip mode…
         fs::write(&path, vec![b'x'; MAX_PARTIAL_BYTES + 64]).unwrap();
         assert!(drain(&mut state).is_empty());
-        assert!(state.skipping);
+        assert!(state.root.skipping);
 
         // …then the file is ROTATED before the monster's newline arrives.
         // The fresh file's first line must parse, not vanish as the
@@ -929,7 +1373,7 @@ mod tests {
         let events = drain(&mut state);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].payload["type"], "turn_context");
-        assert!(!state.skipping);
+        assert!(!state.root.skipping);
 
         fs::remove_dir_all(&dir).ok();
     }
@@ -942,7 +1386,11 @@ mod tests {
         let new_day = root.join("2026/07/18");
         fs::create_dir_all(&old_day).unwrap();
         fs::create_dir_all(&new_day).unwrap();
-        fs::write(old_day.join(format!("rollout-2026-07-17T01-00-00-{sid}.jsonl")), "x").unwrap();
+        fs::write(
+            old_day.join(format!("rollout-2026-07-17T01-00-00-{sid}.jsonl")),
+            "x",
+        )
+        .unwrap();
         fs::write(new_day.join("rollout-2026-07-18T02-00-00-other.jsonl"), "x").unwrap();
         let newest = new_day.join(format!("rollout-2026-07-18T03-00-00-{sid}.jsonl"));
         fs::write(&newest, "x").unwrap();
@@ -959,9 +1407,7 @@ mod tests {
             .write(true)
             .open(path)
             .unwrap()
-            .set_modified(
-                std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(secs_after_epoch),
-            )
+            .set_modified(std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(secs_after_epoch))
             .unwrap();
     }
 
@@ -1121,8 +1567,11 @@ mod tests {
         assert_eq!(first.payload["event"]["type"], "token_count");
 
         // A sibling session's rollout in the same day-dir must NOT leak in.
-        fs::write(dir.join("rollout-other.jsonl"), format!("{TURN_CONTEXT_LINE}\n"))
-            .unwrap();
+        fs::write(
+            dir.join("rollout-other.jsonl"),
+            format!("{TURN_CONTEXT_LINE}\n"),
+        )
+        .unwrap();
         let mut file = OpenOptions::new().append(true).open(&path).unwrap();
         write!(file, "{TURN_CONTEXT_LINE}\n").unwrap();
         drop(file);

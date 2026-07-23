@@ -1,16 +1,15 @@
 import type { PaneUsage } from "@keepdeck/plugin-api";
 import {
-  decodeUsageEvent,
+  decodeUsageEventLine,
   encodeUsageEvent,
   USAGE_EVENT_SCHEMA_VERSION,
   USAGE_HISTORY_RETENTION_MS,
   usageDelta,
   usageDeltaEmpty,
   usageSessionKey,
-  type UsageEventV1,
+  type UsageEventV2,
   type UsageObservation,
 } from "../domain/usage/history";
-import { estimateUsageCost } from "../domain/usage/pricing";
 import {
   appendUsageHistory,
   compactUsageHistory,
@@ -24,16 +23,19 @@ export interface UsageCaptureContext {
   paneId: string;
   paneName: string;
   sessionId: string;
-  worktree?: UsageEventV1["worktree"];
+  /** This provider session begins with inherited counters (resume or fork).
+   * If history has no checkpoint, its first lifetime snapshot seeds only. */
+  baselineOnly?: boolean;
+  worktree?: UsageEventV2["worktree"];
 }
 
 export interface UsageHistorySnapshot {
   ready: boolean;
-  events: readonly UsageEventV1[];
+  events: readonly UsageEventV2[];
   error: string | null;
 }
 
-let events: readonly UsageEventV1[] = [];
+let events: readonly UsageEventV2[] = [];
 let snapshot: UsageHistorySnapshot = { ready: false, events, error: null };
 let initialized = false;
 let initialization: Promise<void> | null = null;
@@ -55,15 +57,17 @@ export function initUsageHistory(now = Date.now()): Promise<void> {
   initialized = true;
   initialization = loadUsageHistory()
     .then(async (lines) => {
-      const decoded: UsageEventV1[] = [];
-      const latestBySession = new Map<string, UsageEventV1>();
+      const decoded: UsageEventV2[] = [];
+      const latestBySession = new Map<string, UsageEventV2>();
       let needsCompact = false;
       for (const line of lines) {
-        const event = decodeUsageEvent(line);
+        const decodedLine = decodeUsageEventLine(line);
+        const event = decodedLine?.event;
         if (!event || eventIds.has(event.eventId)) {
           needsCompact = true;
           continue;
         }
+        if (decodedLine.migrated) needsCompact = true;
         eventIds.add(event.eventId);
         decoded.push(event);
         const key = usageSessionKey(event);
@@ -91,7 +95,7 @@ export function initUsageHistory(now = Date.now()): Promise<void> {
   return initialization;
 }
 
-/** Persist one pane's latest cumulative snapshot as a canonical delta.
+/** Persist one pane's latest cumulative usage snapshot as a canonical delta.
  * Calls serialize behind initialization and previous appends, so two rapid
  * reports always subtract from the committed predecessor. */
 export function recordPaneUsage(
@@ -104,15 +108,14 @@ export function recordPaneUsage(
     await initialization;
     const key = usageSessionKey({ agent: usage.agent, sessionId: context.sessionId });
     const previous = baselines.get(key);
-    const delta = usageDelta(usage, previous);
+    const delta = usageDelta(usage, previous, {
+      baselineOnly: context.baselineOnly === true,
+    });
     if (usageDeltaEmpty(delta)) {
       baselines.set(key, delta.observation);
       return;
     }
-    const estimated = delta.hasReportedCost
-      ? null
-      : estimateUsageCost(usage.agent, usage.model, delta.tokens);
-    const event: UsageEventV1 = {
+    const event: UsageEventV2 = {
       schemaVersion: USAGE_EVENT_SCHEMA_VERSION,
       eventId: eventId(
         key,
@@ -133,17 +136,9 @@ export function recordPaneUsage(
       rootSessionId: context.sessionId,
       ...(context.worktree ? { worktree: context.worktree } : {}),
       tokens: delta.tokens,
-      ...(delta.hasReportedCost
-        ? { costUsd: delta.reportedCostUsd }
-        : estimated
-          ? { costUsd: estimated.usd }
-          : {}),
-      costSource: delta.hasReportedCost
-        ? "reported"
-        : estimated
-          ? "estimated"
-          : "unavailable",
-      ...(estimated ? { pricingVersion: estimated.pricingVersion } : {}),
+      ...(delta.cost.source === "provider"
+        ? { costSource: "provider" as const, costUsd: delta.cost.usd }
+        : { costSource: "unavailable" as const }),
       observation: delta.observation,
     };
 

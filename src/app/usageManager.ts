@@ -1,6 +1,7 @@
 import { isRecord } from "../domain/json";
 import {
   freshest,
+  mergePaneReplay,
   mergePaneUsage,
   type AccountUsage,
   type PaneUsage,
@@ -103,13 +104,16 @@ export function reportUsage(
       changed = true;
     }
   }
-  if (result.pane && !(catchUp && livePanes.has(paneId))) {
+  if (result.pane) {
+    const current = panes.get(paneId);
+    const next =
+      catchUp && livePanes.has(paneId) && current
+        ? mergePaneReplay(current, result.pane)
+        : mergePaneUsage(current, result.pane);
     if (!catchUp) livePanes.add(paneId);
-    // Merged, not replaced: codex splits model and numbers across events.
-    panes = new Map(panes).set(
-      paneId,
-      mergePaneUsage(panes.get(paneId), result.pane),
-    );
+    // Merged, not replaced: codex splits model and numbers across events;
+    // Claude splits live cost/limits from transcript token cumulatives.
+    panes = new Map(panes).set(paneId, next);
     changed = true;
   }
   if (changed) emit();

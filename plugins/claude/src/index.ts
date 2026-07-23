@@ -102,10 +102,12 @@ const plugin: KeepDeckPlugin = {
       icon,
       detect: { bin: "claude" },
       supportsYolo: true,
-      // The statusLine reporter pushes; no tail, no poll.
+      // StatusLine carries provider cost/limits; the transcript tail supplies
+      // deduplicated cumulative tokens.
       usage: {
         capabilities: ["paneTelemetry", "accountLimits"],
         normalize: normalizeClaudeStatusline,
+        tail: "claude",
       },
       history: claudeHistory(ctx),
       hooks: {

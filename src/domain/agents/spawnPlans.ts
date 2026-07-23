@@ -53,6 +53,12 @@ export interface SpawnPlan {
   /** Host bookkeeping: the recorded session this plan tries to RESUME. Set
    * only on resume plans — the resume-failure detector keys off it. */
   resumeOf?: string;
+  /** Host bookkeeping: the source session cloned by a FORK plan. */
+  forkOf?: string;
+  /** The first accepted local session binding emitted by that fork. Keeping
+   * the derived id here prevents later `/new` sessions in the same process
+   * from inheriting the fork's baseline-only treatment. */
+  forkSessionId?: string;
   /** Host bookkeeping: who requested this resume. The origin determines
    * whether a silent refusal is eligible for the one-shot fresh fallback. */
   resumeOrigin?: ResumeOrigin;

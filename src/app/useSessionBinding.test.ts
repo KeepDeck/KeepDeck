@@ -7,12 +7,14 @@ import type { Deck } from "./useDeck";
 const bridge = vi.hoisted(() => ({
   onSessionBound: vi.fn(),
   peekPaneSpawnSpec: vi.fn(),
+  bindPaneSpawnSpecSession: vi.fn(),
   bumpPostback: vi.fn(),
   beginPaneUsageSession: vi.fn(),
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: bridge.onSessionBound }));
 vi.mock("./spawnSpecs", () => ({
   peekPaneSpawnSpec: bridge.peekPaneSpawnSpec,
+  bindPaneSpawnSpecSession: bridge.bindPaneSpawnSpecSession,
 }));
 vi.mock("./postbacks", () => ({ bumpPostback: bridge.bumpPostback }));
 vi.mock("./usageManager", () => ({
@@ -55,6 +57,7 @@ describe("useSessionBinding", () => {
 
   beforeEach(() => {
     bridge.beginPaneUsageSession.mockClear();
+    bridge.bindPaneSpawnSpecSession.mockClear();
     bridge.bumpPostback.mockClear();
     bridge.peekPaneSpawnSpec.mockReturnValue({ token: "tok" });
     bridge.onSessionBound.mockImplementation((handler) => {
@@ -104,6 +107,10 @@ describe("useSessionBinding", () => {
       "pane-1",
       "session-new",
     );
+    expect(bridge.bindPaneSpawnSpecSession).toHaveBeenCalledWith(
+      "pane-1",
+      "session-new",
+    );
     expect(setPaneSession).toHaveBeenCalledWith(
       "ws-1",
       "pane-1",
@@ -150,6 +157,7 @@ describe("useSessionBinding", () => {
     act(() => emit({ paneId: "pane-1", sessionId: "ses-1", token: "tok" }));
 
     expect(bridge.bumpPostback).toHaveBeenCalledWith("pane-1");
+    expect(bridge.bindPaneSpawnSpecSession).not.toHaveBeenCalled();
     expect(setPaneSession).not.toHaveBeenCalled();
     act(() => root.unmount());
   });

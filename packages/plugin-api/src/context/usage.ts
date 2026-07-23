@@ -105,7 +105,7 @@ export type UsageNormalizer = (
 export type LimitsNormalizer = (body: string, at: number) => AccountUsage | null;
 
 /** Session-file dialects the host's native tailer speaks. */
-export type UsageTailFormat = "codex" | "kimi-wire";
+export type UsageTailFormat = "claude" | "codex" | "kimi-wire";
 
 /** Native polled limit sources the host offers. */
 export type UsageLimitsSource = "codex-app-server" | "kimi-usages";

@@ -49,7 +49,6 @@ describe("normalizeClaudeStatusline", () => {
       model: "Opus",
       context: { usedPct: 8, windowTokens: 200_000 },
       costUsd: 0.01234,
-      totalTokens: { input: 15_500, output: 1200 },
       lastTurnTokens: {
         input: 8500,
         output: 1200,
@@ -72,6 +71,37 @@ describe("normalizeClaudeStatusline", () => {
     expect(result?.account).toMatchObject({
       kind: "reported",
       windows: [{ usedPct: 66, windowMinutes: null, scope: "seven_day_fable" }],
+    });
+  });
+
+  it("maps transcript-tail cumulatives into durable token totals", () => {
+    const result = normalizeClaudeStatusline(
+      {
+        agent: "claude",
+        event: {
+          type: "assistant.usage",
+          sessionTotals: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 300,
+            cache_creation_input_tokens: 40,
+          },
+        },
+      },
+      AT,
+    );
+    expect(result).toEqual({
+      account: null,
+      pane: {
+        agent: "claude",
+        totalTokens: {
+          input: 10,
+          output: 20,
+          cacheRead: 300,
+          cacheWrite: 40,
+        },
+        reportedAt: AT,
+      },
     });
   });
 
