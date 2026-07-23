@@ -220,6 +220,31 @@ describe("useAgentDialog suggestions", () => {
     expect("yolo" in addAgentPane.mock.calls[1][1]).toBe(false);
   });
 
+  it("a remote result creates a bare pane carrying the endpoint (no cwd/location)", async () => {
+    const ws = workspace({});
+    const addAgentPane = vi.fn();
+    const deck = { workspaces: [ws], addAgentPane } as unknown as Deck;
+    await act(async () => root.render(createElement(Host, { deck })));
+
+    await act(async () => flow.openFor(ws));
+    await act(async () => {
+      flow.confirm({
+        agentType: "codex",
+        name: "vps agent",
+        location: { kind: "main" },
+        yolo: false,
+        remoteEndpoint: "ws://vps:4500",
+      });
+    });
+
+    expect(addAgentPane).toHaveBeenCalledTimes(1);
+    const pane = addAgentPane.mock.calls[0][1];
+    expect(pane).toMatchObject({ agentType: "codex", remoteEndpoint: "ws://vps:4500" });
+    // Bare pane — no local cwd/provisioning (the agent's cwd is on the box).
+    expect(pane.cwd).toBeUndefined();
+    expect(pane.provisioning).toBeUndefined();
+  });
+
   it("does not open after the workspace is replaced during repo inspection", async () => {
     const old = workspace({});
     let finishInspection!: (value: {

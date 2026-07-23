@@ -141,6 +141,33 @@ describe("codex plugin hooks", () => {
     await agent.hooks["spawn.plan"]!(input, spawn);
     expect(spawn.args.some((a) => a === "--remote")).toBe(false);
   });
+
+  it("combines --remote and YOLO on a fresh spawn (order: remote, then bypass)", async () => {
+    // Security-adjacent: a reorder must not silently drop --remote (which
+    // would run locally) nor the bypass flag (approvals on the remote server).
+    const agent = activate(null);
+    const target = { kind: "nativeServer" as const, endpoint: "ws://vps:4500" };
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, target, yolo: true }, spawn);
+    expect(spawn.args).toEqual([
+      "--remote",
+      "ws://vps:4500",
+      "--dangerously-bypass-approvals-and-sandbox",
+    ]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, target, yolo: true, sessionId: "uuid-9" },
+      resume,
+    );
+    expect(resume.args).toEqual([
+      "--remote",
+      "ws://vps:4500",
+      "--dangerously-bypass-approvals-and-sandbox",
+      "resume",
+      "uuid-9",
+    ]);
+  });
 });
 
 describe("codex plugin identity", () => {
