@@ -54,6 +54,7 @@ describe("codex plugin hooks", () => {
 
     const resume = output();
     await agent.hooks["resume.plan"]!({ ...input, sessionId: "uuid-9" }, resume);
+    expect(resume.args).toContain("disable_paste_burst=true");
     // The override precedes the `resume` subcommand (it is a global `-c`).
     expect(resume.args.indexOf("disable_paste_burst=true")).toBeLessThan(
       resume.args.indexOf("resume"),
@@ -64,6 +65,7 @@ describe("codex plugin hooks", () => {
       { ...input, sessionId: "uuid-9", sourceCwd: "/x" },
       fork,
     );
+    expect(fork.args).toContain("disable_paste_burst=true");
     expect(fork.args.indexOf("disable_paste_burst=true")).toBeLessThan(
       fork.args.indexOf("fork"),
     );

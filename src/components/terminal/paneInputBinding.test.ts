@@ -16,8 +16,9 @@ describe("terminalPaneInput", () => {
     input.paste!("fix the header");
 
     expect(paste).toHaveBeenCalledWith("fix the header");
-    // A paste must not double-deliver through the raw PTY writer — that is the
-    // original bug (bare raw stream dropped by bracketed-paste TUIs).
+    // A paste must not double-deliver through the raw PTY writer — the PASTE
+    // channel exists so a paste keeps xterm's bracketed framing; the TYPE/raw
+    // channel is for keystroke-style input (see pane.write mode:"type").
     expect(writeRaw).not.toHaveBeenCalled();
   });
 

@@ -51,10 +51,12 @@ export function paneInputReady(id: string): boolean {
 }
 
 /** Write text into a pane's session as RAW bytes (TYPE channel — keystroke
- * semantics, no paste framing). The name carries the caveat: a NEW caller
- * sending programmatic TEXT almost always wants `pasteToPane` instead, or a
- * bracketed-paste TUI (opencode) will drop the bare stream. Returns false if
- * no such pane is live. */
+ * semantics, no paste framing). Printable bytes and LF (0x0A, a soft newline
+ * in every supported agent) land inline and editable; CONTROL bytes are NOT
+ * safe — CR (0x0D) submits, and opencode drops every byte <32. So a raw
+ * caller MUST normalise line endings to LF first (see pane.write mode:"type").
+ * For framed block delivery use `pasteToPane` instead. Returns false if no
+ * such pane is live. */
 export function writeRawToPane(id: string, text: string): boolean {
   const input = entries.get(id);
   if (!input) return false;

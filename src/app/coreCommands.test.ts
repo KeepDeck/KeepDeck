@@ -367,6 +367,19 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(written).toEqual(["hello"]);
   });
 
+  it("rejects an unknown mode value instead of silently falling back to paste", async () => {
+    const { registry } = setup([twoPanes()]);
+    const off = registerPaneInput("p2", { write: () => {}, paste: () => {} });
+    const bad = await registry.execute(
+      "pane.write",
+      { agent: "reviewer", text: "hello", mode: "raw" },
+      HOST,
+    );
+    off();
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error.message).toContain("unknown pane.write mode");
+  });
+
   it("write without a live session fails; without a selection it refuses", async () => {
     const { registry } = setup([twoPanes()]);
     const dead = await registry.execute(
