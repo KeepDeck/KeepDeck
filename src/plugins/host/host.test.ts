@@ -595,6 +595,31 @@ describe("agent availability gate", () => {
     });
     expect(install.load).not.toHaveBeenCalled();
   });
+
+  it("a concurrent second enable during detection does not clobber the first activation", async () => {
+    const { deps, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => true);
+    const resolvers: Array<() => void> = [];
+    deps.refreshAgentBins = vi.fn(
+      () => new Promise<void>((resolve) => resolvers.push(resolve)),
+    );
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+    await host.activateAll();
+    await host.setEnabled("keepdeck.kimi", false);
+
+    // Both clicks pass the disabled guard and suspend in the refresh…
+    const first = host.setEnabled("keepdeck.kimi", true);
+    const second = host.setEnabled("keepdeck.kimi", true);
+    expect(deps.refreshAgentBins).toHaveBeenCalledTimes(2);
+    resolvers.forEach((resolve) => resolve());
+    await Promise.all([first, second]);
+
+    // …but only one activation happens; the loser returns on the re-check.
+    expect(install.load).toHaveBeenCalledTimes(2); // boot activation + this one
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
 });
 
 

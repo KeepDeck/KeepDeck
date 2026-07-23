@@ -230,6 +230,10 @@ export class PluginHost {
       // the toggle" activates without an app restart.
       const bins = declaredAgentBins(entry.manifest);
       if (bins.length > 0) await this.deps.refreshAgentBins?.(bins);
+      // Re-check after the await: while suspended, a concurrent enable may
+      // have owned the flip and activated already — proceeding would clobber
+      // its `active` back to `registered` and double-register everything.
+      if (entry.status.kind !== "disabled") return;
       entry.status = { kind: "registered" };
       this.deps.onEnabledChanged?.(id, true);
       this.notify();
