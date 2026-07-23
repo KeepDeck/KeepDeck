@@ -77,7 +77,7 @@ export function useJournalFork(
     if (!ws) return;
     // An explicit override (a spawn dialog with a YOLO toggle) wins; bare
     // browser forks pass nothing and keep inheriting the source session's mode.
-    const yoloArmed = opts?.yolo ?? Boolean(record.yolo);
+    const yoloArmed = opts?.yolo ?? record.yolo;
     // Double-click guard only — forking the same session repeatedly is
     // legitimate (each fork is a fresh copy), racing two at once is not.
     if (inFlight.current.has(record.sessionId)) return;
