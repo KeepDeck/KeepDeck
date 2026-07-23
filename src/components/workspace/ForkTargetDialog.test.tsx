@@ -85,6 +85,7 @@ describe("ForkTargetDialog", () => {
           record: RECORD,
           agents: AGENTS,
           workspaceCwd: WS_CWD,
+          defaultYolo: false,
           probe: (path: string) => {
             void path;
             return Promise.resolve(probeResult);
@@ -196,5 +197,88 @@ describe("ForkTargetDialog", () => {
     expect(forkBtn().disabled).toBe(true);
     submit();
     expect(confirmed).toEqual([]);
+  });
+});
+
+describe("ForkTargetDialog YOLO toggle", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let confirmed: Array<{ target: ForkTarget; yolo: boolean }>;
+
+  // codex is the forked agent; flipping supportsYolo hides/shows the toggle.
+  let agents: AgentInfo[];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    confirmed = [];
+    agents = [{ id: "codex", label: "Codex", supportsYolo: true }] as unknown as AgentInfo[];
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  const mount = (defaultYolo: boolean) =>
+    act(() =>
+      root.render(
+        createElement(ForkTargetDialog, {
+          record: RECORD,
+          agents,
+          workspaceCwd: WS_CWD,
+          defaultYolo,
+          // An empty path is valid (the workspace folder) — enough to submit.
+          probe: () => Promise.resolve(MISSING),
+          occupancy: () => null,
+          pickFolder: () => Promise.resolve(null),
+          onConfirm: (target: ForkTarget, yolo: boolean) => confirmed.push({ target, yolo }),
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+  const yoloCheckbox = () =>
+    document.querySelector<HTMLInputElement>(".form__yolo input");
+
+  it("renders — prefilled from the global default — when the agent supports it", () => {
+    mount(true);
+    expect(yoloCheckbox()).not.toBeNull();
+    expect(yoloCheckbox()!.checked).toBe(true);
+  });
+
+  it("is hidden for an agent whose plugin declares no YOLO support", () => {
+    agents = [{ id: "codex", label: "Codex", supportsYolo: false }] as unknown as AgentInfo[];
+    mount(true);
+    expect(yoloCheckbox()).toBeNull();
+  });
+
+  it("rides the resolved choice onto onConfirm, gated by capability", () => {
+    mount(false);
+    expect(yoloCheckbox()!.checked).toBe(false);
+
+    // Off → yolo false (the workspace-folder target is valid on an empty path).
+    submit();
+    expect(confirmed).toEqual([
+      { target: { kind: "dir", cwd: WS_CWD }, yolo: false },
+    ]);
+
+    // Flip on → yolo true reaches the caller.
+    click(yoloCheckbox()!);
+    submit();
+    expect(confirmed[1]).toEqual({
+      target: { kind: "dir", cwd: WS_CWD },
+      yolo: true,
+    });
+  });
+
+  it("never submits YOLO when the agent lacks support, even if the default was on", () => {
+    agents = [{ id: "codex", label: "Codex", supportsYolo: false }] as unknown as AgentInfo[];
+    mount(true);
+    submit();
+    // No toggle was shown, so onConfirm's yolo is forced false regardless of
+    // the prefilled default.
+    expect(confirmed[0].yolo).toBe(false);
   });
 });

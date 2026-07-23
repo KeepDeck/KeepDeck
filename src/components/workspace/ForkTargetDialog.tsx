@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo } from "../../domain/agents";
 import {
+  agentSupportsYolo,
   canCreateAgent,
   classifyLocation,
   type LocationKind,
@@ -12,6 +13,7 @@ import { baseName } from "../../domain/deck";
 import type { ForkTarget } from "../../app/useJournalFork";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
+import { YoloField } from "../../ui/YoloField";
 import { noAutoCorrect } from "../../ui/inputProps";
 
 interface ForkTargetDialogProps {
@@ -19,13 +21,16 @@ interface ForkTargetDialogProps {
   agents: AgentInfo[];
   /** The workspace's own folder — the empty-path default target. */
   workspaceCwd: string;
+  /** The YOLO toggle's starting position (the global preference); shown
+   * only while the forked agent's plugin declares YOLO support. */
+  defaultYolo: boolean;
   /** Probe a candidate path for the live hint (injected, like AgentDialog). */
   probe(path: string): Promise<PathProbe | null>;
   /** Whether a deck pane already runs in / targets `path`. */
   occupancy(path: string): Occupancy;
   /** Native folder picker; `null` = cancelled. */
   pickFolder(title: string): Promise<string | null>;
-  onConfirm(target: ForkTarget): void;
+  onConfirm(target: ForkTarget, yolo: boolean): void;
   onCancel(): void;
 }
 
@@ -37,6 +42,7 @@ export function ForkTargetDialog({
   record,
   agents,
   workspaceCwd,
+  defaultYolo,
   probe,
   occupancy,
   pickFolder,
@@ -45,6 +51,10 @@ export function ForkTargetDialog({
 }: ForkTargetDialogProps) {
   const [path, setPath] = useState("");
   const [branch, setBranch] = useState("");
+  // The toggle's state survives an agent swap elsewhere; only the SUBMITTED
+  // value is gated (see `supportsYolo` below) — same rule as the AgentDialog.
+  const [yolo, setYolo] = useState(defaultYolo);
+  const supportsYolo = agentSupportsYolo(agents, record.agent);
   const [probed, setProbed] = useState<PathProbe | null>(null);
   const probeSeq = useRef(0);
   const trimmed = path.trim();
@@ -116,7 +126,7 @@ export function ForkTargetDialog({
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid) onConfirm(buildTarget());
+          if (valid) onConfirm(buildTarget(), yolo && supportsYolo);
         }}
       >
         <h2 className="form__title">Fork session</h2>
@@ -169,6 +179,8 @@ export function ForkTargetDialog({
             />
           </>
         )}
+
+        {supportsYolo && <YoloField checked={yolo} onChange={setYolo} />}
 
         <div className="form__actions">
           <button type="button" className="form__cancel" onClick={onCancel}>
