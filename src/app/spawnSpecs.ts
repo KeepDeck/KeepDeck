@@ -133,6 +133,7 @@ async function buildPlan(
     ...(facts.branch ? { branch: facts.branch } : {}),
     ...(facts.yolo ? { yolo: true } : {}),
     ...(skills ? { skills } : {}),
+    ...(facts.target ? { target: facts.target } : {}),
   };
   try {
     if (variant.kind === "resume") {
@@ -350,6 +351,14 @@ export function usePaneSpawnSpecs(
               branch: pane.branch,
               yolo: pane.yolo,
               wsSkillRoots,
+              ...(pane.remoteEndpoint
+                ? {
+                    target: {
+                      kind: "nativeServer" as const,
+                      endpoint: pane.remoteEndpoint,
+                    },
+                  }
+                : {}),
             },
             ctx,
           ),

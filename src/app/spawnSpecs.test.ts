@@ -169,8 +169,42 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
       "restore",
     );
     // Armed pane spawns with it, plain pane WITHOUT it (absent, not false —
-    // the wire shape stays sparse), and a resume carries it the same way.
+    // the wire shapes stay sparse), and a resume carries it the same way.
     expect(inputs.sort()).toEqual([true, true, undefined]);
+  });
+
+  it("threads a pane's remoteEndpoint to the hook as a nativeServer target", async () => {
+    const targets: Array<unknown> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          targets.push(input.target);
+        },
+      },
+    });
+    await mount(
+      ws([{ id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" }]),
+    );
+    await settle();
+    expect(targets).toEqual([
+      { kind: "nativeServer", endpoint: "ws://vps:4500" },
+    ]);
+  });
+
+  it("omits target when the pane has no remoteEndpoint (local pane)", async () => {
+    const targets: Array<unknown> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          targets.push(input.target);
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(targets).toEqual([undefined]);
   });
 
   it("staged skills reach the hook input on spawn AND resume", async () => {

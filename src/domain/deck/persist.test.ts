@@ -32,6 +32,7 @@ const state: DeckState = {
           cwd: "/repo/wt-3",
           branch: "kd/ws/3",
           autoTitle: "fixing auth",
+          remoteEndpoint: "ws://vps:4500",
           session: { id: "abc-123", boundAt: "2026-07-02T00:00:00Z" },
         },
         { id: "pane-7", agentType: "codex" },
@@ -66,6 +67,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     expect(pane.cwd).toBe("/repo/wt-3");
     expect(pane.branch).toBe("kd/ws/3");
     expect(pane.autoTitle).toBe("fixing auth");
+    expect(pane.remoteEndpoint).toBe("ws://vps:4500");
     expect(pane.session).toEqual({ id: "abc-123", boundAt: "2026-07-02T00:00:00Z" });
   });
 

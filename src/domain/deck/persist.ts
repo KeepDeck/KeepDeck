@@ -104,6 +104,7 @@ export function serializeDeck(
           ...(p.agentType !== undefined && { agentType: p.agentType }),
           // Sparse like setup: only the armed mode hits disk.
           ...(p.yolo === true && { yolo: true }),
+          ...(p.remoteEndpoint !== undefined && { remoteEndpoint: p.remoteEndpoint }),
           ...(p.cwd !== undefined && { cwd: p.cwd }),
           ...(p.branch !== undefined && { branch: p.branch }),
           ...(p.name !== undefined && { name: p.name }),
@@ -246,6 +247,7 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "id",
   "agentType",
   "yolo",
+  "remoteEndpoint",
   "cwd",
   "branch",
   "name",
@@ -312,6 +314,7 @@ function readPane(value: unknown): Pane | null {
   // Strictly `true` — any other value degrades to the safe default (off),
   // matching the sparse write above.
   if (value.yolo === true) pane.yolo = true;
+  if (typeof value.remoteEndpoint === "string") pane.remoteEndpoint = value.remoteEndpoint;
   if (typeof value.cwd === "string") pane.cwd = value.cwd;
   if (typeof value.branch === "string") pane.branch = value.branch;
   if (typeof value.name === "string") pane.name = value.name;

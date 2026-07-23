@@ -71,6 +71,11 @@ export interface Pane {
    * at creation from the dialog/form choice and persisted: a revive or resume
    * must come back in the mode the user created the pane with. */
   yolo?: boolean;
+  /** When set, the pane's agent runs against a REMOTE native-server endpoint
+   * (a local thin-client attached to a server on a VPS) instead of locally.
+   * Fixed at creation from the spawn dialog's "Where: Remote" choice and
+   * persisted — a revive/resume reconnects the client to the same endpoint. */
+  remoteEndpoint?: string;
   /** User-set display name; overrides everything ([F11] manual rename). */
   name?: string;
   /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
