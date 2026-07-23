@@ -388,36 +388,49 @@ function readSummaries(
   }
   const read: ContributionSummary[] = [];
   value.forEach((entry, i) => {
-    if (
-      !isRecord(entry) ||
-      typeof entry.id !== "string" ||
-      !entry.id.trim() ||
-      typeof entry.label !== "string" ||
-      !entry.label.trim()
-    ) {
-      errors.push(`contributes.${key}[${i}]: needs string "id" and "label"`);
-      return;
-    }
-    // A contribution id is used as a URL path component (an external dock
-    // tab's `<id>.html` document) and as a registry key, so it must be a
-    // plain token — no slashes, dots, or whitespace that could address a
-    // different path under the plugin's origin.
-    if (!CONTRIB_ID.test(entry.id)) {
-      errors.push(
-        `contributes.${key}[${i}]: id "${entry.id}" must be alphanumerics, "-" or "_" only`,
-      );
-      return;
-    }
-    read.push({ id: entry.id, label: entry.label });
+    const summary = readSummaryEntry(entry, key, i, errors);
+    if (summary) read.push(summary);
   });
   return read.length > 0 ? read : undefined;
 }
 
-/** Agent summaries share the base {id, label} rules and add the optional
- * `bin` — when present it must be a non-empty plain program name (it is
- * resolved against PATH at detection time, so no paths or whitespace). One
- * pass over the raw entries: joining `bin` back by index across a filtered
- * intermediate would misalign fields the moment an invalid sibling drops. */
+/** Validate one summary entry's base `{id, label}`; null (with the error
+ * recorded) when invalid. The SINGLE source of the id rule — a contribution
+ * id is used as a URL path component (an external dock tab's `<id>.html`
+ * document) and as a registry key, so it must be a plain token; kind-specific
+ * readers (agents add `bin`) build on this so the rule can never drift
+ * between contribution kinds. */
+function readSummaryEntry(
+  entry: unknown,
+  key: string,
+  i: number,
+  errors: string[],
+): ContributionSummary | null {
+  if (
+    !isRecord(entry) ||
+    typeof entry.id !== "string" ||
+    !entry.id.trim() ||
+    typeof entry.label !== "string" ||
+    !entry.label.trim()
+  ) {
+    errors.push(`contributes.${key}[${i}]: needs string "id" and "label"`);
+    return null;
+  }
+  if (!CONTRIB_ID.test(entry.id)) {
+    errors.push(
+      `contributes.${key}[${i}]: id "${entry.id}" must be alphanumerics, "-" or "_" only`,
+    );
+    return null;
+  }
+  return { id: entry.id, label: entry.label };
+}
+
+/** Agent summaries share the base {id, label} rules (readSummaryEntry) and
+ * add the optional `bin` — when present it must be a non-empty plain program
+ * name (it is resolved against PATH at detection time, so no paths or
+ * whitespace). One pass over the raw entries: joining `bin` back by index
+ * across a filtered intermediate would misalign fields the moment an invalid
+ * sibling drops. */
 function readAgentSummaries(
   value: unknown,
   errors: string[],
@@ -429,33 +442,20 @@ function readAgentSummaries(
   }
   const read: AgentContributionSummary[] = [];
   value.forEach((entry, i) => {
-    if (
-      !isRecord(entry) ||
-      typeof entry.id !== "string" ||
-      !entry.id.trim() ||
-      typeof entry.label !== "string" ||
-      !entry.label.trim()
-    ) {
-      errors.push(`contributes.agents[${i}]: needs string "id" and "label"`);
+    const summary = readSummaryEntry(entry, "agents", i, errors);
+    if (!summary) return;
+    const bin = isRecord(entry) ? entry.bin : undefined;
+    if (bin === undefined) {
+      read.push(summary);
       return;
     }
-    if (!CONTRIB_ID.test(entry.id)) {
-      errors.push(
-        `contributes.agents[${i}]: id "${entry.id}" must be alphanumerics, "-" or "_" only`,
-      );
-      return;
-    }
-    if (entry.bin === undefined) {
-      read.push({ id: entry.id, label: entry.label });
-      return;
-    }
-    if (typeof entry.bin !== "string" || !CONTRIB_ID.test(entry.bin)) {
+    if (typeof bin !== "string" || !CONTRIB_ID.test(bin)) {
       errors.push(
         `contributes.agents[${i}]: bin must be a plain program name (alphanumerics, "-" or "_")`,
       );
       return;
     }
-    read.push({ id: entry.id, label: entry.label, bin: entry.bin });
+    read.push({ ...summary, bin });
   });
   return read.length > 0 ? read : undefined;
 }
