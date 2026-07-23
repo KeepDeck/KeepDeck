@@ -163,27 +163,29 @@ export function VoiceTab() {
         )}
         {snap.history.map((entry) => {
           const key = `${entry.at}-${entry.text}`;
-          const rowFeedback =
-            feedback?.key === key ? feedback : null;
+          const rowFeedback = feedback?.key === key ? feedback : null;
+          // One derivation of the flash variant + its label drives the class,
+          // the title, and the row text (kept in sync by construction).
+          const variant = rowFeedback
+            ? rowFeedback.ok
+              ? "copied"
+              : "failed"
+            : null;
+          const label =
+            variant === "copied"
+              ? "Copied"
+              : variant === "failed"
+                ? "Copy failed"
+                : null;
           return (
             <div
               key={key}
               className={`voice__entry voice__entry--${entry.tone}${
-                rowFeedback
-                  ? rowFeedback.ok
-                    ? " voice__entry--copied"
-                    : " voice__entry--failed"
-                  : ""
+                variant ? ` voice__entry--${variant}` : ""
               }`}
               role="button"
               tabIndex={0}
-              title={
-                rowFeedback
-                  ? rowFeedback.ok
-                    ? "Copied"
-                    : "Copy failed"
-                  : "Click to copy"
-              }
+              title={label ?? "Click to copy"}
               onClick={(event) => {
                 // Bail only for a selection inside THIS row (a drag-select in
                 // progress); a selection elsewhere is unrelated and must not
@@ -207,13 +209,7 @@ export function VoiceTab() {
               }}
             >
               <span className="voice__tone">{TONE_GLYPH[entry.tone]}</span>
-              <span className="voice__text">
-                {rowFeedback
-                  ? rowFeedback.ok
-                    ? "Copied"
-                    : "Copy failed"
-                  : entry.text}
-              </span>
+              <span className="voice__text">{label ?? entry.text}</span>
             </div>
           );
         })}
