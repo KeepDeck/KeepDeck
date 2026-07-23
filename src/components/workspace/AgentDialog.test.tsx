@@ -2,7 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentDialog, remoteValid } from "./AgentDialog";
+import { AgentDialog } from "./AgentDialog";
+import { remoteValid } from "../../domain/agents";
 import type {
   AgentDialogResult,
   Occupancy,

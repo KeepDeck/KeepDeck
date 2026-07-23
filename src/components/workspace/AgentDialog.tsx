@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentRemoteSchemes,
-  agentSupportsRemote,
   agentSupportsYolo,
   canCreateAgent,
+  remoteValid,
   canStartFromSession,
   classifyLocation,
   isKnownBaseBranch,
@@ -93,25 +93,6 @@ interface AgentDialogProps {
   sessionClaim(sessionId: string): "running" | "dormant" | null;
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
-}
-
-/** Whether `raw` is a usable remote-server endpoint for an agent that speaks
- *  `schemes`: parses as a URL, has a non-empty host, and its scheme is one the
- *  agent declares (codex ws/wss, opencode http/https). null/empty `schemes` =
- *  no remote support → always false. Pure so the gate stays unit-testable. */
-export function remoteValid(
-  raw: string,
-  schemes: readonly string[] | null,
-): boolean {
-  if (!schemes || schemes.length === 0) return false;
-  let url: URL;
-  try {
-    url = new URL(raw.trim());
-  } catch {
-    return false;
-  }
-  const scheme = url.protocol.slice(0, -1); // "ws:" → "ws"
-  return !!url.hostname && schemes.includes(scheme);
 }
 
 /**
@@ -345,15 +326,17 @@ export function AgentDialog({
   }, [path, repo]);
 
   const supportsYolo = agentSupportsYolo(agents, agentType);
-  const canRemote = agentSupportsRemote(agents, agentType);
+  // The schemes the selected agent speaks (codex ws/wss, opencode http/https)
+  // — null when the agent is local-only OR declares remote with no schemes.
+  // canRemote keys off this (not just supportsRemote) so a malformed empty-
+  // schemes declaration doesn't dangle a "Remote" option whose Create can
+  // never enable.
+  const remoteSchemes = agentRemoteSchemes(agents, agentType);
+  const canRemote = remoteSchemes !== null;
   // `remote` is only on while the selected agent can honor it; switching to a
   // non-remote agent silently drops it (the Where section hides), and the
   // submitted value is gated here so an unsupported agent never gets a target.
   const remote = where === "remote" && canRemote;
-  // The schemes the selected agent speaks (codex ws/wss, opencode http/https).
-  // Used to validate the pasted endpoint so the agent isn't paired with a
-  // scheme it can't speak — and to require a real host.
-  const remoteSchemes = agentRemoteSchemes(agents, agentType);
   const endpointOk = remoteValid(endpoint, remote ? remoteSchemes : null);
   const occupancy = repo && path.trim() ? occupancyAt(path) : null;
   const kind = repo
@@ -682,11 +665,13 @@ export function AgentDialog({
             Cancel
           </button>
           <button type="submit" className="form__create" disabled={!valid}>
-            {startMode === "resume"
-              ? "Resume session"
-              : startMode === "fork"
-                ? "Fork session"
-                : "Create agent"}
+            {remote
+              ? "Create agent"
+              : startMode === "resume"
+                ? "Resume session"
+                : startMode === "fork"
+                  ? "Fork session"
+                  : "Create agent"}
           </button>
         </div>
       </form>

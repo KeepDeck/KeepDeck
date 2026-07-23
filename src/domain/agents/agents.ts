@@ -118,3 +118,23 @@ export function agentRemoteSchemes(
     ? a.remoteSchemes
     : null;
 }
+
+/** Whether `raw` is a usable remote-server endpoint for an agent that speaks
+ *  `schemes`: parses as a URL, has a non-empty host, and its scheme is one the
+ *  agent declares (codex ws/wss, opencode http/https). null/empty `schemes` =
+ *  no remote support → always false. Pure so the gate stays unit-testable, and
+ *  lives with the other dialog gates rather than in a component file. */
+export function remoteValid(
+  raw: string,
+  schemes: readonly string[] | null,
+): boolean {
+  if (!schemes || schemes.length === 0) return false;
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return false;
+  }
+  const scheme = url.protocol.slice(0, -1); // "ws:" → "ws"
+  return !!url.hostname && schemes.includes(scheme);
+}
