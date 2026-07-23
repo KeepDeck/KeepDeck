@@ -11,7 +11,7 @@ import {
   type FileDiff,
 } from "../domain/diff";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
-import { scopeRange } from "../domain/history";
+import { scopeLabel, scopeRange, scopeSha, shortSha } from "../domain/history";
 import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
 
 /**
@@ -41,7 +41,10 @@ export function DiffPeek({
   onClose,
 }: {
   repo: string;
-  row: ChangeRow;
+  /** The row whose diff the peek shows. Null for the brief moment a History
+   * scope is open before its rail has seeded the first file — the body waits,
+   * the header carries the scope label until a file lands. */
+  row: ChangeRow | null;
   /** The change set the row belongs to — the rail lists its files, and a
    * History scope's range is diffed instead of the index. */
   changeSet: ChangeSet;
@@ -50,8 +53,8 @@ export function DiffPeek({
   onSelect: (row: ChangeRow) => void;
   onClose: () => void;
 }) {
-  const range =
-    changeSet.kind === "history" ? scopeRange(changeSet.scope) : undefined;
+  const scope = changeSet.kind === "history" ? changeSet.scope : null;
+  const range = scope ? scopeRange(scope) : undefined;
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Joined flat text compares by VALUE in the hook's deps, so rebuilding the
@@ -59,7 +62,7 @@ export function DiffPeek({
   const showsCode = diff !== null && !diff.binary;
   const tokens = useHighlight(
     showsCode ? flatLines(diff).join("\n") : null,
-    langFor(row.path),
+    row ? langFor(row.path) : null,
   );
   const offsets = showsCode ? hunkOffsets(diff) : [];
 
@@ -67,6 +70,8 @@ export function DiffPeek({
   // file clears it first, so the old hunks never show under the new name.
   const diffKeyRef = useRef("");
   useEffect(() => {
+    // No file to diff yet — the rail seeds the first file of a History scope.
+    if (!row) return;
     const key = `${row.kind}:${row.path}:${range?.from ?? ""}:${range?.to ?? ""}`;
     if (diffKeyRef.current !== key) {
       diffKeyRef.current = key;
@@ -106,18 +111,34 @@ export function DiffPeek({
     return () => {
       cancelled = true;
     };
-  }, [repo, row.path, row.kind, range?.from, range?.to, version]);
+  }, [repo, row?.path, row?.kind, range?.from, range?.to, version]);
 
   return (
     <Peek
-      ariaLabel={`Diff of ${baseName(row.path)}`}
-      name={baseName(row.path)}
-      meta={
-        <span className={`git__badge git__badge--${row.kind}`}>
-          {codeLabel(row.code)}
-        </span>
+      ariaLabel={
+        row
+          ? `Diff of ${baseName(row.path)}`
+          : scope
+            ? scopeLabel(scope)
+            : "Diff"
       }
-      path={row.origPath ? `${row.origPath} → ${row.path}` : row.path}
+      name={row ? baseName(row.path) : scope ? scopeLabel(scope) : ""}
+      meta={
+        row ? (
+          <span className={`git__badge git__badge--${row.kind}`}>
+            {codeLabel(row.code)}
+          </span>
+        ) : scope ? (
+          <span className="git__badge">{shortSha(scopeSha(scope))}</span>
+        ) : null
+      }
+      path={
+        row
+          ? row.origPath
+            ? `${row.origPath} → ${row.path}`
+            : row.path
+          : undefined
+      }
       aside={
         // No rail before the status has ever loaded — an empty column says
         // nothing (a loaded-then-empty worktree still shows its clean note).
@@ -133,13 +154,16 @@ export function DiffPeek({
       }
       onClose={onClose}
     >
-      {!diff && !error && <p className="peek__note">Loading…</p>}
-      {error && <p className="peek__note peek__note--bad">{error}</p>}
-      {diff?.binary && <p className="peek__note">Binary file — no text diff.</p>}
-      {diff && isEmptyDiff(diff) && (
+      {!row && <p className="peek__note">Loading…</p>}
+      {row && !diff && !error && <p className="peek__note">Loading…</p>}
+      {row && error && <p className="peek__note peek__note--bad">{error}</p>}
+      {row && diff?.binary && (
+        <p className="peek__note">Binary file — no text diff.</p>
+      )}
+      {row && diff && isEmptyDiff(diff) && (
         <p className="peek__note">No changes here anymore.</p>
       )}
-      {diff && !diff.binary && (
+      {row && diff && !diff.binary && (
         <div className="git__diff">
           {diff.hunks.map((hunk, h) => (
             // Hunks are positional and never reordered — index keys are

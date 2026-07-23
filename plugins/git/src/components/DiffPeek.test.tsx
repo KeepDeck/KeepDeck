@@ -137,4 +137,41 @@ describe("DiffPeek", () => {
     ).toBe(0);
     expect(rowTexts()).toContain("new words");
   });
+
+  it("with no row yet (a history scope just opened) fetches no diff and waits", async () => {
+    // A commit click opens the peek before any file is chosen — the rail
+    // seeds one; until then the body waits and no diff is read.
+    const diffFile = vi.fn(async () => TS_DIFF);
+    const changedFiles = vi.fn(async () => []);
+    setRuntime({
+      services: {
+        git: { diffFile, changedFiles },
+        fs: { readFile: vi.fn() },
+      },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          row: null,
+          changeSet: {
+            kind: "history",
+            scope: { kind: "commit", sha: "abc1234def", subject: "add feature" },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+
+    expect(diffFile).not.toHaveBeenCalled();
+    expect(host.querySelector(".peek")).toBeTruthy();
+    // The scope has no files, so nothing gets seeded — the body keeps waiting
+    // and the header carries the commit's label in place of a file name.
+    expect(host.textContent).toContain("Loading…");
+    expect(host.textContent).toContain("add feature");
+  });
 });
