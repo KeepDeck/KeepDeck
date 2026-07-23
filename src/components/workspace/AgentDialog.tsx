@@ -28,6 +28,7 @@ import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
 import { Combobox } from "../../ui/Combobox";
 import { AgentGlyph } from "../../ui/AgentGlyph";
+import { YoloField } from "../../ui/YoloField";
 import { AttachIcon, NextIcon } from "../../ui/icons";
 import { dirPresent, useDirPresence } from "../history/useDirPresence";
 
@@ -582,21 +583,7 @@ export function AgentDialog({
           </>
         )}
 
-        {supportsYolo && (
-          <label className="form__yolo">
-            <input
-              type="checkbox"
-              checked={yolo}
-              onChange={(e) => setYolo(e.target.checked)}
-            />
-            <span className="form__yolo-text">
-              YOLO mode
-              <span className="form__yolo-hint">
-                Runs without permission prompts — the agent acts on its own
-              </span>
-            </span>
-          </label>
-        )}
+        {supportsYolo && <YoloField checked={yolo} onChange={setYolo} />}
 
         <div className="form__actions">
           <button type="button" className="form__cancel" onClick={onCancel}>
