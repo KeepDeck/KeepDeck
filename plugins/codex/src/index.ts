@@ -26,6 +26,15 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
 const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-bypass-approvals-and-sandbox"] : [];
 
+/** codex's PasteBurst heuristic collapses fast programmatic input beyond
+ * ~1000 chars into a non-editable [Pasted Content N chars] placeholder. It
+ * exists for terminals that don't surface bracketed paste — KeepDeck's xterm
+ * does, so the fallback is redundant here; disabling it keeps KeepDeck's
+ * typed input (dictation, task delivery) inline and editable. Same `-c`
+ * override as the hook args, same forward-compat (an unknown key is ignored),
+ * and global, so it precedes the `resume`/`fork` subcommand. */
+const disablePasteBurstArgs: string[] = ["-c", "disable_paste_burst=true"];
+
 // Shared skills need NO code here: codex has no flag/env/config door
 // (openai/codex#15149, #22869), but it reads `.agents/skills` from its
 // starting cwd at session start — and the host's staging arms every pane
@@ -58,12 +67,14 @@ const plugin: KeepDeckPlugin = {
         "spawn.plan": async (input, output) => {
           output.args = [
             ...(await hookArgs(ctx.resources)),
+            ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
           ];
         },
         "resume.plan": async (input, output) => {
           output.args = [
             ...(await hookArgs(ctx.resources)),
+            ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
             "resume",
             input.sessionId,
@@ -76,6 +87,7 @@ const plugin: KeepDeckPlugin = {
         "fork.plan": async (input, output) => {
           output.args = [
             ...(await hookArgs(ctx.resources)),
+            ...disablePasteBurstArgs,
             ...yoloArgs(input.yolo),
             "fork",
             input.sessionId,
