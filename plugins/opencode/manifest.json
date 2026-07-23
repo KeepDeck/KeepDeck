@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "minApiVersion": 25,
   "category": "cli",
-  "description": "Teaches KeepDeck the OpenCode CLI: catalog identity and detection; spawn, resume and session identity move in next.",
+  "description": "Teaches KeepDeck the OpenCode CLI: identity and detection, spawn/resume/fork with session relocation, session-store history, and pane usage.",
   "capabilities": [
     { "kind": "exec", "commands": ["opencode"] },
     { "kind": "sqliteReadonly", "paths": ["~/.local/share/opencode"] },

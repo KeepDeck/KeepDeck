@@ -67,7 +67,9 @@ describe("remintId", () => {
 });
 
 describe("rekeyExport", () => {
-  it("relocates the directory and forks the title", () => {
+  it("sets info.directory (the declared field) and forks the title", () => {
+    // NOTE: import binds the real directory from its launch CWD (see fork.ts);
+    // info.directory is set only so the clone's declared dir is honest.
     const { rekeyed } = rekeyExport(sample(), {
       directory: "/new/target",
       bytes: counterBytes(),
@@ -116,7 +118,7 @@ describe("rekeyExport", () => {
     expect(src).toEqual(snapshot);
   });
 
-  it("leaves an empty/absent title alone (no ' (fork)' on nothing)", () => {
+  it("leaves an empty title alone (no ' (fork)' on nothing)", () => {
     const noTitle = sample();
     noTitle.info.title = "";
     const { rekeyed } = rekeyExport(noTitle, {
@@ -124,5 +126,76 @@ describe("rekeyExport", () => {
       bytes: counterBytes(),
     });
     expect(rekeyed.info.title).toBe("");
+  });
+
+  it("leaves an absent (undefined) title alone", () => {
+    const noTitle = sample();
+    delete noTitle.info.title;
+    const { rekeyed } = rekeyExport(noTitle, {
+      directory: "/t",
+      bytes: counterBytes(),
+    });
+    expect(rekeyed.info.title).toBeUndefined();
+  });
+
+  it("preserves part order within a message (realistic ids differ within the kept prefix)", () => {
+    // Real opencode part ids carry a monotonic 12-hex body inside the first 16
+    // chars, so parts of one message differ THERE; keeping that prefix keeps
+    // their relative order regardless of the reminted random tail.
+    const doc: OpencodeExport = {
+      info: { id: SRC, directory: "/d", title: "t" },
+      messages: [
+        {
+          info: { id: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, role: "assistant" },
+          parts: [
+            { id: "prt_f2461db4d001zzzzzzzzzzzzzz", messageID: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, type: "text" },
+            { id: "prt_f2461db4d002zzzzzzzzzzzzzz", messageID: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, type: "text" },
+            { id: "prt_f2461db4d003zzzzzzzzzzzzzz", messageID: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, type: "text" },
+          ],
+        },
+      ],
+    };
+    const { rekeyed } = rekeyExport(doc, { directory: "/t", bytes: counterBytes() });
+    const ids = rekeyed.messages[0].parts!.map((p) => p.id as string);
+    // opencode orders parts by id; the reminted ids must sort in the same order.
+    expect([...ids].sort()).toEqual(ids);
+  });
+
+  it("handles a message with parts absent, a part with no id, and empty messages", () => {
+    const doc: OpencodeExport = {
+      info: { id: SRC, directory: "/d", title: "t" },
+      messages: [
+        // parts key entirely absent
+        { info: { id: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, role: "assistant" } },
+        // a part with no id — remint must skip it, still re-link the session
+        {
+          info: { id: "msg_f2461db59001yU4L8wO2GP6bj9", sessionID: SRC, role: "user" },
+          parts: [{ sessionID: SRC, type: "text", text: "x" }],
+        },
+      ],
+    };
+    const { rekeyed, newSessionId } = rekeyExport(doc, { directory: "/t", bytes: counterBytes() });
+    expect(rekeyed.messages[0].parts).toBeUndefined();
+    expect(rekeyed.messages[1].parts![0].id).toBeUndefined(); // no id → not minted
+    expect(rekeyed.messages[1].parts![0].sessionID).toBe(newSessionId); // still re-linked
+
+    const empty = rekeyExport(
+      { info: { id: SRC, directory: "/d", title: "t" }, messages: [] },
+      { directory: "/t", bytes: counterBytes() },
+    );
+    expect(empty.rekeyed.messages).toEqual([]);
+    expect(empty.newSessionId).not.toBe(SRC);
+  });
+
+  it("throws LOUDLY on an unexpected id layout (opencode format drift)", () => {
+    const bytes = counterBytes();
+    expect(() => remintId("no-underscore-here", bytes)).toThrow("unexpected opencode id layout");
+    expect(() => remintId("UPPER_prefix123456", bytes)).toThrow("unexpected opencode id layout");
+    // A drifted session id surfaces the same way through rekeyExport.
+    const bad = sample();
+    bad.info.id = "weirdformat";
+    expect(() => rekeyExport(bad, { directory: "/t", bytes: counterBytes() })).toThrow(
+      "unexpected opencode id layout",
+    );
   });
 });

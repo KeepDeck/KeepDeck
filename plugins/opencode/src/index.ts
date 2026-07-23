@@ -12,7 +12,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { opencodeHistory } from "./history";
-import { opencodeForkPlan, targetExists } from "./fork";
+import { relocatingForkId } from "./fork";
 import { normalizeOpencodeUsage } from "./usage";
 
 /** The per-invocation config injecting the reporter; `[]` when the reporter
@@ -74,20 +74,16 @@ const plugin: KeepDeckPlugin = {
         // Native `-s <id> --fork` re-homes the fork to the SOURCE session's
         // directory, ignoring the target (probe-verified, 1.18.4). So a
         // RELOCATING fork goes through export→rekey→import (see `fork.ts`),
-        // which binds the new session's directory to the target. That import
-        // must run FROM the target, so it needs the target on disk: a
-        // workspace-folder / existing-worktree target qualifies; a
-        // not-yet-provisioned worktree does not and falls back to native
-        // `--fork` (the known provision-first follow-up).
+        // binding the new session's directory to the target. `relocatingForkId`
+        // returns the relocated session's id, or null (native `--fork`
+        // fallback) for a not-yet-provisioned worktree OR any recipe failure.
         "fork.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
-          if (await targetExists(ctx, input.cwd)) {
-            const newId = await opencodeForkPlan(ctx, input);
-            output.args = [...yoloArgs(input.yolo), "-s", newId];
-          } else {
-            output.args = [...yoloArgs(input.yolo), "-s", input.sessionId, "--fork"];
-          }
+          const relocated = await relocatingForkId(ctx, input);
+          output.args = relocated
+            ? [...yoloArgs(input.yolo), "-s", relocated]
+            : [...yoloArgs(input.yolo), "-s", input.sessionId, "--fork"];
         },
       },
     });

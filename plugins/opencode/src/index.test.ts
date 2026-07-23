@@ -16,6 +16,7 @@ function activate(
   plugin.activate({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
     resources: { path: async () => reporterPath },
+    log: { info() {}, warn() {}, error() {} },
     ...(services ? { services } : {}),
   } as unknown as PluginContext);
   if (!agent) throw new Error("plugin registered no agent");
@@ -25,8 +26,10 @@ function activate(
 /** A services stub for the fork hook. `targetMissing` makes the target look
  * un-provisioned (native fallback); otherwise `sessions.spawn` fakes
  * export→import so the relocating recipe returns a minted id. */
-function forkServices(opts?: { targetMissing?: boolean }) {
-  const SRC = "ses_x";
+function forkServices(opts?: { targetMissing?: boolean; importFails?: boolean }) {
+  // A realistic (guard-valid) exported session id; the reminted clone id is
+  // what fork.plan resumes. Distinct from the input `ses_x` passed to export.
+  const SRC = "ses_0db9e24cbffej1WlbsRKynAHf3";
   const writes = new Map<string, string>();
   const enc = (s: string) => new TextEncoder().encode(s);
   return {
@@ -46,11 +49,12 @@ function forkServices(opts?: { targetMissing?: boolean }) {
           if (o.args[0] === "export") {
             const doc = { info: { id: SRC, directory: "/src", title: "t" }, messages: [] };
             onEvent({ type: "output", bytes: enc(`Exporting session: ${SRC}\r\n${JSON.stringify(doc)}`) });
+            onEvent({ type: "exit", code: 0 });
           } else {
             const id = JSON.parse(writes.get(o.args[1]) ?? "{}").info.id as string;
-            onEvent({ type: "output", bytes: enc(`Imported session: ${id}\r\n`) });
+            onEvent({ type: "output", bytes: enc(opts?.importFails ? "error\r\n" : `Imported session: ${id}\r\n`) });
+            onEvent({ type: "exit", code: opts?.importFails ? 1 : 0 });
           }
-          onEvent({ type: "exit", code: 0 });
         });
         return { id: "h", write: async () => {}, resize: async () => {}, close: async () => {} };
       },
@@ -161,6 +165,17 @@ describe("opencode plugin hooks", () => {
     );
     expect(yolo.args[0]).not.toBe("-s");
     expect(yolo.args.slice(-3)).toEqual(["-s", "ses_x", "--fork"]);
+  });
+
+  it("falls back to native -s --fork when the relocating recipe FAILS (no hard-fail)", async () => {
+    const agent = activate("/App/resources/session-reporter.js", forkServices({ importFails: true }));
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
+      out,
+    );
+    // A recipe error degrades to native, never throws out of the hook.
+    expect(out.args).toEqual(["-s", "ses_x", "--fork"]);
   });
 
   it("degrades to a bare spawn when the reporter is missing", async () => {

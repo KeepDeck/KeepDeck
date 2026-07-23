@@ -55,6 +55,14 @@ function randomTail(n: number, bytes: (len: number) => Uint8Array): string {
   return out;
 }
 
+/** opencode's id shape: `<prefix>_<body>` (e.g. `ses_…`, `msg_…`, `prt_…`;
+ * the store's synthetic `prt_0000000000_thinking` sentinel carries an extra
+ * `_`, hence `_` is allowed in the body). Guards the KEEP-prefix scheme below:
+ * if opencode ever changes its id layout, remint fails LOUDLY here (matching
+ * the kimi/claude idiom of throwing on store-format drift) instead of silently
+ * emitting plausible-but-mis-ordered ids. */
+const ID_SHAPE = /^[a-z]{2,5}_[0-9A-Za-z_]{2,}$/;
+
 /**
  * A fresh, globally-unique id that keeps its SORT POSITION. opencode ids are
  * `<prefix>_<sortable-body><random>` (the body encodes creation time+seq, and
@@ -64,6 +72,9 @@ function randomTail(n: number, bytes: (len: number) => Uint8Array): string {
  * length `import` was probe-verified to accept.
  */
 export function remintId(old: string, bytes: (len: number) => Uint8Array): string {
+  if (!ID_SHAPE.test(old)) {
+    throw new Error(`unexpected opencode id layout: ${old}`);
+  }
   const KEEP = 16;
   if (old.length <= KEEP + 4) {
     // Degenerate short id: keep the `<prefix>_` and remint the rest.
