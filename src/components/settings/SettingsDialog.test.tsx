@@ -253,6 +253,20 @@ describe("SettingsDialog", () => {
     expect(on.className).toContain("form__type--active");
   });
 
+  it("toggles the remote-agents experiment from the Experimental section", async () => {
+    await mount(); // remoteAgents defaults to false
+    const label = Array.from(document.querySelectorAll(".form__label")).find(
+      (el) => el.textContent === "Remote agents",
+    )!;
+    expect(label, "Experimental → Remote agents row rendered").toBeTruthy();
+    const on = Array.from(label.nextElementSibling!.querySelectorAll("button")).find(
+      (b) => b.textContent === "On",
+    )!;
+    act(() => on.click());
+    expect(getSettings()?.remoteAgents).toBe(true);
+    expect(on.className).toContain("form__type--active");
+  });
+
   it("picking a minimize style writes it through to the store", async () => {
     await mount({ minimizeStyle: "tray" });
     act(() => button("Strip").click());

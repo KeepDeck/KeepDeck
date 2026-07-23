@@ -28,3 +28,6 @@ dist-ssr
 
 # Rust / Cargo (workspace target dir lives at the repo root)
 /target
+
+# Local agent scratch / staging dir (never commit)
+.agents/

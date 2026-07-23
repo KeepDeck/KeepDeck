@@ -66,6 +66,12 @@ describe("hydrateSettings", () => {
     expect(offJson).not.toContain("remoteAgents");
   });
 
+  it("snaps a malformed remoteAgents back to the default (off)", () => {
+    expect(hydrateSettings('{"remoteAgents":"yes"}')!.settings.remoteAgents).toBe(false);
+    expect(hydrateSettings('{"remoteAgents":1}')!.settings.remoteAgents).toBe(false);
+    expect(hydrateSettings('{"remoteAgents":null}')!.settings.remoteAgents).toBe(false);
+  });
+
   it("snaps a malformed usageDisplay back to the default", () => {
     expect(hydrateSettings('{"usageDisplay":"sideways"}')?.settings.usageDisplay).toBe(
       "used",
