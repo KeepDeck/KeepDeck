@@ -7,6 +7,7 @@ import {
   pluginsFsWriteMkdir,
 } from "../ipc/pluginsFsWrite";
 import {
+  declaredAgentBins,
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
@@ -57,6 +58,7 @@ import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
 import { voiceEngines, voiceCaptureStart } from "../ipc/voice";
 import { describeError, log } from "../ipc/log";
+import { detectBins } from "../ipc/agents";
 import { allocatePorts } from "../ipc/ports";
 import { scanPlugins } from "../ipc/plugins";
 import { spawnSession } from "../ipc/session";
@@ -604,9 +606,37 @@ export function createPluginManager(appDownloads: DownloadManager) {
           },
         });
       },
+      // The activation gate's availability read — sync from the cache
+      // `detectAndCacheBins` keeps warm; unknown bins stay permissive (this
+      // is a UX gate, never a lockout boundary).
+      isAgentBinInstalled: (bin) => agentBinInstalled.get(bin) ?? true,
+      refreshAgentBins: detectAndCacheBins,
     },
     pluginRegistries,
   );
+
+  /** Cache behind the host's `isAgentBinInstalled` dep: bin → installed.
+   * Absent entries are treated as installed (permissive by design). */
+  const agentBinInstalled = new Map<string, boolean>();
+
+  /** Detect the given agent bins once and record the statuses. Shared by the
+   * bootstrap pass (every declared bin) and the enable gesture's refresh. */
+  async function detectAndCacheBins(bins: string[]): Promise<void> {
+    for (const status of await detectBins(bins)) {
+      agentBinInstalled.set(status.bin, status.installed);
+    }
+  }
+
+  /** Every agent bin declared by the currently installed plugins, deduped. */
+  function declaredBinsOfInstalled(): string[] {
+    return [
+      ...new Set(
+        pluginHost
+          .getInstalled()
+          .flatMap((plugin) => declaredAgentBins(plugin.manifest)),
+      ),
+    ];
+  }
 
   /** Built-in plugins' categories, recorded at install — `isEnabled(id)` is a
    * narrow port and needs the category to resolve the default policy. */
@@ -665,6 +695,10 @@ export function createPluginManager(appDownloads: DownloadManager) {
         pluginHost.install(install, "builtin");
       }
       await syncExternalPlugins();
+      // One detection pass over every declared agent bin BEFORE the
+      // activation gate reads it — a plugin whose CLI is missing must land in
+      // `unavailable` on boot, not activate into a broken setup.
+      await detectAndCacheBins(declaredBinsOfInstalled());
       await pluginHost.activateAll();
       // The one boot line that says the system came up — failures are logged
       // per plugin by the host, so silence here would hide a healthy boot.
@@ -692,7 +726,12 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * nothing, so it never churns the UI. Built-ins are untouched.
    */
   async function rescanPlugins(): Promise<void> {
-    if (await syncExternalPlugins()) await pluginHost.activateAll();
+    if (await syncExternalPlugins()) {
+      // Newly installed agent plugins need their bins detected before the
+      // activation gate reads them (unknown bins are permissive by default).
+      await detectAndCacheBins(declaredBinsOfInstalled());
+      await pluginHost.activateAll();
+    }
   }
 
   /** Restart one installed plugin (Settings → a plugin's page, or the failure

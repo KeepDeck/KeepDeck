@@ -26,7 +26,11 @@ export type PluginStatus =
   /** Activation was refused or threw; `reason` is a user-facing sentence. */
   | { kind: "failed"; reason: string }
   /** Turned off by the user; never activates until re-enabled. */
-  | { kind: "disabled" };
+  | { kind: "disabled" }
+  /** Enabled but its agent's declared binary is not installed on this
+   * machine — activation is refused until it appears. Not `failed` (nothing
+   * crashed) and not `disabled` (the user never turned it off). */
+  | { kind: "unavailable"; reason: string };
 
 /** One installed plugin as the host presents it — manifest, provenance, and
  * current lifecycle position. A snapshot value: the host mints a fresh one on

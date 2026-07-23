@@ -91,4 +91,18 @@ export interface PluginHostDeps {
   /** Fired when `setEnabled` flips a plugin's enabled flag, so the owner can
    * persist it. The core keeps no store of its own. */
   onEnabledChanged?(pluginId: string, enabled: boolean): void;
+  /**
+   * Whether an agent plugin's statically-declared binary is installed on this
+   * machine — the single availability read behind the activation gate. Sync
+   * (it serves a cache the owner keeps warm); an absent dep or an unknown bin
+   * is PERMISSIVE (`true`), so a detection failure can never lock a plugin
+   * out — availability is a UX gate, not a security boundary.
+   */
+  isAgentBinInstalled?(bin: string): boolean;
+  /**
+   * Refresh the cache behind `isAgentBinInstalled` for the given bins. The
+   * host calls this before the enable gesture's activation, so "installed the
+   * CLI, then flipped the toggle" works without an app restart.
+   */
+  refreshAgentBins?(bins: string[]): Promise<void>;
 }

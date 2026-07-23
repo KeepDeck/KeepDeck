@@ -1,5 +1,6 @@
 import {
   API_VERSION,
+  declaredAgentBins,
   MIN_COMPATIBLE_API_VERSION,
   satisfiesApiFloor,
   type KeepDeckPlugin,
@@ -135,6 +136,23 @@ export class PluginHost {
       return;
     }
 
+    // The centralized availability gate: an agent plugin whose declared
+    // binary is not installed on this machine never runs its code. One rule
+    // for every agent — each plugin only declares `bin` in its manifest.
+    const missingBin = declaredAgentBins(entry.manifest).find(
+      (bin) => !(this.deps.isAgentBinInstalled?.(bin) ?? true),
+    );
+    if (missingBin !== undefined) {
+      entry.plugin = null;
+      entry.disposeAll = null;
+      entry.status = {
+        kind: "unavailable",
+        reason: `agent "${missingBin}" is not installed`,
+      };
+      this.notify();
+      return;
+    }
+
     // Built before load so a throwing loader still has a (no-op) cleanup.
     const { ctx, disposeAll } = buildPluginContext(
       entry.manifest,
@@ -208,6 +226,10 @@ export class PluginHost {
     if (currentlyEnabled === enabled) return;
 
     if (enabled) {
+      // Fresh detection before the gate, so "installed the CLI, then flipped
+      // the toggle" activates without an app restart.
+      const bins = declaredAgentBins(entry.manifest);
+      if (bins.length > 0) await this.deps.refreshAgentBins?.(bins);
       entry.status = { kind: "registered" };
       this.deps.onEnabledChanged?.(id, true);
       this.notify();

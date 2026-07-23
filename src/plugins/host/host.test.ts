@@ -485,6 +485,118 @@ describe("PluginHost", () => {
   });
 });
 
+describe("agent availability gate", () => {
+  /** Host + registries + the REAL deps object the host holds (mutating a
+   * spread copy would not reach it). */
+  const gateHarness = () => {
+    const { deps } = fakeDeps();
+    const registries = createContributionRegistries();
+    const host = new PluginHost(deps, registries);
+    return { deps, registries, host };
+  };
+
+  /** A cli plugin declaring one agent with a static bin, and a plugin module
+   * that registers exactly that agent on activation. */
+  const cliSetup = (id: string, bin: string) => ({
+    install: {
+      manifest: manifest(id, {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: [bin] }],
+        contributes: { agents: [{ id, label: id, bin }] },
+      }),
+      load: vi.fn(
+        async (): Promise<KeepDeckPlugin> => ({
+          activate: vi.fn((ctx: PluginContext) => {
+            ctx.agents.register({ id, label: id, detect: { bin }, hooks: {} });
+          }),
+        }),
+      ),
+    },
+  });
+
+  it("refuses activation when the declared agent bin is not installed", async () => {
+    const { deps, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => false);
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({
+      kind: "unavailable",
+      reason: 'agent "kimi" is not installed',
+    });
+    // The gate runs BEFORE any plugin code: the loader never fired.
+    expect(install.load).not.toHaveBeenCalled();
+    expect(registries.agents.list()).toEqual([]);
+  });
+
+  it("activates when every declared bin is installed; unknown bins stay permissive", async () => {
+    const { deps, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn((bin: string) => bin === "kimi");
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("a plugin without declared bins is never gated", async () => {
+    const { deps, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => false);
+    host.install({ manifest: manifest("p"), load: async () => registrar() }, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "p")).toEqual({ kind: "active" });
+    expect(tabOwners(registries)).toEqual(["p"]);
+  });
+
+  it("disable → re-enable retries with a fresh detection", async () => {
+    const { deps, registries, host } = gateHarness();
+    let installed = false;
+    deps.isAgentBinInstalled = vi.fn(() => installed);
+    const refreshAgentBins = vi.fn(async (bins: string[]) => {
+      expect(bins).toEqual(["kimi"]);
+      installed = true; // the user installed the CLI between the toggles
+    });
+    deps.refreshAgentBins = refreshAgentBins;
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+    await host.activateAll();
+    expect(statusOf(host, "keepdeck.kimi")?.kind).toBe("unavailable");
+
+    await host.setEnabled("keepdeck.kimi", false);
+    expect(statusOf(host, "keepdeck.kimi")?.kind).toBe("disabled");
+
+    await host.setEnabled("keepdeck.kimi", true);
+
+    expect(refreshAgentBins).toHaveBeenCalledOnce();
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("a still-missing bin on re-enable keeps the plugin unavailable", async () => {
+    const { deps, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => false);
+    deps.refreshAgentBins = vi.fn(async () => {});
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+    await host.activateAll();
+
+    await host.setEnabled("keepdeck.kimi", false);
+    await host.setEnabled("keepdeck.kimi", true);
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({
+      kind: "unavailable",
+      reason: 'agent "kimi" is not installed',
+    });
+    expect(install.load).not.toHaveBeenCalled();
+  });
+});
+
 
 /** Host + its registries + deps in one line, for tests that inspect all. */
 function hostWithRegistries() {

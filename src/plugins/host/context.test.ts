@@ -361,4 +361,32 @@ describe("the agent-binary exec gate", () => {
     ).toThrow("exec capability");
     expect(registries.agents.list()).toEqual([]);
   });
+
+  it("refuses an agent whose detect.bin drifts from the manifest's declared bin", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(
+      manifest("cli", {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: ["gemini", "gemini-next"] }],
+        contributes: {
+          agents: [{ id: "gemini", label: "Gemini", bin: "gemini" }],
+        },
+      }),
+      "builtin",
+      registries,
+      deps,
+    );
+    // exec-covered but NOT the declared bin — the static declaration the
+    // activation gate reads must agree with the runtime registration.
+    expect(() =>
+      ctx.agents.register({
+        id: "gemini",
+        label: "Gemini",
+        detect: { bin: "gemini-next" },
+        hooks: {},
+      }),
+    ).toThrow('does not match the manifest\'s declared bin "gemini"');
+    expect(registries.agents.list()).toEqual([]);
+  });
 });
