@@ -555,6 +555,21 @@ describe("createCapabilityGate — clipboard", () => {
     expect(backend.clipboard.writeText).not.toHaveBeenCalled();
     expect(backend.clipboard.readText).not.toHaveBeenCalled();
   });
+
+  it("declaring BOTH capabilities admits both directions together", async () => {
+    const { backend } = fakeBackend();
+    const gate = createCapabilityGate(
+      manifest([{ kind: "clipboardWrite" }, { kind: "clipboardRead" }]),
+      backend,
+      { diagnostics: "silent", log: fakeLog() },
+    );
+
+    await gate.clipboard.writeText("both");
+    await gate.clipboard.readText();
+
+    expect(backend.clipboard.writeText).toHaveBeenCalledWith("both");
+    expect(backend.clipboard.readText).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("createCapabilityGate — fs", () => {
