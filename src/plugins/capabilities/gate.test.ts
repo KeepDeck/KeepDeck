@@ -50,6 +50,10 @@ function fakeBackend() {
         cancel: vi.fn(async () => {}),
       })),
     },
+    clipboard: {
+      writeText: vi.fn(async () => {}),
+      readText: vi.fn(async () => ""),
+    },
     sessions: { spawn: vi.fn(async () => handle) },
     opener: {
       openUrl: vi.fn(async () => {}),

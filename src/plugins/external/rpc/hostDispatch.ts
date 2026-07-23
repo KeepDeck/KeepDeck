@@ -492,6 +492,9 @@ export function createHostDispatch(
       activeSpeechCaptures.delete(key);
       return capture.cancel();
     },
+    "services.clipboard.writeText": ([text]) =>
+      ctx.services.clipboard.writeText(text as string),
+    "services.clipboard.readText": () => ctx.services.clipboard.readText(),
 
     // ---- host facts ----
     "host.settings": () => ctx.host.settings(),

@@ -583,6 +583,12 @@ export function buildGuestContext(
         remove: (target) =>
           rpc.call("services.downloads.remove", [target]).then(noop),
       },
+      clipboard: {
+        writeText: (text) =>
+          rpc.call("services.clipboard.writeText", [text]) as Promise<void>,
+        readText: () =>
+          rpc.call("services.clipboard.readText", []) as Promise<string>,
+      },
       speech: {
         engines: () =>
           rpc.call("services.speech.engines", []) as ReturnType<

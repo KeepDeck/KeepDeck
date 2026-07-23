@@ -267,6 +267,10 @@ export function createFakeHost(
           cancel: async () => {},
         }),
       },
+      clipboard: {
+        writeText: async () => {},
+        readText: async () => "",
+      },
       sessions: {
         spawn: async (_opts, onEvent) => {
           const id = `s${sessions.length + 1}`;
