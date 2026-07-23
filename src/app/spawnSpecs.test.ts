@@ -80,7 +80,7 @@ const ws = (panes: Workspace["panes"]): Workspace[] => [
 
 let seen: Record<string, SpawnPlan>;
 function Probe({ workspaces }: { workspaces: Workspace[] }) {
-  seen = usePaneSpawnSpecs(workspaces, ctx, true);
+  seen = usePaneSpawnSpecs(workspaces, ctx, true).specs;
   return null;
 }
 
@@ -343,8 +343,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
       usePaneSpawnSpecs(workspaces, ctx, true);
       renders++;
       return null;
-    };
-    await act(async () =>
+    };    await act(async () =>
       root.render(
         createElement(
           AppRuntimeProvider,

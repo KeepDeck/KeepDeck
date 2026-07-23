@@ -3,7 +3,6 @@ import type {
   AgentRestartMode,
   SpawnPlan,
 } from "../domain/agents";
-import { peekPanePlanError } from "../app/spawnSpecs";
 import {
   gridTracks,
   paneColumnSpan,
@@ -91,6 +90,11 @@ interface DeckStageProps {
   /** Spawn plan per live pane — args + env carrying its session identity
    * ([F7]/[F8] v2: assigned id or armed reporter, resume recipe). */
   specByPane: Record<string, SpawnPlan>;
+  /** Panes whose spawn plan last failed to build — the deck shows them an
+   *  error tile (with retry) instead of "Waking up…". Surfaced through the
+   *  spawn-specs snapshot so a failure re-renders the deck with the set in
+   *  hand (no module-state side-channel). */
+  failedPanes: ReadonlySet<string>;
   /** Detach a blocked pane from its gone worktree and start it fresh. */
   onStartFresh(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
@@ -156,6 +160,7 @@ export function DeckStage({
   onPaneTitle,
   dormantBlocked,
   specByPane,
+  failedPanes,
   onStartFresh,
   onRetryProvision,
   onAgentExited,
@@ -323,7 +328,7 @@ export function DeckStage({
             !pane.dormant &&
             !pane.provisioning &&
             !unavailableAgent &&
-            peekPanePlanError(pane.id);
+            failedPanes.has(pane.id);
           const planPending =
             !spec &&
             !pane.dormant &&

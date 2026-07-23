@@ -26,6 +26,16 @@ export type SpawnPluginAccess = Pick<
   "pluginHost" | "pluginRegistries"
 >;
 
+/** What `usePaneSpawnSpecs` hands back each render: every live pane's plan,
+ *  plus the panes whose last build FAILED (so the deck can show an error tile
+ *  with a retry). `failed` rides the same snapshot identity as `specs`, so a
+ *  failure re-renders consumers with the new set in hand — no render-time
+ *  side-channel into the module-level `failed` Set. */
+export interface SpawnSpecs {
+  specs: Record<string, SpawnPlan>;
+  failed: ReadonlySet<string>;
+}
+
 /**
  * Spawn plans, built through the cli plugins' hooks ([F7]/[F8] v2).
  *
@@ -341,7 +351,7 @@ export function usePaneSpawnSpecs(
   /** Any value whose change must re-run the build sweep — the respawn
    * path drops a plan from the module cache, which no other dep observes. */
   rebuildKey?: unknown,
-): Record<string, SpawnPlan> {
+): SpawnSpecs {
   const { plugins } = useAppRuntime();
   const contributions = useContributions(plugins.pluginRegistries.agents);
   // The cache version: bumped when a build lands, so the snapshot below
@@ -405,7 +415,9 @@ export function usePaneSpawnSpecs(
   }, [workspaces, ctx, agentsReady, contributions, rebuildKey, plugins]);
 
   // A fresh snapshot object per cache change — cheap (small maps), and lets
-  // consumers stay referentially honest.
+  // consumers stay referentially honest. `failed` rides the SAME snapshot so a
+  // failure re-renders consumers with the new set in hand (no render-time
+  // side-channel into the module-level `failed` Set).
   return useMemo(() => {
     const snapshot: Record<string, SpawnPlan> = {};
     for (const ws of workspaces) {
@@ -414,7 +426,7 @@ export function usePaneSpawnSpecs(
         if (spec) snapshot[pane.id] = spec;
       }
     }
-    return snapshot;
+    return { specs: snapshot, failed: new Set(failed) };
   }, [workspaces, tick, rebuildKey]);
 }
 

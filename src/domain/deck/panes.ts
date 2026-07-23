@@ -110,9 +110,12 @@ export function paneAgentType(pane: Pane): AgentType {
  *  only — it has no local working directory to probe and must NEVER be handed
  *  to a resume/restart/bind path, which would spawn locally and silently drop
  *  the endpoint. The single predicate every consume site consults so the
- *  invariant lives in one place (not copy-pasted at each call site). */
+ *  invariant lives in one place (not copy-pasted at each call site). Truthy
+ *  (not `!== undefined`): an empty-string endpoint is a non-remote degenerate
+ *  case, matching spawnSpecs' own truthy target-builder and the inline checks
+ *  this centralized. */
 export function paneIsRemoteFresh(pane: Pane): boolean {
-  return pane.remoteEndpoint !== undefined;
+  return !!pane.remoteEndpoint;
 }
 
 /**

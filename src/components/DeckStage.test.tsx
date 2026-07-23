@@ -105,6 +105,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
     "pane-1": { command: "codex", args: [], env: [] },
     "pane-2": { command: "codex", args: [], env: [] },
   },
+  failedPanes: new Set<string>(),
   restartEpochs: new Map<string, number>(),
   ...callbacks,
   ...overrides,
