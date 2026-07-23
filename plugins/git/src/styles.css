@@ -157,35 +157,6 @@
   margin-bottom: 4px;
 }
 
-/* Backing out of a drilled-in file list to the commits. */
-.git__drillback {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: #8b93a3;
-  padding: 4px 2px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  text-align: left;
-  cursor: pointer;
-}
-
-.git__drillback:hover {
-  color: #c5c8c6;
-}
-
-.git__drilllabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* The History ref picker: browse any local branch, checkout or not. */
 .git__refbar {
   display: flex;
@@ -216,55 +187,6 @@
    the picked value is self-evident, the check would just be noise. */
 .git__ref .dropdown__button .git__refcheck {
   display: none;
-}
-
-/* The list↔drill slide: two panes on a 200%-wide track, the drill class
-   translating it left. The slider clips horizontally (the off-screen pane
-   must not widen the dock) while vertical growth still reaches the list's
-   own scroll. */
-.git__slider {
-  overflow-x: hidden;
-}
-
-.git__track {
-  display: flex;
-  width: 200%;
-  align-items: flex-start;
-  transition: transform 200ms ease;
-}
-
-.git__track--drill {
-  transform: translateX(-50%);
-}
-
-.git__slidepane {
-  flex: none;
-  width: 50%;
-  min-width: 0;
-  /* Numeric so max-height stays interpolable — the parked collapse below
-     rides a delayed transition, and `none` would snap instead of waiting. */
-  max-height: 100000px;
-}
-
-/* The parked pane collapses AFTER the slide lands (delay = the track's
-   200ms), else the track is as tall as the TALLER pane and the list scrolls
-   into blank space. Un-parking is instant: the rule no longer matches, so
-   the pane is full-height from the slide's first frame. */
-.git__slidepane[inert] {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0s 200ms;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .git__track {
-    transition: none;
-  }
-
-  /* The slide is instant here — collapse without the wait. */
-  .git__slidepane[inert] {
-    transition: none;
-  }
 }
 
 /* The fork boundary inside the full log: work above, base history below. */

@@ -39,8 +39,10 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
 
   const { status, error, version } = useGitStatus(target);
   const [mode, setMode] = useState<"changes" | "history">("changes");
+  // `row` is null the instant a History scope opens the peek (a commit click
+  // names a scope, not a file) — the peek's rail then seeds the first file.
   const [peek, setPeek] = useState<{
-    row: ChangeRow;
+    row: ChangeRow | null;
     scope?: HistoryScope;
   } | null>(null);
 
@@ -142,7 +144,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           <HistoryView
             repo={target}
             version={version}
-            onOpen={(row, scope) => setPeek({ row, scope })}
+            onOpen={(scope) => setPeek({ row: null, scope })}
           />
         ) : (
           <>

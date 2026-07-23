@@ -346,7 +346,7 @@ describe("GitTab", () => {
     expect(git.watcherCount("/wt/one")).toBe(1);
   });
 
-  it("History mode lists commits since the fork and drills into a commit's diff", async () => {
+  it("History mode lists commits since the fork and opens a commit straight in the peek", async () => {
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus());
     const fork = "f0".repeat(20);
@@ -386,9 +386,13 @@ describe("GitTab", () => {
     expect(host.textContent).toContain("older base work");
     const divider = host.querySelector(".git__forkline");
     expect(divider).toBeTruthy();
+    // The list is a single pane now — no slide track, no drill back button.
+    expect(host.querySelector(".git__track")).toBeNull();
+    expect(host.querySelector(".git__drillback")).toBeNull();
 
-    // Drill into the newest commit → its file list, fetched parent..self.
-    const commitRow = [...host.querySelectorAll("button.git__row")].find((el) =>
+    // Opening a commit goes straight to the peek: the rail fetches its files
+    // and seeds the first one, whose range diff fills the body.
+    const commitRow = [...host.querySelectorAll(".git__list button.git__row")].find((el) =>
       el.textContent?.includes("add feature"),
     ) as HTMLButtonElement;
     await act(async () => commitRow.click());
@@ -397,25 +401,14 @@ describe("GitTab", () => {
       `${commitSha}^`,
       commitSha,
     );
-    expect(host.textContent).toContain("feature.ts");
-    // The drill slides in on the track; the list pane goes inert behind it.
-    expect(host.querySelector(".git__track--drill")).toBeTruthy();
-    const panes = host.querySelectorAll(".git__slidepane");
-    expect(panes[0].hasAttribute("inert")).toBe(true);
-    expect(panes[1].hasAttribute("inert")).toBe(false);
-
-    // A file opens the peek with the RANGE diff, never the index one.
-    const fileRow = [...host.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("feature.ts"),
-    ) as HTMLButtonElement;
-    await act(async () => fileRow.click());
+    await act(async () => {});
+    expect(host.querySelector(".peek")).toBeTruthy();
     expect(git.diffFile).toHaveBeenCalledWith("/repo", "src/feature.ts", {
       from: `${commitSha}^`,
       to: commitSha,
     });
-    expect(host.querySelector(".peek")).toBeTruthy();
     expect(host.textContent).toContain("goodbye");
-    // The rail names the commit and lists its files, the open one marked.
+    // The rail names the commit and lists its files, the seeded one marked.
     const aside = host.querySelector(".peek__aside")!;
     expect(aside.textContent).toContain("add feature");
     expect(aside.textContent).toContain("a1a1a1a");
@@ -423,23 +416,15 @@ describe("GitTab", () => {
       "feature.ts",
     );
 
-    // Backing out of the drill returns to the commit list.
+    // Closing the peek returns to the commit list; nothing slid in behind it.
     await act(async () => {
       (host.querySelector(".peek") as HTMLElement).click(); // close peek
     });
-    const back = host.querySelector("button.git__drillback") as HTMLButtonElement;
-    await act(async () => back.click());
-    // The track slides back; the list pane is live again and the drill pane
-    // keeps its content (inert) through the exit animation.
-    expect(host.querySelector(".git__track--drill")).toBeNull();
-    const panesAfter = host.querySelectorAll(".git__slidepane");
-    expect(panesAfter[0].hasAttribute("inert")).toBe(false);
-    expect(panesAfter[1].hasAttribute("inert")).toBe(true);
+    expect(host.querySelector(".peek")).toBeNull();
     expect(host.textContent).toContain("fix tests");
-    expect(host.textContent).toContain("feature.ts");
   });
 
-  it("the since-fork drill diffs against the working tree (open-ended range)", async () => {
+  it("the since-fork peek diffs against the working tree (open-ended range)", async () => {
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus());
     const fork = "f0".repeat(20);
@@ -464,14 +449,10 @@ describe("GitTab", () => {
     const pin = host.querySelector("button.git__row--pin") as HTMLButtonElement;
     await act(async () => pin.click());
     expect(git.changedFiles).toHaveBeenCalledWith("/repo", fork, undefined);
-    expect(host.textContent).toContain("net.ts");
-
-    // Opening a file from the sweep peeks its range diff; the rail names the
-    // sweep and lists its files.
-    const fileRow = [...host.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("net.ts"),
-    ) as HTMLButtonElement;
-    await act(async () => fileRow.click());
+    await act(async () => {});
+    // Opening the sweep peeks the seeded file's range diff — open-ended, so
+    // it reaches the working tree. The rail names the sweep, lists its files.
+    expect(host.querySelector(".peek")).toBeTruthy();
     expect(git.diffFile).toHaveBeenCalledWith("/repo", "net.ts", {
       from: fork,
       to: undefined,
