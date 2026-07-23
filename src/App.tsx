@@ -824,6 +824,7 @@ function App() {
             <AgentDialog
               defaultAgentType={agentFlow.dialog.defaultAgentType}
               defaultYolo={agentFlow.dialog.defaultYolo}
+              remoteEnabled={agentFlow.dialog.remoteEnabled}
               repo={agentFlow.dialog.repo}
               suggestedPath={agentFlow.dialog.suggestedPath}
               suggestedBranch={agentFlow.dialog.suggestedBranch}

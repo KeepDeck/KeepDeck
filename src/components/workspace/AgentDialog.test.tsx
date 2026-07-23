@@ -941,3 +941,73 @@ describe("AgentDialog cross-agent pick guard", () => {
     expect(nameField().value).toBe("my agent");
   });
 });
+
+describe("remote gating (Experimental setting)", () => {
+  let root: Root;
+  // A remote-capable codex added to the mocked catalog via `extraAgents`.
+  const codexRemote = {
+    id: "codex",
+    label: "Codex",
+    command: "codex",
+    supportsYolo: false,
+    supportsRemote: true,
+    remoteSchemes: ["ws", "wss"],
+    installed: true,
+    path: null,
+  };
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    catalog.extraAgents = []; // don't leak the codex entry into other suites
+  });
+
+  const mount = (agent: string, remoteEnabled: boolean) =>
+    act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: agent as AgentDialogResult["agentType"],
+          defaultYolo: false,
+          remoteEnabled,
+          repo: null,
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => [],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions: async () => ({ rows: [], total: 0 }),
+          sessionClaim: () => null,
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+  it("hides the Where option when the Experimental setting is off", async () => {
+    catalog.extraAgents = [codexRemote];
+    await mount("codex", false);
+    // codex declares remote + schemes, but the setting is off → hidden.
+    expect(document.body.textContent).not.toContain("Where");
+    expect(document.body.textContent).not.toContain("Remote");
+  });
+
+  it("shows the Where option for a remote-capable agent when the setting is on", async () => {
+    catalog.extraAgents = [codexRemote];
+    await mount("codex", true);
+    expect(document.body.textContent).toContain("Where");
+    expect(document.body.textContent).toContain("Remote");
+  });
+
+  it("hides Where for a non-remote agent even with the setting on", async () => {
+    // claude never declares remote → no Where, regardless of the setting.
+    await mount("claude", true);
+    expect(document.body.textContent).not.toContain("Where");
+  });
+});

@@ -47,6 +47,9 @@ export interface AgentDialogSpec {
   defaultAgentType: AgentType;
   /** The YOLO toggle's starting position ([F6] global preference). */
   defaultYolo: boolean;
+  /** Whether the Experimental “Remote agents” setting is on — gates the
+   *  dialog's "Where: Remote" option regardless of an agent's capability. */
+  remoteEnabled: boolean;
   /** The workspace repo when its cwd is a git repo — enables the worktree
    * location field; null → the agent just runs in the workspace cwd. */
   repo: { cwd: string; branch: string | null } | null;
@@ -134,6 +137,7 @@ export function useAgentDialog(
       index,
       defaultAgentType: defaultType,
       defaultYolo: getSettings()?.defaultYolo ?? false,
+      remoteEnabled: getSettings()?.remoteAgents === true,
       repo,
       suggestedPath,
       suggestedBranch,

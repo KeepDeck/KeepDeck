@@ -42,6 +42,11 @@ interface AgentDialogProps {
   /** The YOLO toggle's starting position (the global preference); shown only
    * while the selected agent's plugin declares YOLO support. */
   defaultYolo: boolean;
+  /** Whether the Experimental “Remote agents” setting is on — the "Where:
+   *  Remote" option is hidden entirely unless this is true, regardless of an
+   *  agent's declared capability. Optional (absent = off) to match the
+   *  feature's default-off stance. */
+  remoteEnabled?: boolean;
   /** The workspace repo, when its working dir is a git repo — enables the
    * worktree location field. Null → the agent just runs in the workspace cwd,
    * so there's no worktree choice to make and the field is hidden ([F2]). */
@@ -108,6 +113,7 @@ interface AgentDialogProps {
 export function AgentDialog({
   defaultAgentType,
   defaultYolo,
+  remoteEnabled = false,
   repo,
   suggestedPath,
   suggestedBranch,
@@ -332,7 +338,10 @@ export function AgentDialog({
   // schemes declaration doesn't dangle a "Remote" option whose Create can
   // never enable.
   const remoteSchemes = agentRemoteSchemes(agents, agentType);
-  const canRemote = remoteSchemes !== null;
+  // Remote needs BOTH the experimental setting on AND the agent declaring
+  // non-empty schemes — so a default install (setting off) never shows the
+  // option, and a non-remote/malformed agent never gets a target either.
+  const canRemote = remoteEnabled && remoteSchemes !== null;
   // `remote` is only on while the selected agent can honor it; switching to a
   // non-remote agent silently drops it (the Where section hides), and the
   // submitted value is gated here so an unsupported agent never gets a target.
