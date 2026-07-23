@@ -5,7 +5,11 @@
  * through the bridge. The `-c` flags are GLOBAL and must precede the
  * `resume` subcommand.
  */
-import type { KeepDeckPlugin, PluginResources } from "@keepdeck/plugin-api";
+import type {
+  KeepDeckPlugin,
+  PluginResources,
+  SpawnPlanInput,
+} from "@keepdeck/plugin-api";
 import { codexHistory } from "./history";
 import { icon } from "./icon";
 import { cliArgs, shellQuote } from "./trust";
@@ -26,6 +30,14 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
 const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-bypass-approvals-and-sandbox"] : [];
 
+/** The remote-client flag: when the pane targets a native-server endpoint,
+ * codex runs HERE as a local thin client attached to a server provisioned on
+ * the box by the host (the agent brain, files and tool calls execute there).
+ * `--remote` is a global flag like `-c`/yolo, so it precedes the resume/fork
+ * subcommand; it is supported on `codex`, `codex resume`, and `codex fork`. */
+const remoteArgs = (target: SpawnPlanInput["target"]): string[] =>
+  target?.kind === "nativeServer" ? ["--remote", target.endpoint] : [];
+
 // Shared skills need NO code here: codex has no flag/env/config door
 // (openai/codex#15149, #22869), but it reads `.agents/skills` from its
 // starting cwd at session start — and the host's staging arms every pane
@@ -42,6 +54,11 @@ const plugin: KeepDeckPlugin = {
       icon,
       detect: { bin: "codex" },
       supportsYolo: true,
+      // codex has a native client/server split: the host can run this pane as
+      // a local `codex --remote <ep>` thin client attached to a codex
+      // app-server on a VPS. Declared as a capability so the host gates the
+      // remote UI on it (claude/kimi don't declare it → no remote option).
+      remote: { mode: "nativeServer" },
       // Per-pane tokens/context stay in the rollout; current account limits
       // come from the host's one shared official app-server manager.
       usage: {
@@ -57,12 +74,14 @@ const plugin: KeepDeckPlugin = {
       hooks: {
         "spawn.plan": async (input, output) => {
           output.args = [
+            ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
             ...yoloArgs(input.yolo),
           ];
         },
         "resume.plan": async (input, output) => {
           output.args = [
+            ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
             ...yoloArgs(input.yolo),
             "resume",
@@ -75,6 +94,7 @@ const plugin: KeepDeckPlugin = {
         // surgery at all (probe-verified, RESUME_ANY_HISTORY.md §2).
         "fork.plan": async (input, output) => {
           output.args = [
+            ...remoteArgs(input.target),
             ...(await hookArgs(ctx.resources)),
             ...yoloArgs(input.yolo),
             "fork",

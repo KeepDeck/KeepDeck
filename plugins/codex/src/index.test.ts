@@ -103,6 +103,44 @@ describe("codex plugin hooks", () => {
       "uuid-9",
     ]);
   });
+
+  it("declares nativeServer remote support", () => {
+    expect(activate(null).remote?.mode).toBe("nativeServer");
+  });
+
+  it("prepends `--remote <ep>` (before globals and subcommand) on a nativeServer target", async () => {
+    const agent = activate("/App/resources/kd-session-hook.sh");
+    const target = { kind: "nativeServer" as const, endpoint: "ws://vps:4500" };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, target }, spawn);
+    expect(spawn.args.slice(0, 2)).toEqual(["--remote", "ws://vps:4500"]);
+    // globals (-c) still land after --remote, before any subcommand
+    expect(spawn.args[2]).toBe("-c");
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, target, sessionId: "uuid-9" },
+      resume,
+    );
+    expect(resume.args.slice(0, 2)).toEqual(["--remote", "ws://vps:4500"]);
+    expect(resume.args.slice(-2)).toEqual(["resume", "uuid-9"]);
+
+    const fork = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, target, sessionId: "uuid-9", sourceCwd: "/x" },
+      fork,
+    );
+    expect(fork.args.slice(0, 2)).toEqual(["--remote", "ws://vps:4500"]);
+    expect(fork.args.slice(-2)).toEqual(["fork", "uuid-9"]);
+  });
+
+  it("emits no --remote without a target (local pane unchanged)", async () => {
+    const agent = activate(null);
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(input, spawn);
+    expect(spawn.args.some((a) => a === "--remote")).toBe(false);
+  });
 });
 
 describe("codex plugin identity", () => {
