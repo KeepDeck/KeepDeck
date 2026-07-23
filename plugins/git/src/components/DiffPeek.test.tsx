@@ -216,9 +216,10 @@ describe("DiffPeek", () => {
     await act(async () => {});
 
     // The first file is handed up as the seeded row — range-diffed (kind
-    // "history"), never the index. Called once: the rail's current guard
+    // "history"), never the index. Exactly once: the rail's current guard
     // stops a re-seed even though this harness never advances row.
     expect(changedFiles).toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith({
       path: "src/a.ts",
       origPath: null,
