@@ -490,11 +490,15 @@ describe("GitTab", () => {
     await act(async () => commitRow.click());
     await act(async () => {});
 
-    // The scope resolves to no files — the rail reports it and the body
-    // follows, instead of hanging on "Loading…" forever.
+    // The scope resolves to no files — the rail carries the note and the
+    // body stays blank, instead of hanging on "Loading…" forever.
     expect(host.querySelector(".peek")).toBeTruthy();
-    expect(host.textContent).toContain("Nothing changed here.");
-    expect(host.textContent).not.toContain("Loading…");
+    expect(host.querySelector(".peek__aside")?.textContent).toContain(
+      "Nothing changed here.",
+    );
+    expect(host.querySelector(".peek__body")?.textContent).not.toContain(
+      "Loading…",
+    );
   });
 
   it("arrow keys walk the history peek's rail after the first file is seeded", async () => {

@@ -11,8 +11,24 @@ import {
   type FileDiff,
 } from "../domain/diff";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
-import { scopeLabel, scopeRange, scopeSha, shortSha } from "../domain/history";
+import {
+  scopeLabel,
+  scopeRange,
+  scopeSha,
+  shortSha,
+  type HistoryScope,
+} from "../domain/history";
 import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
+
+/** What the peek shows. `file` is a chosen row's diff (worktree or history
+ * range); `waiting` is a history scope that opened before the rail seeded its
+ * first file — the body stays blank, the header carries the scope label, and
+ * the rail owns the loading/empty/error note. Splitting "no file yet" into
+ * its own variant makes the impossible null-row-worktree unrepresentable, so
+ * nothing here leans on a non-null assertion. */
+export type PeekView =
+  | { kind: "file"; row: ChangeRow; changeSet: ChangeSet }
+  | { kind: "waiting"; scope: HistoryScope };
 
 /**
  * One change's diff, inside the shared `Peek` overlay (ui-kit) — the shell is
@@ -34,32 +50,31 @@ import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
  */
 export function DiffPeek({
   repo,
-  row,
-  changeSet,
+  view,
   version,
   onSelect,
   onClose,
-  empty = false,
-  onEmptyChange,
 }: {
   repo: string;
-  /** The row whose diff the peek shows. Null for the brief moment a History
-   * scope is open before its rail has seeded the first file — the body waits,
-   * the header carries the scope label until a file lands. */
-  row: ChangeRow | null;
-  /** The change set the row belongs to — the rail lists its files, and a
-   * History scope's range is diffed instead of the index. */
-  changeSet: ChangeSet;
+  /** What the peek shows: a chosen file's diff, or a history scope awaiting
+   * its first file (the body waits blank, the header carries the scope). */
+  view: PeekView;
   version: number;
   /** Switch the peek to another row of the same change set. */
   onSelect: (row: ChangeRow) => void;
   onClose: () => void;
-  /** A History scope with no files — shown in the body instead of "Loading…". */
-  empty?: boolean;
-  /** The rail reports when a History scope's file list resolves empty. */
-  onEmptyChange?: (empty: boolean) => void;
 }) {
-  const scope = changeSet.kind === "history" ? changeSet.scope : null;
+  const row = view.kind === "file" ? view.row : null;
+  const changeSet: ChangeSet =
+    view.kind === "file"
+      ? view.changeSet
+      : { kind: "history", scope: view.scope };
+  const scope: HistoryScope | null =
+    view.kind === "waiting"
+      ? view.scope
+      : view.changeSet.kind === "history"
+        ? view.changeSet.scope
+        : null;
   const range = scope ? scopeRange(scope) : undefined;
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +83,7 @@ export function DiffPeek({
   const showsCode = diff !== null && !diff.binary;
   const tokens = useHighlight(
     showsCode ? flatLines(diff).join("\n") : null,
-    row ? langFor(row.path) : null,
+    view.kind === "file" ? langFor(view.row.path) : null,
   );
   const offsets = showsCode ? hunkOffsets(diff) : [];
 
@@ -119,29 +134,28 @@ export function DiffPeek({
     };
   }, [repo, row?.path, row?.kind, range?.from, range?.to, version]);
 
-  // A null row only occurs for a History scope before the rail seeds its
-  // first file — GitTab's peek state forbids a null-row worktree — so `scope`
-  // is non-null whenever `row` is null. The non-null assertions below rest on
-  // that invariant.
+  const waiting = view.kind === "waiting";
   return (
     <Peek
-      ariaLabel={row ? `Diff of ${baseName(row.path)}` : scopeLabel(scope!)}
-      name={row ? baseName(row.path) : scopeLabel(scope!)}
+      ariaLabel={
+        waiting ? scopeLabel(view.scope) : `Diff of ${baseName(view.row.path)}`
+      }
+      name={waiting ? scopeLabel(view.scope) : baseName(view.row.path)}
       meta={
-        row ? (
-          <span className={`git__badge git__badge--${row.kind}`}>
-            {codeLabel(row.code)}
-          </span>
+        waiting ? (
+          <span className="git__badge">{shortSha(scopeSha(view.scope))}</span>
         ) : (
-          <span className="git__badge">{shortSha(scopeSha(scope!))}</span>
+          <span className={`git__badge git__badge--${view.row.kind}`}>
+            {codeLabel(view.row.code)}
+          </span>
         )
       }
       path={
-        row
-          ? row.origPath
-            ? `${row.origPath} → ${row.path}`
-            : row.path
-          : undefined
+        waiting
+          ? undefined
+          : view.row.origPath
+            ? `${view.row.origPath} → ${view.row.path}`
+            : view.row.path
       }
       aside={
         // No rail before the status has ever loaded — an empty column says
@@ -153,26 +167,26 @@ export function DiffPeek({
             current={row}
             version={version}
             onSelect={onSelect}
-            onEmptyChange={onEmptyChange}
           />
         )
       }
       onClose={onClose}
     >
-      {!row && (
-        <p className="peek__note">
-          {empty ? "Nothing changed here." : "Loading…"}
-        </p>
+      {/* A waiting scope has no file yet — the body stays blank; the rail
+          owns the loading/empty/error note. */}
+      {view.kind === "file" && !diff && !error && (
+        <p className="peek__note">Loading…</p>
       )}
-      {row && !diff && !error && <p className="peek__note">Loading…</p>}
-      {row && error && <p className="peek__note peek__note--bad">{error}</p>}
-      {row && diff?.binary && (
+      {view.kind === "file" && error && (
+        <p className="peek__note peek__note--bad">{error}</p>
+      )}
+      {view.kind === "file" && diff?.binary && (
         <p className="peek__note">Binary file — no text diff.</p>
       )}
-      {row && diff && isEmptyDiff(diff) && (
+      {view.kind === "file" && diff && isEmptyDiff(diff) && (
         <p className="peek__note">No changes here anymore.</p>
       )}
-      {row && diff && !diff.binary && (
+      {view.kind === "file" && diff && !diff.binary && (
         <div className="git__diff">
           {diff.hunks.map((hunk, h) => (
             // Hunks are positional and never reordered — index keys are

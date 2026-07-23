@@ -65,8 +65,11 @@ describe("DiffPeek", () => {
       root.render(
         createElement(DiffPeek, {
           repo: "/repo",
-          row,
-          changeSet: { kind: "worktree", groups: null },
+          view: {
+            kind: "file",
+            row,
+            changeSet: { kind: "worktree", groups: null },
+          },
           version: 1,
           onSelect: vi.fn(),
           onClose: vi.fn(),
@@ -138,13 +141,12 @@ describe("DiffPeek", () => {
     expect(rowTexts()).toContain("new words");
   });
 
-  it("a history scope with no files reports empty and shows it in the body", async () => {
-    // A commit click opens the peek before any file is chosen. When the
-    // scope has no files, the rail says so AND tells the body — which stops
-    // saying "Loading…" instead of hanging on it forever.
+  it("a history scope with no files leaves the body blank; the rail carries the note", async () => {
+    // A waiting scope whose file list resolves empty: the rail says
+    // "Nothing changed here." and the body stays blank — no perpetual
+    // "Loading…" beside it (the same holds for a fetch error).
     const diffFile = vi.fn(async () => TS_DIFF);
     const changedFiles = vi.fn(async () => []);
-    const onEmptyChange = vi.fn();
     setRuntime({
       services: {
         git: { diffFile, changedFiles },
@@ -156,35 +158,34 @@ describe("DiffPeek", () => {
       root.render(
         createElement(DiffPeek, {
           repo: "/repo",
-          row: null,
-          changeSet: {
-            kind: "history",
+          view: {
+            kind: "waiting",
             scope: { kind: "commit", sha: "abc1234def", subject: "add feature" },
           },
           version: 1,
-          empty: true,
           onSelect: vi.fn(),
-          onEmptyChange,
           onClose: vi.fn(),
         }),
       );
     });
     await act(async () => {});
 
-    // No file to diff and no diff read; the header carries the commit label.
+    // No file to diff; the header carries the commit label.
     expect(diffFile).not.toHaveBeenCalled();
     expect(host.textContent).toContain("add feature");
-    // The rail resolved the scope empty and reported it; the body now says
-    // "Nothing changed here." — not the perpetual "Loading…" it used to.
-    expect(onEmptyChange).toHaveBeenLastCalledWith(true);
-    expect(host.textContent).toContain("Nothing changed here.");
-    expect(host.textContent).not.toContain("Loading…");
+    // The rail owns the note; the body is blank — never "Loading…".
+    expect(host.querySelector(".peek__aside")?.textContent).toContain(
+      "Nothing changed here.",
+    );
+    expect(host.querySelector(".peek__body")?.textContent).not.toContain(
+      "Loading…",
+    );
   });
 
   it("seeds the first file of a history scope the moment the rail loads it", async () => {
     // The seed wiring lives in the rail; this localizes it. The diff fetch
-    // is the parent's job (the harness keeps row null), so this proves the
-    // onSelect hand-off in isolation — the case the empty test can't cover.
+    // is the parent's job (the harness keeps the view waiting), so this
+    // proves the onSelect hand-off in isolation.
     const diffFile = vi.fn(async () => TS_DIFF);
     const changedFiles = vi.fn(async () => [
       { path: "src/a.ts", origPath: null, code: "A" },
@@ -202,9 +203,8 @@ describe("DiffPeek", () => {
       root.render(
         createElement(DiffPeek, {
           repo: "/repo",
-          row: null,
-          changeSet: {
-            kind: "history",
+          view: {
+            kind: "waiting",
             scope: { kind: "commit", sha: "abc1234def", subject: "add feature" },
           },
           version: 1,
@@ -217,7 +217,7 @@ describe("DiffPeek", () => {
 
     // The first file is handed up as the seeded row — range-diffed (kind
     // "history"), never the index. Exactly once: the rail's current guard
-    // stops a re-seed even though this harness never advances row.
+    // stops a re-seed even though this harness never advances the view.
     expect(changedFiles).toHaveBeenCalled();
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith({
