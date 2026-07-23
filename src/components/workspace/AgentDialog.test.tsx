@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentDialog } from "./AgentDialog";
+import { AgentDialog, remoteValid } from "./AgentDialog";
 import type {
   AgentDialogResult,
   Occupancy,
@@ -13,6 +13,42 @@ import type {
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
+
+describe("remoteValid (endpoint gate per agent scheme)", () => {
+  // codex speaks ws/wss; opencode http/https. A scheme the agent can't speak
+  // is rejected so the pane doesn't start and immediately crash.
+  const codex = ["ws", "wss"] as const;
+  const opencode = ["http", "https"] as const;
+
+  it("accepts a matching scheme with a host", () => {
+    expect(remoteValid("ws://vps:4500", codex)).toBe(true);
+    expect(remoteValid("http://vps:4096", opencode)).toBe(true);
+    expect(remoteValid("wss://vps/path", codex)).toBe(true);
+  });
+
+  it("rejects a scheme the agent does not speak (cross-agent mismatch)", () => {
+    expect(remoteValid("http://vps:4096", codex)).toBe(false);
+    expect(remoteValid("ws://vps:4500", opencode)).toBe(false);
+  });
+
+  it("rejects hostless endpoints", () => {
+    // A special-scheme URL with no host is invalid → URL throws → rejected.
+    expect(remoteValid("ws://:4500", codex)).toBe(false);
+    expect(remoteValid("ws://", codex)).toBe(false);
+    expect(remoteValid("http://", opencode)).toBe(false);
+  });
+
+  it("rejects garbage and empty", () => {
+    expect(remoteValid("not a url", codex)).toBe(false);
+    expect(remoteValid("", codex)).toBe(false);
+    expect(remoteValid("vps:4500", codex)).toBe(false);
+  });
+
+  it("answers false when no schemes are offered (local-only agent)", () => {
+    expect(remoteValid("ws://vps:4500", null)).toBe(false);
+    expect(remoteValid("ws://vps:4500", [])).toBe(false);
+  });
+});
 
 // The picker's resume gate probes directories via useDirPresence → the
 // worktree ipc; pin it at the module seam (the dialog's PATH probe is a

@@ -71,8 +71,9 @@ const plugin: KeepDeckPlugin = {
       // opencode has a native client/server split: the host can run this pane
       // as a local `opencode attach <ep>` thin client against an `opencode
       // serve` on a VPS. Declared as a capability so the host gates the remote
-      // UI on it (mirrors codex; claude/kimi don't declare it).
-      remote: { mode: "nativeServer" },
+      // UI on it (mirrors codex; claude/kimi don't declare it). opencode's
+      // serve speaks HTTP.
+      remote: { mode: "nativeServer", schemes: ["http", "https"] },
       history: opencodeHistory(ctx),
       // Pane usage from the injected reporter's `message.updated` envelopes.
       // No account windows — opencode exposes none (see [`normalizeOpencodeUsage`]).

@@ -58,7 +58,8 @@ const plugin: KeepDeckPlugin = {
       // a local `codex --remote <ep>` thin client attached to a codex
       // app-server on a VPS. Declared as a capability so the host gates the
       // remote UI on it (claude/kimi don't declare it → no remote option).
-      remote: { mode: "nativeServer" },
+      // codex's app-server speaks WebSocket.
+      remote: { mode: "nativeServer", schemes: ["ws", "wss"] },
       // Per-pane tokens/context stay in the rollout; current account limits
       // come from the host's one shared official app-server manager.
       usage: {

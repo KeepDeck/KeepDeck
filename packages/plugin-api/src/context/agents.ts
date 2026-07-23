@@ -56,6 +56,10 @@ export type SpawnTarget = {
   endpoint: string;
 };
 
+/** A URI scheme an agent's remote client speaks — constrains what endpoint a
+ *  user may pair with which agent (codex speaks ws/wss, opencode http/https). */
+export type RemoteScheme = "ws" | "wss" | "http" | "https";
+
 /** How an agent runs against a remote target. MVP: `nativeServer` — the agent
  *  has its own client/server split; the host runs the LOCAL thin-client TUI
  *  (a normal PTY pane) pointing at a remote server endpoint. The host owns
@@ -63,6 +67,10 @@ export type SpawnTarget = {
  *  the client argv via `spawn.plan`. */
 export interface AgentRemote {
   mode: "nativeServer";
+  /** URI schemes the agent's remote client speaks — the host validates a
+   *  pasted endpoint against these so a user can't pair the agent with a
+   *  scheme it can't use (and won't see a silent start→crash). */
+  schemes: readonly RemoteScheme[];
 }
 
 /** A brand mark as bare SVG path data — data, never markup, so a plugin

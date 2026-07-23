@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  agentRemoteSchemes,
   agentSupportsRemote,
   agentSupportsYolo,
   canCreateAgent,
@@ -92,6 +93,25 @@ interface AgentDialogProps {
   sessionClaim(sessionId: string): "running" | "dormant" | null;
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
+}
+
+/** Whether `raw` is a usable remote-server endpoint for an agent that speaks
+ *  `schemes`: parses as a URL, has a non-empty host, and its scheme is one the
+ *  agent declares (codex ws/wss, opencode http/https). null/empty `schemes` =
+ *  no remote support → always false. Pure so the gate stays unit-testable. */
+export function remoteValid(
+  raw: string,
+  schemes: readonly string[] | null,
+): boolean {
+  if (!schemes || schemes.length === 0) return false;
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return false;
+  }
+  const scheme = url.protocol.slice(0, -1); // "ws:" → "ws"
+  return !!url.hostname && schemes.includes(scheme);
 }
 
 /**
@@ -330,7 +350,11 @@ export function AgentDialog({
   // non-remote agent silently drops it (the Where section hides), and the
   // submitted value is gated here so an unsupported agent never gets a target.
   const remote = where === "remote" && canRemote;
-  const endpointOk = /^(wss?|https?):\/\/\S+$/.test(endpoint.trim());
+  // The schemes the selected agent speaks (codex ws/wss, opencode http/https).
+  // Used to validate the pasted endpoint so the agent isn't paired with a
+  // scheme it can't speak — and to require a real host.
+  const remoteSchemes = agentRemoteSchemes(agents, agentType);
+  const endpointOk = remoteValid(endpoint, remote ? remoteSchemes : null);
   const occupancy = repo && path.trim() ? occupancyAt(path) : null;
   const kind = repo
     ? classifyLocation(path, probe, occupancy, attachAnyway)
@@ -479,12 +503,12 @@ export function AgentDialog({
                   className="form__input"
                   value={endpoint}
                   onChange={(e) => setEndpoint(e.target.value)}
-                  placeholder="ws:// or http:// — a running agent server"
+                  placeholder={`${remoteSchemes?.[0] ?? "ws"}://host:port — a running agent server`}
                   aria-label="Remote agent server endpoint"
                 />
                 {!endpointOk && endpoint.length > 0 && (
                   <span className="form__error">
-                    Enter a ws:// or http:// endpoint
+                    Enter a valid {remoteSchemes?.join("/") ?? "ws"}:// endpoint
                   </span>
                 )}
               </>
@@ -516,7 +540,7 @@ export function AgentDialog({
           </>
         )}
 
-        {startMode !== "new" && (
+        {startMode !== "new" && !remote && (
           <>
             <div className="form__sessions-bar">
               <input

@@ -6,15 +6,18 @@ export type {
   AgentIcon,
   AgentHistory,
   AgentIconPath,
+  AgentRemote,
   AgentSessionFacts,
   AgentSessionStub,
   AgentTranscriptEntry,
   ForkPlanInput,
   PluginAgents,
+  RemoteScheme,
   ResumePlanInput,
   SpawnPlanInput,
   SpawnPlanOutput,
   SpawnSkillsInput,
+  SpawnTarget,
 } from "./agents.ts";
 export type {
   AccountUsage,

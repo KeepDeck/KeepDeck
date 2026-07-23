@@ -8,6 +8,11 @@ export type AgentType = string;
 /** The host-side structural twin of the plugin usage capability contract. */
 export type AgentUsageCapability = "paneTelemetry" | "accountLimits";
 
+/** The host-side structural twin of the plugin-api `RemoteScheme`. Kept local
+ *  (no plugin-api import) like `AgentUsageCapability`: data, not a contract
+ *  reference. */
+export type AgentRemoteScheme = "ws" | "wss" | "http" | "https";
+
 /** A brand mark as bare SVG path data — the domain's structural twin of the
  *  plugin contract's icon (no plugin-api import; data, never markup).
  *  Multi-tone artwork is a stack of layers, painted in order. */
@@ -45,6 +50,11 @@ export interface AgentInfo {
    *  the spawn dialog. Absent = no (the common case); the gate defaults
    *  false, so an agent that can't honor a target never gets one picked. */
   supportsRemote?: boolean;
+  /** URI schemes the agent's remote client speaks, when it declares remote
+   *  support; absent otherwise. The spawn dialog validates a pasted
+   *  endpoint's scheme against these so the agent isn't paired with a scheme
+   *  it can't speak. */
+  remoteSchemes?: readonly AgentRemoteScheme[];
   /** Whether the CLI resolves on the augmented PATH. */
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */
@@ -92,4 +102,19 @@ export function agentSupportsRemote(
   type: AgentType,
 ): boolean {
   return agents.find((a) => a.id === type)?.supportsRemote ?? false;
+}
+
+/** The remote URI schemes `type`'s catalog entry declares, or null when the
+ *  agent is local-only (no remote, or unknown agent). The spawn dialog
+ *  validates a pasted endpoint's scheme against these — codex speaks ws/wss,
+ *  opencode http/https, and a scheme the agent can't speak is rejected rather
+ *  than crashing at spawn time. */
+export function agentRemoteSchemes(
+  agents: AgentInfo[],
+  type: AgentType,
+): readonly AgentRemoteScheme[] | null {
+  const a = agents.find((x) => x.id === type);
+  return a?.supportsRemote && a.remoteSchemes && a.remoteSchemes.length > 0
+    ? a.remoteSchemes
+    : null;
 }
