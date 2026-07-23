@@ -348,6 +348,12 @@ describe("SettingsDialog", () => {
       expect(panelOf(enable).hasAttribute("hidden")).toBe(false);
       expect(panelOf(feature).hasAttribute("hidden")).toBe(false);
       expect(feature.checked).toBe(true); // the schema default, no stored value
+      // The section owns scrolling inside the bounded settings body; the
+      // footer remains its sibling so long plugin pages can never paint over
+      // the Done action again.
+      const body = document.querySelector(".settings__body")!;
+      expect(body.contains(panelOf(feature))).toBe(true);
+      expect(body.contains(button("Done"))).toBe(false);
     } finally {
       section.dispose();
     }
