@@ -37,6 +37,8 @@ interface Fx {
   writes: Map<string, string>;
   spawns: { args: string[]; cwd?: string }[];
   warns: string[];
+  notifies: { title: string; severity?: string }[];
+  closes: number;
 }
 
 function fixture(opts?: { targetMissing?: boolean; behavior?: Behavior }): Fx {
@@ -44,9 +46,12 @@ function fixture(opts?: { targetMissing?: boolean; behavior?: Behavior }): Fx {
   const writes = new Map<string, string>();
   const spawns: { args: string[]; cwd?: string }[] = [];
   const warns: string[] = [];
+  const notifies: { title: string; severity?: string }[] = [];
+  const state = { closes: 0 };
   const enc = (s: string) => new TextEncoder().encode(s);
   const ctx = {
     log: { info() {}, warn: (m: string) => warns.push(m), error() {} },
+    notify: (n: { title: string; severity?: string }) => notifies.push(n),
     services: {
       fs: {
         readDir: async (path: string) => {
@@ -64,21 +69,27 @@ function fixture(opts?: { targetMissing?: boolean; behavior?: Behavior }): Fx {
               if (isExport) {
                 const text = b.exportText ? b.exportText(SRC) : `Exporting session: ${SRC}\r\n${JSON.stringify(exportDoc())}`;
                 onEvent({ type: "output", bytes: enc(text) });
-                onEvent({ type: "exit", code: b.exportCode ?? 0 });
+                // `=== undefined` (not `??`) so an EXPLICIT null code is emitted.
+                onEvent({ type: "exit", code: b.exportCode === undefined ? 0 : b.exportCode });
               } else {
                 const id = JSON.parse(writes.get(o.args[1]) ?? "{}").info.id as string;
                 const text = b.importText ? b.importText(id) : `Imported session: ${id}\r\n`;
                 onEvent({ type: "output", bytes: enc(text) });
-                onEvent({ type: "exit", code: b.importCode ?? 0 });
+                onEvent({ type: "exit", code: b.importCode === undefined ? 0 : b.importCode });
               }
             });
           }
-          return { id: "h", write: async () => {}, resize: async () => {}, close: async () => {} };
+          return {
+            id: "h",
+            write: async () => {},
+            resize: async () => {},
+            close: async () => void (state.closes += 1),
+          };
         },
       },
     },
   } as unknown as PluginContext;
-  return { ctx, writes, spawns, warns };
+  return { ctx, writes, spawns, warns, notifies, get closes() { return state.closes; } };
 }
 
 const forkInput = (cwd: string): ForkPlanInput => ({
@@ -106,12 +117,22 @@ describe("opencodeForkPlan", () => {
     expect(clone.messages[0].info.id).not.toBe("msg_aaaa0001rzij8gRRPwcFG1");
   });
 
-  it("runs `import` FROM the target dir (that's what binds the directory)", async () => {
+  it("runs BOTH export and import FROM the target dir (import binds the directory to its cwd)", async () => {
     const fx = fixture();
     await opencodeForkPlan(fx.ctx, forkInput("/new/target"));
+    const exportSpawn = fx.spawns.find((s) => s.args[0] === "export");
     const importSpawn = fx.spawns.find((s) => s.args[0] === "import");
-    expect(importSpawn?.cwd).toBe("/new/target");
+    expect(exportSpawn?.cwd).toBe("/new/target"); // export uses the target cwd too
+    expect(importSpawn?.cwd).toBe("/new/target"); // this is what relocates the session
     expect(importSpawn?.args[1]).toBe("/tmp/keepdeck-opencode/fork-pane-7.json");
+  });
+
+  it("import with a null exit code: id echo decides (succeeds with it, fails without)", async () => {
+    const withId = fixture({ behavior: { importCode: null } }); // default echoes the id
+    await expect(opencodeForkPlan(withId.ctx, forkInput("/t"))).resolves.toMatch(/^ses_/);
+
+    const noId = fixture({ behavior: { importCode: null, importText: () => "no id here" } });
+    await expect(opencodeForkPlan(noId.ctx, forkInput("/t"))).rejects.toThrow("import failed");
   });
 
   it("extractJson survives a trailing brace-bearing line after the JSON", async () => {
@@ -147,6 +168,7 @@ describe("opencodeForkPlan", () => {
       p.catch(() => {}); // pre-empt unhandled-rejection noise
       await vi.advanceTimersByTimeAsync(60_000);
       await expect(p).rejects.toThrow("timed out");
+      expect(fx.closes).toBe(1); // the orphaned PTY was killed, not leaked
     } finally {
       vi.useRealTimers();
     }
@@ -154,26 +176,31 @@ describe("opencodeForkPlan", () => {
 });
 
 describe("relocatingForkId", () => {
-  it("returns the relocated session id when the target exists and the recipe succeeds", async () => {
+  it("returns the relocated session id when the target exists and the recipe succeeds — no warn, no notify", async () => {
     const fx = fixture();
     const id = await relocatingForkId(fx.ctx, forkInput("/new/target"));
     expect(id).toMatch(/^ses_/);
     expect(id).not.toBe(SRC);
     expect(fx.warns).toHaveLength(0);
+    expect(fx.notifies).toHaveLength(0);
   });
 
-  it("returns null (native fallback) for a not-yet-provisioned target — no spawn, no warn", async () => {
+  it("returns null (native fallback) for a not-yet-provisioned target — no spawn, and SILENT (benign)", async () => {
     const fx = fixture({ targetMissing: true });
     expect(await relocatingForkId(fx.ctx, forkInput("/future/worktree"))).toBeNull();
     expect(fx.spawns).toHaveLength(0);
-    expect(fx.warns).toHaveLength(0); // expected path, not an error
+    expect(fx.warns).toHaveLength(0); // expected path — no alarm
+    expect(fx.notifies).toHaveLength(0);
   });
 
-  it("returns null and WARNS when the recipe throws — never propagates (no hard-fail)", async () => {
+  it("returns null, WARNS and NOTIFIES when a GENUINE recipe failure happens — never propagates", async () => {
     const fx = fixture({ behavior: { importCode: 1, importText: () => "boom" } });
     expect(await relocatingForkId(fx.ctx, forkInput("/new/target"))).toBeNull();
     expect(fx.warns).toHaveLength(1);
     expect(fx.warns[0]).toContain("native --fork fallback");
+    // A real breakage is surfaced to the user, not just logged.
+    expect(fx.notifies).toHaveLength(1);
+    expect(fx.notifies[0].severity).toBe("warning");
   });
 });
 

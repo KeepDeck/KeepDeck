@@ -17,6 +17,7 @@ function activate(
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
     resources: { path: async () => reporterPath },
     log: { info() {}, warn() {}, error() {} },
+    notify: () => {},
     ...(services ? { services } : {}),
   } as unknown as PluginContext);
   if (!agent) throw new Error("plugin registered no agent");
@@ -146,6 +147,19 @@ describe("opencode plugin hooks", () => {
     expect(out.args[0]).toBe("-s");
     expect(out.args[1]).not.toBe("ses_x");
     expect(Object.fromEntries(out.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
+  });
+
+  it("relocating fork honors YOLO: skip-permissions flag precedes the resumed clone id", async () => {
+    const agent = activate("/App/resources/session-reporter.js", forkServices());
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, yolo: true, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
+      out,
+    );
+    expect(out.args[0]).toBe("--dangerously-skip-permissions");
+    expect(out.args[1]).toBe("-s");
+    expect(out.args[2]).not.toBe("ses_x"); // the relocated clone id, not the source
+    expect(out.args).not.toContain("--fork");
   });
 
   it("falls back to native -s --fork when the target isn't provisioned yet", async () => {

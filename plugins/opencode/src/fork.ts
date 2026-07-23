@@ -130,6 +130,10 @@ export async function opencodeForkPlan(
   input: ForkPlanInput,
 ): Promise<string> {
   const exportRun = await runOpencode(ctx, ["export", input.sessionId], input.cwd);
+  // Exit code is authoritative. A null code (the PTY couldn't report one) is
+  // tolerated here because a failed export can't survive extractJson/JSON.parse
+  // below — unlike import, which has no downstream validator and so ALSO checks
+  // the id echo when the code is null (see the import gate).
   if (exportRun.code !== 0 && exportRun.code !== null) {
     throw new Error(`opencode export exited ${exportRun.code}: ${tail(exportRun.text)}`);
   }
@@ -183,15 +187,28 @@ export async function relocatingForkId(
   ctx: PluginContext,
   input: ForkPlanInput,
 ): Promise<string | null> {
+  // Benign: a not-yet-provisioned worktree target. Native fork, no alarm.
   if (!(await targetExists(ctx, input.cwd))) return null;
   try {
     return await opencodeForkPlan(ctx, input);
   } catch (e) {
+    // A GENUINE recipe failure on a target that DOES exist (opencode drift, a
+    // timeout, an export/import error) — distinct from the benign case above.
+    // Native fork silently re-homes the copy to the SOURCE dir, so surface it:
+    // the user asked to relocate and it didn't. Still fall back (a fork happens)
+    // rather than hard-failing the whole fork.
     ctx.log.warn(
       `opencode fork relocation of ${input.sessionId} failed — native --fork fallback: ${
         e instanceof Error ? e.message : String(e)
       }`,
     );
+    ctx.notify({
+      title: "OpenCode fork opened in the original directory",
+      body: "Couldn't relocate the forked session to the chosen folder — it continues where the source ran.",
+      severity: "warning",
+      workspace: input.workspace,
+      tag: `fork-relocate-${input.paneId}`,
+    });
     return null;
   }
 }

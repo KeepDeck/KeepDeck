@@ -9,7 +9,8 @@
     { "kind": "exec", "commands": ["opencode"] },
     { "kind": "sqliteReadonly", "paths": ["~/.local/share/opencode"] },
     { "kind": "fs", "scope": "everywhere" },
-    { "kind": "fsWrite", "paths": ["/tmp/keepdeck-opencode", "/private/tmp/keepdeck-opencode"] }
+    { "kind": "fsWrite", "paths": ["/tmp/keepdeck-opencode", "/private/tmp/keepdeck-opencode"] },
+    { "kind": "notifications" }
   ],
   "contributes": {
     "agents": [{ "id": "opencode", "label": "OpenCode" }]

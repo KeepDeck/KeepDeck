@@ -138,27 +138,59 @@ describe("rekeyExport", () => {
     expect(rekeyed.info.title).toBeUndefined();
   });
 
-  it("preserves part order within a message (realistic ids differ within the kept prefix)", () => {
-    // Real opencode part ids carry a monotonic 12-hex body inside the first 16
-    // chars, so parts of one message differ THERE; keeping that prefix keeps
-    // their relative order regardless of the reminted random tail.
+  it("preserves part order: the sortable id prefix survives reminting", () => {
+    // Real opencode part ids carry a monotonic body inside the first 16 chars,
+    // so parts of one message differ THERE. remint keeps exactly those 16 chars.
+    const partIds = [
+      "prt_f2461db4d001zzzzzzzzzzzzzz",
+      "prt_f2461db4d002zzzzzzzzzzzzzz",
+      "prt_f2461db4d003zzzzzzzzzzzzzz",
+    ];
+    const doc: OpencodeExport = {
+      info: { id: SRC, directory: "/d", title: "t" },
+      messages: [
+        {
+          info: { id: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, role: "assistant" },
+          parts: partIds.map((id) => ({
+            id,
+            messageID: "msg_f2461db4d001rzij8gRRPwcFG1",
+            sessionID: SRC,
+            type: "text",
+          })),
+        },
+      ],
+    };
+    const { rekeyed } = rekeyExport(doc, { directory: "/t", bytes: counterBytes() });
+    const newIds = rekeyed.messages[0].parts!.map((p) => p.id as string);
+    // The sort key (first 16 chars) is preserved BYTE-FOR-BYTE — any KEEP≠16
+    // would change it and could reorder. This catches the boundary directly,
+    // independent of what the random tail happens to be.
+    expect(newIds.map((id) => id.slice(0, 16))).toEqual(partIds.map((id) => id.slice(0, 16)));
+    // …and the reminted ids therefore still sort in the original order.
+    expect([...newIds].sort()).toEqual(newIds);
+  });
+
+  it("accepts opencode's synthetic part sentinel (mid-body underscore)", () => {
+    // ID_SHAPE allows `_` in the body precisely for `prt_0000000000_thinking`;
+    // a regression tightening the class would throw on it in production.
+    expect(() => remintId("prt_0000000000_thinking", counterBytes())).not.toThrow();
     const doc: OpencodeExport = {
       info: { id: SRC, directory: "/d", title: "t" },
       messages: [
         {
           info: { id: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, role: "assistant" },
           parts: [
-            { id: "prt_f2461db4d001zzzzzzzzzzzzzz", messageID: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, type: "text" },
-            { id: "prt_f2461db4d002zzzzzzzzzzzzzz", messageID: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, type: "text" },
-            { id: "prt_f2461db4d003zzzzzzzzzzzzzz", messageID: "msg_f2461db4d001rzij8gRRPwcFG1", sessionID: SRC, type: "text" },
+            {
+              id: "prt_0000000000_thinking",
+              messageID: "msg_f2461db4d001rzij8gRRPwcFG1",
+              sessionID: SRC,
+              type: "thinking",
+            },
           ],
         },
       ],
     };
-    const { rekeyed } = rekeyExport(doc, { directory: "/t", bytes: counterBytes() });
-    const ids = rekeyed.messages[0].parts!.map((p) => p.id as string);
-    // opencode orders parts by id; the reminted ids must sort in the same order.
-    expect([...ids].sort()).toEqual(ids);
+    expect(() => rekeyExport(doc, { directory: "/t", bytes: counterBytes() })).not.toThrow();
   });
 
   it("handles a message with parts absent, a part with no id, and empty messages", () => {
