@@ -8,12 +8,12 @@ import {
   createKimiServerManager,
   describeStartupOutput,
   extractServerAccess,
-  KIMI_SETUP_SERVER_PORT,
 } from "./serverManager";
 
 const encoder = new TextEncoder();
-const ready =
-  `Kimi server: http://127.0.0.1:${KIMI_SETUP_SERVER_PORT}/#token=secret-token\r\n`;
+// `--port 0` makes Kimi bind an ephemeral port; the banner carries the real one.
+const READY_ORIGIN = "http://127.0.0.1:64999";
+const ready = `Kimi server: ${READY_ORIGIN}/#token=secret-token\r\n`;
 
 function sessionHarness(output = ready) {
   const close = vi.fn(async () => {});
@@ -36,30 +36,25 @@ function sessionHarness(output = ready) {
 }
 
 describe("Kimi setup server access", () => {
-  it("extracts only the authenticated endpoint on the fixed port", () => {
+  it("extracts the authenticated endpoint with whatever port Kimi bound", () => {
     expect(
       extractServerAccess(
-        `\u001b[32mKimi:\u001b[0m http://127.0.0.1:${KIMI_SETUP_SERVER_PORT}/\u001b[90m#token=abc_123-XYZ\u001b[0m`,
+        `\u001b[32mKimi:\u001b[0m http://127.0.0.1:64999/\u001b[90m#token=abc_123-XYZ\u001b[0m`,
       ),
     ).toEqual({
-      origin: `http://127.0.0.1:${KIMI_SETUP_SERVER_PORT}`,
+      origin: "http://127.0.0.1:64999",
       token: "abc_123-XYZ",
     });
+    // A different ephemeral port is equally fine — `--port 0` picks any.
+    expect(
+      extractServerAccess(`http://127.0.0.1:43123/#token=x`),
+    ).toEqual({ origin: "http://127.0.0.1:43123", token: "x" });
   });
 
-  it("rejects other hosts, ports and missing credentials", () => {
+  it("rejects other hosts and missing credentials", () => {
+    expect(extractServerAccess(`http://127.0.0.1:64999/`)).toBeNull();
     expect(
-      extractServerAccess(
-        `http://127.0.0.1:${KIMI_SETUP_SERVER_PORT}/`,
-      ),
-    ).toBeNull();
-    expect(
-      extractServerAccess("http://127.0.0.1:43123/#token=x"),
-    ).toBeNull();
-    expect(
-      extractServerAccess(
-        `http://localhost:${KIMI_SETUP_SERVER_PORT}/#token=x`,
-      ),
+      extractServerAccess(`http://localhost:64999/#token=x`),
     ).toBeNull();
   });
 });
@@ -85,7 +80,7 @@ describe("describeStartupOutput", () => {
 });
 
 describe("Kimi server manager", () => {
-  it("uses one fixed-port foreground server for queued operations", async () => {
+  it("uses one watchdog-wrapped ephemeral-port server for queued operations", async () => {
     const { manager, spawn, close } = sessionHarness();
     let releaseFirst!: () => void;
     const firstGate = new Promise<void>((resolve) => {
@@ -113,29 +108,28 @@ describe("Kimi server manager", () => {
     releaseFirst();
 
     await expect(Promise.all([first, ...queued])).resolves.toEqual(
-      Array.from(
-        { length: 10 },
-        () => `http://127.0.0.1:${KIMI_SETUP_SERVER_PORT}`,
-      ),
+      Array.from({ length: 10 }, () => READY_ORIGIN),
     );
     expect(spawn).toHaveBeenCalledOnce();
-    expect(spawn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: "kimi",
-        // `kimi web`, not the removed-in-0.28 `kimi server run`.
-        args: [
-          "web",
-          "--no-open",
-          "--host",
-          "127.0.0.1",
-          "--port",
-          String(KIMI_SETUP_SERVER_PORT),
-          "--log-level",
-          "silent",
-        ],
-      }),
-      expect.any(Function),
-    );
+    const spawnOptions = spawn.mock.calls[0][0] as {
+      command: string;
+      args: string[];
+    };
+    expect(spawnOptions.command).toBe("/bin/sh");
+    expect(spawnOptions.args[0]).toBe("-c");
+    const wrapper = spawnOptions.args[1];
+    // `kimi web`, not the removed-in-0.28 `kimi server run`; the debug RPC
+    // surface replaced the removed-in-0.29 /api/v2 one; an ephemeral port
+    // cannot collide with a second KeepDeck instance.
+    expect(wrapper).toContain("kimi web --no-open --host 127.0.0.1");
+    expect(wrapper).toContain("--port 0");
+    expect(wrapper).toContain("--debug-endpoints");
+    // The parent-death watchdog: ignore the PTY's SIGHUP, kill the server
+    // (TERM, then KILL) when KeepDeck is gone.
+    expect(wrapper).toContain('trap "" HUP');
+    expect(wrapper).toContain('kill -0 "$parent"');
+    expect(wrapper).toContain('kill "$child"');
+    expect(wrapper).toContain('kill -9 "$child"');
     expect(maxActive).toBe(1);
     expect(order).toEqual([
       "first:start",
@@ -223,7 +217,7 @@ describe("Kimi server manager", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("reports an early exit by code without blaming the port", async () => {
+  it("reports an early exit by code", async () => {
     const close = vi.fn(async () => {});
     const spawn = vi.fn(
       async (_opts: unknown, onEvent: (event: PluginSessionEvent) => void) => {
@@ -242,14 +236,12 @@ describe("Kimi server manager", () => {
 
     const failure = manager.run(async () => {});
     await expect(failure).rejects.toThrow(
-      `exited before it became ready on 127.0.0.1:${KIMI_SETUP_SERVER_PORT} (code 1)`,
+      "exited before it became ready (code 1)",
     );
-    // A busy port makes `kimi web` hang, not exit, so it must not be blamed here.
-    await expect(failure).rejects.not.toThrow("port may already be in use");
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("omits the code and the port hint when a signal kills the server", async () => {
+  it("omits the code when a signal kills the server", async () => {
     const close = vi.fn(async () => {});
     const spawn = vi.fn(
       async (_opts: unknown, onEvent: (event: PluginSessionEvent) => void) => {
@@ -268,10 +260,9 @@ describe("Kimi server manager", () => {
 
     const failure = manager.run(async () => {});
     await expect(failure).rejects.toThrow(
-      `exited before it became ready on 127.0.0.1:${KIMI_SETUP_SERVER_PORT}.`,
+      "Kimi setup server exited before it became ready.",
     );
     await expect(failure).rejects.not.toThrow("(code");
-    await expect(failure).rejects.not.toThrow("port may already be in use");
     expect(close).toHaveBeenCalledOnce();
   });
 
@@ -298,7 +289,7 @@ describe("Kimi server manager", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("blames a busy port or changed banner only on a startup timeout", async () => {
+  it("blames a changed banner on a startup timeout", async () => {
     vi.useFakeTimers();
     try {
       const close = vi.fn(async () => {});
@@ -319,7 +310,7 @@ describe("Kimi server manager", () => {
       await vi.advanceTimersByTimeAsync(15_000);
 
       await expect(failure).rejects.toThrow("to report its address");
-      await expect(failure).rejects.toThrow("port may already be in use");
+      await expect(failure).rejects.toThrow("changed its startup banner");
       expect(close).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();

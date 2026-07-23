@@ -5,14 +5,11 @@ import {
   COMPANION_VERSION,
 } from "./companion";
 import { createKimiCompanionManager } from "./manager";
-import {
-  KIMI_SETUP_SERVER_PORT,
-  type KimiServerManager,
-} from "./serverManager";
+import type { KimiServerManager } from "./serverManager";
 
 const SOURCE_DIRECTORY = "/App/resources/keepdeck-session-reporter";
 const ACCESS = {
-  origin: `http://127.0.0.1:${KIMI_SETUP_SERVER_PORT}`,
+  origin: "http://127.0.0.1:64999",
   token: "secret-token",
 };
 
@@ -89,7 +86,7 @@ describe("Kimi companion manager", () => {
 
     expect(run).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledWith(
-      `${ACCESS.origin}/api/v2/pluginService/installPlugin`,
+      `${ACCESS.origin}/api/v1/debug/pluginService/installPlugin`,
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -100,7 +97,7 @@ describe("Kimi companion manager", () => {
       }),
     );
     expect(fetcher).toHaveBeenCalledWith(
-      `${ACCESS.origin}/api/v2/pluginService/setPluginEnabled`,
+      `${ACCESS.origin}/api/v1/debug/pluginService/setPluginEnabled`,
       expect.objectContaining({
         body: JSON.stringify({ id: COMPANION_ID, enabled: true }),
       }),
@@ -135,7 +132,7 @@ describe("Kimi companion manager", () => {
     await expect(manager.remove()).resolves.toBeNull();
     expect(run).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledWith(
-      `${ACCESS.origin}/api/v2/pluginService/removePlugin`,
+      `${ACCESS.origin}/api/v1/debug/pluginService/removePlugin`,
       expect.objectContaining({
         body: JSON.stringify({ id: COMPANION_ID }),
       }),

@@ -6,7 +6,7 @@
   "category": "cli",
   "description": "Adds the Kimi Code CLI with exact session resume and an optional one-time setup for session persistence.",
   "capabilities": [
-    { "kind": "exec", "commands": ["kimi"] },
+    { "kind": "exec", "commands": ["kimi", "/bin/sh"] },
     { "kind": "net", "domains": ["127.0.0.1"] },
     { "kind": "notifications" },
     { "kind": "fs", "scope": "everywhere" },
