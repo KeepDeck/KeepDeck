@@ -4,6 +4,7 @@ import {
   findWorkspaceByRef,
   MAX_PANES,
   paneId,
+  WORKSPACE_FULL_MESSAGE,
   type Pane,
 } from "../domain/deck";
 import type { SessionHandle } from "../domain/journal";
@@ -124,7 +125,7 @@ export function useJournalResume(
       }
       if (wsNow.panes.length >= MAX_PANES) {
         dropPaneSpawnSpec(pid);
-        throw new Error("The workspace is full — close a pane first");
+        throw new Error(WORKSPACE_FULL_MESSAGE);
       }
       const name = opts?.name?.trim();
       const pane: Pane = {

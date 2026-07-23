@@ -4,6 +4,7 @@ import {
   findWorkspaceByRef,
   MAX_PANES,
   paneId,
+  WORKSPACE_FULL_MESSAGE,
   type Pane,
 } from "../domain/deck";
 import type { SessionHandle } from "../domain/journal";
@@ -112,7 +113,7 @@ export function useJournalFork(
         // workspace is already full — else it creates an orphan clone, then
         // throws. (The post-surgery re-check below still guards the async gap.)
         if (ws.panes.length >= MAX_PANES) {
-          throw new Error("The workspace is full — close a pane first");
+          throw new Error(WORKSPACE_FULL_MESSAGE);
         }
         // The target already exists — run the surgery up front.
         if (!(await forkSurgery(target.cwd))) {
@@ -129,7 +130,7 @@ export function useJournalFork(
         }
         if (wsNow.panes.length >= MAX_PANES) {
           dropPaneSpawnSpec(pid);
-          throw new Error("The workspace is full — close a pane first");
+          throw new Error(WORKSPACE_FULL_MESSAGE);
         }
         deckRef.current.addAgentPane(wsNow.id, {
           id: pid,
@@ -156,7 +157,7 @@ export function useJournalFork(
       // A full workspace would make addAgentPane a silent no-op — stranding a
       // provisioned, ownerless worktree on disk.
       if (wsNow.panes.length >= MAX_PANES) {
-        throw new Error("The workspace is full — close a pane first");
+        throw new Error(WORKSPACE_FULL_MESSAGE);
       }
       const pane: Pane = {
         id: pid,

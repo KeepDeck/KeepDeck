@@ -362,7 +362,7 @@ function readProvisioning(
     typeof value.index !== "number"
   )
     return null;
-  const intent: Omit<PaneProvisioning, "error" | "phase"> = {
+  const intent: Omit<PaneProvisioning, "error" | "phase" | "fork"> = {
     repo: value.repo,
     workspace: value.workspace,
     index: value.index,
@@ -375,10 +375,14 @@ function readProvisioning(
   return intent;
 }
 
-/** The provisioning intent without its runtime `error`/`phase` fields. */
+/** The provisioning intent without its runtime `error`/`phase`/`fork` fields.
+ * A fork card is dropped whole before this runs (see the serialize filter), so
+ * excluding `fork` here is belt-and-suspenders: even if that filter were ever
+ * weakened, the marker still never reaches disk — and the type stays honest
+ * about the full runtime-only set. */
 function stripRuntime(
   p: PaneProvisioning,
-): Omit<PaneProvisioning, "error" | "phase"> {
-  const { error: _error, phase: _phase, ...intent } = p;
+): Omit<PaneProvisioning, "error" | "phase" | "fork"> {
+  const { error: _error, phase: _phase, fork: _fork, ...intent } = p;
   return intent;
 }

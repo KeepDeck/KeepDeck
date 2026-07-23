@@ -6,11 +6,10 @@ import {
   type WorktreeTarget,
 } from "../domain/deck";
 import { probeWorktree } from "../ipc/worktree";
-import { discardWorktrees } from "./provisioning";
+import { clearPostProvision, discardWorktrees } from "./provisioning";
 import { closePanes } from "./ptyManager";
 import { dropPaneSpawnSpec } from "./spawnSpecs";
 import { clearPaneUsage } from "./usageManager";
-import { clearPostProvision } from "./provisioning";
 import type { Deck } from "./useDeck";
 
 /** A pending close awaiting confirmation ([U6]) — an agent pane or a whole

@@ -386,6 +386,32 @@ describe("pane provisioning transforms", () => {
     });
   });
 
+  it("preserves the fork marker across the error → retry cycle", () => {
+    // A journal-fork card must stay a fork through a failure and its Retry, or
+    // the retry (setPaneProvisioningError(…, null)) would resolve a non-fork
+    // pane. The marker rides the reducer's `...intent` spread — lock that.
+    const forkWs: Workspace = {
+      ...provisioningWs(),
+      panes: [
+        {
+          id: "a-p1",
+          provisioning: {
+            repo: "/repo",
+            path: "/wt/f",
+            branch: "fork/x",
+            workspace: "a",
+            index: 1,
+            fork: true,
+          },
+        },
+      ],
+    };
+    const failed = setPaneProvisioningError([forkWs], "a", "a-p1", "boom");
+    expect(failed[0].panes[0].provisioning?.fork).toBe(true);
+    const retrying = setPaneProvisioningError(failed, "a", "a-p1", null);
+    expect(retrying[0].panes[0].provisioning?.fork).toBe(true);
+  });
+
   it("setPaneProvisioningError no-ops (same ref) on a non-provisioning pane and an unchanged error", () => {
     const workspaces = [provisioningWs()];
     expect(setPaneProvisioningError(workspaces, "a", "a-p2", "boom")).toBe(

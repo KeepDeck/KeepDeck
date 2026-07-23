@@ -62,6 +62,13 @@ export function provisionInto(
  * (non-fork) pane. A step THROWS to fail (the worktree is rolled back and the
  * card fails); it is consumed once it succeeds, and kept across a failed attempt
  * so the retry re-runs it.
+ *
+ * PERSISTENCE COUPLING (don't miss this): a step lives ONLY in this in-memory
+ * map — it cannot survive an app restart. So ANY pane that registers a step
+ * MUST also be excluded from persistence, or its card restores as a plain
+ * retryable card and Retry resolves a NON-fork pane. The journal fork does this
+ * via `PaneProvisioning.fork`, which `serializeDeck` drops; a future second user
+ * of this map must add the equivalent.
  */
 const postProvisionSteps = new Map<
   string,

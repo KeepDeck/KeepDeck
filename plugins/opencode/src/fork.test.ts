@@ -206,6 +206,16 @@ describe("relocatingForkId", () => {
     expect(fx.notifies[0].title).toBe("Fork opened in the original directory");
     expect(fx.notifies[0].tag).toBe("fork-relocate-pane-7");
   });
+
+  it("survives a THROWING notify sink — still returns null, never propagates", async () => {
+    const fx = fixture({ behavior: { importCode: 1, importText: () => "boom" } });
+    (fx.ctx as unknown as { notify: () => void }).notify = () => {
+      throw new Error("notification center offline");
+    };
+    // The genuine-failure path calls ctx.notify; a throw there must not escape
+    // relocatingForkId's "never throws" contract.
+    await expect(relocatingForkId(fx.ctx, forkInput("/new/target"))).resolves.toBeNull();
+  });
 });
 
 describe("targetExists", () => {

@@ -132,6 +132,8 @@ describe("useJournalFork", () => {
       path: "/repo-wt/fork-1",
       branch: "fork/auth",
     });
+    // The marker the whole restart-safety fix hinges on: serialize drops it.
+    expect(pane.provisioning?.fork).toBe(true);
     expect(pane.yolo).toBe(true);
     // Surgery is NOT run up front — the worktree does not exist yet. Instead a
     // post-provision step is registered and plain provisioning is kicked off
@@ -204,6 +206,20 @@ describe("useJournalFork", () => {
       ),
     ).rejects.toThrow("full");
     expect(provisioning.runProvisioning).not.toHaveBeenCalled();
+  });
+
+  it("a full workspace fails a DIR fork BEFORE the irreversible surgery", async () => {
+    await mount();
+    act(() => {
+      for (let i = 0; i < 16; i++) {
+        deck.addAgentPane("ws-1", { id: `p-${i}`, agentType: "claude" });
+      }
+    });
+    await expect(
+      act(async () => api.fork("ws-1", record(), { kind: "dir", cwd: "/elsewhere" })),
+    ).rejects.toThrow("full");
+    // The early bail runs before forkSurgery — no export→rekey→import, no orphan.
+    expect(plans.buildForkSpec).not.toHaveBeenCalled();
   });
 
   it("a throwing surgery propagates its precise diagnostic to the caller", async () => {
