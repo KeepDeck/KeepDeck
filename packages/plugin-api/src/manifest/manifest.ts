@@ -415,25 +415,49 @@ function readSummaries(
 
 /** Agent summaries share the base {id, label} rules and add the optional
  * `bin` — when present it must be a non-empty plain program name (it is
- * resolved against PATH at detection time, so no paths or whitespace). */
+ * resolved against PATH at detection time, so no paths or whitespace). One
+ * pass over the raw entries: joining `bin` back by index across a filtered
+ * intermediate would misalign fields the moment an invalid sibling drops. */
 function readAgentSummaries(
   value: unknown,
   errors: string[],
 ): AgentContributionSummary[] | undefined {
-  const base = readSummaries(value, "agents", errors);
-  if (!base) return undefined;
-  const raw = Array.isArray(value) ? (value as unknown[]) : [];
-  return base.map((entry, i) => {
-    const bin = isRecord(raw[i]) ? raw[i].bin : undefined;
-    if (bin === undefined) return entry;
-    if (typeof bin !== "string" || !CONTRIB_ID.test(bin)) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    errors.push(`contributes.agents: must be an array`);
+    return undefined;
+  }
+  const read: AgentContributionSummary[] = [];
+  value.forEach((entry, i) => {
+    if (
+      !isRecord(entry) ||
+      typeof entry.id !== "string" ||
+      !entry.id.trim() ||
+      typeof entry.label !== "string" ||
+      !entry.label.trim()
+    ) {
+      errors.push(`contributes.agents[${i}]: needs string "id" and "label"`);
+      return;
+    }
+    if (!CONTRIB_ID.test(entry.id)) {
+      errors.push(
+        `contributes.agents[${i}]: id "${entry.id}" must be alphanumerics, "-" or "_" only`,
+      );
+      return;
+    }
+    if (entry.bin === undefined) {
+      read.push({ id: entry.id, label: entry.label });
+      return;
+    }
+    if (typeof entry.bin !== "string" || !CONTRIB_ID.test(entry.bin)) {
       errors.push(
         `contributes.agents[${i}]: bin must be a plain program name (alphanumerics, "-" or "_")`,
       );
-      return entry;
+      return;
     }
-    return { ...entry, bin };
+    read.push({ id: entry.id, label: entry.label, bin: entry.bin });
   });
+  return read.length > 0 ? read : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

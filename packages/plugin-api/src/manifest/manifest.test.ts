@@ -332,4 +332,22 @@ describe("agent contribution bins", () => {
     if (!result.ok) return;
     expect(declaredAgentBins(result.manifest)).toEqual([]);
   });
+
+  it("reports every entry's problems in one pass, even past an invalid sibling", () => {
+    // Entry 0 drops on its bad id; entry 1's bad bin must STILL be read from
+    // entry 1 — a two-pass index join would lose it behind the drop.
+    const result = readManifest({
+      ...CLI,
+      contributes: {
+        agents: [
+          { id: "!bad", label: "Broken" },
+          { id: "kimi", label: "Kimi", bin: "a/b" },
+        ],
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.includes("contributes.agents[0]"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("contributes.agents[1]"))).toBe(true);
+  });
 });
