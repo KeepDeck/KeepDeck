@@ -281,4 +281,22 @@ describe("ForkTargetDialog YOLO toggle", () => {
     // the prefilled default.
     expect(confirmed[0].yolo).toBe(false);
   });
+
+  it("rides the YOLO choice onto onConfirm for a worktree target too", async () => {
+    mount(true);
+    type(pathInput(), "/tmp/fork-area");
+    // Settle the debounced path probe (200ms) so the path resolves to a
+    // new-worktree target with the folder-name branch suggestion.
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(branchInput()!.value).toBe("fork-area");
+    expect(yoloCheckbox()!.checked).toBe(true); // prefilled from defaultYolo
+
+    submit();
+    expect(confirmed[0]).toEqual({
+      target: { kind: "worktree", path: "/tmp/fork-area", branch: "fork-area" },
+      yolo: true,
+    });
+  });
 });
