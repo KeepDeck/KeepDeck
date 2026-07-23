@@ -26,6 +26,14 @@ export type ForkTarget =
   | { kind: "dir"; cwd: string }
   | { kind: "worktree"; path: string; branch: string; base?: string };
 
+/** The ForkTargetDialog's confirm payload — the chosen landing target plus
+ * the resolved YOLO choice. Named so the dialog's output contract has one
+ * home, mirroring AgentDialogResult. */
+export interface ForkTargetDialogResult {
+  target: ForkTarget;
+  yolo: boolean;
+}
+
 export interface JournalForkApi {
   /** Fork a journal record into `target` as a new pane of the workspace.
     * Rejects when no plan could be prepared (surgery failures included).

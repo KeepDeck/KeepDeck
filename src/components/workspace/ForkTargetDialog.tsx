@@ -10,11 +10,13 @@ import {
 } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
 import { baseName } from "../../domain/deck";
-import type { ForkTarget } from "../../app/useJournalFork";
+import type { ForkTarget, ForkTargetDialogResult } from "../../app/useJournalFork";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
 import { YoloField } from "../../ui/YoloField";
 import { noAutoCorrect } from "../../ui/inputProps";
+
+export type { ForkTargetDialogResult } from "../../app/useJournalFork";
 
 interface ForkTargetDialogProps {
   record: SessionHandle;
@@ -30,7 +32,7 @@ interface ForkTargetDialogProps {
   occupancy(path: string): Occupancy;
   /** Native folder picker; `null` = cancelled. */
   pickFolder(title: string): Promise<string | null>;
-  onConfirm(result: { target: ForkTarget; yolo: boolean }): void;
+  onConfirm(result: ForkTargetDialogResult): void;
   onCancel(): void;
 }
 

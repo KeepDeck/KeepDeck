@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ForkTargetDialog } from "./ForkTargetDialog";
 import type { AgentInfo, Occupancy, PathProbe } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
-import type { ForkTarget } from "../../app/useJournalFork";
+import type { ForkTarget, ForkTargetDialogResult } from "../../app/useJournalFork";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -203,7 +203,7 @@ describe("ForkTargetDialog", () => {
 describe("ForkTargetDialog YOLO toggle", () => {
   let host: HTMLElement;
   let root: Root;
-  let confirmed: Array<{ target: ForkTarget; yolo: boolean }>;
+  let confirmed: ForkTargetDialogResult[];
 
   // codex is the forked agent; flipping supportsYolo hides/shows the toggle.
   let agents: AgentInfo[];
