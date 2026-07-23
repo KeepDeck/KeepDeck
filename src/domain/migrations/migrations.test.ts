@@ -8,6 +8,13 @@ import {
 } from "./migrations";
 
 describe("migrateDeck — revision ladder + compatibility floor", () => {
+  it("the deck + settings revisions are the expected values", () => {
+    // Pin the bumps so a forgotten version bump (the r3 SETTINGS miss) fails
+    // loudly rather than silently shrinking the ladder-loop's coverage.
+    expect(DECK_STATE_VERSION).toBe(8);
+    expect(SETTINGS_VERSION).toBe(11);
+  });
+
   it("upgrades a v1 document hop by hop to the current revision", () => {
     const out = migrateDeck({ version: 1, workspaces: [], marker: "kept" });
     expect(out.kind).toBe("ok");

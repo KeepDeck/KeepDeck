@@ -980,4 +980,52 @@ describe("remote gating (Experimental setting)", () => {
     await mount("claude", true);
     expect(document.body.textContent).not.toContain("Where");
   });
+
+  it("submits the typed endpoint as remoteEndpoint on Create", async () => {
+    catalog.extraAgents = [codexRemote];
+    const confirmed: AgentDialogResult[] = [];
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "codex" as const,
+          remoteEnabled: true,
+          defaultYolo: false,
+          repo: null,
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => [],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions: async () => ({ rows: [], total: 0 }),
+          sessionClaim: () => null,
+          onConfirm: (r) => confirmed.push(r),
+          onCancel: () => {},
+        }),
+      ),
+    );
+    // Remote is opt-in within the Where row (default Local) — click it to
+    // reveal the endpoint field.
+    const remoteBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent === "Remote",
+    )!;
+    await act(async () => {
+      remoteBtn.click();
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Remote agent server endpoint"]',
+    )!;
+    await act(async () => {
+      type(input, "ws://vps:4500");
+    });
+    const create = document.querySelector<HTMLButtonElement>(".form__create")!;
+    expect(create.disabled).toBe(false);
+    await act(async () => {
+      create.click();
+    });
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0].remoteEndpoint).toBe("ws://vps:4500");
+  });
 });

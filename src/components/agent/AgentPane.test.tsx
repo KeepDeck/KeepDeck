@@ -282,6 +282,56 @@ describe("AgentPane — provisioning cards", () => {
 
 });
 
+describe("AgentPane — plan-error tile", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("renders the error tile (not 'Waking up…') and fires onRetryPlan", () => {
+    const onRetryPlan = vi.fn();
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          planError: true,
+          onRetryPlan,
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Couldn't start this agent");
+    // Not the planPending tile, and no terminal mounted.
+    expect(document.body.textContent).not.toContain("Waking up");
+    expect(TerminalPane).not.toHaveBeenCalled();
+
+    const retry =
+      document.querySelector<HTMLButtonElement>(".pane__dormant-action");
+    expect(retry).not.toBeNull();
+    expect(retry!.textContent).toBe("Try again");
+    act(() => retry!.click());
+    expect(onRetryPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render the error tile when planError is false (planPending path)", () => {
+    act(() =>
+      root.render(createElement(AgentPane, { ...baseProps, planPending: true })),
+    );
+    expect(document.body.textContent).not.toContain("Couldn't start this agent");
+    expect(document.body.textContent).toContain("Waking up");
+  });
+});
+
 describe("AgentPane — the unavailable-agent card", () => {
   let host: HTMLElement;
   let root: Root;
