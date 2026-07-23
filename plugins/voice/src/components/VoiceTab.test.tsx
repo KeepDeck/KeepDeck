@@ -83,6 +83,7 @@ describe("VoiceTab history click-to-copy", () => {
   afterEach(() => {
     act(() => root.unmount());
     clearRuntime();
+    vi.useRealTimers();
   });
 
   const render = () => act(() => root.render(createElement(VoiceTab)));
@@ -109,6 +110,44 @@ describe("VoiceTab history click-to-copy", () => {
     expect(first.className).toContain("voice__entry--copied");
   });
 
+  it("restores the original text after the flash expires", async () => {
+    vi.useFakeTimers();
+    render();
+    const [first] = entries();
+
+    await act(async () => {
+      first.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      // Drain the writeText microtask so the flash lands.
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(first.querySelector(".voice__text")?.textContent).toBe("Copied");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1200);
+    });
+
+    expect(first.querySelector(".voice__text")?.textContent).toBe("привет");
+    expect(first.className).not.toContain("voice__entry--copied");
+  });
+
+  it("flashes 'Copy failed' (red) when the clipboard write rejects", async () => {
+    render();
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    const [first] = entries();
+
+    await act(async () => {
+      first.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await flush();
+    });
+
+    expect(first.querySelector(".voice__text")?.textContent).toBe("Copy failed");
+    expect(first.className).toContain("voice__entry--failed");
+  });
+
   it("Enter and Space both copy (keyboard parity)", async () => {
     render();
     const [, second] = entries();
@@ -126,12 +165,32 @@ describe("VoiceTab history click-to-copy", () => {
     expect(writeText.mock.calls.every((call) => call[0] === "готово")).toBe(true);
   });
 
-  it("does not copy when the click ends a text selection (manual copy fallback)", async () => {
+  it("ignores key-repeat so holding Enter does not flood the clipboard", async () => {
     render();
-    // Simulate an active drag-selection: getSelection returns non-empty text.
-    const selectionSpy = vi
-      .spyOn(window, "getSelection")
-      .mockReturnValue({ toString: () => "selected" } as unknown as Selection);
+    const [first] = entries();
+
+    await act(async () => {
+      first.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          repeat: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await flush();
+    });
+
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("does not copy when a drag-select ends IN this row (manual copy fallback)", async () => {
+    render();
+    // A selection that touches the clicked row — the user is drag-selecting.
+    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
+      toString: () => "selected",
+      containsNode: () => true,
+    } as unknown as Selection);
 
     await act(async () => {
       entries()[0].dispatchEvent(
@@ -141,6 +200,25 @@ describe("VoiceTab history click-to-copy", () => {
     });
 
     expect(writeText).not.toHaveBeenCalled();
+    selectionSpy.mockRestore();
+  });
+
+  it("still copies when the active selection is in ANOTHER element", async () => {
+    render();
+    // A selection elsewhere must NOT block the copy on this row.
+    const selectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
+      toString: () => "selected",
+      containsNode: () => false,
+    } as unknown as Selection);
+
+    await act(async () => {
+      entries()[0].dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await flush();
+    });
+
+    expect(writeText).toHaveBeenCalledTimes(1);
     selectionSpy.mockRestore();
   });
 });

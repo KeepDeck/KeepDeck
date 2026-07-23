@@ -42,27 +42,31 @@ export function VoiceTab() {
   }, [snap.history.length]);
 
   // Click-to-copy: a row copies its text on click, briefly REPLACING the row's
-  // text with "Copied" + an accent tint. A drag-select also ends in a click on
-  // the row, so the handler bails when there is an active text selection — the
-  // manual select-and-copy fallback stays intact and never gets hijacked.
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const copiedTimer = useRef<number | null>(null);
-  const flashCopied = (key: string) => {
-    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
-    setCopiedKey(key);
-    copiedTimer.current = window.setTimeout(() => setCopiedKey(null), 1200);
+  // text with "Copied" (or "Copy failed" on rejection) + an accent tint. A
+  // drag-select inside the SAME row also ends in a click, so the handler bails
+  // when the active selection touches this row — the manual select-and-copy
+  // fallback stays intact and never gets hijacked. A selection ELSEWHERE does
+  // not block the copy (it belongs to another element).
+  const [feedback, setFeedback] = useState<{ key: string; ok: boolean } | null>(
+    null,
+  );
+  const feedbackTimer = useRef<number | null>(null);
+  const flash = (key: string, ok: boolean) => {
+    if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
+    setFeedback({ key, ok });
+    feedbackTimer.current = window.setTimeout(() => setFeedback(null), 1200);
   };
   useEffect(
     () => () => {
-      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+      if (feedbackTimer.current !== null) window.clearTimeout(feedbackTimer.current);
     },
     [],
   );
   const copyEntry = (text: string, key: string) => {
     void ctx.services.clipboard
       .writeText(text)
-      .then(() => flashCopied(key))
-      .catch(() => {});
+      .then(() => flash(key, true))
+      .catch(() => flash(key, false));
   };
 
   // No model installed (and none arriving): the whole surface is a prompt to
@@ -159,21 +163,43 @@ export function VoiceTab() {
         )}
         {snap.history.map((entry) => {
           const key = `${entry.at}-${entry.text}`;
-          const copied = copiedKey === key;
+          const rowFeedback =
+            feedback?.key === key ? feedback : null;
           return (
             <div
               key={key}
               className={`voice__entry voice__entry--${entry.tone}${
-                copied ? " voice__entry--copied" : ""
+                rowFeedback
+                  ? rowFeedback.ok
+                    ? " voice__entry--copied"
+                    : " voice__entry--failed"
+                  : ""
               }`}
               role="button"
               tabIndex={0}
-              title={copied ? "Скопировано" : "Кликни, чтобы скопировать"}
-              onClick={() => {
-                if (window.getSelection()?.toString()) return;
+              title={
+                rowFeedback
+                  ? rowFeedback.ok
+                    ? "Copied"
+                    : "Copy failed"
+                  : "Click to copy"
+              }
+              onClick={(event) => {
+                // Bail only for a selection inside THIS row (a drag-select in
+                // progress); a selection elsewhere is unrelated and must not
+                // block the copy.
+                const selection = window.getSelection();
+                if (
+                  selection &&
+                  selection.toString() &&
+                  selection.containsNode(event.currentTarget, true)
+                ) {
+                  return;
+                }
                 copyEntry(entry.text, key);
               }}
               onKeyDown={(event) => {
+                if (event.repeat) return;
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   copyEntry(entry.text, key);
@@ -181,7 +207,13 @@ export function VoiceTab() {
               }}
             >
               <span className="voice__tone">{TONE_GLYPH[entry.tone]}</span>
-              <span className="voice__text">{copied ? "Copied" : entry.text}</span>
+              <span className="voice__text">
+                {rowFeedback
+                  ? rowFeedback.ok
+                    ? "Copied"
+                    : "Copy failed"
+                  : entry.text}
+              </span>
             </div>
           );
         })}

@@ -239,8 +239,15 @@
   background: #161b26;
 }
 
+/* Keyboard focus ring for the clickable rows — Tab into the log to copy. */
+.voice__entry:focus-visible {
+  outline: 1px solid #3a4763;
+  outline-offset: -1px;
+}
+
 /* The brief "copied" flash — the row's text is replaced by "Copied" for a
-   moment; the accent tint + green word mark the confirmation. */
+   moment; the accent tint + green word mark the confirmation. A rejection
+   flashes the same slot red as "Copy failed" so a failed copy is not silent. */
 .voice__entry--copied,
 .voice__entry--copied:hover {
   background: #12211a;
@@ -248,6 +255,15 @@
 
 .voice__entry--copied .voice__text {
   color: #7fb88a;
+}
+
+.voice__entry--failed,
+.voice__entry--failed:hover {
+  background: #2a1515;
+}
+
+.voice__entry--failed .voice__text {
+  color: #e0806f;
 }
 
 .voice__tone {
