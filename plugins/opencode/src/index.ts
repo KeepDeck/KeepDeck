@@ -12,6 +12,7 @@ import type {
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
 import { opencodeHistory } from "./history";
+import { relocatingForkId } from "./fork";
 import { normalizeOpencodeUsage } from "./usage";
 
 /** The per-invocation config injecting the reporter; `[]` when the reporter
@@ -70,16 +71,19 @@ const plugin: KeepDeckPlugin = {
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
           output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
         },
-        // opencode forks natively: `-s <id> --fork` continues a COPY under a
-        // new session id. Sessions are project-keyed and every git worktree
-        // of a repo shares one project, so the dominant fork-into-worktree
-        // flow needs no surgery; a target OUTSIDE the session's project
-        // fails visibly in the terminal (the export→rekey→import route can
-        // cover that if it ever matters).
+        // Native `-s <id> --fork` re-homes the fork to the SOURCE session's
+        // directory, ignoring the target (probe-verified, 1.18.4). So a
+        // RELOCATING fork goes through export→rekey→import (see `fork.ts`),
+        // binding the new session's directory to the target. `relocatingForkId`
+        // returns the relocated session's id, or null (native `--fork`
+        // fallback) for a not-yet-provisioned worktree OR any recipe failure.
         "fork.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
-          output.args = [...yoloArgs(input.yolo), "-s", input.sessionId, "--fork"];
+          const relocated = await relocatingForkId(ctx, input);
+          output.args = relocated
+            ? [...yoloArgs(input.yolo), "-s", relocated]
+            : [...yoloArgs(input.yolo), "-s", input.sessionId, "--fork"];
         },
       },
     });

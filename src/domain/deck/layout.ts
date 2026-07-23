@@ -1,6 +1,11 @@
 /** Max agents the deck grid holds at once — a hard product cap. */
 export const MAX_PANES = 16;
 
+/** The error thrown when a pane can't be added because the workspace is at
+ * `MAX_PANES` — one string for every add/fork/resume seam that guards the cap. */
+export const WORKSPACE_FULL_MESSAGE =
+  "The workspace is full — close a pane first";
+
 /** Clamp a requested agent count to `[0, MAX_PANES]`. */
 export function clampPaneCount(count: number): number {
   return Math.max(0, Math.min(count, MAX_PANES));

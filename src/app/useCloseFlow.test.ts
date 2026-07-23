@@ -21,6 +21,7 @@ vi.mock("./ptyManager", () => pty);
 const lifecycle = vi.hoisted(() => ({
   dropPaneSpawnSpec: vi.fn(),
   clearPaneUsage: vi.fn(),
+  clearPostProvision: vi.fn(),
 }));
 vi.mock("./spawnSpecs", () => ({
   dropPaneSpawnSpec: lifecycle.dropPaneSpawnSpec,
@@ -38,6 +39,7 @@ const worktrees = vi.hoisted(() => ({
 }));
 vi.mock("./provisioning", () => ({
   discardWorktrees: worktrees.discardWorktrees,
+  clearPostProvision: lifecycle.clearPostProvision,
 }));
 
 const probes = vi.hoisted(() => ({
@@ -89,6 +91,7 @@ describe("useCloseFlow + ptyManager", () => {
     pty.closePanes.mockClear();
     lifecycle.dropPaneSpawnSpec.mockClear();
     lifecycle.clearPaneUsage.mockClear();
+    lifecycle.clearPostProvision.mockClear();
     worktrees.discardWorktrees.mockClear();
     worktrees.order.length = 0;
     probes.probeWorktree.mockReset();
@@ -110,6 +113,8 @@ describe("useCloseFlow + ptyManager", () => {
     expect(pty.closePanes).toHaveBeenCalledWith(["pane-1"]);
     expect(lifecycle.dropPaneSpawnSpec).toHaveBeenCalledWith("pane-1");
     expect(lifecycle.clearPaneUsage).toHaveBeenCalledWith("pane-1");
+    // An abandoned fork card's post-provision step is dropped on close too.
+    expect(lifecycle.clearPostProvision).toHaveBeenCalledWith("pane-1");
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
   });
 

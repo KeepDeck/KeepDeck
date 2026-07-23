@@ -91,23 +91,30 @@ export function serializeDeck(
       // Sparse: an empty bag (the last slot just got deleted) never hits disk.
       ...(ws.plugins !== undefined &&
         Object.keys(ws.plugins).length > 0 && { plugins: ws.plugins }),
-      panes: ws.panes.map((p) => ({
-        ...p.extras,
-        id: p.id,
-        ...(p.agentType !== undefined && { agentType: p.agentType }),
-        // Sparse like setup: only the armed mode hits disk.
-        ...(p.yolo === true && { yolo: true }),
-        ...(p.cwd !== undefined && { cwd: p.cwd }),
-        ...(p.branch !== undefined && { branch: p.branch }),
-        ...(p.name !== undefined && { name: p.name }),
-        ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
-        ...(p.session !== undefined && { session: p.session }),
-        // The intent only: error and phase are runtime state, and hydration
-        // stamps its own error ("interrupted") on whatever comes back.
-        ...(p.provisioning !== undefined && {
-          provisioning: stripRuntime(p.provisioning),
-        }),
-      })),
+      // A fork's provisioning card is dropped while still in flight: its store
+      // surgery is an in-memory post-provision step that can't survive a
+      // restart, so restoring the card would Retry into a non-fork pane (the
+      // fork silently lost). The user re-forks from the journal; a RESOLVED
+      // fork pane has no `provisioning` and persists normally.
+      panes: ws.panes
+        .filter((p) => !p.provisioning?.fork)
+        .map((p) => ({
+          ...p.extras,
+          id: p.id,
+          ...(p.agentType !== undefined && { agentType: p.agentType }),
+          // Sparse like setup: only the armed mode hits disk.
+          ...(p.yolo === true && { yolo: true }),
+          ...(p.cwd !== undefined && { cwd: p.cwd }),
+          ...(p.branch !== undefined && { branch: p.branch }),
+          ...(p.name !== undefined && { name: p.name }),
+          ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
+          ...(p.session !== undefined && { session: p.session }),
+          // The intent only: error and phase are runtime state, and hydration
+          // stamps its own error ("interrupted") on whatever comes back.
+          ...(p.provisioning !== undefined && {
+            provisioning: stripRuntime(p.provisioning),
+          }),
+        })),
     })),
   };
   return JSON.stringify(persisted);
@@ -355,7 +362,7 @@ function readProvisioning(
     typeof value.index !== "number"
   )
     return null;
-  const intent: Omit<PaneProvisioning, "error" | "phase"> = {
+  const intent: Omit<PaneProvisioning, "error" | "phase" | "fork"> = {
     repo: value.repo,
     workspace: value.workspace,
     index: value.index,
@@ -368,10 +375,14 @@ function readProvisioning(
   return intent;
 }
 
-/** The provisioning intent without its runtime `error`/`phase` fields. */
+/** The provisioning intent without its runtime `error`/`phase`/`fork` fields.
+ * A fork card is dropped whole before this runs (see the serialize filter), so
+ * excluding `fork` here is belt-and-suspenders: even if that filter were ever
+ * weakened, the marker still never reaches disk — and the type stays honest
+ * about the full runtime-only set. */
 function stripRuntime(
   p: PaneProvisioning,
-): Omit<PaneProvisioning, "error" | "phase"> {
-  const { error: _error, phase: _phase, ...intent } = p;
+): Omit<PaneProvisioning, "error" | "phase" | "fork"> {
+  const { error: _error, phase: _phase, fork: _fork, ...intent } = p;
   return intent;
 }

@@ -409,6 +409,81 @@ describe("provisioning panes across a restart", () => {
     expect(pane.dormant).toBeUndefined();
   });
 
+  it("drops a FORK provisioning card entirely — never restores it as a plain retryable pane", () => {
+    // A fork's surgery is an in-memory post-provision step that can't survive a
+    // restart; restoring the card would Retry into a NON-fork pane, silently
+    // losing the fork. So an in-flight fork card is not persisted — re-fork.
+    const forkState: DeckState = {
+      ...provisioningState,
+      workspaces: [
+        {
+          ...provisioningState.workspaces[0],
+          panes: [
+            {
+              id: "pane-1",
+              agentType: "opencode",
+              provisioning: {
+                repo: "/repo",
+                path: "/wt/fork-1",
+                branch: "fork/x",
+                workspace: "deck",
+                index: 1,
+                fork: true,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(serializeDeck(forkState)).not.toContain("fork-1");
+    expect(okDeck(serializeDeck(forkState)).state.workspaces[0].panes).toHaveLength(0);
+  });
+
+  it("in a MIXED workspace, drops ONLY the fork card — normal panes survive", () => {
+    const mixed: DeckState = {
+      ...provisioningState,
+      workspaces: [
+        {
+          ...provisioningState.workspaces[0],
+          panes: [
+            { id: "pane-1", agentType: "claude", cwd: "/repo" },
+            {
+              id: "pane-2",
+              agentType: "opencode",
+              provisioning: {
+                repo: "/repo",
+                path: "/wt/f2",
+                branch: "fork/y",
+                workspace: "deck",
+                index: 2,
+                fork: true,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const panes = okDeck(serializeDeck(mixed)).state.workspaces[0].panes;
+    expect(panes.map((p) => p.id)).toEqual(["pane-1"]); // only the fork card is gone
+    expect(panes[0]).toMatchObject({ agentType: "claude", cwd: "/repo" });
+  });
+
+  it("a RESOLVED fork pane (no provisioning) persists normally — the filter isn't over-broad", () => {
+    const resolved: DeckState = {
+      ...provisioningState,
+      workspaces: [
+        {
+          ...provisioningState.workspaces[0],
+          panes: [
+            { id: "pane-1", agentType: "opencode", cwd: "/wt/fork-1", branch: "fork/z" },
+          ],
+        },
+      ],
+    };
+    const pane = okDeck(serializeDeck(resolved)).state.workspaces[0].panes[0];
+    expect(pane).toMatchObject({ agentType: "opencode", cwd: "/wt/fork-1" });
+  });
+
   it("degrades a malformed intent to a plain dormant pane instead of rejecting the deck", () => {
     const doc = JSON.parse(serializeDeck(provisioningState));
     doc.workspaces[0].panes[0].provisioning = { repo: 42 };

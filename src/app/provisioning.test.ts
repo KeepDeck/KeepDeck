@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneSink } from "./ptyManager";
 
 const worktree = vi.hoisted(() => ({
@@ -16,9 +16,11 @@ const pty = vi.hoisted(() => ({
 vi.mock("./ptyManager", () => pty);
 
 import {
+  clearPostProvision,
   discardWorktrees,
   planPanes,
   provisionInto,
+  registerPostProvision,
   runProvisioning,
 } from "./provisioning";
 
@@ -241,6 +243,98 @@ describe("runProvisioning with a setup command", () => {
     await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed }, "pnpm i");
 
     expect(onFailed).toHaveBeenCalledWith("pane-1", "Setup failed: spawn failed");
+  });
+});
+
+describe("runProvisioning with a post-provision step", () => {
+  const oneCard = () =>
+    planPanes({ cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" }, 1, 1, "claude");
+
+  beforeEach(() => {
+    clearPostProvision("pane-1"); // the module map outlives clearAllMocks
+    worktree.inspectRepo.mockResolvedValue({ head: "abc" });
+    worktree.createWorktree.mockResolvedValue({ path: "/wt/pane-1", branch: "kd/ws/1" });
+    worktree.removeWorktree.mockResolvedValue(undefined);
+  });
+  // A step KEPT across a failure (the last test) must not leak into other blocks.
+  afterEach(() => clearPostProvision("pane-1"));
+
+  it("runs the registered step bound to the CREATED worktree, then resolves", async () => {
+    const step = vi.fn(async () => {});
+    registerPostProvision("pane-1", step);
+    const onResolved = vi.fn();
+    const onFailed = vi.fn();
+
+    await runProvisioning(oneCard(), { onResolved, onFailed });
+
+    expect(step).toHaveBeenCalledWith({ cwd: "/wt/pane-1", branch: "kd/ws/1" });
+    expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("a step failure rolls the worktree back and fails the card — never resolves", async () => {
+    registerPostProvision("pane-1", async () => {
+      throw new Error("Agent could not prepare a fork plan");
+    });
+    const onResolved = vi.fn();
+    const onFailed = vi.fn();
+
+    await runProvisioning(oneCard(), { onResolved, onFailed });
+
+    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
+      force: true,
+      branch: "kd/ws/1",
+    });
+    expect(onFailed).toHaveBeenCalledWith("pane-1", "Agent could not prepare a fork plan");
+    expect(onResolved).not.toHaveBeenCalled();
+  });
+
+  it("RETRY re-runs the SAME step (the fix): a failed-then-retried fork keeps its surgery", async () => {
+    // The step fails the first attempt, succeeds the second — proving a failed
+    // step stays registered and re-runs, instead of resolving a plain pane.
+    let attempt = 0;
+    const step = vi.fn(async () => {
+      if (attempt++ === 0) throw new Error("transient");
+    });
+    registerPostProvision("pane-1", step);
+    const onResolved = vi.fn();
+    const onFailed = vi.fn();
+
+    await runProvisioning(oneCard(), { onResolved, onFailed }); // create + fail
+    expect(onFailed).toHaveBeenCalledTimes(1);
+    expect(onResolved).not.toHaveBeenCalled();
+
+    await runProvisioning(oneCard(), { onResolved, onFailed }); // Retry re-provisions
+    expect(step).toHaveBeenCalledTimes(2); // re-run, not skipped
+    expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
+  });
+
+  it("consumes (deletes) the step on success — a later re-provision won't re-run it", async () => {
+    const step = vi.fn(async () => {});
+    registerPostProvision("pane-1", step);
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed: vi.fn() });
+    expect(step).toHaveBeenCalledTimes(1);
+    // A second provision of the same pane finds NO step → plain resolve, not re-run.
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed: vi.fn() });
+    expect(step).toHaveBeenCalledTimes(1); // consumed on success, not 2
+  });
+
+  it("a plain (non-fork) pane with no registered step resolves untouched", async () => {
+    const onResolved = vi.fn();
+    await runProvisioning(oneCard(), { onResolved, onFailed: vi.fn() });
+    expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("a rollback whose removeWorktree itself rejects still fails the card (swallowed)", async () => {
+    worktree.removeWorktree.mockRejectedValue(new Error("worktree locked"));
+    registerPostProvision("pane-1", async () => {
+      throw new Error("surgery boom");
+    });
+    const onFailed = vi.fn();
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed });
+    expect(onFailed).toHaveBeenCalledWith("pane-1", "surgery boom");
   });
 });
 

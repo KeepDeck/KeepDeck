@@ -45,6 +45,12 @@ export interface PaneProvisioning {
    * running in it. Runtime-only, like `error`: never persisted — a restart
    * mid-setup comes back as the interrupted failed card. */
   phase?: "setup";
+  /** This card originates from a journal FORK — its store surgery runs as a
+   * post-provision step held only in memory. Runtime-only, NEVER persisted: a
+   * fork whose provisioning is interrupted by a restart is dropped rather than
+   * restored as a plain retryable card (which would Retry into a NON-fork
+   * pane, silently losing the fork) — the user re-forks from the journal. */
+  fork?: true;
 }
 
 /** One agent pane in the grid. Each pane runs its own agent type; the display

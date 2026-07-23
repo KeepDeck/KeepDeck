@@ -6,15 +6,61 @@ import type {
 } from "@keepdeck/plugin-api";
 import plugin from "./index";
 
-/** Activate against a minimal fake ctx; returns the registered agent. */
-function activate(reporterPath: string | null): AgentContribution {
+/** Activate against a minimal fake ctx; returns the registered agent. An
+ * optional `services` stub is threaded through for the fork hook. */
+function activate(
+  reporterPath: string | null,
+  services?: unknown,
+): AgentContribution {
   let agent: AgentContribution | undefined;
   plugin.activate({
     agents: { register: (a: AgentContribution) => ((agent = a), { dispose() {} }) },
     resources: { path: async () => reporterPath },
+    log: { info() {}, warn() {}, error() {} },
+    notify: () => {},
+    ...(services ? { services } : {}),
   } as unknown as PluginContext);
   if (!agent) throw new Error("plugin registered no agent");
   return agent;
+}
+
+/** A services stub for the fork hook. `targetMissing` makes the target look
+ * un-provisioned (native fallback); otherwise `sessions.spawn` fakes
+ * export→import so the relocating recipe returns a minted id. */
+function forkServices(opts?: { targetMissing?: boolean; importFails?: boolean }) {
+  // A realistic (guard-valid) exported session id; the reminted clone id is
+  // what fork.plan resumes. Distinct from the input `ses_x` passed to export.
+  const SRC = "ses_0db9e24cbffej1WlbsRKynAHf3";
+  const writes = new Map<string, string>();
+  const enc = (s: string) => new TextEncoder().encode(s);
+  return {
+    fs: {
+      readDir: async (path: string) => {
+        if (opts?.targetMissing) throw new Error(`ENOENT: ${path}`);
+        return [];
+      },
+    },
+    fsWrite: { writeFile: async (p: string, t: string) => void writes.set(p, t) },
+    sessions: {
+      spawn: async (
+        o: { args: string[]; cwd?: string },
+        onEvent: (e: { type: "output"; bytes: Uint8Array } | { type: "exit"; code: number | null }) => void,
+      ) => {
+        queueMicrotask(() => {
+          if (o.args[0] === "export") {
+            const doc = { info: { id: SRC, directory: "/src", title: "t" }, messages: [] };
+            onEvent({ type: "output", bytes: enc(`Exporting session: ${SRC}\r\n${JSON.stringify(doc)}`) });
+            onEvent({ type: "exit", code: 0 });
+          } else {
+            const id = JSON.parse(writes.get(o.args[1]) ?? "{}").info.id as string;
+            onEvent({ type: "output", bytes: enc(opts?.importFails ? "error\r\n" : `Imported session: ${id}\r\n`) });
+            onEvent({ type: "exit", code: opts?.importFails ? 1 : 0 });
+          }
+        });
+        return { id: "h", write: async () => {}, resize: async () => {}, close: async () => {} };
+      },
+    },
+  };
 }
 
 const output = (): SpawnPlanOutput => ({
@@ -87,24 +133,63 @@ describe("opencode plugin hooks", () => {
     expect(Object.fromEntries(out.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
   });
 
-  it("forks natively with -s --fork, reporter armed for the NEW session id", async () => {
-    const agent = activate("/App/resources/session-reporter.js");
+  it("relocating fork: an EXISTING target imports a clone, resumes its NEW id (no --fork)", async () => {
+    const agent = activate("/App/resources/session-reporter.js", forkServices());
     const out = output();
     await agent.hooks["fork.plan"]!(
-      { ...input, sessionId: "ses_x", sourceCwd: "/same/project/wt-1" },
+      { ...input, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
       out,
     );
 
-    expect(out.args).toEqual(["-s", "ses_x", "--fork"]);
+    // The relocated clone is resumed by its minted id — never the source, and
+    // NOT via native --fork (which would re-home to the source dir).
+    expect(out.args).not.toContain("--fork");
+    expect(out.args[0]).toBe("-s");
+    expect(out.args[1]).not.toBe("ses_x");
     expect(Object.fromEntries(out.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
+  });
 
+  it("relocating fork honors YOLO: skip-permissions flag precedes the resumed clone id", async () => {
+    const agent = activate("/App/resources/session-reporter.js", forkServices());
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, yolo: true, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
+      out,
+    );
+    expect(out.args[0]).toBe("--dangerously-skip-permissions");
+    expect(out.args[1]).toBe("-s");
+    expect(out.args[2]).not.toBe("ses_x"); // the relocated clone id, not the source
+    expect(out.args).not.toContain("--fork");
+  });
+
+  it("falls back to native -s --fork when the target isn't provisioned yet", async () => {
+    const agent = activate("/App/resources/session-reporter.js", forkServices({ targetMissing: true }));
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, cwd: "/future/worktree", sessionId: "ses_x", sourceCwd: "/x" },
+      out,
+    );
+    expect(out.args).toEqual(["-s", "ses_x", "--fork"]);
+
+    // The YOLO flag stays global/first even on the fallback path.
     const yolo = output();
     await agent.hooks["fork.plan"]!(
-      { ...input, yolo: true, sessionId: "ses_x", sourceCwd: "/x" },
+      { ...input, yolo: true, cwd: "/future/worktree", sessionId: "ses_x", sourceCwd: "/x" },
       yolo,
     );
-    expect(yolo.args[0]).not.toBe("-s"); // the yolo flag stays global/first
+    expect(yolo.args[0]).not.toBe("-s");
     expect(yolo.args.slice(-3)).toEqual(["-s", "ses_x", "--fork"]);
+  });
+
+  it("falls back to native -s --fork when the relocating recipe FAILS (no hard-fail)", async () => {
+    const agent = activate("/App/resources/session-reporter.js", forkServices({ importFails: true }));
+    const out = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, cwd: "/new/target", sessionId: "ses_x", sourceCwd: "/src" },
+      out,
+    );
+    // A recipe error degrades to native, never throws out of the hook.
+    expect(out.args).toEqual(["-s", "ses_x", "--fork"]);
   });
 
   it("degrades to a bare spawn when the reporter is missing", async () => {
