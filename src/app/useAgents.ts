@@ -77,6 +77,7 @@ function toAgentInfo(
     icon: entry.icon,
     command: entry.detect.bin,
     supportsYolo: entry.supportsYolo === true,
+    supportsRemote: entry.remote?.mode === "nativeServer",
     installed: status?.installed ?? true,
     path: status?.path ?? null,
     usageCapabilities: entry.usage?.capabilities ?? [],

@@ -90,6 +90,7 @@ describe("useAgents", () => {
         },
         command: "claude",
         supportsYolo: true,
+        supportsRemote: false,
         installed: false,
         path: null,
         usageCapabilities: [],

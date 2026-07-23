@@ -40,6 +40,11 @@ export interface AgentInfo {
   /** Whether the CLI can run with permission prompts disabled (YOLO mode) —
    * gates the YOLO toggle wherever an agent is created. */
   supportsYolo: boolean;
+  /** Whether the agent declares a remote capability (its plugin's
+   *  `remote.mode === "nativeServer"`) — gates the "Where: Remote" option in
+   *  the spawn dialog. Absent = no (the common case); the gate defaults
+   *  false, so an agent that can't honor a target never gets one picked. */
+  supportsRemote?: boolean;
   /** Whether the CLI resolves on the augmented PATH. */
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */
@@ -76,4 +81,15 @@ export function agentSupportsYolo(
   type: AgentType,
 ): boolean {
   return agents.find((a) => a.id === type)?.supportsYolo ?? false;
+}
+
+/** Whether `type`'s catalog entry declares remote support — the single gate
+ *  the spawn dialog consults before offering the "Where: Remote" option.
+ *  Unknown/absent agents answer false: no remote choice, so an agent that
+ *  can't honor a target never gets one picked for it (mirrors YOLO). */
+export function agentSupportsRemote(
+  agents: AgentInfo[],
+  type: AgentType,
+): boolean {
+  return agents.find((a) => a.id === type)?.supportsRemote ?? false;
 }
