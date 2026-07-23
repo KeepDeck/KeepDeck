@@ -138,11 +138,13 @@ describe("DiffPeek", () => {
     expect(rowTexts()).toContain("new words");
   });
 
-  it("with no row yet (a history scope just opened) fetches no diff and waits", async () => {
-    // A commit click opens the peek before any file is chosen — the rail
-    // seeds one; until then the body waits and no diff is read.
+  it("a history scope with no files reports empty and shows it in the body", async () => {
+    // A commit click opens the peek before any file is chosen. When the
+    // scope has no files, the rail says so AND tells the body — which stops
+    // saying "Loading…" instead of hanging on it forever.
     const diffFile = vi.fn(async () => TS_DIFF);
     const changedFiles = vi.fn(async () => []);
+    const onEmptyChange = vi.fn();
     setRuntime({
       services: {
         git: { diffFile, changedFiles },
@@ -160,18 +162,69 @@ describe("DiffPeek", () => {
             scope: { kind: "commit", sha: "abc1234def", subject: "add feature" },
           },
           version: 1,
+          empty: true,
           onSelect: vi.fn(),
+          onEmptyChange,
           onClose: vi.fn(),
         }),
       );
     });
     await act(async () => {});
 
+    // No file to diff and no diff read; the header carries the commit label.
     expect(diffFile).not.toHaveBeenCalled();
-    expect(host.querySelector(".peek")).toBeTruthy();
-    // The scope has no files, so nothing gets seeded — the body keeps waiting
-    // and the header carries the commit's label in place of a file name.
-    expect(host.textContent).toContain("Loading…");
     expect(host.textContent).toContain("add feature");
+    // The rail resolved the scope empty and reported it; the body now says
+    // "Nothing changed here." — not the perpetual "Loading…" it used to.
+    expect(onEmptyChange).toHaveBeenLastCalledWith(true);
+    expect(host.textContent).toContain("Nothing changed here.");
+    expect(host.textContent).not.toContain("Loading…");
+  });
+
+  it("seeds the first file of a history scope the moment the rail loads it", async () => {
+    // The seed wiring lives in the rail; this localizes it. The diff fetch
+    // is the parent's job (the harness keeps row null), so this proves the
+    // onSelect hand-off in isolation — the case the empty test can't cover.
+    const diffFile = vi.fn(async () => TS_DIFF);
+    const changedFiles = vi.fn(async () => [
+      { path: "src/a.ts", origPath: null, code: "A" },
+      { path: "src/b.ts", origPath: null, code: "M" },
+    ]);
+    const onSelect = vi.fn();
+    setRuntime({
+      services: {
+        git: { diffFile, changedFiles },
+        fs: { readFile: vi.fn() },
+      },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          row: null,
+          changeSet: {
+            kind: "history",
+            scope: { kind: "commit", sha: "abc1234def", subject: "add feature" },
+          },
+          version: 1,
+          onSelect,
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+
+    // The first file is handed up as the seeded row — range-diffed (kind
+    // "history"), never the index. Called once: the rail's current guard
+    // stops a re-seed even though this harness never advances row.
+    expect(changedFiles).toHaveBeenCalled();
+    expect(onSelect).toHaveBeenCalledWith({
+      path: "src/a.ts",
+      origPath: null,
+      code: "A",
+      kind: "history",
+    });
+    expect(diffFile).not.toHaveBeenCalled();
   });
 });

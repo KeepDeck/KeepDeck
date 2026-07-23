@@ -39,6 +39,8 @@ export function DiffPeek({
   version,
   onSelect,
   onClose,
+  empty = false,
+  onEmptyChange,
 }: {
   repo: string;
   /** The row whose diff the peek shows. Null for the brief moment a History
@@ -52,6 +54,10 @@ export function DiffPeek({
   /** Switch the peek to another row of the same change set. */
   onSelect: (row: ChangeRow) => void;
   onClose: () => void;
+  /** A History scope with no files — shown in the body instead of "Loading…". */
+  empty?: boolean;
+  /** The rail reports when a History scope's file list resolves empty. */
+  onEmptyChange?: (empty: boolean) => void;
 }) {
   const scope = changeSet.kind === "history" ? changeSet.scope : null;
   const range = scope ? scopeRange(scope) : undefined;
@@ -113,24 +119,22 @@ export function DiffPeek({
     };
   }, [repo, row?.path, row?.kind, range?.from, range?.to, version]);
 
+  // A null row only occurs for a History scope before the rail seeds its
+  // first file — GitTab's peek state forbids a null-row worktree — so `scope`
+  // is non-null whenever `row` is null. The non-null assertions below rest on
+  // that invariant.
   return (
     <Peek
-      ariaLabel={
-        row
-          ? `Diff of ${baseName(row.path)}`
-          : scope
-            ? scopeLabel(scope)
-            : "Diff"
-      }
-      name={row ? baseName(row.path) : scope ? scopeLabel(scope) : ""}
+      ariaLabel={row ? `Diff of ${baseName(row.path)}` : scopeLabel(scope!)}
+      name={row ? baseName(row.path) : scopeLabel(scope!)}
       meta={
         row ? (
           <span className={`git__badge git__badge--${row.kind}`}>
             {codeLabel(row.code)}
           </span>
-        ) : scope ? (
-          <span className="git__badge">{shortSha(scopeSha(scope))}</span>
-        ) : null
+        ) : (
+          <span className="git__badge">{shortSha(scopeSha(scope!))}</span>
+        )
       }
       path={
         row
@@ -149,12 +153,17 @@ export function DiffPeek({
             current={row}
             version={version}
             onSelect={onSelect}
+            onEmptyChange={onEmptyChange}
           />
         )
       }
       onClose={onClose}
     >
-      {!row && <p className="peek__note">Loading…</p>}
+      {!row && (
+        <p className="peek__note">
+          {empty ? "Nothing changed here." : "Loading…"}
+        </p>
+      )}
       {row && !diff && !error && <p className="peek__note">Loading…</p>}
       {row && error && <p className="peek__note peek__note--bad">{error}</p>}
       {row && diff?.binary && (

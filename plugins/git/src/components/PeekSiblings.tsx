@@ -49,6 +49,7 @@ export function PeekSiblings({
   current,
   version,
   onSelect,
+  onEmptyChange,
 }: {
   repo: string;
   changeSet: ChangeSet;
@@ -57,6 +58,9 @@ export function PeekSiblings({
   current: ChangeRow | null;
   version: number;
   onSelect: (row: ChangeRow) => void;
+  /** Reported when a History scope's file list resolves, so the body can
+   * tell "no files" apart from "still loading" and stop saying "Loading…". */
+  onEmptyChange?: (empty: boolean) => void;
 }) {
   const scope = changeSet.kind === "history" ? changeSet.scope : null;
   const range = scope && scopeRange(scope);
@@ -149,6 +153,14 @@ export function PeekSiblings({
     if (!isHistory || current || !files || files.length === 0) return;
     onSelect(historyRow(files[0]));
   }, [isHistory, current, files, onSelect]);
+
+  // Report the scope's resolved emptiness so the body can say "Nothing
+  // changed here." instead of hanging on "Loading…". Fires only once the
+  // file list has landed (null = still loading = stays "Loading…").
+  useEffect(() => {
+    if (!isHistory || files === null) return;
+    onEmptyChange?.(files.length === 0);
+  }, [isHistory, files, onEmptyChange]);
 
   if (changeSet.kind === "worktree") {
     if (!groups) return null;

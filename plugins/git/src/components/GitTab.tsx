@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { shortPath } from "@keepdeck/ui-kit/paths";
@@ -9,6 +9,22 @@ import { FileSection } from "./FileRows";
 import { HistoryView } from "./HistoryView";
 import type { HistoryScope } from "../domain/history";
 import { BranchIcon } from "../icons";
+
+/**
+ * The open peek: a Changes file, or a History scope. The History variant
+ * opens before any file is picked — the rail seeds `row` — and `empty`
+ * carries the scope's resolved emptiness so the body can say "Nothing
+ * changed here." instead of hanging on "Loading…". Splitting the union
+ * keeps a null-row worktree unrepresentable (the invariant DiffPeek leans on).
+ */
+type Peek =
+  | { kind: "worktree"; row: ChangeRow }
+  | {
+      kind: "history";
+      row: ChangeRow | null;
+      scope: HistoryScope;
+      empty: boolean;
+    };
 
 /**
  * The Git tab: a live changes view of the chosen repo. The root is a pane's
@@ -39,12 +55,18 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
 
   const { status, error, version } = useGitStatus(target);
   const [mode, setMode] = useState<"changes" | "history">("changes");
-  // `row` is null the instant a History scope opens the peek (a commit click
-  // names a scope, not a file) — the peek's rail then seeds the first file.
-  const [peek, setPeek] = useState<{
-    row: ChangeRow | null;
-    scope?: HistoryScope;
-  } | null>(null);
+  const [peek, setPeek] = useState<Peek | null>(null);
+
+  // The rail reports when a History scope's file list resolves empty so the
+  // body swaps "Loading…" for "Nothing changed here." Stable identity so the
+  // rail's effect doesn't churn, and it no-ops when the flag is unchanged.
+  const handleEmptyChange = useCallback((empty: boolean) => {
+    setPeek((prev) =>
+      prev && prev.kind === "history" && prev.empty !== empty
+        ? { ...prev, empty }
+        : prev,
+    );
+  }, []);
 
   // A new root starts fresh — drop any open diff (the mode survives: "I'm
   // reviewing history" holds across pane clicks).
@@ -80,7 +102,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   ];
 
   const groups = status ? groupEntries(status.entries) : null;
-  const openRow = (row: ChangeRow) => setPeek({ row });
+  const openRow = (row: ChangeRow) => setPeek({ kind: "worktree", row });
 
   return (
     <div className="git">
@@ -144,7 +166,9 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           <HistoryView
             repo={target}
             version={version}
-            onOpen={(scope) => setPeek({ row: null, scope })}
+            onOpen={(scope) =>
+              setPeek({ kind: "history", row: null, scope, empty: false })
+            }
           />
         ) : (
           <>
@@ -186,12 +210,14 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           repo={target}
           row={peek.row}
           changeSet={
-            peek.scope
-              ? { kind: "history", scope: peek.scope }
-              : { kind: "worktree", groups }
+            peek.kind === "worktree"
+              ? { kind: "worktree", groups }
+              : { kind: "history", scope: peek.scope }
           }
           version={version}
+          empty={peek.kind === "history" ? peek.empty : false}
           onSelect={(row) => setPeek((prev) => (prev ? { ...prev, row } : prev))}
+          onEmptyChange={handleEmptyChange}
           onClose={() => setPeek(null)}
         />
       )}
