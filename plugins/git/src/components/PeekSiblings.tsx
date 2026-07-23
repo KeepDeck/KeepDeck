@@ -52,8 +52,9 @@ export function PeekSiblings({
 }: {
   repo: string;
   changeSet: ChangeSet;
-  /** The row whose diff the peek is showing. */
-  current: ChangeRow;
+  /** The row whose diff the peek is showing. Null while a History scope is
+   * open but no file is chosen yet — the rail seeds the first one. */
+  current: ChangeRow | null;
   version: number;
   onSelect: (row: ChangeRow) => void;
 }) {
@@ -88,6 +89,8 @@ export function PeekSiblings({
       if (!key) return;
       const latest = navRef.current;
       if (latest.rows.length === 0) return;
+      // No file selected yet (the seed hasn't landed) — arrows wait.
+      if (!latest.current) return;
       // Arrows mean rail navigation everywhere in the peek — swallow the
       // default even when clamped, so the diff never scroll-jumps instead.
       event.preventDefault();
@@ -104,7 +107,7 @@ export function PeekSiblings({
     railRef.current
       ?.querySelector("[aria-current]")
       ?.scrollIntoView({ block: "nearest" });
-  }, [current.path, current.kind]);
+  }, [current?.path, current?.kind]);
 
   // A version bump refetches IN PLACE; only a different scope clears the
   // list first (the HistoryView drill's idiom).
@@ -137,6 +140,15 @@ export function PeekSiblings({
       cancelled = true;
     };
   }, [repo, range?.from, range?.to, version]);
+
+  // A History scope opens the peek without a file yet — seed the first one
+  // the moment its file list lands, so the body shows a diff at once. The
+  // rail is the single owner of the scope's file fetch, so it owns the seed.
+  const isHistory = changeSet.kind === "history";
+  useEffect(() => {
+    if (!isHistory || current || !files || files.length === 0) return;
+    onSelect(historyRow(files[0]));
+  }, [isHistory, current, files, onSelect]);
 
   if (changeSet.kind === "worktree") {
     if (!groups) return null;

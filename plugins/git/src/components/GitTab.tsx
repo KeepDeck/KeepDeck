@@ -11,6 +11,16 @@ import type { HistoryScope } from "../domain/history";
 import { BranchIcon } from "../icons";
 
 /**
+ * The open peek: a Changes file, or a History scope. A History scope opens
+ * before any file is picked — the rail seeds `row`. Splitting the union
+ * keeps a null-row worktree unrepresentable; DiffPeek turns the history
+ * variant into a `file`/`waiting` view from there.
+ */
+type Peek =
+  | { kind: "worktree"; row: ChangeRow }
+  | { kind: "history"; row: ChangeRow | null; scope: HistoryScope };
+
+/**
  * The Git tab: a live changes view of the chosen repo. The root is a pane's
  * worktree or the workspace folder, defaulting to the highlighted pane's
  * worktree — "show what I'm looking at" — and following the highlight like the
@@ -39,10 +49,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
 
   const { status, error, version } = useGitStatus(target);
   const [mode, setMode] = useState<"changes" | "history">("changes");
-  const [peek, setPeek] = useState<{
-    row: ChangeRow;
-    scope?: HistoryScope;
-  } | null>(null);
+  const [peek, setPeek] = useState<Peek | null>(null);
 
   // A new root starts fresh — drop any open diff (the mode survives: "I'm
   // reviewing history" holds across pane clicks).
@@ -78,7 +85,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   ];
 
   const groups = status ? groupEntries(status.entries) : null;
-  const openRow = (row: ChangeRow) => setPeek({ row });
+  const openRow = (row: ChangeRow) => setPeek({ kind: "worktree", row });
 
   return (
     <div className="git">
@@ -142,7 +149,7 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           <HistoryView
             repo={target}
             version={version}
-            onOpen={(row, scope) => setPeek({ row, scope })}
+            onOpen={(scope) => setPeek({ kind: "history", row: null, scope })}
           />
         ) : (
           <>
@@ -182,11 +189,20 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
       {peek && (
         <DiffPeek
           repo={target}
-          row={peek.row}
-          changeSet={
-            peek.scope
-              ? { kind: "history", scope: peek.scope }
-              : { kind: "worktree", groups }
+          view={
+            peek.kind === "worktree"
+              ? {
+                  kind: "file",
+                  row: peek.row,
+                  changeSet: { kind: "worktree", groups },
+                }
+              : peek.row !== null
+                ? {
+                    kind: "file",
+                    row: peek.row,
+                    changeSet: { kind: "history", scope: peek.scope },
+                  }
+                : { kind: "waiting", scope: peek.scope }
           }
           version={version}
           onSelect={(row) => setPeek((prev) => (prev ? { ...prev, row } : prev))}

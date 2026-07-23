@@ -37,12 +37,3 @@ export function CheckIcon() {
     </svg>
   );
 }
-
-/** Back out of a drilled-in file list to the commits — a left chevron. */
-export function BackIcon() {
-  return (
-    <svg {...iconProps}>
-      <polyline points="15 18 9 12 15 6" />
-    </svg>
-  );
-}

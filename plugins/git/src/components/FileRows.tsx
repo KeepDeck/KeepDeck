@@ -20,13 +20,13 @@ export function FileRow({
   onOpen,
 }: {
   row: ChangeRow;
-  current?: ChangeRow;
+  current?: ChangeRow | null;
   onOpen: (row: ChangeRow) => void;
 }) {
   // The same path can sit in two sections (staged AND edited again) — a row
-  // is "the open one" only when the kind matches too.
+  // is "the open one" only when the kind matches too. Null = nothing open.
   const active =
-    current !== undefined &&
+    current != null &&
     current.path === row.path &&
     current.kind === row.kind;
   return (
@@ -63,7 +63,7 @@ export function FileSection({
 }: {
   label: string;
   rows: ChangeRow[];
-  current?: ChangeRow;
+  current?: ChangeRow | null;
   onOpen: (row: ChangeRow) => void;
 }) {
   if (rows.length === 0) return null;
