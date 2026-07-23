@@ -7,7 +7,7 @@ const SERVER_START_TIMEOUT_MS = 15_000;
 const MAX_STARTUP_OUTPUT = 32_768;
 
 /** How often the spawn wrapper checks that its parent (the KeepDeck process)
- * is still alive. See the WATCHDOG comment in startServer. */
+ * is still alive. See setupServerWrapperScript's docblock for the design. */
 const WATCHDOG_POLL_SECONDS = 5;
 
 export interface KimiServerAccess {
@@ -309,7 +309,8 @@ exit "$code"`;
  * host and the presence of a token are validated. */
 export function extractServerAccess(
   output: string,
-): KimiServerAccess | null {  const plain = stripTerminalControls(output);
+): KimiServerAccess | null {
+  const plain = stripTerminalControls(output);
   const match = plain.match(
     /http:\/\/127\.0\.0\.1:\d+\/(?:#token=[^\s]+)?/,
   );
