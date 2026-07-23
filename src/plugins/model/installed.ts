@@ -15,8 +15,8 @@ export type PluginSource = "builtin" | "external";
 
 /**
  * A plugin's lifecycle position. Kept as a discriminated union (not a flat
- * enum) so the one state that carries a WHY — `failed` — carries it inline: a
- * failed plugin without its reason is useless in the Experiments UI.
+ * enum) so the states that carry a WHY — `failed` and `unavailable` — carry
+ * it inline: a reason-less failure state is useless in the Experiments UI.
  */
 export type PluginStatus =
   /** Installed and eligible, not yet activated. */

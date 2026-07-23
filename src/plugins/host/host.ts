@@ -215,9 +215,11 @@ export class PluginHost {
   /**
    * Turn a plugin on or off. Disabling an active plugin tears it down
    * immediately; enabling a disabled one activates it. A no-op when the flag
-   * already matches (a `failed` plugin counts as enabled — disabling then
-   * re-enabling is how a user retries it). Flips are reported through the dep
-   * so the owner persists them; the host keeps no enabled store.
+   * already matches (`failed` and `unavailable` count as enabled — disabling
+   * then re-enabling is the retry gesture: for `failed` it re-runs the code,
+   * for `unavailable` the enable path first re-detects the agent's binary).
+   * Flips are reported through the dep so the owner persists them; the host
+   * keeps no enabled store.
    */
   async setEnabled(id: string, enabled: boolean): Promise<void> {
     const entry = this.entries.get(id);

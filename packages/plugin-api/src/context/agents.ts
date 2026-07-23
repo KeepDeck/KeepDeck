@@ -24,7 +24,10 @@ export interface AgentContribution {
   label: string;
   /** The agent's brand mark, shown wherever the host names the agent. */
   icon?: AgentIcon;
-  /** How to find the CLI on this machine. */
+  /** How to find the CLI on this machine. When the manifest declares the
+   * agent's `bin` statically (contributes.agents[].bin), this must match it
+   * exactly — the host's availability gate reads the declaration before any
+   * plugin code runs and rejects a drift at registration. */
   detect: { bin: string };
   /** Whether this CLI can run with its permission prompts disabled (YOLO
    * mode). Declares the capability only — the host gates its YOLO toggle on
