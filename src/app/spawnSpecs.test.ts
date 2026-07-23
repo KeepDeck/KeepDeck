@@ -17,7 +17,9 @@ import { AppRuntimeProvider } from "./runtimeContext";
 import { invalidateSkillsStaging } from "./skillsStaging";
 import {
   buildResumeSpec,
+  clearPanePlanError,
   dropPaneSpawnSpec,
+  peekPanePlanError,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
   resumeDiedSilently,
@@ -315,6 +317,11 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     await settle();
 
     expect(seen["pane-1"]).toBeUndefined();
+    // The failure is recorded so the deck can show an error tile (with a
+    // retry) instead of hanging on "Waking up…" forever.
+    expect(peekPanePlanError("pane-1")).toBe(true);
+    clearPanePlanError("pane-1");
+    expect(peekPanePlanError("pane-1")).toBe(false);
   });
 
   it("an EXTERNAL plugin's off-capability command is clamped to its binary", async () => {

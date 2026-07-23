@@ -76,6 +76,11 @@ interface AgentPaneProps {
    * render the quiet tile instead of a terminal; mounting would spawn
    * without the plan's identity args. */
   planPending?: boolean;
+  /** The pane's spawn plan FAILED to build (e.g. a remote spawn.plan threw) —
+   *  render an error tile with a retry instead of "Waking up…" forever. */
+  planError?: boolean;
+  /** Retry building the pane's spawn plan (the error tile's "Try again"). */
+  onRetryPlan?(): void;
   /** Re-issue the failed create from its stored intent. */
   onRetryProvision?(): void;
   /** Grid columns this pane spans (>1 lets a partial last row fill the width). */
@@ -129,6 +134,8 @@ export function AgentPane({
   provisioning,
   unavailableAgent,
   planPending,
+  planError,
+  onRetryPlan,
   colSpan,
   onSelect,
   onToggleFocus,
@@ -383,6 +390,25 @@ export function AgentPane({
               </>
             ) : (
               <span className="pane__exit-title">Waking up…</span>
+            )}
+          </div>
+        ) : planError ? (
+          // The spawn plan FAILED to build (e.g. a remote spawn.plan threw).
+          // The pane would otherwise hang on "Waking up…" forever — surface
+          // the failure and offer a retry (drops it + re-runs the build).
+          <div className="pane__dormant" role="status">
+            <span className="pane__exit-title">Couldn't start this agent</span>
+            <span className="pane__exit-sub">
+              Its spawn plan failed to build — see the log for details.
+            </span>
+            {onRetryPlan && (
+              <button
+                type="button"
+                className="pane__dormant-action"
+                onClick={onRetryPlan}
+              >
+                Try again
+              </button>
             )}
           </div>
         ) : planPending ? (

@@ -3,6 +3,7 @@ import type {
   AgentRestartMode,
   SpawnPlan,
 } from "../domain/agents";
+import { peekPanePlanError } from "../app/spawnSpecs";
 import {
   gridTracks,
   paneColumnSpan,
@@ -106,6 +107,9 @@ interface DeckStageProps {
   ): Promise<void>;
   /** Bumped after the old PTY entry is retired to remount the same pane. */
   restartEpochs: ReadonlyMap<string, number>;
+  /** Retry a pane whose spawn plan failed to build (no PTY was spawned) —
+   *  drops the failure and re-runs the build. */
+  onRetryPlanBuild(paneId: string): void;
 }
 
 /**
@@ -158,6 +162,7 @@ export function DeckStage({
   onAgentSpawnFailed,
   onRestartAgent,
   restartEpochs,
+  onRetryPlanBuild,
 }: DeckStageProps) {
   const isList = deckLayout === "list";
   // Minimizing is a grid-only affordance, and off entirely under `none`.
@@ -313,8 +318,18 @@ export function DeckStage({
               ? spec.command
               : (agentInfo?.command ?? agentType);
           const unavailableAgent = agentsReady && !agentInfo ? agentType : null;
+          const planError =
+            !spec &&
+            !pane.dormant &&
+            !pane.provisioning &&
+            !unavailableAgent &&
+            peekPanePlanError(pane.id);
           const planPending =
-            !spec && !pane.dormant && !pane.provisioning && !unavailableAgent;
+            !spec &&
+            !pane.dormant &&
+            !pane.provisioning &&
+            !unavailableAgent &&
+            !planError;
           const displayTitle = titleOf(pane);
           const executionCwd = paneExecutionCwd(ws, pane);
           const badge = badgeOf(pane);
@@ -330,6 +345,8 @@ export function DeckStage({
               env={spec?.env}
               envDefaults={spec?.envDefaults}
               planPending={planPending}
+              planError={planError}
+              onRetryPlan={() => onRetryPlanBuild(pane.id)}
               cwd={executionCwd}
               gitBadge={badge}
               yolo={pane.yolo}

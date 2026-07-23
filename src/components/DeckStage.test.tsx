@@ -59,6 +59,7 @@ const callbacks = {
   onPaneTitle: vi.fn(),
   onStartFresh: vi.fn(),
   onRetryProvision: vi.fn(),
+  onRetryPlanBuild: vi.fn(),
   onAgentExited: vi.fn(),
   onAgentSpawnFailed: vi.fn(),
   onRestartAgent: vi.fn(() => Promise.resolve()),

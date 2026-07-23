@@ -13,6 +13,7 @@ import { postbackCount } from "./postbacks";
 import { closePane } from "./ptyManager";
 import {
   buildResumeSpec,
+  clearPanePlanError,
   dropPaneSpawnSpec,
   peekPaneSpawnSpec,
   resumeDiedSilently,
@@ -37,6 +38,11 @@ export interface AgentRestartApi {
     paneId: string,
     code: number | null,
   ): boolean;
+  /** Retry a pane whose spawn PLAN failed to build (a remote spawn.plan threw
+   *  — no PTY was ever spawned). Drops the failed flag + cached spec and bumps
+   *  the mount epoch so the build sweep re-runs. Lighter than `restart`: there
+   *  is no live process to retire. */
+  retryPlanBuild(paneId: string): void;
 }
 
 interface RestartTarget {
@@ -64,6 +70,16 @@ export function useAgentRestart(
     setEpochs((current) =>
       new Map(current).set(paneId, (current.get(paneId) ?? 0) + 1),
     );
+
+  /** Retry a pane whose spawn plan failed to build — no PTY was ever spawned,
+   *  so (unlike `restartFresh`) there's nothing to close and no session to
+   *  clear: just drop the failure, drop any half-built spec, and bump the
+   *  epoch so the build sweep re-runs. */
+  const retryPlanBuild = (paneId: string) => {
+    dropPaneSpawnSpec(paneId);
+    clearPanePlanError(paneId);
+    bumpEpoch(paneId);
+  };
 
   const restartFresh = async (target: RestartTarget) => {
     // Invalidate the old bridge token before anything can report late from the
@@ -199,7 +215,7 @@ export function useAgentRestart(
     return true;
   };
 
-  return { epochs, restart, recoverRejectedResume };
+  return { epochs, restart, recoverRejectedResume, retryPlanBuild };
 }
 
 function findTarget(
@@ -220,7 +236,10 @@ function findTarget(
     cwd: pane.cwd ?? workspace.cwd,
     branch: pane.branch,
     yolo: pane.yolo,
-    sessionId: pane.session?.id ?? null,
+    // A remote pane is fresh-session only — even if a stale `session` clings to
+    // it (a hand-edit, or a binding from before the guard shipped), never hand
+    // it to the resume path, which would spawn locally and drop the endpoint.
+    sessionId: pane.remoteEndpoint ? null : (pane.session?.id ?? null),
   };
 }
 

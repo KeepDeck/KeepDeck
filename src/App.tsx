@@ -787,6 +787,7 @@ function App() {
             }
             onRestartAgent={agentRestart.restart}
             restartEpochs={agentRestart.epochs}
+            onRetryPlanBuild={agentRestart.retryPlanBuild}
           />
 
           {showForm &&

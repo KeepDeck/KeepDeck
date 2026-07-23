@@ -49,6 +49,13 @@ const specs = new Map<string, SpawnPlan>();
  * first await, so the ordinary fresh-plan sweep cannot race it. */
 const pending = new Set<string>();
 
+/** Panes whose last plan build FAILED (a remote spawn.plan threw, which
+ * propagates instead of silently degrading to a local spawn). The deck shows
+ * an error tile rather than leaving the pane on "Waking up…" forever, and the
+ * sweep skips them so a persistent error doesn't loop. Cleared by an explicit
+ * retry (`clearPanePlanError`). */
+const failed = new Set<string>();
+
 /** Per-pane build generations make invalidation real: dropping a spec while
  * an async hook is running prevents that stale promise from installing its
  * result after a newer manual/fresh decision. */
@@ -71,9 +78,16 @@ async function buildAndCache(
     if (buildGenerations.get(paneId) !== generation) return false;
     pending.delete(paneId);
     specs.set(paneId, plan);
+    failed.delete(paneId);
     return true;
   } catch (error) {
-    if (buildGenerations.get(paneId) === generation) pending.delete(paneId);
+    if (buildGenerations.get(paneId) === generation) {
+      pending.delete(paneId);
+      // Record the failure so the deck can surface an error tile instead of
+      // hanging on "Waking up…" — a remote spawn that can't build its plan
+      // must not silently become a local one (the reason buildPlan rethrows).
+      failed.add(paneId);
+    }
     throw error;
   }
 }
@@ -341,7 +355,8 @@ export function usePaneSpawnSpecs(
       const wsSkillRoots = skillRootsOf(ws);
       for (const pane of ws.panes) {
         if (pane.dormant || pane.provisioning) continue;
-        if (specs.has(pane.id) || pending.has(pane.id)) continue;
+        if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id))
+          continue;
         const agent = findAgent(plugins, paneAgentType(pane));
         if (!agent) continue; // the unavailable card blocks the terminal
         void buildAndCache(pane.id, () =>
@@ -402,10 +417,26 @@ export function peekPaneSpawnSpec(paneId: string): SpawnPlan | undefined {
   return specs.get(paneId);
 }
 
+/** Whether this pane's last plan build FAILED (a remote spawn.plan threw).
+ *  The deck renders an error tile instead of "Waking up…" — the build won't
+ *  be retried until the user asks (`clearPanePlanError`). */
+export function peekPanePlanError(paneId: string): boolean {
+  return failed.has(paneId);
+}
+
+/** Clear a pane's failed-plan flag and invalidate any in-flight build so the
+ *  next sweep rebuilds it (the retry button on the error tile). */
+export function clearPanePlanError(paneId: string): void {
+  failed.delete(paneId);
+  pending.delete(paneId);
+  buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
+}
+
 /** Test isolation. */
 export function resetPaneSpawnSpecs(): void {
   specs.clear();
   pending.clear();
+  failed.clear();
   buildGenerations.clear();
 }
 
