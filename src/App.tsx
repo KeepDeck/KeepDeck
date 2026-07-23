@@ -850,7 +850,7 @@ function App() {
               probe={probeWorktree}
               occupancy={(path) => pathOccupancy(deck.workspaces, path)}
               pickFolder={pickFolder}
-              onConfirm={(target, yolo) => {
+              onConfirm={({ target, yolo }) => {
                 const { wsId, record } = forkDialog;
                 setForkDialog(null);
                 void journalFork.fork(wsId, record, target, { yolo }).catch((e: unknown) =>

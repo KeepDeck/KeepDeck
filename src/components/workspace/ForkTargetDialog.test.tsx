@@ -92,7 +92,7 @@ describe("ForkTargetDialog", () => {
           },
           occupancy: () => occupied,
           pickFolder: () => Promise.resolve(null),
-          onConfirm: (target: ForkTarget) => confirmed.push(target),
+          onConfirm: ({ target }) => confirmed.push(target),
           onCancel: () => {},
         }),
       );
@@ -233,7 +233,7 @@ describe("ForkTargetDialog YOLO toggle", () => {
           probe: () => Promise.resolve(MISSING),
           occupancy: () => null,
           pickFolder: () => Promise.resolve(null),
-          onConfirm: (target: ForkTarget, yolo: boolean) => confirmed.push({ target, yolo }),
+          onConfirm: ({ target, yolo }) => confirmed.push({ target, yolo }),
           onCancel: () => {},
         }),
       ),

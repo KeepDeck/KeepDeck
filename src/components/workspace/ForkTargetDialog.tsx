@@ -30,7 +30,7 @@ interface ForkTargetDialogProps {
   occupancy(path: string): Occupancy;
   /** Native folder picker; `null` = cancelled. */
   pickFolder(title: string): Promise<string | null>;
-  onConfirm(target: ForkTarget, yolo: boolean): void;
+  onConfirm(result: { target: ForkTarget; yolo: boolean }): void;
   onCancel(): void;
 }
 
@@ -127,7 +127,7 @@ export function ForkTargetDialog({
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid) onConfirm(buildTarget(), yolo && supportsYolo);
+          if (valid) onConfirm({ target: buildTarget(), yolo: yolo && supportsYolo });
         }}
       >
         <h2 className="form__title">Fork session</h2>
