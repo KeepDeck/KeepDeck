@@ -225,6 +225,25 @@
   display: flex;
   gap: 8px;
   align-items: baseline;
+  /* Click-to-copy: the whole row is the hit target. Negative margin keeps the
+     visual gap to neighbors identical now that the row carries its own padding
+     + rounded background. */
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background-color 90ms linear;
+}
+
+.voice__entry:hover {
+  background: #161b26;
+}
+
+/* The brief "copied" flash — accent-tinted background plus the tone glyph
+   swaps to a checkmark (see VoiceTab). */
+.voice__entry--copied,
+.voice__entry--copied:hover {
+  background: #12211a;
 }
 
 .voice__tone {

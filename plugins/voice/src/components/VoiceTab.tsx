@@ -41,6 +41,30 @@ export function VoiceTab() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [snap.history.length]);
 
+  // Click-to-copy: a row copies its text on click, flashing a brief ✓. A
+  // drag-select also ends in a click on the row, so the handler bails when
+  // there is an active text selection — the manual select-and-copy fallback
+  // stays intact and never gets hijacked by the copy action.
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copiedTimer = useRef<number | null>(null);
+  const flashCopied = (key: string) => {
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    setCopiedKey(key);
+    copiedTimer.current = window.setTimeout(() => setCopiedKey(null), 1200);
+  };
+  useEffect(
+    () => () => {
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+  const copyEntry = (text: string, key: string) => {
+    void ctx.services.clipboard
+      .writeText(text)
+      .then(() => flashCopied(key))
+      .catch(() => {});
+  };
+
   // No model installed (and none arriving): the whole surface is a prompt to
   // get one — voice can't do anything without a model. A download in flight
   // shows the strip instead, so the user sees progress here too.
@@ -133,12 +157,34 @@ export function VoiceTab() {
             <span className="voice__empty-i">ⓘ</span> for the list.
           </div>
         )}
-        {snap.history.map((entry) => (
-          <div key={`${entry.at}-${entry.text}`} className={`voice__entry voice__entry--${entry.tone}`}>
-            <span className="voice__tone">{TONE_GLYPH[entry.tone]}</span>
-            <span className="voice__text">{entry.text}</span>
-          </div>
-        ))}
+        {snap.history.map((entry) => {
+          const key = `${entry.at}-${entry.text}`;
+          const copied = copiedKey === key;
+          return (
+            <div
+              key={key}
+              className={`voice__entry voice__entry--${entry.tone}${
+                copied ? " voice__entry--copied" : ""
+              }`}
+              role="button"
+              tabIndex={0}
+              title={copied ? "Скопировано" : "Кликни, чтобы скопировать"}
+              onClick={() => {
+                if (window.getSelection()?.toString()) return;
+                copyEntry(entry.text, key);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  copyEntry(entry.text, key);
+                }
+              }}
+            >
+              <span className="voice__tone">{copied ? "✓" : TONE_GLYPH[entry.tone]}</span>
+              <span className="voice__text">{entry.text}</span>
+            </div>
+          );
+        })}
       </div>
 
     </div>
