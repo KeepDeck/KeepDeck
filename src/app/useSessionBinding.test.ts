@@ -43,12 +43,15 @@ describe("postbackAccepted", () => {
 });
 
 describe("useSessionBinding", () => {
+  // Defaulted to a no-op so the shared `let` is never undefined across the
+  // effect-flush race (a call before the handler registers is a silent no-op
+  // rather than a cryptic TypeError flake).
   let emit: (event: {
     paneId: string;
     sessionId: string;
     token: string;
     transcriptPath?: string;
-  }) => void;
+  }) => void = () => {};
 
   beforeEach(() => {
     bridge.beginPaneUsageSession.mockClear();
