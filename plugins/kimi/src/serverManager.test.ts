@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import type {
   PluginSessionEvent,
@@ -8,6 +9,7 @@ import {
   createKimiServerManager,
   describeStartupOutput,
   extractServerAccess,
+  setupServerWrapperScript,
 } from "./serverManager";
 
 const encoder = new TextEncoder();
@@ -79,6 +81,33 @@ describe("describeStartupOutput", () => {
   });
 });
 
+describe("setupServerWrapperScript", () => {
+  it("is valid sh syntax (parsed with sh -n, not just substring-asserted)", () => {
+    expect(() =>
+      execFileSync("/bin/sh", ["-n", "-c", setupServerWrapperScript()]),
+    ).not.toThrow();
+  });
+
+  it("pins the behavioral contract: server flags and watchdog primitives", () => {
+    const script = setupServerWrapperScript();
+    // `kimi web`, not the removed-in-0.28 `kimi server run`; the debug RPC
+    // surface replaced the removed-in-0.29 /api/v2 one; an ephemeral port
+    // cannot collide with a second KeepDeck instance.
+    expect(script).toContain("kimi web --no-open --host 127.0.0.1");
+    expect(script).toContain("--port 0");
+    expect(script).toContain("--debug-endpoints");
+    // The parent-death watchdog: ignore the PTY's SIGHUP, poll the parent's
+    // existence AND start-time identity (pid reuse), escalate TERM → KILL,
+    // and reap the watcher's own sleeps so the PTY slave closes promptly.
+    expect(script).toContain('trap "" HUP');
+    expect(script).toContain('kill -0 "$parent"');
+    expect(script).toContain("ps -o lstart=");
+    expect(script).toContain('kill "$child"');
+    expect(script).toContain('kill -9 "$child"');
+    expect(script).toContain("trap 'kill \"$slp\" 2>/dev/null' EXIT");
+  });
+});
+
 describe("Kimi server manager", () => {
   it("uses one watchdog-wrapped ephemeral-port server for queued operations", async () => {
     const { manager, spawn, close } = sessionHarness();
@@ -117,19 +146,7 @@ describe("Kimi server manager", () => {
     };
     expect(spawnOptions.command).toBe("/bin/sh");
     expect(spawnOptions.args[0]).toBe("-c");
-    const wrapper = spawnOptions.args[1];
-    // `kimi web`, not the removed-in-0.28 `kimi server run`; the debug RPC
-    // surface replaced the removed-in-0.29 /api/v2 one; an ephemeral port
-    // cannot collide with a second KeepDeck instance.
-    expect(wrapper).toContain("kimi web --no-open --host 127.0.0.1");
-    expect(wrapper).toContain("--port 0");
-    expect(wrapper).toContain("--debug-endpoints");
-    // The parent-death watchdog: ignore the PTY's SIGHUP, kill the server
-    // (TERM, then KILL) when KeepDeck is gone.
-    expect(wrapper).toContain('trap "" HUP');
-    expect(wrapper).toContain('kill -0 "$parent"');
-    expect(wrapper).toContain('kill "$child"');
-    expect(wrapper).toContain('kill -9 "$child"');
+    expect(spawnOptions.args[1]).toBe(setupServerWrapperScript());
     expect(maxActive).toBe(1);
     expect(order).toEqual([
       "first:start",

@@ -128,7 +128,8 @@ export function createKimiServerManager(
       spawn = sessions.spawn(
         {
           command: "/bin/sh",
-          // The server runs under a tiny watchdog wrapper:
+          // The server runs under a tiny watchdog wrapper (see
+          // setupServerWrapperScript for the script and its design):
           //
           // - `kimi web` replaced `kimi server run` (removed in Kimi Code 0.28).
           //   `--no-open` suppresses the browser it would otherwise launch;
@@ -142,21 +143,7 @@ export function createKimiServerManager(
           // - `--port 0` lets Kimi bind a free ephemeral port and print the
           //   real one in the banner: a fixed port cannot collide with a
           //   second KeepDeck instance (dev next to prod) or a stray server.
-          // - The wrapper's watcher subshell polls its own parent pid and
-          //   kills the server when the parent is gone. A PTY-master close
-          //   delivers SIGHUP to the foreground process group, so the wrapper
-          //   traps HUP to stay alive long enough to finish the teardown;
-          //   the TERM→KILL escalation mirrors the PTY close contract because
-          //   the server can take seconds to honor a bare TERM. The main
-          //   shell `wait`s on the server and re-exits with its status, so a
-          //   server that dies on its own still produces the honest "exited
-          //   before it became ready" event instead of a misleading startup
-          //   timeout. The graceful path needs no watchdog: closing the
-          //   session signals the whole process group.
-          args: [
-            "-c",
-            `trap "" HUP; parent=$PPID; kimi web --no-open --host 127.0.0.1 --port 0 --log-level silent --debug-endpoints & child=$!; (while kill -0 "$parent" 2>/dev/null; do sleep ${WATCHDOG_POLL_SECONDS}; done; kill "$child" 2>/dev/null; sleep 3; kill -9 "$child" 2>/dev/null) & watcher=$!; wait "$child" 2>/dev/null; code=$?; kill "$watcher" 2>/dev/null; exit "$code"`,
-          ],
+          args: ["-c", setupServerWrapperScript()],
           cols: 80,
           rows: 24,
         },
@@ -264,13 +251,65 @@ export function createKimiServerManager(
   };
 }
 
+/** The spawn wrapper script. Exported (not inline) so the test suite can
+ * syntax-check it with `sh -n` instead of only asserting substrings.
+ *
+ * Design:
+ * - The watcher subshell polls its parent (the KeepDeck process) and kills
+ *   the server when the parent is gone — `kimi web` survives SIGHUP, so a
+ *   hard host crash (SIGKILL, power loss) would otherwise orphan a live
+ *   server with an unrecoverable token. `kill -0` checks pid EXISTENCE, so
+ *   the poll also compares the parent's start time (`ps -o lstart=`): a
+ *   recycled pid fails the identity check. A failed `ps` read skips the
+ *   comparison rather than risking a spurious kill.
+ * - A PTY-master close delivers SIGHUP to the foreground process group, so
+ *   the wrapper traps HUP to stay alive long enough to finish the teardown;
+ *   the TERM→KILL escalation mirrors the PTY close contract because the
+ *   server can take seconds to honor a bare TERM.
+ * - The watcher's own `sleep` children are reaped via TERM/EXIT traps —
+ *   otherwise a killed watcher leaves a sleep holding the PTY slave open,
+ *   delaying EOF (and the exit event) past the PTY's kill grace.
+ * - The main shell `wait`s on the server and re-exits with its status, so a
+ *   server that dies on its own produces the honest "exited before it
+ *   became ready" event instead of a misleading startup timeout. The
+ *   graceful path needs no watchdog: closing the session signals the whole
+ *   process group. */
+export function setupServerWrapperScript(): string {
+  return `trap "" HUP
+parent=$PPID
+started=$(ps -o lstart= -p "$parent" 2>/dev/null)
+kimi web --no-open --host 127.0.0.1 --port 0 --log-level silent --debug-endpoints &
+child=$!
+(
+  slp=
+  trap 'kill "$slp" 2>/dev/null' EXIT
+  trap 'exit 0' TERM
+  while kill -0 "$parent" 2>/dev/null; do
+    now=$(ps -o lstart= -p "$parent" 2>/dev/null)
+    [ -n "$started" ] && [ -n "$now" ] && [ "$now" != "$started" ] && break
+    sleep ${WATCHDOG_POLL_SECONDS} &
+    slp=$!
+    wait "$slp" 2>/dev/null
+  done
+  kill "$child" 2>/dev/null
+  sleep 3 &
+  slp=$!
+  wait "$slp" 2>/dev/null
+  kill -9 "$child" 2>/dev/null
+) &
+watcher=$!
+wait "$child" 2>/dev/null
+code=$?
+kill "$watcher" 2>/dev/null
+exit "$code"`;
+}
+
 /** Parse the authenticated loopback endpoint from the server's startup
  * banner. The port is whatever ephemeral port `--port 0` bound, so only the
  * host and the presence of a token are validated. */
 export function extractServerAccess(
   output: string,
-): KimiServerAccess | null {
-  const plain = stripTerminalControls(output);
+): KimiServerAccess | null {  const plain = stripTerminalControls(output);
   const match = plain.match(
     /http:\/\/127\.0\.0\.1:\d+\/(?:#token=[^\s]+)?/,
   );
