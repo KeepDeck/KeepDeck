@@ -726,18 +726,18 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * by decision). A container that appeared installs (disabled until consent, or
    * activating if already consented); one that vanished is uninstalled (its
    * realms and sessions die, its stored data survives); one whose manifest
-   * changed reloads (new code, and new capabilities re-gate consent). A plugin
-   * that DIDN'T change is left completely alone — a no-op rescan touches
-   * nothing, so it never churns the UI. Built-ins are untouched.
+   * changed reloads (new code, and new capabilities re-gate consent). Unchanged
+   * plugins keep their CODE untouched — but the gesture then re-detects agent
+   * binaries and re-activates anyway: `unavailable` plugins whose CLI just
+   * appeared recover, and `failed` plugins retry (Rescan is the manual retry
+   * gesture, same as disable→re-enable). Live active/disabled plugins are
+   * untouched (`activate` no-ops on them). Built-ins are untouched.
    */
   async function rescanPlugins(): Promise<void> {
     await syncExternalPlugins();
-    // Rescan is the user's manual retry gesture, so it always re-detects and
-    // re-activates — even when the plugins folder didn't change. The common
-    // case is a built-in agent plugin stuck `unavailable` because its CLI was
-    // missing at boot and has just been installed; gating this on a folder
-    // diff would leave it unavailable with no feedback. `activate` is
-    // idempotent for active/disabled plugins, so this touches nothing live.
+    // Always re-detect and re-activate, even when the folder didn't change —
+    // gating this on a folder diff would leave a built-in agent plugin stuck
+    // `unavailable` (CLI missing at boot, installed since) with no feedback.
     await detectAndCacheBins(declaredBinsOfInstalled());
     await pluginHost.activateAll();
   }
@@ -761,13 +761,13 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * not reloaded here (the signature is the manifest) — use its Restart for
    * that; a folder rescan shouldn't restart every dev plugin on every click.
    */
-  async function syncExternalPlugins(): Promise<boolean> {
+  async function syncExternalPlugins(): Promise<void> {
     let records: Awaited<ReturnType<typeof scanPlugins>>;
     try {
       records = await scanPlugins();
     } catch (e) {
       log.warn("web:plugins", `plugin scan failed: ${describeError(e)}`);
-      return false;
+      return;
     }
 
     // What's on disk now, first-id-wins (dev over archive is the scan's order).
@@ -791,8 +791,6 @@ export function createPluginManager(appDownloads: DownloadManager) {
       });
     }
 
-    let changed = false;
-
     // Gone: installed external ids no longer on disk. Their runtime residue
     // (crash reports, overlay visibility) goes with them — a later reinstall
     // under the same id must start clean.
@@ -802,7 +800,6 @@ export function createPluginManager(appDownloads: DownloadManager) {
         await pluginHost.uninstall(id);
         clearPluginCrashes(id);
         clearOverlayVisibility(id);
-        changed = true;
       }
     }
 
@@ -819,10 +816,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
         },
         "external",
       );
-      changed = true;
     }
-
-    return changed;
   }
 
   function safeJson(text: string): unknown {
