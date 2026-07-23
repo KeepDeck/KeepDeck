@@ -32,8 +32,9 @@ export interface JournalForkApi {
     * `opts.name` names the pane; `opts.branch` stamps a dir-target pane's
     * worktree branch (an attached existing worktree — the spawn dialog knows
     * it, a journal fork doesn't); `opts.yolo` overrides the forked pane's
-    * YOLO mode (unset → inherit the source session's, as a bare browser
-    * fork with no toggle does). */
+    * YOLO mode (unset → inherit the source session's — the fork dialog
+    * always supplies an explicit choice, so the fallback serves only direct
+    * callers). */
   fork(
     wsId: string,
     record: SessionHandle,
