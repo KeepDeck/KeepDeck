@@ -26,13 +26,15 @@ async function hookArgs(resources: PluginResources): Promise<string[]> {
 const yoloArgs = (yolo: boolean | undefined): string[] =>
   yolo ? ["--dangerously-bypass-approvals-and-sandbox"] : [];
 
-/** codex's PasteBurst heuristic collapses fast programmatic input beyond
+/** codex's PasteBurst heuristic collapses fast UNBRACKETED input beyond
  * ~1000 chars into a non-editable [Pasted Content N chars] placeholder. It
  * exists for terminals that don't surface bracketed paste — KeepDeck's xterm
- * does, so the fallback is redundant here; disabling it keeps KeepDeck's
- * typed input (dictation, task delivery) inline and editable. Same `-c`
- * override as the hook args, same forward-compat (an unknown key is ignored),
- * and global, so it precedes the `resume`/`fork` subcommand. */
+ * does, so the fallback is redundant here; disabling it keeps voice dictation
+ * (raw TYPE keystrokes via pane.write mode:"type") inline and editable past
+ * the threshold. Spawn task delivery is unaffected — it uses the PASTE
+ * channel, which PasteBurst never gates. Same `-c` override as the hook args,
+ * same forward-compat (an unknown key is ignored), and global, so it precedes
+ * the `resume`/`fork` subcommand. */
 const disablePasteBurstArgs: string[] = ["-c", "disable_paste_burst=true"];
 
 // Shared skills need NO code here: codex has no flag/env/config door

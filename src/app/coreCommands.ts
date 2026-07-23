@@ -366,7 +366,7 @@ export function registerCoreCommands(
         // fall through to paste — that is the exact [Pasted…] collapse this
         // command's type mode exists to avoid (args-validation philosophy,
         // domain/commands/args.ts: reject rather than silently do nothing).
-        const mode = args.mode;
+        const mode = str(args, "mode");
         if (mode !== undefined && mode !== "type" && mode !== "paste") {
           throw new Error(
             `unknown pane.write mode ${JSON.stringify(String(mode))} — expected "type" or "paste"`,

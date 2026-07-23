@@ -367,15 +367,34 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(written).toEqual(["hello"]);
   });
 
+  it("explicit mode:'paste' routes through the paste channel (acceptance)", async () => {
+    const { registry } = setup([twoPanes()]);
+    const pasted: string[] = [];
+    const written: string[] = [];
+    const off = registerPaneInput("p2", {
+      write: (t) => written.push(t),
+      paste: (t) => pasted.push(t),
+    });
+    const result = await registry.execute(
+      "pane.write",
+      { agent: "reviewer", text: "hello", mode: "paste" },
+      HOST,
+    );
+    off();
+    expect(result.ok).toBe(true);
+    expect(pasted).toEqual(["hello"]);
+    expect(written).toEqual([]);
+  });
+
   it("rejects an unknown mode value instead of silently falling back to paste", async () => {
     const { registry } = setup([twoPanes()]);
-    const off = registerPaneInput("p2", { write: () => {}, paste: () => {} });
+    // No live pane needed: mode validation is the first statement in run(), so
+    // a bad value throws before any pane is resolved.
     const bad = await registry.execute(
       "pane.write",
       { agent: "reviewer", text: "hello", mode: "raw" },
       HOST,
     );
-    off();
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error.message).toContain("unknown pane.write mode");
   });
