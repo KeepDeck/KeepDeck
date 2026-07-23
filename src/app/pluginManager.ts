@@ -616,7 +616,12 @@ export function createPluginManager(appDownloads: DownloadManager) {
   );
 
   /** Cache behind the host's `isAgentBinInstalled` dep: bin → installed.
-   * Absent entries are treated as installed (permissive by design). */
+   * Absent entries are treated as installed (permissive by design).
+   * NOTE there is a second bin-status cache in useAgents (per-mount, for the
+   * agent pickers); this one is the ACTIVATION gate's source of truth —
+   * refreshed at bootstrap, rescan and enable gestures. New consumers of bin
+   * state should pick deliberately: picker/live freshness → useAgents,
+   * lifecycle gating → here. */
   const agentBinInstalled = new Map<string, boolean>();
 
   /** Detect the given agent bins once and record the statuses. Shared by the

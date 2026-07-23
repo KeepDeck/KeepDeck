@@ -19,6 +19,15 @@ import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { LaunchSpinner } from "../../ui/LaunchSpinner";
 
+/** Why a pane's agent can't run — the card copy and the recovery gesture
+ * differ per kind, so they are modeled as a union, not parallel optionals. */
+export type UnavailableAgent =
+  /** No enabled plugin provides this agent (disabled or uninstalled). */
+  | { kind: "no-plugin"; agent: string }
+  /** A plugin provides it and is enabled, but the agent's CLI is not
+   * installed on this machine; `reason` is the gate's sentence. */
+  | { kind: "bin-missing"; agent: string; reason: string };
+
 interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
   paneId: string;
@@ -68,10 +77,12 @@ interface AgentPaneProps {
   /** The pane's worktree create in flight or failed — render a status card
    * instead of a terminal until it resolves (optimistic provisioning). */
   provisioning?: PaneProvisioning | null;
-  /** The pane's agent id when NO plugin provides it (disabled/uninstalled) —
-   * render an explanatory card instead of a terminal; mounting one would
-   * spawn the bare id as a command. */
-  unavailableAgent?: string | null;
+  /** The pane's agent can't run — render an explanatory card instead of a
+   * terminal; mounting one would spawn the bare id as a command. The union
+   * names WHY, because the recovery gestures differ: `no-plugin` means the
+   * plugin is disabled or gone; `bin-missing` means it is enabled but the
+   * agent's CLI is not installed. */
+  unavailableAgent?: UnavailableAgent | null;
   /** The pane's spawn plan is still being built (async plugin hooks) —
    * render the quiet tile instead of a terminal; mounting would spawn
    * without the plan's identity args. */
@@ -347,17 +358,17 @@ export function AgentPane({
             </div>
           )
         ) : unavailableAgent ? (
-          // No plugin provides this pane's agent (disabled or uninstalled).
           // The pane keeps its identity and session binding; the revive
-          // effect skips it, and re-enabling the plugin brings it back live.
+          // effect skips it, and fixing the cause brings it back live.
           <div className="pane__dormant" role="alert">
             <span className="pane__exit-title">Agent unavailable</span>
             <span
               className="pane__exit-sub pane__dormant-path"
-              title={unavailableAgent}
+              title={unavailableAgent.agent}
             >
-              No plugin provides “{unavailableAgent}” — enable it in Settings
-              → Plugins
+              {unavailableAgent.kind === "bin-missing"
+                ? `${unavailableAgent.reason} — install it, then re-enable the plugin in Settings → Plugins`
+                : `No plugin provides “${unavailableAgent.agent}” — enable it in Settings → Plugins`}
             </span>
           </div>
         ) : dormant ? (

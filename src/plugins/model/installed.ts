@@ -41,6 +41,22 @@ export interface InstalledPlugin {
   readonly status: PluginStatus;
 }
 
+/** agentId → reason for every agent declared by a plugin that is enabled but
+ * `unavailable` (its binary is missing). Lets pane UI tell "install the CLI,
+ * then re-enable" apart from "no plugin provides this agent at all". */
+export function unavailableAgentReasons(
+  plugins: readonly InstalledPlugin[],
+): ReadonlyMap<string, string> {
+  const reasons = new Map<string, string>();
+  for (const plugin of plugins) {
+    if (plugin.status.kind !== "unavailable") continue;
+    for (const agent of plugin.manifest.contributes.agents ?? []) {
+      reasons.set(agent.id, plugin.status.reason);
+    }
+  }
+  return reasons;
+}
+
 /**
  * Order items built-ins-first, then external, PRESERVING the given order
  * within each group. Activation walks this order and the registries record
