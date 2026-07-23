@@ -51,8 +51,9 @@ export function ForkTargetDialog({
 }: ForkTargetDialogProps) {
   const [path, setPath] = useState("");
   const [branch, setBranch] = useState("");
-  // The toggle's state survives an agent swap elsewhere; only the SUBMITTED
-  // value is gated (see `supportsYolo` below) — same rule as the AgentDialog.
+  // Seeded from defaultYolo at mount; the forked agent is fixed for this
+  // dialog's life, so supportsYolo never re-evaluates. Only the SUBMITTED
+  // value is capability-gated (see the onSubmit handler below).
   const [yolo, setYolo] = useState(defaultYolo);
   const supportsYolo = agentSupportsYolo(agents, record.agent);
   const [probed, setProbed] = useState<PathProbe | null>(null);
