@@ -103,9 +103,9 @@ describe("VoiceTab history click-to-copy", () => {
 
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText.mock.calls[0][0]).toBe("привет");
-    // The tone glyph stays put; a "Скопировано" label appears and the row flashes.
+    // The row's text is briefly replaced by "Copied"; the tone glyph stays put.
+    expect(first.querySelector(".voice__text")?.textContent).toBe("Copied");
     expect(first.querySelector(".voice__tone")?.textContent).toBe("🗣");
-    expect(first.querySelector(".voice__copied")?.textContent).toBe("Скопировано");
     expect(first.className).toContain("voice__entry--copied");
   });
 
