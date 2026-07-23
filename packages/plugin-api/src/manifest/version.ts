@@ -9,7 +9,7 @@
  * package.json version (that one is just an npm semver so the workspace
  * resolves the package). This is the load-bearing one.
  */
-export const API_VERSION = 28; // 28: agents contribution summary gains an optional static `bin` (pre-activation availability); 27: + AgentContribution.remote + SpawnPlanInput.target (remote targets — a pane's agent runs against a remote nativeServer endpoint); 26: + clipboard service (PluginClipboard) with clipboardWrite/clipboardRead capabilities; 25: usage capabilities split into paneTelemetry/accountLimits; PaneUsage sequence; 24: + fork.plan hook, fsWrite + sqliteReadonly capabilities (PluginFsWrite/PluginSqlite services), AgentContribution.history discovery, FsEntry.mtime; 23: + env defaults (SpawnPlanOutput.envDefaults); 22: + staged shared skills (SpawnPlanInput.skills)
+export const API_VERSION = 29; // 29: UsageTailFormat adds Claude transcript usage; 28: agents contribution summary gains an optional static `bin` (pre-activation availability); 27: + AgentContribution.remote + SpawnPlanInput.target (remote targets — a pane's agent runs against a remote nativeServer endpoint); 26: + clipboard service (PluginClipboard) with clipboardWrite/clipboardRead capabilities; 25: usage capabilities split into paneTelemetry/accountLimits; PaneUsage sequence; 24: + fork.plan hook, fsWrite + sqliteReadonly capabilities (PluginFsWrite/PluginSqlite services), AgentContribution.history discovery, FsEntry.mtime; 23: + env defaults (SpawnPlanOutput.envDefaults); 22: + staged shared skills (SpawnPlanInput.skills)
 
 /** Oldest contract the current host can execute. Raise only for a breaking change. */
 export const MIN_COMPATIBLE_API_VERSION = 21;

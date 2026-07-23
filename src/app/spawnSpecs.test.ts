@@ -16,6 +16,8 @@ import type { AppRuntime } from "./runtime";
 import { AppRuntimeProvider } from "./runtimeContext";
 import { invalidateSkillsStaging } from "./skillsStaging";
 import {
+  bindPaneSpawnSpecSession,
+  buildForkSpec,
   buildResumeSpec,
   clearPanePlanError,
   dropPaneSpawnSpec,
@@ -23,6 +25,7 @@ import {
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
   resumeDiedSilently,
+  spawnPlanNeedsUsageBaseline,
   type SpawnPluginAccess,
   usePaneSpawnSpecs,
 } from "./spawnSpecs";
@@ -406,6 +409,46 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(peekPaneSpawnSpec("pane-9")?.resumeOf).toBe("old-id");
     expect(peekPaneSpawnSpec("pane-9")?.resumeOrigin).toBe("restore");
     expect(peekPaneSpawnSpec("pane-9")?.postbackMark).toBe(0);
+  });
+
+  it("records a fork's source and binds only its first reported session", async () => {
+    register({
+      ...adopting,
+      hooks: {
+        ...adopting.hooks,
+        "fork.plan": (input, output) => {
+          output.args = ["--fork", input.sessionId];
+        },
+      },
+    });
+
+    await buildForkSpec(
+      plugins,
+      "claude",
+      { paneId: "pane-fork", workspace: W1, cwd: "/repo" },
+      ctx,
+      { sessionId: "source-id", sourceCwd: "/repo" },
+    );
+
+    expect(peekPaneSpawnSpec("pane-fork")).toMatchObject({
+      forkOf: "source-id",
+      args: ["--fork", "source-id"],
+    });
+    bindPaneSpawnSpecSession("pane-fork", "fork-id");
+    bindPaneSpawnSpecSession("pane-fork", "later-new-id");
+    expect(peekPaneSpawnSpec("pane-fork")?.forkSessionId).toBe("fork-id");
+    expect(
+      spawnPlanNeedsUsageBaseline(peekPaneSpawnSpec("pane-fork"), "fork-id"),
+    ).toBe(true);
+    expect(
+      spawnPlanNeedsUsageBaseline(
+        peekPaneSpawnSpec("pane-fork"),
+        "later-new-id",
+      ),
+    ).toBe(false);
+    expect(
+      spawnPlanNeedsUsageBaseline({ resumeOf: "resumed-id" }, "resumed-id"),
+    ).toBe(true);
   });
 
   it("refuses to label a bare spawn as a manual resume", async () => {

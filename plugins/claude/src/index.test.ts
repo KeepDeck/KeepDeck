@@ -160,6 +160,10 @@ describe("claude plugin hooks", () => {
 });
 
 describe("claude plugin identity", () => {
+  it("declares the Claude transcript usage tail", () => {
+    expect(activate(null).usage?.tail).toBe("claude");
+  });
+
   it("ships the brand mark in Anthropic's tint", () => {
     const agent = activate(null);
     expect(agent.icon?.viewBox).toBe("0 0 24 24");

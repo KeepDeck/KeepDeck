@@ -4,7 +4,10 @@ import { findWorkspaceOfPane, paneIsRemoteFresh } from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import { bumpPostback } from "./postbacks";
-import { peekPaneSpawnSpec } from "./spawnSpecs";
+import {
+  bindPaneSpawnSpecSession,
+  peekPaneSpawnSpec,
+} from "./spawnSpecs";
 import { beginPaneUsageSession } from "./usageManager";
 import type { Deck } from "./useDeck";
 
@@ -58,6 +61,7 @@ export function useSessionBinding(deck: Deck): void {
         // endpoint (the fresh-build sweep reattaches remote instead). The
         // postback is still counted above; only the binding is skipped.
         if (pane && paneIsRemoteFresh(pane)) return;
+        bindPaneSpawnSpecSession(paneId, sessionId);
         const previousSessionId = pane?.session?.id;
         if (previousSessionId && previousSessionId !== sessionId) {
           beginPaneUsageSession(paneId, sessionId);

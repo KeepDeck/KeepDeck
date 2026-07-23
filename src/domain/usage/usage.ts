@@ -64,11 +64,26 @@ export function mergePaneUsage(
   ) {
     return current;
   }
+  return mergePaneFields(current, incoming);
+}
+
+/** Fill gaps from a replay without allowing stale disk state to overwrite a
+ * live report. This is the same field-wise merge rule with the precedence
+ * reversed; unlike live delivery, a replay from another agent is ignored. */
+export function mergePaneReplay(
+  current: PaneUsage,
+  replay: PaneUsage,
+): PaneUsage {
+  if (current.agent !== replay.agent) return current;
+  return mergePaneFields(replay, current);
+}
+
+function mergePaneFields(base: PaneUsage, overlay: PaneUsage): PaneUsage {
   const context =
-    current.context || incoming.context
-      ? { ...current.context, ...incoming.context }
+    base.context || overlay.context
+      ? { ...base.context, ...overlay.context }
       : undefined;
-  return { ...current, ...incoming, ...(context ? { context } : {}) };
+  return { ...base, ...overlay, ...(context ? { context } : {}) };
 }
 
 /** The percentage a context bag amounts to, however it was reported. */

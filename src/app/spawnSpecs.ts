@@ -250,7 +250,9 @@ async function buildPlan(
           resumeOrigin: variant.origin,
           postbackMark: postbackCount(paneId),
         }
-      : {}),
+      : variant.kind === "fork"
+        ? { forkOf: variant.sessionId }
+        : {}),
   };
 }
 
@@ -313,7 +315,8 @@ export async function buildResumeSpec(
 /** Build and cache a FORK plan for a pane about to be minted: the agent's
  * `fork.plan` performs its store surgery, then fills how the forked session
  * spawns. The fork's own (new) session id is reported by the spawned CLI's
- * reporter like any fresh spawn — the plan carries no `resumeOf`. */
+ * reporter like any fresh spawn. The source id remains as `forkOf` so the
+ * host can baseline the cloned transcript once the new id is bound. */
 export async function buildForkSpec(
   plugins: SpawnPluginAccess,
   agentType: string,
@@ -433,6 +436,25 @@ export function usePaneSpawnSpecs(
 /** The cached plan, if any (no building) — for the binding effect. */
 export function peekPaneSpawnSpec(paneId: string): SpawnPlan | undefined {
   return specs.get(paneId);
+}
+
+/** Capture the first accepted local binding produced by a fork plan. This is
+ * intentionally one-shot: a later `/new` in the same process is fresh usage. */
+export function bindPaneSpawnSpecSession(
+  paneId: string,
+  sessionId: string,
+): void {
+  const spec = specs.get(paneId);
+  if (!spec?.forkOf || spec.forkSessionId) return;
+  specs.set(paneId, { ...spec, forkSessionId: sessionId });
+}
+
+/** Whether this exact provider session began with inherited counters. */
+export function spawnPlanNeedsUsageBaseline(
+  spec: Pick<SpawnPlan, "resumeOf" | "forkSessionId"> | undefined,
+  sessionId: string,
+): boolean {
+  return spec?.resumeOf === sessionId || spec?.forkSessionId === sessionId;
 }
 
 /** Whether this pane's last plan build FAILED (a remote spawn.plan threw).

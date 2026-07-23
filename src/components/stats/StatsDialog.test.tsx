@@ -2,10 +2,10 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UsageEventV1 } from "../../domain/usage/history";
+import type { UsageEventV2 } from "../../domain/usage/history";
 
 const history = vi.hoisted(() => ({
-  snapshot: { ready: true, events: [] as UsageEventV1[], error: null as string | null },
+  snapshot: { ready: true, events: [] as UsageEventV2[], error: null as string | null },
 }));
 vi.mock("../../app/useUsageHistorySnapshot", () => ({
   useUsageHistorySnapshot: () => history.snapshot,
@@ -17,8 +17,9 @@ import { StatsDialog, UsageStats } from "./StatsDialog";
   true;
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
-const usageEvent = (over: Partial<UsageEventV1> = {}): UsageEventV1 => ({
-  schemaVersion: 1,
+const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
+  ({
+  schemaVersion: 2,
   eventId: "event-1",
   occurredAt: NOW - 1_000,
   capturedAt: NOW,
@@ -33,11 +34,10 @@ const usageEvent = (over: Partial<UsageEventV1> = {}): UsageEventV1 => ({
   rootSessionId: "session-123456789",
   tokens: { input: 1_000, output: 100, cacheRead: 500 },
   costUsd: 0.25,
-  costSource: "estimated",
-  pricingVersion: "prices-v1",
+  costSource: "provider",
   observation: { tokens: { input: 1_000, output: 100, cacheRead: 500 } },
-  ...over,
-});
+    ...over,
+  }) as UsageEventV2;
 
 describe("UsageStats", () => {
   let root: Root;
@@ -105,7 +105,7 @@ describe("UsageStats", () => {
     };
     act(() => root.render(createElement(UsageStats)));
 
-    expect(host.textContent).toContain("Cost unavailable");
+    expect(host.textContent).toContain("No CLI reported a cost estimate");
     const costCard = [...host.querySelectorAll(".stats__card")].find((card) =>
       card.textContent?.startsWith("Cost"),
     )!;

@@ -58,8 +58,8 @@ export function UsageStats() {
     <div className="stats">
       <div className="stats__head">
         <p className="stats__intro">
-          Local token and cost history across every CLI and workspace. Retained for 90
-          days.
+          Local token history and provider-reported cost estimates across every CLI
+          and workspace. Retained for 90 days.
         </p>
         <div className="stats__period" aria-label="Statistics period">
           {PERIODS.map((candidate) => (
@@ -96,15 +96,17 @@ export function UsageStats() {
             <Summary
               label="Cost"
               value={displayCost(
-                stats.totals.costUsd,
-                stats.totals.pricedEvents,
-                stats.totals.estimatedCostUsd,
+                stats.totals.providerCostUsd,
+                stats.totals.costEvents,
               )}
             />
             <Summary label="Sessions" value={String(stats.sessionCount)} />
           </div>
           <p className="stats__coverage">
-            {costCoverage(stats.totals.pricedEvents, stats.totals.unpricedEvents)}
+            {costCoverage(
+              stats.sessions.filter((row) => row.costEvents > 0).length,
+              stats.sessionCount,
+            )}
           </p>
 
           <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
@@ -161,7 +163,7 @@ function StatsTable({
               <small>{tokenBreakdown(row)}</small>
             </span>
             <span className="stats__cost" role="cell">
-              {displayCost(row.costUsd, row.pricedEvents, row.estimatedCostUsd)}
+              {displayCost(row.providerCostUsd, row.costEvents)}
               <small>{formatAge(row.lastOccurredAt, now)}</small>
             </span>
           </div>
@@ -187,23 +189,19 @@ function formatCost(value: number): string {
   return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
 }
 
-function displayCost(
-  value: number,
-  pricedEvents: number,
-  estimatedUsd: number,
-): string {
-  if (pricedEvents === 0) return "—";
-  return `${estimatedUsd > 0 ? "≈" : ""}${formatCost(value)}`;
+function displayCost(value: number, costEvents: number): string {
+  if (costEvents === 0) return "—";
+  return `≈${formatCost(value)}`;
 }
 
-function costCoverage(priced: number, unpriced: number): string {
-  if (unpriced === 0) {
-    return "Cost uses provider reports; recognized Codex models use versioned API estimates.";
+function costCoverage(costSessions: number, sessionCount: number): string {
+  if (costSessions === 0) {
+    return "No CLI reported a cost estimate. Token totals remain available.";
   }
-  if (priced === 0) {
-    return "Cost unavailable for these models or subscription-backed sessions.";
+  if (costSessions === sessionCount) {
+    return "Provider-reported API estimates, not subscription charges.";
   }
-  return `${unpriced} usage event${unpriced === 1 ? "" : "s"} had no reliable price. Estimated amounts are API-equivalent, not subscription charges.`;
+  return `Provider estimates available for ${costSessions} of ${sessionCount} sessions; unreported sessions are excluded.`;
 }
 
 function shortSession(value: string | undefined): string {

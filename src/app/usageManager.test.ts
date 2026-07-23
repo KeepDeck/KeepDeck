@@ -300,6 +300,39 @@ describe("catch-up reports", () => {
     });
   });
 
+  it("fills live pane gaps from replay without overwriting live fields", () => {
+    const live = fake({
+      account: null,
+      pane: {
+        agent: "fake",
+        model: "Live display name",
+        costUsd: 4,
+        reportedAt: 20,
+      },
+    });
+    reportUsage("pane-1", { agent: "fake" });
+    live();
+    const replay = fake({
+      account: null,
+      pane: {
+        agent: "fake",
+        model: "stale-raw-id",
+        totalTokens: { input: 100, cacheRead: 900 },
+        reportedAt: 10,
+      },
+    });
+    reportUsage("pane-1", { agent: "fake", catchUp: true });
+    replay();
+
+    expect(getUsageSnapshot().panes.get("pane-1")).toEqual({
+      agent: "fake",
+      model: "Live display name",
+      costUsd: 4,
+      totalTokens: { input: 100, cacheRead: 900 },
+      reportedAt: 20,
+    });
+  });
+
   it("beat a hydrated snapshot — replays are fresher than yesterday's cache", () => {
     // Boot hydration is NOT live provenance: a catch-up replay from the
     // actual session file must be allowed to update it.

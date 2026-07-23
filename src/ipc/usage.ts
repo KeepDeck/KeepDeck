@@ -28,14 +28,14 @@ export function onUsageReport(
   );
 }
 
-/** Follow a pane's session file in the given dialect (codex rollout / kimi
- * wire); its usage events arrive as usage reports carrying `token`.
+/** Follow a pane's session file in the given dialect (Claude transcript,
+ * Codex rollout, or Kimi wire); usage events arrive as reports carrying `token`.
  * Idempotent per pane — a rebind replaces the old tail. */
 export function watchSessionFile(
   paneId: string,
   path: string,
   token: string,
-  format: "codex" | "kimi-wire",
+  format: "claude" | "codex" | "kimi-wire",
 ): Promise<void> {
   return invoke("usage_watch_session_file", { paneId, path, token, format });
 }

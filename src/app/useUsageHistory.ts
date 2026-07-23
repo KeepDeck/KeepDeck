@@ -3,6 +3,10 @@ import { paneAgentType } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { getUsageSnapshot, subscribeUsage } from "./usageManager";
 import { recordPaneUsage } from "./usageHistoryManager";
+import {
+  peekPaneSpawnSpec,
+  spawnPlanNeedsUsageBaseline,
+} from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 
 /** Capture live cumulative pane snapshots into the durable delta log. Deck
@@ -24,6 +28,10 @@ export function useUsageHistory(deck: Deck): void {
         if (!workspace || !pane || paneAgentType(pane) !== usage.agent) continue;
         const sessionId = usage.sessionId ?? pane.session?.id;
         if (!sessionId) continue;
+        const baselineOnly = spawnPlanNeedsUsageBaseline(
+          peekPaneSpawnSpec(paneId),
+          sessionId,
+        );
         const index = workspace.panes.indexOf(pane);
         void recordPaneUsage(usage, {
           workspaceId: workspace.id,
@@ -32,6 +40,7 @@ export function useUsageHistory(deck: Deck): void {
           paneId,
           paneName: pane.name ?? pane.autoTitle ?? `Agent ${index + 1}`,
           sessionId,
+          ...(baselineOnly ? { baselineOnly: true } : {}),
           ...(pane.cwd
             ? {
                 worktree: {

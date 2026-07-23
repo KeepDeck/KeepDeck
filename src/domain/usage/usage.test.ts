@@ -3,6 +3,7 @@ import {
   contextPct,
   freshest,
   hydrateUsageCache,
+  mergePaneReplay,
   mergePaneUsage,
   serializeUsageCache,
   windowExpired,
@@ -109,6 +110,38 @@ describe("mergePaneUsage", () => {
     };
 
     expect(mergePaneUsage(current, delayed)).toBe(current);
+  });
+});
+
+describe("mergePaneReplay", () => {
+  it("fills live gaps while preserving live fields and context", () => {
+    const replay = {
+      agent: "claude",
+      sessionId: "session-1",
+      totalTokens: { input: 100, output: 20 },
+      context: { usedTokens: 120 },
+      reportedAt: 1,
+    };
+    const live = {
+      agent: "claude",
+      sessionId: "session-1",
+      costUsd: 0.4,
+      context: { windowTokens: 200_000 },
+      reportedAt: 2,
+    };
+
+    expect(mergePaneReplay(live, replay)).toEqual({
+      ...live,
+      totalTokens: { input: 100, output: 20 },
+      context: { usedTokens: 120, windowTokens: 200_000 },
+    });
+  });
+
+  it("ignores replay from another agent", () => {
+    const live = { agent: "codex", reportedAt: 2 };
+    expect(
+      mergePaneReplay(live, { agent: "claude", reportedAt: 1 }),
+    ).toBe(live);
   });
 });
 
