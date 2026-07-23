@@ -11,6 +11,7 @@ import {
   paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
+  paneIsRemoteFresh,
   partitionPanes,
   resolveFocus,
   type GitPosition,
@@ -378,7 +379,7 @@ export function DeckStage({
               onSpawnFailed={(message) =>
                 onAgentSpawnFailed(ws.id, pane.id, message)
               }
-              canResume={!!pane.session?.id}
+              canResume={!paneIsRemoteFresh(pane) && !!pane.session?.id}
               onRestart={(mode) => onRestartAgent(ws.id, pane.id, mode)}
             />
           );
