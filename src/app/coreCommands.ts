@@ -69,8 +69,10 @@ export async function deliverTask(
   }
   if (!paneInputReady(paneIdToWrite)) return false;
   await wait(TASK_SETTLE_MS);
-  // Paste the task text so xterm applies its paste framing when the TUI
-  // enabled bracketed paste (a bare raw stream is dropped by such TUIs).
+  // Deliver the task via the PASTE channel (bracketed framing) — the
+  // established auto-submit path. The raw TYPE channel (pane.write
+  // mode:"type") inserts printables + LF inline for editable input; it needs
+  // LF normalisation, which deliverTask has no reason to take on here.
   if (!pasteToPane(paneIdToWrite, text)) return false;
   // Send the submit Enter as a RAW keystroke AFTER the paste. xterm wraps the
   // WHOLE argument of term.paste in the bracketed-paste markers, so a "\r"
@@ -334,9 +336,9 @@ export function registerCoreCommands(
 
     registry.register({
       id: "pane.write",
-      title: "Type text into an agent pane",
+      title: "Send text into an agent pane",
       args: [
-        { name: "text", type: "string", required: true, description: "Text to type" },
+        { name: "text", type: "string", required: true, description: "Text to send" },
         {
           name: "agent",
           type: "string",
@@ -352,8 +354,24 @@ export function registerCoreCommands(
           type: "boolean",
           description: "Also press Enter after the text",
         },
+        {
+          name: "mode",
+          type: "string",
+          description:
+            "'type' inserts raw keystrokes that stay inline and editable (no [Pasted…] collapse); 'paste' uses bracketed paste (default)",
+        },
       ],
       run: (args) => {
+        // Validate the mode up front: a misspelled value must NOT silently
+        // fall through to paste — that is the exact [Pasted…] collapse this
+        // command's type mode exists to avoid (args-validation philosophy,
+        // domain/commands/args.ts: reject rather than silently do nothing).
+        const mode = str(args, "mode");
+        if (mode !== undefined && mode !== "type" && mode !== "paste") {
+          throw new Error(
+            `unknown pane.write mode ${JSON.stringify(String(mode))} — expected "type" or "paste"`,
+          );
+        }
         const deck = deps.deck();
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, deps.agents(), ws, str(args, "agent"));
@@ -361,13 +379,26 @@ export function registerCoreCommands(
         if (!paneInputReady(pane.id)) {
           throw new Error("the pane has no live session");
         }
-        // A live but TYPE-only pane (no paste channel) cannot accept
-        // programmatic text — name that distinctly from "no session".
-        if (!pasteToPane(pane.id, text)) {
-          throw new Error("the pane has no paste channel");
+        if (mode === "type") {
+          // Raw keystrokes land as if hand-typed, so the text stays inline and
+          // editable — a bracketed paste is what the agent TUIs collapse into a
+          // non-editable [Pasted …] placeholder. LF (0x0A, Ctrl+J) inserts a
+          // soft newline in every supported agent; a raw CR (0x0D) submits
+          // mid-text, so normalise EVERY line ending to LF first.
+          const typed = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          if (!writeRawToPane(pane.id, typed)) {
+            throw new Error("the pane has no input channel");
+          }
+        } else {
+          // A live but TYPE-only pane (no paste channel) cannot accept a
+          // pasted payload — name that distinctly from "no session".
+          if (!pasteToPane(pane.id, text)) {
+            throw new Error("the pane has no paste channel");
+          }
         }
-        // Submit Enter is a separate RAW keystroke after the paste — see
-        // deliverTask for why the CR cannot ride inside the pasted payload.
+        // Submit Enter is a separate RAW keystroke after the text — see
+        // deliverTask for why a CR cannot ride inside the pasted payload, and
+        // why a raw CR is the submit gesture in type mode too.
         if (args.submit === true) writeRawToPane(pane.id, "\r");
         return { workspaceId: ws.id, paneId: pane.id };
       },

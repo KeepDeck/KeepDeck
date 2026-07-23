@@ -35,12 +35,40 @@ describe("codex plugin hooks", () => {
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
 
-    expect(out.args).toHaveLength(4);
+    // 4 hook args + 2 paste-burst override args.
+    expect(out.args).toHaveLength(6);
     expect(out.args[0]).toBe("-c");
     expect(out.args[1]).toContain(
       `command="/bin/sh '/App/resources/kd-session-hook.sh'"`,
     );
     expect(out.args[3]).toContain("trusted_hash");
+    expect(out.args).toContain("disable_paste_burst=true");
+  });
+
+  it("disables paste-burst on every spawn path, before the subcommand", async () => {
+    const agent = activate("/App/resources/kd-session-hook.sh");
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(input, spawn);
+    expect(spawn.args).toContain("disable_paste_burst=true");
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!({ ...input, sessionId: "uuid-9" }, resume);
+    expect(resume.args).toContain("disable_paste_burst=true");
+    // The override precedes the `resume` subcommand (it is a global `-c`).
+    expect(resume.args.indexOf("disable_paste_burst=true")).toBeLessThan(
+      resume.args.indexOf("resume"),
+    );
+
+    const fork = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, sessionId: "uuid-9", sourceCwd: "/x" },
+      fork,
+    );
+    expect(fork.args).toContain("disable_paste_burst=true");
+    expect(fork.args.indexOf("disable_paste_burst=true")).toBeLessThan(
+      fork.args.indexOf("fork"),
+    );
   });
 
   it("puts the global -c flags BEFORE the resume subcommand", async () => {
@@ -73,15 +101,21 @@ describe("codex plugin hooks", () => {
     expect(yolo.args).toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
-  it("degrades to a bare spawn when the script is missing", async () => {
+  it("drops the hook when the script is missing; the paste-burst override still applies", async () => {
     const agent = activate(null);
     const out = output();
     await agent.hooks["spawn.plan"]!(input, out);
-    expect(out.args).toEqual([]);
+    expect(out.args).toEqual(["-c", "disable_paste_burst=true"]);
+    expect(out.args.join(" ")).not.toContain("trusted_hash");
 
     const resume = output();
     await agent.hooks["resume.plan"]!({ ...input, sessionId: "x" }, resume);
-    expect(resume.args).toEqual(["resume", "x"]);
+    expect(resume.args).toEqual([
+      "-c",
+      "disable_paste_burst=true",
+      "resume",
+      "x",
+    ]);
   });
 
   it("YOLO adds the global bypass flag, BEFORE the resume subcommand", async () => {
@@ -90,7 +124,11 @@ describe("codex plugin hooks", () => {
 
     const spawn = output();
     await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
-    expect(spawn.args).toEqual(["--dangerously-bypass-approvals-and-sandbox"]);
+    expect(spawn.args).toEqual([
+      "-c",
+      "disable_paste_burst=true",
+      "--dangerously-bypass-approvals-and-sandbox",
+    ]);
 
     const resume = output();
     await agent.hooks["resume.plan"]!(
@@ -98,6 +136,8 @@ describe("codex plugin hooks", () => {
       resume,
     );
     expect(resume.args).toEqual([
+      "-c",
+      "disable_paste_burst=true",
       "--dangerously-bypass-approvals-and-sandbox",
       "resume",
       "uuid-9",

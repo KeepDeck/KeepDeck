@@ -244,13 +244,12 @@ export function TerminalPane({
     };
     ta?.addEventListener("keydown", blockShiftEnterDefault, true);
 
-    // Route window-level input into this session: TYPE (raw PTY bytes) for
-    // file drag-and-drop, which shapes its own paste framing around image
-    // paths; PASTE through xterm's term.paste for programmatic TEXT (voice
-    // dictation, spawn task delivery), so xterm applies its paste framing
-    // the same way a hand ⌘V does — a bare raw stream is dropped by
-    // bracketed-paste TUIs (e.g. opencode) and the text never lands. The glue
-    // is tested via registerTerminalPaneInput (no mount needed).
+    // Register BOTH input channels for this session. TYPE (raw PTY bytes):
+    // file drag-and-drop (shapes its own paste framing around image paths) and
+    // voice dictation via pane.write mode:"type" — printable bytes + LF land
+    // inline and editable. PASTE (xterm term.paste): spawn task delivery and a
+    // hand ⌘V, applying xterm's bracketed framing. The glue is tested via
+    // registerTerminalPaneInput (no mount needed).
     const unregister = registerTerminalPaneInput(
       paneId,
       term,

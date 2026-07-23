@@ -4,13 +4,14 @@
  *
  *  - `write` — RAW bytes straight into the PTY, in the vein of keyboard
  *    `onData`. Reached via `writeRawToPane` (the name flags it as the niche
- *    raw path). Used by file drag-and-drop, which shapes its own paste
- *    framing around image paths and must not be re-framed.
+ *    raw path). Used by file drag-and-drop (which shapes its own paste
+ *    framing around image paths and must not be re-framed) and by voice
+ *    dictation via pane.write mode:"type" — printables + LF land inline and
+ *    editable; see `writeRawToPane` for the control-byte caveat.
  *  - `paste` — framed paste, routed by the registrant through whatever the
- *    pane's renderer does for a hand paste. Used by programmatic TEXT
- *    insertion (voice dictation, spawn task delivery) so the text reaches the
- *    agent the same way a hand paste would; the renderer (not this registry)
- *    decides the framing.
+ *    pane's renderer does for a hand paste. Used by spawn task delivery and a
+ *    hand ⌘V, so the text reaches the agent as a pasted block; the renderer
+ *    (not this registry) decides the framing.
  *
  * One entry per pane: a single `registerPaneInput` call registers both
  * together, so `paneInputReady` (which gates the one entry) is a faithful
@@ -51,10 +52,13 @@ export function paneInputReady(id: string): boolean {
 }
 
 /** Write text into a pane's session as RAW bytes (TYPE channel — keystroke
- * semantics, no paste framing). The name carries the caveat: a NEW caller
- * sending programmatic TEXT almost always wants `pasteToPane` instead, or a
- * bracketed-paste TUI (opencode) will drop the bare stream. Returns false if
- * no such pane is live. */
+ * semantics, no paste framing). Printable bytes and LF (0x0A, a soft newline
+ * in every supported agent) land inline and editable; CONTROL bytes are NOT
+ * safe — CR (0x0D) submits, and opencode drops the control bytes <32 that
+ * are NOT keymap-bound. LF and CR ARE bound (LF→newline, CR→submit), which is
+ * exactly why LF is safe to type and CR is not. So a raw caller MUST normalise
+ * line endings to LF first (see pane.write mode:"type"). For framed block
+ * delivery use `pasteToPane` instead. Returns false if no such pane is live. */
 export function writeRawToPane(id: string, text: string): boolean {
   const input = entries.get(id);
   if (!input) return false;

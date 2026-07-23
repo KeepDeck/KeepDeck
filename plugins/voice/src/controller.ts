@@ -271,10 +271,12 @@ export function createVoiceController(
           }
         } else if (finished === "dictation") {
           push("heard", transcript.text);
-          // Dictation only fills the input — the user reviews and sends it
-          // themselves. No `submit`, or the transcript fires off to the agent
-          // the instant push-to-talk is released.
-          await execute("pane.write", { text: transcript.text });
+          // Dictation fills the input as RAW keystrokes (mode: "type") so the
+          // transcript lands inline and editable — a paste would collapse into
+          // a non-editable [Pasted …] placeholder in most agent TUIs. The user
+          // reviews and sends it themselves; no `submit`, or the transcript
+          // fires off to the agent the instant push-to-talk is released.
+          await execute("pane.write", { text: transcript.text, mode: "type" });
         } else {
           push("heard", transcript.text);
           const parsed = parseCommand(transcript.text);
