@@ -317,6 +317,7 @@ describe("SettingsDialog", () => {
   it("the ✕ and Escape only dismiss; instant-apply needs no Done footer", async () => {
     await mount();
     expect(button("Done")).toBeUndefined();
+    expect(document.querySelector(".confirm__actions")).toBeNull();
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "Close settings",
     );
@@ -393,6 +394,45 @@ describe("SettingsDialog", () => {
       await mount({}, "plugin:example.plugin-11");
       expect(button("Plugin 11").getAttribute("aria-current")).toBe("true");
       expect(revealed).toBe(button("Plugin 11"));
+    } finally {
+      reveal.mockRestore();
+    }
+  });
+
+  it("re-reveals the active plugin after a rescan changes nav order", async () => {
+    const deckPlugin = {
+      ...FILES_PLUGIN,
+      manifest: {
+        ...FILES_PLUGIN.manifest,
+        id: "example.deck",
+        name: "Deck Plugin",
+      },
+    };
+    const cliPlugin = {
+      ...FILES_PLUGIN,
+      manifest: {
+        ...FILES_PLUGIN.manifest,
+        id: "example.cli",
+        name: "CLI Plugin",
+        category: "cli" as const,
+      },
+    };
+    pluginStore.set([deckPlugin]);
+    const revealed: Element[] = [];
+    const reveal = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(function (this: Element) {
+        revealed.push(this);
+      });
+    try {
+      await mount({}, "plugin:example.deck");
+      revealed.length = 0;
+
+      // The host snapshot preserves install order, but Settings puts CLI
+      // plugins first. A rescan can therefore move the same active deck row.
+      act(() => pluginStore.set([deckPlugin, cliPlugin]));
+
+      expect(revealed).toEqual([button("Deck Plugin")]);
     } finally {
       reveal.mockRestore();
     }

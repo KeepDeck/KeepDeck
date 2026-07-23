@@ -54,6 +54,10 @@ export function SettingsDialog({
       ),
     }));
   const sections = [...appSections, ...pluginSections];
+  // Rescan can insert/reorder plugin rows without changing the selected id.
+  // A stable order signature lets the reveal effect follow that DOM movement
+  // without rerunning for unrelated renders or plugin status changes.
+  const navOrder = sections.map((section) => section.id).join("\0");
   // Honor a requested section only if it exists — a plugin opening its own
   // page always will, but a stale id degrades to the first section.
   const [activeId, setActiveId] = useState(
@@ -73,7 +77,7 @@ export function SettingsDialog({
     navRef.current
       ?.querySelector<HTMLElement>("[aria-current]")
       ?.scrollIntoView({ block: "nearest" });
-  }, [active.id]);
+  }, [active.id, navOrder]);
 
   const navItem = (s: { id: string; label: string }) => (
     <button
