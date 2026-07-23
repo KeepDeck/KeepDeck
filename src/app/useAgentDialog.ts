@@ -35,7 +35,7 @@ export interface AgentDialogJournalRouting {
     wsId: string,
     handle: SessionHandle,
     target: ForkTarget,
-    opts: { name?: string; branch?: string },
+    opts: { name?: string; branch?: string; yolo?: boolean },
   ): void;
 }
 
@@ -176,6 +176,7 @@ export function useAgentDialog(
             : { kind: "dir", cwd: ws.cwd };
       journal.fork(dlg.workspace.id, session.handle, target, {
         name: paneName,
+        yolo,
         ...(location.kind === "existing" &&
           location.branch && { branch: location.branch }),
       });

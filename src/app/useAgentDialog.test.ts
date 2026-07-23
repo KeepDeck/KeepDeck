@@ -365,7 +365,7 @@ describe("useAgentDialog start-from routing", () => {
       "ws-1",
       handle,
       { kind: "dir", cwd: "/repo" },
-      { name: undefined },
+      { name: undefined, yolo: false },
     );
 
     await confirmFork({ kind: "existing", path: "/wt/x", branch: "kd/x" });
@@ -374,7 +374,7 @@ describe("useAgentDialog start-from routing", () => {
       handle,
       { kind: "dir", cwd: "/wt/x" },
       // The attached worktree's branch rides along — the pane owns it.
-      { name: undefined, branch: "kd/x" },
+      { name: undefined, branch: "kd/x", yolo: false },
     );
 
     await confirmFork({
@@ -392,7 +392,29 @@ describe("useAgentDialog start-from routing", () => {
         branch: "kd/KeepDeck/1",
         base: "develop",
       },
-      { name: undefined },
+      { name: undefined, yolo: false },
+    );
+  });
+
+  it("fork routes the YOLO choice to the journal flow", async () => {
+    const ws = workspace({});
+    await mountAndOpen(ws);
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: true,
+        session: { mode: "fork", handle },
+      }),
+    );
+    // The dialog already gates yolo on supportsYolo; confirm forwards the
+    // resolved boolean verbatim — no re-gating in the handoff.
+    expect(journal.fork).toHaveBeenLastCalledWith(
+      "ws-1",
+      handle,
+      { kind: "dir", cwd: "/repo" },
+      { name: undefined, yolo: true },
     );
   });
 
