@@ -430,12 +430,21 @@ function hasMicCapability(capabilities: Capability[]): boolean {
   return hasCapability(capabilities, "mic");
 }
 
-/** Membership test for a kind with no parameters (ports, open, mic,
- * notifications, clipboardWrite, clipboardRead) — the gate's paramless
- * capabilities all reduce to "is this kind declared at all". */
+/** Membership test for a kind with no parameters — the gate's paramless
+ * capabilities all reduce to "is this kind declared at all". The kind set is
+ * pinned to the paramless union so a scope-bearing kind (fs/git/net/…) can't
+ * be passed here by mistake (those need their scope/domain, not membership). */
+type ParamlessCapabilityKind =
+  | "ports"
+  | "open"
+  | "mic"
+  | "notifications"
+  | "clipboardWrite"
+  | "clipboardRead";
+
 function hasCapability(
   capabilities: Capability[],
-  kind: Extract<Capability, { kind: string }>["kind"],
+  kind: ParamlessCapabilityKind,
 ): boolean {
   return capabilities.some((capability) => capability.kind === kind);
 }
@@ -459,11 +468,11 @@ function netDomains(capabilities: Capability[]): string[] {
 }
 
 function hasPortsCapability(capabilities: Capability[]): boolean {
-  return capabilities.some((capability) => capability.kind === "ports");
+  return hasCapability(capabilities, "ports");
 }
 
 function hasOpenCapability(capabilities: Capability[]): boolean {
-  return capabilities.some((capability) => capability.kind === "open");
+  return hasCapability(capabilities, "open");
 }
 
 function hasFsCapability(capabilities: Capability[]): boolean {

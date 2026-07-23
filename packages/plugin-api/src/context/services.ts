@@ -36,8 +36,8 @@ export interface PluginClipboard {
   /** Put text on the OS clipboard (a copy). Requires `clipboardWrite`. */
   writeText(text: string): Promise<void>;
   /** Read the OS clipboard's text (a paste). Rejects when the clipboard holds
-   * no text; the caller decides what an empty read means. Requires the
-   * sensitive `clipboardRead` capability. */
+   * no text; the caller treats the rejection as "nothing to paste". Requires
+   * the sensitive `clipboardRead` capability. */
   readText(): Promise<string>;
 }
 
