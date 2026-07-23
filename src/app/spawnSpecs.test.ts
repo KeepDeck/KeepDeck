@@ -297,6 +297,26 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(seen["pane-1"]).toEqual({ command: "claude", args: [], env: [] });
   });
 
+  it("a throwing REMOTE spawn.plan does NOT degrade to a bare local spawn", async () => {
+    // A bare spawn for a remote pane would run the agent LOCALLY, silently
+    // dropping the endpoint — a wrong-target execution. The error must surface
+    // instead (no plan lands), unlike the local degradation above.
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    await mount(
+      ws([{ id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" }]),
+    );
+    await settle();
+
+    expect(seen["pane-1"]).toBeUndefined();
+  });
+
   it("an EXTERNAL plugin's off-capability command is clamped to its binary", async () => {
     // The hook picked a program its manifest never declared — a sandboxed
     // plugin must not choose the spawn target. Built-ins only warn.

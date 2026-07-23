@@ -50,8 +50,15 @@ export function useSessionBinding(deck: Deck): void {
       // closed) — no workspace match means there's nothing to bind.
       const ws = findWorkspaceOfPane(d.workspaces, paneId);
       if (ws) {
-        const previousSessionId = ws.panes.find((pane) => pane.id === paneId)
-          ?.session?.id;
+        const pane = ws.panes.find((p) => p.id === paneId);
+        // Remote panes run a local thin-client whose reporter fires too, but a
+        // remote pane is fresh-session only — it must NOT bind a resumable
+        // LOCAL session. Otherwise a revive/restart would resume locally
+        // against a session id that lives on the VPS, silently dropping the
+        // endpoint (the fresh-build sweep reattaches remote instead). The
+        // postback is still counted above; only the binding is skipped.
+        if (pane?.remoteEndpoint) return;
+        const previousSessionId = pane?.session?.id;
         if (previousSessionId && previousSessionId !== sessionId) {
           beginPaneUsageSession(paneId, sessionId);
         }

@@ -155,7 +155,11 @@ async function buildPlan(
       await entry.hooks["spawn.plan"]?.(base, output);
     }
   } catch (e) {
-    if (variant.kind !== "spawn") throw e;
+    // Resume/fork already propagate; a spawn degrades to bare so the pane
+    // lives — UNLESS the pane is remote: a bare spawn would run the agent
+    // LOCALLY (silently dropping the endpoint), a wrong-target execution the
+    // user couldn't tell apart from a working remote pane. Surface it instead.
+    if (variant.kind !== "spawn" || facts.target) throw e;
     log.warn(
       "web:agents",
       `${entry.id} spawn.plan failed — bare spawn: ${describeError(e)}`,
