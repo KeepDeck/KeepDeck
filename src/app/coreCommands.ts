@@ -352,6 +352,12 @@ export function registerCoreCommands(
           type: "boolean",
           description: "Also press Enter after the text",
         },
+        {
+          name: "mode",
+          type: "string",
+          description:
+            "'type' inserts raw keystrokes that stay inline and editable (no [Pasted…] collapse); 'paste' uses bracketed paste (default)",
+        },
       ],
       run: (args) => {
         const deck = deps.deck();
@@ -361,13 +367,26 @@ export function registerCoreCommands(
         if (!paneInputReady(pane.id)) {
           throw new Error("the pane has no live session");
         }
-        // A live but TYPE-only pane (no paste channel) cannot accept
-        // programmatic text — name that distinctly from "no session".
-        if (!pasteToPane(pane.id, text)) {
-          throw new Error("the pane has no paste channel");
+        if (args.mode === "type") {
+          // Raw keystrokes land as if hand-typed, so the text stays inline and
+          // editable — a bracketed paste is what the agent TUIs collapse into a
+          // non-editable [Pasted …] placeholder. LF (0x0A, Ctrl+J) inserts a
+          // soft newline in every supported agent; a raw CR (0x0D) submits
+          // mid-text, so normalise EVERY line ending to LF first.
+          const typed = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          if (!writeRawToPane(pane.id, typed)) {
+            throw new Error("the pane has no input channel");
+          }
+        } else {
+          // A live but TYPE-only pane (no paste channel) cannot accept a
+          // pasted payload — name that distinctly from "no session".
+          if (!pasteToPane(pane.id, text)) {
+            throw new Error("the pane has no paste channel");
+          }
         }
-        // Submit Enter is a separate RAW keystroke after the paste — see
-        // deliverTask for why the CR cannot ride inside the pasted payload.
+        // Submit Enter is a separate RAW keystroke after the text — see
+        // deliverTask for why a CR cannot ride inside the pasted payload, and
+        // why a raw CR is the submit gesture in type mode too.
         if (args.submit === true) writeRawToPane(pane.id, "\r");
         return { workspaceId: ws.id, paneId: pane.id };
       },

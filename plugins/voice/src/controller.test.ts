@@ -123,7 +123,7 @@ describe("createVoiceController", () => {
       { id: "workspace.list", args: {} },
       {
         id: "pane.write",
-        args: { text: "please refactor the parser" },
+        args: { text: "please refactor the parser", mode: "type" },
       },
     ]);
     expect(texts(controller)).toEqual([

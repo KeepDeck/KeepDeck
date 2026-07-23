@@ -332,6 +332,41 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(written).toEqual(["\r"]);
   });
 
+  it("mode:'type' writes raw keystrokes with LF newlines — no paste, so no collapse", async () => {
+    const { registry } = setup([twoPanes()]);
+    const pasted: string[] = [];
+    const written: string[] = [];
+    const off = registerPaneInput("p2", {
+      write: (t) => written.push(t),
+      paste: (t) => pasted.push(t),
+    });
+    const result = await registry.execute(
+      "pane.write",
+      { agent: "reviewer", text: "line one\r\nline two\rthird", mode: "type", submit: true },
+      HOST,
+    );
+    off();
+    expect(result.ok).toBe(true);
+    // Raw TYPE channel only — no bracketed paste, so agents don't fold it into
+    // a [Pasted …] placeholder. CR is normalised to LF (a raw CR would submit).
+    expect(pasted).toEqual([]);
+    expect(written).toEqual(["line one\nline two\nthird", "\r"]);
+  });
+
+  it("mode:'type' works on a TYPE-only pane (no paste channel needed)", async () => {
+    const { registry } = setup([twoPanes()]);
+    const written: string[] = [];
+    const off = registerPaneInput("p2", { write: (t) => written.push(t) });
+    const result = await registry.execute(
+      "pane.write",
+      { agent: "reviewer", text: "hello", mode: "type" },
+      HOST,
+    );
+    off();
+    expect(result.ok).toBe(true);
+    expect(written).toEqual(["hello"]);
+  });
+
   it("write without a live session fails; without a selection it refuses", async () => {
     const { registry } = setup([twoPanes()]);
     const dead = await registry.execute(
