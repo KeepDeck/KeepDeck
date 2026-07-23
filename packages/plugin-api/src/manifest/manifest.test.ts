@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readManifest } from "./manifest.ts";
+import { declaredAgentBins, readManifest } from "./manifest.ts";
 
 /** A fully-populated valid manifest — the golden shape. */
 const GOLDEN = {
@@ -303,5 +303,64 @@ describe("readManifest", () => {
       const result = readManifest({ ...GOLDEN, id: good });
       expect(result.ok, good).toBe(true);
     }
+  });
+});
+
+describe("agent contribution bins", () => {
+  const CLI = {
+    ...GOLDEN,
+    category: "cli",
+    capabilities: [{ kind: "exec", commands: ["claude"] }],
+    contributes: { agents: [{ id: "claude", label: "Claude Code", bin: "claude" }] },
+  };
+
+  it("accepts a declared bin and exposes it through declaredAgentBins", () => {
+    const result = readManifest(CLI);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.manifest.contributes.agents).toEqual([
+      { id: "claude", label: "Claude Code", bin: "claude" },
+    ]);
+    expect(declaredAgentBins(result.manifest)).toEqual(["claude"]);
+  });
+
+  it("rejects a bin that is not a plain program name", () => {
+    for (const bad of ["../kimi", "a/b", "a b", "kimi!", ""]) {
+      const result = readManifest({
+        ...CLI,
+        contributes: { agents: [{ id: "claude", label: "Claude Code", bin: bad }] },
+      });
+      expect(result.ok, JSON.stringify(bad)).toBe(false);
+      if (result.ok) continue;
+      expect(result.errors[0]).toContain("contributes.agents[0]");
+    }
+  });
+
+  it("an agent without a bin stays valid and yields no availability input", () => {
+    const result = readManifest({
+      ...CLI,
+      contributes: { agents: [{ id: "claude", label: "Claude Code" }] },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(declaredAgentBins(result.manifest)).toEqual([]);
+  });
+
+  it("reports every entry's problems in one pass, even past an invalid sibling", () => {
+    // Entry 0 drops on its bad id; entry 1's bad bin must STILL be read from
+    // entry 1 — a two-pass index join would lose it behind the drop.
+    const result = readManifest({
+      ...CLI,
+      contributes: {
+        agents: [
+          { id: "!bad", label: "Broken" },
+          { id: "kimi", label: "Kimi", bin: "a/b" },
+        ],
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.some((e) => e.includes("contributes.agents[0]"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("contributes.agents[1]"))).toBe(true);
   });
 });

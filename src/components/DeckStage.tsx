@@ -21,7 +21,7 @@ import {
 } from "../domain/deck";
 import type { MinimizeStyle, DeckLayout } from "../domain/settings";
 import { gitBadge } from "../ui/gitBadge";
-import { AgentPane } from "./agent/AgentPane";
+import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedItem } from "./deck/MinimizedItem";
 import { MinimizedTray, type MinimizedTrayEntry } from "./deck/MinimizedTray";
 import {
@@ -63,6 +63,10 @@ interface DeckStageProps {
   /** The catalog reflects the booted plugin system — only then can a pane's
    * agent be judged missing (before boot, EVERY id is absent from it). */
   agentsReady: boolean;
+  /** agentId → gate reason for agents whose plugin is enabled but
+   * `unavailable` (CLI not installed) — lets the pane card tell "install the
+   * CLI" apart from "no plugin provides this agent". */
+  unavailableAgentReasons: ReadonlyMap<string, string>;
   /** Runtime git HEAD observations, keyed by pane execution cwd. */
   gitHeads: ReadonlyMap<string, GitPosition>;
   /** The empty-workspace count picker chose `count` agents. */
@@ -147,6 +151,7 @@ export function DeckStage({
   minimizeStyle,
   agents,
   agentsReady,
+  unavailableAgentReasons,
   gitHeads,
   journal,
   onDeleteJournalRecord,
@@ -323,7 +328,15 @@ export function DeckStage({
             spec?.command !== undefined
               ? spec.command
               : (agentInfo?.command ?? agentType);
-          const unavailableAgent = agentsReady && !agentInfo ? agentType : null;
+          const unavailableAgent: UnavailableAgent | null =
+            agentsReady && !agentInfo
+              ? (() => {
+                  const reason = unavailableAgentReasons.get(agentType);
+                  return reason !== undefined
+                    ? { kind: "bin-missing", agent: agentType, reason }
+                    : { kind: "no-plugin", agent: agentType };
+                })()
+              : null;
           const planError =
             !spec &&
             !pane.dormant &&

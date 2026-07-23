@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { orderBySource, type PluginSource } from "./installed";
+import type { PluginManifest } from "@keepdeck/plugin-api";
+import {
+  orderBySource,
+  unavailableAgentReasons,
+  type InstalledPlugin,
+  type PluginSource,
+  type PluginStatus,
+} from "./installed";
 
 interface Item {
   readonly id: string;
@@ -34,5 +41,53 @@ describe("orderBySource", () => {
         (i) => i.id,
       ),
     ).toEqual(["b1", "b2"]);
+  });
+});
+
+describe("unavailableAgentReasons", () => {
+  const plugin = (
+    agents: { id: string; label: string; bin?: string }[],
+    status: PluginStatus,
+  ): InstalledPlugin => ({
+    manifest: {
+      id: "keepdeck.test",
+      name: "Test",
+      version: "1.0.0",
+      minApiVersion: 1,
+      category: "cli",
+      capabilities: [],
+      contributes: { agents },
+    } as PluginManifest,
+    source: "builtin",
+    status,
+  });
+
+  it("maps only unavailable plugins' agents to their gate reason", () => {
+    const reasons = unavailableAgentReasons([
+      plugin([{ id: "kimi", label: "Kimi", bin: "kimi" }], {
+        kind: "unavailable",
+        reason: 'agent "kimi" is not installed',
+      }),
+      plugin([{ id: "claude", label: "Claude", bin: "claude" }], {
+        kind: "active",
+      }),
+      plugin([{ id: "codex", label: "Codex", bin: "codex" }], {
+        kind: "failed",
+        reason: "boom",
+      }),
+    ]);
+
+    expect([...reasons.entries()]).toEqual([
+      ["kimi", 'agent "kimi" is not installed'],
+    ]);
+  });
+
+  it("answers an empty map when nothing is unavailable", () => {
+    expect(
+      unavailableAgentReasons([
+        plugin([{ id: "kimi", label: "Kimi" }], { kind: "active" }),
+      ]).size,
+    ).toBe(0);
+    expect(unavailableAgentReasons([]).size).toBe(0);
   });
 });

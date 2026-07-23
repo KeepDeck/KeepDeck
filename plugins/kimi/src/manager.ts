@@ -226,7 +226,7 @@ async function callRpc<T>(
   let response: Response;
   try {
     response = await fetcher(
-      `${access.origin}/api/v2/pluginService/${method}`,
+      `${access.origin}/api/v1/debug/pluginService/${method}`,
       init,
     );
   } catch (error) {
@@ -245,7 +245,8 @@ async function callRpc<T>(
   try {
     envelope = (await response.json()) as RpcEnvelope<T>;
   } catch {
-    // The status below is still useful when an older Kimi has no v2 endpoint.
+    // The status below is still useful when the server has no debug surface
+    // (an older Kimi, or a non-loopback bind where Kimi refuses to mount it).
   }
   if (!response.ok || envelope?.code !== 0) {
     const detail = envelope?.msg?.trim();

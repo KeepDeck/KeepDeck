@@ -53,7 +53,7 @@ import { useCoreCommands } from "./app/coreCommands";
 import { useAppRuntime } from "./app/runtimeContext";
 import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
-import { useContributions } from "./plugins";
+import { unavailableAgentReasons, useContributions, useInstalledPlugins } from "./plugins";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { externalPluginUrl } from "./plugins/external/url";
 import { DockPanel, type DockTabItem } from "./components/dock/DockPanel";
@@ -89,7 +89,7 @@ import "./styles/index.css";
  * and file drops — to the components that render them.
  */
 function App() {
-  const { bootstrapPlugins, pluginRegistries, revealPluginDockTab } =
+  const { bootstrapPlugins, pluginRegistries, revealPluginDockTab, pluginHost } =
     useAppRuntime().plugins;
   const [info, setInfo] = useState<AppInfo | null>(null);
   const updateState = useUpdate();
@@ -109,6 +109,13 @@ function App() {
   const deck = useDeck();
   // The agent catalog: cli plugins' contributions + install detection.
   const { agents, loading: agentsLoading } = useAgents();
+  // Agents whose plugin is enabled but unavailable (CLI not installed) —
+  // the pane card names the cause instead of a bare "no plugin provides".
+  const installedPlugins = useInstalledPlugins(pluginHost);
+  const unavailableReasons = useMemo(
+    () => unavailableAgentReasons(installedPlugins),
+    [installedPlugins],
+  );
   // Global preferences ([F6]) — loaded before the first paint, saved through.
   const settings = useSettings();
   // The deck's display mode and how minimized agents show ([F6]). `minimizeOn`
@@ -742,6 +749,7 @@ function App() {
             minimizeStyle={minimizeStyle}
             agents={agents}
             agentsReady={!agentsLoading}
+            unavailableAgentReasons={unavailableReasons}
             gitHeads={gitHeads}
             journal={deck.journal.records}
             onDeleteJournalRecord={deck.deleteJournalRecord}

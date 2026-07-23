@@ -8,6 +8,7 @@ import {
 } from "../ipc/pluginsFsWrite";
 import { readText as clipboardReadText, writeText as clipboardWriteText } from "../ipc/clipboard";
 import {
+  declaredAgentBins,
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
@@ -58,6 +59,7 @@ import { capabilityFingerprint } from "../plugins/external/consent";
 import { openPath, openPathWith, openUrl } from "../ipc/app";
 import { voiceEngines, voiceCaptureStart } from "../ipc/voice";
 import { describeError, log } from "../ipc/log";
+import { detectBins } from "../ipc/agents";
 import { allocatePorts } from "../ipc/ports";
 import { scanPlugins } from "../ipc/plugins";
 import { spawnSession } from "../ipc/session";
@@ -609,9 +611,42 @@ export function createPluginManager(appDownloads: DownloadManager) {
           },
         });
       },
+      // The activation gate's availability read — sync from the cache
+      // `detectAndCacheBins` keeps warm; unknown bins stay permissive (this
+      // is a UX gate, never a lockout boundary).
+      isAgentBinInstalled: (bin) => agentBinInstalled.get(bin) ?? true,
+      refreshAgentBins: detectAndCacheBins,
     },
     pluginRegistries,
   );
+
+  /** Cache behind the host's `isAgentBinInstalled` dep: bin → installed.
+   * Absent entries are treated as installed (permissive by design).
+   * NOTE there is a second bin-status cache in useAgents (per-mount, for the
+   * agent pickers); this one is the ACTIVATION gate's source of truth —
+   * refreshed at bootstrap, rescan and enable gestures. New consumers of bin
+   * state should pick deliberately: picker/live freshness → useAgents,
+   * lifecycle gating → here. */
+  const agentBinInstalled = new Map<string, boolean>();
+
+  /** Detect the given agent bins once and record the statuses. Shared by the
+   * bootstrap pass (every declared bin) and the enable gesture's refresh. */
+  async function detectAndCacheBins(bins: string[]): Promise<void> {
+    for (const status of await detectBins(bins)) {
+      agentBinInstalled.set(status.bin, status.installed);
+    }
+  }
+
+  /** Every agent bin declared by the currently installed plugins, deduped. */
+  function declaredBinsOfInstalled(): string[] {
+    return [
+      ...new Set(
+        pluginHost
+          .getInstalled()
+          .flatMap((plugin) => declaredAgentBins(plugin.manifest)),
+      ),
+    ];
+  }
 
   /** Built-in plugins' categories, recorded at install — `isEnabled(id)` is a
    * narrow port and needs the category to resolve the default policy. */
@@ -670,6 +705,10 @@ export function createPluginManager(appDownloads: DownloadManager) {
         pluginHost.install(install, "builtin");
       }
       await syncExternalPlugins();
+      // One detection pass over every declared agent bin BEFORE the
+      // activation gate reads it — a plugin whose CLI is missing must land in
+      // `unavailable` on boot, not activate into a broken setup.
+      await detectAndCacheBins(declaredBinsOfInstalled());
       await pluginHost.activateAll();
       // The one boot line that says the system came up — failures are logged
       // per plugin by the host, so silence here would hide a healthy boot.
@@ -692,12 +731,20 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * by decision). A container that appeared installs (disabled until consent, or
    * activating if already consented); one that vanished is uninstalled (its
    * realms and sessions die, its stored data survives); one whose manifest
-   * changed reloads (new code, and new capabilities re-gate consent). A plugin
-   * that DIDN'T change is left completely alone — a no-op rescan touches
-   * nothing, so it never churns the UI. Built-ins are untouched.
+   * changed reloads (new code, and new capabilities re-gate consent). Unchanged
+   * plugins keep their CODE untouched — but the gesture then re-detects agent
+   * binaries and re-activates anyway: `unavailable` plugins whose CLI just
+   * appeared recover, and `failed` plugins retry (Rescan is the manual retry
+   * gesture, same as disable→re-enable). Live active/disabled plugins are
+   * untouched (`activate` no-ops on them). Built-ins are untouched.
    */
   async function rescanPlugins(): Promise<void> {
-    if (await syncExternalPlugins()) await pluginHost.activateAll();
+    await syncExternalPlugins();
+    // Always re-detect and re-activate, even when the folder didn't change —
+    // gating this on a folder diff would leave a built-in agent plugin stuck
+    // `unavailable` (CLI missing at boot, installed since) with no feedback.
+    await detectAndCacheBins(declaredBinsOfInstalled());
+    await pluginHost.activateAll();
   }
 
   /** Restart one installed plugin (Settings → a plugin's page, or the failure
@@ -713,20 +760,19 @@ export function createPluginManager(appDownloads: DownloadManager) {
   /**
    * Reconcile installed external plugins to the scan by DIFF — uninstall the
    * gone, install the new, reload only those whose manifest changed, and touch
-   * nothing else. Returns whether anything changed (so the caller can skip a
-   * needless `activateAll`). Idempotent; both boot and Rescan call it.
+   * nothing else. Idempotent; both boot and Rescan call it.
    *
    * A dev plugin whose CODE changed but whose manifest didn't is deliberately
    * not reloaded here (the signature is the manifest) — use its Restart for
    * that; a folder rescan shouldn't restart every dev plugin on every click.
    */
-  async function syncExternalPlugins(): Promise<boolean> {
+  async function syncExternalPlugins(): Promise<void> {
     let records: Awaited<ReturnType<typeof scanPlugins>>;
     try {
       records = await scanPlugins();
     } catch (e) {
       log.warn("web:plugins", `plugin scan failed: ${describeError(e)}`);
-      return false;
+      return;
     }
 
     // What's on disk now, first-id-wins (dev over archive is the scan's order).
@@ -750,8 +796,6 @@ export function createPluginManager(appDownloads: DownloadManager) {
       });
     }
 
-    let changed = false;
-
     // Gone: installed external ids no longer on disk. Their runtime residue
     // (crash reports, overlay visibility) goes with them — a later reinstall
     // under the same id must start clean.
@@ -761,7 +805,6 @@ export function createPluginManager(appDownloads: DownloadManager) {
         await pluginHost.uninstall(id);
         clearPluginCrashes(id);
         clearOverlayVisibility(id);
-        changed = true;
       }
     }
 
@@ -778,10 +821,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
         },
         "external",
       );
-      changed = true;
     }
-
-    return changed;
   }
 
   function safeJson(text: string): unknown {

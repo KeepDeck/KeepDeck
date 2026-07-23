@@ -11,6 +11,7 @@
 
 export {
   orderBySource,
+  unavailableAgentReasons,
   type InstalledPlugin,
   type PluginSource,
   type PluginStatus,

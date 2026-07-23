@@ -365,4 +365,64 @@ describe("the agent-binary exec gate", () => {
     ).toThrow("exec capability");
     expect(registries.agents.list()).toEqual([]);
   });
+
+  it("refuses an agent whose detect.bin drifts from the manifest's declared bin", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(
+      manifest("cli", {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: ["gemini", "gemini-next"] }],
+        contributes: {
+          agents: [{ id: "gemini", label: "Gemini", bin: "gemini" }],
+        },
+      }),
+      "builtin",
+      registries,
+      deps,
+    );
+    // exec-covered but NOT the declared bin — the static declaration the
+    // activation gate reads must agree with the runtime registration.
+    expect(() =>
+      ctx.agents.register({
+        id: "gemini",
+        label: "Gemini",
+        detect: { bin: "gemini-next" },
+        hooks: {},
+      }),
+    ).toThrow('does not match the manifest\'s declared bin "gemini"');
+    expect(registries.agents.list()).toEqual([]);
+  });
+
+  it("matches the drift check per agent id, not by list position", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const { ctx } = buildPluginContext(
+      manifest("cli", {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: ["alpha", "beta", "gamma"] }],
+        contributes: {
+          agents: [
+            { id: "alpha", label: "Alpha", bin: "alpha" },
+            { id: "beta", label: "Beta", bin: "beta" },
+          ],
+        },
+      }),
+      "builtin",
+      registries,
+      deps,
+    );
+    // The FIRST agent is fine; the SECOND drifts — a positional lookup would
+    // either pass it or blame the wrong id.
+    ctx.agents.register({ id: "alpha", label: "Alpha", detect: { bin: "alpha" }, hooks: {} });
+    expect(() =>
+      ctx.agents.register({
+        id: "beta",
+        label: "Beta",
+        detect: { bin: "gamma" },
+        hooks: {},
+      }),
+    ).toThrow('agent "beta"');
+    expect(registries.agents.list().map((c) => c.entry.id)).toEqual(["alpha"]);
+  });
 });

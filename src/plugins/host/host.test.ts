@@ -489,6 +489,254 @@ describe("PluginHost", () => {
   });
 });
 
+describe("agent availability gate", () => {
+  /** Host + registries + the REAL deps object the host holds (mutating a
+   * spread copy would not reach it). */
+  const gateHarness = () => {
+    const { deps, onEnabledChanged } = fakeDeps();
+    const registries = createContributionRegistries();
+    const host = new PluginHost(deps, registries);
+    return { deps, onEnabledChanged, registries, host };
+  };
+
+  /** A cli plugin declaring one agent with a static bin, and a plugin module
+   * that registers exactly that agent on activation. */
+  const cliSetup = (id: string, bin: string) => ({
+    install: {
+      manifest: manifest(id, {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: [bin] }],
+        contributes: { agents: [{ id, label: id, bin }] },
+      }),
+      load: vi.fn(
+        async (): Promise<KeepDeckPlugin> => ({
+          activate: vi.fn((ctx: PluginContext) => {
+            ctx.agents.register({ id, label: id, detect: { bin }, hooks: {} });
+          }),
+        }),
+      ),
+    },
+  });
+
+  it("refuses activation when the declared agent bin is not installed", async () => {
+    const { deps, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => false);
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({
+      kind: "unavailable",
+      reason: 'agent "kimi" is not installed',
+    });
+    // The gate runs BEFORE any plugin code: the loader never fired.
+    expect(install.load).not.toHaveBeenCalled();
+    expect(registries.agents.list()).toEqual([]);
+  });
+
+  it("activates when every declared bin is installed; unknown bins stay permissive", async () => {
+    const { deps, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn((bin: string) => bin === "kimi");
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("a plugin without declared bins is never gated", async () => {
+    const { deps, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => false);
+    host.install({ manifest: manifest("p"), load: async () => registrar() }, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "p")).toEqual({ kind: "active" });
+    expect(tabOwners(registries)).toEqual(["p"]);
+  });
+
+  it("disable → re-enable retries with a fresh detection", async () => {
+    const { deps, registries, host } = gateHarness();
+    let installed = false;
+    deps.isAgentBinInstalled = vi.fn(() => installed);
+    const refreshAgentBins = vi.fn(async (bins: string[]) => {
+      expect(bins).toEqual(["kimi"]);
+      installed = true; // the user installed the CLI between the toggles
+    });
+    deps.refreshAgentBins = refreshAgentBins;
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+    await host.activateAll();
+    expect(statusOf(host, "keepdeck.kimi")?.kind).toBe("unavailable");
+
+    await host.setEnabled("keepdeck.kimi", false);
+    expect(statusOf(host, "keepdeck.kimi")?.kind).toBe("disabled");
+
+    await host.setEnabled("keepdeck.kimi", true);
+
+    expect(refreshAgentBins).toHaveBeenCalledOnce();
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("a still-missing bin on re-enable keeps the plugin unavailable", async () => {
+    const { deps, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => false);
+    deps.refreshAgentBins = vi.fn(async () => {});
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+    await host.activateAll();
+
+    await host.setEnabled("keepdeck.kimi", false);
+    await host.setEnabled("keepdeck.kimi", true);
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({
+      kind: "unavailable",
+      reason: 'agent "kimi" is not installed',
+    });
+    expect(install.load).not.toHaveBeenCalled();
+  });
+
+  it("a concurrent second enable during detection does not clobber the first activation", async () => {
+    const { deps, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => true);
+    const resolvers: Array<() => void> = [];
+    deps.refreshAgentBins = vi.fn(
+      () => new Promise<void>((resolve) => resolvers.push(resolve)),
+    );
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+    await host.activateAll();
+    await host.setEnabled("keepdeck.kimi", false);
+
+    install.load.mockClear();
+
+    // Both clicks pass the disabled guard and suspend in the refresh…
+    const first = host.setEnabled("keepdeck.kimi", true);
+    const second = host.setEnabled("keepdeck.kimi", true);
+    expect(deps.refreshAgentBins).toHaveBeenCalledTimes(2);
+    // The discriminating timing: the first enable's activation fully COMMITS
+    // before the second refresh resolves — exactly when a stale second call
+    // would flip active back to registered and re-run load (load×2, duplicate
+    // registry entries) without the generation guard.
+    resolvers[0]();
+    await first;
+    resolvers[1]();
+    await second;
+
+    expect(install.load).toHaveBeenCalledTimes(1);
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("a user's disable supersedes an older in-flight enable", async () => {
+    const { deps, onEnabledChanged, registries, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn(() => true);
+    const resolvers: Array<() => void> = [];
+    deps.refreshAgentBins = vi.fn(
+      () => new Promise<void>((resolve) => resolvers.push(resolve)),
+    );
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+    await host.activateAll();
+    await host.setEnabled("keepdeck.kimi", false);
+
+    // Two enables suspend in detection; the second wins the flip…
+    const first = host.setEnabled("keepdeck.kimi", true);
+    const second = host.setEnabled("keepdeck.kimi", true);
+    resolvers[1]();
+    await vi.waitFor(() => expect(install.load).toHaveBeenCalledTimes(2)); // boot + this
+    // …the user then DISABLES (their last gesture), and only now does the
+    // stale first enable resume. A status re-check cannot tell "nothing
+    // happened" from "enable then disable happened" — the generation can.
+    await host.setEnabled("keepdeck.kimi", false);
+    resolvers[0]();
+    await Promise.all([first, second]);
+
+    expect(statusOf(host, "keepdeck.kimi")?.kind).toBe("disabled");
+    expect(registries.agents.list()).toEqual([]);
+    expect(onEnabledChanged).toHaveBeenLastCalledWith("keepdeck.kimi", false);
+  });
+
+  it("an enable racing an uninstall persists nothing for the removed plugin", async () => {
+    const { deps, onEnabledChanged, host } = gateHarness();
+    deps.isEnabled = vi.fn(() => false); // seed disabled
+    deps.isAgentBinInstalled = vi.fn(() => true);
+    const resolvers: Array<() => void> = [];
+    deps.refreshAgentBins = vi.fn(
+      () => new Promise<void>((resolve) => resolvers.push(resolve)),
+    );
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "external");
+
+    const pending = host.setEnabled("keepdeck.kimi", true); // suspends
+    await host.uninstall("keepdeck.kimi"); // rescan finds the folder gone
+    resolvers[0]();
+    await pending;
+
+    expect(onEnabledChanged).not.toHaveBeenCalled();
+    expect(statusOf(host, "keepdeck.kimi")).toBeUndefined();
+  });
+
+  it("activateAll revives an unavailable plugin once its bin appears (the rescan path)", async () => {
+    const { deps, registries, host } = gateHarness();
+    let installed = false;
+    deps.isAgentBinInstalled = vi.fn(() => installed);
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+    await host.activateAll();
+    expect(statusOf(host, "keepdeck.kimi")?.kind).toBe("unavailable");
+
+    installed = true; // the CLI appeared; a rescan re-detects and re-activates
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("stays permissive when the host wires no availability dep at all", async () => {
+    const { registries, host } = gateHarness(); // no isAgentBinInstalled set
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("names every missing bin when a plugin declares several agents", async () => {
+    const { deps, host } = gateHarness();
+    deps.isAgentBinInstalled = vi.fn((bin: string) => bin === "alpha");
+    const install = {
+      manifest: manifest("keepdeck.multi", {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: ["alpha", "beta", "gamma"] }],
+        contributes: {
+          agents: [
+            { id: "a1", label: "a1", bin: "beta" },
+            { id: "a2", label: "a2", bin: "gamma" },
+            { id: "a3", label: "a3", bin: "alpha" },
+          ],
+        },
+      }),
+      load: vi.fn(async () => registrar()),
+    };
+    host.install(install, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.multi")).toEqual({
+      kind: "unavailable",
+      reason: 'agents "beta", "gamma" are not installed',
+    });
+    expect(install.load).not.toHaveBeenCalled();
+  });
+});
+
 
 /** Host + its registries + deps in one line, for tests that inspect all. */
 function hostWithRegistries() {

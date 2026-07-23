@@ -50,7 +50,7 @@ export interface PluginManifest {
     /** Resident overlays: components the host keeps mounted while the
      * plugin is active, independent of dock/panel state. */
     overlays?: ContributionSummary[];
-    agents?: ContributionSummary[];
+    agents?: AgentContributionSummary[];
     /** Commands the plugin registers in the command registry. Entry ids are
      * plain tokens; the registry id becomes `<pluginId>.<entryId>`. */
     commands?: ContributionSummary[];
@@ -63,6 +63,22 @@ export interface PluginManifest {
 export interface ContributionSummary {
   id: string;
   label: string;
+}
+
+/** An agent contribution additionally declares the program its agent needs
+ * on PATH (`detect.bin` at registration — the host enforces the match). This
+ * is what lets the host know a cli plugin's binary BEFORE any plugin code
+ * runs, so availability (installed vs not) can gate activation centrally. */
+export interface AgentContributionSummary extends ContributionSummary {
+  bin?: string;
+}
+
+/** The binaries a plugin's declared agents need — the host's pre-activation
+ * input to one shared detection pass and its activation gate. */
+export function declaredAgentBins(manifest: PluginManifest): string[] {
+  return (manifest.contributes.agents ?? [])
+    .map((agent) => agent.bin)
+    .filter((bin): bin is string => typeof bin === "string" && bin !== "");
 }
 
 /** Plugin categories. `cli` teaches KeepDeck a coding agent — it may
@@ -352,7 +368,7 @@ function readContributes(
   if (fileOpeners) out.fileOpeners = fileOpeners;
   const overlays = readSummaries(value.overlays, "overlays", errors);
   if (overlays) out.overlays = overlays;
-  const agents = readSummaries(value.agents, "agents", errors);
+  const agents = readAgentSummaries(value.agents, errors);
   if (agents) out.agents = agents;
   const commands = readSummaries(value.commands, "commands", errors);
   if (commands) out.commands = commands;
@@ -378,27 +394,74 @@ function readSummaries(
   }
   const read: ContributionSummary[] = [];
   value.forEach((entry, i) => {
-    if (
-      !isRecord(entry) ||
-      typeof entry.id !== "string" ||
-      !entry.id.trim() ||
-      typeof entry.label !== "string" ||
-      !entry.label.trim()
-    ) {
-      errors.push(`contributes.${key}[${i}]: needs string "id" and "label"`);
+    const summary = readSummaryEntry(entry, key, i, errors);
+    if (summary) read.push(summary);
+  });
+  return read.length > 0 ? read : undefined;
+}
+
+/** Validate one summary entry's base `{id, label}`; null (with the error
+ * recorded) when invalid. The SINGLE source of the id rule — a contribution
+ * id is used as a URL path component (an external dock tab's `<id>.html`
+ * document) and as a registry key, so it must be a plain token; kind-specific
+ * readers (agents add `bin`) build on this so the rule can never drift
+ * between contribution kinds. */
+function readSummaryEntry(
+  entry: unknown,
+  key: string,
+  i: number,
+  errors: string[],
+): ContributionSummary | null {
+  if (
+    !isRecord(entry) ||
+    typeof entry.id !== "string" ||
+    !entry.id.trim() ||
+    typeof entry.label !== "string" ||
+    !entry.label.trim()
+  ) {
+    errors.push(`contributes.${key}[${i}]: needs string "id" and "label"`);
+    return null;
+  }
+  if (!CONTRIB_ID.test(entry.id)) {
+    errors.push(
+      `contributes.${key}[${i}]: id "${entry.id}" must be alphanumerics, "-" or "_" only`,
+    );
+    return null;
+  }
+  return { id: entry.id, label: entry.label };
+}
+
+/** Agent summaries share the base {id, label} rules (readSummaryEntry) and
+ * add the optional `bin` — when present it must be a non-empty plain program
+ * name (it is resolved against PATH at detection time, so no paths or
+ * whitespace). One pass over the raw entries: joining `bin` back by index
+ * across a filtered intermediate would misalign fields the moment an invalid
+ * sibling drops. */
+function readAgentSummaries(
+  value: unknown,
+  errors: string[],
+): AgentContributionSummary[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    errors.push(`contributes.agents: must be an array`);
+    return undefined;
+  }
+  const read: AgentContributionSummary[] = [];
+  value.forEach((entry, i) => {
+    const summary = readSummaryEntry(entry, "agents", i, errors);
+    if (!summary) return;
+    const bin = isRecord(entry) ? entry.bin : undefined;
+    if (bin === undefined) {
+      read.push(summary);
       return;
     }
-    // A contribution id is used as a URL path component (an external dock
-    // tab's `<id>.html` document) and as a registry key, so it must be a
-    // plain token — no slashes, dots, or whitespace that could address a
-    // different path under the plugin's origin.
-    if (!CONTRIB_ID.test(entry.id)) {
+    if (typeof bin !== "string" || !CONTRIB_ID.test(bin)) {
       errors.push(
-        `contributes.${key}[${i}]: id "${entry.id}" must be alphanumerics, "-" or "_" only`,
+        `contributes.agents[${i}]: bin must be a plain program name (alphanumerics, "-" or "_")`,
       );
       return;
     }
-    read.push({ id: entry.id, label: entry.label });
+    read.push({ ...summary, bin });
   });
   return read.length > 0 ? read : undefined;
 }

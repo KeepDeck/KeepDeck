@@ -1,5 +1,6 @@
 import {
   API_VERSION,
+  declaredAgentBins,
   MIN_COMPATIBLE_API_VERSION,
   satisfiesApiFloor,
   type KeepDeckPlugin,
@@ -41,6 +42,11 @@ interface HostEntry {
    * concurrent second `activate` from double-loading, and lets the commit
    * point detect a mid-flight disable. */
   activating: boolean;
+  /** Bumped by every setEnabled that passes the no-op guard. An enable
+   * suspended in `refreshAgentBins` compares its generation after the await:
+   * any gesture that landed meanwhile (another enable, a disable, or the
+   * entry being replaced) supersedes it — the LATEST gesture always wins. */
+  setEnabledSeq: number;
 }
 
 /**
@@ -96,6 +102,7 @@ export class PluginHost {
       plugin: null,
       disposeAll: null,
       activating: false,
+      setEnabledSeq: 0,
     });
     this.notify();
   }
@@ -132,6 +139,28 @@ export class PluginHost {
         entry,
         `needs plugin API ${entry.manifest.minApiVersion}, host supports ${MIN_COMPATIBLE_API_VERSION}..${API_VERSION}`,
       );
+      return;
+    }
+
+    // The centralized availability gate: an agent plugin whose declared
+    // binary is not installed on this machine never runs its code. One rule
+    // for every agent — each plugin only declares `bin` in its manifest. The
+    // reason names EVERY missing bin: a multi-agent plugin gated as a unit
+    // must not leave the user guessing which of its CLIs is absent.
+    const missingBins = declaredAgentBins(entry.manifest).filter(
+      (bin) => !(this.deps.isAgentBinInstalled?.(bin) ?? true),
+    );
+    if (missingBins.length > 0) {
+      entry.plugin = null;
+      entry.disposeAll = null;
+      entry.status = {
+        kind: "unavailable",
+        reason:
+          missingBins.length === 1
+            ? `agent "${missingBins[0]}" is not installed`
+            : `agents ${missingBins.map((bin) => `"${bin}"`).join(", ")} are not installed`,
+      };
+      this.notify();
       return;
     }
 
@@ -197,17 +226,34 @@ export class PluginHost {
   /**
    * Turn a plugin on or off. Disabling an active plugin tears it down
    * immediately; enabling a disabled one activates it. A no-op when the flag
-   * already matches (a `failed` plugin counts as enabled — disabling then
-   * re-enabling is how a user retries it). Flips are reported through the dep
-   * so the owner persists them; the host keeps no enabled store.
+   * already matches (`failed` and `unavailable` count as enabled — disabling
+   * then re-enabling is the retry gesture: for `failed` it re-runs the code,
+   * for `unavailable` the enable path first re-detects the agent's binary).
+   * Flips are reported through the dep so the owner persists them; the host
+   * keeps no enabled store.
    */
   async setEnabled(id: string, enabled: boolean): Promise<void> {
     const entry = this.entries.get(id);
     if (!entry) return;
     const currentlyEnabled = entry.status.kind !== "disabled";
     if (currentlyEnabled === enabled) return;
+    // A gesture starts here; anything that lands while an enable is suspended
+    // in the refresh bumps the generation and supersedes it.
+    const seq = ++entry.setEnabledSeq;
 
     if (enabled) {
+      // Fresh detection before the gate, so "installed the CLI, then flipped
+      // the toggle" activates without an app restart.
+      const bins = declaredAgentBins(entry.manifest);
+      if (bins.length > 0) await this.deps.refreshAgentBins?.(bins);
+      // Superseded while suspended? A status check is the WRONG primitive
+      // here — `disabled` can mean "nothing happened" or "a full enable then
+      // the user's disable happened", and only the generation tells them
+      // apart. The entry identity catches a mid-refresh uninstall: persisting
+      // an enable for a removed plugin would resurrect it on reinstall.
+      if (entry.setEnabledSeq !== seq || this.entries.get(id) !== entry) {
+        return;
+      }
       entry.status = { kind: "registered" };
       this.deps.onEnabledChanged?.(id, true);
       this.notify();

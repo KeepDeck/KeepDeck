@@ -99,6 +99,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
     },
   ],
   agentsReady: true,
+  unavailableAgentReasons: new Map(),
   gitHeads: new Map(),
   dormantBlocked: {},
   specByPane: {

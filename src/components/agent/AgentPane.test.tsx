@@ -128,7 +128,7 @@ describe("AgentPane — header badges", () => {
       "provisioning",
       { provisioning: { repo: "/r", baseDir: "/w", branch: "b", workspace: "w", index: 1 } },
     ],
-    ["unavailable", { unavailableAgent: "gemini" }],
+    ["unavailable", { unavailableAgent: { kind: "no-plugin" as const, agent: "gemini" } }],
     ["plan-pending", { planPending: true }],
   ] as const)(
     "hides the context meter on a %s pane despite usage",
@@ -351,13 +351,40 @@ describe("AgentPane — the unavailable-agent card", () => {
   it("blocks the terminal (the spawn) and names the missing agent", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, { ...baseProps, unavailableAgent: "gemini" }),
+        createElement(AgentPane, {
+          ...baseProps,
+          unavailableAgent: { kind: "no-plugin", agent: "gemini" },
+        }),
       ),
     );
 
     expect(document.body.textContent).toContain("Agent unavailable");
     expect(document.body.textContent).toContain("gemini");
+    expect(document.body.textContent).toContain("No plugin provides");
     // Mounting the terminal is what spawns — the card must prevent it.
+    expect(TerminalPane).not.toHaveBeenCalled();
+  });
+
+  it("names the missing CLI and the recovery gesture when the plugin is enabled but unavailable", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          unavailableAgent: {
+            kind: "bin-missing",
+            agent: "kimi",
+            reason: 'agent "kimi" is not installed',
+          },
+        }),
+      ),
+    );
+
+    // The exact composed sentence, not just substrings — a broken join or a
+    // dropped suffix must fail this.
+    expect(document.body.textContent).toContain(
+      'agent "kimi" is not installed — install it, then re-enable the plugin in Settings → Plugins',
+    );
+    expect(document.body.textContent).not.toContain("No plugin provides");
     expect(TerminalPane).not.toHaveBeenCalled();
   });
 
@@ -366,7 +393,7 @@ describe("AgentPane — the unavailable-agent card", () => {
       root.render(
         createElement(AgentPane, {
           ...baseProps,
-          unavailableAgent: "gemini",
+          unavailableAgent: { kind: "no-plugin", agent: "gemini" },
           dormant: true,
         }),
       ),

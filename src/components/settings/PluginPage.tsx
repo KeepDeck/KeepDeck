@@ -63,6 +63,8 @@ export function PluginPage({
               {plugin.manifest.id} · {plugin.manifest.version}
               {plugin.status.kind === "failed" &&
                 ` · failed: ${plugin.status.reason}`}
+              {plugin.status.kind === "unavailable" &&
+                ` · unavailable: ${plugin.status.reason}`}
             </span>
             {external && plugin.manifest.capabilities.length > 0 && (
               <span className="settings__hint">

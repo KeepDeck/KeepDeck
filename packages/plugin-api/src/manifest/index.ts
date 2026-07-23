@@ -6,7 +6,9 @@ export {
   type LegacyDownloadMigration,
 } from "./capabilities.ts";
 export {
+  declaredAgentBins,
   readManifest,
+  type AgentContributionSummary,
   type ContributionSummary,
   type ManifestResult,
   type PluginCategory,

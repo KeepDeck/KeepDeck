@@ -154,6 +154,17 @@ export function buildPluginContext(
             `agent "${agent.id}": detect.bin "${agent.detect.bin}" is not covered by an exec capability`,
           );
         }
+        // When the manifest declares the agent's bin statically (the host's
+        // pre-activation availability input), the runtime registration must
+        // agree with it — a drift would silently defeat the activation gate.
+        const declaredBin = manifest.contributes.agents?.find(
+          (entry) => entry.id === agent.id,
+        )?.bin;
+        if (declaredBin !== undefined && declaredBin !== agent.detect.bin) {
+          throw new Error(
+            `agent "${agent.id}": detect.bin "${agent.detect.bin}" does not match the manifest's declared bin "${declaredBin}"`,
+          );
+        }
         return track(registries.agents.add(pluginId, agent));
       },
     },

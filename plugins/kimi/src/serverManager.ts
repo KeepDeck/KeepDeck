@@ -6,11 +6,9 @@ import type {
 const SERVER_START_TIMEOUT_MS = 15_000;
 const MAX_STARTUP_OUTPUT = 32_768;
 
-/** One plugin-local port, outside core's 17000..18999 Run range, is also an
- * OS-level singleton guard. We deliberately do not probe or fall back: a
- * second or foreign listener must make setup fail visibly instead of silently
- * creating another Kimi server. */
-export const KIMI_SETUP_SERVER_PORT = 19_120;
+/** How often the spawn wrapper checks that its parent (the KeepDeck process)
+ * is still alive. See setupServerWrapperScript's docblock for the design. */
+const WATCHDOG_POLL_SECONDS = 5;
 
 export interface KimiServerAccess {
   origin: string;
@@ -47,7 +45,6 @@ interface RunningServer {
  * server closes as soon as the queue drains. */
 export function createKimiServerManager(
   sessions: PluginSessions,
-  port = KIMI_SETUP_SERVER_PORT,
 ): KimiServerManager {
   const queue: QueuedOperation[] = [];
   const closing = new WeakMap<PluginSessionHandle, Promise<void>>();
@@ -130,25 +127,23 @@ export function createKimiServerManager(
     try {
       spawn = sessions.spawn(
         {
-          command: "kimi",
-          // `kimi server run` was removed in Kimi Code 0.28; `kimi web` is its
-          // replacement and runs the same authenticated loopback server in the
-          // foreground. `--no-open` suppresses the browser it would otherwise
-          // launch; the `http://127.0.0.1:<port>/#token=…` banner extractServerAccess
-          // parses is unchanged. `--host 127.0.0.1` keeps the bind loopback-only.
-          // `--log-level silent` gates only request logs — the startup banner and
-          // any failure notice still print, so both extractServerAccess and the
-          // "It reported:" diagnostic below keep seeing the server's own output.
-          args: [
-            "web",
-            "--no-open",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            String(port),
-            "--log-level",
-            "silent",
-          ],
+          command: "/bin/sh",
+          // The server runs under a tiny watchdog wrapper (see
+          // setupServerWrapperScript for the script and its design):
+          //
+          // - `kimi web` replaced `kimi server run` (removed in Kimi Code 0.28).
+          //   `--no-open` suppresses the browser it would otherwise launch;
+          //   `--host 127.0.0.1` keeps the bind loopback-only — required for
+          //   `--debug-endpoints`, which mounts the `/api/v1/debug/*` RPC
+          //   surface (the only plugin-management API left in 0.29; gated to
+          //   loopback binds by Kimi itself). `--log-level silent` gates only
+          //   request logs — the startup banner and any failure notice still
+          //   print, so both extractServerAccess and the "It reported:"
+          //   diagnostic below keep seeing the server's own output.
+          // - `--port 0` lets Kimi bind a free ephemeral port and print the
+          //   real one in the banner: a fixed port cannot collide with a
+          //   second KeepDeck instance (dev next to prod) or a stray server.
+          args: ["-c", setupServerWrapperScript()],
           cols: 80,
           rows: 24,
         },
@@ -158,12 +153,12 @@ export function createKimiServerManager(
             if (startupOutput.length > MAX_STARTUP_OUTPUT) {
               startupOutput = startupOutput.slice(-MAX_STARTUP_OUTPUT);
             }
-            const access = extractServerAccess(startupOutput, port);
+            const access = extractServerAccess(startupOutput);
             if (access) settleReady(access);
             return;
           }
           settleReady(
-            new Error(startupExitMessage(port, event.code, startupOutput)),
+            new Error(startupExitMessage(event.code, startupOutput)),
           );
         },
       );
@@ -185,7 +180,7 @@ export function createKimiServerManager(
       handle = await withTimeout(
         spawn,
         SERVER_START_TIMEOUT_MS,
-        `Timed out starting the Kimi setup server on 127.0.0.1:${port}.`,
+        "Timed out starting the Kimi setup server.",
       );
     } catch (error) {
       abandoned = true;
@@ -206,7 +201,7 @@ export function createKimiServerManager(
       const access = await withTimeout(
         ready,
         SERVER_START_TIMEOUT_MS,
-        () => startupTimeoutMessage(port, startupOutput),
+        () => startupTimeoutMessage(startupOutput),
       );
       if (abort.signal.aborted) throw disposedError();
       return { access, handle, abort };
@@ -256,10 +251,64 @@ export function createKimiServerManager(
   };
 }
 
-/** Parse only the exact authenticated endpoint requested by this manager. */
+/** The spawn wrapper script. Exported (not inline) so the test suite can
+ * syntax-check it with `sh -n` instead of only asserting substrings.
+ *
+ * Design:
+ * - The watcher subshell polls its parent (the KeepDeck process) and kills
+ *   the server when the parent is gone — `kimi web` survives SIGHUP, so a
+ *   hard host crash (SIGKILL, power loss) would otherwise orphan a live
+ *   server with an unrecoverable token. `kill -0` checks pid EXISTENCE, so
+ *   the poll also compares the parent's start time (`ps -o lstart=`): a
+ *   recycled pid fails the identity check. A failed `ps` read skips the
+ *   comparison rather than risking a spurious kill.
+ * - A PTY-master close delivers SIGHUP to the foreground process group, so
+ *   the wrapper traps HUP to stay alive long enough to finish the teardown;
+ *   the TERM→KILL escalation mirrors the PTY close contract because the
+ *   server can take seconds to honor a bare TERM.
+ * - The watcher's own `sleep` children are reaped via TERM/EXIT traps —
+ *   otherwise a killed watcher leaves a sleep holding the PTY slave open,
+ *   delaying EOF (and the exit event) past the PTY's kill grace.
+ * - The main shell `wait`s on the server and re-exits with its status, so a
+ *   server that dies on its own produces the honest "exited before it
+ *   became ready" event instead of a misleading startup timeout. The
+ *   graceful path needs no watchdog: closing the session signals the whole
+ *   process group. */
+export function setupServerWrapperScript(): string {
+  return `trap "" HUP
+parent=$PPID
+started=$(ps -o lstart= -p "$parent" 2>/dev/null)
+kimi web --no-open --host 127.0.0.1 --port 0 --log-level silent --debug-endpoints &
+child=$!
+(
+  slp=
+  trap 'kill "$slp" 2>/dev/null' EXIT
+  trap 'exit 0' TERM
+  while kill -0 "$parent" 2>/dev/null; do
+    now=$(ps -o lstart= -p "$parent" 2>/dev/null)
+    [ -n "$started" ] && [ -n "$now" ] && [ "$now" != "$started" ] && break
+    sleep ${WATCHDOG_POLL_SECONDS} &
+    slp=$!
+    wait "$slp" 2>/dev/null
+  done
+  kill "$child" 2>/dev/null
+  sleep 3 &
+  slp=$!
+  wait "$slp" 2>/dev/null
+  kill -9 "$child" 2>/dev/null
+) &
+watcher=$!
+wait "$child" 2>/dev/null
+code=$?
+kill "$watcher" 2>/dev/null
+exit "$code"`;
+}
+
+/** Parse the authenticated loopback endpoint from the server's startup
+ * banner. The port is whatever ephemeral port `--port 0` bound, so only the
+ * host and the presence of a token are validated. */
 export function extractServerAccess(
   output: string,
-  expectedPort = KIMI_SETUP_SERVER_PORT,
 ): KimiServerAccess | null {
   const plain = stripTerminalControls(output);
   const match = plain.match(
@@ -268,10 +317,7 @@ export function extractServerAccess(
   if (!match) return null;
   try {
     const url = new URL(match[0]);
-    if (
-      url.hostname !== "127.0.0.1" ||
-      url.port !== String(expectedPort)
-    ) {
+    if (url.hostname !== "127.0.0.1") {
       return null;
     }
     const token = url.hash.startsWith("#token=")
@@ -314,27 +360,24 @@ function withReportedOutput(base: string, rawOutput: string): string {
   return detail ? `${base} It reported: ${detail}` : base;
 }
 
-/** The setup-server process died before reporting its address. A busy port
- * makes `kimi web` hang (→ timeout), not exit, so we never blame the port here;
- * the server's own output is the real reason. */
+/** The setup-server process died before reporting its address; the server's
+ * own output is the real reason. */
 function startupExitMessage(
-  port: number,
   code: number | null,
   rawOutput: string,
 ): string {
   const codeText = code === null ? "" : ` (code ${code})`;
   return withReportedOutput(
-    `Kimi setup server exited before it became ready on 127.0.0.1:${port}${codeText}.`,
+    `Kimi setup server exited before it became ready${codeText}.`,
     rawOutput,
   );
 }
 
-/** The setup server stayed up but never printed a parseable address in time.
- * This is where a genuinely busy port lands (`kimi web` hangs on the bind), so
- * the port hint belongs here — alongside the banner-changed possibility. */
-function startupTimeoutMessage(port: number, rawOutput: string): string {
+/** The setup server stayed up but never printed a parseable address in time —
+ * most likely Kimi changed its startup banner. */
+function startupTimeoutMessage(rawOutput: string): string {
   return withReportedOutput(
-    `Timed out waiting for the Kimi setup server on 127.0.0.1:${port} to report its address. The port may already be in use, or Kimi changed its startup banner.`,
+    "Timed out waiting for the Kimi setup server to report its address. Kimi may have changed its startup banner.",
     rawOutput,
   );
 }
