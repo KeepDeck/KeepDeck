@@ -8,14 +8,22 @@
 // footer — so only the change content remains. Zero dependencies; CI runs it
 // in release.yml's publish job, and it works locally the same way.
 //
-//   node scripts/release-changelog.mjs --repo owner/name --out changelog.json
+//   node scripts/release-changelog.mjs --repo owner/name --out changelog.json \
+//     [--version 1.2.3 --notes notes.md]
 //
 // Source is `gh api repos/:repo/releases` (REST), NOT `gh release list`:
 // `gh release list --json` does not expose `body` (only gh release view does),
 // and its default page is 30. The REST list returns `body` in-list and takes
 // per_page, so one call covers the whole tail MAX_ENTRIES needs.
+//
+// The version being published is passed in as an authoritative HEAD entry
+// (--version + --notes) so it is ALWAYS present — GitHub's releases-list
+// endpoint is eventually consistent and omits a release for a few seconds
+// after it is created, so listing it right after `gh release create` dropped
+// the very version being published. The list still supplies every older entry;
+// the head is deduped against it (head wins, its notes are the freshest).
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const SCHEMA = 1;
@@ -29,10 +37,17 @@ export function parseArgs(argv) {
     const flag = argv[i];
     if (flag === "--repo") args.repo = argv[++i];
     else if (flag === "--out") args.out = argv[++i];
+    else if (flag === "--version") args.version = argv[++i];
+    else if (flag === "--notes") args.notes = argv[++i];
     else throw new Error(`unknown argument: ${flag}`);
   }
   for (const key of ["repo", "out"]) {
     if (!args[key]) throw new Error(`--${key} is required`);
+  }
+  // The head entry needs both: a version to place it and a notes file to fill
+  // it. One without the other is a mistake, not a partial head.
+  if ((args.version == null) !== (args.notes == null)) {
+    throw new Error("--version and --notes must be given together");
   }
   return args;
 }
@@ -74,13 +89,35 @@ function compareVersions(a, b) {
 
 /** Pure builder over the raw GitHub REST release list (`gh api .../releases`):
  * drops drafts/prereleases/non-version tags (the rolling "latest"), strips each
- * body's per-entry chrome, sorts newest-first, and caps to the tail. */
-export function buildChangelog(releases, now = () => new Date()) {
+ * body's per-entry chrome, sorts newest-first, and caps to the tail.
+ *
+ * `head` (or null) is the just-published release — `{ version, notes }`, notes
+ * being its raw release body — injected authoritatively so the version being
+ * published is present even when the list endpoint has not yet propagated it.
+ * Its notes go through the same `cleanNotes` as list bodies, its date is
+ * stamped `now` (the real published_at is seconds away and not yet listable),
+ * and it is deduped against the list by version: the head wins, so a stale or
+ * lagging list entry for the same version never doubles or overrides it. A head
+ * whose version is not a valid tag is ignored (degrade to list-only), matching
+ * this module's "fewer entries beats a crash" stance for a display-only file. */
+export function buildChangelog(releases, head = null, now = () => new Date()) {
   const entries = [];
+  const seen = new Set();
+  const headVersion = head?.version ? versionFromTag(head.version) : null;
+  if (headVersion) {
+    entries.push({
+      version: headVersion,
+      notes: cleanNotes(head.notes ?? ""),
+      date: now().toISOString(),
+    });
+    seen.add(headVersion);
+  }
   for (const release of releases) {
     if (release.draft || release.prerelease) continue;
     const version = versionFromTag(release.tag_name ?? "");
     if (!version) continue; // the rolling "latest" tag, or a non-version tag
+    if (seen.has(version)) continue; // already carried by the head (or a dup tag)
+    seen.add(version);
     entries.push({
       version,
       notes: cleanNotes(release.body ?? ""),
@@ -115,7 +152,10 @@ export function main(argv = process.argv.slice(2)) {
     );
   }
   const args = parseArgs(argv);
-  const changelog = buildChangelog(listReleases(args.repo));
+  const head = args.version
+    ? { version: args.version, notes: readFileSync(args.notes, "utf8") }
+    : null;
+  const changelog = buildChangelog(listReleases(args.repo), head);
   writeFileSync(args.out, `${JSON.stringify(changelog, null, 2)}\n`);
   console.log(`Wrote ${args.out}: ${changelog.releases.length} release(s)`);
   return changelog;

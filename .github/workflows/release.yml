@@ -184,13 +184,23 @@ jobs:
             --clobber
 
       - name: Build and upload the accumulated changelog
-        # changelog.json is derived from the published versioned releases, so
-        # it must run AFTER the version above is archived — otherwise the
-        # just-released version's notes would be missing until the next publish.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # changelog.json is derived from the published versioned releases. The
+        # archive step above runs first so the list can carry this version too,
+        # but GitHub's releases-list endpoint is eventually consistent and omits
+        # a release for seconds after it is created — so the just-published
+        # version is ALSO injected as an authoritative head entry (--version +
+        # --notes notes.md), guaranteeing it is present regardless of that lag.
+        # Without the head, every publish's changelog.json dropped the very
+        # version it was publishing, and the updater showed no notes for the
+        # update on offer. The list still supplies every older entry (deduped).
         # GH_TOKEN/GH_REPO come from the job-level env. Uploads to the rolling
         # "latest" release, where the app fetches it alongside latest.json.
         run: |
           node scripts/release-changelog.mjs \
             --repo "${{ github.repository }}" \
+            --version "$VERSION" \
+            --notes notes.md \
             --out assets/changelog.json
           gh release upload latest assets/changelog.json --clobber
