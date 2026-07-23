@@ -160,14 +160,22 @@ describe("SettingsDialog", () => {
     resetSettingsManager();
   });
 
-  const mount = async (overrides: Partial<Settings> = {}) => {
+  const mount = async (
+    overrides: Partial<Settings> = {},
+    initialSectionId?: string,
+  ) => {
     await initSettings();
     if (Object.keys(overrides).length > 0) updateSettings(overrides);
     // Seeding writes aren't under test — let the queued save land, then drop it.
     await new Promise((resolve) => setTimeout(resolve, 0));
     ipc.saveSettings.mockClear();
     await act(async () =>
-      root.render(createElement(SettingsDialog, { onClose: () => closed++ })),
+      root.render(
+        createElement(SettingsDialog, {
+          onClose: () => closed++,
+          initialSectionId,
+        }),
+      ),
     );
     await act(async () => {}); // flush the agent-catalog load
   };
@@ -306,9 +314,13 @@ describe("SettingsDialog", () => {
     expect(ipc.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("Done, the ✕ and Escape only dismiss", async () => {
+  it("the ✕ and Escape only dismiss; instant-apply needs no Done footer", async () => {
     await mount();
-    act(() => button("Done").click());
+    expect(button("Done")).toBeUndefined();
+    expect(document.querySelector(".confirm__actions")).toBeNull();
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Close settings",
+    );
     act(() =>
       document
         .querySelector<HTMLButtonElement>('[aria-label="Close settings"]')!
@@ -317,7 +329,7 @@ describe("SettingsDialog", () => {
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     });
-    expect(closed).toBe(3);
+    expect(closed).toBe(2);
     expect(ipc.saveSettings).not.toHaveBeenCalled();
   });
 
@@ -348,8 +360,81 @@ describe("SettingsDialog", () => {
       expect(panelOf(enable).hasAttribute("hidden")).toBe(false);
       expect(panelOf(feature).hasAttribute("hidden")).toBe(false);
       expect(feature.checked).toBe(true); // the schema default, no stored value
+      // The section owns scrolling inside the bounded settings body; the only
+      // dismiss control lives in the fixed header, outside that scroll area.
+      const body = document.querySelector(".settings__body")!;
+      expect(body.contains(panelOf(feature))).toBe(true);
+      expect(
+        body.contains(
+          document.querySelector('[aria-label="Close settings"]')!,
+        ),
+      ).toBe(false);
     } finally {
       section.dispose();
+    }
+  });
+
+  it("reveals a plugin opened directly below the navigation fold", async () => {
+    const plugins = Array.from({ length: 12 }, (_, index) => ({
+      ...FILES_PLUGIN,
+      manifest: {
+        ...FILES_PLUGIN.manifest,
+        id: `example.plugin-${index}`,
+        name: `Plugin ${index}`,
+      },
+    }));
+    pluginStore.set(plugins);
+    let revealed: Element | null = null;
+    const reveal = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(function (this: Element) {
+        revealed = this;
+      });
+    try {
+      await mount({}, "plugin:example.plugin-11");
+      expect(button("Plugin 11").getAttribute("aria-current")).toBe("true");
+      expect(revealed).toBe(button("Plugin 11"));
+    } finally {
+      reveal.mockRestore();
+    }
+  });
+
+  it("re-reveals the active plugin after a rescan changes nav order", async () => {
+    const deckPlugin = {
+      ...FILES_PLUGIN,
+      manifest: {
+        ...FILES_PLUGIN.manifest,
+        id: "example.deck",
+        name: "Deck Plugin",
+      },
+    };
+    const cliPlugin = {
+      ...FILES_PLUGIN,
+      manifest: {
+        ...FILES_PLUGIN.manifest,
+        id: "example.cli",
+        name: "CLI Plugin",
+        category: "cli" as const,
+      },
+    };
+    pluginStore.set([deckPlugin]);
+    const revealed: Element[] = [];
+    const reveal = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(function (this: Element) {
+        revealed.push(this);
+      });
+    try {
+      await mount({}, "plugin:example.deck");
+      revealed.length = 0;
+
+      // The host snapshot preserves install order, but Settings puts CLI
+      // plugins first. A rescan can therefore move the same active deck row.
+      act(() => pluginStore.set([deckPlugin, cliPlugin]));
+
+      expect(revealed).toEqual([button("Deck Plugin")]);
+    } finally {
+      reveal.mockRestore();
     }
   });
 

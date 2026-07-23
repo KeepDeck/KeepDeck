@@ -1,7 +1,10 @@
 /* Settings dialog ([F6]) — the .form card with a left section nav over a
    panel area (sections registry: components/settings/sections.ts). */
 .settings {
-  max-width: 780px;
+  box-sizing: border-box;
+  width: min(840px, calc(100vw - 32px));
+  max-width: none;
+  height: min(760px, calc(100vh - 32px));
 }
 
 .settings__head {
@@ -21,19 +24,23 @@
 .settings__body {
   display: grid;
   grid-template-columns: 148px 1fr;
+  grid-template-rows: minmax(0, 1fr);
   gap: 24px;
-  /* Room for the tallest section — switching must not resize the dialog. */
-  min-height: 180px;
-  max-height: min(620px, 70vh);
-  margin-bottom: 8px;
+  /* The SURFACE owns the viewport bound; the body simply consumes everything
+     below the fixed header. Long columns scroll only when the whole dialog
+     genuinely cannot fit them. */
+  flex: 1;
+  min-height: 0;
 }
 
 .settings__nav {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding-right: 16px;
+  min-height: 0;
+  padding: 0 16px 20px 0;
   border-right: 1px solid #1c2230;
+  overflow-y: auto;
 }
 
 .settings__nav-item {
@@ -84,8 +91,12 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  /* A clipped card must never touch the viewport edge: when this column does
+     need to scroll, the last control clears both the edge and the dialog. */
+  padding: 0 12px 20px 0;
+  scroll-padding: 0 12px 20px 0;
 }
 
 /* The author display:flex above would defeat the `hidden` attribute the
@@ -394,6 +405,6 @@
 
 @media (max-width: 720px) {
   .settings {
-    max-width: calc(100vw - 40px);
+    width: calc(100vw - 40px);
   }
 }

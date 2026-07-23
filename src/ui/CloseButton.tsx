@@ -13,12 +13,15 @@ export function CloseButton({
   label,
   onClick,
   className,
+  autoFocus,
 }: {
   /** Tooltip and accessible name — "Close <what>". */
   label: string;
   onClick(e: MouseEvent<HTMLButtonElement>): void;
   /** Extra class for surface-specific layout (never for restyling). */
   className?: string;
+  /** Dialogs with no primary footer action move entry focus here. */
+  autoFocus?: boolean;
 }) {
   return (
     <button
@@ -27,6 +30,7 @@ export function CloseButton({
       title={label}
       aria-label={label}
       onClick={onClick}
+      autoFocus={autoFocus}
     >
       <CloseIcon />
     </button>

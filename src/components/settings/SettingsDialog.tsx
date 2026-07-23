@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAppRuntime } from "../../app/runtimeContext";
 import { useContributions, useInstalledPlugins } from "../../plugins";
 import { CloseButton } from "../../ui/CloseButton";
@@ -18,11 +18,12 @@ interface SettingsDialogProps {
 /**
  * Global settings ([F6]) — an in-app modal (no system windows): a left nav of
  * sections over a panel area. Sections talk to the settings store themselves;
- * controls apply instantly, Done/Esc only dismiss. App sections come from the
- * `SETTINGS_SECTIONS` registry; below them, under the nav's "Plugins" group
- * header (which carries the global Rescan), EVERY installed plugin is its own
- * section — enable toggle, access, restart and its contributed settings in
- * one place. There is deliberately no all-plugins page (user decision).
+ * controls apply instantly; the header close/Esc dismiss. App sections come
+ * from the `SETTINGS_SECTIONS` registry; below them, under the nav's "Plugins"
+ * group header (which carries the global Rescan), EVERY installed plugin is
+ * its own section — enable toggle, access, restart and its contributed
+ * settings in one place. There is deliberately no all-plugins page (user
+ * decision), and no redundant bottom Done footer stealing content space.
  */
 export function SettingsDialog({
   onClose,
@@ -53,6 +54,10 @@ export function SettingsDialog({
       ),
     }));
   const sections = [...appSections, ...pluginSections];
+  // Rescan can insert/reorder plugin rows without changing the selected id.
+  // A stable order signature lets the reveal effect follow that DOM movement
+  // without rerunning for unrelated renders or plugin status changes.
+  const navOrder = sections.map((section) => section.id).join("\0");
   // Honor a requested section only if it exists — a plugin opening its own
   // page always will, but a stale id degrades to the first section.
   const [activeId, setActiveId] = useState(
@@ -62,6 +67,17 @@ export function SettingsDialog({
   );
   // An uninstalled plugin's section can vanish while open — fall back.
   const active = sections.find((s) => s.id === activeId) ?? sections[0];
+  const navRef = useRef<HTMLElement>(null);
+
+  // A command/notification may open Settings directly on a plugin below the
+  // nav fold. Keep the selected row visible without stealing entry focus from
+  // the dialog's close control; the same path reveals General after an active
+  // plugin disappears.
+  useEffect(() => {
+    navRef.current
+      ?.querySelector<HTMLElement>("[aria-current]")
+      ?.scrollIntoView({ block: "nearest" });
+  }, [active.id, navOrder]);
 
   const navItem = (s: { id: string; label: string }) => (
     <button
@@ -85,11 +101,15 @@ export function SettingsDialog({
       >
         <div className="settings__head">
           <h2 className="form__title settings__title">Settings</h2>
-          <CloseButton label="Close settings" onClick={onClose} />
+          <CloseButton label="Close settings" onClick={onClose} autoFocus />
         </div>
 
         <div className="settings__body">
-          <nav className="settings__nav" aria-label="Settings sections">
+          <nav
+            ref={navRef}
+            className="settings__nav"
+            aria-label="Settings sections"
+          >
             {appSections.map(navItem)}
             {/* The group header doubles as home for the global Rescan — the
                 one plugins action that belongs to no single plugin. */}
@@ -120,16 +140,6 @@ export function SettingsDialog({
           ))}
         </div>
 
-        <div className="confirm__actions">
-          <button
-            type="button"
-            className="form__create"
-            onClick={onClose}
-            autoFocus
-          >
-            Done
-          </button>
-        </div>
       </div>
     </ModalOverlay>
   );
