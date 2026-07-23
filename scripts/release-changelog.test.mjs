@@ -17,10 +17,19 @@ describe("parseArgs", () => {
     });
   });
 
+  it("parses the optional head entry (version + notes)", () => {
+    expect(
+      parseArgs(["--repo", "r", "--out", "o", "--version", "1.2.3", "--notes", "notes.md"]),
+    ).toEqual({ repo: "r", out: "o", version: "1.2.3", notes: "notes.md" });
+  });
+
   it.each([
     [["--out", "o"], /--repo is required/],
     [["--repo", "r"], /--out is required/],
     [["--oops"], /unknown argument: --oops/],
+    // The head entry is all-or-nothing: one flag without the other is a mistake.
+    [["--repo", "r", "--out", "o", "--version", "1.2.3"], /--version and --notes must be given together/],
+    [["--repo", "r", "--out", "o", "--notes", "notes.md"], /--version and --notes must be given together/],
   ])("rejects bad arguments %j", (argv, error) => {
     expect(() => parseArgs(argv)).toThrow(error);
   });
@@ -80,7 +89,7 @@ describe("buildChangelog", () => {
       rest({ tag_name: "0.15.0", body: "KeepDeck 0.15.0.\n\nChanges:\n- fifteen", published_at: "2026-07-10T00:00:00Z" }),
       rest({ tag_name: "0.16.0", body: "KeepDeck 0.16.0.\n\nChanges:\n- sixteen", published_at: "2026-07-20T00:00:00Z" }),
     ];
-    const out = buildChangelog(releases, now);
+    const out = buildChangelog(releases, null, now);
     expect(out.schema).toBe(1);
     expect(out.generatedAt).toBe("2026-07-22T10:00:00.000Z");
     expect(out.releases.map((r) => r.version)).toEqual(["0.16.0", "0.15.0"]);
@@ -97,11 +106,11 @@ describe("buildChangelog", () => {
       rest({ tag_name: "0.16.1-rc", body: "rc", prerelease: true }),
       rest({ tag_name: "0.17.0", body: "next", draft: true }),
     ];
-    expect(buildChangelog(releases, now).releases.map((r) => r.version)).toEqual(["0.16.0"]);
+    expect(buildChangelog(releases, null, now).releases.map((r) => r.version)).toEqual(["0.16.0"]);
   });
 
   it("omits date when the release was not published", () => {
-    const out = buildChangelog([rest({ tag_name: "1.0.0", body: "x" })], now);
+    const out = buildChangelog([rest({ tag_name: "1.0.0", body: "x" })], null, now);
     expect(out.releases[0].date).toBeUndefined();
   });
 
@@ -109,9 +118,60 @@ describe("buildChangelog", () => {
     const releases = Array.from({ length: MAX_ENTRIES + 5 }, (_, i) =>
       rest({ tag_name: `0.0.${i}`, body: "" }),
     );
-    expect(buildChangelog(releases, now).releases).toHaveLength(MAX_ENTRIES);
+    expect(buildChangelog(releases, null, now).releases).toHaveLength(MAX_ENTRIES);
     // Newest-first: the highest patch numbers survive.
-    expect(buildChangelog(releases, now).releases[0].version).toBe(`0.0.${MAX_ENTRIES + 4}`);
+    expect(buildChangelog(releases, null, now).releases[0].version).toBe(`0.0.${MAX_ENTRIES + 4}`);
+  });
+
+  describe("head entry (the just-published version)", () => {
+    it("injects the head even when the list has not propagated it yet", () => {
+      // The lag case that this whole feature exists for: the list still ends at
+      // the PREVIOUS release, yet the version being published must appear — as
+      // the newest entry, its notes cleaned like every other entry.
+      const releases = [
+        rest({
+          tag_name: "0.16.17",
+          body: "KeepDeck 0.16.17.\n\nChanges:\n- old",
+          published_at: "2026-07-23T11:00:00Z",
+        }),
+      ];
+      const out = buildChangelog(
+        releases,
+        { version: "0.16.23", notes: "KeepDeck 0.16.23.\n\nChanges:\n- new\n\nInstall:\ncurl | sh\n" },
+        now,
+      );
+      expect(out.releases.map((r) => r.version)).toEqual(["0.16.23", "0.16.17"]);
+      expect(out.releases[0]).toEqual({
+        version: "0.16.23",
+        notes: "Changes:\n- new", // chrome stripped
+        date: "2026-07-22T10:00:00.000Z", // stamped now(), not a listed published_at
+      });
+    });
+
+    it("dedupes the head against a listed entry for the same version — head wins", () => {
+      // The list caught up (or a republish): one entry survives, the head's, so
+      // its fresh notes are never overridden by the lagging listed copy.
+      const releases = [
+        rest({ tag_name: "0.16.23", body: "stale listed body", published_at: "2026-07-23T17:00:00Z" }),
+      ];
+      const out = buildChangelog(releases, { version: "0.16.23", notes: "Changes:\n- fresh" }, now);
+      expect(out.releases).toEqual([
+        { version: "0.16.23", notes: "Changes:\n- fresh", date: "2026-07-22T10:00:00.000Z" },
+      ]);
+    });
+
+    it("normalizes a v-prefixed head version so dedup still matches", () => {
+      const releases = [rest({ tag_name: "0.16.23", body: "listed" })];
+      const out = buildChangelog(releases, { version: "v0.16.23", notes: "head" }, now);
+      expect(out.releases.map((r) => r.version)).toEqual(["0.16.23"]);
+      expect(out.releases[0].notes).toBe("head");
+    });
+
+    it("ignores a head with an invalid version (degrades to list-only)", () => {
+      const releases = [rest({ tag_name: "0.16.0", body: "sixteen" })];
+      const out = buildChangelog(releases, { version: "not-a-version", notes: "x" }, now);
+      expect(out.releases.map((r) => r.version)).toEqual(["0.16.0"]);
+    });
   });
 });
 
