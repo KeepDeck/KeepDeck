@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { SpawnPlan } from "../domain/agents";
-import { findWorkspaceOfPane } from "../domain/deck";
+import { findWorkspaceOfPane, paneIsRemoteFresh } from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import { bumpPostback } from "./postbacks";
@@ -57,7 +57,7 @@ export function useSessionBinding(deck: Deck): void {
         // against a session id that lives on the VPS, silently dropping the
         // endpoint (the fresh-build sweep reattaches remote instead). The
         // postback is still counted above; only the binding is skipped.
-        if (pane?.remoteEndpoint) return;
+        if (pane && paneIsRemoteFresh(pane)) return;
         const previousSessionId = pane?.session?.id;
         if (previousSessionId && previousSessionId !== sessionId) {
           beginPaneUsageSession(paneId, sessionId);

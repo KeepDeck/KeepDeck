@@ -4,6 +4,7 @@ import {
   findWorkspace,
   findWorkspaceByRef,
   paneAgentType,
+  paneIsRemoteFresh,
   skillRootsOf,
   type Workspace,
 } from "../domain/deck";
@@ -239,7 +240,7 @@ function findTarget(
     // A remote pane is fresh-session only — even if a stale `session` clings to
     // it (a hand-edit, or a binding from before the guard shipped), never hand
     // it to the resume path, which would spawn locally and drop the endpoint.
-    sessionId: pane.remoteEndpoint ? null : (pane.session?.id ?? null),
+    sessionId: paneIsRemoteFresh(pane) ? null : (pane.session?.id ?? null),
   };
 }
 

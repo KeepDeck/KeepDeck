@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   agentRemoteSchemes,
-  agentSupportsRemote,
   agentSupportsYolo,
   remoteValid,
   selectableAgents,
@@ -88,21 +87,6 @@ describe("agentSupportsYolo", () => {
     // An absent agent (plugin gone, catalog loading) must never arm YOLO.
     expect(agentSupportsYolo(list, "gemini")).toBe(false);
     expect(agentSupportsYolo([], "claude")).toBe(false);
-  });
-});
-
-describe("agentSupportsRemote", () => {
-  const list = [
-    agent("codex", true, { supportsRemote: true }),
-    agent("claude", true),
-  ];
-
-  it("answers from the catalog entry, false for non-support and unknowns", () => {
-    expect(agentSupportsRemote(list, "codex")).toBe(true);
-    expect(agentSupportsRemote(list, "claude")).toBe(false);
-    // An absent agent must never be offered a remote target.
-    expect(agentSupportsRemote(list, "kimi")).toBe(false);
-    expect(agentSupportsRemote([], "codex")).toBe(false);
   });
 });
 

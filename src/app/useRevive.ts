@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentInfo, SpawnPlanContext } from "../domain/agents";
-import { findWorkspace, paneAgentType, skillRootsOf, type Pane } from "../domain/deck";
+import {
+  findWorkspace,
+  paneAgentType,
+  paneIsRemoteFresh,
+  skillRootsOf,
+  type Pane,
+} from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
 import { buildResumeSpec } from "./spawnSpecs";
@@ -90,7 +96,7 @@ export function useRevive(
       // binding clings to it, resuming would run locally and drop the
       // endpoint (the binding layer prevents new ones; this is the
       // consume-side guard).
-      const sessionId = pane.remoteEndpoint
+      const sessionId = paneIsRemoteFresh(pane)
         ? null
         : (pane.session?.id ?? null);
       log.info(
@@ -145,7 +151,7 @@ export function useRevive(
       // working directory to probe (so a gone workspace cwd never blocks it)
       // and no recorded session to resume (fresh-session only). Wake it
       // straight to a fresh remote plan built by the spawn-spec sweep.
-      if (pane.remoteEndpoint) {
+      if (paneIsRemoteFresh(pane)) {
         void wake(pane, active.cwd).finally(() =>
           waking.current.delete(pane.id),
         );

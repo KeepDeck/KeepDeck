@@ -93,22 +93,13 @@ export function agentSupportsYolo(
   return agents.find((a) => a.id === type)?.supportsYolo ?? false;
 }
 
-/** Whether `type`'s catalog entry declares remote support — the single gate
- *  the spawn dialog consults before offering the "Where: Remote" option.
- *  Unknown/absent agents answer false: no remote choice, so an agent that
- *  can't honor a target never gets one picked for it (mirrors YOLO). */
-export function agentSupportsRemote(
-  agents: AgentInfo[],
-  type: AgentType,
-): boolean {
-  return agents.find((a) => a.id === type)?.supportsRemote ?? false;
-}
-
 /** The remote URI schemes `type`'s catalog entry declares, or null when the
  *  agent is local-only (no remote, or unknown agent). The spawn dialog
  *  validates a pasted endpoint's scheme against these — codex speaks ws/wss,
  *  opencode http/https, and a scheme the agent can't speak is rejected rather
- *  than crashing at spawn time. */
+ *  than crashing at spawn time. This (not a separate supportsRemote boolean)
+ *  is the single gate the dialog consults: a non-null answer both offers the
+ *  "Where: Remote" option and constrains what endpoint it accepts. */
 export function agentRemoteSchemes(
   agents: AgentInfo[],
   type: AgentType,

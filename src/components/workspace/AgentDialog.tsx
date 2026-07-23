@@ -42,11 +42,12 @@ interface AgentDialogProps {
   /** The YOLO toggle's starting position (the global preference); shown only
    * while the selected agent's plugin declares YOLO support. */
   defaultYolo: boolean;
-  /** Whether the Experimental “Remote agents” setting is on — the "Where:
+  /** Whether the Experimental "Remote agents" setting is on — the "Where:
    *  Remote" option is hidden entirely unless this is true, regardless of an
-   *  agent's declared capability. Optional (absent = off) to match the
-   *  feature's default-off stance. */
-  remoteEnabled?: boolean;
+   *  agent's declared capability. Required: every caller (App via the dialog
+   *  spec, tests) states it explicitly so a forgotten pass can't silently
+   *  hide remote. */
+  remoteEnabled: boolean;
   /** The workspace repo, when its working dir is a git repo — enables the
    * worktree location field. Null → the agent just runs in the workspace cwd,
    * so there's no worktree choice to make and the field is hidden ([F2]). */
@@ -113,7 +114,7 @@ interface AgentDialogProps {
 export function AgentDialog({
   defaultAgentType,
   defaultYolo,
-  remoteEnabled = false,
+  remoteEnabled,
   repo,
   suggestedPath,
   suggestedBranch,

@@ -6,8 +6,11 @@ import { DEFAULT_SETTINGS } from "../../domain/settings";
  * Experimental features ([F6] → Experimental) — opt-in capabilities that ship
  * behind a setting because they aren't done. Each row mirrors the General
  * section's toggle pattern (label + On/Off + hint) so the sizing, spacing and
- * typography match every other section; turning one off hides its surface
- * everywhere (no half-state), and the choice persists across restarts.
+ * typography match every other section. The setting gates the CREATION
+ * surface (the "+ Agent" dialog): turning it off hides the option going
+ * forward — existing remote panes are NOT retroactively stopped, they keep
+ * their endpoint until closed. The choice persists across restarts like every
+ * other setting.
  */
 export function ExperimentalSection() {
   const settings = useSettings();

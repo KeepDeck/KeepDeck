@@ -21,6 +21,7 @@ const plans = vi.hoisted(() => {
     postbackMark?: number;
   };
   const specs = new Map<string, Spec>();
+  const failed = new Set<string>();
   return {
     specs,
     buildResumeSpec: vi.fn(
@@ -43,8 +44,15 @@ const plans = vi.hoisted(() => {
         return true;
       },
     ),
-    dropPaneSpawnSpec: vi.fn((paneId: string) => specs.delete(paneId)),
+    dropPaneSpawnSpec: vi.fn((paneId: string) => {
+      specs.delete(paneId);
+      failed.delete(paneId);
+    }),
     peekPaneSpawnSpec: (paneId: string) => specs.get(paneId),
+    peekPanePlanError: (paneId: string) => failed.has(paneId),
+    clearPanePlanError: vi.fn((paneId: string) => {
+      failed.delete(paneId);
+    }),
     resumeDiedSilently: (spec: Spec | undefined, count: number) =>
       spec?.resumeOrigin === "restore" &&
       !!spec.resumeOf &&
@@ -187,6 +195,31 @@ describe("useAgentRestart", () => {
     expect(pty.closePane).toHaveBeenCalledOnce();
     expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
     expect(restart.epochs.get("pane-1")).toBe(1);
+  });
+
+  it("restarts a REMOTE pane fresh even with a stale session (no local resume)", async () => {
+    seed();
+    // A remote pane with a binding that clings to it (hand-edit, or from
+    // before the guard shipped) — must NOT resume locally (which would drop
+    // the endpoint); findTarget nulls the sessionId → restart falls fresh.
+    pane().remoteEndpoint = "ws://vps:4500";
+
+    await act(async () => restart.restart("ws-1", "pane-1", "resume"));
+
+    expect(plans.buildResumeSpec).not.toHaveBeenCalled();
+    expect(pty.closePane).toHaveBeenCalledOnce();
+    expect(restart.epochs.get("pane-1")).toBe(1);
+  });
+
+  it("retryPlanBuild drops the failure + cached spec and bumps the epoch (no PTY close)", async () => {
+    seed();
+    act(() => restart.retryPlanBuild("pane-1"));
+
+    expect(plans.dropPaneSpawnSpec).toHaveBeenCalledWith("pane-1");
+    expect(plans.clearPanePlanError).toHaveBeenCalledWith("pane-1");
+    expect(restart.epochs.get("pane-1")).toBe(1);
+    // No PTY was ever spawned for a failed-plan pane — nothing to close.
+    expect(pty.closePane).not.toHaveBeenCalled();
   });
 
   it("coalesces repeated clicks while one restart is in flight", async () => {

@@ -101,9 +101,18 @@ export function paneId(seq: number): string {
 }
 
 /** The agent a pane runs — panes minted before the field existed ran claude,
- * so the default is part of the persisted format, not a UI convenience. */
+ *  so the default is part of the persisted format, not a UI convenience. */
 export function paneAgentType(pane: Pane): AgentType {
   return pane.agentType ?? "claude";
+}
+
+/** A remote pane runs its agent against a VPS endpoint and is fresh-session
+ *  only — it has no local working directory to probe and must NEVER be handed
+ *  to a resume/restart/bind path, which would spawn locally and silently drop
+ *  the endpoint. The single predicate every consume site consults so the
+ *  invariant lives in one place (not copy-pasted at each call site). */
+export function paneIsRemoteFresh(pane: Pane): boolean {
+  return pane.remoteEndpoint !== undefined;
 }
 
 /**
