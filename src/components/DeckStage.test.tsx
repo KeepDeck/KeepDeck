@@ -286,7 +286,10 @@ describe("DeckStage — agent identity on the pane header", () => {
     const chip = document.querySelector<HTMLElement>(
       "[data-pane-id='pane-1'] .pane__yolo",
     )!;
-    expect(chip.textContent).toContain("YOLO");
+    // Icon-only chip: the bolt svg is the visible mark, and the accessible
+    // name comes from aria-label (title is only the sighted tooltip).
+    expect(chip.querySelector("svg")).not.toBeNull();
+    expect(chip.getAttribute("aria-label")).toBe("YOLO mode");
     expect(chip.title).toContain("without permission prompts");
     expect(
       document.querySelector("[data-pane-id='pane-2'] .pane__yolo"),

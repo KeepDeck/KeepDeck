@@ -265,8 +265,9 @@ export function AgentPane({
               tone="warn"
               className="pane__yolo"
               icon={<BoltIcon />}
+              role="img"
+              aria-label="YOLO mode"
               title="YOLO mode — runs without permission prompts"
-              label="YOLO"
             />
           )}
           {gitBadge && (
