@@ -221,6 +221,54 @@ describe("opencode plugin hooks", () => {
       "ses_x",
     ]);
   });
+
+  it("declares nativeServer remote support", () => {
+    expect(activate(null).remote?.mode).toBe("nativeServer");
+  });
+
+  it("on a nativeServer target, spawn/resume/fork become `attach <ep>` (drop -s/--fork)", async () => {
+    const agent = activate("/App/resources/session-reporter.js");
+    const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, target }, spawn);
+    expect(spawn.args).toEqual(["attach", "http://vps:4096"]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, target, sessionId: "ses_x" },
+      resume,
+    );
+    // Remote REPLACES the local resume args: no -s, just attach (session
+    // continuity is the server's job).
+    expect(resume.args).toEqual(["attach", "http://vps:4096"]);
+    expect(resume.args).not.toContain("-s");
+
+    // Remote fork short-circuits before any store surgery — no services stub
+    // needed, and no --fork (forking is server-side once attached).
+    const fork = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, target, cwd: "/t", sessionId: "ses_x", sourceCwd: "/src" },
+      fork,
+    );
+    expect(fork.args).toEqual(["attach", "http://vps:4096"]);
+    expect(fork.args).not.toContain("--fork");
+
+    // The reporter still arms on the local attach client (pane binding).
+    expect(Object.fromEntries(spawn.env).OPENCODE_CONFIG_CONTENT).toBeDefined();
+  });
+
+  it("honors YOLO on remote attach (global flag, last)", async () => {
+    const agent = activate("/App/resources/session-reporter.js");
+    const target = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, target, yolo: true }, spawn);
+    expect(spawn.args).toEqual([
+      "attach",
+      "http://vps:4096",
+      "--dangerously-skip-permissions",
+    ]);
+  });
 });
 
 describe("opencode plugin identity", () => {

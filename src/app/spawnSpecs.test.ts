@@ -17,7 +17,9 @@ import { AppRuntimeProvider } from "./runtimeContext";
 import { invalidateSkillsStaging } from "./skillsStaging";
 import {
   buildResumeSpec,
+  clearPanePlanError,
   dropPaneSpawnSpec,
+  peekPanePlanError,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
   resumeDiedSilently,
@@ -78,7 +80,7 @@ const ws = (panes: Workspace["panes"]): Workspace[] => [
 
 let seen: Record<string, SpawnPlan>;
 function Probe({ workspaces }: { workspaces: Workspace[] }) {
-  seen = usePaneSpawnSpecs(workspaces, ctx, true);
+  seen = usePaneSpawnSpecs(workspaces, ctx, true).specs;
   return null;
 }
 
@@ -169,8 +171,42 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
       "restore",
     );
     // Armed pane spawns with it, plain pane WITHOUT it (absent, not false —
-    // the wire shape stays sparse), and a resume carries it the same way.
+    // the wire shapes stay sparse), and a resume carries it the same way.
     expect(inputs.sort()).toEqual([true, true, undefined]);
+  });
+
+  it("threads a pane's remoteEndpoint to the hook as a nativeServer target", async () => {
+    const targets: Array<unknown> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          targets.push(input.target);
+        },
+      },
+    });
+    await mount(
+      ws([{ id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" }]),
+    );
+    await settle();
+    expect(targets).toEqual([
+      { kind: "nativeServer", endpoint: "ws://vps:4500" },
+    ]);
+  });
+
+  it("omits target when the pane has no remoteEndpoint (local pane)", async () => {
+    const targets: Array<unknown> = [];
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": (input) => {
+          targets.push(input.target);
+        },
+      },
+    });
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    expect(targets).toEqual([undefined]);
   });
 
   it("staged skills reach the hook input on spawn AND resume", async () => {
@@ -261,6 +297,68 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     await settle();
 
     expect(seen["pane-1"]).toEqual({ command: "claude", args: [], env: [] });
+  });
+
+  it("a throwing REMOTE spawn.plan does NOT degrade to a bare local spawn", async () => {
+    // A bare spawn for a remote pane would run the agent LOCALLY, silently
+    // dropping the endpoint — a wrong-target execution. The error must surface
+    // instead (no plan lands), unlike the local degradation above.
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    await mount(
+      ws([{ id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" }]),
+    );
+    await settle();
+
+    expect(seen["pane-1"]).toBeUndefined();
+    // The failure is recorded so the deck can show an error tile (with a
+    // retry) instead of hanging on "Waking up…" forever.
+    expect(peekPanePlanError("pane-1")).toBe(true);
+    clearPanePlanError("pane-1");
+    expect(peekPanePlanError("pane-1")).toBe(false);
+  });
+
+  it("a failed build re-renders consumers (bumps the snapshot tick)", async () => {
+    // The .catch must bump the snapshot tick, else the memo never refreshes
+    // and DeckStage never re-reads peekPanePlanError — the pane would hang on
+    // "Waking up…" until some unrelated re-render (the bug r3 caught). A
+    // render-counting probe observes the re-render directly: with the fix the
+    // failed build triggers a second render; without it, renders stays at 1.
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    let renders = 0;
+    const CountProbe = ({ workspaces }: { workspaces: Workspace[] }) => {
+      usePaneSpawnSpecs(workspaces, ctx, true);
+      renders++;
+      return null;
+    };    await act(async () =>
+      root.render(
+        createElement(
+          AppRuntimeProvider,
+          { runtime },
+          createElement(CountProbe, {
+            workspaces: ws([
+              { id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
+            ]),
+          }),
+        ),
+      ),
+    );
+    await settle();
+    expect(renders).toBeGreaterThan(1);
+    expect(peekPanePlanError("pane-1")).toBe(true);
   });
 
   it("an EXTERNAL plugin's off-capability command is clamped to its binary", async () => {

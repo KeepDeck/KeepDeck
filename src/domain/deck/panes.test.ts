@@ -5,6 +5,7 @@ import {
   makePanes,
   makeProvisioningPanes,
   paneDisplayTitle,
+  paneIsRemoteFresh,
   paneOnScreen,
   partitionPanes,
   removePane,
@@ -14,6 +15,18 @@ import {
 
 const seed = (n: number): Pane[] =>
   Array.from({ length: n }, (_, i) => ({ id: `pane-${i + 1}` }));
+
+describe("paneIsRemoteFresh", () => {
+  it("true only for a pane with a non-empty remote endpoint", () => {
+    expect(paneIsRemoteFresh({ id: "p", remoteEndpoint: "ws://vps:4500" })).toBe(true);
+    // Absent endpoint → local.
+    expect(paneIsRemoteFresh({ id: "p" })).toBe(false);
+    // Truthy, not `!== undefined`: an empty string is a non-remote degenerate
+    // case (hand-edit only — the dialog never sets "") so lifecycle + plan
+    // builder agree it's local.
+    expect(paneIsRemoteFresh({ id: "p", remoteEndpoint: "" })).toBe(false);
+  });
+});
 
 describe("appendPane", () => {
   it("appends an already-formed pane (worktree fields preserved)", () => {

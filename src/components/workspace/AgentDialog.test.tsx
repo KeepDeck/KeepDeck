@@ -137,6 +137,7 @@ describe("AgentDialog worktree location flow", () => {
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
+          remoteEnabled: false,
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "/base/kd-ws-2",
@@ -398,6 +399,7 @@ describe("AgentDialog agent picker", () => {
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
+          remoteEnabled: false,
           defaultYolo: false,
           repo: null,
           suggestedPath: "",
@@ -445,6 +447,7 @@ describe("AgentDialog YOLO toggle", () => {
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
+          remoteEnabled: false,
           defaultYolo,
           repo: null,
           suggestedPath: "",
@@ -530,6 +533,7 @@ describe("AgentDialog start-from session picker", () => {
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
+          remoteEnabled: false,
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -693,6 +697,7 @@ describe("AgentDialog start-from paging", () => {
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
+          remoteEnabled: false,
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -745,6 +750,7 @@ describe("AgentDialog start-from paging", () => {
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
+          remoteEnabled: false,
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -826,6 +832,7 @@ describe("AgentDialog cross-agent pick guard", () => {
       root.render(
         createElement(AgentDialog, {
           defaultAgentType: "claude" as const,
+          remoteEnabled: false,
           defaultYolo: false,
           repo: { cwd: "/repo", branch: "main" },
           suggestedPath: "",
@@ -902,5 +909,123 @@ describe("AgentDialog cross-agent pick guard", () => {
     type(nameField(), "my agent");
     act(() => typeBtn("Codex").click());
     expect(nameField().value).toBe("my agent");
+  });
+});
+
+describe("remote gating (Experimental setting)", () => {
+  let root: Root;
+  // A remote-capable codex added to the mocked catalog via `extraAgents`.
+  const codexRemote = {
+    id: "codex",
+    label: "Codex",
+    command: "codex",
+    supportsYolo: false,
+    supportsRemote: true,
+    remoteSchemes: ["ws", "wss"],
+    installed: true,
+    path: null,
+  };
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    catalog.extraAgents = []; // don't leak the codex entry into other suites
+  });
+
+  const mount = (agent: string, remoteEnabled: boolean) =>
+    act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: agent as AgentDialogResult["agentType"],
+          defaultYolo: false,
+          remoteEnabled,
+          repo: null,
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => [],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions: async () => ({ rows: [], total: 0 }),
+          sessionClaim: () => null,
+          onConfirm: () => {},
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+  it("hides the Where option when the Experimental setting is off", async () => {
+    catalog.extraAgents = [codexRemote];
+    await mount("codex", false);
+    // codex declares remote + schemes, but the setting is off → hidden.
+    expect(document.body.textContent).not.toContain("Where");
+    expect(document.body.textContent).not.toContain("Remote");
+  });
+
+  it("shows the Where option for a remote-capable agent when the setting is on", async () => {
+    catalog.extraAgents = [codexRemote];
+    await mount("codex", true);
+    expect(document.body.textContent).toContain("Where");
+    expect(document.body.textContent).toContain("Remote");
+  });
+
+  it("hides Where for a non-remote agent even with the setting on", async () => {
+    // claude never declares remote → no Where, regardless of the setting.
+    await mount("claude", true);
+    expect(document.body.textContent).not.toContain("Where");
+  });
+
+  it("submits the typed endpoint as remoteEndpoint on Create", async () => {
+    catalog.extraAgents = [codexRemote];
+    const confirmed: AgentDialogResult[] = [];
+    await act(async () =>
+      root.render(
+        createElement(AgentDialog, {
+          defaultAgentType: "codex" as const,
+          remoteEnabled: true,
+          defaultYolo: false,
+          repo: null,
+          suggestedPath: "",
+          suggestedBranch: "",
+          probePath: async () => MISSING,
+          listBranches: async () => [],
+          branchForPath: async () => null,
+          occupancyAt: () => null,
+          nextFreeLocation: async () => null,
+          pickFolder: async () => null,
+          searchSessions: async () => ({ rows: [], total: 0 }),
+          sessionClaim: () => null,
+          onConfirm: (r) => confirmed.push(r),
+          onCancel: () => {},
+        }),
+      ),
+    );
+    // Remote is opt-in within the Where row (default Local) — click it to
+    // reveal the endpoint field.
+    const remoteBtn = Array.from(document.querySelectorAll("button")).find(
+      (b) => b.textContent === "Remote",
+    )!;
+    await act(async () => {
+      remoteBtn.click();
+    });
+    const input = document.querySelector<HTMLInputElement>(
+      'input[aria-label="Remote agent server endpoint"]',
+    )!;
+    await act(async () => {
+      type(input, "ws://vps:4500");
+    });
+    const create = document.querySelector<HTMLButtonElement>(".form__create")!;
+    expect(create.disabled).toBe(false);
+    await act(async () => {
+      create.click();
+    });
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0].remoteEndpoint).toBe("ws://vps:4500");
   });
 });

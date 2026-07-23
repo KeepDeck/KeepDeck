@@ -47,6 +47,9 @@ export interface AgentDialogSpec {
   defaultAgentType: AgentType;
   /** The YOLO toggle's starting position ([F6] global preference). */
   defaultYolo: boolean;
+  /** Whether the Experimental “Remote agents” setting is on — gates the
+   *  dialog's "Where: Remote" option regardless of an agent's capability. */
+  remoteEnabled: boolean;
   /** The workspace repo when its cwd is a git repo — enables the worktree
    * location field; null → the agent just runs in the workspace cwd. */
   repo: { cwd: string; branch: string | null } | null;
@@ -134,6 +137,7 @@ export function useAgentDialog(
       index,
       defaultAgentType: defaultType,
       defaultYolo: getSettings()?.defaultYolo ?? false,
+      remoteEnabled: getSettings()?.remoteAgents === true,
       repo,
       suggestedPath,
       suggestedBranch,
@@ -145,6 +149,7 @@ export function useAgentDialog(
     name,
     location,
     yolo,
+    remoteEndpoint,
     session,
   }: AgentDialogResult) => {
     const dlg = dialog;
@@ -187,6 +192,21 @@ export function useAgentDialog(
     }
     // Sparse like persistence: only the armed mode lands on the pane.
     const paneYolo = yolo ? { yolo: true as const } : {};
+    // Remote: a bare pane carrying the endpoint. The agent's cwd lives on the
+    // box the server runs on, so the local worktree/location is moot — the
+    // pane's terminal runs the local thin-client attached to the endpoint.
+    // (Remote is fresh-session only for now: the dialog forces "new" and
+    // hides Start-from, so `session` is never set alongside this.)
+    if (remoteEndpoint) {
+      currentDeck.addAgentPane(dlg.workspace.id, {
+        id: dlg.agentId,
+        name: paneName,
+        agentType,
+        ...paneYolo,
+        remoteEndpoint,
+      });
+      return;
+    }
     // Main repo: a bare pane that runs in the workspace cwd.
     if (location.kind === "main") {
       currentDeck.addAgentPane(dlg.workspace.id, {

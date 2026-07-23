@@ -143,6 +143,77 @@ describe("codex plugin hooks", () => {
       "uuid-9",
     ]);
   });
+
+  it("declares nativeServer remote support", () => {
+    expect(activate(null).remote?.mode).toBe("nativeServer");
+  });
+
+  it("prepends `--remote <ep>` (before globals and subcommand) on a nativeServer target", async () => {
+    const agent = activate("/App/resources/kd-session-hook.sh");
+    const target = { kind: "nativeServer" as const, endpoint: "ws://vps:4500" };
+
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, target }, spawn);
+    expect(spawn.args.slice(0, 2)).toEqual(["--remote", "ws://vps:4500"]);
+    // globals (-c) still land after --remote, before any subcommand
+    expect(spawn.args[2]).toBe("-c");
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, target, sessionId: "uuid-9" },
+      resume,
+    );
+    expect(resume.args.slice(0, 2)).toEqual(["--remote", "ws://vps:4500"]);
+    expect(resume.args.slice(-2)).toEqual(["resume", "uuid-9"]);
+
+    const fork = output();
+    await agent.hooks["fork.plan"]!(
+      { ...input, target, sessionId: "uuid-9", sourceCwd: "/x" },
+      fork,
+    );
+    expect(fork.args.slice(0, 2)).toEqual(["--remote", "ws://vps:4500"]);
+    expect(fork.args.slice(-2)).toEqual(["fork", "uuid-9"]);
+  });
+
+  it("emits no --remote without a target (local pane unchanged)", async () => {
+    const agent = activate(null);
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!(input, spawn);
+    expect(spawn.args.some((a) => a === "--remote")).toBe(false);
+  });
+
+  it("combines --remote and YOLO on a fresh spawn (order: remote, then bypass)", async () => {
+    // Security-adjacent: a reorder must not silently drop --remote (which
+    // would run locally) nor the bypass flag (approvals on the remote server).
+    const agent = activate(null);
+    const target = { kind: "nativeServer" as const, endpoint: "ws://vps:4500" };
+    const spawn = output();
+    await agent.hooks["spawn.plan"]!({ ...input, target, yolo: true }, spawn);
+    expect(spawn.args).toEqual([
+      "--remote",
+      "ws://vps:4500",
+      // main's PasteBurst-disable -c rides every codex spawn (global, before
+      // the subcommand) — present on remote spawns too.
+      "-c",
+      "disable_paste_burst=true",
+      "--dangerously-bypass-approvals-and-sandbox",
+    ]);
+
+    const resume = output();
+    await agent.hooks["resume.plan"]!(
+      { ...input, target, yolo: true, sessionId: "uuid-9" },
+      resume,
+    );
+    expect(resume.args).toEqual([
+      "--remote",
+      "ws://vps:4500",
+      "-c",
+      "disable_paste_burst=true",
+      "--dangerously-bypass-approvals-and-sandbox",
+      "resume",
+      "uuid-9",
+    ]);
+  });
 });
 
 describe("codex plugin identity", () => {

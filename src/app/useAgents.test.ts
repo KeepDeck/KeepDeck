@@ -90,6 +90,7 @@ describe("useAgents", () => {
         },
         command: "claude",
         supportsYolo: true,
+        supportsRemote: false,
         installed: false,
         path: null,
         usageCapabilities: [],
@@ -115,6 +116,20 @@ describe("useAgents", () => {
     ]);
     await mount();
     expect(seen.agents[0]?.usageCapabilities).toEqual(["paneTelemetry"]);
+  });
+
+  it("maps a declared remote capability to supportsRemote + its schemes", async () => {
+    register({
+      ...claude,
+      detect: { bin: "codex" },
+      remote: { mode: "nativeServer", schemes: ["ws", "wss"] },
+    });
+    ipc.detectBins.mockResolvedValue([
+      { bin: "codex", installed: true, path: "/usr/bin/codex" },
+    ]);
+    await mount();
+    expect(seen.agents[0]?.supportsRemote).toBe(true);
+    expect(seen.agents[0]?.remoteSchemes).toEqual(["ws", "wss"]);
   });
 
   it("a remount seeds from the cached detection instead of flashing installed", async () => {

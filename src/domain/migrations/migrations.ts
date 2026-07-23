@@ -48,8 +48,10 @@ export type MigrationOutcome =
  *   6 — + `PaneProvisioning.base` (the picked base branch a Retry recreates
  *       the worktree from).
  *   7 — + `Pane.yolo` (the agent runs with permission prompts disabled).
+ *   8 — + `Pane.remoteEndpoint` (the agent runs against a remote
+ *       native-server endpoint).
  */
-export const DECK_STATE_VERSION = 7;
+export const DECK_STATE_VERSION = 8;
 /** The oldest reader that can still make sense of a current document. Held at
  * 1 deliberately: v1→v4, v6 and v7 were additive, and v5's `run` retirement
  * moves data an old reader wouldn't understand INTO keys it preserves as
@@ -119,6 +121,11 @@ function migrateDeckFromV6toV7(doc: RawDoc): RawDoc {
   return doc;
 }
 
+/** v7 → v8: `Pane.remoteEndpoint` added — additive, nothing to transform. */
+function migrateDeckFromV7toV8(doc: RawDoc): RawDoc {
+  return doc;
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
@@ -126,6 +133,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
   4: migrateDeckFromV4toV5,
   5: migrateDeckFromV5toV6,
   6: migrateDeckFromV6toV7,
+  7: migrateDeckFromV7toV8,
 };
 
 /**
@@ -145,6 +153,8 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *   9 — + defaultYolo: YOLO mode preselected wherever an agent is created.
  *  10 — + usageDisplay (used|left): which direction the usage chips'
  *       percentages run.
+ *  11 — + remoteAgents: the Experimental toggle for the remote
+ *       launch/connect surface (off by default).
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -152,7 +162,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 10;
+export const SETTINGS_VERSION = 11;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

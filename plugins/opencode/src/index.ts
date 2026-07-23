@@ -8,6 +8,7 @@
 import type {
   KeepDeckPlugin,
   PluginResources,
+  SpawnPlanInput,
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
@@ -45,6 +46,20 @@ const yoloArgs = (yolo: boolean | undefined): string[] =>
 const skillsEnvDefaults = (skills: SpawnSkillsInput | undefined): [string, string][] =>
   skills ? [["OPENCODE_CONFIG_DIR", skills.opencodeConfigDir]] : [];
 
+/** When the pane targets a remote opencode server, THIS process is the local
+ *  `opencode attach` thin client (the agent brain runs in `opencode serve` on
+ *  the box). Unlike codex's `--remote`, `attach` is a subcommand that REPLACES
+ *  the normal invocation — so remote resume/fork drop the local `-s`/`--fork`
+ *  (session continuity is the server's job) and just attach. Returns null when
+ *  the pane is local, so the hook falls through to its normal args. */
+const remoteAttachArgs = (
+  target: SpawnPlanInput["target"],
+  yolo: boolean | undefined,
+): string[] | null =>
+  target?.kind === "nativeServer"
+    ? ["attach", target.endpoint, ...yoloArgs(yolo)]
+    : null;
+
 const plugin: KeepDeckPlugin = {
   activate(ctx) {
     ctx.agents.register({
@@ -53,6 +68,12 @@ const plugin: KeepDeckPlugin = {
       icon,
       detect: { bin: "opencode" },
       supportsYolo: true,
+      // opencode has a native client/server split: the host can run this pane
+      // as a local `opencode attach <ep>` thin client against an `opencode
+      // serve` on a VPS. Declared as a capability so the host gates the remote
+      // UI on it (mirrors codex; claude/kimi don't declare it). opencode's
+      // serve speaks HTTP.
+      remote: { mode: "nativeServer", schemes: ["http", "https"] },
       history: opencodeHistory(ctx),
       // Pane usage from the injected reporter's `message.updated` envelopes.
       // No account windows — opencode exposes none (see [`normalizeOpencodeUsage`]).
@@ -64,11 +85,21 @@ const plugin: KeepDeckPlugin = {
         "spawn.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
+          const remote = remoteAttachArgs(input.target, input.yolo);
+          if (remote) {
+            output.args = remote;
+            return;
+          }
           output.args = yoloArgs(input.yolo);
         },
         "resume.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
+          const remote = remoteAttachArgs(input.target, input.yolo);
+          if (remote) {
+            output.args = remote;
+            return;
+          }
           output.args = [...yoloArgs(input.yolo), "-s", input.sessionId];
         },
         // Native `-s <id> --fork` re-homes the fork to the SOURCE session's
@@ -77,9 +108,16 @@ const plugin: KeepDeckPlugin = {
         // binding the new session's directory to the target. `relocatingForkId`
         // returns the relocated session's id, or null (native `--fork`
         // fallback) for a not-yet-provisioned worktree OR any recipe failure.
+        // Remote short-circuits all of this: attach to the server, where the
+        // fork runs server-side.
         "fork.plan": async (input, output) => {
           output.env.push(...(await reporterEnv(ctx.resources)));
           (output.envDefaults ??= []).push(...skillsEnvDefaults(input.skills));
+          const remote = remoteAttachArgs(input.target, input.yolo);
+          if (remote) {
+            output.args = remote;
+            return;
+          }
           const relocated = await relocatingForkId(ctx, input);
           output.args = relocated
             ? [...yoloArgs(input.yolo), "-s", relocated]

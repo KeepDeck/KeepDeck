@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentRemoteSchemes,
   agentSupportsYolo,
+  remoteValid,
   selectableAgents,
   defaultAgentType,
   type AgentInfo,
@@ -85,5 +87,53 @@ describe("agentSupportsYolo", () => {
     // An absent agent (plugin gone, catalog loading) must never arm YOLO.
     expect(agentSupportsYolo(list, "gemini")).toBe(false);
     expect(agentSupportsYolo([], "claude")).toBe(false);
+  });
+});
+
+describe("agentRemoteSchemes", () => {
+  const list = [
+    agent("codex", true, {
+      supportsRemote: true,
+      remoteSchemes: ["ws", "wss"],
+    }),
+    // Declares remote but with NO schemes — a malformed contribution. The
+    // selector returns null so the dialog's Where option hides (Create could
+    // never enable with no schemes to validate against).
+    agent("buggy", true, { supportsRemote: true, remoteSchemes: [] }),
+    agent("claude", true),
+  ];
+
+  it("returns the schemes for a remote agent, null for local/unknown", () => {
+    expect(agentRemoteSchemes(list, "codex")).toEqual(["ws", "wss"]);
+    expect(agentRemoteSchemes(list, "claude")).toBeNull();
+    expect(agentRemoteSchemes(list, "nope")).toBeNull();
+    expect(agentRemoteSchemes([], "codex")).toBeNull();
+  });
+
+  it("returns null for a remote declaration with empty schemes (fails safe)", () => {
+    expect(agentRemoteSchemes(list, "buggy")).toBeNull();
+  });
+});
+
+describe("remoteValid", () => {
+  const codex = ["ws", "wss"];
+  const opencode = ["http", "https"];
+
+  it("accepts a matching scheme with a host", () => {
+    expect(remoteValid("ws://vps:4500", codex)).toBe(true);
+    expect(remoteValid("http://vps:4096", opencode)).toBe(true);
+  });
+
+  it("rejects a scheme the agent does not speak", () => {
+    expect(remoteValid("http://vps:4096", codex)).toBe(false);
+    expect(remoteValid("ws://vps:4500", opencode)).toBe(false);
+    expect(remoteValid("ftp://vps", codex)).toBe(false);
+  });
+
+  it("rejects hostless / garbage / null-schemes", () => {
+    expect(remoteValid("ws://:4500", codex)).toBe(false);
+    expect(remoteValid("not a url", codex)).toBe(false);
+    expect(remoteValid("ws://vps:4500", null)).toBe(false);
+    expect(remoteValid("ws://vps:4500", [])).toBe(false);
   });
 });

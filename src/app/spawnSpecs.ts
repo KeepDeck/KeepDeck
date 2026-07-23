@@ -26,6 +26,16 @@ export type SpawnPluginAccess = Pick<
   "pluginHost" | "pluginRegistries"
 >;
 
+/** What `usePaneSpawnSpecs` hands back each render: every live pane's plan,
+ *  plus the panes whose last build FAILED (so the deck can show an error tile
+ *  with a retry). `failed` rides the same snapshot identity as `specs`, so a
+ *  failure re-renders consumers with the new set in hand — no render-time
+ *  side-channel into the module-level `failed` Set. */
+export interface SpawnSpecs {
+  specs: Record<string, SpawnPlan>;
+  failed: ReadonlySet<string>;
+}
+
 /**
  * Spawn plans, built through the cli plugins' hooks ([F7]/[F8] v2).
  *
@@ -49,6 +59,13 @@ const specs = new Map<string, SpawnPlan>();
  * first await, so the ordinary fresh-plan sweep cannot race it. */
 const pending = new Set<string>();
 
+/** Panes whose last plan build FAILED (a remote spawn.plan threw, which
+ * propagates instead of silently degrading to a local spawn). The deck shows
+ * an error tile rather than leaving the pane on "Waking up…" forever, and the
+ * sweep skips them so a persistent error doesn't loop. Cleared by an explicit
+ * retry (`clearPanePlanError`). */
+const failed = new Set<string>();
+
 /** Per-pane build generations make invalidation real: dropping a spec while
  * an async hook is running prevents that stale promise from installing its
  * result after a newer manual/fresh decision. */
@@ -71,9 +88,16 @@ async function buildAndCache(
     if (buildGenerations.get(paneId) !== generation) return false;
     pending.delete(paneId);
     specs.set(paneId, plan);
+    failed.delete(paneId);
     return true;
   } catch (error) {
-    if (buildGenerations.get(paneId) === generation) pending.delete(paneId);
+    if (buildGenerations.get(paneId) === generation) {
+      pending.delete(paneId);
+      // Record the failure so the deck can surface an error tile instead of
+      // hanging on "Waking up…" — a remote spawn that can't build its plan
+      // must not silently become a local one (the reason buildPlan rethrows).
+      failed.add(paneId);
+    }
     throw error;
   }
 }
@@ -133,6 +157,7 @@ async function buildPlan(
     ...(facts.branch ? { branch: facts.branch } : {}),
     ...(facts.yolo ? { yolo: true } : {}),
     ...(skills ? { skills } : {}),
+    ...(facts.target ? { target: facts.target } : {}),
   };
   try {
     if (variant.kind === "resume") {
@@ -154,7 +179,11 @@ async function buildPlan(
       await entry.hooks["spawn.plan"]?.(base, output);
     }
   } catch (e) {
-    if (variant.kind !== "spawn") throw e;
+    // Resume/fork already propagate; a spawn degrades to bare so the pane
+    // lives — UNLESS the pane is remote: a bare spawn would run the agent
+    // LOCALLY (silently dropping the endpoint), a wrong-target execution the
+    // user couldn't tell apart from a working remote pane. Surface it instead.
+    if (variant.kind !== "spawn" || facts.target) throw e;
     log.warn(
       "web:agents",
       `${entry.id} spawn.plan failed — bare spawn: ${describeError(e)}`,
@@ -248,6 +277,7 @@ export function resumeDiedSilently(
 export function dropPaneSpawnSpec(paneId: string): void {
   specs.delete(paneId);
   pending.delete(paneId);
+  failed.delete(paneId);
   buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
 }
 
@@ -321,7 +351,7 @@ export function usePaneSpawnSpecs(
   /** Any value whose change must re-run the build sweep — the respawn
    * path drops a plan from the module cache, which no other dep observes. */
   rebuildKey?: unknown,
-): Record<string, SpawnPlan> {
+): SpawnSpecs {
   const { plugins } = useAppRuntime();
   const contributions = useContributions(plugins.pluginRegistries.agents);
   // The cache version: bumped when a build lands, so the snapshot below
@@ -336,7 +366,8 @@ export function usePaneSpawnSpecs(
       const wsSkillRoots = skillRootsOf(ws);
       for (const pane of ws.panes) {
         if (pane.dormant || pane.provisioning) continue;
-        if (specs.has(pane.id) || pending.has(pane.id)) continue;
+        if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id))
+          continue;
         const agent = findAgent(plugins, paneAgentType(pane));
         if (!agent) continue; // the unavailable card blocks the terminal
         void buildAndCache(pane.id, () =>
@@ -350,6 +381,14 @@ export function usePaneSpawnSpecs(
               branch: pane.branch,
               yolo: pane.yolo,
               wsSkillRoots,
+              ...(pane.remoteEndpoint
+                ? {
+                    target: {
+                      kind: "nativeServer" as const,
+                      endpoint: pane.remoteEndpoint,
+                    },
+                  }
+                : {}),
             },
             ctx,
           ),
@@ -357,12 +396,17 @@ export function usePaneSpawnSpecs(
           .then((committed) => {
             if (committed && alive) setTick((t) => t + 1);
           })
-          .catch((error: unknown) =>
+          .catch((error: unknown) => {
             log.error(
               "web:agents",
               `${pane.id} plan build failed: ${describeError(error)}`,
-            ),
-          );
+            );
+            // A failed build recorded the pane in `failed`; bump the tick so
+            // the snapshot refreshes and DeckStage re-reads peekPanePlanError
+            // — without this the error tile never renders and the pane hangs
+            // on "Waking up…" until some unrelated re-render happens.
+            if (alive) setTick((t) => t + 1);
+          });
       }
     }
     return () => {
@@ -371,7 +415,9 @@ export function usePaneSpawnSpecs(
   }, [workspaces, ctx, agentsReady, contributions, rebuildKey, plugins]);
 
   // A fresh snapshot object per cache change — cheap (small maps), and lets
-  // consumers stay referentially honest.
+  // consumers stay referentially honest. `failed` rides the SAME snapshot so a
+  // failure re-renders consumers with the new set in hand (no render-time
+  // side-channel into the module-level `failed` Set).
   return useMemo(() => {
     const snapshot: Record<string, SpawnPlan> = {};
     for (const ws of workspaces) {
@@ -380,7 +426,7 @@ export function usePaneSpawnSpecs(
         if (spec) snapshot[pane.id] = spec;
       }
     }
-    return snapshot;
+    return { specs: snapshot, failed: new Set(failed) };
   }, [workspaces, tick, rebuildKey]);
 }
 
@@ -389,10 +435,26 @@ export function peekPaneSpawnSpec(paneId: string): SpawnPlan | undefined {
   return specs.get(paneId);
 }
 
+/** Whether this pane's last plan build FAILED (a remote spawn.plan threw).
+ *  The deck renders an error tile instead of "Waking up…" — the build won't
+ *  be retried until the user asks (`clearPanePlanError`). */
+export function peekPanePlanError(paneId: string): boolean {
+  return failed.has(paneId);
+}
+
+/** Clear a pane's failed-plan flag and invalidate any in-flight build so the
+ *  next sweep rebuilds it (the retry button on the error tile). */
+export function clearPanePlanError(paneId: string): void {
+  failed.delete(paneId);
+  pending.delete(paneId);
+  buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
+}
+
 /** Test isolation. */
 export function resetPaneSpawnSpecs(): void {
   specs.clear();
   pending.clear();
+  failed.clear();
   buildGenerations.clear();
 }
 

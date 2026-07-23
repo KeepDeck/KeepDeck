@@ -152,7 +152,7 @@ function App() {
   // spawns). Dormant panes get theirs at revive time.
   // Restart epochs force a full remount only after an explicit manual restart
   // (or the accepted boot-recovery exception) has retired the old PTY entry.
-  const specByPane = usePaneSpawnSpecs(
+  const { specs: specByPane, failed: failedPanes } = usePaneSpawnSpecs(
     deck.workspaces,
     spawnCtx,
     !agentsLoading,
@@ -767,6 +767,7 @@ function App() {
             onPaneTitle={deck.setPaneAutoTitle}
             dormantBlocked={revive.blocked}
             specByPane={specByPane}
+            failedPanes={failedPanes}
             onStartFresh={revive.startFresh}
             onRetryProvision={provisioning.retryPane}
             onAgentExited={(wsId, paneId, code) => {
@@ -787,6 +788,7 @@ function App() {
             }
             onRestartAgent={agentRestart.restart}
             restartEpochs={agentRestart.epochs}
+            onRetryPlanBuild={agentRestart.retryPlanBuild}
           />
 
           {showForm &&
@@ -823,6 +825,7 @@ function App() {
             <AgentDialog
               defaultAgentType={agentFlow.dialog.defaultAgentType}
               defaultYolo={agentFlow.dialog.defaultYolo}
+              remoteEnabled={agentFlow.dialog.remoteEnabled}
               repo={agentFlow.dialog.repo}
               suggestedPath={agentFlow.dialog.suggestedPath}
               suggestedBranch={agentFlow.dialog.suggestedBranch}

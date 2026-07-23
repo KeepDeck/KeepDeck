@@ -37,6 +37,40 @@ export interface AgentContribution {
   /** Read-only discovery over this agent's session store ([F8] browser).
    * Absent = the agent's sessions don't appear in the global search. */
   history?: AgentHistory;
+  /** Declares this agent can run against a REMOTE target, and how. Absent =
+   *  local-only: the agent never appears in the "Where" picker's remote
+   *  options, and a pane of this agent simply ignores any target. The host
+   *  gates the remote UI on this declaration (mirrors `supportsYolo`). */
+  remote?: AgentRemote;
+}
+
+/** Where a pane's agent should run. Absent = the pane's own machine (local),
+ *  the behavior every pane had before remote. The host sets this from the
+ *  pane's recorded target; a plugin's `spawn.plan` reads it to emit the
+ *  agent's remote-client argv. */
+export type SpawnTarget = {
+  kind: "nativeServer";
+  /** The agent-server endpoint the local thin-client attaches to (e.g.
+   *  `ws://127.0.0.1:4500` for codex app-server, reached over an SSH tunnel
+   *  the host owns). */
+  endpoint: string;
+};
+
+/** A URI scheme an agent's remote client speaks — constrains what endpoint a
+ *  user may pair with which agent (codex speaks ws/wss, opencode http/https). */
+export type RemoteScheme = "ws" | "wss" | "http" | "https";
+
+/** How an agent runs against a remote target. MVP: `nativeServer` — the agent
+ *  has its own client/server split; the host runs the LOCAL thin-client TUI
+ *  (a normal PTY pane) pointing at a remote server endpoint. The host owns
+ *  provisioning the server on the box and the tunnel; the plugin only fills
+ *  the client argv via `spawn.plan`. */
+export interface AgentRemote {
+  mode: "nativeServer";
+  /** URI schemes the agent's remote client speaks — the host validates a
+   *  pasted endpoint against these so a user can't pair the agent with a
+   *  scheme it can't use (and won't see a silent start→crash). */
+  schemes: readonly RemoteScheme[];
 }
 
 /** A brand mark as bare SVG path data — data, never markup, so a plugin
@@ -94,6 +128,10 @@ export interface SpawnPlanInput {
    * its CLI's way of loading them. Absent when there is nothing to inject,
    * and on hosts older than API 22. */
   skills?: SpawnSkillsInput;
+  /** Where the agent should run. Absent = local (and absent on hosts older
+   * than API 27); a supporting agent's `spawn.plan` reads `kind`/`endpoint`
+   * to emit its remote-client argv. A non-remote agent ignores it. */
+  target?: SpawnTarget;
 }
 
 /** One skills library rendered in each CLI's injection dialect — staged

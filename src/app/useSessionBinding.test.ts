@@ -43,12 +43,15 @@ describe("postbackAccepted", () => {
 });
 
 describe("useSessionBinding", () => {
+  // Defaulted to a no-op so the shared `let` is never undefined across the
+  // effect-flush race (a call before the handler registers is a silent no-op
+  // rather than a cryptic TypeError flake).
   let emit: (event: {
     paneId: string;
     sessionId: string;
     token: string;
     transcriptPath?: string;
-  }) => void;
+  }) => void = () => {};
 
   beforeEach(() => {
     bridge.beginPaneUsageSession.mockClear();
@@ -121,5 +124,33 @@ describe("useSessionBinding", () => {
     act(() => emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" }));
     expect(bridge.beginPaneUsageSession).not.toHaveBeenCalled();
     act(() => mounted.root.unmount());
+  });
+
+  it("does not bind a session for a REMOTE pane (fresh-session only)", async () => {
+    // A remote pane's local thin-client reporter fires too — but binding it
+    // would let a revive/restart resume LOCALLY against a VPS-only session id.
+    // The postback is still counted; only the binding is skipped.
+    const setPaneSession = vi.fn();
+    const deck = {
+      workspaces: [
+        {
+          id: "ws-1",
+          panes: [{ id: "pane-1", remoteEndpoint: "ws://vps:4500" }],
+        },
+      ],
+      setPaneSession,
+    } as unknown as Deck;
+    const Probe = () => {
+      useSessionBinding(deck);
+      return null;
+    };
+    const root = createRoot(document.getElementById("host")!);
+    await act(async () => root.render(createElement(Probe)));
+
+    act(() => emit({ paneId: "pane-1", sessionId: "ses-1", token: "tok" }));
+
+    expect(bridge.bumpPostback).toHaveBeenCalledWith("pane-1");
+    expect(setPaneSession).not.toHaveBeenCalled();
+    act(() => root.unmount());
   });
 });

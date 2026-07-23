@@ -52,7 +52,24 @@ describe("hydrateSettings", () => {
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
       notifications: { enabled: false, mode: "system", mutedPlugins: [] },
       usageDisplay: "left",
+      remoteAgents: false,
     });
+  });
+
+  it("reads remoteAgents and stays sparse when off", () => {
+    const on = hydrateSettings('{"remoteAgents":true}')!.settings;
+    expect(on.remoteAgents).toBe(true);
+    // Off is the default → never written.
+    const offJson = serializeSettings(
+      hydrateSettings('{"remoteAgents":false}')!,
+    );
+    expect(offJson).not.toContain("remoteAgents");
+  });
+
+  it("snaps a malformed remoteAgents back to the default (off)", () => {
+    expect(hydrateSettings('{"remoteAgents":"yes"}')!.settings.remoteAgents).toBe(false);
+    expect(hydrateSettings('{"remoteAgents":1}')!.settings.remoteAgents).toBe(false);
+    expect(hydrateSettings('{"remoteAgents":null}')!.settings.remoteAgents).toBe(false);
   });
 
   it("snaps a malformed usageDisplay back to the default", () => {

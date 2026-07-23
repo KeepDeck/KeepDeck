@@ -11,6 +11,7 @@ import {
   paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
+  paneIsRemoteFresh,
   partitionPanes,
   resolveFocus,
   type GitPosition,
@@ -90,6 +91,11 @@ interface DeckStageProps {
   /** Spawn plan per live pane — args + env carrying its session identity
    * ([F7]/[F8] v2: assigned id or armed reporter, resume recipe). */
   specByPane: Record<string, SpawnPlan>;
+  /** Panes whose spawn plan last failed to build — the deck shows them an
+   *  error tile (with retry) instead of "Waking up…". Surfaced through the
+   *  spawn-specs snapshot so a failure re-renders the deck with the set in
+   *  hand (no module-state side-channel). */
+  failedPanes: ReadonlySet<string>;
   /** Detach a blocked pane from its gone worktree and start it fresh. */
   onStartFresh(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
@@ -106,6 +112,9 @@ interface DeckStageProps {
   ): Promise<void>;
   /** Bumped after the old PTY entry is retired to remount the same pane. */
   restartEpochs: ReadonlyMap<string, number>;
+  /** Retry a pane whose spawn plan failed to build (no PTY was spawned) —
+   *  drops the failure and re-runs the build. */
+  onRetryPlanBuild(paneId: string): void;
 }
 
 /**
@@ -152,12 +161,14 @@ export function DeckStage({
   onPaneTitle,
   dormantBlocked,
   specByPane,
+  failedPanes,
   onStartFresh,
   onRetryProvision,
   onAgentExited,
   onAgentSpawnFailed,
   onRestartAgent,
   restartEpochs,
+  onRetryPlanBuild,
 }: DeckStageProps) {
   const isList = deckLayout === "list";
   // Minimizing is a grid-only affordance, and off entirely under `none`.
@@ -313,8 +324,18 @@ export function DeckStage({
               ? spec.command
               : (agentInfo?.command ?? agentType);
           const unavailableAgent = agentsReady && !agentInfo ? agentType : null;
+          const planError =
+            !spec &&
+            !pane.dormant &&
+            !pane.provisioning &&
+            !unavailableAgent &&
+            failedPanes.has(pane.id);
           const planPending =
-            !spec && !pane.dormant && !pane.provisioning && !unavailableAgent;
+            !spec &&
+            !pane.dormant &&
+            !pane.provisioning &&
+            !unavailableAgent &&
+            !planError;
           const displayTitle = titleOf(pane);
           const executionCwd = paneExecutionCwd(ws, pane);
           const badge = badgeOf(pane);
@@ -330,6 +351,8 @@ export function DeckStage({
               env={spec?.env}
               envDefaults={spec?.envDefaults}
               planPending={planPending}
+              planError={planError}
+              onRetryPlan={() => onRetryPlanBuild(pane.id)}
               cwd={executionCwd}
               gitBadge={badge}
               yolo={pane.yolo}
@@ -356,7 +379,7 @@ export function DeckStage({
               onSpawnFailed={(message) =>
                 onAgentSpawnFailed(ws.id, pane.id, message)
               }
-              canResume={!!pane.session?.id}
+              canResume={!paneIsRemoteFresh(pane) && !!pane.session?.id}
               onRestart={(mode) => onRestartAgent(ws.id, pane.id, mode)}
             />
           );

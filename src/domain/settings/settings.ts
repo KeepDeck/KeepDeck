@@ -113,6 +113,11 @@ export interface Settings {
   };
   /** How the usage chips present window percentages ("42%" vs "58% left"). */
   usageDisplay: UsageDisplay;
+  /** Remote agents experiment ([F6] → Experimental): when off, the "+ Agent"
+   *  dialog never offers "Where: Remote", even for agents that declare a
+   *  native-server target — the whole remote-launch/connect surface stays
+   *  hidden. Default off; opt-in only while the feature is experimental. */
+  remoteAgents: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -124,6 +129,7 @@ export const DEFAULT_SETTINGS: Settings = {
   plugins: { enabled: {}, values: {}, consented: {} },
   notifications: { enabled: true, mode: "system-and-app", mutedPlugins: [] },
   usageDisplay: "used",
+  remoteAgents: false,
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -294,6 +300,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   if (notifications) settings.notifications = notifications;
   if (USAGE_DISPLAYS.includes(doc.usageDisplay as UsageDisplay)) {
     settings.usageDisplay = doc.usageDisplay as UsageDisplay;
+  }
+  if (typeof doc.remoteAgents === "boolean") {
+    settings.remoteAgents = doc.remoteAgents;
   }
   const plugins = readPlugins(doc.plugins);
   // Only replace the default's object reference when there's genuinely

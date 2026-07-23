@@ -32,6 +32,7 @@ const state: DeckState = {
           cwd: "/repo/wt-3",
           branch: "kd/ws/3",
           autoTitle: "fixing auth",
+          remoteEndpoint: "ws://vps:4500",
           session: { id: "abc-123", boundAt: "2026-07-02T00:00:00Z" },
         },
         { id: "pane-7", agentType: "codex" },
@@ -66,6 +67,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     expect(pane.cwd).toBe("/repo/wt-3");
     expect(pane.branch).toBe("kd/ws/3");
     expect(pane.autoTitle).toBe("fixing auth");
+    expect(pane.remoteEndpoint).toBe("ws://vps:4500");
     expect(pane.session).toEqual({ id: "abc-123", boundAt: "2026-07-02T00:00:00Z" });
   });
 
@@ -182,6 +184,45 @@ describe("pane YOLO mode across a restart", () => {
       .replace('"yolo":true', '"yolo":"yes"');
     const [pane] = okDeck(json).state.workspaces[0].panes;
     expect(pane.yolo).toBeUndefined();
+  });
+});
+
+describe("pane remote endpoint across a restart", () => {
+  const remoteState: DeckState = {
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "a",
+        cwd: "/r",
+        worktreeBaseDir: null,
+        panes: [
+          { id: "pane-1", agentType: "codex", remoteEndpoint: "ws://vps:4500" },
+          { id: "pane-2", agentType: "claude" },
+        ],
+      },
+    ],
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  };
+
+  it("round-trips the endpoint and keeps a local pane sparse", () => {
+    const json = serializeDeck(remoteState);
+    // Exactly one pane carries the key on disk — undefined never lands.
+    expect(json.match(/"remoteEndpoint"/g)).toHaveLength(1);
+    const [remote, local] = okDeck(json).state.workspaces[0].panes;
+    expect(remote.remoteEndpoint).toBe("ws://vps:4500");
+    expect(local.remoteEndpoint).toBeUndefined();
+  });
+
+  it("drops a non-string endpoint to absent (tolerant read)", () => {
+    const json = serializeDeck(remoteState).replace(
+      '"remoteEndpoint":"ws://vps:4500"',
+      '"remoteEndpoint":123',
+    );
+    const [pane] = okDeck(json).state.workspaces[0].panes;
+    expect(pane.remoteEndpoint).toBeUndefined();
   });
 });
 

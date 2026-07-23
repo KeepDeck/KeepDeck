@@ -71,6 +71,11 @@ export interface Pane {
    * at creation from the dialog/form choice and persisted: a revive or resume
    * must come back in the mode the user created the pane with. */
   yolo?: boolean;
+  /** When set, the pane's agent runs against a REMOTE native-server endpoint
+   * (a local thin-client attached to a server on a VPS) instead of locally.
+   * Fixed at creation from the spawn dialog's "Where: Remote" choice and
+   * persisted — a revive/resume reconnects the client to the same endpoint. */
+  remoteEndpoint?: string;
   /** User-set display name; overrides everything ([F11] manual rename). */
   name?: string;
   /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
@@ -96,9 +101,21 @@ export function paneId(seq: number): string {
 }
 
 /** The agent a pane runs — panes minted before the field existed ran claude,
- * so the default is part of the persisted format, not a UI convenience. */
+ *  so the default is part of the persisted format, not a UI convenience. */
 export function paneAgentType(pane: Pane): AgentType {
   return pane.agentType ?? "claude";
+}
+
+/** A remote pane runs its agent against a VPS endpoint and is fresh-session
+ *  only — it has no local working directory to probe and must NEVER be handed
+ *  to a resume/restart/bind path, which would spawn locally and silently drop
+ *  the endpoint. The single predicate every consume site consults so the
+ *  invariant lives in one place (not copy-pasted at each call site). Truthy
+ *  (not `!== undefined`): an empty-string endpoint is a non-remote degenerate
+ *  case, matching spawnSpecs' own truthy target-builder and the inline checks
+ *  this centralized. */
+export function paneIsRemoteFresh(pane: Pane): boolean {
+  return !!pane.remoteEndpoint;
 }
 
 /**
