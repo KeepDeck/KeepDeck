@@ -267,6 +267,7 @@ export function resumeDiedSilently(
 export function dropPaneSpawnSpec(paneId: string): void {
   specs.delete(paneId);
   pending.delete(paneId);
+  failed.delete(paneId);
   buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
 }
 
@@ -385,12 +386,17 @@ export function usePaneSpawnSpecs(
           .then((committed) => {
             if (committed && alive) setTick((t) => t + 1);
           })
-          .catch((error: unknown) =>
+          .catch((error: unknown) => {
             log.error(
               "web:agents",
               `${pane.id} plan build failed: ${describeError(error)}`,
-            ),
-          );
+            );
+            // A failed build recorded the pane in `failed`; bump the tick so
+            // the snapshot refreshes and DeckStage re-reads peekPanePlanError
+            // — without this the error tile never renders and the pane hangs
+            // on "Waking up…" until some unrelated re-render happens.
+            if (alive) setTick((t) => t + 1);
+          });
       }
     }
     return () => {

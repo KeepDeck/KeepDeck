@@ -324,6 +324,44 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(peekPanePlanError("pane-1")).toBe(false);
   });
 
+  it("a failed build re-renders consumers (bumps the snapshot tick)", async () => {
+    // The .catch must bump the snapshot tick, else the memo never refreshes
+    // and DeckStage never re-reads peekPanePlanError — the pane would hang on
+    // "Waking up…" until some unrelated re-render (the bug r3 caught). A
+    // render-counting probe observes the re-render directly: with the fix the
+    // failed build triggers a second render; without it, renders stays at 1.
+    register({
+      ...adopting,
+      hooks: {
+        "spawn.plan": () => {
+          throw new Error("boom");
+        },
+      },
+    });
+    let renders = 0;
+    const CountProbe = ({ workspaces }: { workspaces: Workspace[] }) => {
+      usePaneSpawnSpecs(workspaces, ctx, true);
+      renders++;
+      return null;
+    };
+    await act(async () =>
+      root.render(
+        createElement(
+          AppRuntimeProvider,
+          { runtime },
+          createElement(CountProbe, {
+            workspaces: ws([
+              { id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
+            ]),
+          }),
+        ),
+      ),
+    );
+    await settle();
+    expect(renders).toBeGreaterThan(1);
+    expect(peekPanePlanError("pane-1")).toBe(true);
+  });
+
   it("an EXTERNAL plugin's off-capability command is clamped to its binary", async () => {
     // The hook picked a program its manifest never declared — a sandboxed
     // plugin must not choose the spawn target. Built-ins only warn.
