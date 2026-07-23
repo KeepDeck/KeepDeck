@@ -167,6 +167,30 @@ describe("useRevive — session policy", () => {
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
   });
 
+  it("a REMOTE pane wakes fresh — no directory probe, no resume", async () => {
+    // A remote pane runs against a VPS endpoint: it has no local dir to probe
+    // (so a gone workspace cwd never blocks it) and is fresh-session only, so
+    // even a stale `session` is ignored — never handed to the resume path
+    // (which would spawn locally and drop the endpoint).
+    ipc.probeWorktree.mockClear();
+    vi.mocked(buildResumeSpec).mockClear();
+    act(() =>
+      deck.hydrate(
+        restored({
+          agentType: "codex",
+          remoteEndpoint: "ws://vps:4500",
+          session: { id: "stale", boundAt: "t" },
+        }),
+      ),
+    );
+    await settle();
+
+    expect(pane().dormant).toBeUndefined(); // woken
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh, not resumed
+    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+    expect(ipc.probeWorktree).not.toHaveBeenCalled(); // no local dir to probe
+  });
+
   it("an agent no plugin provides stays dormant — and KEEPS its binding", async () => {
     // Waking would spawn the bare id as a command; the binding may resume
     // perfectly once the plugin is re-enabled. No wake, no probe.

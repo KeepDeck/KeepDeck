@@ -86,8 +86,13 @@ export function useRevive(
       // reads an agent's session store. An unbound pane starts FRESH:
       // matching the newest session in the directory would resume a FOREIGN
       // conversation whenever panes share a cwd (the default — a worktree
-      // is optional).
-      const sessionId = pane.session?.id ?? null;
+      // is optional). A REMOTE pane is always fresh-session: even if a stale
+      // binding clings to it, resuming would run locally and drop the
+      // endpoint (the binding layer prevents new ones; this is the
+      // consume-side guard).
+      const sessionId = pane.remoteEndpoint
+        ? null
+        : (pane.session?.id ?? null);
       log.info(
         "web:revive",
         `${pane.id} (${agentType}): ` +
@@ -135,8 +140,18 @@ export function useRevive(
       // "agent unavailable" card.
       const agentType = paneAgentType(pane);
       if (!agentsRef.current.some((a) => a.id === agentType)) continue;
-      const dir = pane.cwd ?? active.cwd;
       waking.current.add(pane.id);
+      // A remote pane's agent runs against a VPS endpoint — it has no local
+      // working directory to probe (so a gone workspace cwd never blocks it)
+      // and no recorded session to resume (fresh-session only). Wake it
+      // straight to a fresh remote plan built by the spawn-spec sweep.
+      if (pane.remoteEndpoint) {
+        void wake(pane, active.cwd).finally(() =>
+          waking.current.delete(pane.id),
+        );
+        continue;
+      }
+      const dir = pane.cwd ?? active.cwd;
       void probeWorktree(dir)
         .then((probe) => {
           if (probe.exists) return wake(pane, dir);
