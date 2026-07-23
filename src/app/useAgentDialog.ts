@@ -30,12 +30,12 @@ import type { ForkTarget } from "./useJournalFork";
  * injected by App with its error surfacing already attached, so confirm
  * stays synchronous here. */
 export interface AgentDialogJournalRouting {
-  resume(wsId: string, handle: SessionHandle, opts: { name?: string }): void;
+  resume(wsId: string, handle: SessionHandle, opts: { name?: string; yolo?: boolean }): void;
   fork(
     wsId: string,
     handle: SessionHandle,
     target: ForkTarget,
-    opts: { name?: string; branch?: string },
+    opts: { name?: string; branch?: string; yolo?: boolean },
   ): void;
 }
 
@@ -160,7 +160,10 @@ export function useAgentDialog(
     // where it was recorded.
     if (session && journal) {
       if (session.mode === "resume") {
-        journal.resume(dlg.workspace.id, session.handle, { name: paneName });
+        journal.resume(dlg.workspace.id, session.handle, {
+          name: paneName,
+          yolo,
+        });
         return;
       }
       const target: ForkTarget =
@@ -176,6 +179,7 @@ export function useAgentDialog(
             : { kind: "dir", cwd: ws.cwd };
       journal.fork(dlg.workspace.id, session.handle, target, {
         name: paneName,
+        yolo,
         ...(location.kind === "existing" &&
           location.branch && { branch: location.branch }),
       });

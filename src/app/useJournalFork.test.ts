@@ -242,4 +242,28 @@ describe("useJournalFork", () => {
     expect(deck.workspaces[0].panes).toHaveLength(0);
     expect(provisioning.runProvisioning).not.toHaveBeenCalled();
   });
+
+  it("a YOLO override arms the forked pane even when the source was plain", async () => {
+    await mount();
+    await act(async () =>
+      api.fork("ws-1", record(), { kind: "dir", cwd: "/x" }, { yolo: true }),
+    );
+    expect(deck.workspaces[0].panes[0].yolo).toBe(true);
+    // The override reaches the spawn plan's facts, not just the pane flag.
+    expect(plans.buildForkSpec.mock.calls[0][2]).toMatchObject({ yolo: true });
+  });
+
+  it("a YOLO override=false disarms a fork of a YOLO source session", async () => {
+    await mount();
+    await act(async () =>
+      api.fork(
+        "ws-1",
+        record({ yolo: true }),
+        { kind: "dir", cwd: "/x" },
+        { yolo: false },
+      ),
+    );
+    expect(deck.workspaces[0].panes[0].yolo).toBeUndefined();
+    expect(plans.buildForkSpec.mock.calls[0][2]).toMatchObject({ yolo: false });
+  });
 });

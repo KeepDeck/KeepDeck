@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo } from "../../domain/agents";
 import {
+  agentSupportsYolo,
   canCreateAgent,
   classifyLocation,
   type LocationKind,
@@ -9,23 +10,29 @@ import {
 } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
 import { baseName } from "../../domain/deck";
-import type { ForkTarget } from "../../app/useJournalFork";
+import type { ForkTarget, ForkTargetDialogResult } from "../../app/useJournalFork";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
+import { YoloField } from "../../ui/YoloField";
 import { noAutoCorrect } from "../../ui/inputProps";
+
+export type { ForkTargetDialogResult } from "../../app/useJournalFork";
 
 interface ForkTargetDialogProps {
   record: SessionHandle;
   agents: AgentInfo[];
   /** The workspace's own folder — the empty-path default target. */
   workspaceCwd: string;
+  /** The YOLO toggle's starting position (the global preference); shown
+   * only while the forked agent's plugin declares YOLO support. */
+  defaultYolo: boolean;
   /** Probe a candidate path for the live hint (injected, like AgentDialog). */
   probe(path: string): Promise<PathProbe | null>;
   /** Whether a deck pane already runs in / targets `path`. */
   occupancy(path: string): Occupancy;
   /** Native folder picker; `null` = cancelled. */
   pickFolder(title: string): Promise<string | null>;
-  onConfirm(target: ForkTarget): void;
+  onConfirm(result: ForkTargetDialogResult): void;
   onCancel(): void;
 }
 
@@ -37,6 +44,7 @@ export function ForkTargetDialog({
   record,
   agents,
   workspaceCwd,
+  defaultYolo,
   probe,
   occupancy,
   pickFolder,
@@ -45,6 +53,11 @@ export function ForkTargetDialog({
 }: ForkTargetDialogProps) {
   const [path, setPath] = useState("");
   const [branch, setBranch] = useState("");
+  // Seeded from defaultYolo at mount; the forked agent is fixed for this
+  // dialog's life, so supportsYolo never re-evaluates. Only the SUBMITTED
+  // value is capability-gated (see the onSubmit handler below).
+  const [yolo, setYolo] = useState(defaultYolo);
+  const supportsYolo = agentSupportsYolo(agents, record.agent);
   const [probed, setProbed] = useState<PathProbe | null>(null);
   const probeSeq = useRef(0);
   const trimmed = path.trim();
@@ -116,7 +129,7 @@ export function ForkTargetDialog({
         className="form"
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid) onConfirm(buildTarget());
+          if (valid) onConfirm({ target: buildTarget(), yolo: yolo && supportsYolo });
         }}
       >
         <h2 className="form__title">Fork session</h2>
@@ -169,6 +182,8 @@ export function ForkTargetDialog({
             />
           </>
         )}
+
+        {supportsYolo && <YoloField checked={yolo} onChange={setYolo} />}
 
         <div className="form__actions">
           <button type="button" className="form__cancel" onClick={onCancel}>

@@ -846,13 +846,14 @@ function App() {
               workspaceCwd={
                 findWorkspace(deck.workspaces, forkDialog.wsId)?.cwd ?? ""
               }
+              defaultYolo={settings.defaultYolo}
               probe={probeWorktree}
               occupancy={(path) => pathOccupancy(deck.workspaces, path)}
               pickFolder={pickFolder}
-              onConfirm={(target) => {
+              onConfirm={({ target, yolo }) => {
                 const { wsId, record } = forkDialog;
                 setForkDialog(null);
-                void journalFork.fork(wsId, record, target).catch((e: unknown) =>
+                void journalFork.fork(wsId, record, target, { yolo }).catch((e: unknown) =>
                   // Surgery failures carry precise store diagnostics — show
                   // them; a silently closing dialog reads as success.
                   setError((current) => current ?? {

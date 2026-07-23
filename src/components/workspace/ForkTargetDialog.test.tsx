@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ForkTargetDialog } from "./ForkTargetDialog";
 import type { AgentInfo, Occupancy, PathProbe } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
-import type { ForkTarget } from "../../app/useJournalFork";
+import type { ForkTarget, ForkTargetDialogResult } from "../../app/useJournalFork";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -85,13 +85,14 @@ describe("ForkTargetDialog", () => {
           record: RECORD,
           agents: AGENTS,
           workspaceCwd: WS_CWD,
+          defaultYolo: false,
           probe: (path: string) => {
             void path;
             return Promise.resolve(probeResult);
           },
           occupancy: () => occupied,
           pickFolder: () => Promise.resolve(null),
-          onConfirm: (target: ForkTarget) => confirmed.push(target),
+          onConfirm: ({ target }) => confirmed.push(target),
           onCancel: () => {},
         }),
       );
@@ -196,5 +197,106 @@ describe("ForkTargetDialog", () => {
     expect(forkBtn().disabled).toBe(true);
     submit();
     expect(confirmed).toEqual([]);
+  });
+});
+
+describe("ForkTargetDialog YOLO toggle", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let confirmed: ForkTargetDialogResult[];
+
+  // codex is the forked agent; flipping supportsYolo hides/shows the toggle.
+  let agents: AgentInfo[];
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+    confirmed = [];
+    agents = [{ id: "codex", label: "Codex", supportsYolo: true }] as unknown as AgentInfo[];
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  const mount = (defaultYolo: boolean) =>
+    act(() =>
+      root.render(
+        createElement(ForkTargetDialog, {
+          record: RECORD,
+          agents,
+          workspaceCwd: WS_CWD,
+          defaultYolo,
+          // An empty path is valid (the workspace folder) — enough to submit.
+          probe: () => Promise.resolve(MISSING),
+          occupancy: () => null,
+          pickFolder: () => Promise.resolve(null),
+          onConfirm: ({ target, yolo }) => confirmed.push({ target, yolo }),
+          onCancel: () => {},
+        }),
+      ),
+    );
+
+  const yoloCheckbox = () =>
+    document.querySelector<HTMLInputElement>(".form__yolo input");
+
+  it("renders — prefilled from the global default — when the agent supports it", () => {
+    mount(true);
+    expect(yoloCheckbox()).not.toBeNull();
+    expect(yoloCheckbox()!.checked).toBe(true);
+  });
+
+  it("is hidden for an agent whose plugin declares no YOLO support", () => {
+    agents = [{ id: "codex", label: "Codex", supportsYolo: false }] as unknown as AgentInfo[];
+    mount(true);
+    expect(yoloCheckbox()).toBeNull();
+  });
+
+  it("rides the resolved choice onto onConfirm, gated by capability", () => {
+    mount(false);
+    expect(yoloCheckbox()!.checked).toBe(false);
+
+    // Off → yolo false (the workspace-folder target is valid on an empty path).
+    submit();
+    expect(confirmed).toEqual([
+      { target: { kind: "dir", cwd: WS_CWD }, yolo: false },
+    ]);
+
+    // Flip on → yolo true reaches the caller.
+    click(yoloCheckbox()!);
+    submit();
+    expect(confirmed[1]).toEqual({
+      target: { kind: "dir", cwd: WS_CWD },
+      yolo: true,
+    });
+  });
+
+  it("never submits YOLO when the agent lacks support, even if the default was on", () => {
+    agents = [{ id: "codex", label: "Codex", supportsYolo: false }] as unknown as AgentInfo[];
+    mount(true);
+    submit();
+    // No toggle was shown, so onConfirm's yolo is forced false regardless of
+    // the prefilled default.
+    expect(confirmed[0].yolo).toBe(false);
+  });
+
+  it("rides the YOLO choice onto onConfirm for a worktree target too", async () => {
+    mount(true);
+    type(pathInput(), "/tmp/fork-area");
+    // Settle the debounced path probe (200ms) so the path resolves to a
+    // new-worktree target with the folder-name branch suggestion.
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(branchInput()!.value).toBe("fork-area");
+    expect(yoloCheckbox()!.checked).toBe(true); // prefilled from defaultYolo
+
+    submit();
+    expect(confirmed[0]).toEqual({
+      target: { kind: "worktree", path: "/tmp/fork-area", branch: "fork-area" },
+      yolo: true,
+    });
   });
 });

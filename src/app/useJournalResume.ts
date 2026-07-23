@@ -21,13 +21,15 @@ import { useLiveRefs } from "./useLiveRefs";
 
 export interface JournalResumeApi {
   /** Resume a journal record into a new pane of its workspace. Rejects when
-   * no plan could be prepared; a quiet no-op when the record's session is
-   * already running somewhere. `opts.name` names the pane (the spawn
-   * dialog's field — journal rows pass none). */
+    * no plan could be prepared; a quiet no-op when the record's session is
+    * already running somewhere. `opts.name` names the pane (the spawn
+    * dialog's field — journal rows pass none); `opts.yolo` overrides the
+    * resumed pane's YOLO mode (unset → inherit the source session's, as a
+    * bare browser resume with no toggle does). */
   resume(
     wsId: string,
     record: SessionHandle,
-    opts?: { name?: string },
+    opts?: { name?: string; yolo?: boolean },
   ): Promise<void>;
 }
 
@@ -53,13 +55,16 @@ export function useJournalResume(
   const resume = async (
     wsId: string,
     record: SessionHandle,
-    opts?: { name?: string },
+    opts?: { name?: string; yolo?: boolean },
   ): Promise<void> => {
     const spawnCtx = ctxRef.current;
     if (!spawnCtx) throw new Error("Agent spawn context is unavailable");
     const d = deckRef.current;
     const ws = findWorkspace(d.workspaces, wsId);
     if (!ws) return;
+    // An explicit override (a spawn dialog with a YOLO toggle) wins; bare
+    // browser resumes pass nothing and keep inheriting the source session's mode.
+    const yoloArmed = opts?.yolo ?? record.yolo;
     // A session runs in at most one pane, ever — if some pane (any
     // workspace) already holds this binding, there is nothing to do.
     const claimant = d.workspaces
@@ -89,7 +94,7 @@ export function useJournalResume(
           workspace: { id: ws.id, instance: ws.instance },
           cwd: record.cwd,
           branch: record.branch,
-          yolo: record.yolo,
+          yolo: yoloArmed,
           // The pane isn't in the deck yet, so its cwd can't come from
           // `skillRootsOf` — stage it explicitly.
           wsSkillRoots: [record.cwd],
@@ -136,7 +141,7 @@ export function useJournalResume(
         // exact shape the original pane had.
         ...(record.cwd !== wsNow.cwd && { cwd: record.cwd }),
         ...(record.branch !== undefined && { branch: record.branch }),
-        ...(record.yolo && { yolo: true }),
+        ...(yoloArmed && { yolo: true }),
         ...(name && { name }),
         session: { id: record.sessionId, boundAt: new Date().toISOString() },
       };

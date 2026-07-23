@@ -26,17 +26,28 @@ export type ForkTarget =
   | { kind: "dir"; cwd: string }
   | { kind: "worktree"; path: string; branch: string; base?: string };
 
+/** The ForkTargetDialog's confirm payload — the chosen landing target plus
+ * the resolved YOLO choice. Named so the dialog's output contract has one
+ * home, mirroring AgentDialogResult. */
+export interface ForkTargetDialogResult {
+  target: ForkTarget;
+  yolo: boolean;
+}
+
 export interface JournalForkApi {
   /** Fork a journal record into `target` as a new pane of the workspace.
-   * Rejects when no plan could be prepared (surgery failures included).
-   * `opts.name` names the pane; `opts.branch` stamps a dir-target pane's
-   * worktree branch (an attached existing worktree — the spawn dialog knows
-   * it, a journal fork doesn't). */
+    * Rejects when no plan could be prepared (surgery failures included).
+    * `opts.name` names the pane; `opts.branch` stamps a dir-target pane's
+    * worktree branch (an attached existing worktree — the spawn dialog knows
+    * it, a journal fork doesn't); `opts.yolo` overrides the forked pane's
+    * YOLO mode (unset → inherit the source session's — the fork dialog
+    * always supplies an explicit choice, so the fallback serves only direct
+    * callers). */
   fork(
     wsId: string,
     record: SessionHandle,
     target: ForkTarget,
-    opts?: { name?: string; branch?: string },
+    opts?: { name?: string; branch?: string; yolo?: boolean },
   ): Promise<void>;
 }
 
@@ -66,13 +77,16 @@ export function useJournalFork(
     wsId: string,
     record: SessionHandle,
     target: ForkTarget,
-    opts?: { name?: string; branch?: string },
+    opts?: { name?: string; branch?: string; yolo?: boolean },
   ): Promise<void> => {
     const spawnCtx = ctxRef.current;
     if (!spawnCtx) throw new Error("Agent spawn context is unavailable");
     const d = deckRef.current;
     const ws = findWorkspace(d.workspaces, wsId);
     if (!ws) return;
+    // An explicit override (a spawn dialog with a YOLO toggle) wins; bare
+    // browser forks pass nothing and keep inheriting the source session's mode.
+    const yoloArmed = opts?.yolo ?? record.yolo;
     // Double-click guard only — forking the same session repeatedly is
     // legitimate (each fork is a fresh copy), racing two at once is not.
     if (inFlight.current.has(record.sessionId)) return;
@@ -93,7 +107,7 @@ export function useJournalFork(
             paneId: pid,
             workspace: { id: ws.id, instance: ws.instance },
             cwd,
-            yolo: record.yolo,
+            yolo: yoloArmed,
             wsSkillRoots: [cwd],
           },
           spawnCtx,
@@ -137,7 +151,7 @@ export function useJournalFork(
           agentType: record.agent,
           ...(target.cwd !== wsNow.cwd && { cwd: target.cwd }),
           ...(opts?.branch && { branch: opts.branch }),
-          ...(record.yolo && { yolo: true }),
+          ...(yoloArmed && { yolo: true }),
           ...(name && { name }),
         });
         return;
@@ -162,7 +176,7 @@ export function useJournalFork(
       const pane: Pane = {
         id: pid,
         agentType: record.agent,
-        ...(record.yolo && { yolo: true }),
+        ...(yoloArmed && { yolo: true }),
         ...(name && { name }),
         provisioning: {
           repo: wsNow.cwd,
