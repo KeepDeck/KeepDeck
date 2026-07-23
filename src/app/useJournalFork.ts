@@ -10,6 +10,7 @@ import type { SessionHandle } from "../domain/journal";
 import { describeError, log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
 import { provisionInto, runProvisioning } from "./provisioning";
+import { removeWorktree } from "../ipc/worktree";
 import { buildForkSpec, dropPaneSpawnSpec } from "./spawnSpecs";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
@@ -74,47 +75,52 @@ export function useJournalFork(
     inFlight.current.add(record.sessionId);
     try {
       const pid = paneId(mintAgentSeqs(1));
-      const targetCwd = target.kind === "dir" ? target.cwd : target.path;
-      const built = await buildForkSpec(
-        plugins,
-        record.agent,
-        {
-          paneId: pid,
-          workspace: { id: ws.id, instance: ws.instance },
-          cwd: targetCwd,
-          yolo: record.yolo,
-          wsSkillRoots: [targetCwd],
-        },
-        spawnCtx,
-        {
-          sessionId: record.sessionId,
-          sourceCwd: record.cwd,
-          ...(record.transcriptPath !== undefined && {
-            transcriptPath: record.transcriptPath,
-          }),
-        },
-      );
-      if (!built) {
-        dropPaneSpawnSpec(pid);
-        throw new Error("Agent could not prepare a fork plan");
-      }
-      const wsNow = findWorkspaceByRef(deckRef.current.workspaces, {
-        id: ws.id,
-        instance: ws.instance,
-      });
-      if (!wsNow) {
-        dropPaneSpawnSpec(pid);
-        return;
-      }
-      // A full workspace would make addAgentPane a silent no-op — stranding
-      // the plan and, on the worktree path, provisioning an ownerless
-      // worktree on disk.
-      if (wsNow.panes.length >= MAX_PANES) {
-        dropPaneSpawnSpec(pid);
-        throw new Error("The workspace is full — close a pane first");
-      }
+      // The fork's plugin surgery, caching the fork plan for `pid`. Run against
+      // the directory the fork will live in — which for a NEW worktree does not
+      // exist until provisioning finishes, so that surgery is deferred to
+      // `onResolved` below (opencode's import binds the session's directory to
+      // this cwd, so it must be the CREATED worktree, not a path not yet there).
+      const forkSurgery = (cwd: string) =>
+        buildForkSpec(
+          plugins,
+          record.agent,
+          {
+            paneId: pid,
+            workspace: { id: ws.id, instance: ws.instance },
+            cwd,
+            yolo: record.yolo,
+            wsSkillRoots: [cwd],
+          },
+          spawnCtx,
+          {
+            sessionId: record.sessionId,
+            sourceCwd: record.cwd,
+            ...(record.transcriptPath !== undefined && {
+              transcriptPath: record.transcriptPath,
+            }),
+          },
+        );
+
       const name = opts?.name?.trim();
+
       if (target.kind === "dir") {
+        // The target already exists — run the surgery up front.
+        if (!(await forkSurgery(target.cwd))) {
+          dropPaneSpawnSpec(pid);
+          throw new Error("Agent could not prepare a fork plan");
+        }
+        const wsNow = findWorkspaceByRef(deckRef.current.workspaces, {
+          id: ws.id,
+          instance: ws.instance,
+        });
+        if (!wsNow) {
+          dropPaneSpawnSpec(pid);
+          return;
+        }
+        if (wsNow.panes.length >= MAX_PANES) {
+          dropPaneSpawnSpec(pid);
+          throw new Error("The workspace is full — close a pane first");
+        }
         deckRef.current.addAgentPane(wsNow.id, {
           id: pid,
           agentType: record.agent,
@@ -125,9 +131,20 @@ export function useJournalFork(
         });
         return;
       }
-      // New worktree: the pane joins as a provisioning card; the background
-      // create resolves it (or flips it to the failed card with Retry), and
-      // only then does the terminal spawn with the cached fork plan.
+
+      // New worktree. The pane lands as a provisioning card; the background
+      // create resolves it, and only THEN — with the worktree on disk — does
+      // the surgery run (from the created worktree), cache its fork plan, and
+      // resolve the card, which spawns the terminal with that plan. A surgery
+      // failure rolls the worktree back and flips the card to the failed state.
+      const wsNow = findWorkspaceByRef(deckRef.current.workspaces, {
+        id: ws.id,
+        instance: ws.instance,
+      });
+      if (!wsNow) return;
+      if (wsNow.panes.length >= MAX_PANES) {
+        throw new Error("The workspace is full — close a pane first");
+      }
       const pane: Pane = {
         id: pid,
         agentType: record.agent,
@@ -143,7 +160,40 @@ export function useJournalFork(
         },
       };
       deckRef.current.addAgentPane(wsNow.id, pane);
-      void runProvisioning([pane], provisionInto(deckRef.current, wsNow.id));
+      const sinks = provisionInto(deckRef.current, wsNow.id);
+      void runProvisioning([pane], {
+        ...sinks,
+        onResolved: async (paneId, worktree) => {
+          let built = false;
+          try {
+            built = await forkSurgery(worktree.cwd);
+          } catch (e) {
+            log.warn(
+              "web:journal",
+              `fork surgery after provisioning failed for ${paneId}: ${describeError(e)}`,
+            );
+          }
+          if (!built) {
+            dropPaneSpawnSpec(paneId);
+            // Roll the just-created worktree back (Retry re-creates cleanly)
+            // and surface the failure on the card, rather than spawning a
+            // non-fork pane in it.
+            await removeWorktree(wsNow.cwd, worktree.cwd, {
+              force: true,
+              branch: worktree.branch,
+            }).catch((err) =>
+              log.warn(
+                "web:journal",
+                `fork rollback failed for ${worktree.cwd}: ${describeError(err)}`,
+              ),
+            );
+            sinks.onFailed(paneId, "Fork could not be prepared");
+            return;
+          }
+          // Fork plan cached — resolving spawns the terminal with it.
+          sinks.onResolved(paneId, worktree);
+        },
+      });
     } catch (error) {
       log.warn(
         "web:journal",

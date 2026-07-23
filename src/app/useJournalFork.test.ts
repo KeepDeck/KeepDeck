@@ -29,10 +29,19 @@ vi.mock("./runtimeContext", () => ({
 }));
 
 const provisioning = vi.hoisted(() => ({
-  provisionInto: vi.fn(() => ({}) as never),
+  provisionInto: vi.fn(() => ({
+    onResolved: vi.fn(),
+    onFailed: vi.fn(),
+    onSetup: vi.fn(),
+  })),
   runProvisioning: vi.fn((..._args: unknown[]) => Promise.resolve()),
 }));
 vi.mock("./provisioning", () => provisioning);
+
+const worktreeIpc = vi.hoisted(() => ({
+  removeWorktree: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("../ipc/worktree", () => worktreeIpc);
 
 const CTX = { bridgeDir: "/bridge" };
 
@@ -63,7 +72,10 @@ describe("useJournalFork", () => {
   beforeEach(() => {
     plans.buildForkSpec.mockClear();
     plans.buildForkSpec.mockResolvedValue(true);
+    plans.dropPaneSpawnSpec.mockClear();
     provisioning.runProvisioning.mockClear();
+    provisioning.provisionInto.mockClear();
+    worktreeIpc.removeWorktree.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -108,7 +120,7 @@ describe("useJournalFork", () => {
     expect(deck.workspaces[0].panes[0].cwd).toBeUndefined();
   });
 
-  it("worktree target: provisioning card first, background create kicked off", async () => {
+  it("worktree target: card first, surgery DEFERRED to resolve, then the pane spawns", async () => {
     await mount();
     await act(async () =>
       api.fork("ws-1", record({ yolo: true }), {
@@ -125,12 +137,60 @@ describe("useJournalFork", () => {
       branch: "fork/auth",
     });
     expect(pane.yolo).toBe(true);
-    // The plan was built for the worktree's path BEFORE provisioning ran.
-    expect(plans.buildForkSpec.mock.calls[0][2]).toMatchObject({
-      cwd: "/repo-wt/fork-1",
-    });
+    // Surgery is NOT run up front — the worktree does not exist yet.
+    expect(plans.buildForkSpec).not.toHaveBeenCalled();
     expect(provisioning.runProvisioning).toHaveBeenCalledTimes(1);
     expect(provisioning.runProvisioning.mock.calls[0][0]).toEqual([pane]);
+
+    // Simulate the background create landing the worktree.
+    const cbs = provisioning.runProvisioning.mock.calls[0][1] as {
+      onResolved: (id: string, wt: { cwd: string; branch: string }) => Promise<void>;
+    };
+    const sinks = provisioning.provisionInto.mock.results[0]!.value as {
+      onResolved: ReturnType<typeof vi.fn>;
+    };
+    await act(async () =>
+      cbs.onResolved(pane.id, { cwd: "/repo-wt/fork-1", branch: "fork/auth" }),
+    );
+
+    // NOW the surgery runs, bound to the CREATED worktree, then the card resolves
+    // (which spawns the terminal with the just-cached fork plan).
+    expect(plans.buildForkSpec.mock.calls[0][2]).toMatchObject({
+      paneId: pane.id,
+      cwd: "/repo-wt/fork-1",
+    });
+    expect(sinks.onResolved).toHaveBeenCalledWith(pane.id, {
+      cwd: "/repo-wt/fork-1",
+      branch: "fork/auth",
+    });
+    expect(worktreeIpc.removeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("worktree target: a surgery failure on resolve rolls the worktree back and fails the card", async () => {
+    await mount();
+    await act(async () =>
+      api.fork("ws-1", record(), { kind: "worktree", path: "/repo-wt/f", branch: "fork/x" }),
+    );
+    const pane = deck.workspaces[0].panes[0];
+    const cbs = provisioning.runProvisioning.mock.calls[0][1] as {
+      onResolved: (id: string, wt: { cwd: string; branch: string }) => Promise<void>;
+    };
+    const sinks = provisioning.provisionInto.mock.results[0]!.value as {
+      onResolved: ReturnType<typeof vi.fn>;
+      onFailed: ReturnType<typeof vi.fn>;
+    };
+    plans.buildForkSpec.mockResolvedValueOnce(false);
+    await act(async () =>
+      cbs.onResolved(pane.id, { cwd: "/repo-wt/f", branch: "fork/x" }),
+    );
+
+    expect(plans.dropPaneSpawnSpec).toHaveBeenCalledWith(pane.id);
+    expect(worktreeIpc.removeWorktree).toHaveBeenCalledWith("/repo", "/repo-wt/f", {
+      force: true,
+      branch: "fork/x",
+    });
+    expect(sinks.onFailed).toHaveBeenCalledWith(pane.id, "Fork could not be prepared");
+    expect(sinks.onResolved).not.toHaveBeenCalled(); // never spawns a non-fork pane
   });
 
   it("a full workspace fails loudly — no stranded plan, no ownerless worktree", async () => {
