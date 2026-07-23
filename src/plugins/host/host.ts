@@ -42,6 +42,11 @@ interface HostEntry {
    * concurrent second `activate` from double-loading, and lets the commit
    * point detect a mid-flight disable. */
   activating: boolean;
+  /** Bumped by every setEnabled that passes the no-op guard. An enable
+   * suspended in `refreshAgentBins` compares its generation after the await:
+   * any gesture that landed meanwhile (another enable, a disable, or the
+   * entry being replaced) supersedes it — the LATEST gesture always wins. */
+  setEnabledSeq: number;
 }
 
 /**
@@ -97,6 +102,7 @@ export class PluginHost {
       plugin: null,
       disposeAll: null,
       activating: false,
+      setEnabledSeq: 0,
     });
     this.notify();
   }
@@ -226,16 +232,23 @@ export class PluginHost {
     if (!entry) return;
     const currentlyEnabled = entry.status.kind !== "disabled";
     if (currentlyEnabled === enabled) return;
+    // A gesture starts here; anything that lands while an enable is suspended
+    // in the refresh bumps the generation and supersedes it.
+    const seq = ++entry.setEnabledSeq;
 
     if (enabled) {
       // Fresh detection before the gate, so "installed the CLI, then flipped
       // the toggle" activates without an app restart.
       const bins = declaredAgentBins(entry.manifest);
       if (bins.length > 0) await this.deps.refreshAgentBins?.(bins);
-      // Re-check after the await: while suspended, a concurrent enable may
-      // have owned the flip and activated already — proceeding would clobber
-      // its `active` back to `registered` and double-register everything.
-      if (entry.status.kind !== "disabled") return;
+      // Superseded while suspended? A status check is the WRONG primitive
+      // here — `disabled` can mean "nothing happened" or "a full enable then
+      // the user's disable happened", and only the generation tells them
+      // apart. The entry identity catches a mid-refresh uninstall: persisting
+      // an enable for a removed plugin would resurrect it on reinstall.
+      if (entry.setEnabledSeq !== seq || this.entries.get(id) !== entry) {
+        return;
+      }
       entry.status = { kind: "registered" };
       this.deps.onEnabledChanged?.(id, true);
       this.notify();
