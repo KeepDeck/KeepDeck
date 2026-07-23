@@ -620,6 +620,33 @@ describe("agent availability gate", () => {
     expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
     expect(registries.agents.list()).toHaveLength(1);
   });
+
+  it("activateAll revives an unavailable plugin once its bin appears (the rescan path)", async () => {
+    const { deps, registries, host } = gateHarness();
+    let installed = false;
+    deps.isAgentBinInstalled = vi.fn(() => installed);
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+    await host.activateAll();
+    expect(statusOf(host, "keepdeck.kimi")?.kind).toBe("unavailable");
+
+    installed = true; // the CLI appeared; a rescan re-detects and re-activates
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
+
+  it("stays permissive when the host wires no availability dep at all", async () => {
+    const { registries, host } = gateHarness(); // no isAgentBinInstalled set
+    const { install } = cliSetup("keepdeck.kimi", "kimi");
+    host.install(install, "builtin");
+
+    await host.activateAll();
+
+    expect(statusOf(host, "keepdeck.kimi")).toEqual({ kind: "active" });
+    expect(registries.agents.list()).toHaveLength(1);
+  });
 });
 
 

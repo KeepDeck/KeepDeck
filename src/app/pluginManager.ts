@@ -726,12 +726,15 @@ export function createPluginManager(appDownloads: DownloadManager) {
    * nothing, so it never churns the UI. Built-ins are untouched.
    */
   async function rescanPlugins(): Promise<void> {
-    if (await syncExternalPlugins()) {
-      // Newly installed agent plugins need their bins detected before the
-      // activation gate reads them (unknown bins are permissive by default).
-      await detectAndCacheBins(declaredBinsOfInstalled());
-      await pluginHost.activateAll();
-    }
+    await syncExternalPlugins();
+    // Rescan is the user's manual retry gesture, so it always re-detects and
+    // re-activates — even when the plugins folder didn't change. The common
+    // case is a built-in agent plugin stuck `unavailable` because its CLI was
+    // missing at boot and has just been installed; gating this on a folder
+    // diff would leave it unavailable with no feedback. `activate` is
+    // idempotent for active/disabled plugins, so this touches nothing live.
+    await detectAndCacheBins(declaredBinsOfInstalled());
+    await pluginHost.activateAll();
   }
 
   /** Restart one installed plugin (Settings → a plugin's page, or the failure
@@ -747,8 +750,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
   /**
    * Reconcile installed external plugins to the scan by DIFF — uninstall the
    * gone, install the new, reload only those whose manifest changed, and touch
-   * nothing else. Returns whether anything changed (so the caller can skip a
-   * needless `activateAll`). Idempotent; both boot and Rescan call it.
+   * nothing else. Idempotent; both boot and Rescan call it.
    *
    * A dev plugin whose CODE changed but whose manifest didn't is deliberately
    * not reloaded here (the signature is the manifest) — use its Restart for
