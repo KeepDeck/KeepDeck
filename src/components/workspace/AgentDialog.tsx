@@ -330,7 +330,7 @@ export function AgentDialog({
   // non-remote agent silently drops it (the Where section hides), and the
   // submitted value is gated here so an unsupported agent never gets a target.
   const remote = where === "remote" && canRemote;
-  const endpointOk = /^wss?:\/\/\S+$/.test(endpoint.trim());
+  const endpointOk = /^(wss?|https?):\/\/\S+$/.test(endpoint.trim());
   const occupancy = repo && path.trim() ? occupancyAt(path) : null;
   const kind = repo
     ? classifyLocation(path, probe, occupancy, attachAnyway)
@@ -479,12 +479,12 @@ export function AgentDialog({
                   className="form__input"
                   value={endpoint}
                   onChange={(e) => setEndpoint(e.target.value)}
-                  placeholder="ws://host:4500 — a running agent server"
+                  placeholder="ws:// or http:// — a running agent server"
                   aria-label="Remote agent server endpoint"
                 />
                 {!endpointOk && endpoint.length > 0 && (
                   <span className="form__error">
-                    Enter a ws:// or wss:// endpoint
+                    Enter a ws:// or http:// endpoint
                   </span>
                 )}
               </>
