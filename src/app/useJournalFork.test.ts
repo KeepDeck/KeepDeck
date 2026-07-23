@@ -171,6 +171,22 @@ describe("useJournalFork", () => {
     );
   });
 
+  it("worktree target: the step propagates the plugin's OWN diagnostic when surgery REJECTS", async () => {
+    await mount();
+    plans.buildForkSpec.mockRejectedValue(new Error("opencode fork: unexpected id layout"));
+    await act(async () =>
+      api.fork("ws-1", record(), { kind: "worktree", path: "/repo-wt/f", branch: "fork/x" }),
+    );
+    const step = provisioning.registerPostProvision.mock.calls[0][1] as (
+      wt: { cwd: string; branch: string },
+    ) => Promise<void>;
+    // A rejecting surgery propagates through the step (no masking try/catch), so
+    // provisionPane surfaces the precise message, not the generic false one.
+    await expect(step({ cwd: "/repo-wt/f", branch: "fork/x" })).rejects.toThrow(
+      "unexpected id layout",
+    );
+  });
+
   it("a full workspace fails loudly — no stranded plan, no ownerless worktree", async () => {
     await mount();
     act(() => {

@@ -204,14 +204,19 @@ export async function relocatingForkId(
         e instanceof Error ? e.message : String(e)
       }`,
     );
-    ctx.notify({
-      // The host prefixes the plugin name ("OpenCode · …"), so the title omits it.
-      title: "Fork opened in the original directory",
-      body: "Couldn't relocate the forked session to the chosen folder — it continues where the source ran.",
-      severity: "warning",
-      workspace: input.workspace,
-      tag: `fork-relocate-${input.paneId}`,
-    });
+    try {
+      ctx.notify({
+        // Host prefixes the plugin name ("OpenCode · …"), so the title omits it.
+        title: "Fork opened in the original directory",
+        body: "Couldn't relocate the forked session to the chosen folder — it continues where the source ran.",
+        severity: "warning",
+        workspace: input.workspace,
+        tag: `fork-relocate-${input.paneId}`,
+      });
+    } catch {
+      // Best-effort: a notify failure must not turn the benign native fallback
+      // into a thrown fork.plan (relocatingForkId's "never throws" contract).
+    }
     return null;
   }
 }

@@ -91,23 +91,30 @@ export function serializeDeck(
       // Sparse: an empty bag (the last slot just got deleted) never hits disk.
       ...(ws.plugins !== undefined &&
         Object.keys(ws.plugins).length > 0 && { plugins: ws.plugins }),
-      panes: ws.panes.map((p) => ({
-        ...p.extras,
-        id: p.id,
-        ...(p.agentType !== undefined && { agentType: p.agentType }),
-        // Sparse like setup: only the armed mode hits disk.
-        ...(p.yolo === true && { yolo: true }),
-        ...(p.cwd !== undefined && { cwd: p.cwd }),
-        ...(p.branch !== undefined && { branch: p.branch }),
-        ...(p.name !== undefined && { name: p.name }),
-        ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
-        ...(p.session !== undefined && { session: p.session }),
-        // The intent only: error and phase are runtime state, and hydration
-        // stamps its own error ("interrupted") on whatever comes back.
-        ...(p.provisioning !== undefined && {
-          provisioning: stripRuntime(p.provisioning),
-        }),
-      })),
+      // A fork's provisioning card is dropped while still in flight: its store
+      // surgery is an in-memory post-provision step that can't survive a
+      // restart, so restoring the card would Retry into a non-fork pane (the
+      // fork silently lost). The user re-forks from the journal; a RESOLVED
+      // fork pane has no `provisioning` and persists normally.
+      panes: ws.panes
+        .filter((p) => !p.provisioning?.fork)
+        .map((p) => ({
+          ...p.extras,
+          id: p.id,
+          ...(p.agentType !== undefined && { agentType: p.agentType }),
+          // Sparse like setup: only the armed mode hits disk.
+          ...(p.yolo === true && { yolo: true }),
+          ...(p.cwd !== undefined && { cwd: p.cwd }),
+          ...(p.branch !== undefined && { branch: p.branch }),
+          ...(p.name !== undefined && { name: p.name }),
+          ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
+          ...(p.session !== undefined && { session: p.session }),
+          // The intent only: error and phase are runtime state, and hydration
+          // stamps its own error ("interrupted") on whatever comes back.
+          ...(p.provisioning !== undefined && {
+            provisioning: stripRuntime(p.provisioning),
+          }),
+        })),
     })),
   };
   return JSON.stringify(persisted);

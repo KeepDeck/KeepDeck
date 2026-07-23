@@ -108,6 +108,12 @@ export function useJournalFork(
       const name = opts?.name?.trim();
 
       if (target.kind === "dir") {
+        // Bail BEFORE the irreversible surgery (export→rekey→import) if the
+        // workspace is already full — else it creates an orphan clone, then
+        // throws. (The post-surgery re-check below still guards the async gap.)
+        if (ws.panes.length >= MAX_PANES) {
+          throw new Error("The workspace is full — close a pane first");
+        }
         // The target already exists — run the surgery up front.
         if (!(await forkSurgery(target.cwd))) {
           dropPaneSpawnSpec(pid);
@@ -164,6 +170,10 @@ export function useJournalFork(
           ...(target.base !== undefined && { base: target.base }),
           workspace: wsNow.name,
           index: wsNow.panes.length + 1,
+          // Marks this card a FORK: its surgery is an in-memory post-provision
+          // step, so a restart-interrupted fork card must NOT restore as a
+          // plain retryable card (it would Retry into a non-fork pane).
+          fork: true,
         },
       };
       // Throwing (via forkSurgery's !built guard) makes provisionPane treat it

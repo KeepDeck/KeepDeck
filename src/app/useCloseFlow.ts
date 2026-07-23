@@ -10,6 +10,7 @@ import { discardWorktrees } from "./provisioning";
 import { closePanes } from "./ptyManager";
 import { dropPaneSpawnSpec } from "./spawnSpecs";
 import { clearPaneUsage } from "./usageManager";
+import { clearPostProvision } from "./provisioning";
 import type { Deck } from "./useDeck";
 
 /** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
@@ -125,6 +126,9 @@ export function useCloseFlow(
       // neither an in-flight reporter nor a reused pane id may write again.
       dropPaneSpawnSpec(paneId);
       clearPaneUsage(paneId);
+      // A fork card abandoned instead of retried leaves its post-provision
+      // step registered (kept across failure for Retry) — drop it on close.
+      clearPostProvision(paneId);
     }
     if (closing.kind === "agent") deck.closeAgent(closing.wsId, closing.paneId);
     else deck.closeWorkspace(closing.id);

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneSink } from "./ptyManager";
 
 const worktree = vi.hoisted(() => ({
@@ -256,6 +256,8 @@ describe("runProvisioning with a post-provision step", () => {
     worktree.createWorktree.mockResolvedValue({ path: "/wt/pane-1", branch: "kd/ws/1" });
     worktree.removeWorktree.mockResolvedValue(undefined);
   });
+  // A step KEPT across a failure (the last test) must not leak into other blocks.
+  afterEach(() => clearPostProvision("pane-1"));
 
   it("runs the registered step bound to the CREATED worktree, then resolves", async () => {
     const step = vi.fn(async () => {});
@@ -306,6 +308,16 @@ describe("runProvisioning with a post-provision step", () => {
     await runProvisioning(oneCard(), { onResolved, onFailed }); // Retry re-provisions
     expect(step).toHaveBeenCalledTimes(2); // re-run, not skipped
     expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
+  });
+
+  it("consumes (deletes) the step on success — a later re-provision won't re-run it", async () => {
+    const step = vi.fn(async () => {});
+    registerPostProvision("pane-1", step);
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed: vi.fn() });
+    expect(step).toHaveBeenCalledTimes(1);
+    // A second provision of the same pane finds NO step → plain resolve, not re-run.
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed: vi.fn() });
+    expect(step).toHaveBeenCalledTimes(1); // consumed on success, not 2
   });
 
   it("a plain (non-fork) pane with no registered step resolves untouched", async () => {
