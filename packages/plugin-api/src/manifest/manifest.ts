@@ -295,6 +295,12 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
       case "notifications":
         out.push({ kind: "notifications" });
         return;
+      case "clipboardWrite":
+        out.push({ kind: "clipboardWrite" });
+        return;
+      case "clipboardRead":
+        out.push({ kind: "clipboardRead" });
+        return;
       case "commands":
         if (!isStringArray(cap.execute) || cap.execute.length === 0)
           errors.push(`${at}: commands needs a non-empty "execute" string array`);

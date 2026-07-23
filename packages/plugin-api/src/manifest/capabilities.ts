@@ -60,7 +60,19 @@ export type Capability =
    * — including OS banners, per the user's delivery settings. The host
    * attributes every entry with the plugin's name and rate-limits the flow;
    * the user can mute one plugin without disabling it. */
-  | { kind: "notifications" };
+  | { kind: "notifications" }
+  /** Write text to the OS clipboard (`ctx.services.clipboard.writeText`) over
+   * the host's single native path — outward only, like a copy. Split from
+   * `clipboardRead` so consent is granular: a copy-only plugin never gets the
+   * more sensitive read (mirrors the `fs` / `fsWrite` split). */
+  | { kind: "clipboardWrite" }
+  /** Read the OS clipboard's text (`ctx.services.clipboard.readText`) — a
+   * SENSITIVE capability: the clipboard holds arbitrary user data (passwords,
+   * secrets), so a plugin that reads it can exfiltrate. Deliberately separate
+   * from `clipboardWrite` so a plugin declares exactly the direction it needs;
+   * the host's own panes follow the same stance (a pane must NOT read the
+   * clipboard). */
+  | { kind: "clipboardRead" };
 
 /** All manifest-legal capability kinds — the validator's source of truth. */
 export const CAPABILITY_KINDS = [
@@ -76,4 +88,6 @@ export const CAPABILITY_KINDS = [
   "commands",
   "mic",
   "notifications",
+  "clipboardWrite",
+  "clipboardRead",
 ] as const;
