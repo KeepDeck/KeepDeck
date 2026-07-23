@@ -337,9 +337,31 @@ describe("useAgentDialog start-from routing", () => {
     );
     expect(journal.resume).toHaveBeenCalledExactlyOnceWith("ws-1", handle, {
       name: "api",
+      yolo: false,
     });
     expect(journal.fork).not.toHaveBeenCalled();
     expect(addAgentPane).not.toHaveBeenCalled(); // the flow owns the pane
+  });
+
+  it("resume routes the YOLO choice to the journal flow", async () => {
+    const ws = workspace({});
+    await mountAndOpen(ws);
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        // Resume ignores the location; only yolo + the handle ride.
+        location: { kind: "main" },
+        yolo: true,
+        session: { mode: "resume", handle },
+      }),
+    );
+    // The dialog already gates yolo on supportsYolo; confirm forwards the
+    // resolved boolean verbatim — no re-gating in the handoff.
+    expect(journal.resume).toHaveBeenLastCalledWith("ws-1", handle, {
+      name: undefined,
+      yolo: true,
+    });
   });
 
   it("fork maps every location kind onto its ForkTarget", async () => {

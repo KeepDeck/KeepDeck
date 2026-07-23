@@ -197,4 +197,21 @@ describe("useJournalResume", () => {
     expect(deck.workspaces).toHaveLength(0);
     expect(plans.specs.size).toBe(0); // the orphaned plan was dropped
   });
+
+  it("a YOLO override arms the resumed pane even when the source was plain", async () => {
+    await mount();
+    await act(async () =>
+      api.resume("ws-1", record({ yolo: false }), { yolo: true }),
+    );
+    expect(deck.workspaces[0].panes[0].yolo).toBe(true);
+    // The override reaches the spawn plan's facts, not just the pane flag.
+    expect(plans.buildResumeSpec.mock.calls[0][2]).toMatchObject({ yolo: true });
+  });
+
+  it("a YOLO override=false disarms a resume of a YOLO source session", async () => {
+    await mount();
+    await act(async () => api.resume("ws-1", record({ yolo: true }), { yolo: false }));
+    expect(deck.workspaces[0].panes[0].yolo).toBeUndefined();
+    expect(plans.buildResumeSpec.mock.calls[0][2]).toMatchObject({ yolo: false });
+  });
 });
