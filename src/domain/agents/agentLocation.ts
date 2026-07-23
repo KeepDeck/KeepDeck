@@ -147,6 +147,11 @@ export interface AgentDialogResult {
   /** Run with permission prompts disabled — only ever true for an agent
    * whose plugin declares YOLO support (the dialog gates the toggle). */
   yolo: boolean;
+  /** When set, the pane's agent runs against a REMOTE native-server endpoint
+   * (a local thin-client attached to a server on a VPS). Only ever set for an
+   * agent whose plugin declares remote support (the dialog gates the option),
+   * and only for a fresh session — remote resume/fork is a later step. */
+  remoteEndpoint?: string;
   /** Continue an existing session instead of starting fresh: resume runs it
    * in its recorded cwd (`location` is then advisory only), fork copies it
    * into the chosen location. Absent = a fresh conversation. */

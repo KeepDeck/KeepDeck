@@ -145,6 +145,7 @@ export function useAgentDialog(
     name,
     location,
     yolo,
+    remoteEndpoint,
     session,
   }: AgentDialogResult) => {
     const dlg = dialog;
@@ -187,6 +188,21 @@ export function useAgentDialog(
     }
     // Sparse like persistence: only the armed mode lands on the pane.
     const paneYolo = yolo ? { yolo: true as const } : {};
+    // Remote: a bare pane carrying the endpoint. The agent's cwd lives on the
+    // box the server runs on, so the local worktree/location is moot — the
+    // pane's terminal runs the local thin-client attached to the endpoint.
+    // (Remote is fresh-session only for now: the dialog forces "new" and
+    // hides Start-from, so `session` is never set alongside this.)
+    if (remoteEndpoint) {
+      currentDeck.addAgentPane(dlg.workspace.id, {
+        id: dlg.agentId,
+        name: paneName,
+        agentType,
+        ...paneYolo,
+        remoteEndpoint,
+      });
+      return;
+    }
     // Main repo: a bare pane that runs in the workspace cwd.
     if (location.kind === "main") {
       currentDeck.addAgentPane(dlg.workspace.id, {

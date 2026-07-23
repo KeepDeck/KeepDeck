@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  agentSupportsRemote,
   agentSupportsYolo,
   canCreateAgent,
   canStartFromSession,
@@ -148,6 +149,13 @@ export function AgentDialog({
   // "Start from" ([F8] spawn-time continuation): fresh conversation, resume,
   // or fork of one of the SELECTED agent's indexed sessions.
   const [startMode, setStartMode] = useState<SessionStartMode>("new");
+  // "Where" — run locally (default) or against a remote native-server
+  // endpoint. `remote` survives switching to a non-supporting agent; only
+  // the SUBMITTED value is gated (see `canRemote`). Remote is fresh-session
+  // only for now: the local worktree is moot when the agent's brain is on
+  // the box, so the Worktree + Start-from sections hide while it's on.
+  const [where, setWhere] = useState<"local" | "remote">("local");
+  const [endpoint, setEndpoint] = useState("");
   const [sessionQuery, setSessionQuery] = useState("");
   const [picked, setPicked] = useState<SessionPickRow | null>(null);
   // What the Name field was last prefilled with (a picked session's title):
@@ -317,6 +325,12 @@ export function AgentDialog({
   }, [path, repo]);
 
   const supportsYolo = agentSupportsYolo(agents, agentType);
+  const canRemote = agentSupportsRemote(agents, agentType);
+  // `remote` is only on while the selected agent can honor it; switching to a
+  // non-remote agent silently drops it (the Where section hides), and the
+  // submitted value is gated here so an unsupported agent never gets a target.
+  const remote = where === "remote" && canRemote;
+  const endpointOk = /^wss?:\/\/\S+$/.test(endpoint.trim());
   const occupancy = repo && path.trim() ? occupancyAt(path) : null;
   const kind = repo
     ? classifyLocation(path, probe, occupancy, attachAnyway)
@@ -344,9 +358,12 @@ export function AgentDialog({
   const pickedBlock = validPick ? resumeBlockOf(validPick) : null;
   const sessionOk = canStartFromSession(startMode, validPick !== null, pickedBlock);
   // Resume ignores the location entirely (locked to the recorded cwd — the
-  // whole worktree block is hidden); everything else gates on both.
-  const valid =
-    startMode === "resume"
+  // whole worktree block is hidden); everything else gates on both. Remote
+  // ignores the local location too (the agent's cwd is on the box) and only
+  // needs a valid endpoint — the Worktree + Start-from sections are hidden.
+  const valid = remote
+    ? endpointOk
+    : startMode === "resume"
       ? sessionOk
       : canCreateAgent(kind, branch, baseOk) && sessionOk;
 
@@ -394,6 +411,7 @@ export function AgentDialog({
               name,
               location: buildLocation(),
               yolo: yolo && supportsYolo,
+              ...(remote && endpointOk ? { remoteEndpoint: endpoint.trim() } : {}),
               ...(startMode !== "new" &&
                 validPick && {
                   session: { mode: startMode, handle: validPick.handle },
@@ -428,25 +446,75 @@ export function AgentDialog({
           ))}
         </div>
 
-        <span className="form__label">Start from</span>
-        <div className="form__types">
-          {(
-            [
-              ["new", "New session"],
-              ["resume", "Resume"],
-              ["fork", "Fork"],
-            ] as const
-          ).map(([mode, label]) => (
-            <button
-              key={mode}
-              type="button"
-              className={`form__type${startMode === mode ? " form__type--active" : ""}`}
-              onClick={() => setStartMode(mode)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {canRemote && (
+          <>
+            <span className="form__label">Where</span>
+            <div className="form__types">
+              {(
+                [
+                  ["local", "Local"],
+                  ["remote", "Remote"],
+                ] as const
+              ).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  className={`form__type${where === val ? " form__type--active" : ""}`}
+                  onClick={() => {
+                    setWhere(val);
+                    // Remote is fresh-session only for now — drop any picked
+                    // continuation so the Start-from picker doesn't dangle.
+                    if (val === "remote") setStartMode("new");
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {remote && (
+              <>
+                <span className="form__label">Endpoint</span>
+                <input
+                  {...noAutoCorrect}
+                  className="form__input"
+                  value={endpoint}
+                  onChange={(e) => setEndpoint(e.target.value)}
+                  placeholder="ws://host:4500 — a running agent server"
+                  aria-label="Remote agent server endpoint"
+                />
+                {!endpointOk && endpoint.length > 0 && (
+                  <span className="form__error">
+                    Enter a ws:// or wss:// endpoint
+                  </span>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {!remote && (
+          <>
+            <span className="form__label">Start from</span>
+            <div className="form__types">
+              {(
+                [
+                  ["new", "New session"],
+                  ["resume", "Resume"],
+                  ["fork", "Fork"],
+                ] as const
+              ).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`form__type${startMode === mode ? " form__type--active" : ""}`}
+                  onClick={() => setStartMode(mode)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         {startMode !== "new" && (
           <>
@@ -525,7 +593,7 @@ export function AgentDialog({
           </>
         )}
 
-        {repo && startMode !== "resume" && (
+        {repo && startMode !== "resume" && !remote && (
           <>
             <span className="form__label">Worktree</span>
             <div className="form__path">
