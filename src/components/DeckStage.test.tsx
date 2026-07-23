@@ -286,7 +286,7 @@ describe("DeckStage — agent identity on the pane header", () => {
     const chip = document.querySelector<HTMLElement>(
       "[data-pane-id='pane-1'] .pane__yolo",
     )!;
-    expect(chip.textContent).toContain("YOLO");
+    // Icon-only chip: the title tooltip carries the name, not the chip's text.
     expect(chip.title).toContain("without permission prompts");
     expect(
       document.querySelector("[data-pane-id='pane-2'] .pane__yolo"),

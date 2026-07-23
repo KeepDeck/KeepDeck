@@ -266,7 +266,6 @@ export function AgentPane({
               className="pane__yolo"
               icon={<BoltIcon />}
               title="YOLO mode — runs without permission prompts"
-              label="YOLO"
             />
           )}
           {gitBadge && (

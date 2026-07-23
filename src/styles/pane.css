@@ -133,15 +133,16 @@
   -webkit-user-select: text;
 }
 
-/* Standing YOLO warning chip: the shared Chip pill in the warn tone — the
-   pane's disabled-prompts state must stay visible, not just at creation.
-   It joins the narrow-header cascade below: label off at ≤280px (a bolt dot),
-   gone at ≤150px so maximize/close keep their never-hide guarantee. */
+/* Standing YOLO warning chip: a warn-toned bolt dot — the pane's
+   disabled-prompts state must stay visible, not just at creation. Icon-only
+   by design (the label was noise); the title tooltip names the mode. It's the
+   last chip to yield in the narrow-header cascade below (gone at ≤150px so
+   maximize/close keep their never-hide guarantee). */
 .pane__yolo {
   flex: none;
-  gap: 4px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  width: 22px;
+  padding: 0;
+  justify-content: center;
 }
 
 .pane__branch {
@@ -170,15 +171,13 @@
    badge. `display:none` (not ellipsis-to-nothing) takes the label out of the
    flex flow entirely, so no leftover gap/padding pushes the icon off-center. */
 @container (max-width: 280px) {
-  .pane__branch,
-  .pane__yolo {
+  .pane__branch {
     flex: none;
     width: 22px;
     padding: 0;
     justify-content: center;
   }
 
-  .pane__yolo .chip__label,
   .pane__branch .chip__label {
     display: none;
   }
