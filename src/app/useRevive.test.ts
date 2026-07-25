@@ -664,3 +664,214 @@ describe("useRevive — a blocked pane can be re-probed", () => {
     expect(pane().session).toEqual({ id: "s-1", boundAt: "t" });
   });
 });
+
+describe("useRevive — a request that lands mid-flight", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    vi.mocked(buildResumeSpec).mockClear();
+    ipc.probeWorktree.mockReset();
+    catalog.ready = true;
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const pane = () => deck.workspaces[0].panes[0];
+  const origins = () =>
+    vi.mocked(buildResumeSpec).mock.calls.map((call) => call[5]);
+
+  /** A probe held open, so a gesture can land while the wake is in flight. */
+  const heldProbe = () => {
+    let release!: () => void;
+    ipc.probeWorktree.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({ exists: true, isWorktree: false, empty: false, branch: null });
+        }),
+    );
+    return () => release();
+  };
+
+  it("serves a resume asked for DURING the probe as the user's, not as a boot restore", async () => {
+    // The sweep holds the pane in its in-flight set, so the request starts no
+    // second attempt — the one already running has to notice it. Judging by
+    // the origin captured when the probe went out is how a resume the user
+    // asked for by name came up as a fresh conversation instead.
+    const release = heldProbe();
+    act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
+    await act(async () => {});
+
+    // The pane is mid-probe; ask for it by name (the `agent.resume` path).
+    expect(revive.resume("ws-1", "pane-1")).toBe("resuming");
+    release();
+    await settle();
+
+    expect(origins()).toEqual(["manual"]);
+    expect(pane().idle).toBeUndefined();
+  });
+
+  it("rebuilds a plan already built as a restore when the request arrives mid-BUILD", async () => {
+    // The origin is baked into the cached plan — it is what arms the one-shot
+    // fall back to a fresh conversation. A plan built as a restore therefore
+    // cannot serve a resume the user asked for.
+    let releaseBuild!: () => void;
+    vi.mocked(buildResumeSpec).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (releaseBuild = () => resolve(true))),
+    );
+    ipc.probeWorktree.mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
+    await act(async () => {});
+
+    act(() => {
+      revive.resume("ws-1", "pane-1");
+    });
+    releaseBuild();
+    await settle();
+
+    // Built twice: once as the sweep's own restore, then again for the
+    // request that actually stands.
+    expect(origins()).toEqual(["restore", "manual"]);
+    expect(pane().idle).toBeUndefined();
+  });
+
+  it("drops the outcome of a wake the user CANCELLED mid-probe", async () => {
+    // Suspending a rising pane cancels the wake. Building a plan for it
+    // afterwards would hand a stopped pane a live resume spec, and reporting
+    // the attempt would explain a failure nobody is waiting on.
+    const release = heldProbe();
+    act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
+    await act(async () => {});
+
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    release();
+    await settle();
+
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+    expect(origins()).toEqual([]); // no plan built for a cancelled wake
+    expect(revive.wakeFailed).toEqual({});
+  });
+
+  it("does not BLOCK a pane the user stopped while its folder was being probed", async () => {
+    // The gone-folder verdict arrives without going through `wake` at all, so
+    // it needs the same guard: marking the pane blocked would leave the
+    // suspended card explaining a directory the user never asked about, and a
+    // blocked pane is skipped by the sweep until something clears it.
+    let release!: () => void;
+    ipc.probeWorktree.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({ exists: false, isWorktree: false, empty: false, branch: null });
+        }),
+    );
+    act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
+    await act(async () => {});
+
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    release();
+    await settle();
+
+    expect(revive.blocked).toEqual({});
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+  });
+});
+
+describe("useRevive — a pane asked for by name in another workspace", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    vi.mocked(buildResumeSpec).mockClear();
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  /** Two workspaces, `ws-1` active; the pane to resume lives in `ws-2`. */
+  const twoWorkspaces = (idle: PaneIdle): DeckState => ({
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "one",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [{ id: "pane-1", agentType: "claude" }],
+      },
+      {
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "two",
+        cwd: "/other",
+        worktreeBaseDir: null,
+        panes: [
+          {
+            id: "pane-2",
+            agentType: "claude",
+            idle,
+            session: { id: "s-2", boundAt: "t" },
+          },
+        ],
+      },
+    ],
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  });
+
+  const background = () => deck.workspaces[1].panes[0];
+
+  it("is served where it stands, instead of waiting for a workspace switch", async () => {
+    // `agent.resume` takes a workspace argument precisely so it can reach a
+    // pane that isn't on screen. Marking such a pane and then never sweeping
+    // it left it neither running nor durably stopped: the suspend is dropped
+    // from state (and from disk, it is the durable half) while nothing acts
+    // on the request, so quitting before switching lost the suspend.
+    act(() =>
+      deck.hydrate(twoWorkspaces({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" })),
+    );
+    await settle();
+    expect(background().idle).toMatchObject({ reason: "suspended" });
+
+    act(() => {
+      revive.resume("ws-2", "pane-2");
+    });
+    await settle();
+
+    expect(background().idle).toBeUndefined();
+    expect(peekPaneSpawnSpec("pane-2")?.args).toEqual(["--resume", "s-2"]);
+  });
+
+  it("still leaves a RESTORED pane in a background workspace alone", async () => {
+    // The lazy-revive policy is about panes that rise by themselves: waking a
+    // whole background workspace at launch is what it exists to prevent.
+    act(() => deck.hydrate(twoWorkspaces({ reason: "waking", origin: "restore" })));
+    await settle();
+
+    expect(background().idle).toEqual({ reason: "waking", origin: "restore" });
+    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+  });
+});

@@ -10,9 +10,10 @@ import {
   paneAgentType,
   paneIsRemoteFresh,
   paneResumeSessionId,
-  paneWakesAutomatically,
+  paneWakeOrigin,
   skillRootsOf,
   type Pane,
+  type Workspace,
 } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { probeWorktree } from "../ipc/worktree";
@@ -62,8 +63,20 @@ export type ResumeRequest =
   | "resuming"
   /** The pane is already running — nothing to bring back. */
   | "running"
+  /** Its worktree is still being created; it has never run, so there is no
+   * session to come back to. Distinct from "running" because telling the user
+   * a pane mid-create is already running is simply false. */
+  | "provisioning"
   /** No such pane (or workspace) in the deck. */
   | "gone";
+
+/** How one attempt to bring a pane up ended. */
+type Attempt =
+  | { kind: "woken" }
+  /** The pane's directory is gone; it needs relocating, not retrying. */
+  | { kind: "blocked"; dir: string }
+  /** The probe or the resume plan refused; `why` is shown on the card. */
+  | { kind: "failed"; why: string };
 
 export function useRevive(
   deck: Deck,
@@ -86,6 +99,17 @@ export function useRevive(
   ctxRef.current = ctx;
 
   const active = findWorkspace(deck.workspaces, deck.activeId);
+
+  /** WHO is asking for this pane right now, or null when it is no longer
+   * rising at all. Read from the LIVE deck rather than from the snapshot an
+   * attempt started with: `requestPaneWake` can upgrade a boot restore to a
+   * resume the user asked for by name — and a suspend can cancel the wake
+   * outright — while a probe or a plan build is out. An attempt judged by the
+   * stale answer is exactly how a resume becomes a different conversation. */
+  const askedBy = (wsId: string, paneId: string): ResumeOrigin | null => {
+    const pane = findPane(deckRef.current.workspaces, wsId, paneId);
+    return pane ? paneWakeOrigin(pane) : null;
+  };
 
   // Reap entries whose pane is gone (closed directly, or with its workspace):
   // ids are never reused, so without this the map only ever grows.
@@ -110,69 +134,71 @@ export function useRevive(
     .sort()
     .join("\n");
 
+  /**
+   * The ONE place an attempt's outcome is turned into state. Every exit of
+   * the sweep routes through here, because the rule that matters — a resume
+   * the USER asked for must never come up as a different conversation — has
+   * to hold for all of them, and it kept being applied to one exit at a time.
+   *
+   * WHO asked is re-read here rather than taken from the attempt, because the
+   * answer can change while the attempt is out. A boot restore takes the
+   * documented degradation on failure: nobody is watching, and an empty pane
+   * beats a pane that never comes back. A manual wake goes back down where it
+   * came from and says why on its card.
+   */
+  const settle = (wsId: string, pane: Pane, attempt: Attempt) => {
+    const origin = askedBy(wsId, pane.id);
+    if (!origin) {
+      // The pane stopped rising while this attempt was out — closed, or
+      // suspended by a user who changed their mind mid-probe. Its verdict is
+      // moot, and recording one would leave the card explaining a failure
+      // nobody is waiting on (or block a pane nobody asked to wake).
+      log.info(
+        "web:revive",
+        `${pane.id}: wake outcome dropped — the pane is no longer rising`,
+      );
+      return;
+    }
+    if (attempt.kind === "woken") {
+      deckRef.current.clearPaneIdle(wsId, pane.id);
+      return;
+    }
+    if (attempt.kind === "blocked") {
+      log.warn(
+        "web:revive",
+        `${pane.id}: directory gone ${attempt.dir} → blocked tile`,
+      );
+      setBlocked((b) => ({ ...b, [pane.id]: attempt.dir }));
+    } else {
+      log.warn(
+        "web:revive",
+        `${pane.id}: ${origin} wake failed — ${attempt.why}`,
+      );
+    }
+    if (origin !== "manual") {
+      // Nothing to put back: a restore-origin pane that is blocked simply
+      // stays where the sweep left it, and one that failed wakes fresh.
+      if (attempt.kind === "failed") {
+        deckRef.current.clearPaneIdle(wsId, pane.id);
+      }
+      return;
+    }
+    if (attempt.kind === "failed") {
+      setWakeFailed((f) => ({ ...f, [pane.id]: attempt.why }));
+    }
+    // Drop the half-built plan with its failure flag, or the pane's next
+    // wake lands on the plan-error tile instead of a terminal.
+    dropPaneSpawnSpec(pane.id);
+    deckRef.current.failPaneWake(wsId, pane.id);
+  };
+
   useEffect(() => {
     // Wait for the spawn context (a resume plan built without it would miss
     // the agent's identity mechanism) AND the catalog (see `agentsReady`).
     if (!active || !ctx || !agentsReady) return;
 
     /** Resolve the resume session and wake one pane. */
-    /** How one attempt to bring a pane up ended. */
-    type Attempt =
-      | { kind: "woken" }
-      /** The pane's directory is gone; it needs relocating, not retrying. */
-      | { kind: "blocked"; dir: string }
-      /** The probe or the resume plan refused; `why` is shown on the card. */
-      | { kind: "failed"; why: string };
-
-    /**
-     * The ONE place an attempt's outcome is turned into state. Every exit of
-     * the sweep routes through here, because the rule that matters —
-     * a resume the USER asked for must never come up as a different
-     * conversation — has to hold for all of them, and it kept being applied
-     * to one exit at a time.
-     *
-     * A boot restore takes the documented degradation on failure: nobody is
-     * watching, and an empty pane beats a pane that never comes back. A
-     * manual wake goes back down where it came from, with its stamp, and says
-     * why on its card.
-     */
-    const settle = (pane: Pane, origin: ResumeOrigin, attempt: Attempt) => {
-      if (attempt.kind === "woken") {
-        deckRef.current.clearPaneIdle(active.id, pane.id);
-        return;
-      }
-      if (attempt.kind === "blocked") {
-        log.warn(
-          "web:revive",
-          `${pane.id}: directory gone ${attempt.dir} → blocked tile`,
-        );
-        setBlocked((b) => ({ ...b, [pane.id]: attempt.dir }));
-      } else {
-        log.warn(
-          "web:revive",
-          `${pane.id}: ${origin} wake failed — ${attempt.why}`,
-        );
-      }
-      if (origin !== "manual") {
-        // Nothing to put back: a restore-origin pane that is blocked simply
-        // stays where the sweep left it, and one that failed wakes fresh.
-        if (attempt.kind === "failed") {
-          deckRef.current.clearPaneIdle(active.id, pane.id);
-        }
-        return;
-      }
-      // The pane is still in the deck? (A close can land inside the await.)
-      if (!findPane(deckRef.current.workspaces, active.id, pane.id)) return;
-      if (attempt.kind === "failed") {
-        setWakeFailed((f) => ({ ...f, [pane.id]: attempt.why }));
-      }
-      // Drop the half-built plan with its failure flag, or the pane's next
-      // wake lands on the plan-error tile instead of a terminal.
-      dropPaneSpawnSpec(pane.id);
-      deckRef.current.failPaneWake(active.id, pane.id);
-    };
-
-    const wake = async (pane: Pane, dir: string) => {
+    const wake = async (ws: Workspace, pane: Pane, dir: string) => {
       const agentType = paneAgentType(pane);
       // A recorded binding is TRUSTED: it came from the pane's own process
       // (the reporter posts at session creation), so it existed. If it was
@@ -191,8 +217,10 @@ export function useRevive(
       // nobody is watching, and an empty pane beats a dead one. A resume the
       // user CLICKED must not: they were promised this session by name, so a
       // rejection has to stay visible as an exited pane they can act on.
-      const origin: ResumeOrigin =
-        pane.idle?.reason === "waking" ? pane.idle.origin : "restore";
+      let origin = askedBy(ws.id, pane.id);
+      // Cancelled while the probe was out (suspended, or closed outright):
+      // there is nothing to bring up and nobody to report to.
+      if (!origin) return;
       log.info(
         "web:revive",
         `${pane.id} (${agentType}): ` +
@@ -201,23 +229,42 @@ export function useRevive(
       if (sessionId && ctxRef.current) {
         // Built through the agent plugin's resume.plan hook and cached
         // BEFORE the pane wakes — the mounting terminal reads it.
-        let failure: string | null = null;
-        try {
-          const built = await buildResumeSpec(
+        const plan = (asked: ResumeOrigin) =>
+          buildResumeSpec(
             plugins,
             agentType,
             {
               paneId: pane.id,
-              workspace: { id: active.id, instance: active.instance },
+              workspace: { id: ws.id, instance: ws.instance },
               cwd: dir,
               branch: pane.branch,
               yolo: pane.yolo,
-              wsSkillRoots: skillRootsOf(active),
+              wsSkillRoots: skillRootsOf(ws),
             },
-            ctxRef.current,
+            ctxRef.current!,
             sessionId,
-            origin,
+            asked,
           );
+        let failure: string | null = null;
+        try {
+          let built = await plan(origin);
+          // The upgrade can also land INSIDE the build, and the origin is
+          // BAKED INTO the cached plan — it is what arms (or disarms) the
+          // one-shot fall back to a fresh conversation. A plan built as a
+          // restore therefore cannot serve a resume the user asked for by
+          // name: build it again for the request that actually stands.
+          // Terminates by construction — `restore` → `manual` is the only
+          // transition, and `requestPaneWake` no-ops on an already-manual
+          // pane, so this can run at most twice.
+          const nowAsked = askedBy(ws.id, pane.id);
+          if (built && nowAsked === "manual" && origin !== "manual") {
+            log.info(
+              "web:revive",
+              `${pane.id}: asked for by name mid-build → rebuilding as a manual resume`,
+            );
+            origin = "manual";
+            built = await plan("manual");
+          }
           // A `false` here is a plugin that offers no resume.plan hook at all
           // — no throw, no cached plan. Waking anyway would let the ordinary
           // fresh sweep start a NEW conversation whose reporter then
@@ -228,60 +275,65 @@ export function useRevive(
           failure = describeError(e);
         }
         if (failure) {
-          settle(pane, origin, { kind: "failed", why: failure });
+          settle(ws.id, pane, { kind: "failed", why: failure });
           return;
         }
       }
-      settle(pane, origin, { kind: "woken" });
+      settle(ws.id, pane, { kind: "woken" });
     };
 
-    for (const pane of active.panes) {
-      // Only a pane on its way up: a suspended or parked one waits for its
-      // card's explicit gesture, which routes through the same wake below
-      // once it flips the pane to `waking`.
-      if (
-        !paneWakesAutomatically(pane) ||
-        pane.id in blocked ||
-        waking.current.has(pane.id)
-      )
-        continue;
-      // An agent no plugin provides must NOT wake: the spawn would run the
-      // bare id as a command, and the presence check would answer "absent"
-      // for the unknown store and WIPE a binding that resumes fine once the
-      // plugin returns. The pane stays idle behind its
-      // "agent unavailable" card.
-      const agentType = paneAgentType(pane);
-      if (!agentsRef.current.some((a) => a.id === agentType)) continue;
-      waking.current.add(pane.id);
-      // A remote pane's agent runs against a VPS endpoint — it has no local
-      // working directory to probe (so a gone workspace cwd never blocks it)
-      // and no recorded session to resume (fresh-session only). Wake it
-      // straight to a fresh remote plan built by the spawn-spec sweep.
-      if (paneIsRemoteFresh(pane)) {
-        void wake(pane, active.cwd).finally(() =>
-          waking.current.delete(pane.id),
-        );
-        continue;
+    for (const ws of deckRef.current.workspaces) {
+      for (const pane of ws.panes) {
+        // Only a pane on its way up: a suspended or parked one waits for its
+        // card's explicit gesture, which routes through the same wake below
+        // once it flips the pane to `waking`.
+        const origin = paneWakeOrigin(pane);
+        if (!origin || pane.id in blocked || waking.current.has(pane.id))
+          continue;
+        // Lazy revive is about the panes that rise BY THEMSELVES: waking six
+        // restored agents in a workspace nobody has opened is what the policy
+        // exists to prevent. A pane someone asked for BY NAME is not that —
+        // `agent.resume` takes a workspace argument precisely so it can reach
+        // one that isn't on screen, and leaving that request unserved stranded
+        // the pane in a state that is neither running nor durably stopped.
+        if (ws.id !== active.id && origin !== "manual") continue;
+        // An agent no plugin provides must NOT wake: the spawn would run the
+        // bare id as a command, and the presence check would answer "absent"
+        // for the unknown store and WIPE a binding that resumes fine once the
+        // plugin returns. The pane stays idle behind its
+        // "agent unavailable" card.
+        const agentType = paneAgentType(pane);
+        if (!agentsRef.current.some((a) => a.id === agentType)) continue;
+        waking.current.add(pane.id);
+        // A remote pane's agent runs against a VPS endpoint — it has no local
+        // working directory to probe (so a gone workspace cwd never blocks it)
+        // and no recorded session to resume (fresh-session only). Wake it
+        // straight to a fresh remote plan built by the spawn-spec sweep.
+        if (paneIsRemoteFresh(pane)) {
+          void wake(ws, pane, ws.cwd).finally(() =>
+            waking.current.delete(pane.id),
+          );
+          continue;
+        }
+        const dir = pane.cwd ?? ws.cwd;
+        void probeWorktree(dir)
+          .then((probe) => {
+            if (probe.exists) return wake(ws, pane, dir);
+            settle(ws.id, pane, { kind: "blocked", dir });
+          })
+          // A probe that REJECTS is a failed attempt like any other: it used
+          // to wake the pane fresh regardless of who asked, which is exactly
+          // the silent substitution the manual origin exists to prevent.
+          .catch((e) =>
+            settle(ws.id, pane, { kind: "failed", why: describeError(e) }),
+          )
+          .finally(() => waking.current.delete(pane.id));
       }
-      const dir = pane.cwd ?? active.cwd;
-      // The origin is read once, here, so all three outcomes below judge the
-      // same request — the pane's marker can change while the probe is out.
-      const origin: ResumeOrigin =
-        pane.idle?.reason === "waking" ? pane.idle.origin : "restore";
-      void probeWorktree(dir)
-        .then((probe) => {
-          if (probe.exists) return wake(pane, dir);
-          settle(pane, origin, { kind: "blocked", dir });
-        })
-        // A probe that REJECTS is a failed attempt like any other: it used to
-        // wake the pane fresh regardless of who asked, which is exactly the
-        // silent substitution the manual origin exists to prevent.
-        .catch((e) =>
-          settle(pane, origin, { kind: "failed", why: describeError(e) }),
-        )
-        .finally(() => waking.current.delete(pane.id));
     }
-  }, [active, blocked, ctx, agentsReady, agentIds, plugins]);
+    // `deck.workspaces` rather than just `active`: a pane asked for by name in
+    // a workspace that isn't on screen is swept too, and its request arrives
+    // as a workspaces change, not an activation.
+  }, [deck.workspaces, active, blocked, ctx, agentsReady, agentIds, plugins]);
 
   const startFresh = (wsId: string, paneId: string) => {
     setBlocked(({ [paneId]: _gone, ...rest }) => rest);
@@ -296,6 +348,7 @@ export function useRevive(
   const resume = (wsId: string, paneId: string): ResumeRequest => {
     const pane = findPane(deckRef.current.workspaces, wsId, paneId);
     if (!pane) return "gone";
+    if (pane.provisioning) return "provisioning";
     if (!pane.idle) return "running";
     // Clear the last attempt's verdicts first: a stale block would make the
     // sweep skip this pane forever, and a stale note would explain a failure
