@@ -94,10 +94,20 @@ export function usePersistence(deck: Deck): {
             : result.deck.state,
         );
       })
-      .catch((e) =>
-        // Unreadable state → start empty.
-        log.warn("web:persist", `deck state load failed: ${describeError(e)}`),
-      )
+      .catch((e) => {
+        // The read itself failed — the backend wasn't ready, the fs said no.
+        // That is NOT the same as an unusable document: the file is probably
+        // intact, and we have no idea what is in it. Start empty, and park
+        // saving for the session, or the first render would flush this empty
+        // deck straight over a file holding every workspace the user has —
+        // with no quarantine copy, since nothing was ever parsed to condemn.
+        // A transient IPC hiccup at boot must not cost the deck.
+        log.error(
+          "web:persist",
+          `deck state load failed → session parked, saving disabled: ${describeError(e)}`,
+        );
+        frozenRef.current = true;
+      })
       .finally(() => {
         if (!cancelled) {
           loadedRef.current = true;

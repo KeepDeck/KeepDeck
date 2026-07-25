@@ -356,6 +356,35 @@ describe("usePersistence", () => {
     expect(deck.workspaces).toEqual([]);
   });
 
+  it("PARKS when the read itself fails — an empty deck must not land on a good file", async () => {
+    // A rejecting read is not an unusable document: the file is probably
+    // intact and we have no idea what is in it, so there is nothing to
+    // condemn and nothing to quarantine. Starting empty is fine; SAVING that
+    // empty deck is how a transient IPC hiccup at boot costs every workspace
+    // the user has — the first render would flush right over it.
+    ipc.loadDeckState.mockRejectedValue(new Error("backend not ready"));
+    await mount();
+
+    expect(restoring).toBe(false);
+    expect(deck.workspaces).toEqual([]);
+    expect(ipc.quarantineDeckState).not.toHaveBeenCalled();
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+
+    // And it stays parked: a later change must not reach disk either.
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-9",
+        instance: createWorkspaceInstance(),
+        name: "unsaved",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [{ id: "pane-9", agentType: "claude" }],
+      }),
+    );
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+  });
+
   it("PARKS on a deck above the compatibility floor: untouched, never saved over", async () => {
     ipc.loadDeckState.mockResolvedValue(
       JSON.stringify({ version: 99, minVersion: 99, workspaces: [] }),
