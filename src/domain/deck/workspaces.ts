@@ -287,6 +287,27 @@ export function revivePane(
   );
 }
 
+/** Hand an idle pane back to the revive sweep: a suspended (or parked) pane
+ * becomes `restored`, the one reason the sweep acts on. Resuming therefore
+ * reuses the entire restore path — directory probe, resume-plan build, wake —
+ * instead of growing a second implementation of it beside the first.
+ *
+ * Returns the SAME array for a live pane, an already-restored one, or an
+ * unknown id. */
+export function wakePane(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane?.idle || pane.idle.reason === "restored") return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) =>
+      p.id === paneId ? { ...p, idle: { reason: "restored" } } : p,
+    ),
+  );
+}
+
 /** Suspend a pane: mark it idle by the user's own decision, so nothing wakes
  * it but an explicit resume. The PTY teardown is the app layer's half — this
  * records the intent that outlives it (and the save).

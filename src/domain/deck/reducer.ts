@@ -34,6 +34,7 @@ import {
   setPaneSession,
   setWorkspacePluginSlot,
   suspendPane,
+  wakePane,
   workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
@@ -124,6 +125,9 @@ export type DeckAction =
   /** Suspend a live pane: it keeps its place, session binding and worktree,
    * but nothing wakes it again except an explicit resume. */
   | { type: "suspendPane"; wsId: string; paneId: string; at: string }
+  /** Hand a suspended/parked pane back to the revive sweep, which resumes it
+   * the same way it resumes any restored pane. */
+  | { type: "wakePane"; wsId: string; paneId: string }
   /** Detach a pane from a gone worktree (drops cwd/branch/session) so it can
    * start fresh in the workspace cwd ([F7] restore reconcile). */
   | { type: "resetPaneLocation"; wsId: string; paneId: string }
@@ -532,6 +536,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return withWorkspaces(
         state,
         suspendPane(state.workspaces, action.wsId, action.paneId, action.at),
+      );
+    case "wakePane":
+      return withWorkspaces(
+        state,
+        wakePane(state.workspaces, action.wsId, action.paneId),
       );
     case "resetPaneLocation":
       return withWorkspaces(

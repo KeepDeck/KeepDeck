@@ -23,6 +23,7 @@ import {
   setPaneProvisioningPhase,
   setWorkspacePluginSlot,
   suspendPane,
+  wakePane,
   worktreeTargets,
   type Workspace,
 } from "./workspaces";
@@ -780,5 +781,38 @@ describe("suspendPane", () => {
     const suspended = suspendPane(start, "a", "a-p1", AT);
     const woken = revivePane(suspended, "a", "a-p1");
     expect(woken[0].panes[0]).toEqual({ id: "a-p1", cwd: "/wt/one" });
+  });
+});
+
+describe("wakePane", () => {
+  const AT = "2026-07-25T10:00:00.000Z";
+  const withPane = (pane: Pane): Workspace[] => [{ ...ws("a", []), panes: [pane] }];
+
+  it("hands a suspended pane back to the sweep as a restored one", () => {
+    const after = wakePane(
+      withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } }),
+      "a",
+      "a-p1",
+    );
+    // Still idle — the sweep owns the probe, the resume plan and the wake.
+    expect(after[0].panes[0].idle).toEqual({ reason: "restored" });
+  });
+
+  it("does the same for a pane parked by the launch policy", () => {
+    const after = wakePane(
+      withPane({ id: "a-p1", idle: { reason: "parked" } }),
+      "a",
+      "a-p1",
+    );
+    expect(after[0].panes[0].idle).toEqual({ reason: "restored" });
+  });
+
+  it("is a no-op (same ref) for a live, already-restored or unknown pane", () => {
+    const live = withPane({ id: "a-p1" });
+    expect(wakePane(live, "a", "a-p1")).toBe(live);
+    const restored = withPane({ id: "a-p1", idle: { reason: "restored" } });
+    expect(wakePane(restored, "a", "a-p1")).toBe(restored);
+    expect(wakePane(restored, "a", "nope")).toBe(restored);
+    expect(wakePane(restored, "nope", "a-p1")).toBe(restored);
   });
 });

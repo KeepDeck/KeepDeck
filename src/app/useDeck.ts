@@ -102,6 +102,8 @@ export function useDeck() {
       dispatch({ type: "revivePane", wsId, paneId }),
     suspendPane: (wsId: string, paneId: string) =>
       dispatch({ type: "suspendPane", wsId, paneId, at: nowIso() }),
+    wakePane: (wsId: string, paneId: string) =>
+      dispatch({ type: "wakePane", wsId, paneId }),
     resetPaneLocation: (wsId: string, paneId: string) =>
       dispatch({ type: "resetPaneLocation", wsId, paneId }),
     setPaneSession: (

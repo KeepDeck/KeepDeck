@@ -142,6 +142,22 @@ export function paneIsRemoteFresh(pane: Pane): boolean {
   return !!pane.remoteEndpoint;
 }
 
+/** Whether this pane can be suspended right now — the single rule behind
+ *  every affordance that offers it, so the menu, the close dialog and the
+ *  card can never disagree about which panes qualify.
+ *
+ *  Excluded: a pane that is already idle (nothing to stop); one whose worktree
+ *  create is still in flight (no process yet, and its create must not be
+ *  stranded); and a REMOTE pane, whose conversation lives on the server with
+ *  no local session to resume — stopping its thin client and reattaching
+ *  would quietly start a different conversation. An EXITED pane qualifies:
+ *  parking a dead agent is meaningful (its card becomes the honest "stopped"
+ *  one, and resuming rebuilds its resume plan), and the exit is runtime state
+ *  this durable model deliberately doesn't carry. */
+export function paneCanSuspend(pane: Pane): boolean {
+  return !pane.idle && !pane.provisioning && !paneIsRemoteFresh(pane);
+}
+
 /** Whether the revive sweep may wake this pane on its own. Only a pane that
  *  is idle merely because a restart dropped its PTY qualifies: waking a
  *  `suspended` one would undo the user's decision behind their back, and a
