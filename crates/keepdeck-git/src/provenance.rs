@@ -146,18 +146,23 @@ fn is_created_here(
     creation: (u64, &str),
 ) -> bool {
     let (creation_ts, creation_sha) = creation;
+    // The SECOND is not negotiable here, and the commit is an extra demand on
+    // top of it — not a licence to relax it.
+    //
     // `git worktree add -b` writes the branch ref and the worktree's HEAD as
-    // two ref updates. Each stamps its own whole second, so a create that
-    // straddles a tick leaves them one apart — and equality alone then denies
-    // a branch its own birth. The commit closes that gap: both updates name
-    // the sha the worktree was created at, so a one-tick tolerance costs
-    // nothing an attached pre-existing branch could exploit (it would have to
-    // have been created within a second of this worktree AND at exactly the
-    // same commit, which is the create-for-this-worktree case itself).
+    // two ref updates, each stamping its own whole second, so a create that
+    // straddles a tick genuinely goes unattributed and its branch is KEPT.
+    // That is the safe direction, and it is the one to fail in: an ATTACH
+    // (`git branch mine HEAD` then `git worktree add wt mine`) writes exactly
+    // the shape a birth does — no checkout entry, `initial_branch` on its
+    // fallback, and a HEAD sha that necessarily equals the adopted branch's
+    // tip. Nothing but the second separates a branch this worktree was born
+    // with from one the user made and handed to it, and this list is what
+    // `reap_created_branches` DELETES.
     let born_with_worktree = initial == Some(branch)
-        && entries.last().is_some_and(|birth| {
-            birth.new_sha == creation_sha && birth.ts.abs_diff(creation_ts) <= 1
-        });
+        && entries
+            .last()
+            .is_some_and(|birth| birth.new_sha == creation_sha && birth.ts == creation_ts);
     born_with_worktree
         || entries.iter().enumerate().any(|(i, e)| {
             e.ts == creation_ts
@@ -416,28 +421,31 @@ mod tests {
     fn the_birth_branch_matches_only_with_the_birth_timestamp() {
         let log = head_log();
         assert!(is_created_here(&log, Some("born"), "born", (100, "A")));
-        // Same name, a second off AND a different creation commit — an
-        // attached pre-existing branch that happens to sit next door in time.
+        // Same name, wrong second — an attached pre-existing branch.
         assert!(!is_created_here(&log, Some("born"), "born", (99, "Z")));
         // Same second, different branch — the neighbour-worktree collision.
         assert!(!is_created_here(&log, Some("born"), "elsewhere", (100, "A")));
     }
 
     #[test]
-    fn the_birth_branch_survives_a_create_that_straddles_a_second() {
-        // `git worktree add -b` writes the branch ref and HEAD as two ref
-        // updates, each stamping whole seconds of its own. Under load the two
-        // land on opposite sides of a tick — observed as exactly +1 — and an
-        // equality test then refuses to attribute a branch this very worktree
-        // was born on. The commit is what pins identity across the tick: both
-        // updates name the sha the worktree was created at.
+    fn a_branch_the_worktree_was_merely_attached_to_is_never_attributed() {
+        // `git branch mine HEAD` (a TRUSTED source — it checks nothing out)
+        // and then `git worktree add wt mine` a second later, both on the same
+        // commit. The attach writes the same shape a birth does: no checkout
+        // entry, `initial_branch` falling back to the current branch, and a
+        // HEAD whose sha necessarily equals the tip of the branch it adopted.
+        // Only the SECOND tells the two apart, so the second is not negotiable
+        // — this is a branch the user created and KeepDeck must not delete.
         let log = head_log();
-        assert!(is_created_here(&log, Some("born"), "born", (99, "A")));
-        // The tolerance is one tick and no more, and it does not survive a
-        // different commit: a branch created two seconds earlier, or at
-        // another sha, was not born with this worktree.
-        assert!(!is_created_here(&log, Some("born"), "born", (98, "A")));
-        assert!(!is_created_here(&log, Some("born"), "born", (99, "B")));
+        assert!(!is_created_here(&log, Some("born"), "born", (99, "A")));
+        assert!(!is_created_here(&log, Some("born"), "born", (101, "A")));
+        // Same second and same commit still attributes: that pairing is the
+        // create-and-checkout the module trusts, and its residual is recorded
+        // in the module doc rather than widened here.
+        assert!(is_created_here(&log, Some("born"), "born", (100, "A")));
+        // The sha is what this branch ADDED over an equality-only rule: a
+        // same-second creation at a different commit is no longer enough.
+        assert!(!is_created_here(&log, Some("born"), "born", (100, "B")));
     }
 
     #[test]
