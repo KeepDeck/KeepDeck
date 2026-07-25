@@ -4,7 +4,7 @@ import {
   findWorkspaceByRef,
   MAX_PANES,
   paneId,
-  paneIsStopped,
+  idleReadsAsStopped,
   WORKSPACE_FULL_MESSAGE,
   type Pane,
 } from "../domain/deck";
@@ -49,6 +49,10 @@ export interface JournalResumeApi {
 export function useJournalResume(
   deck: Deck,
   ctx: SpawnPlanContext | null,
+  /** paneId → the missing directory, from the revive sweep. A pane stuck on a
+   * gone folder is going nowhere, so the honest message points at it as
+   * stopped — the model alone still reads that pane as rising. */
+  blockedPanes: Record<string, string> = {},
 ): JournalResumeApi {
   const { plugins } = useAppRuntime();
   const { deckRef, ctxRef, inFlight } = useLiveRefs(deck, ctx);
@@ -80,7 +84,7 @@ export function useJournalResume(
       // "Stopped" only for a pane that really is staying down: one already on
       // its way up has no Resume button to point the user at.
       throw new Error(
-        paneIsStopped(claimant)
+        idleReadsAsStopped(claimant.idle, claimant.id in blockedPanes)
           ? "The session already belongs to a stopped pane — resume that pane instead"
           : "The session is already running in a pane",
       );

@@ -149,7 +149,7 @@ function App() {
   // rejected boot resume. Both replace only runtime PTY/spec state; the pane
   // keeps its identity and layout position.
   const agentRestart = useAgentRestart(deck, spawnCtx);
-  const journalResume = useJournalResume(deck, spawnCtx);
+  const journalResume = useJournalResume(deck, spawnCtx, revive.blocked);
   const journalFork = useJournalFork(deck, spawnCtx);
   const sessionsBrowser = useSessionsBrowser();
   // The fork-target dialog's subject, when one is open.
@@ -235,7 +235,7 @@ function App() {
           message: describeError(e),
         }),
       ),
-  });
+  }, revive.blocked);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, {
     // First error wins, like the resume/fork catches — a second failure

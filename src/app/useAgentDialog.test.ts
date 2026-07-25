@@ -326,8 +326,11 @@ describe("useAgentDialog start-from routing", () => {
     title: "auth",
   };
 
+  /** The revive sweep's gone-directory verdicts, as the hook receives them. */
+  let blockedPanes: Record<string, string> = {};
+
   function Host({ deck }: { deck: Deck }) {
-    flow = useAgentDialog(deck, [], journal);
+    flow = useAgentDialog(deck, [], journal, blockedPanes);
     return null;
   }
 
@@ -335,6 +338,7 @@ describe("useAgentDialog start-from routing", () => {
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
+    blockedPanes = {};
     journal.resume.mockClear();
     journal.fork.mockClear();
   });
@@ -480,5 +484,38 @@ describe("useAgentDialog start-from routing", () => {
     expect(flow.sessionClaim("s-run")).toBe("running");
     expect(flow.sessionClaim("s-dorm")).toBe("stopped");
     expect(flow.sessionClaim("s-free")).toBeNull();
+  });
+
+  it("calls a pane stuck on a gone folder stopped, like every other surface", async () => {
+    // Its model marker still says `waking` — only the sweep's runtime verdict
+    // knows the directory is gone. The tile is dimmed and the tray chip
+    // marked, but the picker was telling the user the session is "running in
+    // a pane" and offering nothing to do about it.
+    blockedPanes = { p1: "/gone/worktree" };
+    const ws = workspace({
+      panes: [
+        {
+          id: "p1",
+          idle: { reason: "waking", origin: "restore" },
+          session: { id: "s-blocked", boundAt: "2026-07-20T00:00:00Z" },
+        },
+      ],
+    });
+    await mountAndOpen(ws);
+    expect(flow.sessionClaim("s-blocked")).toBe("stopped");
+  });
+
+  it("still calls a pane merely on its way up running", async () => {
+    const ws = workspace({
+      panes: [
+        {
+          id: "p1",
+          idle: { reason: "waking", origin: "restore" },
+          session: { id: "s-rising", boundAt: "2026-07-20T00:00:00Z" },
+        },
+      ],
+    });
+    await mountAndOpen(ws);
+    expect(flow.sessionClaim("s-rising")).toBe("running");
   });
 });
