@@ -6,6 +6,7 @@ import {
   DECK_STATE_VERSION,
   PROVISIONING_INTERRUPTED,
   hydrateDeck,
+  parkRestoredPanes,
   serializeDeck,
   type HydratedDeck,
 } from "./persist";
@@ -999,5 +1000,51 @@ describe("schema revisions and the compatibility floor", () => {
         JSON.stringify({ version: "1", activeId: "", focusByWs: {}, selectByWs: {}, workspaces: [] }),
       ).kind,
     ).toBe("corrupt");
+  });
+});
+
+describe("parkRestoredPanes", () => {
+  const suspendedAt = "2026-07-25T09:00:00.000Z";
+  const deckWith = (panes: DeckState["workspaces"][number]["panes"]): DeckState => ({
+    ...state,
+    workspaces: [{ ...state.workspaces[0], panes }],
+  });
+
+  it("turns restored panes into parked ones", () => {
+    const parked = parkRestoredPanes(
+      deckWith([
+        { id: "pane-1", idle: { reason: "restored" } },
+        { id: "pane-2", idle: { reason: "restored" } },
+      ]),
+    );
+    expect(parked.workspaces[0].panes.map((p) => p.idle)).toEqual([
+      { reason: "parked" },
+      { reason: "parked" },
+    ]);
+  });
+
+  it("leaves a SUSPENDED pane alone — its stamp is what dates its card", () => {
+    const parked = parkRestoredPanes(
+      deckWith([{ id: "pane-1", idle: { reason: "suspended", at: suspendedAt } }]),
+    );
+    expect(parked.workspaces[0].panes[0].idle).toEqual({
+      reason: "suspended",
+      at: suspendedAt,
+    });
+  });
+
+  it("leaves an interrupted provisioning pane alone — it has no idle marker", () => {
+    const intent = { repo: "/repo", workspace: "deck", index: 1 };
+    const parked = parkRestoredPanes(
+      deckWith([{ id: "pane-1", provisioning: { ...intent, error: "interrupted" } }]),
+    );
+    expect(parked.workspaces[0].panes[0].idle).toBeUndefined();
+  });
+
+  it("is never persisted: a parked deck serializes exactly like a restored one", () => {
+    const restored = deckWith([{ id: "pane-1", idle: { reason: "restored" } }]);
+    expect(serializeDeck(parkRestoredPanes(restored))).toBe(
+      serializeDeck(restored),
+    );
   });
 });

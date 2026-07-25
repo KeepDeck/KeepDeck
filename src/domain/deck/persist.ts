@@ -229,6 +229,31 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   };
 }
 
+/**
+ * Apply the launch policy to a freshly hydrated deck: every pane the restore
+ * left `restored` becomes `parked`, so the revive sweep leaves it alone and
+ * each one starts from its own card instead of six CLIs launching at once.
+ *
+ * Kept out of [`hydrateDeck`] on purpose — hydration answers "what does this
+ * document say", the setting answers "what should this launch do", and only
+ * the second one changes when the user flips a checkbox. Panes the user
+ * SUSPENDED are untouched: they are already stopped, and overwriting the
+ * reason would lose the stamp their card is dated by.
+ */
+export function parkRestoredPanes(state: DeckState): DeckState {
+  return {
+    ...state,
+    workspaces: state.workspaces.map((ws) => ({
+      ...ws,
+      panes: ws.panes.map((pane) =>
+        pane.idle?.reason === "restored"
+          ? { ...pane, idle: { reason: "parked" as const } }
+          : pane,
+      ),
+    })),
+  };
+}
+
 /** The top-level keys this build owns; everything else is a doc extra. */
 const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "version",

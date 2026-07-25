@@ -41,6 +41,7 @@ describe("hydrateSettings", () => {
         },
         notifications: { enabled: false, mode: "system" },
         usageDisplay: "left",
+        parkAgentsOnLaunch: true,
       }),
     );
     expect(doc?.settings).toEqual({
@@ -53,7 +54,24 @@ describe("hydrateSettings", () => {
       notifications: { enabled: false, mode: "system", mutedPlugins: [] },
       usageDisplay: "left",
       remoteAgents: false,
+      parkAgentsOnLaunch: true,
     });
+  });
+
+  it("reads parkAgentsOnLaunch and stays sparse when off", () => {
+    const on = hydrateSettings('{"parkAgentsOnLaunch":true}')!.settings;
+    expect(on.parkAgentsOnLaunch).toBe(true);
+    // Off is the default (wake everything, as before the setting existed).
+    const offJson = serializeSettings(
+      hydrateSettings('{"parkAgentsOnLaunch":false}')!,
+    );
+    expect(offJson).not.toContain("parkAgentsOnLaunch");
+  });
+
+  it("snaps a malformed parkAgentsOnLaunch back to the default (off)", () => {
+    expect(
+      hydrateSettings('{"parkAgentsOnLaunch":"yes"}')!.settings.parkAgentsOnLaunch,
+    ).toBe(false);
   });
 
   it("reads remoteAgents and stays sparse when off", () => {

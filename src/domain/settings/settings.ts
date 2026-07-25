@@ -118,6 +118,11 @@ export interface Settings {
    *  native-server target — the whole remote-launch/connect surface stays
    *  hidden. Default off; opt-in only while the feature is experimental. */
   remoteAgents: boolean;
+  /** Restore agents STOPPED instead of waking them ([F6] → General). A deck
+   * of six agents otherwise launches six CLIs at once; with this on the panes
+   * come back parked and each starts on its own card. Applies at launch only:
+   * flipping it never touches panes that are already running. */
+  parkAgentsOnLaunch: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -130,6 +135,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifications: { enabled: true, mode: "system-and-app", mutedPlugins: [] },
   usageDisplay: "used",
   remoteAgents: false,
+  parkAgentsOnLaunch: false,
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -303,6 +309,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (typeof doc.remoteAgents === "boolean") {
     settings.remoteAgents = doc.remoteAgents;
+  }
+  if (typeof doc.parkAgentsOnLaunch === "boolean") {
+    settings.parkAgentsOnLaunch = doc.parkAgentsOnLaunch;
   }
   const plugins = readPlugins(doc.plugins);
   // Only replace the default's object reference when there's genuinely

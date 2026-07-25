@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { hydrateDeck, serializeDeck } from "../domain/deck";
+import { hydrateDeck, parkRestoredPanes, serializeDeck } from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
 import { describeError, log } from "../ipc/log";
 import { loadDeckState, quarantineDeckState, saveDeckState } from "../ipc/state";
 import { seedAgentSeq } from "./ids";
+import { getSettings, initSettings } from "./settingsManager";
 import type { Deck } from "./useDeck";
 
 /** Debounce for cosmetic churn (titles, selection) — a burst lands as one
@@ -51,8 +52,13 @@ export function usePersistence(deck: Deck): {
 
   useEffect(() => {
     let cancelled = false;
-    void loadDeckState()
-      .then((json) => {
+    // Both boot loads run concurrently, but the deck may only be hydrated once
+    // the settings are in: the launch policy decides whether these panes come
+    // back running or parked, and reading it too early would silently mean
+    // "wake everything" on a slow settings read. `initSettings` is idempotent,
+    // so this joins main.tsx's load rather than starting a second one.
+    void Promise.all([loadDeckState(), initSettings()])
+      .then(([json]) => {
         if (cancelled || json === null) return;
         const result = hydrateDeck(json);
         if (result.kind === "incompatible") {
@@ -79,7 +85,14 @@ export function usePersistence(deck: Deck): {
         // derived from the live deck on each creation instead.
         seedAgentSeq(result.deck.nextAgentSeq);
         docExtrasRef.current = result.deck.docExtras;
-        hydrateRef.current(result.deck.state);
+        // `initSettings` has settled above, so a null store here means the
+        // load failed outright — take the default (wake everything), which is
+        // what this build did before the setting existed.
+        hydrateRef.current(
+          getSettings()?.parkAgentsOnLaunch
+            ? parkRestoredPanes(result.deck.state)
+            : result.deck.state,
+        );
       })
       .catch((e) =>
         // Unreadable state → start empty.

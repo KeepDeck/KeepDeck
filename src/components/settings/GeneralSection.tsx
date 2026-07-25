@@ -39,8 +39,9 @@ const MINIMIZE_OPTIONS: Record<MinimizeStyle, { label: string; hint: string }> =
 };
 
 /**
- * General preferences: the default agent ([F6]/[F1]), the deck layout, and —
- * for the grid layout — how a minimized agent is presented. Fetches the catalog
+ * General preferences: the default agent ([F6]/[F1]), the deck layout, how a
+ * minimized agent is presented in the grid layout, and whether a restored deck
+ * comes back running or stopped. Fetches the catalog
  * itself (per mount, like WorkspaceForm) — opening settings re-detects a
  * just-installed agent instead of showing the boot-time picture.
  */
@@ -50,6 +51,8 @@ export function GeneralSection() {
   const defaultYolo = settings?.defaultYolo ?? DEFAULT_SETTINGS.defaultYolo;
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
+  const parkAgentsOnLaunch =
+    settings?.parkAgentsOnLaunch ?? DEFAULT_SETTINGS.parkAgentsOnLaunch;
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
 
@@ -123,6 +126,25 @@ export function GeneralSection() {
         {deckLayout === "grid"
           ? MINIMIZE_OPTIONS[minimizeStyle].hint
           : "Applies to the grid layout."}
+      </span>
+
+      <span className="form__label">On launch</span>
+      <div className="form__types">
+        {[false, true].map((parked) => (
+          <button
+            key={String(parked)}
+            type="button"
+            className={`form__type${parkAgentsOnLaunch === parked ? " form__type--active" : ""}`}
+            onClick={() => updateSettings({ parkAgentsOnLaunch: parked })}
+          >
+            {parked ? "Suspended" : "Running"}
+          </button>
+        ))}
+      </div>
+      <span className="settings__hint">
+        {parkAgentsOnLaunch
+          ? "Restored agents wait, stopped — start each one from its pane"
+          : "Restored agents resume their sessions right away"}
       </span>
     </>
   );

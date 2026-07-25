@@ -18,6 +18,17 @@ const ipc = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/state", () => ipc);
 
+// The launch policy: hydration must wait for it and obey it. The real manager
+// reads settings.json over IPC, which this test has no business exercising.
+const settings = vi.hoisted(() => ({
+  parkAgentsOnLaunch: false,
+  initSettings: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+}));
+vi.mock("./settingsManager", () => ({
+  initSettings: settings.initSettings,
+  getSettings: () => ({ parkAgentsOnLaunch: settings.parkAgentsOnLaunch }),
+}));
+
 const STORED = JSON.stringify({
   version: 1,
   activeId: "ws-1",
@@ -52,6 +63,8 @@ describe("usePersistence", () => {
     ipc.loadDeckState.mockReset();
     ipc.saveDeckState.mockClear();
     ipc.quarantineDeckState.mockClear();
+    settings.parkAgentsOnLaunch = false;
+    settings.initSettings.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -79,6 +92,38 @@ describe("usePersistence", () => {
     await act(async () => vi.runOnlyPendingTimers());
     expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
     expect(JSON.parse(ipc.saveDeckState.mock.calls[0][0]).activeId).toBe("ws-1");
+  });
+
+  it("restores panes PARKED when the launch policy says so", async () => {
+    settings.parkAgentsOnLaunch = true;
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+
+    // Parked, not restored: the revive sweep leaves it alone and the pane's
+    // own card starts it, instead of every agent launching at once.
+    expect(deck.workspaces[0].panes[0].idle).toEqual({ reason: "parked" });
+
+    // The policy is a launch decision, never a fact about the pane — it must
+    // not reach disk, or turning the setting off would strand these panes.
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("parked");
+  });
+
+  it("waits for the settings load before hydrating — a slow read must not mean 'wake everything'", async () => {
+    settings.parkAgentsOnLaunch = true;
+    let settleSettings!: () => void;
+    settings.initSettings.mockReturnValue(
+      new Promise<void>((resolve) => {
+        settleSettings = resolve;
+      }),
+    );
+    ipc.loadDeckState.mockResolvedValue(STORED);
+
+    await mount();
+    expect(deck.workspaces).toHaveLength(0); // deck read, policy not known yet
+
+    await act(async () => settleSettings());
+    expect(deck.workspaces[0].panes[0].idle).toEqual({ reason: "parked" });
   });
 
   it("NEVER saves while the load is still pending — the store must not be wiped", async () => {
