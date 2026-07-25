@@ -196,12 +196,24 @@ function App() {
   const [creating, setCreating] = useState(false);
   // Whether the left Workspaces rail is collapsed.
   const [railCollapsed, setRailCollapsed] = useState(false);
-  // In-app error notice (no system dialogs). The title belongs to the caller:
-  // worktree cleanup and workspace allocation are separate failure domains.
-  const [error, setError] = useState<{
-    title: string;
-    message: string;
-  } | null>(null);
+  // In-app error notices (no system dialogs). The title belongs to the
+  // caller: worktree cleanup and workspace allocation are separate failure
+  // domains.
+  //
+  // A QUEUE, not a slot. It used to be one slot with "first wins", so a
+  // second failure could not replace a notice the user was still reading —
+  // right about the reading, wrong about the second failure, which was
+  // dropped without a trace. The pair that made that visible: a worktree
+  // delete failing asynchronously while the user takes Suspend in another
+  // pane's close dialog. Whichever landed first silenced the other, and the
+  // suspend refusal is the one with nowhere else to appear — its dialog has
+  // already closed and the pane just stayed running.
+  const [alerts, setAlerts] = useState<{ title: string; message: string }[]>([]);
+  const error = alerts[0] ?? null;
+  /** Queue a notice behind whatever the user is reading. */
+  const pushAlert = (title: string, message: string) =>
+    setAlerts((queue) => [...queue, { title, message }]);
+  const dismissAlert = () => setAlerts((queue) => queue.slice(1));
   // The settings dialog ([F6]) — opened from the app menu (⌘,), the gear, or
   // a plugin's `openSettings`. When a plugin opens it, the target section id
   // rides along so the dialog lands on that plugin's page.
@@ -222,32 +234,25 @@ function App() {
     // The dialog's "Start from" continuations, with the same visible-failure
     // contract as the journal rows' Resume/Fork below.
     resume: (wsId, handle, opts) =>
-      void journalResume.resume(wsId, handle, opts).catch((e: unknown) =>
-        setError((current) => current ?? {
-          title: "Could not resume the session",
-          message: describeError(e),
-        }),
-      ),
+      void journalResume
+        .resume(wsId, handle, opts)
+        .catch((e: unknown) =>
+          pushAlert("Could not resume the session", describeError(e)),
+        ),
     fork: (wsId, handle, target, opts) =>
-      void journalFork.fork(wsId, handle, target, opts).catch((e: unknown) =>
-        setError((current) => current ?? {
-          title: "Could not fork the session",
-          message: describeError(e),
-        }),
-      ),
+      void journalFork
+        .fork(wsId, handle, target, opts)
+        .catch((e: unknown) =>
+          pushAlert("Could not fork the session", describeError(e)),
+        ),
   }, revive.blocked);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, {
-    // First error wins, like the resume/fork catches — a second failure
-    // must not silently replace a dialog the user is reading.
-    onError: (message) =>
-      setError((current) => current ?? { title: "Worktree error", message }),
+    onError: (message) => pushAlert("Worktree error", message),
     // The same heading the ⇧⌘W path uses: one refusal, one wording, one
     // title, whichever surface the user reached it from.
     onSuspendRefused: (message) =>
-      setError(
-        (current) => current ?? { title: "Can't suspend this agent", message },
-      ),
+      pushAlert("Can't suspend this agent", message),
     gitPositions: gitHeads,
     blockedPanes: revive.blocked,
     suspendAgent: suspendFlow.suspend,
@@ -462,12 +467,9 @@ function App() {
       // indistinguishable from one that didn't reach the app at all.
       void suspendFlow.suspend(target.wsId, target.paneId).then((outcome) => {
         if (outcome === "suspended") return;
-        setError(
-          (current) =>
-            current ?? {
-              title: "Can't suspend this agent",
-              message: suspendRefusalText(outcome, target.label),
-            },
+        pushAlert(
+          "Can't suspend this agent",
+          suspendRefusalText(outcome, target.label),
         );
       });
     },
@@ -587,13 +589,12 @@ function App() {
     // Optimistic: the workspace (and its provisioning cards) land at once.
     const result = provisioning.createWorkspace(config);
     if (!result.ok) {
-      setError({
-        title: "Workspace creation failed",
-        message:
-          result.reason === "sequence-exhausted"
-            ? "No numeric workspace ID is available. Remove the workspace with the highest numeric ID and try again."
-            : "The allocated workspace ID is already in use. Please try again.",
-      });
+      pushAlert(
+        "Workspace creation failed",
+        result.reason === "sequence-exhausted"
+          ? "No numeric workspace ID is available. Remove the workspace with the highest numeric ID and try again."
+          : "The allocated workspace ID is already in use. Please try again.",
+      );
       return;
     }
     setCreating(false);
@@ -790,12 +791,9 @@ function App() {
               void journalResume.resume(wsId, record).catch((e: unknown) =>
                 // A user-requested continuation must fail VISIBLY — the row
                 // staying put with no signal reads as a dead button. First
-                // error wins while its dialog is up: a slow earlier failure
-                // must not be clobbered by a later one.
-                setError((current) => current ?? {
-                  title: "Could not resume the session",
-                  message: describeError(e),
-                }),
+                // Queued behind whatever is up: a slow earlier failure must
+                // not be clobbered by a later one, and neither is dropped.
+                pushAlert("Could not resume the session", describeError(e)),
               )
             }
             onForkSession={(wsId, record) => setForkDialog({ wsId, record })}
@@ -902,10 +900,7 @@ function App() {
                 void journalFork.fork(wsId, record, target, { yolo }).catch((e: unknown) =>
                   // Surgery failures carry precise store diagnostics — show
                   // them; a silently closing dialog reads as success.
-                  setError((current) => current ?? {
-                    title: "Could not fork the session",
-                    message: describeError(e),
-                  }),
+                  pushAlert("Could not fork the session", describeError(e)),
                 );
               }}
               onCancel={() => setForkDialog(null)}
@@ -917,7 +912,7 @@ function App() {
               title={error.title}
               message={error.message}
               confirmLabel="OK"
-              onConfirm={() => setError(null)}
+              onConfirm={dismissAlert}
             />
           )}
 
