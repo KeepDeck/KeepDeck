@@ -237,15 +237,14 @@ function App() {
       ),
   });
   // A close (agent or workspace) awaiting confirmation ([U6]).
-  const closeFlow = useCloseFlow(
-    deck,
+  const closeFlow = useCloseFlow(deck, {
     // First error wins, like the resume/fork catches — a second failure
     // must not silently replace a dialog the user is reading.
-    (message) =>
+    onError: (message) =>
       setError((current) => current ?? { title: "Worktree error", message }),
-    gitHeads,
-    suspendFlow.suspend,
-  );
+    gitPositions: gitHeads,
+    suspendAgent: suspendFlow.suspend,
+  });
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
   // through the same confirm flow as ⌘W.
@@ -448,10 +447,20 @@ function App() {
         agents,
         minimizeOn,
       );
+      if (!target) return;
       // No confirmation, unlike ⌘W: suspending is reversible, and a modal per
-      // parked agent would make the cheap gesture expensive. The hook itself
-      // refuses a pane that can't be suspended.
-      if (target) void suspendFlow.suspend(target.wsId, target.paneId);
+      // parked agent would make the cheap gesture expensive. A REFUSAL does
+      // get a word, though — a blind chord that silently does nothing is
+      // indistinguishable from one that didn't reach the app at all.
+      void suspendFlow.suspend(target.wsId, target.paneId).then((suspended) => {
+        if (suspended) return;
+        setError((current) => ({
+          ...(current ?? {
+            title: "Can't suspend this agent",
+            message: `${target.label} has no running session to stop.`,
+          }),
+        }));
+      });
     },
     toggleMaximize: () => {
       if (modalOpen) return;
@@ -954,9 +963,12 @@ function App() {
               }
               message={
                 closeFlow.closing.kind === "agent"
-                  ? closeFlow.canSuspendInstead
-                    ? "Its terminal session will be ended.\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
-                    : "Its terminal session will be ended."
+                  ? // One sentence, plus the alternative when it's on offer —
+                    // written once so the two can't drift apart.
+                    "Its terminal session will be ended." +
+                    (closeFlow.canSuspendInstead
+                      ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
+                      : "")
                   : closeFlow.closing.count === 0
                     ? "This workspace has no agents."
                     : `This ends ${closeFlow.closing.count} agent${closeFlow.closing.count === 1 ? "" : "s"} and their sessions.`

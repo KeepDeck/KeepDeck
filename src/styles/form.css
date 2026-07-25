@@ -239,10 +239,18 @@
   cursor: pointer;
 }
 
-.form__dir-btn:hover,
-.form__cancel:hover {
+.form__dir-btn:hover:not(:disabled),
+.form__cancel:hover:not(:disabled) {
   background-color: #1b2230;
   border-color: #3a4658;
+}
+
+/* An action that doesn't apply right now (the close dialog's Suspend while
+   the worktree-delete box is ticked) — visibly inert like its siblings, since
+   a button that lights up on hover and then does nothing reads as broken. */
+.form__cancel:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .form__types {

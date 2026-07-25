@@ -202,6 +202,46 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     expect(panes[0].idle).toEqual({ reason: "restored" });
     expect(panes[1].idle).toEqual({ reason: "restored" });
   });
+
+  it("rejects an unparsable timestamp — the card renders it as an age", () => {
+    const doc = JSON.parse(serializeDeck(state));
+    doc.workspaces[0].panes[0].idle = { reason: "suspended", at: "yesterday" };
+    const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
+    // Kept as a suspend, "yesterday" would print as "NaNd ago".
+    expect(pane.idle).toEqual({ reason: "restored" });
+  });
+
+  it("carries a NEWER revision's idle marker through a save round-trip", () => {
+    // `idle` is a known key, so collectExtras alone would drop it and the
+    // sparse write would never re-emit it: a v10 build's marker would be gone
+    // after this build merely opened and saved the file.
+    const doc = JSON.parse(serializeDeck(state));
+    doc.workspaces[0].panes[0].idle = { reason: "frozen", until: "2026-08-01" };
+    const restoredDeck = okDeck(JSON.stringify(doc));
+    const pane = restoredDeck.state.workspaces[0].panes[0];
+    // We still wake it — we have no idea what "frozen" means…
+    expect(pane.idle).toEqual({ reason: "restored" });
+    // …but the newer build gets its own marker back.
+    const saved = JSON.parse(
+      serializeDeck(restoredDeck.state, restoredDeck.docExtras),
+    );
+    expect(saved.workspaces[0].panes[0].idle).toEqual({
+      reason: "frozen",
+      until: "2026-08-01",
+    });
+  });
+
+  it("our own suspend wins over a preserved copy of it", () => {
+    // The typed field round-trips it; a duplicate in extras could otherwise
+    // resurrect a stale stamp on a later save.
+    const doc = JSON.parse(serializeDeck(state));
+    doc.workspaces[0].panes[0].idle = {
+      reason: "suspended",
+      at: "2026-07-25T09:00:00.000Z",
+    };
+    const back = okDeck(JSON.stringify(doc));
+    expect(back.state.workspaces[0].panes[0].extras?.idle).toBeUndefined();
+  });
 });
 
 describe("pane YOLO mode across a restart", () => {

@@ -501,4 +501,72 @@ describe("DeckStage — suspended agents", () => {
     const bar = document.querySelector(".minimized--bar")!;
     expect(bar.querySelector(".minimized__stopped")).toBeNull();
   });
+
+  it("leaves a pane on its way up unmarked — it resolves in milliseconds", () => {
+    // The boundary the exclusion exists for: marking a restored pane would
+    // flicker every stand-in on every launch.
+    render({
+      workspaces: [
+        {
+          ...workspaces[0],
+          panes: [
+            { ...workspaces[0].panes[0], idle: { reason: "restored" as const } },
+            workspaces[0].panes[1],
+          ],
+        },
+      ],
+      minimizeStyle: "strip",
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
+    });
+
+    const bar = document.querySelector(".minimized--bar")!;
+    expect(bar.querySelector(".minimized__stopped")).toBeNull();
+  });
+
+  it("marks a minimized pane BLOCKED on a missing folder — its tile is hidden", () => {
+    // `restored`, but stuck there until the user relocates it: the chip is the
+    // only thing left on screen to say the agent isn't running.
+    render({
+      workspaces: [
+        {
+          ...workspaces[0],
+          panes: [
+            { ...workspaces[0].panes[0], idle: { reason: "restored" as const } },
+            workspaces[0].panes[1],
+          ],
+        },
+      ],
+      idleBlocked: { "pane-1": "/gone/worktree" },
+      minimizeStyle: "strip",
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
+    });
+
+    const bar = document.querySelector(".minimized--bar")!;
+    expect(bar.querySelector(".minimized__stopped")).not.toBeNull();
+  });
+
+  it("hands the pane its OWN session id to name, and never a remote pane's", () => {
+    // The card renders this verbatim as "Resume session: <id>", so a wrong
+    // value here is a promise about someone else's conversation.
+    render({ workspaces: suspended });
+    expect(
+      document.querySelector("[data-pane-id='pane-1'] .pane__idle-session-id")
+        ?.textContent,
+    ).toBe("session-1");
+
+    render({
+      workspaces: [
+        {
+          ...suspended[0],
+          panes: [
+            { ...suspended[0].panes[0], remoteEndpoint: "ws://vps:4500" },
+            suspended[0].panes[1],
+          ],
+        },
+      ],
+    });
+    // A remote pane's conversation lives on the server: nothing to promise.
+    expect(document.querySelector(".pane__idle-session")).toBeNull();
+    expect(document.body.textContent).toContain("Starts a fresh session");
+  });
 });

@@ -41,8 +41,9 @@ export interface CoreCommandDeps {
   /** Open the close-confirm flow — voice/MCP closes go through the same
    * dialog as ⌘W, so the destructive step keeps its human confirmation. */
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
-  /** Stop an agent, keeping its pane — the same flow as ⇧⌘W. */
-  suspendAgent(wsId: string, paneId: string): Promise<void> | void;
+  /** Stop an agent, keeping its pane — the same flow as ⇧⌘W. Resolves to
+   * whether it actually suspended. */
+  suspendAgent(wsId: string, paneId: string): Promise<boolean>;
   /** Open the settings dialog; `sectionId` lands it on a specific section
    * (a plugin's `plugin:<id>`), null on the first. */
   openSettings(sectionId: string | null): void;
@@ -360,12 +361,15 @@ export function registerCoreCommands(
         const agents = deps.agents();
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, agents, ws, str(args, "agent"));
+        const label = paneDisplayTitle(pane, ws.panes.indexOf(pane), agents);
         if (!paneCanSuspend(pane)) {
-          throw new Error(
-            `${paneDisplayTitle(pane, ws.panes.indexOf(pane), agents)} cannot be suspended`,
-          );
+          throw new Error(`${label} cannot be suspended`);
         }
-        await deps.suspendAgent(ws.id, pane.id);
+        // A caller that hears "ok" must be able to believe it: the flow also
+        // declines when a suspend for this pane is already in flight.
+        if (!(await deps.suspendAgent(ws.id, pane.id))) {
+          throw new Error(`${label} was not suspended — one is already running`);
+        }
         return { workspaceId: ws.id, paneId: pane.id };
       },
     }),
@@ -477,7 +481,7 @@ export function useCoreCommands(deps: {
   deck: Deck;
   agents: AgentInfo[];
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
-  suspendAgent(wsId: string, paneId: string): Promise<void> | void;
+  suspendAgent(wsId: string, paneId: string): Promise<boolean>;
   openSettings(sectionId: string | null): void;
   openUsage(): void;
 }): void {

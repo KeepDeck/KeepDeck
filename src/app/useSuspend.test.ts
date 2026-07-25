@@ -130,7 +130,7 @@ describe("useSuspend", () => {
       () => new Promise<void>((resolve) => (release = resolve)),
     );
 
-    let first!: Promise<void>;
+    let first!: Promise<boolean>;
     act(() => {
       first = suspend.suspend("ws-1", "pane-1");
     });
@@ -141,15 +141,35 @@ describe("useSuspend", () => {
     expect(pty.closePane).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses a pane that is provisioning, already idle, remote, or unknown", async () => {
+  it("refuses a provisioning pane, and an unknown pane or workspace", async () => {
     seed({ provisioning: { repo: "/repo", workspace: "ws", index: 1 } });
-    await act(async () => suspend.suspend("ws-1", "pane-1"));
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(false);
     expect(pty.closePane).not.toHaveBeenCalled();
     expect(pane().idle).toBeUndefined();
 
     await act(async () => suspend.suspend("ws-1", "nope"));
     await act(async () => suspend.suspend("nope", "pane-1"));
     expect(pty.closePane).not.toHaveBeenCalled();
+  });
+
+  it("refuses a pane that is ALREADY idle, whatever put it there", async () => {
+    // Without this the second gesture would re-run the whole teardown on a
+    // pane with no process — and, for a suspended one, restamp its card.
+    seed({ idle: { reason: "suspended", at: "2026-07-25T08:00:00.000Z" } });
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(false);
+    expect(pty.closePane).not.toHaveBeenCalled();
+    expect(plans.dropPaneSpawnSpec).not.toHaveBeenCalled();
+    expect(pane().idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T08:00:00.000Z",
+    });
+  });
+
+  it("reports whether it actually suspended, so a caller can't claim success", async () => {
+    seed();
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(true);
+    // Already idle now — the same call is a no-op and says so.
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(false);
   });
 
   it("refuses a REMOTE pane — it has no local session to resume", async () => {
@@ -178,14 +198,21 @@ describe("useSuspend", () => {
     });
   });
 
-  it("suspending a pane whose workspace vanished mid-reap changes nothing", async () => {
+  it("survives its workspace closing mid-reap, and releases the pane afterwards", async () => {
     seed();
-    pty.closePane.mockImplementation(async () => {
+    pty.closePane.mockImplementationOnce(async () => {
       act(() => deck.closeWorkspace("ws-1"));
     });
 
-    await act(async () => suspend.suspend("ws-1", "pane-1"));
-
+    // Resolves rather than throwing on the vanished pane…
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(true);
     expect(deck.workspaces).toHaveLength(0);
+
+    // …and the in-flight guard is released, so the id is usable again — a
+    // leaked entry would make that pane unsuspendable for the whole session.
+    seed();
+    pty.closePane.mockClear();
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(true);
+    expect(pty.closePane).toHaveBeenCalledWith("pane-1");
   });
 });

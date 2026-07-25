@@ -83,8 +83,8 @@ function setup(workspaces: Workspace[]) {
   const registry = createCommandRegistry();
   const deck = fakeDeck(workspaces);
   const requestCloseAgent = vi.fn();
-  const suspendAgent = vi.fn<(wsId: string, paneId: string) => Promise<void>>(
-    () => Promise.resolve(),
+  const suspendAgent = vi.fn<(wsId: string, paneId: string) => Promise<boolean>>(
+    () => Promise.resolve(true),
   );
   const openSettings = vi.fn();
   const openUsage = vi.fn();

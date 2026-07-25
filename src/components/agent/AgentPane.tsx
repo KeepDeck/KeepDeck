@@ -437,7 +437,9 @@ export function AgentPane({
             ) : (
               <>
                 <span className="pane__exit-title">
-                  {idle.reason === "suspended" ? "Suspended" : "Not started"}
+                  {/* "Stopped" matches the launch setting that produces this
+                      state; a pane the user suspended says so, and dates it. */}
+                  {idle.reason === "suspended" ? "Suspended" : "Stopped"}
                 </span>
                 {idle.reason === "suspended" && (
                   <span className="pane__exit-sub">

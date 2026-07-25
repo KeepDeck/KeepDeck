@@ -863,7 +863,9 @@ describe("AgentPane — suspended / parked card", () => {
       ),
     );
 
-    expect(document.body.textContent).toContain("Not started");
+    // "Stopped" is the same word the launch setting uses for this state;
+    // "Suspended" stays reserved for a pane the user stopped by hand.
+    expect(document.body.textContent).toContain("Stopped");
     expect(document.body.textContent).not.toContain("Suspended");
     expect(document.body.textContent).not.toContain("ago");
     // Same verb as a suspended pane: one gesture, one word for it.

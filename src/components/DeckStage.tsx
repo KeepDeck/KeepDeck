@@ -434,7 +434,12 @@ export function DeckStage({
                     Every agent is minimized
                   </span>
                   <span className="deck__grid-empty-sub">
-                    They keep running — restore one below to bring it back
+                    {/* "They keep running" is only true while none of them is
+                        stopped — a deck of suspended agents would otherwise be
+                        told the opposite of what it is. */}
+                    {trayEntries.some((entry) => entry.stopped)
+                      ? "Restore one below to bring it back"
+                      : "They keep running — restore one below to bring it back"}
                   </span>
                 </div>
               )}

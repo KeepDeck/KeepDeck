@@ -371,6 +371,15 @@ function readPane(value: unknown): Pane | null {
     pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
   }
   const extras = collectExtras(value, PANE_KNOWN_KEYS);
+  // `idle` is a KNOWN key, so `collectExtras` would drop a marker written by a
+  // NEWER revision (a reason this build has no name for) — and the sparse
+  // write only re-emits our own `suspended`, so it would be gone for good.
+  // Anything we didn't recognise rides along verbatim instead, like every
+  // other unknown field. Our own suspend is excluded: it round-trips through
+  // the typed field, and duplicating it would let a stale copy win later.
+  if (value.idle !== undefined && pane.idle?.reason !== "suspended") {
+    extras.idle = value.idle;
+  }
   if (Object.keys(extras).length > 0) pane.extras = extras;
   return pane;
 }
@@ -382,7 +391,15 @@ function readPane(value: unknown): Pane | null {
  * it" is deliberate: the failure mode is an agent starting when it might not
  * have needed to, not one silently refusing to come back. */
 function readIdle(value: unknown): PaneIdle {
-  if (isRecord(value) && value.reason === "suspended" && typeof value.at === "string") {
+  if (
+    isRecord(value) &&
+    value.reason === "suspended" &&
+    typeof value.at === "string" &&
+    // The stamp is rendered as an age ("2h ago"); an unparsable one would
+    // print "NaNd ago". This file is hand-editable, so the shape check that
+    // guards every other field guards this one too.
+    Number.isFinite(Date.parse(value.at))
+  ) {
     return { reason: "suspended", at: value.at };
   }
   return { reason: "restored" };

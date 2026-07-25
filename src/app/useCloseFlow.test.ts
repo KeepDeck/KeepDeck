@@ -57,13 +57,17 @@ function probed(exists: boolean): PathProbe {
 let deck: Deck;
 let flow: ReturnType<typeof useCloseFlow>;
 let runtimeHeads: Map<string, GitPosition>;
-const suspendAgent = vi.fn<(wsId: string, paneId: string) => Promise<void>>(
-  () => Promise.resolve(),
+const suspendAgent = vi.fn<(wsId: string, paneId: string) => Promise<boolean>>(
+  () => Promise.resolve(true),
 );
 
 function Probe() {
   deck = useDeck();
-  flow = useCloseFlow(deck, () => {}, runtimeHeads, suspendAgent);
+  flow = useCloseFlow(deck, {
+    onError: () => {},
+    gitPositions: runtimeHeads,
+    suspendAgent,
+  });
   return null;
 }
 

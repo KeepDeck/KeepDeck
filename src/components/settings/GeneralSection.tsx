@@ -137,7 +137,10 @@ export function GeneralSection() {
             className={`form__type${parkAgentsOnLaunch === parked ? " form__type--active" : ""}`}
             onClick={() => updateSettings({ parkAgentsOnLaunch: parked })}
           >
-            {parked ? "Suspended" : "Running"}
+            {/* The word the pane's own card will use for what this produces.
+                "Suspended" is reserved for a pane the USER stopped, which
+                carries a timestamp this one has no equivalent of. */}
+            {parked ? "Stopped" : "Running"}
           </button>
         ))}
       </div>

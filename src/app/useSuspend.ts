@@ -18,8 +18,11 @@ import { useLiveRefs } from "./useLiveRefs";
  */
 export interface SuspendApi {
   /** Stop the pane's agent, keeping the pane. Resolves once the process is
-   * reaped, so a caller can sequence work (a worktree op) after it. */
-  suspend(wsId: string, paneId: string): Promise<void>;
+   * reaped, so a caller can sequence work (a worktree op) after it — and
+   * reports whether it actually suspended: a pane that can't be suspended, or
+   * one whose suspend is already in flight, is a no-op, and a caller that
+   * announces success regardless would be lying to whoever asked. */
+  suspend(wsId: string, paneId: string): Promise<boolean>;
   /** Wake a suspended (or parked) pane — the card's resume gesture. */
   resume(wsId: string, paneId: string): void;
 }
@@ -30,10 +33,10 @@ export function useSuspend(deck: Deck): SuspendApi {
   // stale — and the in-flight guard against a double gesture.
   const { deckRef, inFlight } = useLiveRefs(deck, null);
 
-  const suspend = async (wsId: string, paneId: string) => {
-    if (inFlight.current.has(paneId)) return;
+  const suspend = async (wsId: string, paneId: string): Promise<boolean> => {
+    if (inFlight.current.has(paneId)) return false;
     const pane = findPane(deckRef.current.workspaces, wsId, paneId);
-    if (!pane || !paneCanSuspend(pane)) return;
+    if (!pane || !paneCanSuspend(pane)) return false;
     inFlight.current.add(paneId);
     try {
       log.info("web:suspend", `${paneId}: suspending`);
@@ -52,6 +55,7 @@ export function useSuspend(deck: Deck): SuspendApi {
       dropPaneSpawnSpec(paneId);
       clearPaneUsage(paneId);
       await closePane(paneId);
+      return true;
     } finally {
       inFlight.current.delete(paneId);
     }

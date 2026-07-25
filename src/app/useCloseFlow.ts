@@ -55,13 +55,20 @@ async function liveTargets(
  */
 export function useCloseFlow(
   deck: Deck,
-  onError: (message: string) => void,
-  gitPositions?: ReadonlyMap<string, GitPosition>,
-  /** Suspend an agent instead of closing it — the dialog's third action.
-   * Injected rather than imported so this hook keeps owning only the close
-   * decision; absent means the alternative is simply not offered. */
-  suspendAgent?: (wsId: string, paneId: string) => Promise<void> | void,
+  /** The hook's collaborators, named rather than positional: the list grew to
+   * four and its tail was two optionals nobody omitted, where forgetting one
+   * silently dropped a feature instead of failing to compile. */
+  deps: {
+    onError(message: string): void;
+    /** Live git HEADs, for naming the branches a close would delete. */
+    gitPositions: ReadonlyMap<string, GitPosition>;
+    /** Suspend an agent instead of closing it — the dialog's third action.
+     * Injected rather than imported so this hook keeps owning only the close
+     * decision. */
+    suspendAgent(wsId: string, paneId: string): Promise<boolean> | void;
+  },
 ) {
+  const { onError, gitPositions, suspendAgent } = deps;
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
   // Opt-in: also delete the closing target's worktree(s) + branch(es). Reset
   // each time the dialog opens so the destructive choice is never sticky.
@@ -164,8 +171,7 @@ export function useCloseFlow(
       : null;
 
   /** Whether the dialog should offer suspending instead of closing at all. */
-  const canSuspendInstead =
-    !!suspendAgent && !!closingPane && paneCanSuspend(closingPane);
+  const canSuspendInstead = !!closingPane && paneCanSuspend(closingPane);
 
   /**
    * Take the alternative: dismiss the dialog and park the agent.
@@ -181,7 +187,7 @@ export function useCloseFlow(
     const { wsId, paneId } = closing;
     setClosing(null);
     setDeleteWorktree(false);
-    void suspendAgent?.(wsId, paneId);
+    void suspendAgent(wsId, paneId);
   };
 
   return {
