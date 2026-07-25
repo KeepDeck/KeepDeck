@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import {
+  findPane,
   findWorkspace,
+  paneCanSuspend,
   worktreeTargets,
   type GitPosition,
   type WorktreeTarget,
@@ -55,6 +57,10 @@ export function useCloseFlow(
   deck: Deck,
   onError: (message: string) => void,
   gitPositions?: ReadonlyMap<string, GitPosition>,
+  /** Suspend an agent instead of closing it — the dialog's third action.
+   * Injected rather than imported so this hook keeps owning only the close
+   * decision; absent means the alternative is simply not offered. */
+  suspendAgent?: (wsId: string, paneId: string) => Promise<void> | void,
 ) {
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
   // Opt-in: also delete the closing target's worktree(s) + branch(es). Reset
@@ -148,6 +154,36 @@ export function useCloseFlow(
 
   const cancelClose = () => setClosing(null);
 
+  // The pane this dialog is about, when it is about one. A workspace close is
+  // deliberately not offered the alternative: "suspend" there would mean
+  // "don't close, park all N agents" — a different verb on a different object,
+  // which a button sitting inside "Close workspace?" cannot honestly say.
+  const closingPane =
+    closing?.kind === "agent"
+      ? findPane(deck.workspaces, closing.wsId, closing.paneId)
+      : null;
+
+  /** Whether the dialog should offer suspending instead of closing at all. */
+  const canSuspendInstead =
+    !!suspendAgent && !!closingPane && paneCanSuspend(closingPane);
+
+  /**
+   * Take the alternative: dismiss the dialog and park the agent.
+   *
+   * Refused while the worktree-delete checkbox is ticked, and the button is
+   * disabled to match. The two are contradictory — a suspended pane keeps
+   * pointing at that worktree and expects to come back to it — and of the two
+   * ways to resolve the contradiction, silently ignoring a box the user
+   * ticked is the worse one.
+   */
+  const suspendInstead = () => {
+    if (!canSuspendInstead || closing?.kind !== "agent" || deleteWorktree) return;
+    const { wsId, paneId } = closing;
+    setClosing(null);
+    setDeleteWorktree(false);
+    void suspendAgent?.(wsId, paneId);
+  };
+
   return {
     closing,
     deleteWorktree,
@@ -156,5 +192,7 @@ export function useCloseFlow(
     requestCloseWorkspace,
     confirmClose,
     cancelClose,
+    canSuspendInstead,
+    suspendInstead,
   };
 }

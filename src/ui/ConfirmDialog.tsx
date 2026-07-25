@@ -17,6 +17,17 @@ interface ConfirmDialogProps {
   /** Extra content between the message and the actions (e.g. an opt-in
    * checkbox); optional so plain confirm/notice dialogs stay unchanged. */
   children?: ReactNode;
+  /** A third, softer action beside cancel and confirm — the alternative worth
+   * offering at the moment of the decision ("suspend instead of closing").
+   * Rendered as an ordinary button between the two, so the destructive
+   * confirm keeps its position and its weight. A disabled one states `hint`
+   * as its tooltip: an action that silently does nothing reads as broken. */
+  secondaryAction?: {
+    label: string;
+    disabled?: boolean;
+    hint?: string;
+    onClick(): void;
+  };
   onConfirm(): void;
   onCancel?(): void;
 }
@@ -36,6 +47,7 @@ export function ConfirmDialog({
   cancelLabel,
   destructive,
   children,
+  secondaryAction,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -58,6 +70,19 @@ export function ConfirmDialog({
               autoFocus
             >
               {cancelLabel}
+            </button>
+          )}
+          {secondaryAction && (
+            <button
+              type="button"
+              className="form__cancel"
+              onClick={secondaryAction.onClick}
+              disabled={secondaryAction.disabled}
+              title={
+                secondaryAction.disabled ? secondaryAction.hint : undefined
+              }
+            >
+              {secondaryAction.label}
             </button>
           )}
           {destructive ? (

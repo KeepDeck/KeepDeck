@@ -243,6 +243,7 @@ function App() {
     (message) =>
       setError((current) => current ?? { title: "Worktree error", message }),
     gitHeads,
+    suspendFlow.suspend,
   );
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
@@ -937,7 +938,9 @@ function App() {
               }
               message={
                 closeFlow.closing.kind === "agent"
-                  ? "Its terminal session will be ended."
+                  ? closeFlow.canSuspendInstead
+                    ? "Its terminal session will be ended.\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
+                    : "Its terminal session will be ended."
                   : closeFlow.closing.count === 0
                     ? "This workspace has no agents."
                     : `This ends ${closeFlow.closing.count} agent${closeFlow.closing.count === 1 ? "" : "s"} and their sessions.`
@@ -945,6 +948,16 @@ function App() {
               confirmLabel="Close"
               cancelLabel="Cancel"
               destructive
+              secondaryAction={
+                closeFlow.canSuspendInstead
+                  ? {
+                      label: "Suspend",
+                      onClick: closeFlow.suspendInstead,
+                      disabled: closeFlow.deleteWorktree,
+                      hint: "A suspended agent comes back to its worktree — untick the delete to suspend it",
+                    }
+                  : undefined
+              }
               onConfirm={closeFlow.confirmClose}
               onCancel={closeFlow.cancelClose}
             >
