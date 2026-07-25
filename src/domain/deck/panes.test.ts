@@ -39,16 +39,18 @@ describe("paneCanSuspend", () => {
     // Exit is runtime state the durable model doesn't carry, so an exited pane
     // is indistinguishable here — deliberately: parking a dead agent is
     // meaningful, its card just becomes the honest stopped one.
-    expect(paneCanSuspend({ id: "p" })).toBe(true);
-    expect(paneCanSuspend({ id: "p", session: { id: "s", boundAt: "t" } })).toBe(
-      true,
-    );
+    expect(paneCanSuspend({ id: "p" }, false)).toBe(true);
+    expect(
+      paneCanSuspend({ id: "p", session: { id: "s", boundAt: "t" } }, false),
+    ).toBe(true);
   });
 
   it("false only for a pane already STAYING down", () => {
-    expect(paneCanSuspend({ id: "p", idle: { reason: "parked" } })).toBe(false);
+    expect(paneCanSuspend({ id: "p", idle: { reason: "parked" } }, false)).toBe(
+      false,
+    );
     expect(
-      paneCanSuspend({ id: "p", idle: { reason: "suspended", at: "t" } }),
+      paneCanSuspend({ id: "p", idle: { reason: "suspended", at: "t" } }, false),
     ).toBe(false);
   });
 
@@ -56,34 +58,43 @@ describe("paneCanSuspend", () => {
     // Panes in a workspace the user isn't looking at stay `waking` until it is
     // activated; refusing them made those agents impossible to park.
     expect(
-      paneCanSuspend({ id: "p", idle: { reason: "waking", origin: "restore" } }),
+      paneCanSuspend(
+        { id: "p", idle: { reason: "waking", origin: "restore" } },
+        false,
+      ),
     ).toBe(true);
     expect(
-      paneCanSuspend({ id: "p", idle: { reason: "waking", origin: "manual" } }),
+      paneCanSuspend(
+        { id: "p", idle: { reason: "waking", origin: "manual" } },
+        false,
+      ),
     ).toBe(true);
   });
 
   it("names the reason it refuses, so every surface says the same thing", () => {
-    expect(paneSuspendBlock({ id: "p" })).toBeNull();
-    expect(paneSuspendBlock({ id: "p", idle: { reason: "parked" } })).toBe(
+    expect(paneSuspendBlock({ id: "p" }, false)).toBeNull();
+    expect(paneSuspendBlock({ id: "p", idle: { reason: "parked" } }, false)).toBe(
       "stopped",
     );
     expect(
-      paneSuspendBlock({
-        id: "p",
-        provisioning: { repo: "/r", workspace: "w", index: 1 },
-      }),
+      paneSuspendBlock(
+        { id: "p", provisioning: { repo: "/r", workspace: "w", index: 1 } },
+        false,
+      ),
     ).toBe("provisioning");
     expect(
-      paneSuspendBlock({ id: "p", remoteEndpoint: "ws://vps:4500" }),
+      paneSuspendBlock({ id: "p", remoteEndpoint: "ws://vps:4500" }, false),
     ).toBe("remote");
     // Precedence matters: it decides which sentence the user reads.
     expect(
-      paneSuspendBlock({
-        id: "p",
-        idle: { reason: "parked" },
-        remoteEndpoint: "ws://vps:4500",
-      }),
+      paneSuspendBlock(
+        {
+          id: "p",
+          idle: { reason: "parked" },
+          remoteEndpoint: "ws://vps:4500",
+        },
+        false,
+      ),
     ).toBe("stopped");
   });
 
@@ -95,7 +106,7 @@ describe("paneCanSuspend", () => {
       id: "p",
       idle: { reason: "waking", origin: "restore" },
     } as const;
-    expect(paneSuspendBlock(rising)).toBeNull();
+    expect(paneSuspendBlock(rising, false)).toBeNull();
     expect(paneSuspendBlock(rising, true)).toBe("stopped");
     // A LIVE pane is never stopped by a stale entry: it has no idle marker,
     // and a running agent is not "already stopped" whatever the map says.
@@ -104,17 +115,17 @@ describe("paneCanSuspend", () => {
 
   it("false while a worktree create is in flight — no process to stop", () => {
     expect(
-      paneCanSuspend({
-        id: "p",
-        provisioning: { repo: "/r", workspace: "w", index: 1 },
-      }),
+      paneCanSuspend(
+        { id: "p", provisioning: { repo: "/r", workspace: "w", index: 1 } },
+        false,
+      ),
     ).toBe(false);
   });
 
   it("false for a REMOTE pane — its conversation lives on the server", () => {
-    expect(paneCanSuspend({ id: "p", remoteEndpoint: "ws://vps:4500" })).toBe(
-      false,
-    );
+    expect(
+      paneCanSuspend({ id: "p", remoteEndpoint: "ws://vps:4500" }, false),
+    ).toBe(false);
   });
 });
 

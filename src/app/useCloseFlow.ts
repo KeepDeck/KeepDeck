@@ -4,6 +4,7 @@ import {
   findWorkspace,
   idleReadsAsStopped,
   paneSuspendBlock,
+  paneWakesAutomatically,
   worktreeTargets,
   type GitPosition,
   type WorktreeTarget,
@@ -212,10 +213,26 @@ export function useCloseFlow(
   const closeMessage = ((): string => {
     if (!closing) return "";
     if (closing.kind === "workspace") {
-      return closing.count === 0
-        ? "This workspace has no agents."
-        : `This ends ${closing.count} agent${closing.count === 1 ? "" : "s"} and their sessions.`;
+      if (closing.count === 0) return "This workspace has no agents.";
+      // Only the agents that still HAVE a session are counted as losing one —
+      // the same correction the agent branch got, which this one was left
+      // out of: a workspace of suspended agents ends nothing at all.
+      const ws = findWorkspace(deck.workspaces, closing.id);
+      const running = (ws?.panes ?? []).filter(
+        (pane) => !idleReadsAsStopped(pane.idle, pane.id in blockedPanes),
+      ).length;
+      if (running === 0) {
+        return closing.count === 1
+          ? "Its agent is stopped; closing removes it."
+          : "Its agents are stopped; closing removes them.";
+      }
+      return running === 1
+        ? "This ends 1 agent and its session."
+        : `This ends ${running} agents and their sessions.`;
     }
+    // A pane still creating its worktree has never run, so there is no
+    // session to end and no process to suspend.
+    if (closingPane?.provisioning) return "Its worktree is still being created.";
     // A stopped pane has no session to end, and saying so would contradict
     // the card the user is looking at. Whether the worktree survives is the
     // checkbox's business, not this sentence's.
@@ -227,7 +244,13 @@ export function useCloseFlow(
         ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
         : "\nSuspending stops the agent instead, keeping the pane and its session."
       : "";
-    return "Its terminal session will be ended." + alternative;
+    // A pane on its way up has no session YET — promising to end one, while
+    // the line below offers to keep "its session", described a pane that
+    // does not exist in either direction.
+    const opening = paneWakesAutomatically(closingPane!)
+      ? "It is starting up; closing removes the pane."
+      : "Its terminal session will be ended.";
+    return opening + alternative;
   })();
 
   /**

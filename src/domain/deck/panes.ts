@@ -171,8 +171,8 @@ export function paneIsRemoteFresh(pane: Pane): boolean {
  *  parking a dead agent is meaningful (its card becomes the honest "stopped"
  *  one, and resuming rebuilds its resume plan), and the exit is runtime state
  *  this durable model deliberately doesn't carry. */
-export function paneCanSuspend(pane: Pane): boolean {
-  return paneSuspendBlock(pane) === null;
+export function paneCanSuspend(pane: Pane, blocked: boolean): boolean {
+  return paneSuspendBlock(pane, blocked) === null;
 }
 
 /** WHY a pane can't be suspended, or null when it can. A reason rather than a
@@ -187,10 +187,16 @@ export type PaneSuspendBlock = "stopped" | "provisioning" | "remote";
  *  — the same argument [`idleReadsAsStopped`] takes, and for the same reason:
  *  such a pane has no process and is going nowhere, so every surface has to
  *  agree it is stopped. Passing it is what stops the close dialog from
- *  offering to suspend a pane the tile beside it draws as dead. */
+ *  offering to suspend a pane the tile beside it draws as dead.
+ *
+ *  REQUIRED, deliberately. A default would let the next surface omit it and
+ *  compile — which is exactly the disagreement this argument was added to
+ *  end, and a caller reading `false` would stamp a durable suspend onto a
+ *  pane whose folder is gone. A caller with no sweep verdict to hand (the
+ *  domain's own reducer guard) passes `false` and says so. */
 export function paneSuspendBlock(
   pane: Pane,
-  blocked = false,
+  blocked: boolean,
 ): PaneSuspendBlock | null {
   // Only a pane that is STAYING down is refused. One still rising can be
   // stopped — that cancels the wake — and it matters: a pane whose wake is

@@ -15,6 +15,7 @@ import {
   type Pane,
   type PaneIdle,
   type PaneSession,
+  type PaneStopped,
 } from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
@@ -333,7 +334,7 @@ export function requestPaneWake(
   // itself is a guess that gets worse every time the union grows. A wake
   // already in flight keeps whatever IT rose from — the upgrade changes who
   // asked, not where the pane came from.
-  const from: PaneIdle | undefined =
+  const from: PaneStopped | undefined =
     pane.idle.reason === "waking" ? pane.idle.from : pane.idle;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) =>
@@ -382,7 +383,13 @@ export function failPaneWake(
  * Returns the SAME array for any pane [`paneCanSuspend`] rejects. The guard
  * consults that predicate rather than restating it: this action is exported
  * through the deck barrel, so a future "suspend every agent here" would
- * otherwise park the remote panes the predicate exists to protect. */
+ * otherwise park the remote panes the predicate exists to protect.
+ *
+ * `blocked` is false here because the domain has no sweep verdict to consult
+ * — that lives in the app layer, which refuses such a pane before dispatching
+ * (`useSuspend`). This guard is the backstop for the rules the MODEL can see,
+ * and the argument is spelled out rather than defaulted so the omission is a
+ * decision on the page instead of an invisible one. */
 export function suspendPane(
   workspaces: Workspace[],
   workspaceId: string,
@@ -390,7 +397,7 @@ export function suspendPane(
   at: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane || !paneCanSuspend(pane)) return workspaces;
+  if (!pane || !paneCanSuspend(pane, false)) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) =>
       p.id === paneId ? { ...p, idle: { reason: "suspended", at } } : p,

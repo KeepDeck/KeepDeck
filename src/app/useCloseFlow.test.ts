@@ -455,4 +455,49 @@ describe("what the dialog promises is what confirming does", () => {
     await act(async () => flow.requestCloseWorkspace(wsId));
     expect(flow.closeMessage).toBe("This ends 2 agents and their sessions.");
   });
+
+  it("does not count a stopped agent's session among the ones it ends", async () => {
+    // The same lie `closingIsStopped` removed from the agent branch, still
+    // being told one branch over: a suspended agent has no session left to
+    // end, and a workspace of them ends none at all.
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).toBe("This ends 1 agent and its session.");
+
+    act(() => deck.suspendPane(wsId, "pane-2"));
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).toBe("Its agents are stopped; closing removes them.");
+  });
+
+  it("does not promise to end a session a pane never had", async () => {
+    // A pane still creating its worktree has never run, and one on its way up
+    // has not started yet. Neither has a terminal session to end, and the
+    // second was being offered "keep its session" in the same breath.
+    act(() => {
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "ws2",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [
+          {
+            id: "pane-9",
+            agentType: "claude",
+            provisioning: { repo: "/repo", workspace: "ws2", index: 1 },
+          },
+        ],
+      });
+    });
+    act(() => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
+    expect(flow.closeMessage).toBe("Its worktree is still being created.");
+
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).toContain("It is starting up");
+    expect(flow.closeMessage).not.toContain("will be ended");
+  });
 });

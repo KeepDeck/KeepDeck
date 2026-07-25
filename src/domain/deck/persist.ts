@@ -1,7 +1,7 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneIdle, PaneProvisioning } from "./panes";
-import { resolveFocus } from "./panes";
+import { paneWakeOrigin, resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
 import { nextIdSequence } from "../idSequence";
@@ -248,7 +248,7 @@ export function parkRestoredPanes(state: DeckState): DeckState {
       panes: ws.panes.map((pane) =>
         // Hydration's own marker only — a pane the user suspended keeps its
         // stamp, and no other reason can exist this early.
-        pane.idle?.reason === "waking" && pane.idle.origin === "restore"
+        paneWakeOrigin(pane) === "restore"
           ? { ...pane, idle: { reason: "parked" as const } }
           : pane,
       ),

@@ -58,7 +58,6 @@ const callbacks = {
   onRenamePane: vi.fn(),
   onPaneTitle: vi.fn(),
   onStartFresh: vi.fn(),
-  onRetryBlocked: vi.fn(),
   onResumeAgent: vi.fn(),
   onRetryProvision: vi.fn(),
   onRetryPlanBuild: vi.fn(),
