@@ -63,6 +63,70 @@ async function liveTargets(
   return checked.flat();
 }
 
+/** What the dialog needs to know about the target beyond its snapshot. */
+export interface CloseFacts {
+  /** The pane's worktree create is still in flight — it has never run. */
+  provisioning: boolean;
+  /** On its way up: no session YET, as opposed to none any more. */
+  rising: boolean;
+  /** Reads as stopped to the user (see `idleReadsAsStopped`). */
+  stopped: boolean;
+  /** Suspend is on offer, from the dialog's snapshot. */
+  canSuspend: boolean;
+  /** For a workspace close: how many of its agents still hold a session. */
+  runningAgents: number;
+}
+
+/**
+ * What closing will actually do, in the dialog's own words.
+ *
+ * A pure function rather than a hook-body expression: the sentence has been
+ * wrong three times — it promised to delete a worktree the default path
+ * keeps, to end sessions of agents that were already stopped, and to end one
+ * a pane had never opened — and every correction was verified only by driving
+ * the whole hook. Here the table is addressable on its own, so a case can be
+ * pinned without a workspace, a probe and a render.
+ */
+export function closeMessageFor(
+  closing: ClosingTarget | null,
+  facts: CloseFacts,
+): string {
+  if (!closing) return "";
+  if (closing.kind === "workspace") {
+    if (closing.count === 0) return "This workspace has no agents.";
+    // Only the agents that still HAVE a session are counted as losing one:
+    // a workspace of suspended agents ends nothing at all.
+    if (facts.runningAgents === 0) {
+      return closing.count === 1
+        ? "Its agent is stopped; closing removes it."
+        : "Its agents are stopped; closing removes them.";
+    }
+    return facts.runningAgents === 1
+      ? "This ends 1 agent and its session."
+      : `This ends ${facts.runningAgents} agents and their sessions.`;
+  }
+  // Never ran: no session to end, and nothing to suspend.
+  if (facts.provisioning) return "Its worktree is still being created.";
+  // A stopped pane has no session to end, and saying so would contradict the
+  // card the user is looking at. Whether the worktree survives is the
+  // checkbox's business, not this sentence's.
+  if (facts.stopped) return "It is stopped; closing removes the pane.";
+  // Mutually exclusive with the branch above by construction: a stopped pane
+  // is exactly the one `paneSuspendBlock` refuses.
+  const alternative = facts.canSuspend
+    ? closing.targets.length > 0
+      ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
+      : "\nSuspending stops the agent instead, keeping the pane and its session."
+    : "";
+  // A pane on its way up has no session YET — promising to end one, while the
+  // line below offers to keep "its session", described a pane that does not
+  // exist in either direction.
+  const opening = facts.rising
+    ? "It is starting up; closing removes the pane."
+    : "Its terminal session will be ended.";
+  return opening + alternative;
+}
+
 /**
  * Owns the confirmed-close flow: both close paths ([U6]) park a ClosingTarget
  * for the confirm dialog — once its candidate worktrees are probed, so a
@@ -222,56 +286,22 @@ export function useCloseFlow(
    * still calling a dead pane running. From the snapshot, like the offer. */
   const closingIsStopped = closing?.kind === "agent" && closing.isStopped;
 
-  /**
-   * What closing will actually do, in the dialog's own words. Built here
-   * rather than at the prop because the three facts it needs — is the pane
-   * stopped, may it be suspended, does it own a worktree — all live in this
-   * hook, and spelling it out at the call site let the sentence drift from
-   * what `confirmClose` does. It said the worktree "goes with it" while the
-   * delete checkbox below it was, by default, unticked.
-   */
-  const closeMessage = ((): string => {
-    if (!closing) return "";
-    if (closing.kind === "workspace") {
-      if (closing.count === 0) return "This workspace has no agents.";
-      // Only the agents that still HAVE a session are counted as losing one —
-      // the same correction the agent branch got, which this one was left
-      // out of: a workspace of suspended agents ends nothing at all.
-      const ws = findWorkspace(deck.workspaces, closing.id);
-      const running = (ws?.panes ?? []).filter(
-        (pane) => !idleReadsAsStopped(pane.idle, pane.id in blockedPanes),
-      ).length;
-      if (running === 0) {
-        return closing.count === 1
-          ? "Its agent is stopped; closing removes it."
-          : "Its agents are stopped; closing removes them.";
-      }
-      return running === 1
-        ? "This ends 1 agent and its session."
-        : `This ends ${running} agents and their sessions.`;
-    }
-    // A pane still creating its worktree has never run, so there is no
-    // session to end and no process to suspend.
-    if (closingPane?.provisioning) return "Its worktree is still being created.";
-    // A stopped pane has no session to end, and saying so would contradict
-    // the card the user is looking at. Whether the worktree survives is the
-    // checkbox's business, not this sentence's.
-    if (closingIsStopped) return "It is stopped; closing removes the pane.";
-    // Mutually exclusive with the branch above by construction: a stopped
-    // pane is exactly the one `paneSuspendBlock` refuses.
-    const alternative = canSuspendInstead
-      ? closing.targets.length > 0
-        ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
-        : "\nSuspending stops the agent instead, keeping the pane and its session."
-      : "";
-    // A pane on its way up has no session YET — promising to end one, while
-    // the line below offers to keep "its session", described a pane that
-    // does not exist in either direction.
-    const opening = paneWakesAutomatically(closingPane!)
-      ? "It is starting up; closing removes the pane."
-      : "Its terminal session will be ended.";
-    return opening + alternative;
-  })();
+  /** How many of a closing workspace's agents still hold a session. */
+  const runningAgentsOf = (target: ClosingTarget | null): number => {
+    if (target?.kind !== "workspace") return 0;
+    const ws = findWorkspace(deck.workspaces, target.id);
+    return (ws?.panes ?? []).filter(
+      (pane) => !idleReadsAsStopped(pane.idle, pane.id in blockedPanes),
+    ).length;
+  };
+
+  const closeMessage = closeMessageFor(closing, {
+    provisioning: !!closingPane?.provisioning,
+    rising: !!closingPane && paneWakesAutomatically(closingPane),
+    stopped: closingIsStopped,
+    canSuspend: canSuspendInstead,
+    runningAgents: runningAgentsOf(closing),
+  });
 
   /**
    * Take the alternative: dismiss the dialog and park the agent.
