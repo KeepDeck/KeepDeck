@@ -242,14 +242,6 @@ export function paneWakeOrigin(pane: Pane): ResumeOrigin | null {
   return pane.idle?.reason === "waking" ? pane.idle.origin : null;
 }
 
-/** Whether the pane has no process AND nothing is bringing it back on its own
- *  — the state every "this agent is not running" affordance keys on (the
- *  dimmed tile, the tray's stopped marker). A pane on its way up is excluded:
- *  it resolves in milliseconds, and marking it would only flicker. */
-export function paneIsStopped(pane: Pane): boolean {
-  return !!pane.idle && !idleWakesAutomatically(pane.idle);
-}
-
 /** Whether a pane READS as stopped to the user — no process, and nothing
  *  bringing it back on its own. One exported rule rather than a boolean
  *  passed down, because two surfaces ask it about the same pane (its tile

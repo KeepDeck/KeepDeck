@@ -210,10 +210,17 @@ function App() {
   // already closed and the pane just stayed running.
   const [alerts, setAlerts] = useState<{ title: string; message: string }[]>([]);
   const error = alerts[0] ?? null;
+  // Counts dismissals, not alerts: it keys the dialog so each notice mounts
+  // its own, rather than the next one's text appearing inside the element the
+  // user's finger is already on.
+  const [alertSeq, setAlertSeq] = useState(0);
   /** Queue a notice behind whatever the user is reading. */
   const pushAlert = (title: string, message: string) =>
     setAlerts((queue) => [...queue, { title, message }]);
-  const dismissAlert = () => setAlerts((queue) => queue.slice(1));
+  const dismissAlert = () => {
+    setAlerts((queue) => queue.slice(1));
+    setAlertSeq((n) => n + 1);
+  };
   // The settings dialog ([F6]) — opened from the app menu (⌘,), the gear, or
   // a plugin's `openSettings`. When a plugin opens it, the target section id
   // rides along so the dialog lands on that plugin's page.
@@ -908,7 +915,13 @@ function App() {
           )}
 
           {error && (
+            // Keyed by position in the queue so the NEXT notice mounts a
+            // fresh dialog instead of reconciling into this one. Reconciled,
+            // it kept the OK button focused and its own text swapped
+            // underneath — a second Enter dismissed a message that was never
+            // read, which is the silent drop the queue exists to end.
             <ConfirmDialog
+              key={alertSeq}
               title={error.title}
               message={error.message}
               confirmLabel="OK"

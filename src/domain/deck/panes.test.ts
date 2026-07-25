@@ -8,7 +8,7 @@ import {
   paneDisplayTitle,
   paneIdleIsDurable,
   paneIsRemoteFresh,
-  paneIsStopped,
+  idleReadsAsStopped,
   paneOnScreen,
   paneSuspendBlock,
   paneResumeSessionId,
@@ -196,15 +196,21 @@ describe("paneWakeOrigin / paneWakesAutomatically", () => {
   });
 });
 
-describe("paneIsStopped", () => {
+describe("idleReadsAsStopped", () => {
   it("true only when nothing is bringing the pane back on its own", () => {
-    expect(paneIsStopped({ id: "p" })).toBe(false); // running
-    expect(paneIsStopped({ id: "p", idle: { reason: "waking", origin: "restore" } })).toBe(false);
-    expect(paneIsStopped({ id: "p", idle: { reason: "waking", origin: "manual" } })).toBe(false);
-    expect(paneIsStopped({ id: "p", idle: { reason: "parked" } })).toBe(true);
-    expect(
-      paneIsStopped({ id: "p", idle: { reason: "suspended", at: "t" } }),
-    ).toBe(true);
+    expect(idleReadsAsStopped(undefined, false)).toBe(false); // running
+    expect(idleReadsAsStopped({ reason: "waking", origin: "restore" }, false)).toBe(false);
+    expect(idleReadsAsStopped({ reason: "waking", origin: "manual" }, false)).toBe(false);
+    expect(idleReadsAsStopped({ reason: "parked" }, false)).toBe(true);
+    expect(idleReadsAsStopped({ reason: "suspended", at: "t" }, false)).toBe(true);
+  });
+
+  it("counts the sweep's gone-folder verdict as stopped too", () => {
+    // A rising pane that will never rise. This is the whole reason the
+    // predicate takes the verdict rather than deriving from the marker alone.
+    expect(idleReadsAsStopped({ reason: "waking", origin: "restore" }, true)).toBe(true);
+    // But a LIVE pane is not stopped by a stale entry.
+    expect(idleReadsAsStopped(undefined, true)).toBe(false);
   });
 });
 

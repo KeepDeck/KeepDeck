@@ -4,7 +4,10 @@ import { useEffect } from "react";
 export function useEscape(handler: () => void): void {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") handler();
+      // A HELD key repeats, and one dismissal must not stand for the next
+      // dialog's: notices queue, so a repeat would pop one the user never
+      // saw. One press, one dismissal.
+      if (e.key === "Escape" && !e.repeat) handler();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
