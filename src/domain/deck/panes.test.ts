@@ -6,6 +6,7 @@ import {
   makeProvisioningPanes,
   paneCanSuspend,
   paneDisplayTitle,
+  paneIdleIsDurable,
   paneIsRemoteFresh,
   paneIsStopped,
   paneOnScreen,
@@ -126,6 +127,21 @@ describe("paneCanSuspend", () => {
     expect(
       paneCanSuspend({ id: "p", remoteEndpoint: "ws://vps:4500" }, false),
     ).toBe(false);
+  });
+});
+
+describe("paneIdleIsDurable", () => {
+  it("names the one reason that reaches disk", () => {
+    // Asked in two layers — the codec decides what to WRITE, the save
+    // scheduler decides what may not wait for a debounce — and they were two
+    // copies of one literal. A fifth durable reason added to the codec alone
+    // would still be saved, but only on the timer, so a quit inside that
+    // window would lose it.
+    expect(paneIdleIsDurable({ reason: "suspended", at: "t" })).toBe(true);
+    expect(paneIdleIsDurable({ reason: "parked" })).toBe(false);
+    expect(paneIdleIsDurable({ reason: "waking", origin: "restore" })).toBe(false);
+    expect(paneIdleIsDurable({ reason: "waking", origin: "manual" })).toBe(false);
+    expect(paneIdleIsDurable(undefined)).toBe(false);
   });
 });
 

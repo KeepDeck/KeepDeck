@@ -222,6 +222,16 @@ export function paneWakesAutomatically(pane: Pane): boolean {
   return !!pane.idle && idleWakesAutomatically(pane.idle);
 }
 
+/** Whether this idle marker OUTLIVES the session that produced it. The one
+ *  place the answer lives, because two layers ask it about the same pane and
+ *  had a copy each: the codec decides what to write, and the save scheduler
+ *  decides what may not wait for the debounce. A reason added to one alone
+ *  reaches disk only on the timer, so a quit inside that window loses it —
+ *  which is the whole reason the immediate lane exists. */
+export function paneIdleIsDurable(idle: PaneIdle | undefined): boolean {
+  return idle?.reason === "suspended";
+}
+
 /** WHO asked for this pane to come up, or null when it isn't coming up at
  *  all. The sweep's one reader: taking the origin from an accessor rather
  *  than re-deriving `pane.idle?.reason === "waking" ? … : "restore"` at each

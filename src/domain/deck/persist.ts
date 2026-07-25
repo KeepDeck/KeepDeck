@@ -1,7 +1,7 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneIdle, PaneProvisioning } from "./panes";
-import { paneWakeOrigin, resolveFocus } from "./panes";
+import { paneIdleIsDurable, paneWakeOrigin, resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
 import { nextIdSequence } from "../idSequence";
@@ -117,7 +117,7 @@ export function serializeDeck(
           // Sparse, and only the durable reason: `waking`/`parked` describe
           // a launch, so writing them would make every ordinary restart look
           // like a deliberate suspend on the NEXT one.
-          ...(p.idle?.reason === "suspended" && { idle: p.idle }),
+          ...(paneIdleIsDurable(p.idle) && { idle: p.idle }),
           // The intent only: error and phase are runtime state, and hydration
           // stamps its own error ("interrupted") on whatever comes back.
           ...(p.provisioning !== undefined && {
