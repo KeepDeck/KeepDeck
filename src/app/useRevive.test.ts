@@ -252,3 +252,141 @@ describe("useRevive — session policy", () => {
     expect(revive.blocked).toEqual({});
   });
 });
+
+describe("useRevive — resuming a suspended pane", () => {
+  let root: Root;
+
+  /** A deck whose single pane the user SUSPENDED, bound and on a worktree. */
+  const suspended = (pane: object = {}): DeckState => ({
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [
+          {
+            id: "pane-1",
+            agentType: "claude",
+            cwd: "/repo/wt-1",
+            branch: "kd/ws/1",
+            session: { id: "s-1", boundAt: "t" },
+            idle: { reason: "suspended", at: "2026-07-25T09:00:00.000Z" },
+            ...pane,
+          },
+        ],
+      },
+    ],
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  });
+
+  const pane = () => deck.workspaces[0].panes[0];
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("stays put until asked — the sweep never wakes it on its own", async () => {
+    act(() => deck.hydrate(suspended()));
+    await settle();
+
+    expect(pane().idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T09:00:00.000Z",
+    });
+    expect(ipc.probeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("resumes into its worktree with its recorded session", async () => {
+    act(() => deck.hydrate(suspended()));
+    await settle();
+
+    act(() => deck.wakePane("ws-1", "pane-1"));
+    await settle();
+
+    expect(pane().idle).toBeUndefined(); // live: the terminal mounts
+    expect(ipc.probeWorktree).toHaveBeenCalledWith("/repo/wt-1");
+    expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "s-1"]);
+  });
+
+  it("a DELETED worktree blocks the resume instead of spawning into nowhere", async () => {
+    ipc.probeWorktree.mockResolvedValue({
+      exists: false,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() => deck.hydrate(suspended()));
+    await settle();
+
+    act(() => deck.wakePane("ws-1", "pane-1"));
+    await settle();
+
+    // No process, no resume plan: the pane stays idle and reports the missing
+    // directory, so its card can explain itself instead of failing in a
+    // terminal that spawned somewhere unexpected.
+    expect(pane().idle).toEqual({ reason: "restored" });
+    expect(revive.blocked["pane-1"]).toBe("/repo/wt-1");
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
+    // The binding survives — nothing has decided to abandon that session yet.
+    expect(pane().session).toEqual({ id: "s-1", boundAt: "t" });
+  });
+
+  it("blocked once, probed once — a wedged pane never loops on the sweep", async () => {
+    ipc.probeWorktree.mockResolvedValue({
+      exists: false,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() => deck.hydrate(suspended()));
+    await settle();
+    act(() => deck.wakePane("ws-1", "pane-1"));
+    await settle();
+    await settle();
+
+    expect(ipc.probeWorktree).toHaveBeenCalledTimes(1);
+  });
+
+  it("start-fresh relocates it to the workspace folder — and DROPS the session", async () => {
+    ipc.probeWorktree.mockResolvedValue({
+      exists: false,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() => deck.hydrate(suspended()));
+    await settle();
+    act(() => deck.wakePane("ws-1", "pane-1"));
+    await settle();
+
+    act(() => revive.startFresh("ws-1", "pane-1"));
+    await settle();
+
+    expect(revive.blocked).toEqual({});
+    expect(pane().idle).toBeUndefined();
+    // The worktree is gone, so the conversation recorded against it cannot be
+    // resumed here: cwd, branch and binding all go, and the pane starts new.
+    expect(pane().cwd).toBeUndefined();
+    expect(pane().branch).toBeUndefined();
+    expect(pane().session).toBeUndefined();
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
+  });
+});
