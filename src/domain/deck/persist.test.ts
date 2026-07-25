@@ -544,6 +544,20 @@ describe("provisioning panes across a restart", () => {
     expect(pane.idle).toBeUndefined();
   });
 
+  it("an interrupted create outranks a stored suspend — the card must offer Retry", () => {
+    // Both markers on one pane is only reachable by a hand edit, but the
+    // outcome matters: an idle pane here would send the revive flow into a
+    // directory the create never finished making.
+    const doc = JSON.parse(serializeDeck(provisioningState));
+    doc.workspaces[0].panes[0].idle = {
+      reason: "suspended",
+      at: "2026-07-25T09:00:00.000Z",
+    };
+    const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
+    expect(pane.idle).toBeUndefined();
+    expect(pane.provisioning?.error).toBe(PROVISIONING_INTERRUPTED);
+  });
+
   it("drops a FORK provisioning card entirely — never restores it as a plain retryable pane", () => {
     // A fork's surgery is an in-memory post-provision step that can't survive a
     // restart; restoring the card would Retry into a NON-fork pane, silently

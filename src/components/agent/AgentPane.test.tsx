@@ -888,6 +888,26 @@ describe("AgentPane — suspended / parked card", () => {
     expect(action()).toBeNull();
   });
 
+  it("a parked pane resumes from the same button as a suspended one", () => {
+    // Same branch in production, so the asymmetry would only ever be in the
+    // tests — and the launch policy makes this the FIRST card most users see.
+    const onResume = vi.fn();
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "parked" } as const,
+          resumeSessionId: "sess-abc",
+          onResume,
+        }),
+      ),
+    );
+
+    expect(document.querySelector(".pane--idle")).not.toBeNull();
+    act(() => action()!.click());
+    expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
   it("dims a stopped pane but never the momentarily-restored one", () => {
     const mountIdle = (idle: PaneIdle, blockedDir?: string) =>
       act(() =>
