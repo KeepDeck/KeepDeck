@@ -8,6 +8,7 @@ import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import {
   buildResumeSpec,
+  dropPaneSpawnSpec,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
 } from "./spawnSpecs";
@@ -717,6 +718,49 @@ describe("useRevive — a request that lands mid-flight", () => {
     expect(pane().idle).toBeUndefined();
   });
 
+  it("clears the failure flag when a BOOT restore's plan build throws", async () => {
+    // The build that throws also marks the pane as plan-failed inside
+    // spawnSpecs, so waking it without dropping that flag lands it on the
+    // "Couldn't start this agent" tile — while the code here says a restore
+    // that fails "wakes fresh". The manual branch drops the flag and says
+    // why; the restore branch has to do the same or it doesn't wake fresh at
+    // all, it wakes broken.
+    ipc.probeWorktree.mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    vi.mocked(buildResumeSpec).mockRejectedValueOnce(new Error("hook blew up"));
+    act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
+    await settle();
+
+    expect(pane().idle).toBeUndefined(); // woken, as documented
+    expect(vi.mocked(dropPaneSpawnSpec)).toHaveBeenCalledWith("pane-1");
+    // Nobody asked for this wake, so nothing is reported on the card.
+    expect(revive.wakeFailed).toEqual({});
+  });
+
+  it("sees a request dispatched outside a React event", async () => {
+    // `agent.resume` reached from MCP, the plugin bridge or a Tauri callback
+    // dispatches from a promise continuation rather than a React event, so
+    // the store holds the request before any render carries it. The sweep
+    // reads the origin through the hook's deck, and this pins that the two
+    // cannot come apart: if they ever did, the user's named resume would be
+    // served as a boot restore — the one origin allowed to become a new
+    // conversation. Deliberately NOT wrapped in act(): the un-flushed
+    // dispatch is the point.
+    const release = heldProbe();
+    act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
+    await act(async () => {});
+
+    deck.requestPaneWake("ws-1", "pane-1");
+    release();
+    await settle();
+
+    expect(origins()).toEqual(["manual"]);
+  });
+
   it("rebuilds a plan already built as a restore when the request arrives mid-BUILD", async () => {
     // The origin is baked into the cached plan — it is what arms the one-shot
     // fall back to a fresh conversation. A plan built as a restore therefore
@@ -863,6 +907,30 @@ describe("useRevive — a pane asked for by name in another workspace", () => {
 
     expect(background().idle).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-2")?.args).toEqual(["--resume", "s-2"]);
+  });
+
+  it("refuses a pane no plugin can start, instead of stranding it", async () => {
+    // The sweep skips a pane whose agent no plugin provides, so marking it
+    // `waking` puts it somewhere nothing will ever settle: the durable
+    // `suspended` stamp is gone from state (and from the next save), the
+    // sweep won't touch it, and every "is this running" answer flips to yes
+    // for an agent that cannot start. Refusing keeps the pane exactly as it
+    // was, and the caller is told why.
+    act(() =>
+      deck.hydrate(
+        twoWorkspaces({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" }),
+      ),
+    );
+    await settle();
+    act(() => {
+      deck.workspaces[1].panes[0].agentType = "retired-cli";
+    });
+
+    expect(revive.resume("ws-2", "pane-2")).toBe("unavailable");
+    expect(background().idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T09:00:00.000Z",
+    });
   });
 
   it("still leaves a RESTORED pane in a background workspace alone", async () => {

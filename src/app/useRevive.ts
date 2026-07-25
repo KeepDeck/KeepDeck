@@ -67,6 +67,10 @@ export type ResumeRequest =
    * session to come back to. Distinct from "running" because telling the user
    * a pane mid-create is already running is simply false. */
   | "provisioning"
+  /** No installed plugin provides this pane's agent, so the sweep would skip
+   * it forever. Refused rather than marked: a pane left rising with nothing
+   * to raise it loses the durable stamp that says it was stopped. */
+  | "unavailable"
   /** No such pane (or workspace) in the deck. */
   | "gone";
 
@@ -179,6 +183,10 @@ export function useRevive(
       // Nothing to put back: a restore-origin pane that is blocked simply
       // stays where the sweep left it, and one that failed wakes fresh.
       if (attempt.kind === "failed") {
+        // Fresh means fresh: a build that THREW also left the pane marked
+        // plan-failed inside the spec cache, and waking it with that flag
+        // still set lands it on the plan-error tile instead of a terminal.
+        dropPaneSpawnSpec(pane.id);
         deckRef.current.clearPaneIdle(wsId, pane.id);
       }
       return;
@@ -350,6 +358,11 @@ export function useRevive(
     if (!pane) return "gone";
     if (pane.provisioning) return "provisioning";
     if (!pane.idle) return "running";
+    // The same catalog gate the sweep applies. Asked here too, because the
+    // sweep's version is a silent `continue`: marking the pane first would
+    // strand it in a state nothing settles.
+    const agentType = paneAgentType(pane);
+    if (!agentsRef.current.some((a) => a.id === agentType)) return "unavailable";
     // Clear the last attempt's verdicts first: a stale block would make the
     // sweep skip this pane forever, and a stale note would explain a failure
     // the user is already retrying.

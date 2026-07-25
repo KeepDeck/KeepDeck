@@ -409,11 +409,13 @@ export function registerCoreCommands(
           case "resuming":
             return { workspaceId: ws.id, paneId: pane.id };
           case "running":
-            throw new Error(`${label} is already running`);
+            throw new Error(`${label} is already running.`);
           case "provisioning":
-            throw new Error(`${label} is still creating its worktree`);
+            throw new Error(`${label} is still creating its worktree.`);
+          case "unavailable":
+            throw new Error(`No installed agent can start ${label}.`);
           case "gone":
-            throw new Error(`${label} is no longer open`);
+            throw new Error(`${label} is no longer open.`);
         }
       },
     }),
