@@ -273,12 +273,18 @@ export function useRevive(
             origin = "manual";
             built = await plan("manual");
           }
-          // A `false` here is a plugin that offers no resume.plan hook at all
-          // — no throw, no cached plan. Waking anyway would let the ordinary
-          // fresh sweep start a NEW conversation whose reporter then
-          // overwrites the binding, which is the same silent substitution the
-          // `manual` origin exists to prevent.
-          if (!built) failure = "This agent can't prepare a resume plan.";
+          // A `false` here is "no plan was cached", and it covers two very
+          // different causes: a plugin that offers no resume.plan hook at
+          // all, and a build a newer decision invalidated mid-flight. The
+          // sentence names neither, because this layer cannot tell them
+          // apart — blaming the agent for the second one was simply false.
+          // (Distinguishing them means a discriminated result from
+          // `buildResumeSpec`, which three callers share.)
+          //
+          // Either way the pane must not wake: the ordinary fresh sweep would
+          // start a NEW conversation whose reporter then overwrites the
+          // binding, the silent substitution the `manual` origin prevents.
+          if (!built) failure = "Its resume plan could not be prepared.";
         } catch (e) {
           failure = describeError(e);
         }

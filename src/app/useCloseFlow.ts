@@ -24,7 +24,23 @@ import type { Deck } from "./useDeck";
  * existence — at open time; the modal blocks all mutation, so it can't go
  * stale. */
 export type ClosingTarget = { targets: WorktreeTarget[] } & (
-  | { kind: "agent"; wsId: string; paneId: string; label: string }
+  | {
+      kind: "agent";
+      wsId: string;
+      paneId: string;
+      label: string;
+      /** Whether Suspend was on offer when this dialog opened, and whether
+       * the pane read as stopped then — snapshotted with everything else it
+       * shows, and for the same reason. Derived live, the offer could vanish
+       * under the pointer: the revive sweep reporting a gone folder mid-
+       * dialog removes the middle button, and the destructive Close slides
+       * into the slot the user was already aiming at. Both facts travel
+       * together so the sentence and the buttons cannot describe two
+       * different panes. An offer that goes stale is harmless — `useSuspend`
+       * re-checks at the click and refuses, where the refusal is now said. */
+      canSuspend: boolean;
+      isStopped: boolean;
+    }
   | { kind: "workspace"; id: string; name: string; count: number }
 );
 
@@ -116,11 +132,17 @@ export function useCloseFlow(
 
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
     const ws = findWorkspace(deck.workspaces, wsId);
+    const pane = findPane(deck.workspaces, wsId, paneId);
+    const blocked = paneId in blockedPanes;
+    const canSuspend = !!pane && paneSuspendBlock(pane, blocked) === null;
+    const isStopped = !!pane && idleReadsAsStopped(pane.idle, blocked);
     park(ws ? worktreeTargets(ws, paneId, gitPositions) : [], (targets) => ({
       kind: "agent",
       wsId,
       paneId,
       label,
+      canSuspend,
+      isStopped,
       targets,
     }));
   };
@@ -187,20 +209,18 @@ export function useCloseFlow(
       ? findPane(deck.workspaces, closing.wsId, closing.paneId)
       : null;
 
-  /** Whether the dialog should offer suspending instead of closing at all. */
-  const canSuspendInstead =
-    !!closingPane &&
-    paneSuspendBlock(closingPane, closingPane.id in blockedPanes) === null;
+  /** Whether the dialog should offer suspending instead of closing at all —
+   * read from the snapshot it opened with, so the button row cannot reshuffle
+   * mid-gesture (see `ClosingTarget.canSuspend`). */
+  const canSuspendInstead = closing?.kind === "agent" && closing.canSuspend;
 
   /** The pane being closed has no process AND isn't coming back on its own —
    * the dialog must not promise to end a session that already ended, nor
    * claim one is stopped while it is starting up. The sweep's blocked verdict
    * counts: the same pane's tile and tray marker already read it as stopped,
    * and a dialog that disagreed with the tile beside it was the one surface
-   * still calling a dead pane running. */
-  const closingIsStopped =
-    !!closingPane &&
-    idleReadsAsStopped(closingPane.idle, closingPane.id in blockedPanes);
+   * still calling a dead pane running. From the snapshot, like the offer. */
+  const closingIsStopped = closing?.kind === "agent" && closing.isStopped;
 
   /**
    * What closing will actually do, in the dialog's own words. Built here

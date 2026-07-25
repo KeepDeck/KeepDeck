@@ -450,6 +450,31 @@ describe("what the dialog promises is what confirming does", () => {
     expect(flow.closeMessage).toBe("Its terminal session will be ended.");
   });
 
+  it("keeps the offer it opened with, even if the pane changes under it", async () => {
+    // The dialog is a snapshot; the offer was derived live. A pane whose
+    // probe came back "folder gone" while the dialog was open dropped the
+    // Suspend button out of the row, sliding the destructive Close into the
+    // slot the pointer was already aimed at. The gesture must not move.
+    const wsId = seed();
+    // A pane on its way up: suspendable, and the one state a mid-dialog
+    // probe result can flip.
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.canSuspendInstead).toBe(true);
+
+    // The sweep reports the folder gone while the dialog is up.
+    blockedPanes = { "pane-1": "/gone/worktree" };
+    act(() => root.render(createElement(Probe)));
+
+    expect(flow.canSuspendInstead).toBe(true);
+    // And taking it is still safe: the suspend flow re-checks and refuses,
+    // where the refusal has somewhere to be said.
+    suspendAgent.mockResolvedValueOnce("stopped");
+    await act(async () => flow.suspendInstead());
+    expect(refusals).toHaveLength(1);
+  });
+
   it("counts the agents a workspace close ends", async () => {
     const wsId = seed();
     await act(async () => flow.requestCloseWorkspace(wsId));
