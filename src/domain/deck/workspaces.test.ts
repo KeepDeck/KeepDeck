@@ -827,12 +827,14 @@ describe("requestPaneWake", () => {
     );
     // Still idle — the sweep owns the probe, the resume plan and the wake.
     // `manual`, not `restore`: the origin decides what a rejected session id
-    // is allowed to do afterwards. The stamp rides along so a wake that fails
-    // can put the pane back exactly where it was.
+    // is allowed to do afterwards. The marker it rose FROM rides along whole,
+    // so a wake that fails can put the pane back exactly where it was — a
+    // stamp alone would have to be decoded back into a reason, and a decode
+    // is a guess that gets worse every time the union grows.
     expect(after[0].panes[0].idle).toEqual({
       reason: "waking",
       origin: "manual",
-      at: AT,
+      from: { reason: "suspended", at: AT },
     });
   });
 
@@ -842,7 +844,14 @@ describe("requestPaneWake", () => {
       "a",
       "a-p1",
     );
-    expect(after[0].panes[0].idle).toEqual({ reason: "waking", origin: "manual" });
+    // `parked` is carried too: it is where this pane goes back to, and the
+    // difference from "carried nothing" is what keeps a failed wake from
+    // inventing a suspend the user never asked for.
+    expect(after[0].panes[0].idle).toEqual({
+      reason: "waking",
+      origin: "manual",
+      from: { reason: "parked" },
+    });
   });
 
   it("UPGRADES a pane the sweep was already raising on its own", () => {
@@ -908,6 +917,30 @@ describe("failPaneWake", () => {
     );
     expect(failPaneWake(upgraded, "a", "a-p1")[0].panes[0].idle).toEqual({
       reason: "parked",
+    });
+  });
+
+  it("keeps the ORIGINAL landing place when a rising pane is asked for again", () => {
+    // Upgrading a wake changes who asked, not where the pane came from. A
+    // second request that overwrote `from` with the transient `waking` marker
+    // would lose the suspend the first one was carrying.
+    const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
+    const once = requestPaneWake(suspended, "a", "a-p1");
+    const twice = requestPaneWake(
+      // Force a second pass by rewinding the origin the way the sweep's own
+      // restore marker would look, keeping the carried state.
+      [
+        {
+          ...once[0],
+          panes: [{ id: "a-p1", idle: { reason: "waking", origin: "restore", from: { reason: "suspended", at: AT } } }],
+        },
+      ],
+      "a",
+      "a-p1",
+    );
+    expect(failPaneWake(twice, "a", "a-p1")[0].panes[0].idle).toEqual({
+      reason: "suspended",
+      at: AT,
     });
   });
 

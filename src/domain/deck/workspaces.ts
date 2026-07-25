@@ -308,9 +308,9 @@ export function clearPaneIdle(
  * not cosmetic: a boot restore whose session id turns out dead may fall back
  * to a fresh conversation, and a resume someone clicked may not.
  *
- * The suspend's stamp rides along so a wake that FAILS can put the pane back
- * where it was ([`failPaneWake`]) rather than restamping it as freshly
- * suspended.
+ * The state the pane rose FROM rides along whole, so a wake that FAILS can
+ * put it back exactly there ([`failPaneWake`]) rather than inventing a state
+ * for it.
  *
  * Returns the SAME array for a live pane, one already on its way up, or an
  * unknown id. */
@@ -328,13 +328,20 @@ export function requestPaneWake(
   if (!pane?.idle || (pane.idle.reason === "waking" && pane.idle.origin === "manual")) {
     return workspaces;
   }
-  // The suspend's stamp rides along so a wake that fails can put the pane
-  // back exactly where it was; a parked pane has none to carry.
-  const at = pane.idle.reason === "parked" ? undefined : pane.idle.at;
+  // Carried whole rather than as a field decoded back into a reason: a wake
+  // that fails must restore what was there, and anything less than the marker
+  // itself is a guess that gets worse every time the union grows. A wake
+  // already in flight keeps whatever IT rose from — the upgrade changes who
+  // asked, not where the pane came from.
+  const from: PaneIdle | undefined =
+    pane.idle.reason === "waking" ? pane.idle.from : pane.idle;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) =>
       p.id === paneId
-        ? { ...p, idle: { reason: "waking", origin: "manual", ...(at && { at }) } }
+        ? {
+            ...p,
+            idle: { reason: "waking", origin: "manual", ...(from && { from }) },
+          }
         : p,
     ),
   );
@@ -345,13 +352,12 @@ export function requestPaneWake(
  * reversed: a boot restore that can't build a resume plan takes the documented
  * fresh-start degradation, because nobody is watching it.
  *
- * The pane returns to the state it rose FROM, which the carried stamp tells
- * apart: a stamp means it was suspended and gets that stamp back, so its card
- * reads exactly as before; no stamp means it was never a user decision —
- * parked at launch, or restored and then asked for — and it goes back to
- * `parked`, which is runtime-only. Writing `suspended` there would forge a
- * decision the user never made AND make it durable, so turning the launch
- * policy off could never bring that pane back.
+ * The pane returns to the marker it rose FROM, put back verbatim: one that
+ * was suspended reads exactly as it did before the failed attempt, stamp and
+ * all. A pane that rose from nothing — parked at launch, or restored and then
+ * asked for — goes back to `parked`, which is runtime-only. Writing
+ * `suspended` there would forge a decision the user never made AND make it
+ * durable, so turning the launch policy off could never bring that pane back.
  *
  * Returns the SAME array unless the pane really is mid-manual-wake. */
 export function failPaneWake(
@@ -363,8 +369,7 @@ export function failPaneWake(
   if (pane?.idle?.reason !== "waking" || pane.idle.origin !== "manual") {
     return workspaces;
   }
-  const at = pane.idle.at;
-  const idle: PaneIdle = at ? { reason: "suspended", at } : { reason: "parked" };
+  const idle: PaneIdle = pane.idle.from ?? { reason: "parked" };
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => (p.id === paneId ? { ...p, idle } : p)),
   );

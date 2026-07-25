@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
 import {
   appendPane,
-  idleWakesAutomatically,
   makePanes,
   makeProvisioningPanes,
   paneCanSuspend,
@@ -12,6 +11,7 @@ import {
   paneOnScreen,
   paneSuspendBlock,
   paneResumeSessionId,
+  paneWakeOrigin,
   paneWakesAutomatically,
   partitionPanes,
   removePane,
@@ -65,7 +65,9 @@ describe("paneCanSuspend", () => {
 
   it("names the reason it refuses, so every surface says the same thing", () => {
     expect(paneSuspendBlock({ id: "p" })).toBeNull();
-    expect(paneSuspendBlock({ id: "p", idle: { reason: "parked" } })).toBe("idle");
+    expect(paneSuspendBlock({ id: "p", idle: { reason: "parked" } })).toBe(
+      "stopped",
+    );
     expect(
       paneSuspendBlock({
         id: "p",
@@ -82,7 +84,22 @@ describe("paneCanSuspend", () => {
         idle: { reason: "parked" },
         remoteEndpoint: "ws://vps:4500",
       }),
-    ).toBe("idle");
+    ).toBe("stopped");
+  });
+
+  it("refuses a RISING pane once the sweep reports its folder gone", () => {
+    // The block is runtime state the model can't see, so it arrives as an
+    // argument — the same one `idleReadsAsStopped` takes, so the dialog, the
+    // tile and the tray cannot disagree about which panes are dead.
+    const rising = {
+      id: "p",
+      idle: { reason: "waking", origin: "restore" },
+    } as const;
+    expect(paneSuspendBlock(rising)).toBeNull();
+    expect(paneSuspendBlock(rising, true)).toBe("stopped");
+    // A LIVE pane is never stopped by a stale entry: it has no idle marker,
+    // and a running agent is not "already stopped" whatever the map says.
+    expect(paneSuspendBlock({ id: "p" }, true)).toBeNull();
   });
 
   it("false while a worktree create is in flight — no process to stop", () => {
@@ -101,12 +118,35 @@ describe("paneCanSuspend", () => {
   });
 });
 
-describe("idleWakesAutomatically / paneWakesAutomatically", () => {
-  it("only a pane on its way up wakes by itself", () => {
-    expect(idleWakesAutomatically({ reason: "waking", origin: "restore" })).toBe(true);
-    expect(idleWakesAutomatically({ reason: "waking", origin: "manual" })).toBe(true);
-    expect(idleWakesAutomatically({ reason: "parked" })).toBe(false);
-    expect(idleWakesAutomatically({ reason: "suspended", at: "t" })).toBe(false);
+describe("paneWakeOrigin / paneWakesAutomatically", () => {
+  it("names WHO asked, and answers null when nobody is bringing the pane up", () => {
+    // The accessor exists so the sweep never re-derives the origin with a
+    // `: "restore"` fallback: that fallback would hand a future auto-waking
+    // reason the one origin allowed to become a different conversation.
+    expect(
+      paneWakeOrigin({ id: "p", idle: { reason: "waking", origin: "restore" } }),
+    ).toBe("restore");
+    expect(
+      paneWakeOrigin({ id: "p", idle: { reason: "waking", origin: "manual" } }),
+    ).toBe("manual");
+    expect(paneWakeOrigin({ id: "p", idle: { reason: "parked" } })).toBeNull();
+    expect(
+      paneWakeOrigin({ id: "p", idle: { reason: "suspended", at: "t" } }),
+    ).toBeNull();
+    expect(paneWakeOrigin({ id: "p" })).toBeNull();
+  });
+
+  it("agrees with the predicate the sweep guards on", () => {
+    for (const idle of [
+      undefined,
+      { reason: "waking", origin: "restore" },
+      { reason: "waking", origin: "manual" },
+      { reason: "parked" },
+      { reason: "suspended", at: "t" },
+    ] as const) {
+      const pane = { id: "p", ...(idle && { idle }) };
+      expect(paneWakeOrigin(pane) !== null).toBe(paneWakesAutomatically(pane));
+    }
   });
 
   it("a live pane is not the sweep's business", () => {

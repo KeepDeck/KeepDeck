@@ -430,7 +430,7 @@ describe("deckReducer restore actions ([F7])", () => {
       idle: {
         reason: "waking",
         origin: "manual",
-        at: "2026-07-25T10:00:00.000Z",
+        from: { reason: "suspended", at: "2026-07-25T10:00:00.000Z" },
       },
     });
   });
