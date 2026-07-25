@@ -4,12 +4,13 @@ import {
   checkForUpdatesNow,
   dismissUpdate,
   downloadUpdate,
+  isFoundUpdate,
   restartToUpdate,
+  type UpdateState,
 } from "../../app/updateManager";
 import { downloadPercent } from "@keepdeck/plugin-api";
 import { useUpdate } from "../../app/useUpdate";
 import { fetchAppInfo } from "../../ipc/app";
-import type { UpdateState } from "../../app/updateManager";
 import { UpdateChangelog } from "./UpdateChangelog";
 
 /** The status line for each update phase — one honest sentence, no spinners. */
@@ -159,9 +160,7 @@ export function UpdatesSection() {
       </div>
       <span className="settings__hint">{describeState(update)}</span>
 
-      {(update.phase === "available" || update.phase === "ready") && (
-        <UpdateChangelog entries={update.changelog} />
-      )}
+      {isFoundUpdate(update) && <UpdateChangelog entries={update.changelog} />}
     </>
   );
 }

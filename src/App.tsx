@@ -7,7 +7,7 @@ import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { StatsDialog } from "./components/stats/StatsDialog";
 import { SkillsDialog } from "./components/skills/SkillsDialog";
 import { fetchAppInfo, type AppInfo } from "./ipc/app";
-import { restartToUpdate } from "./app/updateManager";
+import { isFoundUpdate, restartToUpdate } from "./app/updateManager";
 import { useUpdate } from "./app/useUpdate";
 import { pickFolder } from "./ipc/dialogs";
 import { describeError, log } from "./ipc/log";
@@ -600,11 +600,7 @@ function App() {
           )}
         </div>
         <div className="deck__bar-right">
-          {(updateState.phase === "available" ||
-            updateState.phase === "downloading" ||
-            updateState.phase === "ready" ||
-            updateState.phase === "discarding" ||
-            updateState.phase === "installing") && (
+          {isFoundUpdate(updateState) && (
             // The consent ladder's face in the bar: "available" only points
             // at the Updates section (nothing downloads by itself), "ready"
             // restarts into the already-verified download. The deck revives
