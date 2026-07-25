@@ -25,6 +25,8 @@ import { mintAgentSeq } from "./ids";
 import { paneInputReady, pasteToPane, writeRawToPane } from "./paneInput";
 import { provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
+import type { ResumeRequest } from "./useRevive";
+import { suspendRefusalText, type SuspendOutcome } from "./useSuspend";
 import type { Deck } from "./useDeck";
 
 /**
@@ -40,6 +42,12 @@ export interface CoreCommandDeps {
   /** Open the close-confirm flow — voice/MCP closes go through the same
    * dialog as ⌘W, so the destructive step keeps its human confirmation. */
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
+  /** Stop an agent, keeping its pane — the same flow as ⇧⌘W. Resolves to
+   * whether it actually suspended. */
+  suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
+  /** Ask for a stopped agent back — the same gesture as its card's Resume,
+   * reporting what it did. */
+  resumeAgent(wsId: string, paneId: string): ResumeRequest;
   /** Open the settings dialog; `sectionId` lands it on a specific section
    * (a plugin's `plugin:<id>`), null on the first. */
   openSettings(sectionId: string | null): void;
@@ -335,6 +343,84 @@ export function registerCoreCommands(
     }),
 
     registry.register({
+      id: "agent.suspend",
+      title: "Suspend an agent pane (stops it, keeps the pane)",
+      args: [
+        {
+          name: "agent",
+          type: "string",
+          description: "Agent pane title, name, or id; the selected one when omitted",
+        },
+        {
+          name: "workspace",
+          type: "string",
+          description: "Workspace name or id; the active one when omitted",
+        },
+      ],
+      // Not destructive, and so not behind the confirm dialog `agent.close`
+      // uses: the pane, its worktree and its session all survive, and the
+      // agent comes back with a resume.
+      run: async (args) => {
+        const deck = deps.deck();
+        const agents = deps.agents();
+        const ws = targetWorkspace(deck, str(args, "workspace"));
+        const pane = targetPane(deck, agents, ws, str(args, "agent"));
+        const label = paneDisplayTitle(pane, ws.panes.indexOf(pane), agents);
+        // A caller that hears "ok" must be able to believe it, and one that
+        // hears "no" deserves the real reason — the same sentence the hotkey
+        // shows, not a second guess at it.
+        const outcome = await deps.suspendAgent(ws.id, pane.id);
+        if (outcome !== "suspended") {
+          throw new Error(suspendRefusalText(outcome, label));
+        }
+        return { workspaceId: ws.id, paneId: pane.id };
+      },
+    }),
+
+    registry.register({
+      id: "agent.resume",
+      title: "Resume a stopped agent pane",
+      args: [
+        {
+          name: "agent",
+          type: "string",
+          description: "Agent pane title, name, or id; the selected one when omitted",
+        },
+        {
+          name: "workspace",
+          type: "string",
+          description: "Workspace name or id; the active one when omitted",
+        },
+      ],
+      // The inverse of `agent.suspend`. Without it an automation that parks an
+      // agent has stranded it: nothing it can address brings the pane back.
+      run: (args) => {
+        const deck = deps.deck();
+        const agents = deps.agents();
+        const ws = targetWorkspace(deck, str(args, "workspace"));
+        const pane = targetPane(deck, agents, ws, str(args, "agent"));
+        const label = paneDisplayTitle(pane, ws.panes.indexOf(pane), agents);
+        // The flow decides and reports; guessing the answer here is what let
+        // the sibling command claim success for a resume that did nothing.
+        // A switch rather than a chain of ifs, so a new outcome is a compile
+        // error here instead of silently reporting success for it.
+        const outcome = deps.resumeAgent(ws.id, pane.id);
+        switch (outcome) {
+          case "resuming":
+            return { workspaceId: ws.id, paneId: pane.id };
+          case "running":
+            throw new Error(`${label} is already running.`);
+          case "provisioning":
+            throw new Error(`${label} is still creating its worktree.`);
+          case "unavailable":
+            throw new Error(`No installed agent can start ${label}.`);
+          case "gone":
+            throw new Error(`${label} is no longer open.`);
+        }
+      },
+    }),
+
+    registry.register({
       id: "pane.write",
       title: "Send text into an agent pane",
       args: [
@@ -441,6 +527,10 @@ export function useCoreCommands(deps: {
   deck: Deck;
   agents: AgentInfo[];
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
+  suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
+  /** Ask for a stopped agent back — the same gesture as its card's Resume,
+   * reporting what it did. */
+  resumeAgent(wsId: string, paneId: string): ResumeRequest;
   openSettings(sectionId: string | null): void;
   openUsage(): void;
 }): void {
@@ -453,6 +543,10 @@ export function useCoreCommands(deps: {
         agents: () => ref.current.agents,
         requestCloseAgent: (wsId, paneIdToClose, label) =>
           ref.current.requestCloseAgent(wsId, paneIdToClose, label),
+        suspendAgent: (wsId, paneIdToSuspend) =>
+          ref.current.suspendAgent(wsId, paneIdToSuspend),
+        resumeAgent: (wsId, paneIdToResume) =>
+          ref.current.resumeAgent(wsId, paneIdToResume),
         openSettings: (sectionId) => ref.current.openSettings(sectionId),
         openUsage: () => ref.current.openUsage(),
       }),

@@ -11,7 +11,8 @@ import {
   paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
-  paneIsRemoteFresh,
+  idleReadsAsStopped,
+  paneResumeSessionId,
   partitionPanes,
   resolveFocus,
   type GitPosition,
@@ -89,9 +90,13 @@ interface DeckStageProps {
   onRenamePane(wsId: string, paneId: string, name: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
-  /** Dormant panes blocked from reviving: paneId → the missing directory
+  /** Idle panes blocked from waking: paneId → the missing directory
    * ([F7] restore reconcile). */
-  dormantBlocked: Record<string, string>;
+  idleBlocked: Record<string, string>;
+  /** Panes whose user-requested resume could not be prepared: paneId → why.
+   * They stayed stopped; their cards explain instead of coming up as a
+   * different conversation. */
+  wakeFailed: Record<string, string>;
   /** Spawn plan per live pane — args + env carrying its session identity
    * ([F7]/[F8] v2: assigned id or armed reporter, resume recipe). */
   specByPane: Record<string, SpawnPlan>;
@@ -102,6 +107,8 @@ interface DeckStageProps {
   failedPanes: ReadonlySet<string>;
   /** Detach a blocked pane from its gone worktree and start it fresh. */
   onStartFresh(wsId: string, paneId: string): void;
+  /** Wake a suspended (or parked) pane — the idle card's own gesture. */
+  onResumeAgent(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
   onRetryProvision(wsId: string, paneId: string): void;
   /** A pane's PTY exited (the resume-failure detector lives upstream). */
@@ -164,10 +171,12 @@ export function DeckStage({
   onCloseAgent,
   onRenamePane,
   onPaneTitle,
-  dormantBlocked,
+  idleBlocked,
+  wakeFailed,
   specByPane,
   failedPanes,
   onStartFresh,
+  onResumeAgent,
   onRetryProvision,
   onAgentExited,
   onAgentSpawnFailed,
@@ -300,6 +309,17 @@ export function DeckStage({
             });
           }
         }
+        // "Reads as stopped", decided once per pane and shared by the tile and
+        // the tray stand-in. A pane on its way up is excluded (it resolves in
+        // milliseconds and would only flicker) — but one BLOCKED on a missing
+        // folder is stuck until the user relocates it, and when it is also
+        // minimized the chip is the only thing left to say the agent is dead.
+        const stoppedById = new Map(
+          ws.panes.map((pane) => [
+            pane.id,
+            idleReadsAsStopped(pane.idle, !!idleBlocked[pane.id]),
+          ]),
+        );
         // Pane order, so an explicit minimize and a maximize-hidden pane sit
         // where their tiles were.
         const trayPanes = ws.panes.filter((pane) => restoreById.has(pane.id));
@@ -312,6 +332,7 @@ export function DeckStage({
               agents.find((a) => a.id === paneAgentType(pane))?.icon ?? null,
             gitBadge: badgeOf(pane),
             yolo: pane.yolo,
+            stopped: stoppedById.get(pane.id) ?? false,
             label: `Restore ${title}`,
             onRestore: restoreById.get(pane.id)!,
           };
@@ -339,13 +360,13 @@ export function DeckStage({
               : null;
           const planError =
             !spec &&
-            !pane.dormant &&
+            !pane.idle &&
             !pane.provisioning &&
             !unavailableAgent &&
             failedPanes.has(pane.id);
           const planPending =
             !spec &&
-            !pane.dormant &&
+            !pane.idle &&
             !pane.provisioning &&
             !unavailableAgent &&
             !planError;
@@ -375,8 +396,9 @@ export function DeckStage({
               folded={layout.folded}
               selected={pane.id === selectedPaneId}
               solo={layout.solo}
-              dormant={pane.dormant}
-              blockedDir={dormantBlocked[pane.id] ?? null}
+              idle={pane.idle}
+              wakeError={wakeFailed[pane.id] ?? null}
+              blockedDir={idleBlocked[pane.id] ?? null}
               provisioning={pane.provisioning}
               unavailableAgent={unavailableAgent}
               colSpan={layout.colSpan}
@@ -387,12 +409,13 @@ export function DeckStage({
               onRename={(name) => onRenamePane(ws.id, pane.id, name)}
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
               onStartFresh={() => onStartFresh(ws.id, pane.id)}
+              onResume={() => onResumeAgent(ws.id, pane.id)}
               onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
               onExited={(code) => onAgentExited(ws.id, pane.id, code)}
               onSpawnFailed={(message) =>
                 onAgentSpawnFailed(ws.id, pane.id, message)
               }
-              canResume={!paneIsRemoteFresh(pane) && !!pane.session?.id}
+              resumeSessionId={paneResumeSessionId(pane)}
               onRestart={(mode) => onRestartAgent(ws.id, pane.id, mode)}
             />
           );
@@ -424,7 +447,12 @@ export function DeckStage({
                     Every agent is minimized
                   </span>
                   <span className="deck__grid-empty-sub">
-                    They keep running — restore one below to bring it back
+                    {/* "They keep running" is only true while none of them is
+                        stopped — a deck of suspended agents would otherwise be
+                        told the opposite of what it is. */}
+                    {trayEntries.some((entry) => entry.stopped)
+                      ? "Restore one below to bring it back"
+                      : "They keep running — restore one below to bring it back"}
                   </span>
                 </div>
               )}
@@ -442,6 +470,7 @@ export function DeckStage({
                       icon={entry.icon}
                       gitBadge={entry.gitBadge}
                       yolo={entry.yolo}
+                      stopped={entry.stopped}
                       label={entry.label}
                       active={isActive}
                       onClick={entry.onRestore}

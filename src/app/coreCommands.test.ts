@@ -5,6 +5,8 @@ import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
+import type { ResumeRequest } from "./useRevive";
+import type { SuspendOutcome } from "./useSuspend";
 import type { Deck } from "./useDeck";
 
 const HOST = { kind: "host" } as const;
@@ -83,16 +85,33 @@ function setup(workspaces: Workspace[]) {
   const registry = createCommandRegistry();
   const deck = fakeDeck(workspaces);
   const requestCloseAgent = vi.fn();
+  const suspendAgent = vi.fn<
+    (wsId: string, paneId: string) => Promise<SuspendOutcome>
+  >(() => Promise.resolve("suspended"));
+  const resumeAgent = vi.fn<(wsId: string, paneId: string) => ResumeRequest>(
+    () => "resuming",
+  );
   const openSettings = vi.fn();
   const openUsage = vi.fn();
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
     requestCloseAgent,
+    suspendAgent,
+    resumeAgent,
     openSettings,
     openUsage,
   });
-  return { registry, deck, requestCloseAgent, openSettings, openUsage, dispose };
+  return {
+    registry,
+    deck,
+    requestCloseAgent,
+    suspendAgent,
+    resumeAgent,
+    openSettings,
+    openUsage,
+    dispose,
+  };
 }
 
 beforeEach(() => {
@@ -309,6 +328,62 @@ describe("agent.focus / agent.close / pane.write", () => {
     const { registry } = setup([twoPanes()]);
     const info = registry.list().find((c) => c.id === "agent.close");
     expect(info?.destructive).toBe(true);
+  });
+
+  it("suspends the addressed pane without the confirm dialog", async () => {
+    const { registry, suspendAgent, requestCloseAgent } = setup([twoPanes()]);
+    const result = await registry.execute("agent.suspend", { agent: "reviewer" }, HOST);
+    expect(result).toEqual({
+      ok: true,
+      value: { workspaceId: "ws-1", paneId: "p2" },
+    });
+    expect(suspendAgent).toHaveBeenCalledWith("ws-1", "p2");
+    // Nothing is destroyed, so it does not borrow the close flow's gate.
+    expect(requestCloseAgent).not.toHaveBeenCalled();
+    const info = registry.list().find((c) => c.id === "agent.suspend");
+    expect(info?.destructive).toBeFalsy();
+  });
+
+  it("reports the flow's own reason for refusing, not a second guess at it", async () => {
+    const { registry, suspendAgent } = setup([
+      workspace({
+        panes: [
+          { id: "p1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
+        ],
+      }),
+    ]);
+    suspendAgent.mockResolvedValueOnce("remote");
+
+    const result = await registry.execute("agent.suspend", {}, HOST);
+
+    expect(result.ok).toBe(false);
+    // The caller hears why: a remote pane's session lives on the server, so
+    // stopping the local client would not park it.
+    if (!result.ok) expect(result.error.message).toContain("remote server");
+  });
+
+  it("resumes a stopped pane, and refuses one that is already running", async () => {
+    const { registry, resumeAgent } = setup([
+      workspace({
+        panes: [
+          { id: "p1", agentType: "claude", idle: { reason: "parked" } },
+          { id: "p2", agentType: "codex", name: "live" },
+        ],
+      }),
+    ]);
+
+    resumeAgent.mockReturnValueOnce("resuming");
+    const ok = await registry.execute("agent.resume", { agent: "p1" }, HOST);
+    expect(ok).toEqual({ ok: true, value: { workspaceId: "ws-1", paneId: "p1" } });
+    expect(resumeAgent).toHaveBeenCalledWith("ws-1", "p1");
+
+    // Without this inverse an automation that suspends an agent strands it.
+    // And the flow's own answer decides — reporting success for a resume that
+    // did nothing is what the sibling command was fixed for.
+    resumeAgent.mockReturnValueOnce("running");
+    const already = await registry.execute("agent.resume", { agent: "live" }, HOST);
+    expect(already.ok).toBe(false);
+    if (!already.ok) expect(already.error.message).toContain("already running");
   });
 
   it("pastes text into the addressed pane; submit sends Enter as a separate raw write", async () => {

@@ -28,6 +28,10 @@ export interface MinimizedTrayEntry {
   gitBadge?: GitBadge | null;
   /** The pane runs in YOLO mode — the chip carries the bolt marker. */
   yolo?: boolean;
+  /** The pane is stopped (suspended, or parked at launch). Without this the
+   * chip claims a running agent that isn't there — the pane is minimized AND
+   * has no process, and only the chip is on screen to say so. */
+  stopped?: boolean;
   label: string;
   onRestore(): void;
 }
@@ -238,6 +242,7 @@ function MinimizedOverflow({
             icon={entry.icon}
             gitBadge={entry.gitBadge}
             yolo={entry.yolo}
+            stopped={entry.stopped}
             label={entry.label}
             active
             onClick={() => {
@@ -345,6 +350,9 @@ export function MinimizedTray({
               icon={entry.icon}
               gitBadge={entry.gitBadge}
               yolo={entry.yolo}
+              // The sizer measures the REAL chip: omitting the marker here
+              // would under-measure a stopped chip and clip it in the tray.
+              stopped={entry.stopped}
             />
           </span>
         ))}
@@ -358,6 +366,7 @@ export function MinimizedTray({
             icon={entry.icon}
             gitBadge={entry.gitBadge}
             yolo={entry.yolo}
+            stopped={entry.stopped}
             label={entry.label}
             active={active}
             onClick={entry.onRestore}

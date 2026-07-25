@@ -11,6 +11,7 @@ vi.mock("../terminal/TerminalPane", () => ({
 }));
 
 import type { NormalizedUsage } from "@keepdeck/plugin-api";
+import type { PaneIdle } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import {
   registerUsageNormalizer,
@@ -104,7 +105,7 @@ describe("AgentPane — header badges", () => {
     expect(ctx?.className).toBe("chip pane__ctx");
   });
 
-  it("hides the context meter on a non-live (dormant) pane despite usage", () => {
+  it("hides the context meter on a non-live (idle) pane despite usage", () => {
     registerUsageNormalizer(
       "claude",
       (payload) => (payload as { result: NormalizedUsage }).result,
@@ -117,7 +118,12 @@ describe("AgentPane — header badges", () => {
       },
     });
     act(() =>
-      root.render(createElement(AgentPane, { ...baseProps, dormant: true })),
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "waking", origin: "restore" } as const,
+        }),
+      ),
     );
     // A frozen ctx% must not read as live on a pane that isn't running.
     expect(document.querySelector(".pane__ctx")).toBeNull();
@@ -388,13 +394,13 @@ describe("AgentPane — the unavailable-agent card", () => {
     expect(TerminalPane).not.toHaveBeenCalled();
   });
 
-  it("wins over the dormant tile — the card explains WHY nothing wakes", () => {
+  it("wins over the idle tile — the card explains WHY nothing wakes", () => {
     act(() =>
       root.render(
         createElement(AgentPane, {
           ...baseProps,
           unavailableAgent: { kind: "no-plugin", agent: "gemini" },
-          dormant: true,
+          idle: { reason: "waking", origin: "restore" } as const,
         }),
       ),
     );
@@ -591,6 +597,31 @@ describe("AgentPane — manual restart after exit", () => {
       document.querySelectorAll<HTMLButtonElement>(".pane__exit-action"),
     );
 
+  it("forgets the exit when the pane stops — a resume must not come back veiled", () => {
+    // Suspending is allowed on an exited pane, and neither suspend nor resume
+    // remounts the component (no epoch bump, unlike a restart), so without an
+    // explicit reset the exit card would paint over the terminal the resume
+    // just brought back — with a Restart button that kills it again.
+    mount({ onRestart: vi.fn() });
+    reportExit(0);
+    expect(document.querySelector(".pane__exit")).not.toBeNull();
+
+    // Suspended: the card is replaced by the stopped one…
+    mount({
+      onRestart: vi.fn(),
+      idle: { reason: "suspended", at: new Date().toISOString() },
+      onResume: vi.fn(),
+    });
+    expect(document.querySelector(".pane__exit")).toBeNull();
+
+    // …and resuming leaves a clean, live pane.
+    vi.mocked(TerminalPane).mockClear();
+    mount({ onRestart: vi.fn() });
+    expect(document.querySelector(".pane__exit")).toBeNull();
+    expect(actionButtons()).toHaveLength(0);
+    expect(TerminalPane).toHaveBeenCalled();
+  });
+
   it("shows no restart controls before exit and reports both exit-code forms", () => {
     mount({ onRestart: vi.fn() });
 
@@ -653,7 +684,7 @@ describe("AgentPane — manual restart after exit", () => {
 
   it("resumes from the primary action and offers an explicit fresh alternative", () => {
     const onRestart = vi.fn();
-    mount({ canResume: true, onRestart });
+    mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(2);
 
     const buttons = actionButtons();
@@ -669,7 +700,7 @@ describe("AgentPane — manual restart after exit", () => {
 
   it("uses fresh mode from the secondary action", () => {
     const onRestart = vi.fn();
-    mount({ canResume: true, onRestart });
+    mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(2);
 
     act(() => actionButtons()[1].click());
@@ -681,7 +712,7 @@ describe("AgentPane — manual restart after exit", () => {
   it("guards an in-flight restart from repeated clicks", () => {
     const pending = new Promise<void>(() => {});
     const onRestart = vi.fn(() => pending);
-    mount({ canResume: true, onRestart });
+    mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(0);
 
     const primary = actionButtons()[0];
@@ -701,7 +732,7 @@ describe("AgentPane — manual restart after exit", () => {
       rejectRestart = reject;
     });
     const onRestart = vi.fn(() => pending);
-    mount({ canResume: true, onRestart });
+    mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(1);
 
     act(() => actionButtons()[0].click());
@@ -717,5 +748,294 @@ describe("AgentPane — manual restart after exit", () => {
     expect(document.querySelector("[role='alert']")?.textContent).toBe(
       "Restart failed",
     );
+  });
+});
+
+describe("AgentPane — suspended / parked card", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const action = () =>
+    document.querySelector<HTMLButtonElement>(".pane__dormant-action");
+
+  it("shows when it was suspended, what resume will do, and fires onResume", () => {
+    const onResume = vi.fn();
+    const at = new Date(Date.now() - 2 * 3600_000).toISOString();
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at } as const,
+          resumeSessionId: "sess-abc",
+          onResume,
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Suspended");
+    expect(document.body.textContent).toContain("2h ago");
+    expect(document.body.textContent).toContain("Resume session: sess-abc");
+    // A suspended pane has no process — mounting a terminal would spawn one.
+    expect(TerminalPane).not.toHaveBeenCalled();
+
+    expect(action()!.textContent).toBe("Resume");
+    act(() => action()!.click());
+    expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the session it will resume, in full on hover", () => {
+    const id = "0198e2f3-4a1b-7c9d-8e2f-1a2b3c4d5e6f";
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          resumeSessionId: id,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    const line = document.querySelector<HTMLElement>(".pane__idle-session")!;
+    expect(line).not.toBeNull();
+    expect(line.textContent).toBe(`Resume session: ${id}`);
+    // A uuid outgrows a narrow tile, so the line ellipsizes and carries the
+    // whole id as its tooltip.
+    expect(line.title).toBe(id);
+    expect(
+      document.querySelector(".pane__idle-session-id")?.textContent,
+    ).toBe(id);
+  });
+
+  it("shows the session id on a parked pane too — same promise, same evidence", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "parked" } as const,
+          resumeSessionId: "sess-abc",
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector(".pane__idle-session")?.textContent).toBe(
+      "Resume session: sess-abc",
+    );
+  });
+
+  it("promises a FRESH session when the pane carries no binding", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          resumeSessionId: null,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Starts a fresh session");
+    expect(document.body.textContent).not.toContain("Resume session");
+    expect(document.querySelector(".pane__idle-session")).toBeNull();
+  });
+
+  it("reads as never-started (not stale-dated) for a pane parked at launch", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "parked" } as const,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    // "Stopped" is the same word the launch setting uses for this state;
+    // "Suspended" stays reserved for a pane the user stopped by hand.
+    expect(document.body.textContent).toContain("Stopped");
+    expect(document.body.textContent).not.toContain("Suspended");
+    expect(document.body.textContent).not.toContain("ago");
+    // Same verb as a suspended pane: one gesture, one word for it.
+    expect(action()!.textContent).toBe("Resume");
+  });
+
+  it("keeps the transient restored tile free of a resume gesture", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "waking", origin: "restore" } as const,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    // The sweep is already waking it; a button would race that.
+    expect(document.body.textContent).toContain("Waking up…");
+    expect(action()).toBeNull();
+  });
+
+  it("a parked pane resumes from the same button as a suspended one", () => {
+    // Same branch in production, so the asymmetry would only ever be in the
+    // tests — and the launch policy makes this the FIRST card most users see.
+    const onResume = vi.fn();
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "parked" } as const,
+          resumeSessionId: "sess-abc",
+          onResume,
+        }),
+      ),
+    );
+
+    expect(document.querySelector(".pane--idle")).not.toBeNull();
+    act(() => action()!.click());
+    expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("dims a pane that is staying down, never one on its way up", () => {
+    const mountIdle = (idle: PaneIdle, blockedDir?: string) =>
+      act(() =>
+        root.render(
+          createElement(AgentPane, { ...baseProps, idle, blockedDir }),
+        ),
+      );
+
+    mountIdle({ reason: "suspended", at: new Date().toISOString() });
+    expect(document.querySelector(".pane--idle")).not.toBeNull();
+
+    mountIdle({ reason: "parked" });
+    expect(document.querySelector(".pane--idle")).not.toBeNull();
+
+    mountIdle({ reason: "waking", origin: "restore" });
+    expect(document.querySelector(".pane--idle")).toBeNull();
+
+    // Rising, but stuck there until the folder comes back — reads as stopped.
+    mountIdle({ reason: "waking", origin: "manual" }, "/gone/worktree");
+    expect(document.querySelector(".pane--idle")).not.toBeNull();
+  });
+
+  it("a gone folder still wins the card — that pane needs relocating, not resuming", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          blockedDir: "/gone/worktree",
+          onStartFresh: vi.fn(),
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Folder is gone");
+    expect(document.body.textContent).not.toContain("Suspended");
+  });
+});
+
+describe("AgentPane — a refused resume explains itself", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("says why on the card, beside the button that will be pressed again", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          wakeError: "This agent can't prepare a resume plan.",
+          resumeSessionId: "sess-abc",
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    const note = document.querySelector(".pane__wake-error");
+    expect(note?.textContent).toBe(
+      "Couldn't resume — This agent can't prepare a resume plan.",
+    );
+    // The card is already a live region; a nested one has undefined behaviour.
+    expect(note?.getAttribute("role")).toBeNull();
+    // The gesture is still there — the note explains, it doesn't replace.
+    expect(
+      document.querySelector<HTMLButtonElement>(".pane__dormant-action")
+        ?.textContent,
+    ).toBe("Resume");
+  });
+
+  it("says nothing when there is nothing to explain", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "parked" } as const,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector(".pane__wake-error")).toBeNull();
+  });
+
+  it("offers the non-destructive way out FIRST on a blocked pane", () => {
+    // "Look again" and the idle card's "Resume" are the SAME gesture — asking
+    // for the pane back — so they share one prop. Two props pointing at one
+    // handler let a caller wire only one of them and leave the other dead.
+    const onResume = vi.fn();
+    const onStartFresh = vi.fn();
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          blockedDir: "/gone/worktree",
+          onResume,
+          onStartFresh,
+        }),
+      ),
+    );
+
+    const actions = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".pane__dormant-action"),
+    );
+    // Order is the point: looking again costs nothing and keeps the session,
+    // while starting fresh throws the binding away with the folder.
+    expect(actions.map((b) => b.textContent)).toEqual([
+      "Look again",
+      "Start fresh in the workspace folder",
+    ]);
+
+    act(() => actions[0].click());
+    expect(onResume).toHaveBeenCalledTimes(1);
+    expect(onStartFresh).not.toHaveBeenCalled();
+
+    act(() => actions[1].click());
+    expect(onStartFresh).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import type { AgentRestartMode, SpawnPlanContext } from "../domain/agents";
 import {
+  findPane,
   findWorkspace,
   findWorkspaceByRef,
   paneAgentType,
-  paneIsRemoteFresh,
+  paneResumeSessionId,
   skillRootsOf,
   type Workspace,
 } from "../domain/deck";
@@ -89,6 +90,12 @@ export function useAgentRestart(
     clearPaneUsage(target.paneId);
     await closePane(target.paneId);
     if (!findTarget(deckRef.current, target.workspace, target.paneId)) return;
+    // A suspend can land inside that await — the two flows guard themselves
+    // with separate in-flight sets, so neither blocks the other. The pane is
+    // parked now, and its binding is exactly what its resume needs: dropping
+    // it here would turn the user's suspend into a fresh conversation.
+    if (findPane(deckRef.current.workspaces, target.workspace.id, target.paneId)?.idle)
+      return;
     // Fresh means fresh on the next app launch too. Keep cwd/branch/worktree;
     // only the exact session binding is replaced by the new reporter later.
     deckRef.current.setPaneSession(target.workspace.id, target.paneId, null);
@@ -159,6 +166,11 @@ export function useAgentRestart(
       dropPaneSpawnSpec(target.paneId);
       return;
     }
+    // Same guard as the fresh path: a suspend can land inside the awaits above
+    // (the two flows hold separate in-flight sets) and leaves every field
+    // `sameResumeTarget` compares untouched, so only the idle marker says so.
+    if (findPane(deckRef.current.workspaces, target.workspace.id, target.paneId)?.idle)
+      return;
     bumpEpoch(target.paneId);
   };
 
@@ -196,6 +208,11 @@ export function useAgentRestart(
     const spec = peekPaneSpawnSpec(paneId);
     if (!resumeDiedSilently(spec, postbackCount(paneId))) return false;
     if (inFlight.current.has(paneId)) return true;
+    // A pane that is idle was stopped on purpose; respawning it here would
+    // undo that AND wipe its binding. Today the suspend flow drops the spawn
+    // spec before reaping, so `resumeDiedSilently` already answers false —
+    // but that is an ordering in another module, not a guarantee here.
+    if (findPane(deckRef.current.workspaces, wsId, paneId)?.idle) return false;
     const target = findTarget(deckRef.current, wsId, paneId);
     if (!target) return false;
 
@@ -237,10 +254,7 @@ function findTarget(
     cwd: pane.cwd ?? workspace.cwd,
     branch: pane.branch,
     yolo: pane.yolo,
-    // A remote pane is fresh-session only — even if a stale `session` clings to
-    // it (a hand-edit, or a binding from before the guard shipped), never hand
-    // it to the resume path, which would spawn locally and drop the endpoint.
-    sessionId: paneIsRemoteFresh(pane) ? null : (pane.session?.id ?? null),
+    sessionId: paneResumeSessionId(pane),
   };
 }
 

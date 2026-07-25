@@ -50,8 +50,10 @@ export type MigrationOutcome =
  *   7 — + `Pane.yolo` (the agent runs with permission prompts disabled).
  *   8 — + `Pane.remoteEndpoint` (the agent runs against a remote
  *       native-server endpoint).
+ *   9 — + `Pane.idle` carrying the `suspended` reason (a pane the user
+ *       suspended stays suspended across a restart instead of waking).
  */
-export const DECK_STATE_VERSION = 8;
+export const DECK_STATE_VERSION = 9;
 /** The oldest reader that can still make sense of a current document. Held at
  * 1 deliberately: v1→v4, v6 and v7 were additive, and v5's `run` retirement
  * moves data an old reader wouldn't understand INTO keys it preserves as
@@ -126,6 +128,13 @@ function migrateDeckFromV7toV8(doc: RawDoc): RawDoc {
   return doc;
 }
 
+/** v8 → v9: `Pane.idle` added — additive, nothing to transform. A v8 file's
+ * panes simply carry no idle marker, which hydration reads as a plain wake:
+ * exactly the wake-everything behaviour v8 had. */
+function migrateDeckFromV8toV9(doc: RawDoc): RawDoc {
+  return doc;
+}
+
 const DECK_MIGRATIONS: Record<number, Migration> = {
   1: migrateDeckFromV1toV2,
   2: migrateDeckFromV2toV3,
@@ -134,6 +143,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
   5: migrateDeckFromV5toV6,
   6: migrateDeckFromV6toV7,
   7: migrateDeckFromV7toV8,
+  8: migrateDeckFromV8toV9,
 };
 
 /**
@@ -155,6 +165,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *       percentages run.
  *  11 — + remoteAgents: the Experimental toggle for the remote
  *       launch/connect surface (off by default).
+ *  12 — + parkAgentsOnLaunch: restore agents stopped instead of waking them.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -162,7 +173,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 11;
+export const SETTINGS_VERSION = 12;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

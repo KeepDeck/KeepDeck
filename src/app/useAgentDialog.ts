@@ -11,6 +11,7 @@ import {
   findWorkspaceByRef,
   firstFreeWorktree,
   paneId,
+  paneIsStopped,
   parentDir,
   type Pane,
   type Workspace,
@@ -330,13 +331,16 @@ export function useAgentDialog(
   };
 
   /** How a session is already held by a pane: running behind a live PTY,
-   * dormant (restored, not yet revived), or not at all — the picker dims
-   * claimed rows for resume with the honest wording. */
-  const sessionClaim = (sessionId: string): "running" | "dormant" | null => {
+   * stopped (idle — restored, parked or suspended), or not at all — the picker
+   * dims claimed rows for resume with the honest wording. */
+  const sessionClaim = (sessionId: string): "running" | "stopped" | null => {
     for (const w of deckRef.current.workspaces) {
       for (const p of w.panes) {
         if (p.session?.id === sessionId) {
-          return p.dormant ? "dormant" : "running";
+          // "Stopped" only for a pane staying down: one on its way up will be
+          // running in a moment, and telling the user to go resume it there
+          // points at a card with no button.
+          return paneIsStopped(p) ? "stopped" : "running";
         }
       }
     }

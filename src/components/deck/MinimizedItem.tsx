@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { BoltIcon, GitBranchIcon, RestoreUpIcon } from "../../ui/icons";
+import { BoltIcon, GitBranchIcon, PowerIcon, RestoreUpIcon } from "../../ui/icons";
 import { Chip } from "../../ui/Chip";
 import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
@@ -19,6 +19,8 @@ interface MinimizedItemProps {
   /** The pane runs in YOLO mode — the header chip's warning must survive
    * minimizing, so the stand-in carries a bolt marker too. */
   yolo?: boolean;
+  /** The pane behind this stand-in has no process ([`MinimizedTrayEntry`]). */
+  stopped?: boolean;
   /** Accessible action label for the whole control, e.g. "Restore Claude 1". */
   label: string;
   /** False while the source workspace is mounted but inactive. */
@@ -32,6 +34,8 @@ interface MinimizedItemContentProps {
   icon?: AgentGlyphIcon | null;
   gitBadge?: GitBadge | null;
   yolo?: boolean;
+  /** The pane behind this stand-in has no process ([`MinimizedTrayEntry`]). */
+  stopped?: boolean;
 }
 
 /** Shared visual payload for the live control and the tray's hidden sizer. */
@@ -40,12 +44,18 @@ export function MinimizedItemContent({
   icon,
   gitBadge,
   yolo,
+  stopped,
 }: MinimizedItemContentProps) {
   return (
     <>
       <span className="minimized__agent" aria-hidden>
         <AgentGlyph icon={icon} />
       </span>
+      {stopped && (
+        <span className="minimized__stopped" title="Stopped — resume to run it">
+          <PowerIcon />
+        </span>
+      )}
       <span className="minimized__title">{title}</span>
       {yolo && (
         <span
@@ -82,6 +92,7 @@ export function MinimizedItem({
   icon,
   gitBadge,
   yolo,
+  stopped,
   label,
   active,
   onClick,
@@ -148,6 +159,7 @@ export function MinimizedItem({
           icon={icon}
           gitBadge={gitBadge}
           yolo={yolo}
+          stopped={stopped}
         />
       </button>
       {active && tooltipAnchor && (
@@ -156,6 +168,7 @@ export function MinimizedItem({
           id={tooltipId}
           title={title}
           gitBadge={gitBadge}
+          stopped={stopped}
         />
       )}
     </>

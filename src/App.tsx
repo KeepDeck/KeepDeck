@@ -23,6 +23,7 @@ import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
+import { suspendRefusalText, useSuspend } from "./app/useSuspend";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useUsageChannel } from "./app/useUsageChannel";
 import { useSettings } from "./app/useSettings";
@@ -74,6 +75,7 @@ import {
   MAX_PANES,
   maximizeHotkeyTarget,
   paneAgentType,
+  paneHotkeyTarget,
   paneOnScreen,
   pathOccupancy,
   type SpawnConfig,
@@ -132,7 +134,7 @@ function App() {
   // freeze alongside a frozen deck (see the hook's ordering contract).
   useJournalPersistence(deck, restoring, frozen !== null);
   // Skills housekeeping: drop dead workspaces' derived skill dirs at boot
-  // and on every close. Never while restoring/frozen — an unhydrated deck
+  // and on every close. Never while restoring or parked — an unhydrated deck
   // reads as "no workspaces" and would sweep the live dirs too.
   useSkillsPrune(deck.workspaces, !restoring && !frozen);
   const [frozenAck, setFrozenAck] = useState(false);
@@ -142,6 +144,7 @@ function App() {
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
   const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);
+  const suspendFlow = useSuspend(deck, revive.blocked);
   // Manual exited-card restart plus the separate, one-shot recovery for a
   // rejected boot resume. Both replace only runtime PTY/spec state; the pane
   // keeps its identity and layout position.
@@ -181,7 +184,7 @@ function App() {
         // them gave background workspaces eternal "waiting" chips (revive
         // only wakes the active workspace). Same filter as the tail and
         // polling lanes.
-        if (pane.dormant || pane.provisioning) continue;
+        if (pane.idle || pane.provisioning) continue;
         ids.add(paneAgentType(pane));
       }
     }
@@ -234,14 +237,21 @@ function App() {
       ),
   });
   // A close (agent or workspace) awaiting confirmation ([U6]).
-  const closeFlow = useCloseFlow(
-    deck,
+  const closeFlow = useCloseFlow(deck, {
     // First error wins, like the resume/fork catches — a second failure
     // must not silently replace a dialog the user is reading.
-    (message) =>
+    onError: (message) =>
       setError((current) => current ?? { title: "Worktree error", message }),
-    gitHeads,
-  );
+    // The same heading the ⇧⌘W path uses: one refusal, one wording, one
+    // title, whichever surface the user reached it from.
+    onSuspendRefused: (message) =>
+      setError(
+        (current) => current ?? { title: "Can't suspend this agent", message },
+      ),
+    gitPositions: gitHeads,
+    blockedPanes: revive.blocked,
+    suspendAgent: suspendFlow.suspend,
+  });
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
   // through the same confirm flow as ⌘W.
@@ -249,6 +259,8 @@ function App() {
     deck,
     agents,
     requestCloseAgent: closeFlow.requestCloseAgent,
+    suspendAgent: suspendFlow.suspend,
+    resumeAgent: revive.resume,
     openSettings: (sectionId) => {
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
@@ -407,7 +419,7 @@ function App() {
 
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
   // ⌘W asks to close the selected pane (an empty workspace: the workspace
-  // itself), ⇧⌘M toggles its maximize. A hotkey
+  // itself), ⇧⌘W stops it without asking, ⇧⌘M toggles its maximize. A hotkey
   // bypasses both button disabling and the modal overlay, so those guards are
   // mirrored here.
   useMenuHotkeys({
@@ -433,6 +445,31 @@ function App() {
         closeFlow.requestCloseWorkspace(target.wsId);
       else
         closeFlow.requestCloseAgent(target.wsId, target.paneId, target.label);
+    },
+    suspendAgent: () => {
+      if (modalOpen) return;
+      const target = paneHotkeyTarget(
+        deck.workspaces,
+        deck.activeId,
+        deck.viewByWs,
+        agents,
+        minimizeOn,
+      );
+      if (!target) return;
+      // No confirmation, unlike ⌘W: suspending is reversible, and a modal per
+      // parked agent would make the cheap gesture expensive. A REFUSAL does
+      // get a word, though — a blind chord that silently does nothing is
+      // indistinguishable from one that didn't reach the app at all.
+      void suspendFlow.suspend(target.wsId, target.paneId).then((outcome) => {
+        if (outcome === "suspended") return;
+        setError(
+          (current) =>
+            current ?? {
+              title: "Can't suspend this agent",
+              message: suspendRefusalText(outcome, target.label),
+            },
+        );
+      });
     },
     toggleMaximize: () => {
       if (modalOpen) return;
@@ -769,10 +806,12 @@ function App() {
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onPaneTitle={deck.setPaneAutoTitle}
-            dormantBlocked={revive.blocked}
+            idleBlocked={revive.blocked}
+            wakeFailed={revive.wakeFailed}
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={revive.startFresh}
+            onResumeAgent={revive.resume}
             onRetryProvision={provisioning.retryPane}
             onAgentExited={(wsId, paneId, code) => {
               // The one-shot boot-resume recovery respawns by itself — that
@@ -884,16 +923,27 @@ function App() {
 
           {frozen && !frozenAck && (
             // The parked-session notice: silent no-saving would be hidden
-            // data loss — this turns it into an announced trade-off.
+            // data loss — this turns it into an announced trade-off. Both
+            // parks say the same thing about THIS session; they differ in
+            // what they can honestly say about the file.
             <ConfirmDialog
-              title="Deck from a newer KeepDeck"
+              title={
+                frozen.kind === "newer-build"
+                  ? "Deck from a newer KeepDeck"
+                  : "Couldn't read your deck"
+              }
               message={
-                `deck.json was written by a newer version of KeepDeck ` +
-                `(revision ${frozen.version}; this build reads up to revision ${DECK_STATE_VERSION}). ` +
-                `The file is left untouched.\n\n` +
+                (frozen.kind === "newer-build"
+                  ? `deck.json was written by a newer version of KeepDeck ` +
+                    `(revision ${frozen.version}; this build reads up to revision ${DECK_STATE_VERSION}). ` +
+                    `The file is left untouched.\n\n`
+                  : `deck.json could not be read, so its contents are unknown. ` +
+                    `The file is left untouched rather than overwritten.\n\n`) +
                 `This session starts empty and will not be saved — anything ` +
-                `you create here is gone on quit. Run the newer version to ` +
-                `get your workspaces back.`
+                `you create here is gone on quit. ` +
+                (frozen.kind === "newer-build"
+                  ? `Run the newer version to get your workspaces back.`
+                  : `Restart KeepDeck to try reading it again.`)
               }
               confirmLabel="OK"
               onConfirm={() => setFrozenAck(true)}
@@ -928,16 +978,22 @@ function App() {
                   ? `Close agent "${closeFlow.closing.label}"?`
                   : `Close workspace "${closeFlow.closing.name}"?`
               }
-              message={
-                closeFlow.closing.kind === "agent"
-                  ? "Its terminal session will be ended."
-                  : closeFlow.closing.count === 0
-                    ? "This workspace has no agents."
-                    : `This ends ${closeFlow.closing.count} agent${closeFlow.closing.count === 1 ? "" : "s"} and their sessions.`
-              }
+              // Written by the flow that knows what confirming will do, so
+              // the sentence and the action can't drift apart.
+              message={closeFlow.closeMessage}
               confirmLabel="Close"
               cancelLabel="Cancel"
               destructive
+              secondaryAction={
+                closeFlow.canSuspendInstead
+                  ? {
+                      label: "Suspend",
+                      onClick: closeFlow.suspendInstead,
+                      disabled: closeFlow.deleteWorktree,
+                      hint: "A suspended agent comes back to its worktree — untick the delete to suspend it",
+                    }
+                  : undefined
+              }
               onConfirm={closeFlow.confirmClose}
               onCancel={closeFlow.cancelClose}
             >

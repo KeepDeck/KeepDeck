@@ -58,6 +58,7 @@ const callbacks = {
   onRenamePane: vi.fn(),
   onPaneTitle: vi.fn(),
   onStartFresh: vi.fn(),
+  onResumeAgent: vi.fn(),
   onRetryProvision: vi.fn(),
   onRetryPlanBuild: vi.fn(),
   onAgentExited: vi.fn(),
@@ -101,7 +102,8 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   agentsReady: true,
   unavailableAgentReasons: new Map(),
   gitHeads: new Map(),
-  dormantBlocked: {},
+  idleBlocked: {},
+  wakeFailed: {},
   specByPane: {
     "pane-1": { command: "codex", args: [], env: [] },
     "pane-2": { command: "codex", args: [], env: [] },
@@ -427,5 +429,151 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
     ).toBe(true);
     expect(document.querySelector(".deck__tray")).toBeNull();
     expect(document.querySelector(".deck__folds")).toBeNull();
+  });
+});
+
+describe("DeckStage — suspended agents", () => {
+  let root: Root;
+
+  const suspended = [
+    {
+      ...workspaces[0],
+      panes: [
+        {
+          ...workspaces[0].panes[0],
+          idle: { reason: "suspended" as const, at: "2026-07-25T09:00:00.000Z" },
+        },
+        workspaces[0].panes[1],
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    vi.mocked(TerminalPane).mockClear();
+    for (const callback of Object.values(callbacks)) callback.mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const render = (overrides: Record<string, unknown> = {}) =>
+    act(() => root.render(createElement(DeckStage, props(overrides))));
+
+  it("keeps the pane in place with no terminal, and resumes it from its card", () => {
+    render({ workspaces: suspended });
+
+    const pane = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
+    expect(pane.textContent).toContain("Suspended");
+    // The live sibling still runs: suspending is per pane, not per deck.
+    expect(vi.mocked(TerminalPane).mock.calls.map((c) => c[0].paneId)).toEqual([
+      "pane-2",
+    ]);
+
+    const resume = pane.querySelector<HTMLButtonElement>(".pane__dormant-action")!;
+    act(() => resume.click());
+    expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
+  });
+
+  // The strip variant renders its stand-ins directly; the tray's chips go
+  // through width measurement, which happy-dom reports as zero.
+  it("marks the stand-in of a minimized suspended agent as stopped", () => {
+    render({
+      workspaces: suspended,
+      minimizeStyle: "strip",
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
+    });
+
+    // Minimized AND stopped: the stand-in is all that's on screen, so it must
+    // not pass for a running agent.
+    const bars = document.querySelectorAll(".minimized--bar");
+    expect(bars).toHaveLength(1);
+    expect(bars[0].querySelector(".minimized__stopped")).not.toBeNull();
+  });
+
+  it("leaves a running agent's stand-in unmarked", () => {
+    render({
+      minimizeStyle: "strip",
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
+    });
+
+    const bar = document.querySelector(".minimized--bar")!;
+    expect(bar.querySelector(".minimized__stopped")).toBeNull();
+  });
+
+  it("leaves a pane on its way up unmarked — it resolves in milliseconds", () => {
+    // The boundary the exclusion exists for: marking a restored pane would
+    // flicker every stand-in on every launch.
+    render({
+      workspaces: [
+        {
+          ...workspaces[0],
+          panes: [
+            {
+              ...workspaces[0].panes[0],
+              idle: { reason: "waking" as const, origin: "restore" as const },
+            },
+            workspaces[0].panes[1],
+          ],
+        },
+      ],
+      minimizeStyle: "strip",
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
+    });
+
+    const bar = document.querySelector(".minimized--bar")!;
+    expect(bar.querySelector(".minimized__stopped")).toBeNull();
+  });
+
+  it("marks a minimized pane BLOCKED on a missing folder — its tile is hidden", () => {
+    // `restored`, but stuck there until the user relocates it: the chip is the
+    // only thing left on screen to say the agent isn't running.
+    render({
+      workspaces: [
+        {
+          ...workspaces[0],
+          panes: [
+            {
+              ...workspaces[0].panes[0],
+              idle: { reason: "waking" as const, origin: "restore" as const },
+            },
+            workspaces[0].panes[1],
+          ],
+        },
+      ],
+      idleBlocked: { "pane-1": "/gone/worktree" },
+      minimizeStyle: "strip",
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
+    });
+
+    const bar = document.querySelector(".minimized--bar")!;
+    expect(bar.querySelector(".minimized__stopped")).not.toBeNull();
+  });
+
+  it("hands the pane its OWN session id to name, and never a remote pane's", () => {
+    // The card renders this verbatim as "Resume session: <id>", so a wrong
+    // value here is a promise about someone else's conversation.
+    render({ workspaces: suspended });
+    expect(
+      document.querySelector("[data-pane-id='pane-1'] .pane__idle-session-id")
+        ?.textContent,
+    ).toBe("session-1");
+
+    render({
+      workspaces: [
+        {
+          ...suspended[0],
+          panes: [
+            { ...suspended[0].panes[0], remoteEndpoint: "ws://vps:4500" },
+            suspended[0].panes[1],
+          ],
+        },
+      ],
+    });
+    // A remote pane's conversation lives on the server: nothing to promise.
+    expect(document.querySelector(".pane__idle-session")).toBeNull();
+    expect(document.body.textContent).toContain("Starts a fresh session");
   });
 });

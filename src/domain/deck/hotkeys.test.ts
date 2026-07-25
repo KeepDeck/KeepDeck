@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AgentInfo } from "../agents";
-import { closeHotkeyTarget, maximizeHotkeyTarget } from "./hotkeys";
+import {
+  closeHotkeyTarget,
+  maximizeHotkeyTarget,
+  paneHotkeyTarget,
+} from "./hotkeys";
 import type { Workspace } from "./workspaces";
 import { createWorkspaceInstance } from "../workspaceInstance";
 
@@ -142,6 +146,53 @@ describe("closeHotkeyTarget", () => {
         true,
       ),
     ).toBeNull();
+  });
+});
+
+describe("paneHotkeyTarget", () => {
+  it("resolves the same agent ⌘W would, so the two chords never disagree", () => {
+    const workspaces = [
+      ws("ws-1", [{ id: "pane-1" }, { id: "pane-2", agentType: "claude" }]),
+    ];
+    const viewByWs = { "ws-1": { select: "pane-2" } };
+    const close = closeHotkeyTarget(workspaces, "ws-1", viewByWs, agents, true);
+    expect(paneHotkeyTarget(workspaces, "ws-1", viewByWs, agents, true)).toEqual({
+      wsId: "ws-1",
+      paneId: "pane-2",
+      label: "Claude Code 2",
+    });
+    expect(close).toEqual({ kind: "agent", wsId: "ws-1", paneId: "pane-2", label: "Claude Code 2" });
+  });
+
+  it("has nothing to act on in an empty workspace — unlike close, which takes the workspace", () => {
+    const workspaces = [ws("ws-1", [])];
+    expect(paneHotkeyTarget(workspaces, "ws-1", {}, agents, true)).toBeNull();
+    expect(closeHotkeyTarget(workspaces, "ws-1", {}, agents, true)).toEqual({
+      kind: "workspace",
+      wsId: "ws-1",
+    });
+  });
+
+  it("never targets a minimized pane — a blind chord must not hit an off-screen agent", () => {
+    const workspaces = [
+      ws("ws-1", [{ id: "pane-1" }, { id: "pane-2", agentType: "claude" }]),
+    ];
+    expect(
+      paneHotkeyTarget(
+        workspaces,
+        "ws-1",
+        { "ws-1": { select: "pane-1", minimized: ["pane-1"] } },
+        agents,
+        true,
+      ),
+      // pane-2 is the only visible one, so it becomes the unambiguous target.
+    ).toMatchObject({ paneId: "pane-2" });
+  });
+
+  it("returns null when several visible panes leave no selection", () => {
+    const workspaces = [ws("ws-1", [{ id: "pane-1" }, { id: "pane-2" }])];
+    expect(paneHotkeyTarget(workspaces, "ws-1", {}, agents, true)).toBeNull();
+    expect(paneHotkeyTarget(workspaces, "nope", {}, agents, true)).toBeNull();
   });
 });
 

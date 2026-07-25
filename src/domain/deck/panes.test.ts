@@ -4,9 +4,15 @@ import {
   appendPane,
   makePanes,
   makeProvisioningPanes,
+  paneCanSuspend,
   paneDisplayTitle,
   paneIsRemoteFresh,
+  paneIsStopped,
   paneOnScreen,
+  paneSuspendBlock,
+  paneResumeSessionId,
+  paneWakeOrigin,
+  paneWakesAutomatically,
   partitionPanes,
   removePane,
   resolveFocus,
@@ -25,6 +31,176 @@ describe("paneIsRemoteFresh", () => {
     // case (hand-edit only — the dialog never sets "") so lifecycle + plan
     // builder agree it's local.
     expect(paneIsRemoteFresh({ id: "p", remoteEndpoint: "" })).toBe(false);
+  });
+});
+
+describe("paneCanSuspend", () => {
+  it("true for a running pane, and for one whose process already exited", () => {
+    // Exit is runtime state the durable model doesn't carry, so an exited pane
+    // is indistinguishable here — deliberately: parking a dead agent is
+    // meaningful, its card just becomes the honest stopped one.
+    expect(paneCanSuspend({ id: "p" }, false)).toBe(true);
+    expect(
+      paneCanSuspend({ id: "p", session: { id: "s", boundAt: "t" } }, false),
+    ).toBe(true);
+  });
+
+  it("false only for a pane already STAYING down", () => {
+    expect(paneCanSuspend({ id: "p", idle: { reason: "parked" } }, false)).toBe(
+      false,
+    );
+    expect(
+      paneCanSuspend({ id: "p", idle: { reason: "suspended", at: "t" } }, false),
+    ).toBe(false);
+  });
+
+  it("true for a pane on its way up — stopping it cancels the wake", () => {
+    // Panes in a workspace the user isn't looking at stay `waking` until it is
+    // activated; refusing them made those agents impossible to park.
+    expect(
+      paneCanSuspend(
+        { id: "p", idle: { reason: "waking", origin: "restore" } },
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      paneCanSuspend(
+        { id: "p", idle: { reason: "waking", origin: "manual" } },
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  it("names the reason it refuses, so every surface says the same thing", () => {
+    expect(paneSuspendBlock({ id: "p" }, false)).toBeNull();
+    expect(paneSuspendBlock({ id: "p", idle: { reason: "parked" } }, false)).toBe(
+      "stopped",
+    );
+    expect(
+      paneSuspendBlock(
+        { id: "p", provisioning: { repo: "/r", workspace: "w", index: 1 } },
+        false,
+      ),
+    ).toBe("provisioning");
+    expect(
+      paneSuspendBlock({ id: "p", remoteEndpoint: "ws://vps:4500" }, false),
+    ).toBe("remote");
+    // Precedence matters: it decides which sentence the user reads.
+    expect(
+      paneSuspendBlock(
+        {
+          id: "p",
+          idle: { reason: "parked" },
+          remoteEndpoint: "ws://vps:4500",
+        },
+        false,
+      ),
+    ).toBe("stopped");
+  });
+
+  it("refuses a RISING pane once the sweep reports its folder gone", () => {
+    // The block is runtime state the model can't see, so it arrives as an
+    // argument — the same one `idleReadsAsStopped` takes, so the dialog, the
+    // tile and the tray cannot disagree about which panes are dead.
+    const rising = {
+      id: "p",
+      idle: { reason: "waking", origin: "restore" },
+    } as const;
+    expect(paneSuspendBlock(rising, false)).toBeNull();
+    expect(paneSuspendBlock(rising, true)).toBe("stopped");
+    // A LIVE pane is never stopped by a stale entry: it has no idle marker,
+    // and a running agent is not "already stopped" whatever the map says.
+    expect(paneSuspendBlock({ id: "p" }, true)).toBeNull();
+  });
+
+  it("false while a worktree create is in flight — no process to stop", () => {
+    expect(
+      paneCanSuspend(
+        { id: "p", provisioning: { repo: "/r", workspace: "w", index: 1 } },
+        false,
+      ),
+    ).toBe(false);
+  });
+
+  it("false for a REMOTE pane — its conversation lives on the server", () => {
+    expect(
+      paneCanSuspend({ id: "p", remoteEndpoint: "ws://vps:4500" }, false),
+    ).toBe(false);
+  });
+});
+
+describe("paneWakeOrigin / paneWakesAutomatically", () => {
+  it("names WHO asked, and answers null when nobody is bringing the pane up", () => {
+    // The accessor exists so the sweep never re-derives the origin with a
+    // `: "restore"` fallback: that fallback would hand a future auto-waking
+    // reason the one origin allowed to become a different conversation.
+    expect(
+      paneWakeOrigin({ id: "p", idle: { reason: "waking", origin: "restore" } }),
+    ).toBe("restore");
+    expect(
+      paneWakeOrigin({ id: "p", idle: { reason: "waking", origin: "manual" } }),
+    ).toBe("manual");
+    expect(paneWakeOrigin({ id: "p", idle: { reason: "parked" } })).toBeNull();
+    expect(
+      paneWakeOrigin({ id: "p", idle: { reason: "suspended", at: "t" } }),
+    ).toBeNull();
+    expect(paneWakeOrigin({ id: "p" })).toBeNull();
+  });
+
+  it("agrees with the predicate the sweep guards on", () => {
+    for (const idle of [
+      undefined,
+      { reason: "waking", origin: "restore" },
+      { reason: "waking", origin: "manual" },
+      { reason: "parked" },
+      { reason: "suspended", at: "t" },
+    ] as const) {
+      const pane = { id: "p", ...(idle && { idle }) };
+      expect(paneWakeOrigin(pane) !== null).toBe(paneWakesAutomatically(pane));
+    }
+  });
+
+  it("a live pane is not the sweep's business", () => {
+    expect(paneWakesAutomatically({ id: "p" })).toBe(false);
+    expect(paneWakesAutomatically({ id: "p", idle: { reason: "waking", origin: "restore" } })).toBe(
+      true,
+    );
+    expect(
+      paneWakesAutomatically({ id: "p", idle: { reason: "suspended", at: "t" } }),
+    ).toBe(false);
+  });
+});
+
+describe("paneIsStopped", () => {
+  it("true only when nothing is bringing the pane back on its own", () => {
+    expect(paneIsStopped({ id: "p" })).toBe(false); // running
+    expect(paneIsStopped({ id: "p", idle: { reason: "waking", origin: "restore" } })).toBe(false);
+    expect(paneIsStopped({ id: "p", idle: { reason: "waking", origin: "manual" } })).toBe(false);
+    expect(paneIsStopped({ id: "p", idle: { reason: "parked" } })).toBe(true);
+    expect(
+      paneIsStopped({ id: "p", idle: { reason: "suspended", at: "t" } }),
+    ).toBe(true);
+  });
+});
+
+describe("paneResumeSessionId", () => {
+  it("is the binding, or null when the pane would start fresh", () => {
+    expect(
+      paneResumeSessionId({ id: "p", session: { id: "s-1", boundAt: "t" } }),
+    ).toBe("s-1");
+    expect(paneResumeSessionId({ id: "p" })).toBeNull();
+  });
+
+  it("is null for a remote pane even when a stale binding clings to it", () => {
+    // Resuming that id locally would be a different conversation from the one
+    // living on the server.
+    expect(
+      paneResumeSessionId({
+        id: "p",
+        remoteEndpoint: "ws://vps:4500",
+        session: { id: "stale", boundAt: "t" },
+      }),
+    ).toBeNull();
   });
 });
 

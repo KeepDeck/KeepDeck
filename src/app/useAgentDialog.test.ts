@@ -465,20 +465,20 @@ describe("useAgentDialog start-from routing", () => {
     );
   });
 
-  it("sessionClaim reads the panes' bindings, dormancy included", async () => {
+  it("sessionClaim reads the panes' bindings, idle panes included", async () => {
     const ws = workspace({
       panes: [
         { id: "p1", session: { id: "s-run", boundAt: "2026-07-20T00:00:00Z" } },
         {
           id: "p2",
-          dormant: true,
+          idle: { reason: "suspended", at: "2026-07-20T01:00:00Z" },
           session: { id: "s-dorm", boundAt: "2026-07-20T00:00:00Z" },
         },
       ],
     });
     await mountAndOpen(ws);
     expect(flow.sessionClaim("s-run")).toBe("running");
-    expect(flow.sessionClaim("s-dorm")).toBe("dormant");
+    expect(flow.sessionClaim("s-dorm")).toBe("stopped");
     expect(flow.sessionClaim("s-free")).toBeNull();
   });
 });

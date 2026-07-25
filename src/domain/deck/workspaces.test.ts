@@ -18,9 +18,13 @@ import {
   setPaneAutoTitle,
   paneOccupyingPath,
   pathOccupancy,
+  clearPaneIdle,
+  failPaneWake,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setWorkspacePluginSlot,
+  suspendPane,
+  requestPaneWake,
   worktreeTargets,
   type Workspace,
 } from "./workspaces";
@@ -434,7 +438,14 @@ describe("paneOccupyingPath", () => {
     },
     {
       ...ws("b", []),
-      panes: [{ id: "b-p1", dormant: true, cwd: "/wt/two", branch: "kd/b/2" }],
+      panes: [
+        {
+          id: "b-p1",
+          idle: { reason: "waking", origin: "restore" },
+          cwd: "/wt/two",
+          branch: "kd/b/2",
+        },
+      ],
     },
   ];
 
@@ -453,7 +464,7 @@ describe("paneOccupyingPath", () => {
     expect(paneOccupyingPath(slashed, "/wt/three")?.pane.id).toBe("c-p1");
   });
 
-  it("counts a dormant pane — it revives right back into its directory", () => {
+  it("counts an idle pane — it wakes right back into its directory", () => {
     expect(paneOccupyingPath(deck, "/wt/two")?.pane.id).toBe("b-p1");
   });
 
@@ -705,5 +716,247 @@ describe("setPaneProvisioningPhase", () => {
     );
     expect(after[0].panes[0].provisioning?.phase).toBeUndefined();
     expect(after[0].panes[0].provisioning?.error).toBe("Setup failed: boom");
+  });
+});
+
+describe("suspendPane", () => {
+  const AT = "2026-07-25T10:00:00.000Z";
+  const withPanes = (panes: Pane[]): Workspace[] => [
+    { ...ws("a", []), panes },
+    ws("b", [1]),
+  ];
+
+  it("marks the pane suspended, stamped, and leaves everything else alone", () => {
+    const start = withPanes([
+      {
+        id: "a-p1",
+        cwd: "/wt/one",
+        branch: "kd/a/1",
+        session: { id: "s1", boundAt: "2026-07-25T09:00:00.000Z" },
+      },
+      { id: "a-p2" },
+    ]);
+    const after = suspendPane(start, "a", "a-p1", AT);
+    // The worktree and the resume key are exactly what a resume needs later —
+    // suspending must not touch either.
+    expect(after[0].panes[0]).toEqual({
+      id: "a-p1",
+      cwd: "/wt/one",
+      branch: "kd/a/1",
+      session: { id: "s1", boundAt: "2026-07-25T09:00:00.000Z" },
+      idle: { reason: "suspended", at: AT },
+    });
+    expect(after[0].panes[1]).toEqual({ id: "a-p2" });
+    expect(after[1]).toBe(start[1]); // the other workspace keeps its identity
+  });
+
+  it("is a no-op (same ref) for an unknown pane or workspace", () => {
+    const start = withPanes([{ id: "a-p1" }]);
+    expect(suspendPane(start, "a", "nope", AT)).toBe(start);
+    expect(suspendPane(start, "nope", "a-p1", AT)).toBe(start);
+  });
+
+  it("is a no-op for a pane that is already STAYING down", () => {
+    const suspended = withPanes([
+      { id: "a-p1", idle: { reason: "suspended", at: AT } },
+    ]);
+    expect(suspendPane(suspended, "a", "a-p1", "2026-07-25T11:00:00.000Z")).toBe(
+      suspended,
+    );
+    const parked = withPanes([{ id: "a-p1", idle: { reason: "parked" } }]);
+    expect(suspendPane(parked, "a", "a-p1", AT)).toBe(parked);
+  });
+
+  it("CANCELS a wake in progress — a rising pane is still stoppable", () => {
+    // Panes in a workspace the user isn't looking at stay `waking` until it is
+    // activated, so refusing every idle pane made those agents unparkable.
+    const rising = withPanes([
+      { id: "a-p1", idle: { reason: "waking", origin: "restore" } },
+    ]);
+    expect(suspendPane(rising, "a", "a-p1", AT)[0].panes[0].idle).toEqual({
+      reason: "suspended",
+      at: AT,
+    });
+  });
+
+  it("refuses a provisioning pane — there is no process, and its create must not be stranded", () => {
+    const creating = withPanes([
+      {
+        id: "a-p1",
+        provisioning: { repo: "/repo", workspace: "a", index: 1 },
+      },
+    ]);
+    expect(suspendPane(creating, "a", "a-p1", AT)).toBe(creating);
+  });
+
+  it("round-trips: suspend → ask → finish leaves a plain live pane", () => {
+    const start = withPanes([{ id: "a-p1", cwd: "/wt/one" }]);
+    const suspended = suspendPane(start, "a", "a-p1", AT);
+    const rising = requestPaneWake(suspended, "a", "a-p1");
+    const woken = clearPaneIdle(rising, "a", "a-p1");
+    expect(woken[0].panes[0]).toEqual({ id: "a-p1", cwd: "/wt/one" });
+  });
+
+  it("a suspend landing mid-wake wins: the late finish finds nothing to do", () => {
+    // The sweep can be out on a probe when the user stops the pane; clearing
+    // then would spawn the process they just stopped.
+    const rising = withPanes([
+      { id: "a-p1", idle: { reason: "waking", origin: "manual" } },
+    ]);
+    const stopped = suspendPane(rising, "a", "a-p1", AT);
+    expect(clearPaneIdle(stopped, "a", "a-p1")).toBe(stopped);
+  });
+
+  it("refuses a REMOTE pane — the guard is the predicate, not a copy of it", () => {
+    // The action is exported through the deck barrel, so a future "suspend
+    // every agent here" must not park the panes the predicate protects.
+    const remote = withPanes([{ id: "a-p1", remoteEndpoint: "ws://vps:4500" }]);
+    expect(suspendPane(remote, "a", "a-p1", AT)).toBe(remote);
+  });
+});
+
+describe("requestPaneWake", () => {
+  const AT = "2026-07-25T10:00:00.000Z";
+  const withPane = (pane: Pane): Workspace[] => [{ ...ws("a", []), panes: [pane] }];
+
+  it("hands a suspended pane back to the sweep, marked as the user's doing", () => {
+    const after = requestPaneWake(
+      withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } }),
+      "a",
+      "a-p1",
+    );
+    // Still idle — the sweep owns the probe, the resume plan and the wake.
+    // `manual`, not `restore`: the origin decides what a rejected session id
+    // is allowed to do afterwards. The marker it rose FROM rides along whole,
+    // so a wake that fails can put the pane back exactly where it was — a
+    // stamp alone would have to be decoded back into a reason, and a decode
+    // is a guess that gets worse every time the union grows.
+    expect(after[0].panes[0].idle).toEqual({
+      reason: "waking",
+      origin: "manual",
+      from: { reason: "suspended", at: AT },
+    });
+  });
+
+  it("does the same for a pane parked by the launch policy", () => {
+    const after = requestPaneWake(
+      withPane({ id: "a-p1", idle: { reason: "parked" } }),
+      "a",
+      "a-p1",
+    );
+    // `parked` is carried too: it is where this pane goes back to, and the
+    // difference from "carried nothing" is what keeps a failed wake from
+    // inventing a suspend the user never asked for.
+    expect(after[0].panes[0].idle).toEqual({
+      reason: "waking",
+      origin: "manual",
+      from: { reason: "parked" },
+    });
+  });
+
+  it("UPGRADES a pane the sweep was already raising on its own", () => {
+    // "A human asked" is new information even mid-wake, and it is the only
+    // thing standing between a rejected session id and a silent new
+    // conversation — so a boot-restore wake is re-marked, not left alone.
+    // This is what makes the blocked card's "Look again" mean anything.
+    const restored = withPane({
+      id: "a-p1",
+      idle: { reason: "waking", origin: "restore" },
+    });
+    expect(requestPaneWake(restored, "a", "a-p1")[0].panes[0].idle).toEqual({
+      reason: "waking",
+      origin: "manual",
+    });
+  });
+
+  it("is a no-op (same ref) for a live pane, one already asked for, or an unknown id", () => {
+    const live = withPane({ id: "a-p1" });
+    expect(requestPaneWake(live, "a", "a-p1")).toBe(live);
+    // A second click while the sweep is still working must not re-mark it.
+    const asked = withPane({ id: "a-p1", idle: { reason: "waking", origin: "manual" } });
+    expect(requestPaneWake(asked, "a", "a-p1")).toBe(asked);
+    expect(requestPaneWake(asked, "a", "nope")).toBe(asked);
+    expect(requestPaneWake(asked, "nope", "a-p1")).toBe(asked);
+  });
+});
+
+describe("failPaneWake", () => {
+  const AT = "2026-07-25T09:00:00.000Z";
+  const withPane = (pane: Pane): Workspace[] => [{ ...ws("a", []), panes: [pane] }];
+
+  it("puts a manual wake back down with the stamp it went up with", () => {
+    const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
+    const waking = requestPaneWake(suspended, "a", "a-p1");
+    const back = failPaneWake(waking, "a", "a-p1");
+    // The card reads exactly as it did before the failed attempt — restamping
+    // it "just now" would misdate a suspend the user made hours ago.
+    expect(back[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });
+  });
+
+  it("returns a merely-PARKED pane to parked, never to a durable suspend", () => {
+    // `parked` is runtime-only on purpose: writing `suspended` here would
+    // forge a decision the user never made and make it survive restarts, so
+    // turning the launch policy off could never bring this pane back.
+    const waking = requestPaneWake(
+      withPane({ id: "a-p1", idle: { reason: "parked" } }),
+      "a",
+      "a-p1",
+    );
+    expect(failPaneWake(waking, "a", "a-p1")[0].panes[0].idle).toEqual({
+      reason: "parked",
+    });
+  });
+
+  it("returns a pane the user asked for at BOOT to parked as well", () => {
+    // Restored → "Look again" upgrades it to a manual wake with no stamp;
+    // a failure leaves it stopped and waiting, not falsely suspended.
+    const upgraded = requestPaneWake(
+      withPane({ id: "a-p1", idle: { reason: "waking", origin: "restore" } }),
+      "a",
+      "a-p1",
+    );
+    expect(failPaneWake(upgraded, "a", "a-p1")[0].panes[0].idle).toEqual({
+      reason: "parked",
+    });
+  });
+
+  it("keeps the ORIGINAL landing place when a rising pane is asked for again", () => {
+    // Upgrading a wake changes who asked, not where the pane came from. A
+    // second request that overwrote `from` with the transient `waking` marker
+    // would lose the suspend the first one was carrying.
+    const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
+    const once = requestPaneWake(suspended, "a", "a-p1");
+    const twice = requestPaneWake(
+      // Force a second pass by rewinding the origin the way the sweep's own
+      // restore marker would look, keeping the carried state.
+      [
+        {
+          ...once[0],
+          panes: [{ id: "a-p1", idle: { reason: "waking", origin: "restore", from: { reason: "suspended", at: AT } } }],
+        },
+      ],
+      "a",
+      "a-p1",
+    );
+    expect(failPaneWake(twice, "a", "a-p1")[0].panes[0].idle).toEqual({
+      reason: "suspended",
+      at: AT,
+    });
+  });
+
+  it("leaves a BOOT restore alone — its fresh-start degradation is deliberate", () => {
+    const booting = withPane({
+      id: "a-p1",
+      idle: { reason: "waking", origin: "restore" },
+    });
+    expect(failPaneWake(booting, "a", "a-p1")).toBe(booting);
+  });
+
+  it("is a no-op (same ref) for a live pane or an unknown id", () => {
+    const live = withPane({ id: "a-p1" });
+    expect(failPaneWake(live, "a", "a-p1")).toBe(live);
+    expect(failPaneWake(live, "a", "nope")).toBe(live);
+    const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
+    expect(failPaneWake(suspended, "a", "a-p1")).toBe(suspended);
   });
 });

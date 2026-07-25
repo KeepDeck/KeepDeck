@@ -1,7 +1,7 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
-import type { Pane, PaneProvisioning } from "./panes";
-import { resolveFocus } from "./panes";
+import type { Pane, PaneIdle, PaneProvisioning } from "./panes";
+import { paneWakeOrigin, resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
 import { nextIdSequence } from "../idSequence";
@@ -18,13 +18,15 @@ import { MAX_PANES } from "./layout";
  * mirrors, where it's pure and unit-testable. There is deliberately no Rust DTO
  * to keep in sync.
  *
- * Hydration marks every restored pane `dormant`: a PTY can't survive a restart,
- * so panes come back as quiet tiles and are revived (resumed or freshly
- * spawned) lazily per workspace by the app layer. The exception is a pane
- * whose worktree create was still in flight when the app quit — it comes back
- * NOT dormant but with its provisioning marked failed ("interrupted"), so the
- * card offers Retry instead of the revive flow spawning a terminal into a
- * directory that may not exist.
+ * Hydration marks every restored pane idle: a PTY can't survive a restart, so
+ * panes come back as quiet tiles and are revived (resumed or freshly spawned)
+ * lazily per workspace by the app layer. The REASON survives the round trip: a
+ * pane the user suspended comes back `suspended` and waits for an explicit
+ * resume, everything else comes back waking for the revive sweep. The
+ * exception is a pane whose worktree create was still in flight when the app
+ * quit — it comes back NOT idle at all but with its provisioning marked failed
+ * ("interrupted"), so the card offers Retry instead of the revive flow
+ * spawning a terminal into a directory that may not exist.
  */
 
 import { DECK_MIN_READER, DECK_STATE_VERSION, migrateDeck } from "../migrations";
@@ -56,8 +58,10 @@ export type HydrateDeckResult =
   | { kind: "corrupt" }
   | { kind: "incompatible"; version: number; minVersion: number };
 
-/** Serialize the deck for storage. Runtime-only pane state (`dormant`) is
- * stripped; the session binding is kept — it's the resume key. The unified
+/** Serialize the deck for storage. Runtime-only pane state is stripped — of
+ * the idle reasons only `suspended` is written, since it alone records a user
+ * decision rather than this launch's circumstances; the session binding is
+ * kept — it's the resume key. The unified
  * `viewByWs` persists only its durable half — the `focusByWs`/`selectByWs`
  * maps the on-disk schema has always had; `dock`/`dockTab` are session-only
  * and never written, so every launch starts with the dock closed. */
@@ -110,6 +114,10 @@ export function serializeDeck(
           ...(p.name !== undefined && { name: p.name }),
           ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
           ...(p.session !== undefined && { session: p.session }),
+          // Sparse, and only the durable reason: `waking`/`parked` describe
+          // a launch, so writing them would make every ordinary restart look
+          // like a deliberate suspend on the NEXT one.
+          ...(p.idle?.reason === "suspended" && { idle: p.idle }),
           // The intent only: error and phase are runtime state, and hydration
           // stamps its own error ("interrupted") on whatever comes back.
           ...(p.provisioning !== undefined && {
@@ -126,8 +134,9 @@ export function serializeDeck(
  * unparsable JSON, an unknown version, a malformed shape — so the caller can
  * quarantine the file and start empty instead of crashing on state.
  *
- * Panes come back `dormant`; `activeId` is re-resolved (the persisted one may
- * be stale); focus/selection entries pointing at unknown ids are dropped.
+ * Panes come back idle (`suspended` where that was stored, waking
+ * otherwise); `activeId` is re-resolved (the persisted one may be stale);
+ * focus/selection entries pointing at unknown ids are dropped.
  */
 export function hydrateDeck(json: string): HydrateDeckResult {
   const corrupt = { kind: "corrupt" } as const;
@@ -220,6 +229,33 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   };
 }
 
+/**
+ * Apply the launch policy to a freshly hydrated deck: every pane the restore
+ * left rising becomes `parked`, so the revive sweep leaves it alone and
+ * each one starts from its own card instead of six CLIs launching at once.
+ *
+ * Kept out of [`hydrateDeck`] on purpose — hydration answers "what does this
+ * document say", the setting answers "what should this launch do", and only
+ * the second one changes when the user flips a checkbox. Panes the user
+ * SUSPENDED are untouched: they are already stopped, and overwriting the
+ * reason would lose the stamp their card is dated by.
+ */
+export function parkRestoredPanes(state: DeckState): DeckState {
+  return {
+    ...state,
+    workspaces: state.workspaces.map((ws) => ({
+      ...ws,
+      panes: ws.panes.map((pane) =>
+        // Hydration's own marker only — a pane the user suspended keeps its
+        // stamp, and no other reason can exist this early.
+        paneWakeOrigin(pane) === "restore"
+          ? { ...pane, idle: { reason: "parked" as const } }
+          : pane,
+      ),
+    })),
+  };
+}
+
 /** The top-level keys this build owns; everything else is a doc extra. */
 const DOC_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "version",
@@ -253,6 +289,7 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "name",
   "autoTitle",
   "session",
+  "idle",
   "provisioning",
 ]);
 
@@ -302,7 +339,7 @@ function readWorkspace(value: unknown): Workspace | null {
 function readPane(value: unknown): Pane | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string") return null;
-  const pane: Pane = { id: value.id, dormant: true };
+  const pane: Pane = { id: value.id, idle: readIdle(value.idle) };
   // Any non-empty string id is kept verbatim: the id set is OPEN (agents
   // come from plugins) and hydration runs BEFORE plugin bootstrap, so a
   // catalog check here would misfire on every boot. A pane whose plugin is
@@ -330,14 +367,55 @@ function readPane(value: unknown): Pane | null {
   const provisioning = readProvisioning(value.provisioning);
   if (provisioning) {
     // The app quit mid-create: come back as the failed card — the intent
-    // powers Retry, and the pane must NOT be dormant or the revive flow
-    // would spawn a terminal into a directory that may not exist.
-    delete pane.dormant;
+    // powers Retry, and the pane must NOT be idle or the revive flow would
+    // spawn a terminal into a directory that may not exist.
+    delete pane.idle;
     pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
   }
   const extras = collectExtras(value, PANE_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) pane.extras = extras;
   return pane;
+}
+
+/** Why a restored pane has no PTY. A stored `suspended` marker is honoured —
+ * that is the whole point of persisting it — and anything else (absent,
+ * malformed, or a reason from a NEWER revision this build has no name for)
+ * degrades to a plain wake, so the pane simply comes up with the rest.
+ *
+ * The unknown marker is deliberately NOT carried through as a pane extra, the
+ * way an unknown ordinary field is. Extras preserve facts this build does not
+ * understand and does not touch; an idle marker is lifecycle state this build
+ * rewrites within a second of opening the file — hydration marks every pane
+ * idle and the sweep wakes it. Re-emitting the old marker afterwards would
+ * tell the newer build that a pane it is watching run is still parked, which
+ * is worse than the honest signal it gets from the marker's absence: an older
+ * build took this pane somewhere else. */
+function readIdle(value: unknown): PaneIdle {
+  if (
+    isRecord(value) &&
+    value.reason === "suspended" &&
+    typeof value.at === "string" &&
+    // The stamp is rendered as an age ("2h ago"); an unparsable one would
+    // print "NaNd ago". This file is hand-editable, so the shape check that
+    // guards every other field guards this one too.
+    Number.isFinite(Date.parse(value.at))
+  ) {
+    return { reason: "suspended", at: value.at };
+  }
+  // A marker we cannot make sense of: `parked`, not a wake. The pane stays
+  // down with a card and a button rather than spawning a process — for a doc
+  // that plainly meant "this pane was stopped", starting the agent anyway is
+  // the destructive reading of corrupt data.
+  //
+  // The protection lasts exactly this launch, and deliberately so: `parked`
+  // is runtime-only, so the first save drops the unreadable marker and the
+  // NEXT launch wakes the pane normally. That is the intended trade — the
+  // alternative, re-emitting a marker this build could not read, would carry
+  // lifecycle state we don't understand into a document we do own, and
+  // writing `suspended` instead would forge a decision the user never made.
+  // One launch behind a card is enough for the user to decide.
+  if (value !== undefined) return { reason: "parked" };
+  return { reason: "waking", origin: "restore" };
 }
 
 /** Tolerant read of a persisted plugin-slot bag: `null` for anything that

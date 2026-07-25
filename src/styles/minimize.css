@@ -162,6 +162,15 @@
   color: #e0b568;
 }
 
+/* Stopped marker: muted, not a warning — a suspended agent is a normal
+   resting state, unlike the YOLO bolt it sits beside. */
+.minimized__stopped {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: #6b7280;
+}
+
 .minimized__branch {
   max-width: 160px;
   flex: 0 1 auto;
@@ -293,4 +302,11 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
+}
+
+/* "Stopped" in the hover details — the chip's inline marker is a glyph whose
+   own title this tooltip suppresses, so the state is spelled out here. */
+.minimized-tooltip__stopped {
+  color: #8b93a3;
+  font-size: 11px;
 }

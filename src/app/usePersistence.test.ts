@@ -18,6 +18,17 @@ const ipc = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/state", () => ipc);
 
+// The launch policy: hydration must wait for it and obey it. The real manager
+// reads settings.json over IPC, which this test has no business exercising.
+const settings = vi.hoisted(() => ({
+  parkAgentsOnLaunch: false,
+  initSettings: vi.fn<() => Promise<void>>(() => Promise.resolve()),
+}));
+vi.mock("./settingsManager", () => ({
+  initSettings: settings.initSettings,
+  getSettings: () => ({ parkAgentsOnLaunch: settings.parkAgentsOnLaunch }),
+}));
+
 const STORED = JSON.stringify({
   version: 1,
   activeId: "ws-1",
@@ -52,6 +63,8 @@ describe("usePersistence", () => {
     ipc.loadDeckState.mockReset();
     ipc.saveDeckState.mockClear();
     ipc.quarantineDeckState.mockClear();
+    settings.parkAgentsOnLaunch = false;
+    settings.initSettings.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -67,18 +80,53 @@ describe("usePersistence", () => {
     await act(async () => {});
   };
 
-  it("restores the stored deck (panes dormant) and only then allows saves", async () => {
+  it("restores the stored deck (panes idle) and only then allows saves", async () => {
     ipc.loadDeckState.mockResolvedValue(STORED);
     await mount();
 
     expect(restoring).toBe(false);
     expect(deck.workspaces.map((w) => w.id)).toEqual(["ws-1"]);
-    expect(deck.workspaces[0].panes[0].dormant).toBe(true);
+    expect(deck.workspaces[0].panes[0].idle).toEqual({
+      reason: "waking",
+      origin: "restore",
+    });
 
     // The post-hydrate save is debounced and writes the normalized document.
     await act(async () => vi.runOnlyPendingTimers());
     expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
     expect(JSON.parse(ipc.saveDeckState.mock.calls[0][0]).activeId).toBe("ws-1");
+  });
+
+  it("restores panes PARKED when the launch policy says so", async () => {
+    settings.parkAgentsOnLaunch = true;
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+
+    // Parked, not restored: the revive sweep leaves it alone and the pane's
+    // own card starts it, instead of every agent launching at once.
+    expect(deck.workspaces[0].panes[0].idle).toEqual({ reason: "parked" });
+
+    // The policy is a launch decision, never a fact about the pane — it must
+    // not reach disk, or turning the setting off would strand these panes.
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("parked");
+  });
+
+  it("waits for the settings load before hydrating — a slow read must not mean 'wake everything'", async () => {
+    settings.parkAgentsOnLaunch = true;
+    let settleSettings!: () => void;
+    settings.initSettings.mockReturnValue(
+      new Promise<void>((resolve) => {
+        settleSettings = resolve;
+      }),
+    );
+    ipc.loadDeckState.mockResolvedValue(STORED);
+
+    await mount();
+    expect(deck.workspaces).toHaveLength(0); // deck read, policy not known yet
+
+    await act(async () => settleSettings());
+    expect(deck.workspaces[0].panes[0].idle).toEqual({ reason: "parked" });
   });
 
   it("NEVER saves while the load is still pending — the store must not be wiped", async () => {
@@ -132,6 +180,76 @@ describe("usePersistence", () => {
       "pane-1",
       "pane-9",
     ]);
+  });
+
+  it("a suspend saves IMMEDIATELY — quit must not restart the agent the user parked", async () => {
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    // The revive sweep lives elsewhere; stand in for it so the pane is live
+    // and can actually be suspended.
+    act(() => deck.clearPaneIdle("ws-1", "pane-1"));
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+
+    // No timer advance: the intent must not ride the debounce, because ⌘Q
+    // never reaches the webview and there is no flush on the Rust side.
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    const saved = JSON.parse(ipc.saveDeckState.mock.calls[0][0]);
+    expect(saved.workspaces[0].panes[0].idle).toMatchObject({
+      reason: "suspended",
+    });
+  });
+
+  it("waking a suspended pane saves IMMEDIATELY too — the marker must not outlive the intent", async () => {
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    act(() => deck.clearPaneIdle("ws-1", "pane-1"));
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("suspended");
+  });
+
+  it("the sweep waking a pane rides the debounce instead of forcing a write", async () => {
+    // The earlier version of this test asserted "no save at all" and passed on
+    // the very regression it named: a non-durable marker leaves the document
+    // byte-identical, so the effect returns at the `serialized === lastSaved`
+    // guard before the immediate signature is ever consulted. Pair the wake
+    // with a change that DOES alter the document, and the two outcomes split:
+    // immediate would write now, debounced writes on the timer.
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    act(() => {
+      deck.clearPaneIdle("ws-1", "pane-1");
+      deck.setPaneAutoTitle("ws-1", "pane-1", "fixing auth");
+    });
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("idle");
+  });
+
+  it("clearing a marker alone changes nothing on disk at all", async () => {
+    // The weaker half of the pair above, kept because it pins WHY: the wake
+    // is invisible to the document, so there is nothing to write either way.
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    act(() => deck.clearPaneIdle("ws-1", "pane-1"));
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
   });
 
   it("a session binding saves IMMEDIATELY — quit must not lose it", async () => {
@@ -238,13 +356,50 @@ describe("usePersistence", () => {
     expect(deck.workspaces).toEqual([]);
   });
 
+  it("PARKS when the read itself fails — an empty deck must not land on a good file", async () => {
+    // A rejecting read is not an unusable document: the file is probably
+    // intact and we have no idea what is in it, so there is nothing to
+    // condemn and nothing to quarantine. Starting empty is fine; SAVING that
+    // empty deck is how a transient IPC hiccup at boot costs every workspace
+    // the user has — the first render would flush right over it.
+    ipc.loadDeckState.mockRejectedValue(new Error("backend not ready"));
+    await mount();
+
+    expect(restoring).toBe(false);
+    expect(deck.workspaces).toEqual([]);
+    expect(ipc.quarantineDeckState).not.toHaveBeenCalled();
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+    // The park has to be VISIBLE, not just a ref inside this hook. `frozen`
+    // is what gates the journal hydrate and the skills prune in App — both
+    // of which would otherwise run against a deck that is empty only because
+    // the read failed, and delete a session history and a skills tree that
+    // are perfectly intact on disk.
+    expect(frozen).toEqual({ kind: "unreadable" });
+
+    // And it stays parked: a later change must not reach disk either.
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-9",
+        instance: createWorkspaceInstance(),
+        name: "unsaved",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [{ id: "pane-9", agentType: "claude" }],
+      }),
+    );
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+  });
+
   it("PARKS on a deck above the compatibility floor: untouched, never saved over", async () => {
     ipc.loadDeckState.mockResolvedValue(
       JSON.stringify({ version: 99, minVersion: 99, workspaces: [] }),
     );
     await mount();
 
-    expect(frozen).toEqual({ version: 99, minVersion: 99 });
+    // The two parks are told apart by `kind`: the banner names the revision
+    // for this one, and has nothing truthful to say about the other.
+    expect(frozen).toEqual({ kind: "newer-build", version: 99, minVersion: 99 });
     // Parked ≠ corrupt: the file is NOT quarantined — it must survive us.
     expect(ipc.quarantineDeckState).not.toHaveBeenCalled();
     expect(deck.workspaces).toEqual([]);

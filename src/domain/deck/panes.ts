@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentType } from "../agents";
+import type { AgentInfo, AgentType, ResumeOrigin } from "../agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
 // Type-only, so the module graph stays acyclic at runtime (reducer's chain
 // imports this module; the types are erased).
@@ -13,6 +13,45 @@ export interface PaneSession {
   /** ISO instant the binding was made (diagnostics; newer binding wins). */
   boundAt: string;
 }
+
+/**
+ * Why a pane has NO PTY behind it. One field carrying a reason rather than
+ * parallel booleans: the cases are mutually exclusive answers to the same
+ * question, and they differ in WHAT wakes the pane — so a consumer reading the
+ * reason cannot mistake "the user parked this" for "wake me on the next
+ * sweep". Only `suspended` is durable (it records the user's intent); the
+ * other two describe this launch's circumstances and hydration re-derives
+ * them every time.
+ */
+export type PaneIdle =
+  /** On its way up: the revive sweep wakes it as soon as it can ([F7]).
+   * `origin` says WHO asked, and that decides what a rejected session id may
+   * do — a boot restore may fall back to a fresh conversation, a resume the
+   * user clicked may not. `from` is the state this wake started in, carried
+   * whole so a wake that FAILS can put the pane back exactly where it was;
+   * absent when the pane rose from a restore. Runtime-only. */
+  | { reason: "waking"; origin: ResumeOrigin; from?: PaneStopped }
+  | PaneStopped;
+
+/**
+ * The half of [`PaneIdle`] that STAYS down: no process, and nothing bringing
+ * the pane back but an explicit gesture. Named because a wake carries the
+ * state it rose from ([`PaneIdle`]'s `from`) and must be able to restore it
+ * verbatim — decoding it from a flag is how a reason the user never chose
+ * gets written back as one they did.
+ */
+export type PaneStopped =
+  /** Down without a decision behind it. Two producers, one behaviour: a pane
+   * restored into a launch that parks agents instead of waking them, and a
+   * pane whose stored marker could not be read (a hand edit, a truncated
+   * write, a reason from a newer build) — for which "stay down behind a card"
+   * is the non-destructive reading. Runtime-only in both cases: the launch
+   * policy is a setting rather than a fact about this pane, and an unreadable
+   * marker is not a decision to make durable. */
+  | { reason: "parked" }
+  /** The user suspended it: its process was ended deliberately and only an
+   * explicit resume brings it back. Durable, and `at` dates the card. */
+  | { reason: "suspended"; at: string };
 
 /** A pane's worktree create captured as intent: everything needed to (re)issue
  * the `worktree_create` call. Kept on the pane while the create runs in the
@@ -81,9 +120,11 @@ export interface Pane {
   /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
    * `name`; falls back to the derived "Agent N" ([F11] auto-naming). */
   autoTitle?: string;
-  /** Restored from disk but not yet revived — no PTY behind it. Runtime-only:
-   * set by hydration, cleared by the revive action, never persisted ([F7]). */
-  dormant?: boolean;
+  /** Set while there is no PTY behind this pane, saying WHY — see
+   * [`PaneIdle`]. Absent means the pane runs (or is provisioning/exited, both
+   * tracked outside the durable model). Cleared by the wake action; only the
+   * `suspended` reason survives a save ([F7]). */
+  idle?: PaneIdle;
   /** The recorded agent session this pane resumes on revive ([F7]/[F8]). */
   session?: PaneSession;
   /** The in-flight (or failed) worktree create behind this pane — no terminal
@@ -116,6 +157,114 @@ export function paneAgentType(pane: Pane): AgentType {
  *  this centralized. */
 export function paneIsRemoteFresh(pane: Pane): boolean {
   return !!pane.remoteEndpoint;
+}
+
+/** Whether this pane can be suspended right now — the single rule behind
+ *  every affordance that offers it, so the menu, the close dialog and the
+ *  card can never disagree about which panes qualify.
+ *
+ *  Excluded: a pane that is already idle (nothing to stop); one whose worktree
+ *  create is still in flight (no process yet, and its create must not be
+ *  stranded); and a REMOTE pane, whose conversation lives on the server with
+ *  no local session to resume — stopping its thin client and reattaching
+ *  would quietly start a different conversation. An EXITED pane qualifies:
+ *  parking a dead agent is meaningful (its card becomes the honest "stopped"
+ *  one, and resuming rebuilds its resume plan), and the exit is runtime state
+ *  this durable model deliberately doesn't carry. */
+export function paneCanSuspend(pane: Pane, blocked: boolean): boolean {
+  return paneSuspendBlock(pane, blocked) === null;
+}
+
+/** WHY a pane can't be suspended, or null when it can. A reason rather than a
+ *  bare `false` because three surfaces have to explain the refusal — the
+ *  hotkey, the command and the close dialog — and a boolean forces each to
+ *  guess, which is how one of them came to tell a remote pane's user that
+ *  their running agent "has no session to stop". Mirrors the `ResumeBlock`
+ *  shape the session picker already uses for the same job. */
+export type PaneSuspendBlock = "stopped" | "provisioning" | "remote";
+
+/** `blocked` is the sweep's runtime verdict that the pane's directory is gone
+ *  — the same argument [`idleReadsAsStopped`] takes, and for the same reason:
+ *  such a pane has no process and is going nowhere, so every surface has to
+ *  agree it is stopped. Passing it is what stops the close dialog from
+ *  offering to suspend a pane the tile beside it draws as dead.
+ *
+ *  REQUIRED, deliberately. A default would let the next surface omit it and
+ *  compile — which is exactly the disagreement this argument was added to
+ *  end, and a caller reading `false` would stamp a durable suspend onto a
+ *  pane whose folder is gone. A caller with no sweep verdict to hand (the
+ *  domain's own reducer guard) passes `false` and says so. */
+export function paneSuspendBlock(
+  pane: Pane,
+  blocked: boolean,
+): PaneSuspendBlock | null {
+  // Only a pane that is STAYING down is refused. One still rising can be
+  // stopped — that cancels the wake — and it matters: a pane whose wake is
+  // waiting on a slow probe would otherwise be unparkable for as long as the
+  // probe takes.
+  if (idleReadsAsStopped(pane.idle, blocked)) return "stopped";
+  if (pane.provisioning) return "provisioning";
+  if (paneIsRemoteFresh(pane)) return "remote";
+  return null;
+}
+
+/** Whether an idle marker is one the revive sweep acts on by itself: a pane
+ *  on its way up, whoever asked. A `suspended` or `parked` one is staying
+ *  down until someone says otherwise. Module-private: every consumer asks one
+ *  of the `Pane`-shaped questions below, which all funnel through here. */
+function idleWakesAutomatically(idle: PaneIdle): boolean {
+  return idle.reason === "waking";
+}
+
+/** Whether the revive sweep may wake this pane on its own. The single
+ *  predicate the sweep consults, so the rule lives in one place. */
+export function paneWakesAutomatically(pane: Pane): boolean {
+  return !!pane.idle && idleWakesAutomatically(pane.idle);
+}
+
+/** WHO asked for this pane to come up, or null when it isn't coming up at
+ *  all. The sweep's one reader: taking the origin from an accessor rather
+ *  than re-deriving `pane.idle?.reason === "waking" ? … : "restore"` at each
+ *  site means a future reason that also wakes automatically cannot silently
+ *  answer "restore" — the origin that lets a rejected session id become a
+ *  different conversation. */
+export function paneWakeOrigin(pane: Pane): ResumeOrigin | null {
+  return pane.idle?.reason === "waking" ? pane.idle.origin : null;
+}
+
+/** Whether the pane has no process AND nothing is bringing it back on its own
+ *  — the state every "this agent is not running" affordance keys on (the
+ *  dimmed tile, the tray's stopped marker). A pane on its way up is excluded:
+ *  it resolves in milliseconds, and marking it would only flicker. */
+export function paneIsStopped(pane: Pane): boolean {
+  return !!pane.idle && !idleWakesAutomatically(pane.idle);
+}
+
+/** Whether a pane READS as stopped to the user — no process, and nothing
+ *  bringing it back on its own. One exported rule rather than a boolean
+ *  passed down, because two surfaces ask it about the same pane (its tile
+ *  dims, its minimized stand-in gets a marker) and they must not be able to
+ *  disagree — nor to be handed a combination that contradicts itself.
+ *
+ *  `blocked` is the sweep's runtime verdict that the pane's directory is
+ *  gone: such a pane is technically still rising, but it is stuck there until
+ *  someone relocates it, so it reads as stopped like any other. */
+export function idleReadsAsStopped(
+  idle: PaneIdle | undefined,
+  blocked: boolean,
+): boolean {
+  if (!idle) return false;
+  return !idleWakesAutomatically(idle) || blocked;
+}
+
+/** The session this pane would come back to, or null when it would start a
+ *  new one. One place, because three layers ask it and must agree: the card
+ *  that NAMES the session to the user, the sweep that builds the resume plan,
+ *  and the restart that picks resume-vs-fresh. A remote pane always answers
+ *  null — its conversation lives on the server, so a local resume would be a
+ *  different one. */
+export function paneResumeSessionId(pane: Pane): string | null {
+  return paneIsRemoteFresh(pane) ? null : (pane.session?.id ?? null);
 }
 
 /**

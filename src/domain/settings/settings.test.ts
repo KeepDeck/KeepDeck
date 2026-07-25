@@ -41,6 +41,7 @@ describe("hydrateSettings", () => {
         },
         notifications: { enabled: false, mode: "system" },
         usageDisplay: "left",
+        parkAgentsOnLaunch: true,
       }),
     );
     expect(doc?.settings).toEqual({
@@ -53,7 +54,36 @@ describe("hydrateSettings", () => {
       notifications: { enabled: false, mode: "system", mutedPlugins: [] },
       usageDisplay: "left",
       remoteAgents: false,
+      parkAgentsOnLaunch: true,
     });
+  });
+
+  it("reads parkAgentsOnLaunch and stays sparse when off", () => {
+    const on = hydrateSettings('{"parkAgentsOnLaunch":true}')!.settings;
+    expect(on.parkAgentsOnLaunch).toBe(true);
+    // Off is the default (wake everything, as before the setting existed).
+    const offJson = serializeSettings(
+      hydrateSettings('{"parkAgentsOnLaunch":false}')!,
+    );
+    expect(offJson).not.toContain("parkAgentsOnLaunch");
+  });
+
+  it("ignores a malformed parkAgentsOnLaunch instead of reading it as truthy", () => {
+    // Asserting `false` against a file that says `"yes"` proves nothing on
+    // its own — `false` is the default, so deleting the reader outright would
+    // leave it green. Start from a document that turned the setting ON, then
+    // corrupt it: only a reader that type-checks its input leaves the value
+    // alone, while `settings.x = doc.x` or a truthiness test flips it.
+    const corrupted = JSON.parse(
+      serializeSettings({
+        settings: { ...DEFAULT_SETTINGS, parkAgentsOnLaunch: true },
+        extras: {},
+      }),
+    );
+    corrupted.parkAgentsOnLaunch = "yes";
+    expect(
+      hydrateSettings(JSON.stringify(corrupted))!.settings.parkAgentsOnLaunch,
+    ).toBe(false);
   });
 
   it("reads remoteAgents and stays sparse when off", () => {

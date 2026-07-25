@@ -98,8 +98,14 @@ export function useDeck() {
     setPaneAutoTitle: (wsId: string, paneId: string, title: string) =>
       dispatch({ type: "setPaneAutoTitle", wsId, paneId, title }),
     hydrate: (state: DeckState) => dispatch({ type: "hydrate", state }),
-    revivePane: (wsId: string, paneId: string) =>
-      dispatch({ type: "revivePane", wsId, paneId }),
+    clearPaneIdle: (wsId: string, paneId: string) =>
+      dispatch({ type: "clearPaneIdle", wsId, paneId }),
+    suspendPane: (wsId: string, paneId: string) =>
+      dispatch({ type: "suspendPane", wsId, paneId, at: nowIso() }),
+    requestPaneWake: (wsId: string, paneId: string) =>
+      dispatch({ type: "requestPaneWake", wsId, paneId }),
+    failPaneWake: (wsId: string, paneId: string) =>
+      dispatch({ type: "failPaneWake", wsId, paneId }),
     resetPaneLocation: (wsId: string, paneId: string) =>
       dispatch({ type: "resetPaneLocation", wsId, paneId }),
     setPaneSession: (

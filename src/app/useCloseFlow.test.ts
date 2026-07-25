@@ -8,6 +8,7 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { useCloseFlow } from "./useCloseFlow";
+import type { SuspendOutcome } from "./useSuspend";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -57,10 +58,25 @@ function probed(exists: boolean): PathProbe {
 let deck: Deck;
 let flow: ReturnType<typeof useCloseFlow>;
 let runtimeHeads: Map<string, GitPosition>;
+const suspendAgent = vi.fn<
+  (wsId: string, paneId: string) => Promise<SuspendOutcome>
+>(() => Promise.resolve("suspended"));
+
+/** What the hook reported to the user this test, by heading. */
+const errors: string[] = [];
+const refusals: string[] = [];
+/** The revive sweep's blocked verdicts, as the hook receives them. */
+let blockedPanes: Record<string, string> = {};
 
 function Probe() {
   deck = useDeck();
-  flow = useCloseFlow(deck, () => {}, runtimeHeads);
+  flow = useCloseFlow(deck, {
+    onError: (message) => errors.push(message),
+    onSuspendRefused: (message) => refusals.push(message),
+    gitPositions: runtimeHeads,
+    blockedPanes,
+    suspendAgent,
+  });
   return null;
 }
 
@@ -94,6 +110,7 @@ describe("useCloseFlow + ptyManager", () => {
     lifecycle.clearPostProvision.mockClear();
     worktrees.discardWorktrees.mockClear();
     worktrees.order.length = 0;
+    suspendAgent.mockClear();
     probes.probeWorktree.mockReset();
     probes.probeWorktree.mockResolvedValue(probed(true));
     runtimeHeads = new Map();
@@ -236,5 +253,251 @@ describe("useCloseFlow + ptyManager", () => {
     act(() => flow.cancelClose());
     expect(pty.closePanes).not.toHaveBeenCalled();
     expect(deck.workspaces[0].panes).toHaveLength(2);
+  });
+
+  describe("suspending instead of closing", () => {
+    it("dismisses the dialog and delegates to suspend, closing nothing", () => {
+      const wsId = seed();
+      act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+      expect(flow.canSuspendInstead).toBe(true);
+
+      act(() => flow.suspendInstead());
+
+      expect(suspendAgent).toHaveBeenCalledWith(wsId, "pane-1");
+      expect(flow.closing).toBeNull();
+      // The pane stays in the deck and its session is not torn down here —
+      // that is the whole difference from confirming.
+      expect(pty.closePanes).not.toHaveBeenCalled();
+      expect(deck.workspaces[0].panes).toHaveLength(2);
+    });
+
+    it("refuses while the worktree delete is ticked — the two contradict", async () => {
+      const wsId = seed();
+      await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
+      act(() => flow.setDeleteWorktree(true));
+
+      act(() => flow.suspendInstead());
+
+      // A suspended pane comes back to that worktree; honouring the delete
+      // would destroy what it returns to, and ignoring the ticked box is worse.
+      expect(suspendAgent).not.toHaveBeenCalled();
+      expect(flow.closing).not.toBeNull();
+      expect(worktrees.discardWorktrees).not.toHaveBeenCalled();
+    });
+
+    it("is not offered for a workspace close — a different verb on a different object", async () => {
+      const wsId = seed();
+      // Awaited: the workspace's worktree pane makes this dialog probe first.
+      await act(async () => flow.requestCloseWorkspace(wsId));
+      expect(flow.canSuspendInstead).toBe(false);
+
+      act(() => flow.suspendInstead());
+      expect(suspendAgent).not.toHaveBeenCalled();
+    });
+
+    it("is not offered for a pane that cannot be suspended", () => {
+      act(() => {
+        deck.createWorkspace({
+          id: "ws-remote",
+          instance: createWorkspaceInstance(),
+          name: "remote",
+          cwd: "/repo",
+          worktreeBaseDir: null,
+          panes: [
+            {
+              id: "pane-r",
+              agentType: "codex",
+              remoteEndpoint: "ws://vps:4500",
+            },
+          ],
+        });
+      });
+      act(() => flow.requestCloseAgent("ws-remote", "pane-r", "Remote"));
+
+      expect(flow.canSuspendInstead).toBe(false);
+    });
+  });
+});
+
+describe("closing a pane that is already stopped", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    pty.closePanes.mockClear();
+    suspendAgent.mockClear().mockResolvedValue("suspended");
+    probes.probeWorktree.mockReset().mockResolvedValue(probed(true));
+    errors.length = 0;
+    refusals.length = 0;
+    blockedPanes = {};
+    runtimeHeads = new Map();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("reports it as stopped, and offers no suspend", () => {
+    const wsId = seed();
+    act(() =>
+      deck.suspendPane(wsId, "pane-1"),
+    );
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+
+    expect(flow.closingIsStopped).toBe(true);
+    expect(flow.canSuspendInstead).toBe(false);
+  });
+
+  it("does NOT call a rising pane stopped — it is about to run", () => {
+    // The dialog would otherwise say "it is stopped" about a pane that is
+    // seconds from a live terminal, which is every pane just after launch.
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+
+    expect(flow.closingIsStopped).toBe(false);
+  });
+
+  it("surfaces a refused suspend instead of swallowing it", async () => {
+    // The dialog is already dismissed by then, so a silent refusal leaves the
+    // user with a pane that neither closed nor stopped and no explanation.
+    const wsId = seed();
+    suspendAgent.mockResolvedValueOnce("remote");
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+
+    await act(async () => flow.suspendInstead());
+
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]).toContain("remote server");
+    // Reported as a REFUSAL, not through the worktree-error channel: the two
+    // reach the user as headed alerts, and "Worktree error" is a lie about a
+    // suspend the flow declined.
+    expect(errors).toEqual([]);
+  });
+
+  it("treats a pane stuck on a GONE folder as stopped, like every other surface", () => {
+    // Its tile is dimmed and its tray chip carries the stopped marker, but
+    // the model still calls it `waking` — the block is the sweep's runtime
+    // verdict. Without it the dialog promised to end a terminal session that
+    // does not exist, and offered to suspend a pane with no process.
+    blockedPanes = { "pane-1": "/gone/worktree" };
+    const wsId = seed();
+    // The state the sweep actually leaves behind: still marked as rising,
+    // because only the runtime block says it will never get there.
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+
+    expect(flow.closingIsStopped).toBe(true);
+    expect(flow.canSuspendInstead).toBe(false);
+    expect(flow.closeMessage).toBe("It is stopped; closing removes the pane.");
+  });
+});
+
+describe("what the dialog promises is what confirming does", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    pty.closePanes.mockClear();
+    worktrees.discardWorktrees.mockClear();
+    suspendAgent.mockClear().mockResolvedValue("suspended");
+    probes.probeWorktree.mockReset().mockResolvedValue(probed(true));
+    errors.length = 0;
+    refusals.length = 0;
+    blockedPanes = {};
+    runtimeHeads = new Map();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("never claims a worktree goes with the pane — the checkbox decides that", async () => {
+    // The sentence used to read "the pane and its worktree go with it" for a
+    // stopped pane that owned one. `confirmClose` deletes a worktree only
+    // when the box below is ticked, and it is unticked on every open: the
+    // dialog was describing an outcome the default path does not produce.
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-2"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
+
+    expect(flow.closing!.targets).toHaveLength(1); // it does own one
+    expect(flow.closeMessage).not.toContain("worktree");
+
+    act(() => flow.confirmClose());
+    await act(async () => {});
+    expect(worktrees.discardWorktrees).not.toHaveBeenCalled();
+  });
+
+  it("offers the alternative only when it is really on offer", () => {
+    const wsId = seed();
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).toContain("Its terminal session will be ended.");
+    expect(flow.closeMessage).toContain("Suspending stops the agent instead");
+
+    // A remote pane can't be suspended — the sentence must not offer it.
+    act(() => {
+      deck.workspaces[0].panes[0].remoteEndpoint = "ws://vps:4500";
+      flow.requestCloseAgent(wsId, "pane-1", "Agent 1");
+    });
+    expect(flow.canSuspendInstead).toBe(false);
+    expect(flow.closeMessage).toBe("Its terminal session will be ended.");
+  });
+
+  it("counts the agents a workspace close ends", async () => {
+    const wsId = seed();
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).toBe("This ends 2 agents and their sessions.");
+  });
+
+  it("does not count a stopped agent's session among the ones it ends", async () => {
+    // The same lie `closingIsStopped` removed from the agent branch, still
+    // being told one branch over: a suspended agent has no session left to
+    // end, and a workspace of them ends none at all.
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).toBe("This ends 1 agent and its session.");
+
+    act(() => deck.suspendPane(wsId, "pane-2"));
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).toBe("Its agents are stopped; closing removes them.");
+  });
+
+  it("does not promise to end a session a pane never had", async () => {
+    // A pane still creating its worktree has never run, and one on its way up
+    // has not started yet. Neither has a terminal session to end, and the
+    // second was being offered "keep its session" in the same breath.
+    act(() => {
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "ws2",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [
+          {
+            id: "pane-9",
+            agentType: "claude",
+            provisioning: { repo: "/repo", workspace: "ws2", index: 1 },
+          },
+        ],
+      });
+    });
+    act(() => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
+    expect(flow.closeMessage).toBe("Its worktree is still being created.");
+
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    expect(flow.closeMessage).toContain("It is starting up");
+    expect(flow.closeMessage).not.toContain("will be ended");
   });
 });

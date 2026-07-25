@@ -332,17 +332,17 @@ describe("deckReducer pane naming", () => {
 });
 
 describe("deckReducer restore actions ([F7])", () => {
-  const dormantWs: Workspace = {
+  const idleWs: Workspace = {
     id: "ws-1",
     instance: createWorkspaceInstance(),
     name: "ws-1",
     cwd: "/tmp",
     worktreeBaseDir: null,
-    panes: [{ id: "pane-1", dormant: true }, { id: "pane-2" }],
+    panes: [{ id: "pane-1", idle: { reason: "waking", origin: "restore" } }, { id: "pane-2" }],
   };
 
   it("hydrate replaces the whole deck state", () => {
-    const restored = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const restored = state({ workspaces: [idleWs], activeId: "ws-1" });
     const hydrated = deckReducer(initialDeckState, {
       type: "hydrate",
       state: restored,
@@ -356,9 +356,9 @@ describe("deckReducer restore actions ([F7])", () => {
   });
 
   it("hydrate rejects duplicate workspace ids", () => {
-    const current = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const current = state({ workspaces: [idleWs], activeId: "ws-1" });
     const duplicate = state({
-      workspaces: [dormantWs, ws("ws-1", ["another-pane"])],
+      workspaces: [idleWs, ws("ws-1", ["another-pane"])],
       activeId: "ws-1",
     });
 
@@ -367,22 +367,146 @@ describe("deckReducer restore actions ([F7])", () => {
     );
   });
 
-  it("revivePane clears the dormant flag", () => {
-    const next = deckReducer(state({ workspaces: [dormantWs], activeId: "ws-1" }), {
-      type: "revivePane",
+  it("clearPaneIdle drops the idle marker", () => {
+    const next = deckReducer(state({ workspaces: [idleWs], activeId: "ws-1" }), {
+      type: "clearPaneIdle",
       wsId: "ws-1",
       paneId: "pane-1",
     });
     expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1" });
   });
 
-  it("revivePane is a no-op (same ref) for a live or unknown pane", () => {
-    const start = state({ workspaces: [dormantWs], activeId: "ws-1" });
+  it("clearPaneIdle is a no-op (same ref) for a live or unknown pane", () => {
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     expect(
-      deckReducer(start, { type: "revivePane", wsId: "ws-1", paneId: "pane-2" }),
+      deckReducer(start, { type: "clearPaneIdle", wsId: "ws-1", paneId: "pane-2" }),
     ).toBe(start);
     expect(
-      deckReducer(start, { type: "revivePane", wsId: "ws-1", paneId: "nope" }),
+      deckReducer(start, { type: "clearPaneIdle", wsId: "ws-1", paneId: "nope" }),
+    ).toBe(start);
+  });
+
+  it("suspendPane marks a live pane suspended and stamps it", () => {
+    const next = deckReducer(state({ workspaces: [idleWs], activeId: "ws-1" }), {
+      type: "suspendPane",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      at: "2026-07-25T10:00:00.000Z",
+    });
+    expect(next.workspaces[0].panes[1]).toEqual({
+      id: "pane-2",
+      idle: { reason: "suspended", at: "2026-07-25T10:00:00.000Z" },
+    });
+  });
+
+  it("suspendPane is a no-op (same ref) for an unknown pane", () => {
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
+    const at = "2026-07-25T10:00:00.000Z";
+    expect(
+      deckReducer(start, { type: "suspendPane", wsId: "ws-1", paneId: "nope", at }),
+    ).toBe(start);
+  });
+
+  it("requestPaneWake hands a suspended pane to the sweep, marked as the user's doing", () => {
+    const suspended = deckReducer(
+      state({ workspaces: [idleWs], activeId: "ws-1" }),
+      {
+        type: "suspendPane",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        at: "2026-07-25T10:00:00.000Z",
+      },
+    );
+    const woken = deckReducer(suspended, {
+      type: "requestPaneWake",
+      wsId: "ws-1",
+      paneId: "pane-2",
+    });
+    // Still idle: the sweep owns the probe and the resume plan. The `manual`
+    // origin keeps a rejected session id visible instead of letting it fall
+    // back to a new conversation.
+    expect(woken.workspaces[0].panes[1]).toEqual({
+      id: "pane-2",
+      idle: {
+        reason: "waking",
+        origin: "manual",
+        from: { reason: "suspended", at: "2026-07-25T10:00:00.000Z" },
+      },
+    });
+  });
+
+  it("requestPaneWake is a no-op (same ref) for a live pane or an unknown id", () => {
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
+    // pane-2 is live; pane-1 is rising for the sweep's own reasons, which the
+    // request UPGRADES rather than ignores (see the workspaces tests).
+    expect(
+      deckReducer(start, { type: "requestPaneWake", wsId: "ws-1", paneId: "pane-2" }),
+    ).toBe(start);
+    expect(
+      deckReducer(start, { type: "requestPaneWake", wsId: "ws-1", paneId: "nope" }),
+    ).toBe(start);
+  });
+
+  it("failPaneWake puts a failed wake back where it came from", () => {
+    // The action carries no timestamp: the marker the wake was carrying is the
+    // only truthful stamp. A pane that was suspended goes back to suspended
+    // WITH ITS ORIGINAL TIME (a restamp would silently reset the age line), and
+    // one that only ever came off disk goes back to parked.
+    const suspended = deckReducer(
+      state({ workspaces: [idleWs], activeId: "ws-1" }),
+      {
+        type: "suspendPane",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        at: "2026-07-25T10:00:00.000Z",
+      },
+    );
+    const waking = deckReducer(suspended, {
+      type: "requestPaneWake",
+      wsId: "ws-1",
+      paneId: "pane-2",
+    });
+    const failed = deckReducer(waking, {
+      type: "failPaneWake",
+      wsId: "ws-1",
+      paneId: "pane-2",
+    });
+
+    expect(failed.workspaces[0].panes[1].idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T10:00:00.000Z",
+    });
+    // pane-1 came off disk carrying no stamp, so an asked-for wake that fails
+    // has no suspend to return it to: it goes back to the runtime-only
+    // `parked`. Forging a `suspended` there would make a decision the user
+    // never took, and make it durable.
+    const asked = deckReducer(failed, {
+      type: "requestPaneWake",
+      wsId: "ws-1",
+      paneId: "pane-1",
+    });
+    expect(
+      deckReducer(asked, { type: "failPaneWake", wsId: "ws-1", paneId: "pane-1" })
+        .workspaces[0].panes[0].idle,
+    ).toEqual({ reason: "parked" });
+  });
+
+  it("failPaneWake leaves a live pane, an unknown id, and a BOOT wake alone", () => {
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
+    expect(
+      deckReducer(start, { type: "failPaneWake", wsId: "ws-1", paneId: "pane-2" }),
+    ).toBe(start);
+    expect(
+      deckReducer(start, { type: "failPaneWake", wsId: "ws-1", paneId: "nope" }),
+    ).toBe(start);
+    expect(
+      deckReducer(start, { type: "failPaneWake", wsId: "nope", paneId: "pane-1" }),
+    ).toBe(start);
+    // pane-1 is rising for the SWEEP's reasons: nobody is watching that wake,
+    // so it takes the documented fresh-start degradation instead of dropping
+    // back down and leaving a stopped card the user never asked for.
+    expect(
+      deckReducer(start, { type: "failPaneWake", wsId: "ws-1", paneId: "pane-1" }),
     ).toBe(start);
   });
 
@@ -396,7 +520,7 @@ describe("deckReducer restore actions ([F7])", () => {
       panes: [
         {
           id: "pane-1",
-          dormant: true,
+          idle: { reason: "waking", origin: "restore" },
           cwd: "/repo/wt",
           branch: "kd/ws/1",
           session: { id: "s", boundAt: "2026-07-02T00:00:00Z" },
@@ -410,8 +534,11 @@ describe("deckReducer restore actions ([F7])", () => {
       wsId: "ws-1",
       paneId: "pane-1",
     });
-    // Location and resume key are gone; the pane itself (and dormancy) remain.
-    expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1", dormant: true });
+    // Location and resume key are gone; the pane itself (and its idleness) remain.
+    expect(next.workspaces[0].panes[0]).toEqual({
+      id: "pane-1",
+      idle: { reason: "waking", origin: "restore" },
+    });
     expect(
       deckReducer(start, {
         type: "resetPaneLocation",
@@ -423,7 +550,7 @@ describe("deckReducer restore actions ([F7])", () => {
 
   it("setPaneSession binds the resume key and no-ops on a same-id rebind", () => {
     const session = { id: "s-1", boundAt: "2026-07-02T00:00:00Z" };
-    const start = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     const bound = deckReducer(start, {
       type: "setPaneSession",
       wsId: "ws-1",
@@ -439,7 +566,7 @@ describe("deckReducer restore actions ([F7])", () => {
 
   it("setPaneSession(null) drops a dead binding; clearing a clear pane no-ops", () => {
     const session = { id: "ghost", boundAt: "2026-07-02T00:00:00Z" };
-    const start = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     const bound = deckReducer(start, {
       type: "setPaneSession",
       wsId: "ws-1",
@@ -465,7 +592,7 @@ describe("resetPaneLocation", () => {
     panes: [
       {
         id: "pane-1",
-        dormant: true,
+        idle: { reason: "waking", origin: "restore" },
         cwd: "/repo/wt",
         branch: "kd/ws/1",
         session: { id: "s1", boundAt: "2026-07-07T00:00:00Z" },
@@ -480,7 +607,10 @@ describe("resetPaneLocation", () => {
       wsId: "ws-1",
       paneId: "pane-1",
     });
-    expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1", dormant: true });
+    expect(next.workspaces[0].panes[0]).toEqual({
+      id: "pane-1",
+      idle: { reason: "waking", origin: "restore" },
+    });
   });
 });
 

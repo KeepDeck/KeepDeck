@@ -56,6 +56,8 @@ interface MinimizedDetailsTooltipProps {
   id: string;
   title: string;
   gitBadge?: GitBadge | null;
+  /** The pane behind the stand-in has no process. */
+  stopped?: boolean;
 }
 
 /**
@@ -69,6 +71,7 @@ export function MinimizedDetailsTooltip({
   id,
   title,
   gitBadge,
+  stopped,
 }: MinimizedDetailsTooltipProps) {
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<TooltipPosition | null>(null);
@@ -118,6 +121,10 @@ export function MinimizedDetailsTooltip({
       }}
     >
       <div className="minimized-tooltip__title">{title}</div>
+      {/* The chip's own marker is a glyph with a native `title`, which this
+          custom tooltip suppresses on the same hover — so the detail layer has
+          to carry the state itself or the hover hides what it explains. */}
+      {stopped && <div className="minimized-tooltip__stopped">Stopped</div>}
       {gitBadge && (
         <div className="minimized-tooltip__branch">
           <GitBranchIcon />

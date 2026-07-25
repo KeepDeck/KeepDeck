@@ -42,13 +42,36 @@ export function closeHotkeyTarget(
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   if (ws.panes.length === 0) return { kind: "workspace", wsId: ws.id };
+  const target = paneHotkeyTarget(workspaces, activeId, viewByWs, agents, minimizeOn);
+  return target && { kind: "agent", ...target };
+}
+
+/**
+ * The pane a per-agent hotkey acts on: the active workspace's selected pane,
+ * or its only VISIBLE pane when nothing is selected (an unambiguous target — a
+ * solo pane never even carries the selection highlight, [U2]). Minimized panes
+ * are never targeted: a blind chord must not act on an agent that isn't on
+ * screen. Null when there is no active workspace, or a stale/absent selection
+ * leaves several candidates. Pure.
+ *
+ * Shared by ⌘W and ⇧⌘W so the two can never disagree about WHICH agent the
+ * user meant — only about what to do with it.
+ */
+export function paneHotkeyTarget(
+  workspaces: Workspace[],
+  activeId: string,
+  viewByWs: Record<string, WorkspaceView>,
+  agents: AgentInfo[],
+  minimizeOn: boolean,
+): { wsId: string; paneId: string; label: string } | null {
+  const ws = workspaces.find((w) => w.id === activeId);
+  if (!ws) return null;
   const view = viewByWs[ws.id];
   const visible = visiblePanes(ws, view, minimizeOn);
   let pane = visible.find((p) => p.id === view?.select);
   if (!pane && visible.length === 1) pane = visible[0];
   if (!pane) return null;
   return {
-    kind: "agent",
     wsId: ws.id,
     paneId: pane.id,
     // The label numbers by the pane's ORIGINAL position, like the header.

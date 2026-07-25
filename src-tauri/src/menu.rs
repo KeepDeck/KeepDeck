@@ -2,7 +2,8 @@
 //!
 //! Replaces Tauri's default menu so the deck owns its hotkeys: ⌘N creates a
 //! workspace, ⌘T spawns an agent, ⌘W closes the selected one (an empty
-//! workspace: the workspace itself) and ⇧⌘M toggles its maximize. The default menu binds ⌘W to "Close Window", and macOS
+//! workspace: the workspace itself), ⇧⌘W suspends it and ⇧⌘M toggles its
+//! maximize. The default menu binds ⌘W to "Close Window", and macOS
 //! resolves menu accelerators before the webview ever sees the key — so the
 //! deck can only own these chords by owning the menu. The custom items don't
 //! act here: each emits an event the webview handles, where the React side
@@ -23,6 +24,10 @@ pub const NEW_AGENT_EVENT: &str = "deck://menu/new-agent";
 const CLOSE_AGENT_ID: &str = "close-agent";
 /// Webview event for [`CLOSE_AGENT_ID`]; mirrored in `src/ipc/menu.ts`.
 pub const CLOSE_AGENT_EVENT: &str = "deck://menu/close-agent";
+/// Menu item id for "File → Suspend Agent" (⇧⌘W).
+const SUSPEND_AGENT_ID: &str = "suspend-agent";
+/// Webview event for [`SUSPEND_AGENT_ID`]; mirrored in `src/ipc/menu.ts`.
+pub const SUSPEND_AGENT_EVENT: &str = "deck://menu/suspend-agent";
 /// Menu item id for "View → Toggle Maximize Agent" (⇧⌘M).
 const TOGGLE_MAXIMIZE_ID: &str = "toggle-maximize";
 /// Webview event for [`TOGGLE_MAXIMIZE_ID`]; mirrored in `src/ipc/menu.ts`.
@@ -45,6 +50,13 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .build(app)?;
     let close_agent = MenuItemBuilder::with_id(CLOSE_AGENT_ID, "Close Agent")
         .accelerator("CmdOrCtrl+W")
+        .build(app)?;
+    // One modifier away from Close Agent, and next to it in the menu: same
+    // object, softer verb. No window role claims ⇧⌘W here (the Window submenu
+    // registers only minimize/maximize), and this app is
+    // single-window and already owns ⌘W for a pane rather than the window.
+    let suspend_agent = MenuItemBuilder::with_id(SUSPEND_AGENT_ID, "Suspend Agent")
+        .accelerator("CmdOrCtrl+Shift+W")
         .build(app)?;
     let toggle_maximize = MenuItemBuilder::with_id(TOGGLE_MAXIMIZE_ID, "Toggle Maximize Agent")
         .accelerator("CmdOrCtrl+Shift+M")
@@ -78,6 +90,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .item(&new_workspace)
         .item(&new_agent)
         .separator()
+        .item(&suspend_agent)
         .item(&close_agent);
     // Without a macOS application submenu, Settings and Quit live in File.
     #[cfg(not(target_os = "macos"))]
@@ -118,6 +131,7 @@ fn event_for(id: &str) -> Option<&'static str> {
         NEW_WORKSPACE_ID => Some(NEW_WORKSPACE_EVENT),
         NEW_AGENT_ID => Some(NEW_AGENT_EVENT),
         CLOSE_AGENT_ID => Some(CLOSE_AGENT_EVENT),
+        SUSPEND_AGENT_ID => Some(SUSPEND_AGENT_EVENT),
         TOGGLE_MAXIMIZE_ID => Some(TOGGLE_MAXIMIZE_EVENT),
         SETTINGS_ID => Some(SETTINGS_EVENT),
         _ => None,

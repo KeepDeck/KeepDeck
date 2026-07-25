@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { hydrateDeck, serializeDeck } from "../domain/deck";
+import { hydrateDeck, parkRestoredPanes, serializeDeck } from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
 import { describeError, log } from "../ipc/log";
 import { loadDeckState, quarantineDeckState, saveDeckState } from "../ipc/state";
 import { seedAgentSeq } from "./ids";
+import { getSettings, initSettings } from "./settingsManager";
 import type { Deck } from "./useDeck";
 
 /** Debounce for cosmetic churn (titles, selection) — a burst lands as one
@@ -22,20 +23,29 @@ const SAVE_MAX_WAIT_MS = 2_000;
  * restored deck arrives.
  */
 /** The deck on disk needs a newer reader — this session runs parked. */
-export interface FrozenDeck {
-  version: number;
-  minVersion: number;
-}
+/** Why this session is parked: it starts empty and NOTHING it does may reach
+ * disk. One value rather than a boolean beside a detail record, because
+ * `frozen` gates four separate things — the deck save, the journal hydrate,
+ * the skills prune and the notice — and a park that only some of them can see
+ * is worse than no park at all: the deck survives while the journal and the
+ * staged skills are swept as orphans of a deck that was never loaded. */
+export type DeckPark =
+  /** The stored deck's compatibility floor is above this build. The file is
+   * intact and readable, just not by us; the notice can name the revision. */
+  | { kind: "newer-build"; version: number; minVersion: number }
+  /** The read itself failed. The file is probably fine and we have no idea
+   * what is in it — so there is nothing to quarantine, nothing to report but
+   * the failure, and above all nothing we may overwrite. */
+  | { kind: "unreadable" };
 
 export function usePersistence(deck: Deck): {
   restoring: boolean;
-  /** Set when the stored deck's compatibility floor is above this build:
-   * the session starts empty and NOTHING is saved — the newer file must
-   * survive us untouched. */
-  frozen: FrozenDeck | null;
+  /** Set when the stored deck may not be written: the session starts empty
+   * and NOTHING reaches disk. See [`DeckPark`] for the two reasons. */
+  frozen: DeckPark | null;
 } {
   const [restoring, setRestoring] = useState(true);
-  const [frozen, setFrozen] = useState<FrozenDeck | null>(null);
+  const [frozen, setFrozen] = useState<DeckPark | null>(null);
   // Never save before the restore attempt finished — an early save would
   // overwrite the stored deck with the initial empty state.
   const loadedRef = useRef(false);
@@ -51,8 +61,13 @@ export function usePersistence(deck: Deck): {
 
   useEffect(() => {
     let cancelled = false;
-    void loadDeckState()
-      .then((json) => {
+    // Both boot loads run concurrently, but the deck may only be hydrated once
+    // the settings are in: the launch policy decides whether these panes come
+    // back running or parked, and reading it too early would silently mean
+    // "wake everything" on a slow settings read. `initSettings` is idempotent,
+    // so this joins main.tsx's load rather than starting a second one.
+    void Promise.all([loadDeckState(), initSettings()])
+      .then(([json]) => {
         if (cancelled || json === null) return;
         const result = hydrateDeck(json);
         if (result.kind === "incompatible") {
@@ -64,7 +79,11 @@ export function usePersistence(deck: Deck): {
             `deck revision ${result.version} needs a reader ≥ ${result.minVersion} — session parked, saving disabled`,
           );
           frozenRef.current = true;
-          setFrozen({ version: result.version, minVersion: result.minVersion });
+          setFrozen({
+            kind: "newer-build",
+            version: result.version,
+            minVersion: result.minVersion,
+          });
           return;
         }
         if (result.kind === "corrupt") {
@@ -79,12 +98,35 @@ export function usePersistence(deck: Deck): {
         // derived from the live deck on each creation instead.
         seedAgentSeq(result.deck.nextAgentSeq);
         docExtrasRef.current = result.deck.docExtras;
-        hydrateRef.current(result.deck.state);
+        // `initSettings` has settled above, so a null store here means the
+        // load failed outright — take the default (wake everything), which is
+        // what this build did before the setting existed.
+        hydrateRef.current(
+          getSettings()?.parkAgentsOnLaunch
+            ? parkRestoredPanes(result.deck.state)
+            : result.deck.state,
+        );
       })
-      .catch((e) =>
-        // Unreadable state → start empty.
-        log.warn("web:persist", `deck state load failed: ${describeError(e)}`),
-      )
+      .catch((e) => {
+        // The read itself failed — the backend wasn't ready, the fs said no.
+        // That is NOT the same as an unusable document: the file is probably
+        // intact, and we have no idea what is in it. Start empty, and park
+        // the session, or the first render would flush this empty deck
+        // straight over a file holding every workspace the user has — with no
+        // quarantine copy, since nothing was ever parsed to condemn.
+        //
+        // Parked through the STATE, not just the ref: the ref only stops the
+        // deck save. The journal hydrate and the skills prune read `frozen`,
+        // and against an empty-because-unread deck they delete every
+        // workspace's history and every staged skills dir — losing far more
+        // than the save this catch was written to prevent.
+        log.error(
+          "web:persist",
+          `deck state load failed → session parked, saving disabled: ${describeError(e)}`,
+        );
+        frozenRef.current = true;
+        setFrozen({ kind: "unreadable" });
+      })
       .finally(() => {
         if (!cancelled) {
           loadedRef.current = true;
@@ -114,20 +156,27 @@ export function usePersistence(deck: Deck): {
   serializedRef.current = serialized;
 
   // What a quit must never lose: the deck's SHAPE (which workspaces/panes
-  // exist), each pane's session binding AND its provisioning transition.
-  // These save immediately, never debounced — a just-added pane or a fresh
-  // binding lost on quit is data loss (a wiped binding resumes someone
-  // else's conversation; a resolved worktree saved as still-creating would
-  // restore as an interrupted card whose Retry mints a -2 sibling), ⌘Q is a
-  // native menu role that never reaches the webview, and `beforeunload` is
-  // not reliable in Tauri as a safety net.
+  // exist), each pane's session binding, its provisioning transition AND
+  // whether the user suspended it. These save immediately, never debounced —
+  // a just-added pane or a fresh binding lost on quit is data loss (a wiped
+  // binding resumes someone else's conversation; a resolved worktree saved as
+  // still-creating would restore as an interrupted card whose Retry mints a
+  // -2 sibling; a suspend lost on quit starts the agent the user parked), ⌘Q
+  // is a native menu role that never reaches the webview, and `beforeunload`
+  // is not reliable in Tauri as a safety net.
+  //
+  // Only the DURABLE idle reason counts here: `waking` and `parked`
+  // never reach disk, so folding them in would fire an immediate save for
+  // every pane the revive sweep wakes at launch.
   const immediate = deck.workspaces
     .map(
       (w) =>
         `${w.id}:${w.panes
           .map(
             (p) =>
-              `${p.id}=${p.session?.id ?? ""}${p.provisioning ? "+wip" : ""}`,
+              `${p.id}=${p.session?.id ?? ""}${p.provisioning ? "+wip" : ""}${
+                p.idle?.reason === "suspended" ? "+susp" : ""
+              }`,
           )
           .join(",")}`,
     )

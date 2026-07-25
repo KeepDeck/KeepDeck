@@ -8,7 +8,15 @@ import type {
   WorkspaceInstance,
   WorkspaceRef,
 } from "../workspaceInstance";
-import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
+import {
+  appendPane,
+  paneCanSuspend,
+  removePane,
+  type Pane,
+  type PaneIdle,
+  type PaneSession,
+  type PaneStopped,
+} from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
  * in the same working directory. Switching the active workspace swaps which set
@@ -267,22 +275,133 @@ export function setPaneAutoTitle(
   );
 }
 
-/** Wake a dormant (restored, no PTY) pane so its terminal mounts and spawns
- * ([F7]). Returns the SAME array when the pane is absent or already live, so
- * a repeated revive effect doesn't re-render anything. */
-export function revivePane(
+/** Drop a pane's idle marker — the LAST step of waking one, run by the revive
+ * sweep once it has probed the directory and built the resume plan. Named for
+ * what it does rather than for the goal: calling it to "wake" a pane skips
+ * both of those and spawns a fresh session into a directory that may be gone,
+ * which is exactly what the sweep exists to prevent. To ask for a pane back,
+ * use [`requestPaneWake`].
+ *
+ * Returns the SAME array when the pane is absent or already live, so a
+ * repeated revive effect doesn't re-render anything. */
+export function clearPaneIdle(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane?.dormant) return workspaces;
+  // Only a pane still RISING is finished here. A suspend can land while the
+  // sweep is mid-probe; clearing then would spawn the process the user just
+  // stopped, so the late arrival simply finds nothing left to finish.
+  if (pane?.idle?.reason !== "waking") return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId) return p;
-      const { dormant: _dormant, ...live } = p;
+      const { idle: _idle, ...live } = p;
       return live;
     }),
+  );
+}
+
+/** Ask for a stopped pane back: it starts waking, which the revive sweep acts
+ * on exactly like a restored pane — same directory probe, same resume-plan
+ * build, same wake — while recording that a HUMAN asked. That distinction is
+ * not cosmetic: a boot restore whose session id turns out dead may fall back
+ * to a fresh conversation, and a resume someone clicked may not.
+ *
+ * The state the pane rose FROM rides along whole, so a wake that FAILS can
+ * put it back exactly there ([`failPaneWake`]) rather than inventing a state
+ * for it.
+ *
+ * Returns the SAME array for a live pane, one already on its way up, or an
+ * unknown id. */
+export function requestPaneWake(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  // A pane already rising for the SWEEP's own reasons is upgraded rather than
+  // left alone: "a human asked" is new information even mid-wake, and it is
+  // the only thing standing between a rejected session id and a silent new
+  // conversation. Only a pane that is live, unknown, or already rising *by
+  // request* has nothing to learn from this.
+  if (!pane?.idle || (pane.idle.reason === "waking" && pane.idle.origin === "manual")) {
+    return workspaces;
+  }
+  // Carried whole rather than as a field decoded back into a reason: a wake
+  // that fails must restore what was there, and anything less than the marker
+  // itself is a guess that gets worse every time the union grows. A wake
+  // already in flight keeps whatever IT rose from — the upgrade changes who
+  // asked, not where the pane came from.
+  const from: PaneStopped | undefined =
+    pane.idle.reason === "waking" ? pane.idle.from : pane.idle;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) =>
+      p.id === paneId
+        ? {
+            ...p,
+            idle: { reason: "waking", origin: "manual", ...(from && { from }) },
+          }
+        : p,
+    ),
+  );
+}
+
+/** A wake the user asked for could not be prepared — put the pane back down
+ * instead of letting it come up as something else. Only a MANUAL wake is
+ * reversed: a boot restore that can't build a resume plan takes the documented
+ * fresh-start degradation, because nobody is watching it.
+ *
+ * The pane returns to the marker it rose FROM, put back verbatim: one that
+ * was suspended reads exactly as it did before the failed attempt, stamp and
+ * all. A pane that rose from nothing — parked at launch, or restored and then
+ * asked for — goes back to `parked`, which is runtime-only. Writing
+ * `suspended` there would forge a decision the user never made AND make it
+ * durable, so turning the launch policy off could never bring that pane back.
+ *
+ * Returns the SAME array unless the pane really is mid-manual-wake. */
+export function failPaneWake(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (pane?.idle?.reason !== "waking" || pane.idle.origin !== "manual") {
+    return workspaces;
+  }
+  const idle: PaneIdle = pane.idle.from ?? { reason: "parked" };
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) => (p.id === paneId ? { ...p, idle } : p)),
+  );
+}
+
+/** Suspend a pane: mark it idle by the user's own decision, so nothing wakes
+ * it but an explicit resume. The PTY teardown is the app layer's half — this
+ * records the intent that outlives it (and the save).
+ *
+ * Returns the SAME array for any pane [`paneCanSuspend`] rejects. The guard
+ * consults that predicate rather than restating it: this action is exported
+ * through the deck barrel, so a future "suspend every agent here" would
+ * otherwise park the remote panes the predicate exists to protect.
+ *
+ * `blocked` is false here because the domain has no sweep verdict to consult
+ * — that lives in the app layer, which refuses such a pane before dispatching
+ * (`useSuspend`). This guard is the backstop for the rules the MODEL can see,
+ * and the argument is spelled out rather than defaulted so the omission is a
+ * decision on the page instead of an invisible one. */
+export function suspendPane(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  at: string,
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane || !paneCanSuspend(pane, false)) return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) =>
+      p.id === paneId ? { ...p, idle: { reason: "suspended", at } } : p,
+    ),
   );
 }
 

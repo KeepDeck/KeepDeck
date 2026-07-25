@@ -95,8 +95,8 @@ interface AgentDialogProps {
     offset: number,
   ): Promise<Page<SessionPickRow>>;
   /** How a session is already held by a pane, for the resume dimming rule
-   * — running, dormant, or free. Injected (deck state stays outside). */
-  sessionClaim(sessionId: string): "running" | "dormant" | null;
+   * — running, stopped, or free. Injected (deck state stays outside). */
+  sessionClaim(sessionId: string): "running" | "stopped" | null;
   onConfirm(result: AgentDialogResult): void;
   onCancel(): void;
 }

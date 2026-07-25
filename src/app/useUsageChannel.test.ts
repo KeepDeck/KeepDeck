@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentUsage, NormalizedUsage } from "@keepdeck/plugin-api";
 import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
+import type { PaneIdle } from "../domain/deck";
 import { getUsageSnapshot, resetUsageManager } from "./usageManager";
 import { useUsageChannel } from "./useUsageChannel";
 import type { Deck } from "./useDeck";
@@ -60,7 +61,7 @@ const deckWith = (
   panes: {
     id: string;
     agentType?: string;
-    dormant?: boolean;
+    idle?: PaneIdle;
     session?: { id: string };
   }[],
 ): Deck =>
@@ -418,9 +419,18 @@ describe("useUsageChannel", () => {
         },
       },
     ];
-    // No live kimi pane (dormant doesn't count) — the ONE boot fetch still
+    // No live kimi pane (an idle one doesn't count) — the ONE boot fetch still
     // lands, so the chip is current from the first frame.
-    await mount(deckWith([{ id: "pane-1" }, { id: "pane-2", agentType: "kimi", dormant: true }]));
+    await mount(
+      deckWith([
+        { id: "pane-1" },
+        {
+          id: "pane-2",
+          agentType: "kimi",
+          idle: { reason: "waking", origin: "restore" },
+        },
+      ]),
+    );
     await act(async () => {});
     expect(ipc.fetchKimiUsages).toHaveBeenCalledTimes(1);
     expect(getUsageSnapshot().accounts.get("kimi")).toMatchObject({
