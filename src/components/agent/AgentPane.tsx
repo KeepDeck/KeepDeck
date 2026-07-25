@@ -392,10 +392,10 @@ export function AgentPane({
           // a status card instead of a terminal — mounting one now would
           // spawn the agent into somebody else's directory.
           provisioning.error ? (
-            <div className="pane__dormant" role="alert">
+            <div className="pane__card" role="alert">
               <span className="pane__exit-title">Worktree failed</span>
               <span
-                className="pane__exit-sub pane__dormant-path"
+                className="pane__exit-sub pane__card-path"
                 title={provisioning.error}
               >
                 {provisioning.error}
@@ -403,7 +403,7 @@ export function AgentPane({
               {onRetryProvision && (
                 <button
                   type="button"
-                  className="pane__dormant-action"
+                  className="pane__card-action"
                   onClick={onRetryProvision}
                 >
                   Retry
@@ -411,7 +411,7 @@ export function AgentPane({
               )}
             </div>
           ) : (
-            <div className="pane__dormant" role="status">
+            <div className="pane__card" role="status">
               <LaunchSpinner />
               <span className="pane__exit-title">
                 {provisioning.phase === "setup"
@@ -424,10 +424,10 @@ export function AgentPane({
         ) : unavailableAgent ? (
           // The pane keeps its identity and session binding; the revive
           // effect skips it, and fixing the cause brings it back live.
-          <div className="pane__dormant" role="alert">
+          <div className="pane__card" role="alert">
             <span className="pane__exit-title">Agent unavailable</span>
             <span
-              className="pane__exit-sub pane__dormant-path"
+              className="pane__exit-sub pane__card-path"
               title={unavailableAgent.agent}
             >
               {unavailableAgent.kind === "bin-missing"
@@ -439,11 +439,11 @@ export function AgentPane({
           // No PTY behind it ([F7]). A rising pane is normally transient
           // (the revive sweep wakes active-workspace panes) and persists only
           // when its directory is gone; the other reasons wait for the user.
-          <div className="pane__dormant" role="status">
+          <div className="pane__card" role="status">
             {blockedDir ? (
               <>
                 <span className="pane__exit-title">Folder is gone</span>
-                <span className="pane__exit-sub pane__dormant-path" title={blockedDir}>
+                <span className="pane__exit-sub pane__card-path" title={blockedDir}>
                   {blockedDir}
                 </span>
                 {/* Two ways out, and the order matters: looking again costs
@@ -452,7 +452,7 @@ export function AgentPane({
                 {onResume && (
                   <button
                     type="button"
-                    className="pane__dormant-action"
+                    className="pane__card-action"
                     onClick={onResume}
                   >
                     Look again
@@ -461,7 +461,7 @@ export function AgentPane({
                 {onStartFresh && (
                   <button
                     type="button"
-                    className="pane__dormant-action"
+                    className="pane__card-action"
                     onClick={onStartFresh}
                   >
                     Start fresh in the workspace folder
@@ -498,7 +498,7 @@ export function AgentPane({
                     tile; the title carries the full id. */}
                 {resumeSessionId ? (
                   <span
-                    className="pane__exit-sub pane__dormant-path pane__idle-session"
+                    className="pane__exit-sub pane__card-path pane__idle-session"
                     title={resumeSessionId}
                   >
                     Resume session:{" "}
@@ -510,7 +510,7 @@ export function AgentPane({
                 {onResume && (
                   <button
                     type="button"
-                    className="pane__dormant-action"
+                    className="pane__card-action"
                     onClick={onResume}
                   >
                     {/* One verb for both reasons: the gesture is identical
@@ -526,7 +526,7 @@ export function AgentPane({
           // The spawn plan FAILED to build (e.g. a remote spawn.plan threw).
           // The pane would otherwise hang on "Waking up…" forever — surface
           // the failure and offer a retry (drops it + re-runs the build).
-          <div className="pane__dormant" role="status">
+          <div className="pane__card" role="status">
             <span className="pane__exit-title">Couldn't start this agent</span>
             <span className="pane__exit-sub">
               Its spawn plan failed to build — see the log for details.
@@ -534,7 +534,7 @@ export function AgentPane({
             {onRetryPlan && (
               <button
                 type="button"
-                className="pane__dormant-action"
+                className="pane__card-action"
                 onClick={onRetryPlan}
               >
                 Try again
@@ -544,7 +544,7 @@ export function AgentPane({
         ) : planPending ? (
           // The spawn plan is a beat away (async plugin hooks) — same quiet
           // tile as a waking pane; it resolves within milliseconds.
-          <div className="pane__dormant" role="status">
+          <div className="pane__card" role="status">
             <span className="pane__exit-title">Waking up…</span>
           </div>
         ) : (
@@ -626,7 +626,7 @@ function ProvisionLocation({
     .join(" · ");
   if (!location) return null;
   return (
-    <span className="pane__exit-sub pane__dormant-path" title={location}>
+    <span className="pane__exit-sub pane__card-path" title={location}>
       {location}
     </span>
   );

@@ -431,7 +431,7 @@ function readWorkspacePlugins(value: unknown): Record<string, unknown> | null {
 }
 
 /** The persisted worktree-create intent, or `null` when absent/malformed —
- * a bad intent degrades the pane to a plain dormant one instead of rejecting
+ * a bad intent degrades the pane to a plain idle one instead of rejecting
  * the deck (mirrors the agentType degradation above). */
 function readProvisioning(
   value: unknown,
