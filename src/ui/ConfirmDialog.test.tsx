@@ -65,7 +65,7 @@ describe("ConfirmDialog — secondary action", () => {
     expect(document.activeElement).toBe(buttons()[0]);
   });
 
-  it("states why a disabled action is disabled, and does nothing when clicked", () => {
+  it("states why a disabled action is disabled, in TEXT, and does nothing when clicked", () => {
     const onClick = vi.fn();
     render({
       secondaryAction: {
@@ -78,13 +78,17 @@ describe("ConfirmDialog — secondary action", () => {
 
     const secondary = buttons()[1];
     expect(secondary.disabled).toBe(true);
-    // An action that silently does nothing reads as broken.
-    expect(secondary.title).toBe("Untick the delete to suspend it");
+    // On screen, not in a `title`: the shipping webviews suppress pointer
+    // events on disabled controls, so a tooltip there is never shown — which
+    // is exactly the "reads as broken" outcome the hint exists to prevent.
+    expect(document.querySelector(".confirm__hint")?.textContent).toBe(
+      "Untick the delete to suspend it",
+    );
     act(() => secondary.click());
     expect(onClick).not.toHaveBeenCalled();
   });
 
-  it("carries no tooltip while it is usable", () => {
+  it("says nothing while the action is usable", () => {
     render({
       secondaryAction: {
         label: "Suspend",
@@ -92,6 +96,6 @@ describe("ConfirmDialog — secondary action", () => {
         hint: "Untick the delete to suspend it",
       },
     });
-    expect(buttons()[1].title).toBe("");
+    expect(document.querySelector(".confirm__hint")).toBeNull();
   });
 });

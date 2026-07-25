@@ -57,3 +57,13 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Why a secondary action is unavailable right now. Text rather than a
+   `title`, because the shipping webviews never fire a tooltip on a disabled
+   control — the explanation has to be on screen or it doesn't exist. */
+.confirm__hint {
+  margin: -8px 0 16px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #8b93a3;
+}

@@ -61,6 +61,13 @@ export function ConfirmDialog({
         <h2 className="confirm__title">{title}</h2>
         <p className="confirm__message">{message}</p>
         {children}
+        {/* A disabled action explains itself in TEXT, not in a `title`: the
+            shipping runtimes suppress pointer events on disabled controls, so
+            a tooltip there is never shown — which is the "reads as broken"
+            outcome this hint exists to prevent. */}
+        {secondaryAction?.disabled && secondaryAction.hint && (
+          <p className="confirm__hint">{secondaryAction.hint}</p>
+        )}
         <div className="confirm__actions">
           {hasCancel && (
             <button
@@ -78,9 +85,6 @@ export function ConfirmDialog({
               className="form__cancel"
               onClick={secondaryAction.onClick}
               disabled={secondaryAction.disabled}
-              title={
-                secondaryAction.disabled ? secondaryAction.hint : undefined
-              }
             >
               {secondaryAction.label}
             </button>
