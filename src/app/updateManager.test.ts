@@ -8,8 +8,10 @@ import {
   downloadUpdate,
   getUpdateState,
   initUpdates,
+  isFoundUpdate,
   resetUpdateManager,
   restartToUpdate,
+  type UpdateState,
 } from "./updateManager";
 
 vi.mock("../ipc/app", () => ({ fetchAppInfo: vi.fn() }));
@@ -315,5 +317,29 @@ describe("update manager", () => {
     expect(getUpdateState()).toMatchObject({ phase: "available", version: "1.2.0" });
     // Sliced with currentVersion=0.13.0: the owned 0.13.0 entry is excluded.
     expect(getUpdateState().changelog.map((e) => e.version)).toEqual(["1.2.0"]);
+  });
+});
+
+describe("isFoundUpdate", () => {
+  // The predicate is exhaustive over UpdatePhase; this just locks the mapping
+  // shared by the settings changelog gate and the bar badge.
+  const at = (phase: UpdateState["phase"]) => ({ phase }) as UpdateState;
+
+  it("is true while a found update is in play", () => {
+    for (const phase of [
+      "available",
+      "downloading",
+      "ready",
+      "discarding",
+      "installing",
+    ] as const) {
+      expect(isFoundUpdate(at(phase))).toBe(true);
+    }
+  });
+
+  it("is false while no update is known", () => {
+    for (const phase of ["idle", "disabled", "checking"] as const) {
+      expect(isFoundUpdate(at(phase))).toBe(false);
+    }
   });
 });

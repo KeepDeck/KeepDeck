@@ -4,12 +4,13 @@ import {
   checkForUpdatesNow,
   dismissUpdate,
   downloadUpdate,
+  isFoundUpdate,
   restartToUpdate,
+  type UpdateState,
 } from "../../app/updateManager";
 import { downloadPercent } from "@keepdeck/plugin-api";
 import { useUpdate } from "../../app/useUpdate";
 import { fetchAppInfo } from "../../ipc/app";
-import type { UpdateState } from "../../app/updateManager";
 import { UpdateChangelog } from "./UpdateChangelog";
 
 /** The status line for each update phase — one honest sentence, no spinners. */
@@ -40,23 +41,6 @@ function describeState(state: UpdateState): string {
       return state.checkedAt
         ? `Up to date (checked ${new Date(state.checkedAt).toLocaleTimeString()}).`
         : "Not checked yet.";
-  }
-}
-
-/** Whether a found update is in play — its changelog stays meaningful from
- * discovery through every action (download, install, discard) until Dismiss
- * clears it back to `idle`. Gating the changelog on this keeps the release
- * notes visible while bytes move, not just while the user is idle on them. */
-function isFoundUpdate(state: UpdateState): boolean {
-  switch (state.phase) {
-    case "available":
-    case "downloading":
-    case "ready":
-    case "discarding":
-    case "installing":
-      return true;
-    default:
-      return false;
   }
 }
 

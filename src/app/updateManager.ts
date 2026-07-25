@@ -240,6 +240,28 @@ export async function restartToUpdate(): Promise<void> {
   }
 }
 
+/** Whether a found update is in play — discovery through every action
+ * (download, install, discard) until Dismiss clears it back to `idle`. Shared
+ * by the settings changelog gate and the bar badge. Exhaustive over
+ * `UpdatePhase` on purpose and without a `default` arm: adding a phase is a
+ * compile error at every switch that reads the phase (see `describeState`),
+ * so this predicate — and the changelog visibility it gates — can't silently
+ * drift the way an inline `||` chain did. */
+export function isFoundUpdate(state: UpdateState): boolean {
+  switch (state.phase) {
+    case "available":
+    case "downloading":
+    case "ready":
+    case "discarding":
+    case "installing":
+      return true;
+    case "disabled":
+    case "idle":
+    case "checking":
+      return false;
+  }
+}
+
 /** The live update state (stable between changes — the `useSyncExternalStore`
  * snapshot contract). */
 export function getUpdateState(): UpdateState {
