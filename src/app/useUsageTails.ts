@@ -4,7 +4,7 @@ import { findWorkspaceOfPane, paneAgentType } from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import { findCodexRollout, unwatchSessionFile, watchSessionFile } from "../ipc/usage";
-import { paneMembership, paneMembershipKey } from "./paneMembership";
+import { paneMembership } from "./paneMembership";
 import { peekPaneSpawnSpec } from "./spawnSpecs";
 import { postbackAccepted } from "./useSessionBinding";
 import type { Deck } from "./useDeck";
@@ -87,11 +87,9 @@ export function useUsageTails(
   const armRecordedTails = () => {
     for (const ws of deckRef.current.workspaces) {
       for (const pane of ws.panes) {
-        // A stopped pane is never ARMED here — it has no spawn token to
-        // authenticate one with. A pane suspended while already tailed keeps
-        // its watcher on purpose: its file cannot change with the process
-        // gone, and re-arming on resume would re-read the rollout from the
-        // top. The watcher is released when the pane leaves the deck.
+        // A pane with no process is never armed here — it has no spawn token
+        // to authenticate one with. The sweep below releases the tail it
+        // already had; re-arming happens when it comes back.
         if (pane.idle || pane.provisioning) continue;
         const sessionId = pane.session?.id;
         if (!sessionId || tailedRef.current.has(pane.id)) continue;
@@ -125,11 +123,26 @@ export function useUsageTails(
     }
   };
 
-  // A string key so the sweep runs only when pane MEMBERSHIP changes, not
-  // on every deck render.
-  const paneIds = paneMembershipKey(deck);
+  // A string key so the sweep runs only when the set of panes that may HOLD
+  // a tail changes, not on every deck render.
+  //
+  // Not `paneMembershipKey`: a pane that stops must give its tail up too. The
+  // tail is authenticated by the pane's spawn token, and stopping drops the
+  // spawn spec — so the resume mints a NEW token and every report from a
+  // watcher kept across that rotation is rejected as unauthenticated. Worse,
+  // the fallback lane skips any pane already in `tailedRef`, so nothing ever
+  // repairs it: the pane's usage stays dead for as long as it exists. The
+  // re-read on the next arm is safe by design — the native side marks a
+  // catch-up drain as such, and a replay is merged UNDER the live values
+  // rather than over them.
+  const tailable = deck.workspaces
+    .flatMap((ws) => ws.panes)
+    .filter((pane) => !pane.idle && !pane.provisioning)
+    .map((pane) => pane.id)
+    .sort()
+    .join("\n");
   useEffect(() => {
-    const live = paneMembership(paneIds);
+    const live = paneMembership(tailable);
     for (const paneId of [...tailedRef.current]) {
       if (live.has(paneId)) continue;
       tailedRef.current.delete(paneId);
@@ -140,5 +153,5 @@ export function useUsageTails(
     // exist yet on the first pass; quiet no-op once everything is tailed.
     const timer = setInterval(armRecordedTails, TAIL_RETRY_MS);
     return () => clearInterval(timer);
-  }, [paneIds]);
+  }, [tailable]);
 }
