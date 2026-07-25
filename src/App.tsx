@@ -144,7 +144,7 @@ function App() {
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
   const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);
-  const suspendFlow = useSuspend(deck);
+  const suspendFlow = useSuspend(deck, revive.blocked);
   // Manual exited-card restart plus the separate, one-shot recovery for a
   // rejected boot resume. Both replace only runtime PTY/spec state; the pane
   // keeps its identity and layout position.
@@ -242,7 +242,14 @@ function App() {
     // must not silently replace a dialog the user is reading.
     onError: (message) =>
       setError((current) => current ?? { title: "Worktree error", message }),
+    // The same heading the ⇧⌘W path uses: one refusal, one wording, one
+    // title, whichever surface the user reached it from.
+    onSuspendRefused: (message) =>
+      setError(
+        (current) => current ?? { title: "Can't suspend this agent", message },
+      ),
     gitPositions: gitHeads,
+    blockedPanes: revive.blocked,
     suspendAgent: suspendFlow.suspend,
   });
   // The command registry's core set — spawn/focus/close/switch/write behind
@@ -964,29 +971,9 @@ function App() {
                   ? `Close agent "${closeFlow.closing.label}"?`
                   : `Close workspace "${closeFlow.closing.name}"?`
               }
-              message={
-                closeFlow.closing.kind === "agent"
-                  ? // One sentence, plus the alternative when it's on offer —
-                    // written once so the two can't drift apart. A pane that
-                    // is already stopped has no session to end, and saying so
-                    // would contradict the card the user is looking at.
-                    // Only a pane that OWNS a worktree is told one is going
-                    // with it; in a non-worktree workspace there is none, and
-                    // the delete checkbox below isn't rendered either.
-                    (closeFlow.closingIsStopped
-                      ? closeFlow.closing.targets.length > 0
-                        ? "It is stopped; the pane and its worktree go with it."
-                        : "It is stopped; the pane goes with it."
-                      : "Its terminal session will be ended.") +
-                    (closeFlow.canSuspendInstead
-                      ? closeFlow.closing.targets.length > 0
-                        ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
-                        : "\nSuspending stops the agent instead, keeping the pane and its session."
-                      : "")
-                  : closeFlow.closing.count === 0
-                    ? "This workspace has no agents."
-                    : `This ends ${closeFlow.closing.count} agent${closeFlow.closing.count === 1 ? "" : "s"} and their sessions.`
-              }
+              // Written by the flow that knows what confirming will do, so
+              // the sentence and the action can't drift apart.
+              message={closeFlow.closeMessage}
               confirmLabel="Close"
               cancelLabel="Cancel"
               destructive

@@ -2,8 +2,8 @@ import { useRef, useState } from "react";
 import {
   findPane,
   findWorkspace,
-  paneCanSuspend,
-  paneIsStopped,
+  idleReadsAsStopped,
+  paneSuspendBlock,
   worktreeTargets,
   type GitPosition,
   type WorktreeTarget,
@@ -62,15 +62,29 @@ export function useCloseFlow(
    * silently dropped a feature instead of failing to compile. */
   deps: {
     onError(message: string): void;
+    /** A suspend the dialog offered and the flow then refused. Separate from
+     * `onError`, which reports worktree trouble: the two reach the user as
+     * headed alerts, and one heading cannot honestly cover both. */
+    onSuspendRefused(message: string): void;
     /** Live git HEADs, for naming the branches a close would delete. */
     gitPositions: ReadonlyMap<string, GitPosition>;
+    /** paneId → the missing directory, from the revive sweep. A pane stuck on
+     * a gone folder has no process; without this the dialog would promise to
+     * end a session that isn't there and offer to suspend a dead pane. */
+    blockedPanes: Record<string, string>;
     /** Suspend an agent instead of closing it — the dialog's third action.
      * Injected rather than imported so this hook keeps owning only the close
      * decision. */
     suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
   },
 ) {
-  const { onError, gitPositions, suspendAgent } = deps;
+  const {
+    onError,
+    onSuspendRefused,
+    gitPositions,
+    blockedPanes,
+    suspendAgent,
+  } = deps;
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
   // Opt-in: also delete the closing target's worktree(s) + branch(es). Reset
   // each time the dialog opens so the destructive choice is never sticky.
@@ -173,12 +187,48 @@ export function useCloseFlow(
       : null;
 
   /** Whether the dialog should offer suspending instead of closing at all. */
-  const canSuspendInstead = !!closingPane && paneCanSuspend(closingPane);
+  const canSuspendInstead =
+    !!closingPane &&
+    paneSuspendBlock(closingPane, closingPane.id in blockedPanes) === null;
 
   /** The pane being closed has no process AND isn't coming back on its own —
    * the dialog must not promise to end a session that already ended, nor
-   * claim one is stopped while it is starting up. */
-  const closingIsStopped = !!closingPane && paneIsStopped(closingPane);
+   * claim one is stopped while it is starting up. The sweep's blocked verdict
+   * counts: the same pane's tile and tray marker already read it as stopped,
+   * and a dialog that disagreed with the tile beside it was the one surface
+   * still calling a dead pane running. */
+  const closingIsStopped =
+    !!closingPane &&
+    idleReadsAsStopped(closingPane.idle, closingPane.id in blockedPanes);
+
+  /**
+   * What closing will actually do, in the dialog's own words. Built here
+   * rather than at the prop because the three facts it needs — is the pane
+   * stopped, may it be suspended, does it own a worktree — all live in this
+   * hook, and spelling it out at the call site let the sentence drift from
+   * what `confirmClose` does. It said the worktree "goes with it" while the
+   * delete checkbox below it was, by default, unticked.
+   */
+  const closeMessage = ((): string => {
+    if (!closing) return "";
+    if (closing.kind === "workspace") {
+      return closing.count === 0
+        ? "This workspace has no agents."
+        : `This ends ${closing.count} agent${closing.count === 1 ? "" : "s"} and their sessions.`;
+    }
+    // A stopped pane has no session to end, and saying so would contradict
+    // the card the user is looking at. Whether the worktree survives is the
+    // checkbox's business, not this sentence's.
+    if (closingIsStopped) return "It is stopped; closing removes the pane.";
+    // Mutually exclusive with the branch above by construction: a stopped
+    // pane is exactly the one `paneSuspendBlock` refuses.
+    const alternative = canSuspendInstead
+      ? closing.targets.length > 0
+        ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
+        : "\nSuspending stops the agent instead, keeping the pane and its session."
+      : "";
+    return "Its terminal session will be ended." + alternative;
+  })();
 
   /**
    * Take the alternative: dismiss the dialog and park the agent.
@@ -199,12 +249,14 @@ export function useCloseFlow(
     // that dropped the outcome the other two turn into a sentence.
     const label = closing.label;
     void Promise.resolve(suspendAgent(wsId, paneId)).then((outcome) => {
-      if (outcome !== "suspended") onError(suspendRefusalText(outcome, label));
+      if (outcome !== "suspended")
+        onSuspendRefused(suspendRefusalText(outcome, label));
     });
   };
 
   return {
     closing,
+    closeMessage,
     deleteWorktree,
     setDeleteWorktree,
     requestCloseAgent,

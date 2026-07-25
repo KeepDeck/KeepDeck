@@ -37,9 +37,12 @@ import {
 let deck: Deck;
 let suspend: SuspendApi;
 
+/** The revive sweep's blocked verdicts, as the hook receives them. */
+let blockedPanes: Record<string, string> = {};
+
 function Probe() {
   deck = useDeck();
-  suspend = useSuspend(deck);
+  suspend = useSuspend(deck, blockedPanes);
   return null;
 }
 
@@ -74,6 +77,7 @@ describe("useSuspend", () => {
     plans.dropPaneSpawnSpec.mockClear();
     pty.closePane.mockReset().mockResolvedValue(undefined);
     usage.clearPaneUsage.mockClear();
+    blockedPanes = {};
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -161,11 +165,13 @@ describe("useSuspend", () => {
     expect(pty.closePane).not.toHaveBeenCalled();
   });
 
-  it("refuses a pane that is ALREADY idle, whatever put it there", async () => {
+  it("refuses a pane that is ALREADY stopped, whatever put it there", async () => {
     // Without this the second gesture would re-run the whole teardown on a
     // pane with no process — and, for a suspended one, restamp its card.
     seed({ idle: { reason: "suspended", at: "2026-07-25T08:00:00.000Z" } });
-    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe("idle");
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(
+      "stopped",
+    );
     expect(pty.closePane).not.toHaveBeenCalled();
     expect(plans.dropPaneSpawnSpec).not.toHaveBeenCalled();
     expect(pane().idle).toEqual({
@@ -191,6 +197,34 @@ describe("useSuspend", () => {
     );
     act(() => release());
     expect(await act(async () => first)).toBe("suspended");
+  });
+
+  it("refuses a pane the sweep found stuck on a GONE folder", async () => {
+    // It has no process and is going nowhere until someone relocates it — its
+    // tile is already dimmed and its tray chip already carries the stopped
+    // marker. This gesture was the last surface still treating it as running,
+    // and taking it would have written a durable `suspended` stamp over a
+    // pane whose real problem is a missing directory.
+    blockedPanes = { "pane-1": "/gone/worktree" };
+    seed({ idle: { reason: "waking", origin: "restore" } });
+
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(
+      "stopped",
+    );
+    expect(pty.closePane).not.toHaveBeenCalled();
+    expect(pane().idle).toEqual({ reason: "waking", origin: "restore" });
+  });
+
+  it("still suspends a pane that is merely RISING — that cancels the wake", async () => {
+    // The mirror of the case above: without a block, a pane on its way up is
+    // a live target. Panes wait in `waking` for as long as their probe takes,
+    // and refusing every idle pane made them unparkable in that window.
+    seed({ idle: { reason: "waking", origin: "restore" } });
+
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(
+      "suspended",
+    );
+    expect(pty.closePane).toHaveBeenCalledWith("pane-1");
   });
 
   it("refuses a REMOTE pane BY NAME — its session lives on the server", async () => {
@@ -250,7 +284,7 @@ describe("suspendRefusalText", () => {
   it("gives every refusal its own sentence", () => {
     // One wording, shared by the hotkey, the command and the close dialog —
     // the whole reason the outcome is a reason and not a boolean.
-    expect(suspendRefusalText("idle", "Agent 1")).toContain("already stopped");
+    expect(suspendRefusalText("stopped", "Agent 1")).toContain("already stopped");
     expect(suspendRefusalText("provisioning", "Agent 1")).toContain("worktree");
     expect(suspendRefusalText("in-flight", "Agent 1")).toContain(
       "already being suspended",
@@ -267,7 +301,7 @@ describe("suspendRefusalText", () => {
   });
 
   it("names the pane in every sentence", () => {
-    for (const outcome of ["idle", "provisioning", "remote", "in-flight", "gone"] as const) {
+    for (const outcome of ["stopped", "provisioning", "remote", "in-flight", "gone"] as const) {
       expect(suspendRefusalText(outcome, "Reviewer")).toContain("Reviewer");
     }
   });

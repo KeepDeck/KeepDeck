@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { findPane, paneSuspendBlock, type PaneSuspendBlock } from "../domain/deck";
 import { log } from "../ipc/log";
 import { closePane } from "./ptyManager";
@@ -35,7 +36,7 @@ export function suspendRefusalText(
   label: string,
 ): string {
   switch (outcome) {
-    case "idle":
+    case "stopped":
       return `${label} is already stopped.`;
     case "provisioning":
       return `${label} is still creating its worktree.`;
@@ -56,11 +57,20 @@ export interface SuspendApi {
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
 }
 
-export function useSuspend(deck: Deck): SuspendApi {
+export function useSuspend(
+  deck: Deck,
+  /** paneId → the missing directory, from the revive sweep. A pane stuck on a
+   * gone folder has no process and is going nowhere: every other surface
+   * already draws it as stopped, and without this one the suspend gesture
+   * would be the only thing still treating it as running. */
+  blockedPanes: Record<string, string>,
+): SuspendApi {
   // No spawn context: suspending builds no plan. The shared refs are here for
   // the race protocol — the flow spans an await, so render-time state goes
   // stale — and the in-flight guard against a double gesture.
   const { deckRef, inFlight } = useLiveRefs(deck, null);
+  const blockedRef = useRef(blockedPanes);
+  blockedRef.current = blockedPanes;
 
   const suspend = async (
     wsId: string,
@@ -69,8 +79,8 @@ export function useSuspend(deck: Deck): SuspendApi {
     if (inFlight.current.has(paneId)) return "in-flight";
     const pane = findPane(deckRef.current.workspaces, wsId, paneId);
     if (!pane) return "gone";
-    const blocked = paneSuspendBlock(pane);
-    if (blocked) return blocked;
+    const refusal = paneSuspendBlock(pane, paneId in blockedRef.current);
+    if (refusal) return refusal;
     inFlight.current.add(paneId);
     try {
       log.info("web:suspend", `${paneId}: suspending`);
