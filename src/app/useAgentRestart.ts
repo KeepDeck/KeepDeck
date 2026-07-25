@@ -208,6 +208,11 @@ export function useAgentRestart(
     const spec = peekPaneSpawnSpec(paneId);
     if (!resumeDiedSilently(spec, postbackCount(paneId))) return false;
     if (inFlight.current.has(paneId)) return true;
+    // A pane that is idle was stopped on purpose; respawning it here would
+    // undo that AND wipe its binding. Today the suspend flow drops the spawn
+    // spec before reaping, so `resumeDiedSilently` already answers false —
+    // but that is an ordering in another module, not a guarantee here.
+    if (findPane(deckRef.current.workspaces, wsId, paneId)?.idle) return false;
     const target = findTarget(deckRef.current, wsId, paneId);
     if (!target) return false;
 

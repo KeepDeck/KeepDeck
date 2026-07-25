@@ -213,6 +213,38 @@ describe("useAgentRestart", () => {
     expect(restart.epochs.get("pane-1")).toBeUndefined();
   });
 
+  it("a suspend landing mid-RESUME leaves the pane stopped, not remounted", async () => {
+    // The resume path has its own copy of the guard, and needs one: every
+    // field `sameResumeTarget` compares survives a suspend untouched, so the
+    // idle marker is the only thing that says the user changed their mind.
+    // Without it the epoch bump would remount the pane the suspend just
+    // stopped — a stopped card that spawns a terminal on its own.
+    seed();
+    let release!: () => void;
+    pty.closePane.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+
+    let restarting!: Promise<void>;
+    act(() => {
+      restarting = restart.restart("ws-1", "pane-1", "resume");
+    });
+    // The plan is built before the close, so let it settle, then suspend.
+    await act(async () => {});
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    await act(async () => {
+      release();
+      await restarting;
+    });
+
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+    expect(pane().session).toEqual({
+      id: "session-old",
+      boundAt: "2026-07-11T00:00:00Z",
+    });
+    expect(restart.epochs.get("pane-1")).toBeUndefined();
+  });
+
   it("falls back to fresh safely when resume was requested without a binding", async () => {
     seed(null);
 
