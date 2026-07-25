@@ -453,7 +453,10 @@ export function AgentPane({
                     className="pane__dormant-action"
                     onClick={onResume}
                   >
-                    {idle.reason === "suspended" ? "Resume" : "Start"}
+                    {/* One verb for both reasons: the gesture is identical
+                        (hand the pane back to the revive sweep) and, bound or
+                        not, the line above already says what it will do. */}
+                    Resume
                   </button>
                 )}
               </>

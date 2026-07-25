@@ -841,7 +841,8 @@ describe("AgentPane — suspended / parked card", () => {
     expect(document.body.textContent).toContain("Not started");
     expect(document.body.textContent).not.toContain("Suspended");
     expect(document.body.textContent).not.toContain("ago");
-    expect(action()!.textContent).toBe("Start");
+    // Same verb as a suspended pane: one gesture, one word for it.
+    expect(action()!.textContent).toBe("Resume");
   });
 
   it("keeps the transient restored tile free of a resume gesture", () => {
