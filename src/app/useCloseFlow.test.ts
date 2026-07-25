@@ -10,7 +10,7 @@ import { useDeck } from "./useDeck";
 import {
   closeMessageFor,
   useCloseFlow,
-  type CloseFacts,
+  type ClosingPaneFacts,
   type ClosingTarget,
 } from "./useCloseFlow";
 import type { SuspendOutcome } from "./useSuspend";
@@ -72,6 +72,13 @@ const errors: string[] = [];
 const refusals: string[] = [];
 /** The revive sweep's blocked verdicts, as the hook receives them. */
 let blockedPanes: Record<string, string> = {};
+
+/** The pane facts the open dialog froze — what it says and offers. */
+const agentSnapshot = () => {
+  const closing = flow.closing;
+  if (closing?.kind !== "agent") throw new Error("no agent dialog is open");
+  return closing.pane;
+};
 
 function Probe() {
   deck = useDeck();
@@ -351,7 +358,7 @@ describe("closing a pane that is already stopped", () => {
     );
     act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
-    expect(flow.closingIsStopped).toBe(true);
+    expect(agentSnapshot().stopped).toBe(true);
     expect(flow.canSuspendInstead).toBe(false);
   });
 
@@ -363,7 +370,7 @@ describe("closing a pane that is already stopped", () => {
     act(() => deck.requestPaneWake(wsId, "pane-1"));
     act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
-    expect(flow.closingIsStopped).toBe(false);
+    expect(agentSnapshot().stopped).toBe(false);
   });
 
   it("surfaces a refused suspend instead of swallowing it", async () => {
@@ -396,7 +403,7 @@ describe("closing a pane that is already stopped", () => {
     act(() => deck.requestPaneWake(wsId, "pane-1"));
     act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
 
-    expect(flow.closingIsStopped).toBe(true);
+    expect(agentSnapshot().stopped).toBe(true);
     expect(flow.canSuspendInstead).toBe(false);
     expect(flow.closeMessage).toBe("It is stopped; closing removes the pane.");
   });
@@ -486,6 +493,46 @@ describe("what the dialog promises is what confirming does", () => {
     expect(refusals).toHaveLength(1);
   });
 
+  it("describes ONE moment, even when the pane moves under the dialog", async () => {
+    // The facts were split: `stopped`/`canSuspend` snapshotted, `rising` and
+    // `provisioning` read live every render. A pane that stops while the
+    // dialog is up then flips `rising` false while `stopped` stays stale, and
+    // the sentence becomes "Its terminal session will be ended" for a pane
+    // with no process — an answer neither an all-live nor an all-snapshot
+    // rule would give.
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    await act(async () => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+    const opened = flow.closeMessage;
+    expect(opened).toContain("It is starting up; closing removes the pane.");
+
+    // The sweep's plan build fails and puts the pane back down.
+    act(() => deck.failPaneWake(wsId, "pane-1"));
+    expect(flow.closeMessage).toBe(opened);
+    expect(flow.canSuspendInstead).toBe(true); // the row does not reshuffle
+  });
+
+  it("snapshots at OPEN, not at request — the probe runs in between", async () => {
+    // `park` defers the dialog until the worktree probe answers, so facts
+    // read before that call describe a pane the user never saw a dialog for.
+    const wsId = seed();
+    let release!: () => void;
+    probes.probeWorktree.mockImplementationOnce(
+      () => new Promise((resolve) => (release = () => resolve(probed(true)))),
+    );
+    act(() => flow.requestCloseAgent(wsId, "pane-2", "Agent 2"));
+    expect(flow.closing).toBeNull(); // still probing
+
+    // The pane stops while the probe is out.
+    act(() => deck.suspendPane(wsId, "pane-2"));
+    await act(async () => release());
+
+    expect(flow.closing).not.toBeNull();
+    expect(flow.closeMessage).toBe("It is stopped; closing removes the pane.");
+    expect(flow.canSuspendInstead).toBe(false);
+  });
+
   it("counts the agents a workspace close ends", async () => {
     const wsId = seed();
     await act(async () => flow.requestCloseWorkspace(wsId));
@@ -539,13 +586,21 @@ describe("what the dialog promises is what confirming does", () => {
 });
 
 describe("closeMessageFor", () => {
-  const agent = (targets = 0): ClosingTarget => ({
+  const agent = (
+    pane: Partial<ClosingPaneFacts> = {},
+    targets = 0,
+  ): ClosingTarget => ({
     kind: "agent",
     wsId: "ws-1",
     paneId: "pane-1",
     label: "Agent 1",
-    canSuspend: true,
-    isStopped: false,
+    pane: {
+      provisioning: false,
+      rising: false,
+      stopped: false,
+      canSuspend: false,
+      ...pane,
+    },
     targets: Array.from({ length: targets }, (_, i) => ({
       repo: "/repo",
       path: `/wt/${i}`,
@@ -559,33 +614,23 @@ describe("closeMessageFor", () => {
     count,
     targets: [],
   });
-  const facts = (over: Partial<CloseFacts> = {}): CloseFacts => ({
-    provisioning: false,
-    rising: false,
-    stopped: false,
-    canSuspend: false,
-    runningAgents: 0,
-    ...over,
-  });
 
   it("says nothing without a target", () => {
-    expect(closeMessageFor(null, facts())).toBe("");
+    expect(closeMessageFor(null, 0)).toBe("");
   });
 
   it("describes what closing an AGENT does, per state", () => {
     // The four sentences this dialog can say about one pane, side by side —
     // three of them were wrong at some point, each caught only through the
     // whole hook.
-    expect(closeMessageFor(agent(), facts())).toBe(
-      "Its terminal session will be ended.",
-    );
-    expect(closeMessageFor(agent(), facts({ stopped: true }))).toBe(
+    expect(closeMessageFor(agent(), 0)).toBe("Its terminal session will be ended.");
+    expect(closeMessageFor(agent({ stopped: true }), 0)).toBe(
       "It is stopped; closing removes the pane.",
     );
-    expect(closeMessageFor(agent(), facts({ rising: true }))).toBe(
+    expect(closeMessageFor(agent({ rising: true }), 0)).toBe(
       "It is starting up; closing removes the pane.",
     );
-    expect(closeMessageFor(agent(), facts({ provisioning: true }))).toBe(
+    expect(closeMessageFor(agent({ provisioning: true }), 0)).toBe(
       "Its worktree is still being created.",
     );
   });
@@ -594,15 +639,15 @@ describe("closeMessageFor", () => {
     // The default path keeps it — the checkbox owns that decision. The only
     // place a worktree may be named is the SUSPEND alternative, which keeps
     // it on purpose.
-    expect(closeMessageFor(agent(1), facts())).not.toContain("worktree");
-    expect(closeMessageFor(agent(1), facts({ stopped: true }))).not.toContain(
+    expect(closeMessageFor(agent({}, 1), 0)).not.toContain("worktree");
+    expect(closeMessageFor(agent({ stopped: true }, 1), 0)).not.toContain(
       "worktree",
     );
-    expect(
-      closeMessageFor(agent(1), facts({ canSuspend: true })),
-    ).toContain("keeping the pane, its worktree and its session");
+    expect(closeMessageFor(agent({ canSuspend: true }, 1), 0)).toContain(
+      "keeping the pane, its worktree and its session",
+    );
     // No worktree to keep: the sentence must not invent one.
-    expect(closeMessageFor(agent(0), facts({ canSuspend: true }))).toContain(
+    expect(closeMessageFor(agent({ canSuspend: true }, 0), 0)).toContain(
       "keeping the pane and its session",
     );
   });
@@ -612,24 +657,22 @@ describe("closeMessageFor", () => {
     // two can never combine — pinned because the old inline version could
     // spell the combination and nothing said it was impossible.
     expect(
-      closeMessageFor(agent(), facts({ stopped: true, canSuspend: true })),
+      closeMessageFor(agent({ stopped: true, canSuspend: true }), 0),
     ).not.toContain("Suspending");
   });
 
   it("counts only a workspace's agents that still hold a session", () => {
-    expect(closeMessageFor(workspace(0), facts())).toBe(
-      "This workspace has no agents.",
-    );
-    expect(closeMessageFor(workspace(3), facts({ runningAgents: 3 }))).toBe(
+    expect(closeMessageFor(workspace(0), 0)).toBe("This workspace has no agents.");
+    expect(closeMessageFor(workspace(3), 3)).toBe(
       "This ends 3 agents and their sessions.",
     );
-    expect(closeMessageFor(workspace(2), facts({ runningAgents: 1 }))).toBe(
+    expect(closeMessageFor(workspace(2), 1)).toBe(
       "This ends 1 agent and its session.",
     );
-    expect(closeMessageFor(workspace(2), facts({ runningAgents: 0 }))).toBe(
+    expect(closeMessageFor(workspace(2), 0)).toBe(
       "Its agents are stopped; closing removes them.",
     );
-    expect(closeMessageFor(workspace(1), facts({ runningAgents: 0 }))).toBe(
+    expect(closeMessageFor(workspace(1), 0)).toBe(
       "Its agent is stopped; closing removes it.",
     );
   });
