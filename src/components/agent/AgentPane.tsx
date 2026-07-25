@@ -214,9 +214,11 @@ export function AgentPane({
       tabIndex={-1}
       // A stopped pane is dimmed so a grid of six reads at a glance: which
       // ones are actually running is otherwise only visible by looking into
-      // each body. `restored` is excluded — it lasts milliseconds, and
-      // flashing every pane dim on every launch would be noise.
-      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}${idle && idle.reason !== "restored" ? " pane--idle" : ""}`}
+      // each body. The rule is "idle and staying that way": a plain `restored`
+      // pane lasts milliseconds (flashing every pane dim on every launch would
+      // be noise), but one the sweep BLOCKED on a missing directory is stuck
+      // until the user relocates it — and reads as running if left undimmed.
+      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}${idle && (idle.reason !== "restored" || !!blockedDir) ? " pane--idle" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       // A folded row expands only from an EXPLICIT header click (below), never
       // from raw mousedown/focus: descendant focus bubbling would expand rows

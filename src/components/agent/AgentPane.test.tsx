@@ -820,9 +820,11 @@ describe("AgentPane — suspended / parked card", () => {
   });
 
   it("dims a stopped pane but never the momentarily-restored one", () => {
-    const mountIdle = (idle: PaneIdle) =>
+    const mountIdle = (idle: PaneIdle, blockedDir?: string) =>
       act(() =>
-        root.render(createElement(AgentPane, { ...baseProps, idle })),
+        root.render(
+          createElement(AgentPane, { ...baseProps, idle, blockedDir }),
+        ),
       );
 
     mountIdle({ reason: "suspended", at: new Date().toISOString() });
@@ -830,6 +832,11 @@ describe("AgentPane — suspended / parked card", () => {
 
     mountIdle({ reason: "restored" });
     expect(document.querySelector(".pane--idle")).toBeNull();
+
+    // Blocked on a missing directory: `restored`, but stuck there until the
+    // user relocates it — an undimmed tile would read as a running agent.
+    mountIdle({ reason: "restored" }, "/gone/worktree");
+    expect(document.querySelector(".pane--idle")).not.toBeNull();
   });
 
   it("a gone folder still wins the card — that pane needs relocating, not resuming", () => {
