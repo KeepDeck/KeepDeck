@@ -101,7 +101,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   agentsReady: true,
   unavailableAgentReasons: new Map(),
   gitHeads: new Map(),
-  dormantBlocked: {},
+  idleBlocked: {},
   specByPane: {
     "pane-1": { command: "codex", args: [], env: [] },
     "pane-2": { command: "codex", args: [], env: [] },

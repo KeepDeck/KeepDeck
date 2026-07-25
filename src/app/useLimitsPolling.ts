@@ -86,7 +86,7 @@ export function useLimitsPolling(
   const polledAgents = declaredAgents
     .filter((id) =>
       deck.workspaces.some((ws) =>
-        ws.panes.some((p) => paneAgentType(p) === id && !p.dormant),
+        ws.panes.some((p) => paneAgentType(p) === id && !p.idle),
       ),
     )
     .join("\n");

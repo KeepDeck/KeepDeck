@@ -4,6 +4,7 @@ import {
   findWorkspace,
   paneAgentType,
   paneIsRemoteFresh,
+  paneWakesAutomatically,
   skillRootsOf,
   type Pane,
 } from "../domain/deck";
@@ -14,7 +15,7 @@ import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
 
 /**
- * Lazy revival of restored panes ([F7]): when a workspace with dormant panes
+ * Lazy revival of restored panes ([F7]): when a workspace with idle panes
  * is (or becomes) active, wake each one so its terminal mounts and spawns —
  * RESUMING its recorded agent session where one is known (the persisted,
  * hook-reported binding) and starting FRESH otherwise — an unbound pane is
@@ -137,7 +138,14 @@ export function useRevive(
     };
 
     for (const pane of active.panes) {
-      if (!pane.dormant || pane.id in blocked || waking.current.has(pane.id))
+      // Only a pane left idle by the restart itself: a suspended or parked one
+      // waits for its card's explicit gesture, which routes through the same
+      // wake below once it flips the pane back to `restored`.
+      if (
+        !paneWakesAutomatically(pane) ||
+        pane.id in blocked ||
+        waking.current.has(pane.id)
+      )
         continue;
       // An agent no plugin provides must NOT wake: the spawn would run the
       // bare id as a command, and the presence check would answer "absent"

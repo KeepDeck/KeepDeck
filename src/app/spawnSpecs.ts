@@ -283,7 +283,7 @@ export function dropPaneSpawnSpec(paneId: string): void {
   buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
 }
 
-/** Build and cache an exclusive RESUME plan for a dormant pane about to wake
+/** Build and cache an exclusive RESUME plan for an idle pane about to wake
  * or an exited pane the user explicitly restarts. Replaces any cached plan;
  * the generation reservation prevents the ordinary fresh sweep from racing. */
 export async function buildResumeSpec(
@@ -295,7 +295,7 @@ export async function buildResumeSpec(
   origin: ResumeOrigin,
 ): Promise<boolean> {
   const agent = findAgent(plugins, agentType);
-  if (!agent) return false; // unavailable — the card keeps the pane dormant
+  if (!agent) return false; // unavailable — the card keeps the pane idle
   if (!agent.entry.hooks["resume.plan"]) {
     log.warn(
       "web:agents",
@@ -368,7 +368,7 @@ export function usePaneSpawnSpecs(
     for (const ws of workspaces) {
       const wsSkillRoots = skillRootsOf(ws);
       for (const pane of ws.panes) {
-        if (pane.dormant || pane.provisioning) continue;
+        if (pane.idle || pane.provisioning) continue;
         if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id))
           continue;
         const agent = findAgent(plugins, paneAgentType(pane));

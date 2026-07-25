@@ -33,6 +33,7 @@ import {
   setPaneProvisioningPhase,
   setPaneSession,
   setWorkspacePluginSlot,
+  suspendPane,
   workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
@@ -118,8 +119,11 @@ export type DeckAction =
   | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string }
   /** Replace the whole deck with a restored one (app boot, [F7]). */
   | { type: "hydrate"; state: DeckState }
-  /** Wake a dormant restored pane — its terminal mounts and spawns ([F7]). */
+  /** Wake an idle pane — its terminal mounts and spawns ([F7]). */
   | { type: "revivePane"; wsId: string; paneId: string }
+  /** Suspend a live pane: it keeps its place, session binding and worktree,
+   * but nothing wakes it again except an explicit resume. */
+  | { type: "suspendPane"; wsId: string; paneId: string; at: string }
   /** Detach a pane from a gone worktree (drops cwd/branch/session) so it can
    * start fresh in the workspace cwd ([F7] restore reconcile). */
   | { type: "resetPaneLocation"; wsId: string; paneId: string }
@@ -521,6 +525,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return withWorkspaces(
         state,
         revivePane(state.workspaces, action.wsId, action.paneId),
+      );
+    case "suspendPane":
+      // suspendPane returns the same ref for a pane that is absent, already
+      // idle or still provisioning — a repeated gesture re-renders nothing.
+      return withWorkspaces(
+        state,
+        suspendPane(state.workspaces, action.wsId, action.paneId, action.at),
       );
     case "resetPaneLocation":
       return withWorkspaces(

@@ -18,9 +18,11 @@ import {
   setPaneAutoTitle,
   paneOccupyingPath,
   pathOccupancy,
+  revivePane,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setWorkspacePluginSlot,
+  suspendPane,
   worktreeTargets,
   type Workspace,
 } from "./workspaces";
@@ -434,7 +436,14 @@ describe("paneOccupyingPath", () => {
     },
     {
       ...ws("b", []),
-      panes: [{ id: "b-p1", dormant: true, cwd: "/wt/two", branch: "kd/b/2" }],
+      panes: [
+        {
+          id: "b-p1",
+          idle: { reason: "restored" },
+          cwd: "/wt/two",
+          branch: "kd/b/2",
+        },
+      ],
     },
   ];
 
@@ -453,7 +462,7 @@ describe("paneOccupyingPath", () => {
     expect(paneOccupyingPath(slashed, "/wt/three")?.pane.id).toBe("c-p1");
   });
 
-  it("counts a dormant pane — it revives right back into its directory", () => {
+  it("counts an idle pane — it wakes right back into its directory", () => {
     expect(paneOccupyingPath(deck, "/wt/two")?.pane.id).toBe("b-p1");
   });
 
@@ -705,5 +714,71 @@ describe("setPaneProvisioningPhase", () => {
     );
     expect(after[0].panes[0].provisioning?.phase).toBeUndefined();
     expect(after[0].panes[0].provisioning?.error).toBe("Setup failed: boom");
+  });
+});
+
+describe("suspendPane", () => {
+  const AT = "2026-07-25T10:00:00.000Z";
+  const withPanes = (panes: Pane[]): Workspace[] => [
+    { ...ws("a", []), panes },
+    ws("b", [1]),
+  ];
+
+  it("marks the pane suspended, stamped, and leaves everything else alone", () => {
+    const start = withPanes([
+      {
+        id: "a-p1",
+        cwd: "/wt/one",
+        branch: "kd/a/1",
+        session: { id: "s1", boundAt: "2026-07-25T09:00:00.000Z" },
+      },
+      { id: "a-p2" },
+    ]);
+    const after = suspendPane(start, "a", "a-p1", AT);
+    // The worktree and the resume key are exactly what a resume needs later —
+    // suspending must not touch either.
+    expect(after[0].panes[0]).toEqual({
+      id: "a-p1",
+      cwd: "/wt/one",
+      branch: "kd/a/1",
+      session: { id: "s1", boundAt: "2026-07-25T09:00:00.000Z" },
+      idle: { reason: "suspended", at: AT },
+    });
+    expect(after[0].panes[1]).toEqual({ id: "a-p2" });
+    expect(after[1]).toBe(start[1]); // the other workspace keeps its identity
+  });
+
+  it("is a no-op (same ref) for an unknown pane or workspace", () => {
+    const start = withPanes([{ id: "a-p1" }]);
+    expect(suspendPane(start, "a", "nope", AT)).toBe(start);
+    expect(suspendPane(start, "nope", "a-p1", AT)).toBe(start);
+  });
+
+  it("is a no-op for a pane that is already idle, whatever the reason", () => {
+    const suspended = withPanes([
+      { id: "a-p1", idle: { reason: "suspended", at: AT } },
+    ]);
+    expect(suspendPane(suspended, "a", "a-p1", "2026-07-25T11:00:00.000Z")).toBe(
+      suspended,
+    );
+    const restored = withPanes([{ id: "a-p1", idle: { reason: "restored" } }]);
+    expect(suspendPane(restored, "a", "a-p1", AT)).toBe(restored);
+  });
+
+  it("refuses a provisioning pane — there is no process, and its create must not be stranded", () => {
+    const creating = withPanes([
+      {
+        id: "a-p1",
+        provisioning: { repo: "/repo", workspace: "a", index: 1 },
+      },
+    ]);
+    expect(suspendPane(creating, "a", "a-p1", AT)).toBe(creating);
+  });
+
+  it("round-trips through revivePane: suspend then wake leaves a plain live pane", () => {
+    const start = withPanes([{ id: "a-p1", cwd: "/wt/one" }]);
+    const suspended = suspendPane(start, "a", "a-p1", AT);
+    const woken = revivePane(suspended, "a", "a-p1");
+    expect(woken[0].panes[0]).toEqual({ id: "a-p1", cwd: "/wt/one" });
   });
 });

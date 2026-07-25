@@ -270,11 +270,11 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(seen["pane-1"]).toBe(first);
   });
 
-  it("skips dormant, provisioning and unknown-agent panes", async () => {
+  it("skips idle, provisioning and unknown-agent panes", async () => {
     register(adopting);
     await mount(
       ws([
-        { id: "pane-d", agentType: "claude", dormant: true },
+        { id: "pane-d", agentType: "claude", idle: { reason: "restored" } },
         {
           id: "pane-p",
           agentType: "claude",

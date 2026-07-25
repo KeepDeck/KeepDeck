@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { AgentRestartMode } from "../../domain/agents";
-import type { PaneProvisioning } from "../../domain/deck";
+import type { PaneIdle, PaneProvisioning } from "../../domain/deck";
 import { contextLevel } from "../../domain/usage";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { TerminalPane } from "../terminal/TerminalPane";
@@ -66,9 +66,9 @@ interface AgentPaneProps {
   /** The only pane in its workspace: no maximize control ([U1]) and no highlight
    * border ([U2]) — there's nothing to maximize over or tell it apart from. */
   solo: boolean;
-  /** Restored from disk, not yet revived ([F7]) — render a quiet tile instead
-   * of mounting a terminal (mounting is what spawns the PTY). */
-  dormant?: boolean;
+  /** The pane has no process behind it, and why ([F7]) — render a quiet tile
+   * instead of mounting a terminal (mounting is what spawns the PTY). */
+  idle?: PaneIdle;
   /** The missing directory blocking revival, when the pane can't wake where it
    * was ([F7] restore reconcile). */
   blockedDir?: string | null;
@@ -140,7 +140,7 @@ export function AgentPane({
   folded,
   selected,
   solo,
-  dormant,
+  idle,
   blockedDir,
   provisioning,
   unavailableAgent,
@@ -198,10 +198,10 @@ export function AgentPane({
     setEditing(false);
   };
   // The context meter belongs on a LIVE pane only — a frozen, undimmed ctx% on
-  // an exited / dormant / unavailable / provisioning pane would read as live
+  // an exited / idle / unavailable / provisioning pane would read as live
   // (its last usage report lingers in the store until the pane leaves the deck).
   const paneLive =
-    !exit && !dormant && !provisioning && !unavailableAgent && !planPending;
+    !exit && !idle && !provisioning && !unavailableAgent && !planPending;
   return (
     <section
       data-pane-id={paneId}
@@ -379,10 +379,10 @@ export function AgentPane({
                 : `No plugin provides “${unavailableAgent.agent}” — enable it in Settings → Plugins`}
             </span>
           </div>
-        ) : dormant ? (
-          // Restored, no PTY behind it ([F7]). Normally transient (the revive
-          // effect wakes active-workspace panes); it persists only when the
-          // pane's directory is gone.
+        ) : idle ? (
+          // No PTY behind it ([F7]). Normally transient (the revive sweep
+          // wakes active-workspace panes); it persists only when the pane's
+          // directory is gone.
           <div className="pane__dormant" role="status">
             {blockedDir ? (
               <>
@@ -455,7 +455,7 @@ export function AgentPane({
             onTitle={onTitle}
           />
         )}
-        {exit && !dormant && !unavailableAgent && (
+        {exit && !idle && !unavailableAgent && (
           <div className="pane__exit" role="status">
             <span className="pane__exit-title">Agent exited</span>
             <span className="pane__exit-sub">

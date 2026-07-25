@@ -181,7 +181,7 @@ function App() {
         // them gave background workspaces eternal "waiting" chips (revive
         // only wakes the active workspace). Same filter as the tail and
         // polling lanes.
-        if (pane.dormant || pane.provisioning) continue;
+        if (pane.idle || pane.provisioning) continue;
         ids.add(paneAgentType(pane));
       }
     }
@@ -773,7 +773,7 @@ function App() {
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onPaneTitle={deck.setPaneAutoTitle}
-            dormantBlocked={revive.blocked}
+            idleBlocked={revive.blocked}
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={revive.startFresh}

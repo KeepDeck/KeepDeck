@@ -89,9 +89,9 @@ interface DeckStageProps {
   onRenamePane(wsId: string, paneId: string, name: string): void;
   /** Terminal title changed (OSC) — feeds auto-naming ([F11]). */
   onPaneTitle(wsId: string, paneId: string, title: string): void;
-  /** Dormant panes blocked from reviving: paneId → the missing directory
+  /** Idle panes blocked from waking: paneId → the missing directory
    * ([F7] restore reconcile). */
-  dormantBlocked: Record<string, string>;
+  idleBlocked: Record<string, string>;
   /** Spawn plan per live pane — args + env carrying its session identity
    * ([F7]/[F8] v2: assigned id or armed reporter, resume recipe). */
   specByPane: Record<string, SpawnPlan>;
@@ -164,7 +164,7 @@ export function DeckStage({
   onCloseAgent,
   onRenamePane,
   onPaneTitle,
-  dormantBlocked,
+  idleBlocked,
   specByPane,
   failedPanes,
   onStartFresh,
@@ -339,13 +339,13 @@ export function DeckStage({
               : null;
           const planError =
             !spec &&
-            !pane.dormant &&
+            !pane.idle &&
             !pane.provisioning &&
             !unavailableAgent &&
             failedPanes.has(pane.id);
           const planPending =
             !spec &&
-            !pane.dormant &&
+            !pane.idle &&
             !pane.provisioning &&
             !unavailableAgent &&
             !planError;
@@ -375,8 +375,8 @@ export function DeckStage({
               folded={layout.folded}
               selected={pane.id === selectedPaneId}
               solo={layout.solo}
-              dormant={pane.dormant}
-              blockedDir={dormantBlocked[pane.id] ?? null}
+              idle={pane.idle}
+              blockedDir={idleBlocked[pane.id] ?? null}
               provisioning={pane.provisioning}
               unavailableAgent={unavailableAgent}
               colSpan={layout.colSpan}

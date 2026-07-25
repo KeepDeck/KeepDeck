@@ -100,6 +100,8 @@ export function useDeck() {
     hydrate: (state: DeckState) => dispatch({ type: "hydrate", state }),
     revivePane: (wsId: string, paneId: string) =>
       dispatch({ type: "revivePane", wsId, paneId }),
+    suspendPane: (wsId: string, paneId: string) =>
+      dispatch({ type: "suspendPane", wsId, paneId, at: nowIso() }),
     resetPaneLocation: (wsId: string, paneId: string) =>
       dispatch({ type: "resetPaneLocation", wsId, paneId }),
     setPaneSession: (

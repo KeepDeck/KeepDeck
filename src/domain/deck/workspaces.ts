@@ -267,22 +267,46 @@ export function setPaneAutoTitle(
   );
 }
 
-/** Wake a dormant (restored, no PTY) pane so its terminal mounts and spawns
- * ([F7]). Returns the SAME array when the pane is absent or already live, so
- * a repeated revive effect doesn't re-render anything. */
+/** Wake an idle (no PTY) pane so its terminal mounts and spawns — whatever
+ * left it idle: a restart ([F7]), the launch policy, or a suspend. Returns the
+ * SAME array when the pane is absent or already live, so a repeated revive
+ * effect doesn't re-render anything. */
 export function revivePane(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane?.dormant) return workspaces;
+  if (!pane?.idle) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId) return p;
-      const { dormant: _dormant, ...live } = p;
+      const { idle: _idle, ...live } = p;
       return live;
     }),
+  );
+}
+
+/** Suspend a pane: mark it idle by the user's own decision, so nothing wakes
+ * it but an explicit resume. The PTY teardown is the app layer's half — this
+ * records the intent that outlives it (and the save).
+ *
+ * Returns the SAME array for a pane that is absent, already idle, or still
+ * PROVISIONING: a pane whose worktree create is in flight has no process to
+ * suspend, and marking it idle would strand the create behind a card that
+ * offers to resume something that never started. */
+export function suspendPane(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  at: string,
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (!pane || pane.idle || pane.provisioning) return workspaces;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) =>
+      p.id === paneId ? { ...p, idle: { reason: "suspended", at } } : p,
+    ),
   );
 }
 

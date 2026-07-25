@@ -1,6 +1,6 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
-import type { Pane, PaneProvisioning } from "./panes";
+import type { Pane, PaneIdle, PaneProvisioning } from "./panes";
 import { resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
@@ -18,13 +18,15 @@ import { MAX_PANES } from "./layout";
  * mirrors, where it's pure and unit-testable. There is deliberately no Rust DTO
  * to keep in sync.
  *
- * Hydration marks every restored pane `dormant`: a PTY can't survive a restart,
- * so panes come back as quiet tiles and are revived (resumed or freshly
- * spawned) lazily per workspace by the app layer. The exception is a pane
- * whose worktree create was still in flight when the app quit — it comes back
- * NOT dormant but with its provisioning marked failed ("interrupted"), so the
- * card offers Retry instead of the revive flow spawning a terminal into a
- * directory that may not exist.
+ * Hydration marks every restored pane idle: a PTY can't survive a restart, so
+ * panes come back as quiet tiles and are revived (resumed or freshly spawned)
+ * lazily per workspace by the app layer. The REASON survives the round trip: a
+ * pane the user suspended comes back `suspended` and waits for an explicit
+ * resume, everything else comes back `restored` for the revive sweep. The
+ * exception is a pane whose worktree create was still in flight when the app
+ * quit — it comes back NOT idle at all but with its provisioning marked failed
+ * ("interrupted"), so the card offers Retry instead of the revive flow
+ * spawning a terminal into a directory that may not exist.
  */
 
 import { DECK_MIN_READER, DECK_STATE_VERSION, migrateDeck } from "../migrations";
@@ -56,8 +58,10 @@ export type HydrateDeckResult =
   | { kind: "corrupt" }
   | { kind: "incompatible"; version: number; minVersion: number };
 
-/** Serialize the deck for storage. Runtime-only pane state (`dormant`) is
- * stripped; the session binding is kept — it's the resume key. The unified
+/** Serialize the deck for storage. Runtime-only pane state is stripped — of
+ * the idle reasons only `suspended` is written, since it alone records a user
+ * decision rather than this launch's circumstances; the session binding is
+ * kept — it's the resume key. The unified
  * `viewByWs` persists only its durable half — the `focusByWs`/`selectByWs`
  * maps the on-disk schema has always had; `dock`/`dockTab` are session-only
  * and never written, so every launch starts with the dock closed. */
@@ -110,6 +114,10 @@ export function serializeDeck(
           ...(p.name !== undefined && { name: p.name }),
           ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
           ...(p.session !== undefined && { session: p.session }),
+          // Sparse, and only the durable reason: `restored`/`parked` describe
+          // a launch, so writing them would make every ordinary restart look
+          // like a deliberate suspend on the NEXT one.
+          ...(p.idle?.reason === "suspended" && { idle: p.idle }),
           // The intent only: error and phase are runtime state, and hydration
           // stamps its own error ("interrupted") on whatever comes back.
           ...(p.provisioning !== undefined && {
@@ -126,8 +134,9 @@ export function serializeDeck(
  * unparsable JSON, an unknown version, a malformed shape — so the caller can
  * quarantine the file and start empty instead of crashing on state.
  *
- * Panes come back `dormant`; `activeId` is re-resolved (the persisted one may
- * be stale); focus/selection entries pointing at unknown ids are dropped.
+ * Panes come back idle (`suspended` where that was stored, `restored`
+ * otherwise); `activeId` is re-resolved (the persisted one may be stale);
+ * focus/selection entries pointing at unknown ids are dropped.
  */
 export function hydrateDeck(json: string): HydrateDeckResult {
   const corrupt = { kind: "corrupt" } as const;
@@ -253,6 +262,7 @@ const PANE_KNOWN_KEYS: ReadonlySet<string> = new Set([
   "name",
   "autoTitle",
   "session",
+  "idle",
   "provisioning",
 ]);
 
@@ -302,7 +312,7 @@ function readWorkspace(value: unknown): Workspace | null {
 function readPane(value: unknown): Pane | null {
   if (!isRecord(value)) return null;
   if (typeof value.id !== "string") return null;
-  const pane: Pane = { id: value.id, dormant: true };
+  const pane: Pane = { id: value.id, idle: readIdle(value.idle) };
   // Any non-empty string id is kept verbatim: the id set is OPEN (agents
   // come from plugins) and hydration runs BEFORE plugin bootstrap, so a
   // catalog check here would misfire on every boot. A pane whose plugin is
@@ -330,14 +340,27 @@ function readPane(value: unknown): Pane | null {
   const provisioning = readProvisioning(value.provisioning);
   if (provisioning) {
     // The app quit mid-create: come back as the failed card — the intent
-    // powers Retry, and the pane must NOT be dormant or the revive flow
-    // would spawn a terminal into a directory that may not exist.
-    delete pane.dormant;
+    // powers Retry, and the pane must NOT be idle or the revive flow would
+    // spawn a terminal into a directory that may not exist.
+    delete pane.idle;
     pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
   }
   const extras = collectExtras(value, PANE_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) pane.extras = extras;
   return pane;
+}
+
+/** Why a restored pane has no PTY. A stored `suspended` marker is honoured —
+ * that is the whole point of persisting it — and anything else (absent,
+ * malformed, or a runtime reason a hand edit put there) degrades to
+ * `restored`, so the pane simply wakes with the rest. Degrading toward "wake
+ * it" is deliberate: the failure mode is an agent starting when it might not
+ * have needed to, not one silently refusing to come back. */
+function readIdle(value: unknown): PaneIdle {
+  if (isRecord(value) && value.reason === "suspended" && typeof value.at === "string") {
+    return { reason: "suspended", at: value.at };
+  }
+  return { reason: "restored" };
 }
 
 /** Tolerant read of a persisted plugin-slot bag: `null` for anything that

@@ -71,9 +71,9 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     expect(pane.session).toEqual({ id: "abc-123", boundAt: "2026-07-02T00:00:00Z" });
   });
 
-  it("marks every restored pane dormant", () => {
+  it("marks every restored pane idle, ready for the revive sweep", () => {
     for (const ws of restored.state.workspaces) {
-      for (const pane of ws.panes) expect(pane.dormant).toBe(true);
+      for (const pane of ws.panes) expect(pane.idle).toEqual({ reason: "restored" });
     }
   });
 
@@ -136,17 +136,70 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     expect(serializeDeck(withDockTab)).toBe(serializeDeck(base));
   });
 
-  it("does not persist the runtime dormant flag", () => {
-    const dormantState: DeckState = {
+  it("does not persist the runtime idle reasons", () => {
+    const idleState: DeckState = {
       ...state,
       workspaces: [
         {
           ...state.workspaces[0],
-          panes: state.workspaces[0].panes.map((p) => ({ ...p, dormant: true })),
+          panes: state.workspaces[0].panes.map((p) => ({
+            ...p,
+            idle: { reason: "restored" } as const,
+          })),
         },
       ],
     };
-    expect(serializeDeck(dormantState)).not.toContain("dormant");
+    expect(serializeDeck(idleState)).not.toContain("idle");
+    const parkedState: DeckState = {
+      ...state,
+      workspaces: [
+        {
+          ...state.workspaces[0],
+          panes: state.workspaces[0].panes.map((p) => ({
+            ...p,
+            idle: { reason: "parked" } as const,
+          })),
+        },
+      ],
+    };
+    expect(serializeDeck(parkedState)).not.toContain("idle");
+  });
+
+  it("persists a SUSPENDED pane — the one idle reason that is a user decision", () => {
+    const suspended: DeckState = {
+      ...state,
+      workspaces: [
+        {
+          ...state.workspaces[0],
+          panes: state.workspaces[0].panes.map((p) => ({
+            ...p,
+            idle: { reason: "suspended", at: "2026-07-25T09:00:00.000Z" } as const,
+          })),
+        },
+      ],
+    };
+    const doc = JSON.parse(serializeDeck(suspended));
+    expect(doc.workspaces[0].panes[0].idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T09:00:00.000Z",
+    });
+    // …and it comes back suspended, so nothing wakes it on the next launch.
+    const back = okDeck(serializeDeck(suspended));
+    expect(back.state.workspaces[0].panes[0].idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T09:00:00.000Z",
+    });
+  });
+
+  it("degrades a malformed stored idle marker to a plain restored pane", () => {
+    const doc = JSON.parse(serializeDeck(state));
+    // A hand edit (or a newer revision's reason) must never strand a pane:
+    // failing toward "wake it" beats a pane that silently refuses to return.
+    doc.workspaces[0].panes[0].idle = { reason: "suspended" }; // no `at`
+    doc.workspaces[0].panes[1].idle = "nonsense";
+    const panes = okDeck(JSON.stringify(doc)).state.workspaces[0].panes;
+    expect(panes[0].idle).toEqual({ reason: "restored" });
+    expect(panes[1].idle).toEqual({ reason: "restored" });
   });
 });
 
@@ -445,9 +498,9 @@ describe("provisioning panes across a restart", () => {
       index: 1,
       error: PROVISIONING_INTERRUPTED,
     });
-    // NOT dormant: the revive flow must leave it alone — there may be no
+    // NOT idle: the revive flow must leave it alone — there may be no
     // directory to spawn a terminal into.
-    expect(pane.dormant).toBeUndefined();
+    expect(pane.idle).toBeUndefined();
   });
 
   it("drops a FORK provisioning card entirely — never restores it as a plain retryable pane", () => {
@@ -525,12 +578,12 @@ describe("provisioning panes across a restart", () => {
     expect(pane).toMatchObject({ agentType: "opencode", cwd: "/wt/fork-1" });
   });
 
-  it("degrades a malformed intent to a plain dormant pane instead of rejecting the deck", () => {
+  it("degrades a malformed intent to a plain idle pane instead of rejecting the deck", () => {
     const doc = JSON.parse(serializeDeck(provisioningState));
     doc.workspaces[0].panes[0].provisioning = { repo: 42 };
     const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
     expect(pane.provisioning).toBeUndefined();
-    expect(pane.dormant).toBe(true);
+    expect(pane.idle).toEqual({ reason: "restored" });
   });
 });
 
@@ -878,7 +931,9 @@ describe("schema revisions and the compatibility floor", () => {
       ],
     };
     const restored = okDeck(JSON.stringify(v1));
-    expect(restored.state.workspaces[0].panes[0].dormant).toBe(true);
+    expect(restored.state.workspaces[0].panes[0].idle).toEqual({
+      reason: "restored",
+    });
     expect("run" in restored.state.workspaces[0]).toBe(false);
   });
 
@@ -913,17 +968,24 @@ describe("schema revisions and the compatibility floor", () => {
   });
 
   it("parks (not corrupts) a deck whose floor is above this build", () => {
+    // Derived from the current revision, not a literal: a hard-coded "next"
+    // version silently becomes readable the moment the ladder catches up.
+    const future = DECK_STATE_VERSION + 1;
     const result = hydrateDeck(
       JSON.stringify({
-        version: 9,
-        minVersion: 9,
+        version: future,
+        minVersion: future,
         activeId: "",
         focusByWs: {},
         selectByWs: {},
         workspaces: [],
       }),
     );
-    expect(result).toEqual({ kind: "incompatible", version: 9, minVersion: 9 });
+    expect(result).toEqual({
+      kind: "incompatible",
+      version: future,
+      minVersion: future,
+    });
   });
 
   it("a missing or non-numeric version is corrupt", () => {

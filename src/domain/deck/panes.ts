@@ -14,6 +14,28 @@ export interface PaneSession {
   boundAt: string;
 }
 
+/**
+ * Why a pane has NO PTY behind it. One field carrying a reason rather than
+ * parallel booleans: the cases are mutually exclusive answers to the same
+ * question, and they differ in WHAT wakes the pane — so a consumer reading the
+ * reason cannot mistake "the user parked this" for "wake me on the next
+ * sweep". Only `suspended` is durable (it records the user's intent); the
+ * other two describe this launch's circumstances and hydration re-derives
+ * them every time.
+ */
+export type PaneIdle =
+  /** Restored from disk — the revive sweep wakes it as soon as its workspace
+   * is active ([F7]). Runtime-only. */
+  | { reason: "restored" }
+  /** Restored into a launch that parks agents instead of waking them: it
+   * waits for the card's explicit start. Runtime-only — the launch policy is
+   * a setting, not a fact about this pane, so persisting it would make
+   * turning the setting off unable to bring the pane back. */
+  | { reason: "parked" }
+  /** The user suspended it: its process was ended deliberately and only an
+   * explicit resume brings it back. Durable, and `at` dates the card. */
+  | { reason: "suspended"; at: string };
+
 /** A pane's worktree create captured as intent: everything needed to (re)issue
  * the `worktree_create` call. Kept on the pane while the create runs in the
  * background — and after a failure, so Retry can re-use it. A pane with this
@@ -81,9 +103,11 @@ export interface Pane {
   /** Auto title from the terminal (OSC 0/1/2), shown when there's no manual
    * `name`; falls back to the derived "Agent N" ([F11] auto-naming). */
   autoTitle?: string;
-  /** Restored from disk but not yet revived — no PTY behind it. Runtime-only:
-   * set by hydration, cleared by the revive action, never persisted ([F7]). */
-  dormant?: boolean;
+  /** Set while there is no PTY behind this pane, saying WHY — see
+   * [`PaneIdle`]. Absent means the pane runs (or is provisioning/exited, both
+   * tracked outside the durable model). Cleared by the wake action; only the
+   * `suspended` reason survives a save ([F7]). */
+  idle?: PaneIdle;
   /** The recorded agent session this pane resumes on revive ([F7]/[F8]). */
   session?: PaneSession;
   /** The in-flight (or failed) worktree create behind this pane — no terminal
@@ -116,6 +140,15 @@ export function paneAgentType(pane: Pane): AgentType {
  *  this centralized. */
 export function paneIsRemoteFresh(pane: Pane): boolean {
   return !!pane.remoteEndpoint;
+}
+
+/** Whether the revive sweep may wake this pane on its own. Only a pane that
+ *  is idle merely because a restart dropped its PTY qualifies: waking a
+ *  `suspended` one would undo the user's decision behind their back, and a
+ *  `parked` one would defeat the launch policy that parked it. The single
+ *  predicate the sweep consults, so the rule lives in one place. */
+export function paneWakesAutomatically(pane: Pane): boolean {
+  return pane.idle?.reason === "restored";
 }
 
 /**

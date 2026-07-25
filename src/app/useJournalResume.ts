@@ -73,12 +73,12 @@ export function useJournalResume(
     if (inFlight.current.has(record.sessionId)) return;
     if (claimant) {
       // The browser shows Resume for every hit (it can't know lifecycle);
-      // an enabled button that does NOTHING reads as dead — say why. A
-      // DORMANT claimant isn't "running": the honest message points at the
-      // pane that owns the binding instead.
+      // an enabled button that does NOTHING reads as dead — say why. An IDLE
+      // claimant isn't "running": the honest message points at the pane that
+      // owns the binding instead.
       throw new Error(
-        claimant.dormant
-          ? "The session already belongs to a dormant pane — revive that pane instead"
+        claimant.idle
+          ? "The session already belongs to a stopped pane — resume that pane instead"
           : "The session is already running in a pane",
       );
     }

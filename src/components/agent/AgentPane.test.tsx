@@ -104,7 +104,7 @@ describe("AgentPane — header badges", () => {
     expect(ctx?.className).toBe("chip pane__ctx");
   });
 
-  it("hides the context meter on a non-live (dormant) pane despite usage", () => {
+  it("hides the context meter on a non-live (idle) pane despite usage", () => {
     registerUsageNormalizer(
       "claude",
       (payload) => (payload as { result: NormalizedUsage }).result,
@@ -117,7 +117,12 @@ describe("AgentPane — header badges", () => {
       },
     });
     act(() =>
-      root.render(createElement(AgentPane, { ...baseProps, dormant: true })),
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "restored" } as const,
+        }),
+      ),
     );
     // A frozen ctx% must not read as live on a pane that isn't running.
     expect(document.querySelector(".pane__ctx")).toBeNull();
@@ -388,13 +393,13 @@ describe("AgentPane — the unavailable-agent card", () => {
     expect(TerminalPane).not.toHaveBeenCalled();
   });
 
-  it("wins over the dormant tile — the card explains WHY nothing wakes", () => {
+  it("wins over the idle tile — the card explains WHY nothing wakes", () => {
     act(() =>
       root.render(
         createElement(AgentPane, {
           ...baseProps,
           unavailableAgent: { kind: "no-plugin", agent: "gemini" },
-          dormant: true,
+          idle: { reason: "restored" } as const,
         }),
       ),
     );

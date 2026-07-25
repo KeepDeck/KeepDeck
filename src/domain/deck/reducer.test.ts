@@ -332,17 +332,17 @@ describe("deckReducer pane naming", () => {
 });
 
 describe("deckReducer restore actions ([F7])", () => {
-  const dormantWs: Workspace = {
+  const idleWs: Workspace = {
     id: "ws-1",
     instance: createWorkspaceInstance(),
     name: "ws-1",
     cwd: "/tmp",
     worktreeBaseDir: null,
-    panes: [{ id: "pane-1", dormant: true }, { id: "pane-2" }],
+    panes: [{ id: "pane-1", idle: { reason: "restored" } }, { id: "pane-2" }],
   };
 
   it("hydrate replaces the whole deck state", () => {
-    const restored = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const restored = state({ workspaces: [idleWs], activeId: "ws-1" });
     const hydrated = deckReducer(initialDeckState, {
       type: "hydrate",
       state: restored,
@@ -356,9 +356,9 @@ describe("deckReducer restore actions ([F7])", () => {
   });
 
   it("hydrate rejects duplicate workspace ids", () => {
-    const current = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const current = state({ workspaces: [idleWs], activeId: "ws-1" });
     const duplicate = state({
-      workspaces: [dormantWs, ws("ws-1", ["another-pane"])],
+      workspaces: [idleWs, ws("ws-1", ["another-pane"])],
       activeId: "ws-1",
     });
 
@@ -367,8 +367,8 @@ describe("deckReducer restore actions ([F7])", () => {
     );
   });
 
-  it("revivePane clears the dormant flag", () => {
-    const next = deckReducer(state({ workspaces: [dormantWs], activeId: "ws-1" }), {
+  it("revivePane clears the idle marker", () => {
+    const next = deckReducer(state({ workspaces: [idleWs], activeId: "ws-1" }), {
       type: "revivePane",
       wsId: "ws-1",
       paneId: "pane-1",
@@ -377,13 +377,55 @@ describe("deckReducer restore actions ([F7])", () => {
   });
 
   it("revivePane is a no-op (same ref) for a live or unknown pane", () => {
-    const start = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     expect(
       deckReducer(start, { type: "revivePane", wsId: "ws-1", paneId: "pane-2" }),
     ).toBe(start);
     expect(
       deckReducer(start, { type: "revivePane", wsId: "ws-1", paneId: "nope" }),
     ).toBe(start);
+  });
+
+  it("suspendPane marks a live pane suspended and stamps it", () => {
+    const next = deckReducer(state({ workspaces: [idleWs], activeId: "ws-1" }), {
+      type: "suspendPane",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      at: "2026-07-25T10:00:00.000Z",
+    });
+    expect(next.workspaces[0].panes[1]).toEqual({
+      id: "pane-2",
+      idle: { reason: "suspended", at: "2026-07-25T10:00:00.000Z" },
+    });
+  });
+
+  it("suspendPane is a no-op (same ref) for an already-idle or unknown pane", () => {
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
+    const at = "2026-07-25T10:00:00.000Z";
+    expect(
+      deckReducer(start, { type: "suspendPane", wsId: "ws-1", paneId: "pane-1", at }),
+    ).toBe(start);
+    expect(
+      deckReducer(start, { type: "suspendPane", wsId: "ws-1", paneId: "nope", at }),
+    ).toBe(start);
+  });
+
+  it("revivePane wakes a SUSPENDED pane too — resume runs through the same action", () => {
+    const suspended = deckReducer(
+      state({ workspaces: [idleWs], activeId: "ws-1" }),
+      {
+        type: "suspendPane",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        at: "2026-07-25T10:00:00.000Z",
+      },
+    );
+    const woken = deckReducer(suspended, {
+      type: "revivePane",
+      wsId: "ws-1",
+      paneId: "pane-2",
+    });
+    expect(woken.workspaces[0].panes[1]).toEqual({ id: "pane-2" });
   });
 
   it("resetPaneLocation drops cwd/branch/session; no-op when nothing to drop", () => {
@@ -396,7 +438,7 @@ describe("deckReducer restore actions ([F7])", () => {
       panes: [
         {
           id: "pane-1",
-          dormant: true,
+          idle: { reason: "restored" },
           cwd: "/repo/wt",
           branch: "kd/ws/1",
           session: { id: "s", boundAt: "2026-07-02T00:00:00Z" },
@@ -410,8 +452,11 @@ describe("deckReducer restore actions ([F7])", () => {
       wsId: "ws-1",
       paneId: "pane-1",
     });
-    // Location and resume key are gone; the pane itself (and dormancy) remain.
-    expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1", dormant: true });
+    // Location and resume key are gone; the pane itself (and its idleness) remain.
+    expect(next.workspaces[0].panes[0]).toEqual({
+      id: "pane-1",
+      idle: { reason: "restored" },
+    });
     expect(
       deckReducer(start, {
         type: "resetPaneLocation",
@@ -423,7 +468,7 @@ describe("deckReducer restore actions ([F7])", () => {
 
   it("setPaneSession binds the resume key and no-ops on a same-id rebind", () => {
     const session = { id: "s-1", boundAt: "2026-07-02T00:00:00Z" };
-    const start = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     const bound = deckReducer(start, {
       type: "setPaneSession",
       wsId: "ws-1",
@@ -439,7 +484,7 @@ describe("deckReducer restore actions ([F7])", () => {
 
   it("setPaneSession(null) drops a dead binding; clearing a clear pane no-ops", () => {
     const session = { id: "ghost", boundAt: "2026-07-02T00:00:00Z" };
-    const start = state({ workspaces: [dormantWs], activeId: "ws-1" });
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     const bound = deckReducer(start, {
       type: "setPaneSession",
       wsId: "ws-1",
@@ -465,7 +510,7 @@ describe("resetPaneLocation", () => {
     panes: [
       {
         id: "pane-1",
-        dormant: true,
+        idle: { reason: "restored" },
         cwd: "/repo/wt",
         branch: "kd/ws/1",
         session: { id: "s1", boundAt: "2026-07-07T00:00:00Z" },
@@ -480,7 +525,10 @@ describe("resetPaneLocation", () => {
       wsId: "ws-1",
       paneId: "pane-1",
     });
-    expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1", dormant: true });
+    expect(next.workspaces[0].panes[0]).toEqual({
+      id: "pane-1",
+      idle: { reason: "restored" },
+    });
   });
 });
 

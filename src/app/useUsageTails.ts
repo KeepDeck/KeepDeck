@@ -87,7 +87,7 @@ export function useUsageTails(
   const armRecordedTails = () => {
     for (const ws of deckRef.current.workspaces) {
       for (const pane of ws.panes) {
-        if (pane.dormant || pane.provisioning) continue;
+        if (pane.idle || pane.provisioning) continue;
         const sessionId = pane.session?.id;
         if (!sessionId || tailedRef.current.has(pane.id)) continue;
         if (usageByAgentRef.current.get(paneAgentType(pane))?.tail !== "codex") {

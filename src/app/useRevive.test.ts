@@ -78,7 +78,7 @@ function Probe() {
   return null;
 }
 
-/** A deck with one dormant claude pane; `pane` overrides fields. */
+/** A deck with one idle (restored) claude pane; `pane` overrides fields. */
 const restored = (pane: object): DeckState => ({
   workspaces: [
     {
@@ -87,7 +87,9 @@ const restored = (pane: object): DeckState => ({
       name: "ws",
       cwd: "/repo",
       worktreeBaseDir: null,
-      panes: [{ id: "pane-1", agentType: "claude", dormant: true, ...pane }],
+      panes: [
+        { id: "pane-1", agentType: "claude", idle: { reason: "restored" }, ...pane },
+      ],
     },
   ],
   activeId: "ws-1",
@@ -131,7 +133,7 @@ describe("useRevive — session policy", () => {
     act(() => deck.hydrate(restored({ session: { id: "old", boundAt: "t" } })));
     await settle();
 
-    expect(pane().dormant).toBeUndefined();
+    expect(pane().idle).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "old"]);
     expect(pane().session).toEqual({ id: "old", boundAt: "t" }); // kept
     expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
@@ -163,7 +165,7 @@ describe("useRevive — session policy", () => {
     act(() => deck.hydrate(restored({ agentType: "codex", cwd: "/repo" })));
     await settle();
 
-    expect(pane().dormant).toBeUndefined();
+    expect(pane().idle).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
   });
 
@@ -185,13 +187,13 @@ describe("useRevive — session policy", () => {
     );
     await settle();
 
-    expect(pane().dormant).toBeUndefined(); // woken
+    expect(pane().idle).toBeUndefined(); // woken
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh, not resumed
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
     expect(ipc.probeWorktree).not.toHaveBeenCalled(); // no local dir to probe
   });
 
-  it("an agent no plugin provides stays dormant — and KEEPS its binding", async () => {
+  it("an agent no plugin provides stays idle — and KEEPS its binding", async () => {
     // Waking would spawn the bare id as a command; the binding may resume
     // perfectly once the plugin is re-enabled. No wake, no probe.
     act(() =>
@@ -201,7 +203,7 @@ describe("useRevive — session policy", () => {
     );
     await settle();
 
-    expect(pane().dormant).toBe(true);
+    expect(pane().idle).toEqual({ reason: "restored" });
     expect(ipc.probeWorktree).not.toHaveBeenCalled();
     expect(pane().session).toEqual({ id: "old", boundAt: "t" });
   });
@@ -214,7 +216,7 @@ describe("useRevive — session policy", () => {
     act(() => deck.hydrate(restored({})));
     await settle();
 
-    expect(pane().dormant).toBe(true);
+    expect(pane().idle).toEqual({ reason: "restored" });
     expect(ipc.probeWorktree).not.toHaveBeenCalled();
   });
 
@@ -228,7 +230,7 @@ describe("useRevive — session policy", () => {
     act(() => deck.hydrate(restored({ cwd: "/repo/wt-gone" })));
     await settle();
 
-    expect(pane().dormant).toBe(true);
+    expect(pane().idle).toEqual({ reason: "restored" });
     expect(revive.blocked["pane-1"]).toBe("/repo/wt-gone");
   });
 
