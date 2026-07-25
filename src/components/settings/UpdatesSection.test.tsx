@@ -183,6 +183,49 @@ describe("UpdatesSection", () => {
     );
   });
 
+  it("keeps the changelog visible while the update downloads", async () => {
+    // Regression: the changelog used to be gated on `available`/`ready` only,
+    // so switching to `downloading` hid the notes the user was reading.
+    mockInfo.mockResolvedValue({ name: "KeepDeck", version: "0.13.0", updater: true });
+    mockCheck.mockResolvedValue({
+      ...fakeUpdate("1.2.0"),
+      changelog: [{ version: "1.2.0", notes: "release notes" }],
+    });
+
+    let releaseDownload!: () => void;
+    const stalledDownloads = {
+      start: vi.fn((request: { id: string }) => ({
+        async *[Symbol.asyncIterator]() {
+          yield {
+            id: request.id,
+            phase: "downloading" as const,
+            received: 40,
+            total: 100,
+          };
+          await new Promise<void>((resolve) => (releaseDownload = resolve));
+          yield {
+            id: request.id,
+            phase: "completed" as const,
+            received: 100,
+            total: 100,
+          };
+        },
+      })),
+      cancel: vi.fn(async () => {}),
+    };
+
+    await initUpdates(stalledDownloads);
+    await render();
+    expect(host.querySelector(".settings__changelog")).not.toBeNull();
+
+    await act(async () => button("Download update").click());
+    expect(host.querySelector(".settings__changelog")).not.toBeNull();
+    expect(hints()).toContain("Downloading 1.2.0");
+
+    releaseDownload();
+    await act(async () => {});
+  });
+
   it("hides the changelog once the update is dismissed", async () => {
     mockInfo.mockResolvedValue({ name: "KeepDeck", version: "0.13.0", updater: true });
     mockCheck.mockResolvedValue({

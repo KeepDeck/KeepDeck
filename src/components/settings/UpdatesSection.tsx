@@ -43,6 +43,23 @@ function describeState(state: UpdateState): string {
   }
 }
 
+/** Whether a found update is in play — its changelog stays meaningful from
+ * discovery through every action (download, install, discard) until Dismiss
+ * clears it back to `idle`. Gating the changelog on this keeps the release
+ * notes visible while bytes move, not just while the user is idle on them. */
+function isFoundUpdate(state: UpdateState): boolean {
+  switch (state.phase) {
+    case "available":
+    case "downloading":
+    case "ready":
+    case "discarding":
+    case "installing":
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** The action buttons for each phase. Every transition is an explicit click:
  * check finds, Download fetches, Restart installs — and Dismiss backs out. */
 function actions(state: UpdateState) {
@@ -159,9 +176,7 @@ export function UpdatesSection() {
       </div>
       <span className="settings__hint">{describeState(update)}</span>
 
-      {(update.phase === "available" || update.phase === "ready") && (
-        <UpdateChangelog entries={update.changelog} />
-      )}
+      {isFoundUpdate(update) && <UpdateChangelog entries={update.changelog} />}
     </>
   );
 }
