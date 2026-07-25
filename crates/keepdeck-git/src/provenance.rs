@@ -143,10 +143,21 @@ fn is_created_here(
     entries: &[ReflogEntry],
     initial: Option<&str>,
     branch: &str,
-    creation_ts: u64,
+    creation: (u64, &str),
 ) -> bool {
-    let born_with_worktree =
-        initial == Some(branch) && entries.last().is_some_and(|birth| birth.ts == creation_ts);
+    let (creation_ts, creation_sha) = creation;
+    // `git worktree add -b` writes the branch ref and the worktree's HEAD as
+    // two ref updates. Each stamps its own whole second, so a create that
+    // straddles a tick leaves them one apart — and equality alone then denies
+    // a branch its own birth. The commit closes that gap: both updates name
+    // the sha the worktree was created at, so a one-tick tolerance costs
+    // nothing an attached pre-existing branch could exploit (it would have to
+    // have been created within a second of this worktree AND at exactly the
+    // same commit, which is the create-for-this-worktree case itself).
+    let born_with_worktree = initial == Some(branch)
+        && entries.last().is_some_and(|birth| {
+            birth.new_sha == creation_sha && birth.ts.abs_diff(creation_ts) <= 1
+        });
     born_with_worktree
         || entries.iter().enumerate().any(|(i, e)| {
             e.ts == creation_ts
@@ -189,11 +200,11 @@ fn reflog(dir: &Path, reference: &str) -> Result<Vec<ReflogEntry>, GitError> {
 /// ([`trusted_creation`]; an expired reflog whose tail was cut is no evidence
 /// either). `None` when the reflog is gone entirely; every case collapses to
 /// "cannot attribute" — an answer, not an error.
-fn creation_ts(repo_path: &Path, branch: &str) -> Result<Option<u64>, GitError> {
+fn creation_stamp(repo_path: &Path, branch: &str) -> Result<Option<(u64, String)>, GitError> {
     Ok(reflog(repo_path, branch)?
         .last()
         .filter(|e| trusted_creation(&e.message))
-        .map(|e| e.ts))
+        .map(|e| (e.ts, e.new_sha.clone())))
 }
 
 /// The worktree's HEAD reflog plus the fallback branch for [`initial_branch`],
@@ -333,10 +344,10 @@ pub fn created_branches(repo_path: &Path, worktree: &Path) -> Result<Vec<String>
         if !wanted.contains(branch.as_str()) {
             continue;
         }
-        let Some(ts) = creation_ts(repo_path, &branch)? else {
+        let Some((ts, sha)) = creation_stamp(repo_path, &branch)? else {
             continue;
         };
-        if is_created_here(&head_log, initial, &branch, ts) {
+        if is_created_here(&head_log, initial, &branch, (ts, &sha)) {
             created.push(branch);
         }
     }
@@ -404,21 +415,43 @@ mod tests {
     #[test]
     fn the_birth_branch_matches_only_with_the_birth_timestamp() {
         let log = head_log();
-        assert!(is_created_here(&log, Some("born"), "born", 100));
-        // Same name, wrong second — an attached pre-existing branch.
-        assert!(!is_created_here(&log, Some("born"), "born", 99));
+        assert!(is_created_here(&log, Some("born"), "born", (100, "A")));
+        // Same name, a second off AND a different creation commit — an
+        // attached pre-existing branch that happens to sit next door in time.
+        assert!(!is_created_here(&log, Some("born"), "born", (99, "Z")));
         // Same second, different branch — the neighbour-worktree collision.
-        assert!(!is_created_here(&log, Some("born"), "elsewhere", 100));
+        assert!(!is_created_here(&log, Some("born"), "elsewhere", (100, "A")));
+    }
+
+    #[test]
+    fn the_birth_branch_survives_a_create_that_straddles_a_second() {
+        // `git worktree add -b` writes the branch ref and HEAD as two ref
+        // updates, each stamping whole seconds of its own. Under load the two
+        // land on opposite sides of a tick — observed as exactly +1 — and an
+        // equality test then refuses to attribute a branch this very worktree
+        // was born on. The commit is what pins identity across the tick: both
+        // updates name the sha the worktree was created at.
+        let log = head_log();
+        assert!(is_created_here(&log, Some("born"), "born", (99, "A")));
+        // The tolerance is one tick and no more, and it does not survive a
+        // different commit: a branch created two seconds earlier, or at
+        // another sha, was not born with this worktree.
+        assert!(!is_created_here(&log, Some("born"), "born", (98, "A")));
+        assert!(!is_created_here(&log, Some("born"), "born", (99, "B")));
     }
 
     #[test]
     fn a_checkout_target_matches_only_as_a_timestamp_name_pair() {
         let log = head_log();
-        assert!(is_created_here(&log, Some("born"), "inside", 200));
+        assert!(is_created_here(&log, Some("born"), "inside", (200, "A")));
         // `git branch` in the same second as a switch: name pairing rejects it.
-        assert!(!is_created_here(&log, Some("born"), "no-checkout", 200));
+        assert!(!is_created_here(&log, Some("born"), "no-checkout", (200, "A")));
         // Switched TO at 300, but created earlier elsewhere.
-        assert!(!is_created_here(&log, Some("born"), "other", 250));
+        assert!(!is_created_here(&log, Some("born"), "other", (250, "B")));
+        // A checkout target keeps the exact-second rule: only the BIRTH entry
+        // is written by the same command as the branch ref, so only it can
+        // straddle a tick with it.
+        assert!(!is_created_here(&log, Some("born"), "inside", (199, "A")));
     }
 
     #[test]
@@ -427,7 +460,7 @@ mod tests {
         // `other` was visited at 300 moving A→B: even if its creation second
         // coincided (a trusted-source bystander, `git branch other HEAD`), the
         // old/new disagreement proves the checkout didn't create it.
-        assert!(!is_created_here(&log, Some("born"), "other", 300));
+        assert!(!is_created_here(&log, Some("born"), "other", (300, "B")));
         // The documented residual: with COINCIDING tips the same shape passes
         // — same-second, same-commit adoption is beyond reflog evidence.
         let flat = vec![
@@ -435,7 +468,7 @@ mod tests {
             entry(200, "A", "checkout: moving from born to inside"),
             entry(100, "A", ""),
         ];
-        assert!(is_created_here(&flat, Some("born"), "other", 300));
+        assert!(is_created_here(&flat, Some("born"), "other", (300, "A")));
     }
 
     #[test]

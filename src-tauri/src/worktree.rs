@@ -969,10 +969,13 @@ mod tests {
 
         let created =
             provenance::created_branches(&repo, Path::new(&record.path)).expect("provenance");
-        assert_eq!(created, [record.branch.clone()], "birth branch not attributed");
 
+        // Swept BEFORE the assertion: a panic here would otherwise leave the
+        // repo and its worktree behind for every failing run.
         let _ = std::fs::remove_dir_all(&base_dir);
         let _ = std::fs::remove_dir_all(&repo);
+
+        assert_eq!(created, [record.branch.clone()], "birth branch not attributed");
     }
 
     #[test]
