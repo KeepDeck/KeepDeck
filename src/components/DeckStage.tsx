@@ -102,6 +102,8 @@ interface DeckStageProps {
   failedPanes: ReadonlySet<string>;
   /** Detach a blocked pane from its gone worktree and start it fresh. */
   onStartFresh(wsId: string, paneId: string): void;
+  /** Wake a suspended (or parked) pane — the idle card's own gesture. */
+  onResumeAgent(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
   onRetryProvision(wsId: string, paneId: string): void;
   /** A pane's PTY exited (the resume-failure detector lives upstream). */
@@ -168,6 +170,7 @@ export function DeckStage({
   specByPane,
   failedPanes,
   onStartFresh,
+  onResumeAgent,
   onRetryProvision,
   onAgentExited,
   onAgentSpawnFailed,
@@ -312,6 +315,9 @@ export function DeckStage({
               agents.find((a) => a.id === paneAgentType(pane))?.icon ?? null,
             gitBadge: badgeOf(pane),
             yolo: pane.yolo,
+            // `restored` is excluded: it resolves within milliseconds of the
+            // sweep reaching the pane, and marking it stopped would flicker.
+            stopped: !!pane.idle && pane.idle.reason !== "restored",
             label: `Restore ${title}`,
             onRestore: restoreById.get(pane.id)!,
           };
@@ -387,6 +393,7 @@ export function DeckStage({
               onRename={(name) => onRenamePane(ws.id, pane.id, name)}
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
               onStartFresh={() => onStartFresh(ws.id, pane.id)}
+              onResume={() => onResumeAgent(ws.id, pane.id)}
               onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
               onExited={(code) => onAgentExited(ws.id, pane.id, code)}
               onSpawnFailed={(message) =>
@@ -442,6 +449,7 @@ export function DeckStage({
                       icon={entry.icon}
                       gitBadge={entry.gitBadge}
                       yolo={entry.yolo}
+                      stopped={entry.stopped}
                       label={entry.label}
                       active={isActive}
                       onClick={entry.onRestore}

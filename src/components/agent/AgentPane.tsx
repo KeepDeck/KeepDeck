@@ -1,7 +1,10 @@
 import { useRef, useState } from "react";
 import type { AgentRestartMode } from "../../domain/agents";
 import type { PaneIdle, PaneProvisioning } from "../../domain/deck";
-import { contextLevel } from "../../domain/usage";
+// A generic "3m ago" formatter that happens to live beside the usage
+// formatters; the idle card dates itself with the same wording the usage
+// popover uses, rather than growing a second one.
+import { contextLevel, formatAge } from "../../domain/usage";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
@@ -74,6 +77,8 @@ interface AgentPaneProps {
   blockedDir?: string | null;
   /** Detach from the missing worktree and start fresh in the workspace cwd. */
   onStartFresh?(): void;
+  /** Wake a suspended (or parked) pane — the idle card's own gesture. */
+  onResume?(): void;
   /** The pane's worktree create in flight or failed — render a status card
    * instead of a terminal until it resolves (optimistic provisioning). */
   provisioning?: PaneProvisioning | null;
@@ -159,6 +164,7 @@ export function AgentPane({
   canResume,
   onRestart,
   onStartFresh,
+  onResume,
   onRetryProvision,
 }: AgentPaneProps) {
   // The live context-occupancy meter for this pane's header — moved off the
@@ -206,7 +212,11 @@ export function AgentPane({
     <section
       data-pane-id={paneId}
       tabIndex={-1}
-      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}`}
+      // A stopped pane is dimmed so a grid of six reads at a glance: which
+      // ones are actually running is otherwise only visible by looking into
+      // each body. `restored` is excluded — it lasts milliseconds, and
+      // flashing every pane dim on every launch would be noise.
+      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}${idle && idle.reason !== "restored" ? " pane--idle" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       // A folded row expands only from an EXPLICIT header click (below), never
       // from raw mousedown/focus: descendant focus bubbling would expand rows
@@ -380,9 +390,9 @@ export function AgentPane({
             </span>
           </div>
         ) : idle ? (
-          // No PTY behind it ([F7]). Normally transient (the revive sweep
-          // wakes active-workspace panes); it persists only when the pane's
-          // directory is gone.
+          // No PTY behind it ([F7]). A `restored` pane is normally transient
+          // (the revive sweep wakes active-workspace panes) and persists only
+          // when its directory is gone; the other reasons wait for the user.
           <div className="pane__dormant" role="status">
             {blockedDir ? (
               <>
@@ -400,8 +410,34 @@ export function AgentPane({
                   </button>
                 )}
               </>
-            ) : (
+            ) : idle.reason === "restored" ? (
               <span className="pane__exit-title">Waking up…</span>
+            ) : (
+              <>
+                <span className="pane__exit-title">
+                  {idle.reason === "suspended" ? "Suspended" : "Not started"}
+                </span>
+                {idle.reason === "suspended" && (
+                  <span className="pane__exit-sub">
+                    {formatAge(Date.parse(idle.at), Date.now())}
+                  </span>
+                )}
+                {/* Say what the button will actually do: an unbound pane comes
+                    back as a NEW conversation, and a card that promised to
+                    resume one would be lying about the thing that matters. */}
+                <span className="pane__exit-sub">
+                  {canResume ? "Resumes its session" : "Starts a fresh session"}
+                </span>
+                {onResume && (
+                  <button
+                    type="button"
+                    className="pane__dormant-action"
+                    onClick={onResume}
+                  >
+                    {idle.reason === "suspended" ? "Resume" : "Start"}
+                  </button>
+                )}
+              </>
             )}
           </div>
         ) : planError ? (

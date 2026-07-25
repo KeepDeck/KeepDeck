@@ -23,6 +23,7 @@ import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
+import { useSuspend } from "./app/useSuspend";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useUsageChannel } from "./app/useUsageChannel";
 import { useSettings } from "./app/useSettings";
@@ -142,6 +143,7 @@ function App() {
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
   const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);
+  const suspendFlow = useSuspend(deck);
   // Manual exited-card restart plus the separate, one-shot recovery for a
   // rejected boot resume. Both replace only runtime PTY/spec state; the pane
   // keeps its identity and layout position.
@@ -777,6 +779,7 @@ function App() {
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={revive.startFresh}
+            onResumeAgent={suspendFlow.resume}
             onRetryProvision={provisioning.retryPane}
             onAgentExited={(wsId, paneId, code) => {
               // The one-shot boot-resume recovery respawns by itself — that

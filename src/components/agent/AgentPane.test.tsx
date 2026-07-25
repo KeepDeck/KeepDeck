@@ -11,6 +11,7 @@ vi.mock("../terminal/TerminalPane", () => ({
 }));
 
 import type { NormalizedUsage } from "@keepdeck/plugin-api";
+import type { PaneIdle } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import {
   registerUsageNormalizer,
@@ -722,5 +723,129 @@ describe("AgentPane — manual restart after exit", () => {
     expect(document.querySelector("[role='alert']")?.textContent).toBe(
       "Restart failed",
     );
+  });
+});
+
+describe("AgentPane — suspended / parked card", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const action = () =>
+    document.querySelector<HTMLButtonElement>(".pane__dormant-action");
+
+  it("shows when it was suspended, what resume will do, and fires onResume", () => {
+    const onResume = vi.fn();
+    const at = new Date(Date.now() - 2 * 3600_000).toISOString();
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at } as const,
+          canResume: true,
+          onResume,
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Suspended");
+    expect(document.body.textContent).toContain("2h ago");
+    expect(document.body.textContent).toContain("Resumes its session");
+    // A suspended pane has no process — mounting a terminal would spawn one.
+    expect(TerminalPane).not.toHaveBeenCalled();
+
+    expect(action()!.textContent).toBe("Resume");
+    act(() => action()!.click());
+    expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("promises a FRESH session when the pane carries no binding", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          canResume: false,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Starts a fresh session");
+    expect(document.body.textContent).not.toContain("Resumes its session");
+  });
+
+  it("reads as never-started (not stale-dated) for a pane parked at launch", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "parked" } as const,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Not started");
+    expect(document.body.textContent).not.toContain("Suspended");
+    expect(document.body.textContent).not.toContain("ago");
+    expect(action()!.textContent).toBe("Start");
+  });
+
+  it("keeps the transient restored tile free of a resume gesture", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "restored" } as const,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    // The sweep is already waking it; a button would race that.
+    expect(document.body.textContent).toContain("Waking up…");
+    expect(action()).toBeNull();
+  });
+
+  it("dims a stopped pane but never the momentarily-restored one", () => {
+    const mountIdle = (idle: PaneIdle) =>
+      act(() =>
+        root.render(createElement(AgentPane, { ...baseProps, idle })),
+      );
+
+    mountIdle({ reason: "suspended", at: new Date().toISOString() });
+    expect(document.querySelector(".pane--idle")).not.toBeNull();
+
+    mountIdle({ reason: "restored" });
+    expect(document.querySelector(".pane--idle")).toBeNull();
+  });
+
+  it("a gone folder still wins the card — that pane needs relocating, not resuming", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          blockedDir: "/gone/worktree",
+          onStartFresh: vi.fn(),
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    expect(document.body.textContent).toContain("Folder is gone");
+    expect(document.body.textContent).not.toContain("Suspended");
   });
 });

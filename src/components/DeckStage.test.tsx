@@ -58,6 +58,7 @@ const callbacks = {
   onRenamePane: vi.fn(),
   onPaneTitle: vi.fn(),
   onStartFresh: vi.fn(),
+  onResumeAgent: vi.fn(),
   onRetryProvision: vi.fn(),
   onRetryPlanBuild: vi.fn(),
   onAgentExited: vi.fn(),
@@ -427,5 +428,77 @@ describe("DeckStage — a maximized pane minimizes the rest", () => {
     ).toBe(true);
     expect(document.querySelector(".deck__tray")).toBeNull();
     expect(document.querySelector(".deck__folds")).toBeNull();
+  });
+});
+
+describe("DeckStage — suspended agents", () => {
+  let root: Root;
+
+  const suspended = [
+    {
+      ...workspaces[0],
+      panes: [
+        {
+          ...workspaces[0].panes[0],
+          idle: { reason: "suspended" as const, at: "2026-07-25T09:00:00.000Z" },
+        },
+        workspaces[0].panes[1],
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    vi.mocked(TerminalPane).mockClear();
+    for (const callback of Object.values(callbacks)) callback.mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const render = (overrides: Record<string, unknown> = {}) =>
+    act(() => root.render(createElement(DeckStage, props(overrides))));
+
+  it("keeps the pane in place with no terminal, and resumes it from its card", () => {
+    render({ workspaces: suspended });
+
+    const pane = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
+    expect(pane.textContent).toContain("Suspended");
+    // The live sibling still runs: suspending is per pane, not per deck.
+    expect(vi.mocked(TerminalPane).mock.calls.map((c) => c[0].paneId)).toEqual([
+      "pane-2",
+    ]);
+
+    const resume = pane.querySelector<HTMLButtonElement>(".pane__dormant-action")!;
+    act(() => resume.click());
+    expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
+  });
+
+  // The strip variant renders its stand-ins directly; the tray's chips go
+  // through width measurement, which happy-dom reports as zero.
+  it("marks the stand-in of a minimized suspended agent as stopped", () => {
+    render({
+      workspaces: suspended,
+      minimizeStyle: "strip",
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
+    });
+
+    // Minimized AND stopped: the stand-in is all that's on screen, so it must
+    // not pass for a running agent.
+    const bars = document.querySelectorAll(".minimized--bar");
+    expect(bars).toHaveLength(1);
+    expect(bars[0].querySelector(".minimized__stopped")).not.toBeNull();
+  });
+
+  it("leaves a running agent's stand-in unmarked", () => {
+    render({
+      minimizeStyle: "strip",
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
+    });
+
+    const bar = document.querySelector(".minimized--bar")!;
+    expect(bar.querySelector(".minimized__stopped")).toBeNull();
   });
 });

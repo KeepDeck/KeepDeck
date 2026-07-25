@@ -162,6 +162,15 @@
   color: #e0b568;
 }
 
+/* Stopped marker: muted, not a warning — a suspended agent is a normal
+   resting state, unlike the YOLO bolt it sits beside. */
+.minimized__stopped {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: #6b7280;
+}
+
 .minimized__branch {
   max-width: 160px;
   flex: 0 1 auto;

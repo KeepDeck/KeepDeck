@@ -18,6 +18,13 @@
   display: none;
 }
 
+/* Stopped on purpose (suspended, or parked at launch): the pane keeps its
+   place and identity, so the header dims to say "nothing is running here"
+   without borrowing the error palette — this is a normal resting state. */
+.pane--idle .pane__bar {
+  opacity: 0.55;
+}
+
 /* Folded to its header (a non-expanded row in the list layout): the terminal
    body is hidden but stays mounted, so expanding it needs no re-attach. Its
    flex sizing is set by the list container. */

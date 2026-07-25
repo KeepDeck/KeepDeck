@@ -140,6 +140,19 @@ export function PlayFillIcon() {
   );
 }
 
+/** Power — stop this agent, keeping the pane (Lucide `power`, ISC). Chosen
+ * over a pause glyph deliberately: the process is ENDED and resumed through
+ * its session later, not frozen in place, and a pause bar would promise the
+ * latter. */
+export function PowerIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+      <line x1="12" y1="2" x2="12" y2="12" />
+    </svg>
+  );
+}
+
 /** Filled stop square — the running glyph's ACTION face. */
 export function StopFillIcon() {
   return (
