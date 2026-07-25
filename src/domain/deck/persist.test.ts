@@ -192,15 +192,24 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     });
   });
 
-  it("degrades a malformed stored idle marker to a plain restored pane", () => {
+  it("degrades a marker it can't read to PARKED — stopped, not started", () => {
+    // The document plainly says this pane was stopped; we just can't read how.
+    // Waking it anyway is the destructive reading of corrupt data — it spawns
+    // a process the user parked — so the pane stays down behind a card with a
+    // button, and `parked` is runtime-only so nothing bad becomes durable.
     const doc = JSON.parse(serializeDeck(state));
-    // A hand edit (or a newer revision's reason) must never strand a pane:
-    // failing toward "wake it" beats a pane that silently refuses to return.
     doc.workspaces[0].panes[0].idle = { reason: "suspended" }; // no `at`
     doc.workspaces[0].panes[1].idle = "nonsense";
     const panes = okDeck(JSON.stringify(doc)).state.workspaces[0].panes;
-    expect(panes[0].idle).toEqual({ reason: "waking", origin: "restore" });
-    expect(panes[1].idle).toEqual({ reason: "waking", origin: "restore" });
+    expect(panes[0].idle).toEqual({ reason: "parked" });
+    expect(panes[1].idle).toEqual({ reason: "parked" });
+  });
+
+  it("a pane with NO marker still wakes — absence is not corruption", () => {
+    const doc = JSON.parse(serializeDeck(state));
+    expect(okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0].idle).toEqual(
+      { reason: "waking", origin: "restore" },
+    );
   });
 
   it("rejects an unparsable timestamp — the card renders it as an age", () => {
@@ -208,7 +217,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     doc.workspaces[0].panes[0].idle = { reason: "suspended", at: "yesterday" };
     const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
     // Kept as a suspend, "yesterday" would print as "NaNd ago".
-    expect(pane.idle).toEqual({ reason: "waking", origin: "restore" });
+    expect(pane.idle).toEqual({ reason: "parked" });
   });
 
   it("DROPS a NEWER revision's idle marker instead of carrying it forward", () => {
@@ -221,7 +230,9 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     doc.workspaces[0].panes[0].idle = { reason: "frozen", until: "2026-08-01" };
     const restoredDeck = okDeck(JSON.stringify(doc));
     const pane = restoredDeck.state.workspaces[0].panes[0];
-    expect(pane.idle).toEqual({ reason: "waking", origin: "restore" });
+    // Stopped, since the newer build plainly meant it to be — but the marker
+    // itself is gone, so nothing about it survives our save.
+    expect(pane.idle).toEqual({ reason: "parked" });
     expect(pane.extras?.idle).toBeUndefined();
 
     const saved = JSON.parse(
@@ -1110,6 +1121,44 @@ describe("parkRestoredPanes", () => {
     const restored = deckWith([{ id: "pane-1", idle: { reason: "waking", origin: "restore" } }]);
     expect(serializeDeck(parkRestoredPanes(restored))).toBe(
       serializeDeck(restored),
+    );
+  });
+});
+
+describe("what reaches disk is decided by the REASON, not by the stamp", () => {
+  /** A pane mid-manual-wake: rising, but carrying the suspend's stamp. */
+  const rising: DeckState = {
+    ...state,
+    workspaces: [
+      {
+        ...state.workspaces[0],
+        panes: [
+          {
+            id: "pane-3",
+            agentType: "claude",
+            idle: {
+              reason: "waking",
+              origin: "manual",
+              at: "2026-07-25T09:00:00.000Z",
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  it("does not persist a rising pane, stamp and all", () => {
+    // The discriminator has to be the reason: keying on `at` instead would
+    // pass every other test in this file while writing a LIVE pane to disk as
+    // suspended — it is mid-wake, and the stamp is only there so a failure
+    // can put it back.
+    const saved = JSON.parse(serializeDeck(rising));
+    expect(saved.workspaces[0].panes[0].idle).toBeUndefined();
+  });
+
+  it("comes back wanting a wake, not stopped", () => {
+    expect(okDeck(serializeDeck(rising)).state.workspaces[0].panes[0].idle).toEqual(
+      { reason: "waking", origin: "restore" },
     );
   });
 });

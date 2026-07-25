@@ -136,7 +136,7 @@ export function usePersistence(deck: Deck): {
   // is a native menu role that never reaches the webview, and `beforeunload`
   // is not reliable in Tauri as a safety net.
   //
-  // Only the DURABLE idle reason counts here: `restored`/`parked`/`resuming`
+  // Only the DURABLE idle reason counts here: `waking` and `parked`
   // never reach disk, so folding them in would fire an immediate save for
   // every pane the revive sweep wakes at launch.
   const immediate = deck.workspaces

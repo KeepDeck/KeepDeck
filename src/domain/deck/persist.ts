@@ -22,7 +22,7 @@ import { MAX_PANES } from "./layout";
  * panes come back as quiet tiles and are revived (resumed or freshly spawned)
  * lazily per workspace by the app layer. The REASON survives the round trip: a
  * pane the user suspended comes back `suspended` and waits for an explicit
- * resume, everything else comes back `restored` for the revive sweep. The
+ * resume, everything else comes back waking for the revive sweep. The
  * exception is a pane whose worktree create was still in flight when the app
  * quit — it comes back NOT idle at all but with its provisioning marked failed
  * ("interrupted"), so the card offers Retry instead of the revive flow
@@ -114,7 +114,7 @@ export function serializeDeck(
           ...(p.name !== undefined && { name: p.name }),
           ...(p.autoTitle !== undefined && { autoTitle: p.autoTitle }),
           ...(p.session !== undefined && { session: p.session }),
-          // Sparse, and only the durable reason: `restored`/`parked` describe
+          // Sparse, and only the durable reason: `waking`/`parked` describe
           // a launch, so writing them would make every ordinary restart look
           // like a deliberate suspend on the NEXT one.
           ...(p.idle?.reason === "suspended" && { idle: p.idle }),
@@ -134,7 +134,7 @@ export function serializeDeck(
  * unparsable JSON, an unknown version, a malformed shape — so the caller can
  * quarantine the file and start empty instead of crashing on state.
  *
- * Panes come back idle (`suspended` where that was stored, `restored`
+ * Panes come back idle (`suspended` where that was stored, waking
  * otherwise); `activeId` is re-resolved (the persisted one may be stale);
  * focus/selection entries pointing at unknown ids are dropped.
  */
@@ -231,7 +231,7 @@ export function hydrateDeck(json: string): HydrateDeckResult {
 
 /**
  * Apply the launch policy to a freshly hydrated deck: every pane the restore
- * left `restored` becomes `parked`, so the revive sweep leaves it alone and
+ * left rising becomes `parked`, so the revive sweep leaves it alone and
  * each one starts from its own card instead of six CLIs launching at once.
  *
  * Kept out of [`hydrateDeck`] on purpose — hydration answers "what does this
@@ -402,6 +402,12 @@ function readIdle(value: unknown): PaneIdle {
   ) {
     return { reason: "suspended", at: value.at };
   }
+  // A marker we cannot make sense of: `parked`, not a wake. The pane stays
+  // down with a card and a button rather than spawning a process — for a doc
+  // that plainly meant "this pane was stopped", starting the agent anyway is
+  // the destructive reading of corrupt data, and `parked` is runtime-only, so
+  // nothing about the bad marker becomes durable.
+  if (value !== undefined) return { reason: "parked" };
   return { reason: "waking", origin: "restore" };
 }
 

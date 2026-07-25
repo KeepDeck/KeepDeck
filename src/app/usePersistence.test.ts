@@ -216,17 +216,39 @@ describe("usePersistence", () => {
     expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("suspended");
   });
 
-  it("the sweep waking a restored pane does NOT force a save", async () => {
-    // `restored`/`parked`/`resuming` never reach disk, so folding them into
-    // the immediate signature would fire one write per pane at every launch.
+  it("the sweep waking a pane rides the debounce instead of forcing a write", async () => {
+    // The earlier version of this test asserted "no save at all" and passed on
+    // the very regression it named: a non-durable marker leaves the document
+    // byte-identical, so the effect returns at the `serialized === lastSaved`
+    // guard before the immediate signature is ever consulted. Pair the wake
+    // with a change that DOES alter the document, and the two outcomes split:
+    // immediate would write now, debounced writes on the timer.
     ipc.loadDeckState.mockResolvedValue(STORED);
     await mount();
     await act(async () => vi.runOnlyPendingTimers());
     ipc.saveDeckState.mockClear();
 
-    // The pane comes back `restored`; the sweep clearing that marker is a
-    // launch event, not a durable change — it may ride the debounce.
+    act(() => {
+      deck.clearPaneIdle("ws-1", "pane-1");
+      deck.setPaneAutoTitle("ws-1", "pane-1", "fixing auth");
+    });
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+
+    await act(async () => vi.runOnlyPendingTimers());
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("idle");
+  });
+
+  it("clearing a marker alone changes nothing on disk at all", async () => {
+    // The weaker half of the pair above, kept because it pins WHY: the wake
+    // is invisible to the document, so there is nothing to write either way.
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
     act(() => deck.clearPaneIdle("ws-1", "pane-1"));
+    await act(async () => vi.runOnlyPendingTimers());
     expect(ipc.saveDeckState).not.toHaveBeenCalled();
   });
 

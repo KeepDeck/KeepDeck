@@ -129,7 +129,7 @@ function migrateDeckFromV7toV8(doc: RawDoc): RawDoc {
 }
 
 /** v8 → v9: `Pane.idle` added — additive, nothing to transform. A v8 file's
- * panes simply carry no idle marker, which hydration reads as `restored`:
+ * panes simply carry no idle marker, which hydration reads as a plain wake:
  * exactly the wake-everything behaviour v8 had. */
 function migrateDeckFromV8toV9(doc: RawDoc): RawDoc {
   return doc;
