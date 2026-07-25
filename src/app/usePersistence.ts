@@ -23,20 +23,29 @@ const SAVE_MAX_WAIT_MS = 2_000;
  * restored deck arrives.
  */
 /** The deck on disk needs a newer reader — this session runs parked. */
-export interface FrozenDeck {
-  version: number;
-  minVersion: number;
-}
+/** Why this session is parked: it starts empty and NOTHING it does may reach
+ * disk. One value rather than a boolean beside a detail record, because
+ * `frozen` gates four separate things — the deck save, the journal hydrate,
+ * the skills prune and the notice — and a park that only some of them can see
+ * is worse than no park at all: the deck survives while the journal and the
+ * staged skills are swept as orphans of a deck that was never loaded. */
+export type DeckPark =
+  /** The stored deck's compatibility floor is above this build. The file is
+   * intact and readable, just not by us; the notice can name the revision. */
+  | { kind: "newer-build"; version: number; minVersion: number }
+  /** The read itself failed. The file is probably fine and we have no idea
+   * what is in it — so there is nothing to quarantine, nothing to report but
+   * the failure, and above all nothing we may overwrite. */
+  | { kind: "unreadable" };
 
 export function usePersistence(deck: Deck): {
   restoring: boolean;
-  /** Set when the stored deck's compatibility floor is above this build:
-   * the session starts empty and NOTHING is saved — the newer file must
-   * survive us untouched. */
-  frozen: FrozenDeck | null;
+  /** Set when the stored deck may not be written: the session starts empty
+   * and NOTHING reaches disk. See [`DeckPark`] for the two reasons. */
+  frozen: DeckPark | null;
 } {
   const [restoring, setRestoring] = useState(true);
-  const [frozen, setFrozen] = useState<FrozenDeck | null>(null);
+  const [frozen, setFrozen] = useState<DeckPark | null>(null);
   // Never save before the restore attempt finished — an early save would
   // overwrite the stored deck with the initial empty state.
   const loadedRef = useRef(false);
@@ -70,7 +79,11 @@ export function usePersistence(deck: Deck): {
             `deck revision ${result.version} needs a reader ≥ ${result.minVersion} — session parked, saving disabled`,
           );
           frozenRef.current = true;
-          setFrozen({ version: result.version, minVersion: result.minVersion });
+          setFrozen({
+            kind: "newer-build",
+            version: result.version,
+            minVersion: result.minVersion,
+          });
           return;
         }
         if (result.kind === "corrupt") {
@@ -98,15 +111,21 @@ export function usePersistence(deck: Deck): {
         // The read itself failed — the backend wasn't ready, the fs said no.
         // That is NOT the same as an unusable document: the file is probably
         // intact, and we have no idea what is in it. Start empty, and park
-        // saving for the session, or the first render would flush this empty
-        // deck straight over a file holding every workspace the user has —
-        // with no quarantine copy, since nothing was ever parsed to condemn.
-        // A transient IPC hiccup at boot must not cost the deck.
+        // the session, or the first render would flush this empty deck
+        // straight over a file holding every workspace the user has — with no
+        // quarantine copy, since nothing was ever parsed to condemn.
+        //
+        // Parked through the STATE, not just the ref: the ref only stops the
+        // deck save. The journal hydrate and the skills prune read `frozen`,
+        // and against an empty-because-unread deck they delete every
+        // workspace's history and every staged skills dir — losing far more
+        // than the save this catch was written to prevent.
         log.error(
           "web:persist",
           `deck state load failed → session parked, saving disabled: ${describeError(e)}`,
         );
         frozenRef.current = true;
+        setFrozen({ kind: "unreadable" });
       })
       .finally(() => {
         if (!cancelled) {

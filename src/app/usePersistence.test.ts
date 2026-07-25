@@ -369,6 +369,12 @@ describe("usePersistence", () => {
     expect(deck.workspaces).toEqual([]);
     expect(ipc.quarantineDeckState).not.toHaveBeenCalled();
     expect(ipc.saveDeckState).not.toHaveBeenCalled();
+    // The park has to be VISIBLE, not just a ref inside this hook. `frozen`
+    // is what gates the journal hydrate and the skills prune in App — both
+    // of which would otherwise run against a deck that is empty only because
+    // the read failed, and delete a session history and a skills tree that
+    // are perfectly intact on disk.
+    expect(frozen).toEqual({ kind: "unreadable" });
 
     // And it stays parked: a later change must not reach disk either.
     act(() =>
@@ -391,7 +397,9 @@ describe("usePersistence", () => {
     );
     await mount();
 
-    expect(frozen).toEqual({ version: 99, minVersion: 99 });
+    // The two parks are told apart by `kind`: the banner names the revision
+    // for this one, and has nothing truthful to say about the other.
+    expect(frozen).toEqual({ kind: "newer-build", version: 99, minVersion: 99 });
     // Parked ≠ corrupt: the file is NOT quarantined — it must survive us.
     expect(ipc.quarantineDeckState).not.toHaveBeenCalled();
     expect(deck.workspaces).toEqual([]);

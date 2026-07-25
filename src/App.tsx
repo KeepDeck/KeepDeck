@@ -134,7 +134,7 @@ function App() {
   // freeze alongside a frozen deck (see the hook's ordering contract).
   useJournalPersistence(deck, restoring, frozen !== null);
   // Skills housekeeping: drop dead workspaces' derived skill dirs at boot
-  // and on every close. Never while restoring/frozen — an unhydrated deck
+  // and on every close. Never while restoring or parked — an unhydrated deck
   // reads as "no workspaces" and would sweep the live dirs too.
   useSkillsPrune(deck.workspaces, !restoring && !frozen);
   const [frozenAck, setFrozenAck] = useState(false);
@@ -927,16 +927,27 @@ function App() {
 
           {frozen && !frozenAck && (
             // The parked-session notice: silent no-saving would be hidden
-            // data loss — this turns it into an announced trade-off.
+            // data loss — this turns it into an announced trade-off. Both
+            // parks say the same thing about THIS session; they differ in
+            // what they can honestly say about the file.
             <ConfirmDialog
-              title="Deck from a newer KeepDeck"
+              title={
+                frozen.kind === "newer-build"
+                  ? "Deck from a newer KeepDeck"
+                  : "Couldn't read your deck"
+              }
               message={
-                `deck.json was written by a newer version of KeepDeck ` +
-                `(revision ${frozen.version}; this build reads up to revision ${DECK_STATE_VERSION}). ` +
-                `The file is left untouched.\n\n` +
+                (frozen.kind === "newer-build"
+                  ? `deck.json was written by a newer version of KeepDeck ` +
+                    `(revision ${frozen.version}; this build reads up to revision ${DECK_STATE_VERSION}). ` +
+                    `The file is left untouched.\n\n`
+                  : `deck.json could not be read, so its contents are unknown. ` +
+                    `The file is left untouched rather than overwritten.\n\n`) +
                 `This session starts empty and will not be saved — anything ` +
-                `you create here is gone on quit. Run the newer version to ` +
-                `get your workspaces back.`
+                `you create here is gone on quit. ` +
+                (frozen.kind === "newer-build"
+                  ? `Run the newer version to get your workspaces back.`
+                  : `Restart KeepDeck to try reading it again.`)
               }
               confirmLabel="OK"
               onConfirm={() => setFrozenAck(true)}
