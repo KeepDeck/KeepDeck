@@ -5,6 +5,7 @@ import {
   NEW_AGENT_EVENT,
   NEW_WORKSPACE_EVENT,
   SETTINGS_EVENT,
+  SUSPEND_AGENT_EVENT,
   TOGGLE_MAXIMIZE_EVENT,
   onMenuEvent,
 } from "../ipc/menu";
@@ -16,6 +17,8 @@ export interface MenuActions {
   newAgent(): void;
   /** File → Close Agent (⌘W); in an empty workspace closes the workspace. */
   closeAgent(): void;
+  /** File → Suspend Agent (⇧⌘W) — stops it, keeps the pane. */
+  suspendAgent(): void;
   /** View → Toggle Maximize Agent (⇧⌘M). */
   toggleMaximize(): void;
   /** Settings… (⌘,) — the app submenu on macOS, File elsewhere ([F6]). */
@@ -47,6 +50,7 @@ export function useMenuHotkeys(actions: MenuActions) {
     subscribe(NEW_WORKSPACE_EVENT, "newWorkspace");
     subscribe(NEW_AGENT_EVENT, "newAgent");
     subscribe(CLOSE_AGENT_EVENT, "closeAgent");
+    subscribe(SUSPEND_AGENT_EVENT, "suspendAgent");
     subscribe(TOGGLE_MAXIMIZE_EVENT, "toggleMaximize");
     subscribe(SETTINGS_EVENT, "openSettings");
     return () => {

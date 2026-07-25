@@ -75,6 +75,7 @@ import {
   MAX_PANES,
   maximizeHotkeyTarget,
   paneAgentType,
+  paneHotkeyTarget,
   paneOnScreen,
   pathOccupancy,
   type SpawnConfig,
@@ -252,6 +253,7 @@ function App() {
     deck,
     agents,
     requestCloseAgent: closeFlow.requestCloseAgent,
+    suspendAgent: suspendFlow.suspend,
     openSettings: (sectionId) => {
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
@@ -436,6 +438,20 @@ function App() {
         closeFlow.requestCloseWorkspace(target.wsId);
       else
         closeFlow.requestCloseAgent(target.wsId, target.paneId, target.label);
+    },
+    suspendAgent: () => {
+      if (modalOpen) return;
+      const target = paneHotkeyTarget(
+        deck.workspaces,
+        deck.activeId,
+        deck.viewByWs,
+        agents,
+        minimizeOn,
+      );
+      // No confirmation, unlike ⌘W: suspending is reversible, and a modal per
+      // parked agent would make the cheap gesture expensive. The hook itself
+      // refuses a pane that can't be suspended.
+      if (target) void suspendFlow.suspend(target.wsId, target.paneId);
     },
     toggleMaximize: () => {
       if (modalOpen) return;

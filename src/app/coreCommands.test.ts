@@ -83,16 +83,28 @@ function setup(workspaces: Workspace[]) {
   const registry = createCommandRegistry();
   const deck = fakeDeck(workspaces);
   const requestCloseAgent = vi.fn();
+  const suspendAgent = vi.fn<(wsId: string, paneId: string) => Promise<void>>(
+    () => Promise.resolve(),
+  );
   const openSettings = vi.fn();
   const openUsage = vi.fn();
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
     requestCloseAgent,
+    suspendAgent,
     openSettings,
     openUsage,
   });
-  return { registry, deck, requestCloseAgent, openSettings, openUsage, dispose };
+  return {
+    registry,
+    deck,
+    requestCloseAgent,
+    suspendAgent,
+    openSettings,
+    openUsage,
+    dispose,
+  };
 }
 
 beforeEach(() => {
@@ -309,6 +321,33 @@ describe("agent.focus / agent.close / pane.write", () => {
     const { registry } = setup([twoPanes()]);
     const info = registry.list().find((c) => c.id === "agent.close");
     expect(info?.destructive).toBe(true);
+  });
+
+  it("suspends the addressed pane without the confirm dialog", async () => {
+    const { registry, suspendAgent, requestCloseAgent } = setup([twoPanes()]);
+    const result = await registry.execute("agent.suspend", { agent: "reviewer" }, HOST);
+    expect(result).toEqual({
+      ok: true,
+      value: { workspaceId: "ws-1", paneId: "p2" },
+    });
+    expect(suspendAgent).toHaveBeenCalledWith("ws-1", "p2");
+    // Nothing is destroyed, so it does not borrow the close flow's gate.
+    expect(requestCloseAgent).not.toHaveBeenCalled();
+    const info = registry.list().find((c) => c.id === "agent.suspend");
+    expect(info?.destructive).toBeFalsy();
+  });
+
+  it("refuses to suspend a pane that cannot be suspended", async () => {
+    const { registry, suspendAgent } = setup([
+      workspace({
+        panes: [
+          { id: "p1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
+        ],
+      }),
+    ]);
+    const result = await registry.execute("agent.suspend", {}, HOST);
+    expect(result.ok).toBe(false);
+    expect(suspendAgent).not.toHaveBeenCalled();
   });
 
   it("pastes text into the addressed pane; submit sends Enter as a separate raw write", async () => {

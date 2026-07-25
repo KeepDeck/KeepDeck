@@ -14,6 +14,7 @@ import {
   findWorkspaceByRef,
   firstFreeWorktree,
   paneAgentType,
+  paneCanSuspend,
   paneDisplayTitle,
   paneId,
   type Pane,
@@ -40,6 +41,8 @@ export interface CoreCommandDeps {
   /** Open the close-confirm flow — voice/MCP closes go through the same
    * dialog as ⌘W, so the destructive step keeps its human confirmation. */
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
+  /** Stop an agent, keeping its pane — the same flow as ⇧⌘W. */
+  suspendAgent(wsId: string, paneId: string): Promise<void> | void;
   /** Open the settings dialog; `sectionId` lands it on a specific section
    * (a plugin's `plugin:<id>`), null on the first. */
   openSettings(sectionId: string | null): void;
@@ -335,6 +338,39 @@ export function registerCoreCommands(
     }),
 
     registry.register({
+      id: "agent.suspend",
+      title: "Suspend an agent pane (stops it, keeps the pane)",
+      args: [
+        {
+          name: "agent",
+          type: "string",
+          description: "Agent pane title, name, or id; the selected one when omitted",
+        },
+        {
+          name: "workspace",
+          type: "string",
+          description: "Workspace name or id; the active one when omitted",
+        },
+      ],
+      // Not destructive, and so not behind the confirm dialog `agent.close`
+      // uses: the pane, its worktree and its session all survive, and the
+      // agent comes back with a resume.
+      run: async (args) => {
+        const deck = deps.deck();
+        const agents = deps.agents();
+        const ws = targetWorkspace(deck, str(args, "workspace"));
+        const pane = targetPane(deck, agents, ws, str(args, "agent"));
+        if (!paneCanSuspend(pane)) {
+          throw new Error(
+            `${paneDisplayTitle(pane, ws.panes.indexOf(pane), agents)} cannot be suspended`,
+          );
+        }
+        await deps.suspendAgent(ws.id, pane.id);
+        return { workspaceId: ws.id, paneId: pane.id };
+      },
+    }),
+
+    registry.register({
       id: "pane.write",
       title: "Send text into an agent pane",
       args: [
@@ -441,6 +477,7 @@ export function useCoreCommands(deps: {
   deck: Deck;
   agents: AgentInfo[];
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
+  suspendAgent(wsId: string, paneId: string): Promise<void> | void;
   openSettings(sectionId: string | null): void;
   openUsage(): void;
 }): void {
@@ -453,6 +490,8 @@ export function useCoreCommands(deps: {
         agents: () => ref.current.agents,
         requestCloseAgent: (wsId, paneIdToClose, label) =>
           ref.current.requestCloseAgent(wsId, paneIdToClose, label),
+        suspendAgent: (wsId, paneIdToSuspend) =>
+          ref.current.suspendAgent(wsId, paneIdToSuspend),
         openSettings: (sectionId) => ref.current.openSettings(sectionId),
         openUsage: () => ref.current.openUsage(),
       }),
