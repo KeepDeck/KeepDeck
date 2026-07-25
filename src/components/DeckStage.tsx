@@ -11,7 +11,7 @@ import {
   paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
-  paneIsStopped,
+  idleReadsAsStopped,
   paneResumeSessionId,
   partitionPanes,
   resolveFocus,
@@ -107,8 +107,6 @@ interface DeckStageProps {
   failedPanes: ReadonlySet<string>;
   /** Detach a blocked pane from its gone worktree and start it fresh. */
   onStartFresh(wsId: string, paneId: string): void;
-  /** Probe a blocked pane's directory again, keeping its session. */
-  onRetryBlocked(wsId: string, paneId: string): void;
   /** Wake a suspended (or parked) pane — the idle card's own gesture. */
   onResumeAgent(wsId: string, paneId: string): void;
   /** Re-issue a failed pane's worktree create (the failed card's Retry). */
@@ -178,7 +176,6 @@ export function DeckStage({
   specByPane,
   failedPanes,
   onStartFresh,
-  onRetryBlocked,
   onResumeAgent,
   onRetryProvision,
   onAgentExited,
@@ -320,7 +317,7 @@ export function DeckStage({
         const stoppedById = new Map(
           ws.panes.map((pane) => [
             pane.id,
-            paneIsStopped(pane) || !!idleBlocked[pane.id],
+            idleReadsAsStopped(pane.idle, !!idleBlocked[pane.id]),
           ]),
         );
         // Pane order, so an explicit minimize and a maximize-hidden pane sit
@@ -400,10 +397,6 @@ export function DeckStage({
               selected={pane.id === selectedPaneId}
               solo={layout.solo}
               idle={pane.idle}
-              // One rule, computed once: the tray's marker above reads the
-              // same boolean, so the grid and the tray cannot disagree about
-              // which agents are stopped.
-              stopped={stoppedById.get(pane.id) ?? false}
               wakeError={wakeFailed[pane.id] ?? null}
               blockedDir={idleBlocked[pane.id] ?? null}
               provisioning={pane.provisioning}
@@ -416,7 +409,7 @@ export function DeckStage({
               onRename={(name) => onRenamePane(ws.id, pane.id, name)}
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
               onStartFresh={() => onStartFresh(ws.id, pane.id)}
-              onRetryBlocked={() => onRetryBlocked(ws.id, pane.id)}
+              onRetryBlocked={() => onResumeAgent(ws.id, pane.id)}
               onResume={() => onResumeAgent(ws.id, pane.id)}
               onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
               onExited={(code) => onAgentExited(ws.id, pane.id, code)}

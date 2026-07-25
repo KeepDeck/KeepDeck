@@ -399,18 +399,15 @@ describe("deckReducer restore actions ([F7])", () => {
     });
   });
 
-  it("suspendPane is a no-op (same ref) for an already-idle or unknown pane", () => {
+  it("suspendPane is a no-op (same ref) for an unknown pane", () => {
     const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     const at = "2026-07-25T10:00:00.000Z";
-    expect(
-      deckReducer(start, { type: "suspendPane", wsId: "ws-1", paneId: "pane-1", at }),
-    ).toBe(start);
     expect(
       deckReducer(start, { type: "suspendPane", wsId: "ws-1", paneId: "nope", at }),
     ).toBe(start);
   });
 
-  it("wakePane hands a suspended pane to the sweep, marked as the user's doing", () => {
+  it("requestPaneWake hands a suspended pane to the sweep, marked as the user's doing", () => {
     const suspended = deckReducer(
       state({ workspaces: [idleWs], activeId: "ws-1" }),
       {
@@ -438,17 +435,78 @@ describe("deckReducer restore actions ([F7])", () => {
     });
   });
 
-  it("wakePane is a no-op (same ref) for a live pane, one already rising, or an unknown id", () => {
+  it("requestPaneWake is a no-op (same ref) for a live pane or an unknown id", () => {
     const start = state({ workspaces: [idleWs], activeId: "ws-1" });
-    // pane-1 is `restored` (already on its way up), pane-2 is live.
-    expect(
-      deckReducer(start, { type: "requestPaneWake", wsId: "ws-1", paneId: "pane-1" }),
-    ).toBe(start);
+    // pane-2 is live; pane-1 is rising for the sweep's own reasons, which the
+    // request UPGRADES rather than ignores (see the workspaces tests).
     expect(
       deckReducer(start, { type: "requestPaneWake", wsId: "ws-1", paneId: "pane-2" }),
     ).toBe(start);
     expect(
       deckReducer(start, { type: "requestPaneWake", wsId: "ws-1", paneId: "nope" }),
+    ).toBe(start);
+  });
+
+  it("failPaneWake puts a failed wake back where it came from", () => {
+    // The action carries no timestamp: the marker the wake was carrying is the
+    // only truthful stamp. A pane that was suspended goes back to suspended
+    // WITH ITS ORIGINAL TIME (a restamp would silently reset the age line), and
+    // one that only ever came off disk goes back to parked.
+    const suspended = deckReducer(
+      state({ workspaces: [idleWs], activeId: "ws-1" }),
+      {
+        type: "suspendPane",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        at: "2026-07-25T10:00:00.000Z",
+      },
+    );
+    const waking = deckReducer(suspended, {
+      type: "requestPaneWake",
+      wsId: "ws-1",
+      paneId: "pane-2",
+    });
+    const failed = deckReducer(waking, {
+      type: "failPaneWake",
+      wsId: "ws-1",
+      paneId: "pane-2",
+    });
+
+    expect(failed.workspaces[0].panes[1].idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T10:00:00.000Z",
+    });
+    // pane-1 came off disk carrying no stamp, so an asked-for wake that fails
+    // has no suspend to return it to: it goes back to the runtime-only
+    // `parked`. Forging a `suspended` there would make a decision the user
+    // never took, and make it durable.
+    const asked = deckReducer(failed, {
+      type: "requestPaneWake",
+      wsId: "ws-1",
+      paneId: "pane-1",
+    });
+    expect(
+      deckReducer(asked, { type: "failPaneWake", wsId: "ws-1", paneId: "pane-1" })
+        .workspaces[0].panes[0].idle,
+    ).toEqual({ reason: "parked" });
+  });
+
+  it("failPaneWake leaves a live pane, an unknown id, and a BOOT wake alone", () => {
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
+    expect(
+      deckReducer(start, { type: "failPaneWake", wsId: "ws-1", paneId: "pane-2" }),
+    ).toBe(start);
+    expect(
+      deckReducer(start, { type: "failPaneWake", wsId: "ws-1", paneId: "nope" }),
+    ).toBe(start);
+    expect(
+      deckReducer(start, { type: "failPaneWake", wsId: "nope", paneId: "pane-1" }),
+    ).toBe(start);
+    // pane-1 is rising for the SWEEP's reasons: nobody is watching that wake,
+    // so it takes the documented fresh-start degradation instead of dropping
+    // back down and leaving a stopped card the user never asked for.
+    expect(
+      deckReducer(start, { type: "failPaneWake", wsId: "ws-1", paneId: "pane-1" }),
     ).toBe(start);
   });
 

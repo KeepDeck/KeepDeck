@@ -11,12 +11,11 @@ import { useLiveRefs } from "./useLiveRefs";
  * makes it resumable — its place in the deck, its name, its worktree and its
  * session binding. The mirror of closing, which takes all of that away.
  *
- * Resuming is deliberately NOT a second wake path: it hands the pane back to
- * the revive sweep, so the directory probe, the resume-plan build and the wake
- * itself are the exact code that restores panes after a restart — one
- * implementation, one set of edge cases. The marker records that a HUMAN
- * asked, which is what stops a rejected session id from quietly becoming a
- * different conversation.
+ * Resuming lives in `useRevive`, not here: it hands the pane back to the
+ * revive sweep, which owns the directory probe, the resume-plan build and the
+ * verdicts a failed attempt leaves behind. Splitting the gesture from the
+ * machinery that carries it out is what let "ask for a pane back" drift into
+ * three call sites with different behaviour.
  */
 /** What a suspend request did. Not a boolean: three surfaces have to explain a
  * refusal, and each one guessing produced a different sentence — one of them
@@ -55,8 +54,6 @@ export interface SuspendApi {
    * reports what happened: a caller that announces success regardless would
    * be lying to whoever asked. */
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
-  /** Wake a suspended (or parked) pane — the card's resume gesture. */
-  resume(wsId: string, paneId: string): void;
 }
 
 export function useSuspend(deck: Deck): SuspendApi {
@@ -98,9 +95,5 @@ export function useSuspend(deck: Deck): SuspendApi {
     }
   };
 
-  const resume = (wsId: string, paneId: string) => {
-    deckRef.current.requestPaneWake(wsId, paneId);
-  };
-
-  return { suspend, resume };
+  return { suspend };
 }

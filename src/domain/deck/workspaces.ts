@@ -10,10 +10,10 @@ import type {
 } from "../workspaceInstance";
 import {
   appendPane,
-  idleWakesAutomatically,
   paneCanSuspend,
   removePane,
   type Pane,
+  type PaneIdle,
   type PaneSession,
 } from "./panes";
 
@@ -289,7 +289,10 @@ export function clearPaneIdle(
   paneId: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane?.idle) return workspaces;
+  // Only a pane still RISING is finished here. A suspend can land while the
+  // sweep is mid-probe; clearing then would spawn the process the user just
+  // stopped, so the late arrival simply finds nothing left to finish.
+  if (pane?.idle?.reason !== "waking") return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => {
       if (p.id !== paneId) return p;
@@ -317,8 +320,17 @@ export function requestPaneWake(
   paneId: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane?.idle || idleWakesAutomatically(pane.idle)) return workspaces;
-  const at = pane.idle.reason === "suspended" ? pane.idle.at : undefined;
+  // A pane already rising for the SWEEP's own reasons is upgraded rather than
+  // left alone: "a human asked" is new information even mid-wake, and it is
+  // the only thing standing between a rejected session id and a silent new
+  // conversation. Only a pane that is live, unknown, or already rising *by
+  // request* has nothing to learn from this.
+  if (!pane?.idle || (pane.idle.reason === "waking" && pane.idle.origin === "manual")) {
+    return workspaces;
+  }
+  // The suspend's stamp rides along so a wake that fails can put the pane
+  // back exactly where it was; a parked pane has none to carry.
+  const at = pane.idle.reason === "parked" ? undefined : pane.idle.at;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) =>
       p.id === paneId
@@ -333,26 +345,28 @@ export function requestPaneWake(
  * reversed: a boot restore that can't build a resume plan takes the documented
  * fresh-start degradation, because nobody is watching it.
  *
- * The pane returns to `suspended` carrying the stamp it went up with, so its
- * card reads exactly as it did before the failed attempt; a pane that was
- * merely parked gets `at` instead, since it has no earlier stamp to restore.
+ * The pane returns to the state it rose FROM, which the carried stamp tells
+ * apart: a stamp means it was suspended and gets that stamp back, so its card
+ * reads exactly as before; no stamp means it was never a user decision —
+ * parked at launch, or restored and then asked for — and it goes back to
+ * `parked`, which is runtime-only. Writing `suspended` there would forge a
+ * decision the user never made AND make it durable, so turning the launch
+ * policy off could never bring that pane back.
  *
  * Returns the SAME array unless the pane really is mid-manual-wake. */
 export function failPaneWake(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
-  at: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
   if (pane?.idle?.reason !== "waking" || pane.idle.origin !== "manual") {
     return workspaces;
   }
-  const stamp = pane.idle.at ?? at;
+  const at = pane.idle.at;
+  const idle: PaneIdle = at ? { reason: "suspended", at } : { reason: "parked" };
   return mapWorkspace(workspaces, workspaceId, (panes) =>
-    panes.map((p) =>
-      p.id === paneId ? { ...p, idle: { reason: "suspended", at: stamp } } : p,
-    ),
+    panes.map((p) => (p.id === paneId ? { ...p, idle } : p)),
   );
 }
 

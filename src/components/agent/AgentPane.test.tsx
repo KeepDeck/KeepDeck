@@ -778,7 +778,6 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at } as const,
-          stopped: true,
           resumeSessionId: "sess-abc",
           onResume,
         }),
@@ -803,7 +802,6 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
-          stopped: true,
           resumeSessionId: id,
           onResume: vi.fn(),
         }),
@@ -827,7 +825,6 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "parked" } as const,
-          stopped: true,
           resumeSessionId: "sess-abc",
           onResume: vi.fn(),
         }),
@@ -844,7 +841,6 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
-          stopped: true,
           resumeSessionId: null,
           onResume: vi.fn(),
         }),
@@ -862,7 +858,6 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "parked" } as const,
-          stopped: true,
           onResume: vi.fn(),
         }),
       ),
@@ -902,7 +897,6 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "parked" } as const,
-          stopped: true,
           resumeSessionId: "sess-abc",
           onResume,
         }),
@@ -914,19 +908,26 @@ describe("AgentPane — suspended / parked card", () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
-  it("dims exactly what the deck calls stopped", () => {
-    // The rule itself lives in the deck now (one computation feeds this tile
-    // AND the tray's marker); the pane's job is only to honour it.
-    const mountIdle = (idle: PaneIdle, stopped: boolean) =>
+  it("dims a pane that is staying down, never one on its way up", () => {
+    const mountIdle = (idle: PaneIdle, blockedDir?: string) =>
       act(() =>
-        root.render(createElement(AgentPane, { ...baseProps, idle, stopped })),
+        root.render(
+          createElement(AgentPane, { ...baseProps, idle, blockedDir }),
+        ),
       );
 
-    mountIdle({ reason: "suspended", at: new Date().toISOString() }, true);
+    mountIdle({ reason: "suspended", at: new Date().toISOString() });
     expect(document.querySelector(".pane--idle")).not.toBeNull();
 
-    mountIdle({ reason: "waking", origin: "restore" }, false);
+    mountIdle({ reason: "parked" });
+    expect(document.querySelector(".pane--idle")).not.toBeNull();
+
+    mountIdle({ reason: "waking", origin: "restore" });
     expect(document.querySelector(".pane--idle")).toBeNull();
+
+    // Rising, but stuck there until the folder comes back — reads as stopped.
+    mountIdle({ reason: "waking", origin: "manual" }, "/gone/worktree");
+    expect(document.querySelector(".pane--idle")).not.toBeNull();
   });
 
   it("a gone folder still wins the card — that pane needs relocating, not resuming", () => {
@@ -935,7 +936,6 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
-          stopped: true,
           blockedDir: "/gone/worktree",
           onStartFresh: vi.fn(),
           onResume: vi.fn(),
@@ -945,5 +945,94 @@ describe("AgentPane — suspended / parked card", () => {
 
     expect(document.body.textContent).toContain("Folder is gone");
     expect(document.body.textContent).not.toContain("Suspended");
+  });
+});
+
+describe("AgentPane — a refused resume explains itself", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.mocked(TerminalPane).mockClear();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("says why on the card, beside the button that will be pressed again", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          wakeError: "This agent can't prepare a resume plan.",
+          resumeSessionId: "sess-abc",
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    const note = document.querySelector(".pane__wake-error");
+    expect(note?.textContent).toBe(
+      "Couldn't resume — This agent can't prepare a resume plan.",
+    );
+    // The card is already a live region; a nested one has undefined behaviour.
+    expect(note?.getAttribute("role")).toBeNull();
+    // The gesture is still there — the note explains, it doesn't replace.
+    expect(
+      document.querySelector<HTMLButtonElement>(".pane__dormant-action")
+        ?.textContent,
+    ).toBe("Resume");
+  });
+
+  it("says nothing when there is nothing to explain", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "parked" } as const,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector(".pane__wake-error")).toBeNull();
+  });
+
+  it("offers the non-destructive way out FIRST on a blocked pane", () => {
+    const onRetryBlocked = vi.fn();
+    const onStartFresh = vi.fn();
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          blockedDir: "/gone/worktree",
+          onRetryBlocked,
+          onStartFresh,
+        }),
+      ),
+    );
+
+    const actions = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(".pane__dormant-action"),
+    );
+    // Order is the point: looking again costs nothing and keeps the session,
+    // while starting fresh throws the binding away with the folder.
+    expect(actions.map((b) => b.textContent)).toEqual([
+      "Look again",
+      "Start fresh in the workspace folder",
+    ]);
+
+    act(() => actions[0].click());
+    expect(onRetryBlocked).toHaveBeenCalledTimes(1);
+    expect(onStartFresh).not.toHaveBeenCalled();
+
+    act(() => actions[1].click());
+    expect(onStartFresh).toHaveBeenCalledTimes(1);
   });
 });

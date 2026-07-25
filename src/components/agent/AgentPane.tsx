@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentRestartMode } from "../../domain/agents";
-import type { PaneIdle, PaneProvisioning } from "../../domain/deck";
+import {
+  idleReadsAsStopped,
+  type PaneIdle,
+  type PaneProvisioning,
+} from "../../domain/deck";
 // A generic "3m ago" formatter that happens to live beside the usage
 // formatters; the idle card dates itself with the same wording the usage
 // popover uses, rather than growing a second one.
@@ -72,11 +76,6 @@ interface AgentPaneProps {
   /** The pane has no process behind it, and why ([F7]) — render a quiet tile
    * instead of mounting a terminal (mounting is what spawns the PTY). */
   idle?: PaneIdle;
-  /** The pane is idle AND nothing is bringing it back on its own. Computed by
-   * the deck (which also feeds the tray's marker from it) rather than derived
-   * here a second time: the grid and the tray must agree about which agents
-   * read as stopped, and one rule can't disagree with itself. */
-  stopped?: boolean;
   /** Why the resume the user asked for could not be prepared; the pane stayed
    * stopped and the card says so. */
   wakeError?: string | null;
@@ -159,7 +158,6 @@ export function AgentPane({
   selected,
   solo,
   idle,
-  stopped,
   wakeError,
   blockedDir,
   provisioning,
@@ -189,6 +187,9 @@ export function AgentPane({
   // changes.
   const ctxPct = usePaneContextPct(paneId);
   const canResume = !!resumeSessionId;
+  // Asked, not re-derived: the deck asks the same question about the same
+  // pane for the tray's marker, and the two must not be able to disagree.
+  const stopped = idleReadsAsStopped(idle, !!blockedDir);
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
   // A successful restart remounts the whole pane via its epoch. Until then,
@@ -213,6 +214,18 @@ export function AgentPane({
       recover();
     }
   };
+  // The suspended card dates itself, so the clock has to move even when
+  // nothing else re-renders this pane: a quiet deck would otherwise read
+  // "now" for as long as it stayed quiet. One minute is the resolution
+  // `formatAge` actually shows.
+  const [now, setNow] = useState(() => Date.now());
+  const dated = idle?.reason === "suspended";
+  useEffect(() => {
+    if (!dated) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [dated]);
   // A pane that stops keeps this component MOUNTED — suspending and resuming
   // bump no mount epoch, unlike a restart — so its runtime view state would
   // otherwise outlive the process it describes: an exited pane that is parked
@@ -418,7 +431,7 @@ export function AgentPane({
             </span>
           </div>
         ) : idle ? (
-          // No PTY behind it ([F7]). A `restored` pane is normally transient
+          // No PTY behind it ([F7]). A rising pane is normally transient
           // (the revive sweep wakes active-workspace panes) and persists only
           // when its directory is gone; the other reasons wait for the user.
           <div className="pane__dormant" role="status">
@@ -461,13 +474,15 @@ export function AgentPane({
                 </span>
                 {idle.reason === "suspended" && (
                   <span className="pane__exit-sub">
-                    {formatAge(Date.parse(idle.at), Date.now())}
+                    {formatAge(Date.parse(idle.at), now)}
                   </span>
                 )}
                 {/* A resume that was asked for and refused: say why here,
                     where the button that will be pressed again lives. */}
+                {/* No role of its own: the card around it is already a live
+                    region, and a nested one has undefined behaviour. */}
                 {wakeError && (
-                  <span className="pane__exit-sub pane__wake-error" role="alert">
+                  <span className="pane__exit-sub pane__wake-error">
                     Couldn't resume — {wakeError}
                   </span>
                 )}

@@ -5,6 +5,7 @@ import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
+import type { ResumeRequest } from "./useRevive";
 import type { SuspendOutcome } from "./useSuspend";
 import type { Deck } from "./useDeck";
 
@@ -87,7 +88,9 @@ function setup(workspaces: Workspace[]) {
   const suspendAgent = vi.fn<
     (wsId: string, paneId: string) => Promise<SuspendOutcome>
   >(() => Promise.resolve("suspended"));
-  const resumeAgent = vi.fn();
+  const resumeAgent = vi.fn<(wsId: string, paneId: string) => ResumeRequest>(
+    () => "resuming",
+  );
   const openSettings = vi.fn();
   const openUsage = vi.fn();
   const dispose = registerCoreCommands(registry, {
@@ -369,13 +372,18 @@ describe("agent.focus / agent.close / pane.write", () => {
       }),
     ]);
 
+    resumeAgent.mockReturnValueOnce("resuming");
     const ok = await registry.execute("agent.resume", { agent: "p1" }, HOST);
     expect(ok).toEqual({ ok: true, value: { workspaceId: "ws-1", paneId: "p1" } });
     expect(resumeAgent).toHaveBeenCalledWith("ws-1", "p1");
 
     // Without this inverse an automation that suspends an agent strands it.
+    // And the flow's own answer decides — reporting success for a resume that
+    // did nothing is what the sibling command was fixed for.
+    resumeAgent.mockReturnValueOnce("running");
     const already = await registry.execute("agent.resume", { agent: "live" }, HOST);
     expect(already.ok).toBe(false);
+    if (!already.ok) expect(already.error.message).toContain("already running");
   });
 
   it("pastes text into the addressed pane; submit sends Enter as a separate raw write", async () => {

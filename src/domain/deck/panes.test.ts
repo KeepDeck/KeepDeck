@@ -10,6 +10,7 @@ import {
   paneIsRemoteFresh,
   paneIsStopped,
   paneOnScreen,
+  paneSuspendBlock,
   paneResumeSessionId,
   paneWakesAutomatically,
   partitionPanes,
@@ -44,13 +45,44 @@ describe("paneCanSuspend", () => {
     );
   });
 
-  it("false for a pane that is already idle, whatever the reason", () => {
-    expect(paneCanSuspend({ id: "p", idle: { reason: "waking", origin: "restore" } })).toBe(false);
-    expect(paneCanSuspend({ id: "p", idle: { reason: "waking", origin: "manual" } })).toBe(false);
+  it("false only for a pane already STAYING down", () => {
     expect(paneCanSuspend({ id: "p", idle: { reason: "parked" } })).toBe(false);
     expect(
       paneCanSuspend({ id: "p", idle: { reason: "suspended", at: "t" } }),
     ).toBe(false);
+  });
+
+  it("true for a pane on its way up — stopping it cancels the wake", () => {
+    // Panes in a workspace the user isn't looking at stay `waking` until it is
+    // activated; refusing them made those agents impossible to park.
+    expect(
+      paneCanSuspend({ id: "p", idle: { reason: "waking", origin: "restore" } }),
+    ).toBe(true);
+    expect(
+      paneCanSuspend({ id: "p", idle: { reason: "waking", origin: "manual" } }),
+    ).toBe(true);
+  });
+
+  it("names the reason it refuses, so every surface says the same thing", () => {
+    expect(paneSuspendBlock({ id: "p" })).toBeNull();
+    expect(paneSuspendBlock({ id: "p", idle: { reason: "parked" } })).toBe("idle");
+    expect(
+      paneSuspendBlock({
+        id: "p",
+        provisioning: { repo: "/r", workspace: "w", index: 1 },
+      }),
+    ).toBe("provisioning");
+    expect(
+      paneSuspendBlock({ id: "p", remoteEndpoint: "ws://vps:4500" }),
+    ).toBe("remote");
+    // Precedence matters: it decides which sentence the user reads.
+    expect(
+      paneSuspendBlock({
+        id: "p",
+        idle: { reason: "parked" },
+        remoteEndpoint: "ws://vps:4500",
+      }),
+    ).toBe("idle");
   });
 
   it("false while a worktree create is in flight — no process to stop", () => {

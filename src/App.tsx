@@ -253,7 +253,7 @@ function App() {
     agents,
     requestCloseAgent: closeFlow.requestCloseAgent,
     suspendAgent: suspendFlow.suspend,
-    resumeAgent: suspendFlow.resume,
+    resumeAgent: revive.resume,
     openSettings: (sectionId) => {
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
@@ -412,7 +412,7 @@ function App() {
 
   // Native-menu hotkeys: ⌘N opens the new-workspace form, ⌘T the spawn dialog,
   // ⌘W asks to close the selected pane (an empty workspace: the workspace
-  // itself), ⇧⌘M toggles its maximize. A hotkey
+  // itself), ⇧⌘W stops it without asking, ⇧⌘M toggles its maximize. A hotkey
   // bypasses both button disabling and the modal overlay, so those guards are
   // mirrored here.
   useMenuHotkeys({
@@ -808,8 +808,7 @@ function App() {
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={revive.startFresh}
-            onRetryBlocked={revive.retryBlocked}
-            onResumeAgent={suspendFlow.resume}
+            onResumeAgent={revive.resume}
             onRetryProvision={provisioning.retryPane}
             onAgentExited={(wsId, paneId, code) => {
               // The one-shot boot-resume recovery respawns by itself — that
@@ -971,11 +970,18 @@ function App() {
                     // written once so the two can't drift apart. A pane that
                     // is already stopped has no session to end, and saying so
                     // would contradict the card the user is looking at.
+                    // Only a pane that OWNS a worktree is told one is going
+                    // with it; in a non-worktree workspace there is none, and
+                    // the delete checkbox below isn't rendered either.
                     (closeFlow.closingIsStopped
-                      ? "It is stopped; the pane and its worktree go with it."
+                      ? closeFlow.closing.targets.length > 0
+                        ? "It is stopped; the pane and its worktree go with it."
+                        : "It is stopped; the pane goes with it."
                       : "Its terminal session will be ended.") +
                     (closeFlow.canSuspendInstead
-                      ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
+                      ? closeFlow.closing.targets.length > 0
+                        ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
+                        : "\nSuspending stops the agent instead, keeping the pane and its session."
                       : "")
                   : closeFlow.closing.count === 0
                     ? "This workspace has no agents."

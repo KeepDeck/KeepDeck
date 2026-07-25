@@ -133,7 +133,7 @@ export type DeckAction =
   | { type: "requestPaneWake"; wsId: string; paneId: string }
   /** That wake could not be prepared — put the pane back down where it was,
    * rather than let it come up as a different conversation. */
-  | { type: "failPaneWake"; wsId: string; paneId: string; at: string }
+  | { type: "failPaneWake"; wsId: string; paneId: string }
   /** Detach a pane from a gone worktree (drops cwd/branch/session) so it can
    * start fresh in the workspace cwd ([F7] restore reconcile). */
   | { type: "resetPaneLocation"; wsId: string; paneId: string }
@@ -551,7 +551,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
     case "failPaneWake":
       return withWorkspaces(
         state,
-        failPaneWake(state.workspaces, action.wsId, action.paneId, action.at),
+        failPaneWake(state.workspaces, action.wsId, action.paneId),
       );
     case "resetPaneLocation":
       return withWorkspaces(

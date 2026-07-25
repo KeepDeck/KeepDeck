@@ -171,7 +171,11 @@ export function paneCanSuspend(pane: Pane): boolean {
 export type PaneSuspendBlock = "idle" | "provisioning" | "remote";
 
 export function paneSuspendBlock(pane: Pane): PaneSuspendBlock | null {
-  if (pane.idle) return "idle";
+  // Only a pane that is STAYING down is refused. One still rising can be
+  // stopped — that cancels the wake — and it matters: a pane in a workspace
+  // the user isn't looking at stays `waking` until that workspace is
+  // activated, so refusing every idle pane made those agents unparkable.
+  if (paneIsStopped(pane)) return "idle";
   if (pane.provisioning) return "provisioning";
   if (paneIsRemoteFresh(pane)) return "remote";
   return null;
@@ -196,6 +200,23 @@ export function paneWakesAutomatically(pane: Pane): boolean {
  *  it resolves in milliseconds, and marking it would only flicker. */
 export function paneIsStopped(pane: Pane): boolean {
   return !!pane.idle && !idleWakesAutomatically(pane.idle);
+}
+
+/** Whether a pane READS as stopped to the user — no process, and nothing
+ *  bringing it back on its own. One exported rule rather than a boolean
+ *  passed down, because two surfaces ask it about the same pane (its tile
+ *  dims, its minimized stand-in gets a marker) and they must not be able to
+ *  disagree — nor to be handed a combination that contradicts itself.
+ *
+ *  `blocked` is the sweep's runtime verdict that the pane's directory is
+ *  gone: such a pane is technically still rising, but it is stuck there until
+ *  someone relocates it, so it reads as stopped like any other. */
+export function idleReadsAsStopped(
+  idle: PaneIdle | undefined,
+  blocked: boolean,
+): boolean {
+  if (!idle) return false;
+  return !idleWakesAutomatically(idle) || blocked;
 }
 
 /** The session this pane would come back to, or null when it would start a

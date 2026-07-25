@@ -46,6 +46,9 @@ vi.mock("./spawnSpecs", () => {
     ),
     peekPaneSpawnSpec: (id: string) =>
       specs.get(id) as { args: string[] } | undefined,
+    // A refused manual wake drops the half-built plan, or the pane's next
+    // wake lands on the plan-error tile instead of a terminal.
+    dropPaneSpawnSpec: vi.fn((id: string) => specs.delete(id)),
     resetPaneSpawnSpecs: () => specs.clear(),
   };
 });
@@ -402,11 +405,13 @@ describe("useRevive — resuming a suspended pane", () => {
     vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
     act(() => deck.hydrate(withPane()));
     await settle();
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => revive.resume("ws-1", "pane-1"));
     await settle();
     expect(revive.wakeFailed["pane-1"]).toBeDefined();
 
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    // The gesture that asks also forgets — a card must not keep explaining a
+    // failure the user is already retrying.
+    act(() => revive.resume("ws-1", "pane-1"));
     await settle();
 
     expect(revive.wakeFailed["pane-1"]).toBeUndefined();
@@ -445,10 +450,11 @@ describe("useRevive — resuming a suspended pane", () => {
     act(() => deck.requestPaneWake("ws-1", "pane-1"));
     await settle();
 
-    // No process, no resume plan: the pane stays idle and reports the missing
-    // directory, so its card can explain itself instead of failing in a
-    // terminal that spawned somewhere unexpected.
-    expect(pane().idle).toMatchObject({ reason: "waking", origin: "manual" });
+    // No process, no resume plan: the pane goes back DOWN where it came from,
+    // stamp intact, and reports the missing directory so its card can explain
+    // itself. Leaving it `waking` would strand it — that state is never
+    // persisted, so a restart would lose the suspend entirely.
+    expect(pane().idle).toEqual({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" });
     expect(revive.blocked["pane-1"]).toBe("/repo/wt-1");
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
     // The binding survives — nothing has decided to abandon that session yet.
@@ -472,15 +478,18 @@ describe("useRevive — resuming a suspended pane", () => {
   });
 
   it("start-fresh relocates it to the workspace folder — and DROPS the session", async () => {
-    ipc.probeWorktree.mockResolvedValue({
-      exists: false,
-      isWorktree: false,
-      empty: false,
-      branch: null,
-    });
+    // The worktree is gone; the workspace folder it relocates INTO is not.
+    ipc.probeWorktree.mockImplementation((dir: string) =>
+      Promise.resolve({
+        exists: dir === "/repo",
+        isWorktree: false,
+        empty: false,
+        branch: null,
+      }),
+    );
     act(() => deck.hydrate(withPane()));
     await settle();
-    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    act(() => revive.resume("ws-1", "pane-1"));
     await settle();
 
     act(() => revive.startFresh("ws-1", "pane-1"));
@@ -627,7 +636,7 @@ describe("useRevive — a blocked pane can be re-probed", () => {
       empty: false,
       branch: null,
     });
-    act(() => revive.retryBlocked("ws-1", "pane-1"));
+    act(() => revive.resume("ws-1", "pane-1"));
     await settle();
 
     expect(revive.blocked["pane-1"]).toBeUndefined();
@@ -648,7 +657,7 @@ describe("useRevive — a blocked pane can be re-probed", () => {
     act(() => deck.requestPaneWake("ws-1", "pane-1"));
     await settle();
 
-    act(() => revive.retryBlocked("ws-1", "pane-1"));
+    act(() => revive.resume("ws-1", "pane-1"));
     await settle();
 
     expect(revive.blocked["pane-1"]).toBe("/repo/wt-1");

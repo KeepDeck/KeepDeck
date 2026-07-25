@@ -25,6 +25,7 @@ import { mintAgentSeq } from "./ids";
 import { paneInputReady, pasteToPane, writeRawToPane } from "./paneInput";
 import { provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
+import type { ResumeRequest } from "./useRevive";
 import { suspendRefusalText, type SuspendOutcome } from "./useSuspend";
 import type { Deck } from "./useDeck";
 
@@ -44,8 +45,9 @@ export interface CoreCommandDeps {
   /** Stop an agent, keeping its pane — the same flow as ⇧⌘W. Resolves to
    * whether it actually suspended. */
   suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
-  /** Ask for a stopped agent back — the same gesture as its card's Resume. */
-  resumeAgent(wsId: string, paneId: string): void;
+  /** Ask for a stopped agent back — the same gesture as its card's Resume,
+   * reporting what it did. */
+  resumeAgent(wsId: string, paneId: string): ResumeRequest;
   /** Open the settings dialog; `sectionId` lands it on a specific section
    * (a plugin's `plugin:<id>`), null on the first. */
   openSettings(sectionId: string | null): void;
@@ -397,12 +399,12 @@ export function registerCoreCommands(
         const agents = deps.agents();
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, agents, ws, str(args, "agent"));
-        if (!pane.idle) {
-          throw new Error(
-            `${paneDisplayTitle(pane, ws.panes.indexOf(pane), agents)} is already running`,
-          );
-        }
-        deps.resumeAgent(ws.id, pane.id);
+        const label = paneDisplayTitle(pane, ws.panes.indexOf(pane), agents);
+        // The flow decides and reports; guessing the answer here is what let
+        // the sibling command claim success for a resume that did nothing.
+        const outcome = deps.resumeAgent(ws.id, pane.id);
+        if (outcome === "running") throw new Error(`${label} is already running`);
+        if (outcome === "gone") throw new Error(`${label} is no longer open`);
         return { workspaceId: ws.id, paneId: pane.id };
       },
     }),
@@ -515,8 +517,9 @@ export function useCoreCommands(deps: {
   agents: AgentInfo[];
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
   suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
-  /** Ask for a stopped agent back — the same gesture as its card's Resume. */
-  resumeAgent(wsId: string, paneId: string): void;
+  /** Ask for a stopped agent back — the same gesture as its card's Resume,
+   * reporting what it did. */
+  resumeAgent(wsId: string, paneId: string): ResumeRequest;
   openSettings(sectionId: string | null): void;
   openUsage(): void;
 }): void {

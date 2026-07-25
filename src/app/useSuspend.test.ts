@@ -28,6 +28,7 @@ vi.mock("../ipc/log", () => ({
 }));
 
 import {
+  suspendRefusalText,
   useSuspend,
   type SuspendApi,
   type SuspendOutcome,
@@ -192,31 +193,34 @@ describe("useSuspend", () => {
     expect(await act(async () => first)).toBe("suspended");
   });
 
-  it("refuses a REMOTE pane — it has no local session to resume", async () => {
+  it("refuses a REMOTE pane BY NAME — its session lives on the server", async () => {
     seed({ remoteEndpoint: "ws://vps:4500" });
 
-    await act(async () => suspend.suspend("ws-1", "pane-1"));
-
+    // The reason, not just the refusal: this is the one the union was
+    // introduced for, and the one a guessing caller got wrong.
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(
+      "remote",
+    );
     expect(pty.closePane).not.toHaveBeenCalled();
     expect(pane().idle).toBeUndefined();
   });
 
-  it("resume hands the pane back to the revive sweep, marked as the user's doing", async () => {
+  it("leaves the pane resumable: stamped, bound, and stopped", async () => {
+    // Resuming itself belongs to the revive sweep (see useRevive.test.ts) —
+    // what suspend owes it is a pane that still has everything the wake will
+    // need, and a stamp the wake can put back if it fails.
     seed();
     await act(async () => suspend.suspend("ws-1", "pane-1"));
 
-    act(() => suspend.resume("ws-1", "pane-1"));
-
-    // NOT live yet: the sweep still has to probe the directory and build the
-    // resume plan — resuming reuses that path rather than duplicating it. The
-    // origin records that a HUMAN asked, which is what keeps a rejected
-    // session id from silently becoming a new conversation, and the stamp
-    // rides along so a failed wake can put the pane back where it was.
-    expect(pane().idle).toMatchObject({ reason: "waking", origin: "manual" });
+    expect(pane().idle).toEqual({
+      reason: "suspended",
+      at: expect.any(String),
+    });
     expect(pane().session).toEqual({
       id: "s-1",
       boundAt: "2026-07-25T09:00:00.000Z",
     });
+    expect(pane().cwd).toBe("/worktree");
   });
 
   it("survives its workspace closing mid-reap, and releases the pane afterwards", async () => {
@@ -239,5 +243,32 @@ describe("useSuspend", () => {
       "suspended",
     );
     expect(pty.closePane).toHaveBeenCalledWith("pane-1");
+  });
+});
+
+describe("suspendRefusalText", () => {
+  it("gives every refusal its own sentence", () => {
+    // One wording, shared by the hotkey, the command and the close dialog —
+    // the whole reason the outcome is a reason and not a boolean.
+    expect(suspendRefusalText("idle", "Agent 1")).toContain("already stopped");
+    expect(suspendRefusalText("provisioning", "Agent 1")).toContain("worktree");
+    expect(suspendRefusalText("in-flight", "Agent 1")).toContain(
+      "already being suspended",
+    );
+    expect(suspendRefusalText("gone", "Agent 1")).toContain("no longer open");
+  });
+
+  it("tells a remote pane's user the truth about where its session lives", () => {
+    // The sentence this type exists for: the earlier boolean made one surface
+    // claim a running remote agent had no session to stop.
+    const text = suspendRefusalText("remote", "Agent 1");
+    expect(text).toContain("remote server");
+    expect(text).not.toContain("no session");
+  });
+
+  it("names the pane in every sentence", () => {
+    for (const outcome of ["idle", "provisioning", "remote", "in-flight", "gone"] as const) {
+      expect(suspendRefusalText(outcome, "Reviewer")).toContain("Reviewer");
+    }
   });
 });

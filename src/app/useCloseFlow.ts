@@ -3,13 +3,14 @@ import {
   findPane,
   findWorkspace,
   paneCanSuspend,
+  paneIsStopped,
   worktreeTargets,
   type GitPosition,
   type WorktreeTarget,
 } from "../domain/deck";
 import { probeWorktree } from "../ipc/worktree";
 import { clearPostProvision, discardWorktrees } from "./provisioning";
-import type { SuspendOutcome } from "./useSuspend";
+import { suspendRefusalText, type SuspendOutcome } from "./useSuspend";
 import { closePanes } from "./ptyManager";
 import { dropPaneSpawnSpec } from "./spawnSpecs";
 import { clearPaneUsage } from "./usageManager";
@@ -174,9 +175,10 @@ export function useCloseFlow(
   /** Whether the dialog should offer suspending instead of closing at all. */
   const canSuspendInstead = !!closingPane && paneCanSuspend(closingPane);
 
-  /** The pane being closed has no process — the dialog must not promise to
-   * end a session that already ended. */
-  const closingIsStopped = !!closingPane && !!closingPane.idle;
+  /** The pane being closed has no process AND isn't coming back on its own —
+   * the dialog must not promise to end a session that already ended, nor
+   * claim one is stopped while it is starting up. */
+  const closingIsStopped = !!closingPane && paneIsStopped(closingPane);
 
   /**
    * Take the alternative: dismiss the dialog and park the agent.
@@ -192,7 +194,13 @@ export function useCloseFlow(
     const { wsId, paneId } = closing;
     setClosing(null);
     setDeleteWorktree(false);
-    void suspendAgent(wsId, paneId);
+    // The dialog is already gone by the time this settles, so a refusal has
+    // nowhere to appear unless it is surfaced here — this was the one caller
+    // that dropped the outcome the other two turn into a sentence.
+    const label = closing.label;
+    void Promise.resolve(suspendAgent(wsId, paneId)).then((outcome) => {
+      if (outcome !== "suspended") onError(suspendRefusalText(outcome, label));
+    });
   };
 
   return {

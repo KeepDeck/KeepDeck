@@ -62,10 +62,13 @@ const suspendAgent = vi.fn<
   (wsId: string, paneId: string) => Promise<SuspendOutcome>
 >(() => Promise.resolve("suspended"));
 
+/** What the hook reported to the user this test. */
+const errors: string[] = [];
+
 function Probe() {
   deck = useDeck();
   flow = useCloseFlow(deck, {
-    onError: () => {},
+    onError: (message) => errors.push(message),
     gitPositions: runtimeHeads,
     suspendAgent,
   });
@@ -308,5 +311,59 @@ describe("useCloseFlow + ptyManager", () => {
 
       expect(flow.canSuspendInstead).toBe(false);
     });
+  });
+});
+
+describe("closing a pane that is already stopped", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    pty.closePanes.mockClear();
+    suspendAgent.mockClear().mockResolvedValue("suspended");
+    probes.probeWorktree.mockReset().mockResolvedValue(probed(true));
+    errors.length = 0;
+    runtimeHeads = new Map();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("reports it as stopped, and offers no suspend", () => {
+    const wsId = seed();
+    act(() =>
+      deck.suspendPane(wsId, "pane-1"),
+    );
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+
+    expect(flow.closingIsStopped).toBe(true);
+    expect(flow.canSuspendInstead).toBe(false);
+  });
+
+  it("does NOT call a rising pane stopped — it is about to run", () => {
+    // The dialog would otherwise say "it is stopped" about a pane that is
+    // seconds from a live terminal, which is every pane just after launch.
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+
+    expect(flow.closingIsStopped).toBe(false);
+  });
+
+  it("surfaces a refused suspend instead of swallowing it", async () => {
+    // The dialog is already dismissed by then, so a silent refusal leaves the
+    // user with a pane that neither closed nor stopped and no explanation.
+    const wsId = seed();
+    suspendAgent.mockResolvedValueOnce("remote");
+    act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
+
+    await act(async () => flow.suspendInstead());
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("remote server");
   });
 });

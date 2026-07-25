@@ -11,6 +11,7 @@ import {
   findWorkspaceByRef,
   firstFreeWorktree,
   paneId,
+  paneIsStopped,
   parentDir,
   type Pane,
   type Workspace,
@@ -336,7 +337,10 @@ export function useAgentDialog(
     for (const w of deckRef.current.workspaces) {
       for (const p of w.panes) {
         if (p.session?.id === sessionId) {
-          return p.idle ? "stopped" : "running";
+          // "Stopped" only for a pane staying down: one on its way up will be
+          // running in a moment, and telling the user to go resume it there
+          // points at a card with no button.
+          return paneIsStopped(p) ? "stopped" : "running";
         }
       }
     }

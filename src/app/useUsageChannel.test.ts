@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentUsage, NormalizedUsage } from "@keepdeck/plugin-api";
 import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
+import type { PaneIdle } from "../domain/deck";
 import { getUsageSnapshot, resetUsageManager } from "./usageManager";
 import { useUsageChannel } from "./useUsageChannel";
 import type { Deck } from "./useDeck";
@@ -60,7 +61,7 @@ const deckWith = (
   panes: {
     id: string;
     agentType?: string;
-    idle?: { reason: "restored" };
+    idle?: PaneIdle;
     session?: { id: string };
   }[],
 ): Deck =>
@@ -423,7 +424,11 @@ describe("useUsageChannel", () => {
     await mount(
       deckWith([
         { id: "pane-1" },
-        { id: "pane-2", agentType: "kimi", idle: { reason: "restored" } },
+        {
+          id: "pane-2",
+          agentType: "kimi",
+          idle: { reason: "waking", origin: "restore" },
+        },
       ]),
     );
     await act(async () => {});
