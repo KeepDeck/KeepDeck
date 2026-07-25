@@ -27,7 +27,11 @@ vi.mock("../ipc/log", () => ({
   describeError: (error: unknown) => String(error),
 }));
 
-import { useSuspend, type SuspendApi } from "./useSuspend";
+import {
+  useSuspend,
+  type SuspendApi,
+  type SuspendOutcome,
+} from "./useSuspend";
 
 let deck: Deck;
 let suspend: SuspendApi;
@@ -130,7 +134,7 @@ describe("useSuspend", () => {
       () => new Promise<void>((resolve) => (release = resolve)),
     );
 
-    let first!: Promise<boolean>;
+    let first!: Promise<SuspendOutcome>;
     act(() => {
       first = suspend.suspend("ws-1", "pane-1");
     });
@@ -141,14 +145,18 @@ describe("useSuspend", () => {
     expect(pty.closePane).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses a provisioning pane, and an unknown pane or workspace", async () => {
+  it("names the reason it refuses, so every surface can say the same thing", async () => {
+    // A bare `false` forced each caller to guess, and one guessed wrong: it
+    // told a remote pane's user their running agent had no session to stop.
     seed({ provisioning: { repo: "/repo", workspace: "ws", index: 1 } });
-    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(false);
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(
+      "provisioning",
+    );
     expect(pty.closePane).not.toHaveBeenCalled();
     expect(pane().idle).toBeUndefined();
 
-    await act(async () => suspend.suspend("ws-1", "nope"));
-    await act(async () => suspend.suspend("nope", "pane-1"));
+    expect(await act(async () => suspend.suspend("ws-1", "nope"))).toBe("gone");
+    expect(await act(async () => suspend.suspend("nope", "pane-1"))).toBe("gone");
     expect(pty.closePane).not.toHaveBeenCalled();
   });
 
@@ -156,7 +164,7 @@ describe("useSuspend", () => {
     // Without this the second gesture would re-run the whole teardown on a
     // pane with no process — and, for a suspended one, restamp its card.
     seed({ idle: { reason: "suspended", at: "2026-07-25T08:00:00.000Z" } });
-    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(false);
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe("idle");
     expect(pty.closePane).not.toHaveBeenCalled();
     expect(plans.dropPaneSpawnSpec).not.toHaveBeenCalled();
     expect(pane().idle).toEqual({
@@ -165,11 +173,23 @@ describe("useSuspend", () => {
     });
   });
 
-  it("reports whether it actually suspended, so a caller can't claim success", async () => {
+  it("reports the in-flight refusal apart from every other one", async () => {
     seed();
-    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(true);
-    // Already idle now — the same call is a no-op and says so.
-    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(false);
+    let release!: () => void;
+    pty.closePane.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+
+    let first!: Promise<SuspendOutcome>;
+    act(() => {
+      first = suspend.suspend("ws-1", "pane-1");
+    });
+    // Distinct from "idle": the pane is not stopped yet, someone is stopping it.
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(
+      "in-flight",
+    );
+    act(() => release());
+    expect(await act(async () => first)).toBe("suspended");
   });
 
   it("refuses a REMOTE pane — it has no local session to resume", async () => {
@@ -181,7 +201,7 @@ describe("useSuspend", () => {
     expect(pane().idle).toBeUndefined();
   });
 
-  it("resume hands the pane back to the revive sweep as a restored one", async () => {
+  it("resume hands the pane back to the revive sweep, marked as the user's doing", async () => {
     seed();
     await act(async () => suspend.suspend("ws-1", "pane-1"));
 
@@ -189,9 +209,10 @@ describe("useSuspend", () => {
 
     // NOT live yet: the sweep still has to probe the directory and build the
     // resume plan — resuming reuses that path rather than duplicating it. The
-    // reason records that a HUMAN asked, which is what keeps a rejected
-    // session id from silently becoming a new conversation.
-    expect(pane().idle).toEqual({ reason: "resuming" });
+    // origin records that a HUMAN asked, which is what keeps a rejected
+    // session id from silently becoming a new conversation, and the stamp
+    // rides along so a failed wake can put the pane back where it was.
+    expect(pane().idle).toMatchObject({ reason: "waking", origin: "manual" });
     expect(pane().session).toEqual({
       id: "s-1",
       boundAt: "2026-07-25T09:00:00.000Z",
@@ -205,14 +226,18 @@ describe("useSuspend", () => {
     });
 
     // Resolves rather than throwing on the vanished pane…
-    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(true);
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(
+      "suspended",
+    );
     expect(deck.workspaces).toHaveLength(0);
 
     // …and the in-flight guard is released, so the id is usable again — a
     // leaked entry would make that pane unsuspendable for the whole session.
     seed();
     pty.closePane.mockClear();
-    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(true);
+    expect(await act(async () => suspend.suspend("ws-1", "pane-1"))).toBe(
+      "suspended",
+    );
     expect(pty.closePane).toHaveBeenCalledWith("pane-1");
   });
 });

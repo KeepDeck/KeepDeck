@@ -8,6 +8,7 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { useCloseFlow } from "./useCloseFlow";
+import type { SuspendOutcome } from "./useSuspend";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -57,9 +58,9 @@ function probed(exists: boolean): PathProbe {
 let deck: Deck;
 let flow: ReturnType<typeof useCloseFlow>;
 let runtimeHeads: Map<string, GitPosition>;
-const suspendAgent = vi.fn<(wsId: string, paneId: string) => Promise<boolean>>(
-  () => Promise.resolve(true),
-);
+const suspendAgent = vi.fn<
+  (wsId: string, paneId: string) => Promise<SuspendOutcome>
+>(() => Promise.resolve("suspended"));
 
 function Probe() {
   deck = useDeck();

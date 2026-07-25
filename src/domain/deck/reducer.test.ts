@@ -338,7 +338,7 @@ describe("deckReducer restore actions ([F7])", () => {
     name: "ws-1",
     cwd: "/tmp",
     worktreeBaseDir: null,
-    panes: [{ id: "pane-1", idle: { reason: "restored" } }, { id: "pane-2" }],
+    panes: [{ id: "pane-1", idle: { reason: "waking", origin: "restore" } }, { id: "pane-2" }],
   };
 
   it("hydrate replaces the whole deck state", () => {
@@ -425,12 +425,16 @@ describe("deckReducer restore actions ([F7])", () => {
       wsId: "ws-1",
       paneId: "pane-2",
     });
-    // Still idle: the sweep owns the probe and the resume plan. `resuming`
-    // rather than `restored`, so a rejected session id stays visible instead
-    // of silently falling back to a new conversation.
+    // Still idle: the sweep owns the probe and the resume plan. The `manual`
+    // origin keeps a rejected session id visible instead of letting it fall
+    // back to a new conversation.
     expect(woken.workspaces[0].panes[1]).toEqual({
       id: "pane-2",
-      idle: { reason: "resuming" },
+      idle: {
+        reason: "waking",
+        origin: "manual",
+        at: "2026-07-25T10:00:00.000Z",
+      },
     });
   });
 
@@ -458,7 +462,7 @@ describe("deckReducer restore actions ([F7])", () => {
       panes: [
         {
           id: "pane-1",
-          idle: { reason: "restored" },
+          idle: { reason: "waking", origin: "restore" },
           cwd: "/repo/wt",
           branch: "kd/ws/1",
           session: { id: "s", boundAt: "2026-07-02T00:00:00Z" },
@@ -475,7 +479,7 @@ describe("deckReducer restore actions ([F7])", () => {
     // Location and resume key are gone; the pane itself (and its idleness) remain.
     expect(next.workspaces[0].panes[0]).toEqual({
       id: "pane-1",
-      idle: { reason: "restored" },
+      idle: { reason: "waking", origin: "restore" },
     });
     expect(
       deckReducer(start, {
@@ -530,7 +534,7 @@ describe("resetPaneLocation", () => {
     panes: [
       {
         id: "pane-1",
-        idle: { reason: "restored" },
+        idle: { reason: "waking", origin: "restore" },
         cwd: "/repo/wt",
         branch: "kd/ws/1",
         session: { id: "s1", boundAt: "2026-07-07T00:00:00Z" },
@@ -547,7 +551,7 @@ describe("resetPaneLocation", () => {
     });
     expect(next.workspaces[0].panes[0]).toEqual({
       id: "pane-1",
-      idle: { reason: "restored" },
+      idle: { reason: "waking", origin: "restore" },
     });
   });
 });

@@ -146,7 +146,7 @@ export function GeneralSection() {
       </div>
       <span className="settings__hint">
         {parkAgentsOnLaunch
-          ? "Restored agents wait, stopped — start each one from its pane"
+          ? "Restored agents wait, stopped — resume each one from its pane"
           : "Restored agents resume their sessions right away"}
       </span>
     </>

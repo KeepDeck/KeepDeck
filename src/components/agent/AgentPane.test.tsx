@@ -121,7 +121,7 @@ describe("AgentPane — header badges", () => {
       root.render(
         createElement(AgentPane, {
           ...baseProps,
-          idle: { reason: "restored" } as const,
+          idle: { reason: "waking", origin: "restore" } as const,
         }),
       ),
     );
@@ -400,7 +400,7 @@ describe("AgentPane — the unavailable-agent card", () => {
         createElement(AgentPane, {
           ...baseProps,
           unavailableAgent: { kind: "no-plugin", agent: "gemini" },
-          idle: { reason: "restored" } as const,
+          idle: { reason: "waking", origin: "restore" } as const,
         }),
       ),
     );
@@ -778,6 +778,7 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at } as const,
+          stopped: true,
           resumeSessionId: "sess-abc",
           onResume,
         }),
@@ -802,6 +803,7 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          stopped: true,
           resumeSessionId: id,
           onResume: vi.fn(),
         }),
@@ -825,6 +827,7 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "parked" } as const,
+          stopped: true,
           resumeSessionId: "sess-abc",
           onResume: vi.fn(),
         }),
@@ -841,6 +844,7 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          stopped: true,
           resumeSessionId: null,
           onResume: vi.fn(),
         }),
@@ -858,6 +862,7 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "parked" } as const,
+          stopped: true,
           onResume: vi.fn(),
         }),
       ),
@@ -877,7 +882,7 @@ describe("AgentPane — suspended / parked card", () => {
       root.render(
         createElement(AgentPane, {
           ...baseProps,
-          idle: { reason: "restored" } as const,
+          idle: { reason: "waking", origin: "restore" } as const,
           onResume: vi.fn(),
         }),
       ),
@@ -897,6 +902,7 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "parked" } as const,
+          stopped: true,
           resumeSessionId: "sess-abc",
           onResume,
         }),
@@ -908,24 +914,19 @@ describe("AgentPane — suspended / parked card", () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
-  it("dims a stopped pane but never the momentarily-restored one", () => {
-    const mountIdle = (idle: PaneIdle, blockedDir?: string) =>
+  it("dims exactly what the deck calls stopped", () => {
+    // The rule itself lives in the deck now (one computation feeds this tile
+    // AND the tray's marker); the pane's job is only to honour it.
+    const mountIdle = (idle: PaneIdle, stopped: boolean) =>
       act(() =>
-        root.render(
-          createElement(AgentPane, { ...baseProps, idle, blockedDir }),
-        ),
+        root.render(createElement(AgentPane, { ...baseProps, idle, stopped })),
       );
 
-    mountIdle({ reason: "suspended", at: new Date().toISOString() });
+    mountIdle({ reason: "suspended", at: new Date().toISOString() }, true);
     expect(document.querySelector(".pane--idle")).not.toBeNull();
 
-    mountIdle({ reason: "restored" });
+    mountIdle({ reason: "waking", origin: "restore" }, false);
     expect(document.querySelector(".pane--idle")).toBeNull();
-
-    // Blocked on a missing directory: `restored`, but stuck there until the
-    // user relocates it — an undimmed tile would read as a running agent.
-    mountIdle({ reason: "restored" }, "/gone/worktree");
-    expect(document.querySelector(".pane--idle")).not.toBeNull();
   });
 
   it("a gone folder still wins the card — that pane needs relocating, not resuming", () => {
@@ -934,6 +935,7 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          stopped: true,
           blockedDir: "/gone/worktree",
           onStartFresh: vi.fn(),
           onResume: vi.fn(),

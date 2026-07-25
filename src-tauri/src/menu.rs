@@ -52,7 +52,8 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         .accelerator("CmdOrCtrl+W")
         .build(app)?;
     // One modifier away from Close Agent, and next to it in the menu: same
-    // object, softer verb. ⇧⌘W is macOS's "Close All Windows", but this app is
+    // object, softer verb. No window role claims ⇧⌘W here (the Window submenu
+    // registers only minimize/maximize), and this app is
     // single-window and already owns ⌘W for a pane rather than the window.
     let suspend_agent = MenuItemBuilder::with_id(SUSPEND_AGENT_ID, "Suspend Agent")
         .accelerator("CmdOrCtrl+Shift+W")

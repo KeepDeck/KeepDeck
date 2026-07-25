@@ -1,4 +1,4 @@
-import { findPane, paneCanSuspend } from "../domain/deck";
+import { findPane, paneSuspendBlock, type PaneSuspendBlock } from "../domain/deck";
 import { log } from "../ipc/log";
 import { closePane } from "./ptyManager";
 import { dropPaneSpawnSpec } from "./spawnSpecs";
@@ -12,17 +12,49 @@ import { useLiveRefs } from "./useLiveRefs";
  * session binding. The mirror of closing, which takes all of that away.
  *
  * Resuming is deliberately NOT a second wake path: it hands the pane back to
- * the revive sweep as a `restored` one, so the directory probe, the
- * resume-plan build and the wake itself are the exact code that restores panes
- * after a restart — one implementation, one set of edge cases.
+ * the revive sweep, so the directory probe, the resume-plan build and the wake
+ * itself are the exact code that restores panes after a restart — one
+ * implementation, one set of edge cases. The marker records that a HUMAN
+ * asked, which is what stops a rejected session id from quietly becoming a
+ * different conversation.
  */
+/** What a suspend request did. Not a boolean: three surfaces have to explain a
+ * refusal, and each one guessing produced a different sentence — one of them
+ * false. The reason travels with the answer so they can share the words. */
+export type SuspendOutcome =
+  | "suspended"
+  | PaneSuspendBlock
+  /** A suspend for this pane is already reaping its process. */
+  | "in-flight"
+  /** The pane (or its workspace) is no longer in the deck. */
+  | "gone";
+
+/** One sentence per refusal, so the hotkey, the command and any later surface
+ * say the same thing about the same state. */
+export function suspendRefusalText(
+  outcome: Exclude<SuspendOutcome, "suspended">,
+  label: string,
+): string {
+  switch (outcome) {
+    case "idle":
+      return `${label} is already stopped.`;
+    case "provisioning":
+      return `${label} is still creating its worktree.`;
+    case "remote":
+      return `${label} runs on a remote server — its session lives there, so stopping the local client would not park it.`;
+    case "in-flight":
+      return `${label} is already being suspended.`;
+    case "gone":
+      return `${label} is no longer open.`;
+  }
+}
+
 export interface SuspendApi {
   /** Stop the pane's agent, keeping the pane. Resolves once the process is
    * reaped, so a caller can sequence work (a worktree op) after it — and
-   * reports whether it actually suspended: a pane that can't be suspended, or
-   * one whose suspend is already in flight, is a no-op, and a caller that
-   * announces success regardless would be lying to whoever asked. */
-  suspend(wsId: string, paneId: string): Promise<boolean>;
+   * reports what happened: a caller that announces success regardless would
+   * be lying to whoever asked. */
+  suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
   /** Wake a suspended (or parked) pane — the card's resume gesture. */
   resume(wsId: string, paneId: string): void;
 }
@@ -33,10 +65,15 @@ export function useSuspend(deck: Deck): SuspendApi {
   // stale — and the in-flight guard against a double gesture.
   const { deckRef, inFlight } = useLiveRefs(deck, null);
 
-  const suspend = async (wsId: string, paneId: string): Promise<boolean> => {
-    if (inFlight.current.has(paneId)) return false;
+  const suspend = async (
+    wsId: string,
+    paneId: string,
+  ): Promise<SuspendOutcome> => {
+    if (inFlight.current.has(paneId)) return "in-flight";
     const pane = findPane(deckRef.current.workspaces, wsId, paneId);
-    if (!pane || !paneCanSuspend(pane)) return false;
+    if (!pane) return "gone";
+    const blocked = paneSuspendBlock(pane);
+    if (blocked) return blocked;
     inFlight.current.add(paneId);
     try {
       log.info("web:suspend", `${paneId}: suspending`);
@@ -55,7 +92,7 @@ export function useSuspend(deck: Deck): SuspendApi {
       dropPaneSpawnSpec(paneId);
       clearPaneUsage(paneId);
       await closePane(paneId);
-      return true;
+      return "suspended";
     } finally {
       inFlight.current.delete(paneId);
     }

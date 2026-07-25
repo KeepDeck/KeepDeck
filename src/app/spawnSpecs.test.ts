@@ -274,7 +274,11 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     register(adopting);
     await mount(
       ws([
-        { id: "pane-d", agentType: "claude", idle: { reason: "restored" } },
+        {
+          id: "pane-d",
+          agentType: "claude",
+          idle: { reason: "waking", origin: "restore" },
+        },
         {
           id: "pane-p",
           agentType: "claude",

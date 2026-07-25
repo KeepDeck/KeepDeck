@@ -45,8 +45,8 @@ describe("paneCanSuspend", () => {
   });
 
   it("false for a pane that is already idle, whatever the reason", () => {
-    expect(paneCanSuspend({ id: "p", idle: { reason: "restored" } })).toBe(false);
-    expect(paneCanSuspend({ id: "p", idle: { reason: "resuming" } })).toBe(false);
+    expect(paneCanSuspend({ id: "p", idle: { reason: "waking", origin: "restore" } })).toBe(false);
+    expect(paneCanSuspend({ id: "p", idle: { reason: "waking", origin: "manual" } })).toBe(false);
     expect(paneCanSuspend({ id: "p", idle: { reason: "parked" } })).toBe(false);
     expect(
       paneCanSuspend({ id: "p", idle: { reason: "suspended", at: "t" } }),
@@ -71,15 +71,15 @@ describe("paneCanSuspend", () => {
 
 describe("idleWakesAutomatically / paneWakesAutomatically", () => {
   it("only a pane on its way up wakes by itself", () => {
-    expect(idleWakesAutomatically({ reason: "restored" })).toBe(true);
-    expect(idleWakesAutomatically({ reason: "resuming" })).toBe(true);
+    expect(idleWakesAutomatically({ reason: "waking", origin: "restore" })).toBe(true);
+    expect(idleWakesAutomatically({ reason: "waking", origin: "manual" })).toBe(true);
     expect(idleWakesAutomatically({ reason: "parked" })).toBe(false);
     expect(idleWakesAutomatically({ reason: "suspended", at: "t" })).toBe(false);
   });
 
   it("a live pane is not the sweep's business", () => {
     expect(paneWakesAutomatically({ id: "p" })).toBe(false);
-    expect(paneWakesAutomatically({ id: "p", idle: { reason: "restored" } })).toBe(
+    expect(paneWakesAutomatically({ id: "p", idle: { reason: "waking", origin: "restore" } })).toBe(
       true,
     );
     expect(
@@ -91,8 +91,8 @@ describe("idleWakesAutomatically / paneWakesAutomatically", () => {
 describe("paneIsStopped", () => {
   it("true only when nothing is bringing the pane back on its own", () => {
     expect(paneIsStopped({ id: "p" })).toBe(false); // running
-    expect(paneIsStopped({ id: "p", idle: { reason: "restored" } })).toBe(false);
-    expect(paneIsStopped({ id: "p", idle: { reason: "resuming" } })).toBe(false);
+    expect(paneIsStopped({ id: "p", idle: { reason: "waking", origin: "restore" } })).toBe(false);
+    expect(paneIsStopped({ id: "p", idle: { reason: "waking", origin: "manual" } })).toBe(false);
     expect(paneIsStopped({ id: "p", idle: { reason: "parked" } })).toBe(true);
     expect(
       paneIsStopped({ id: "p", idle: { reason: "suspended", at: "t" } }),

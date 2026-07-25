@@ -74,7 +74,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
 
   it("marks every restored pane idle, ready for the revive sweep", () => {
     for (const ws of restored.state.workspaces) {
-      for (const pane of ws.panes) expect(pane.idle).toEqual({ reason: "restored" });
+      for (const pane of ws.panes) expect(pane.idle).toEqual({ reason: "waking", origin: "restore" });
     }
   });
 
@@ -145,7 +145,7 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
           ...state.workspaces[0],
           panes: state.workspaces[0].panes.map((p) => ({
             ...p,
-            idle: { reason: "restored" } as const,
+            idle: { reason: "waking", origin: "restore" } as const,
           })),
         },
       ],
@@ -199,8 +199,8 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     doc.workspaces[0].panes[0].idle = { reason: "suspended" }; // no `at`
     doc.workspaces[0].panes[1].idle = "nonsense";
     const panes = okDeck(JSON.stringify(doc)).state.workspaces[0].panes;
-    expect(panes[0].idle).toEqual({ reason: "restored" });
-    expect(panes[1].idle).toEqual({ reason: "restored" });
+    expect(panes[0].idle).toEqual({ reason: "waking", origin: "restore" });
+    expect(panes[1].idle).toEqual({ reason: "waking", origin: "restore" });
   });
 
   it("rejects an unparsable timestamp — the card renders it as an age", () => {
@@ -208,39 +208,49 @@ describe("serializeDeck → hydrateDeck round-trip", () => {
     doc.workspaces[0].panes[0].idle = { reason: "suspended", at: "yesterday" };
     const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
     // Kept as a suspend, "yesterday" would print as "NaNd ago".
-    expect(pane.idle).toEqual({ reason: "restored" });
+    expect(pane.idle).toEqual({ reason: "waking", origin: "restore" });
   });
 
-  it("carries a NEWER revision's idle marker through a save round-trip", () => {
-    // `idle` is a known key, so collectExtras alone would drop it and the
-    // sparse write would never re-emit it: a v10 build's marker would be gone
-    // after this build merely opened and saved the file.
+  it("DROPS a NEWER revision's idle marker instead of carrying it forward", () => {
+    // Extras exist for facts we don't understand and don't touch. An idle
+    // marker is neither: hydration marks every pane idle and the sweep wakes
+    // it seconds later, so re-emitting the old marker would tell the newer
+    // build that a pane it can watch running is still parked. Absence is the
+    // honest signal — an older build took this pane somewhere else.
     const doc = JSON.parse(serializeDeck(state));
     doc.workspaces[0].panes[0].idle = { reason: "frozen", until: "2026-08-01" };
     const restoredDeck = okDeck(JSON.stringify(doc));
     const pane = restoredDeck.state.workspaces[0].panes[0];
-    // We still wake it — we have no idea what "frozen" means…
-    expect(pane.idle).toEqual({ reason: "restored" });
-    // …but the newer build gets its own marker back.
+    expect(pane.idle).toEqual({ reason: "waking", origin: "restore" });
+    expect(pane.extras?.idle).toBeUndefined();
+
     const saved = JSON.parse(
       serializeDeck(restoredDeck.state, restoredDeck.docExtras),
     );
-    expect(saved.workspaces[0].panes[0].idle).toEqual({
-      reason: "frozen",
-      until: "2026-08-01",
-    });
+    expect(saved.workspaces[0].panes[0].idle).toBeUndefined();
   });
 
-  it("our own suspend wins over a preserved copy of it", () => {
-    // The typed field round-trips it; a duplicate in extras could otherwise
-    // resurrect a stale stamp on a later save.
+  it("stays stable when the pane is woken between two saves", () => {
+    // The regression this replaced: a marker parked in extras survived the
+    // wake and re-marked a RUNNING pane as idle on the next save.
     const doc = JSON.parse(serializeDeck(state));
-    doc.workspaces[0].panes[0].idle = {
-      reason: "suspended",
-      at: "2026-07-25T09:00:00.000Z",
+    doc.workspaces[0].panes[0].idle = { reason: "frozen", until: "2026-08-01" };
+    const hydrated = okDeck(JSON.stringify(doc));
+    const woken: DeckState = {
+      ...hydrated.state,
+      workspaces: hydrated.state.workspaces.map((ws, i) =>
+        i === 0
+          ? {
+              ...ws,
+              panes: ws.panes.map((p, j) =>
+                j === 0 ? { ...p, idle: undefined } : p,
+              ),
+            }
+          : ws,
+      ),
     };
-    const back = okDeck(JSON.stringify(doc));
-    expect(back.state.workspaces[0].panes[0].extras?.idle).toBeUndefined();
+    const saved = JSON.parse(serializeDeck(woken, hydrated.docExtras));
+    expect(saved.workspaces[0].panes[0].idle).toBeUndefined();
   });
 });
 
@@ -638,7 +648,7 @@ describe("provisioning panes across a restart", () => {
     doc.workspaces[0].panes[0].provisioning = { repo: 42 };
     const pane = okDeck(JSON.stringify(doc)).state.workspaces[0].panes[0];
     expect(pane.provisioning).toBeUndefined();
-    expect(pane.idle).toEqual({ reason: "restored" });
+    expect(pane.idle).toEqual({ reason: "waking", origin: "restore" });
   });
 });
 
@@ -987,7 +997,8 @@ describe("schema revisions and the compatibility floor", () => {
     };
     const restored = okDeck(JSON.stringify(v1));
     expect(restored.state.workspaces[0].panes[0].idle).toEqual({
-      reason: "restored",
+      reason: "waking",
+      origin: "restore",
     });
     expect("run" in restored.state.workspaces[0]).toBe(false);
   });
@@ -1067,8 +1078,8 @@ describe("parkRestoredPanes", () => {
   it("turns restored panes into parked ones", () => {
     const parked = parkRestoredPanes(
       deckWith([
-        { id: "pane-1", idle: { reason: "restored" } },
-        { id: "pane-2", idle: { reason: "restored" } },
+        { id: "pane-1", idle: { reason: "waking", origin: "restore" } },
+        { id: "pane-2", idle: { reason: "waking", origin: "restore" } },
       ]),
     );
     expect(parked.workspaces[0].panes.map((p) => p.idle)).toEqual([
@@ -1096,7 +1107,7 @@ describe("parkRestoredPanes", () => {
   });
 
   it("is never persisted: a parked deck serializes exactly like a restored one", () => {
-    const restored = deckWith([{ id: "pane-1", idle: { reason: "restored" } }]);
+    const restored = deckWith([{ id: "pane-1", idle: { reason: "waking", origin: "restore" } }]);
     expect(serializeDeck(parkRestoredPanes(restored))).toBe(
       serializeDeck(restored),
     );

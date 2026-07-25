@@ -23,7 +23,7 @@ import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useRevive } from "./app/useRevive";
-import { useSuspend } from "./app/useSuspend";
+import { suspendRefusalText, useSuspend } from "./app/useSuspend";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useUsageChannel } from "./app/useUsageChannel";
 import { useSettings } from "./app/useSettings";
@@ -253,6 +253,7 @@ function App() {
     agents,
     requestCloseAgent: closeFlow.requestCloseAgent,
     suspendAgent: suspendFlow.suspend,
+    resumeAgent: suspendFlow.resume,
     openSettings: (sectionId) => {
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
@@ -452,14 +453,15 @@ function App() {
       // parked agent would make the cheap gesture expensive. A REFUSAL does
       // get a word, though — a blind chord that silently does nothing is
       // indistinguishable from one that didn't reach the app at all.
-      void suspendFlow.suspend(target.wsId, target.paneId).then((suspended) => {
-        if (suspended) return;
-        setError((current) => ({
-          ...(current ?? {
-            title: "Can't suspend this agent",
-            message: `${target.label} has no running session to stop.`,
-          }),
-        }));
+      void suspendFlow.suspend(target.wsId, target.paneId).then((outcome) => {
+        if (outcome === "suspended") return;
+        setError(
+          (current) =>
+            current ?? {
+              title: "Can't suspend this agent",
+              message: suspendRefusalText(outcome, target.label),
+            },
+        );
       });
     },
     toggleMaximize: () => {
@@ -802,6 +804,7 @@ function App() {
             onRenamePane={deck.renamePane}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={revive.blocked}
+            wakeFailed={revive.wakeFailed}
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={revive.startFresh}
@@ -964,8 +967,12 @@ function App() {
               message={
                 closeFlow.closing.kind === "agent"
                   ? // One sentence, plus the alternative when it's on offer —
-                    // written once so the two can't drift apart.
-                    "Its terminal session will be ended." +
+                    // written once so the two can't drift apart. A pane that
+                    // is already stopped has no session to end, and saying so
+                    // would contradict the card the user is looking at.
+                    (closeFlow.closingIsStopped
+                      ? "It is stopped; the pane and its worktree go with it."
+                      : "Its terminal session will be ended.") +
                     (closeFlow.canSuspendInstead
                       ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
                       : "")

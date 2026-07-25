@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentType } from "../agents";
+import type { AgentInfo, AgentType, ResumeOrigin } from "../agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
 // Type-only, so the module graph stays acyclic at runtime (reducer's chain
 // imports this module; the types are erased).
@@ -24,14 +24,13 @@ export interface PaneSession {
  * them every time.
  */
 export type PaneIdle =
-  /** Restored from disk — the revive sweep wakes it as soon as its workspace
-   * is active ([F7]). Runtime-only. */
-  | { reason: "restored" }
-  /** A human asked for this pane back and the sweep has not woken it yet.
-   * Distinct from `restored` only in INTENT, and that difference decides how
-   * a rejected session id is handled: a boot restore may fall back to a fresh
-   * conversation, a resume the user clicked may not. Runtime-only. */
-  | { reason: "resuming" }
+  /** On its way up: the revive sweep wakes it as soon as its workspace is
+   * active ([F7]). `origin` says WHO asked, and that decides what a rejected
+   * session id may do — a boot restore may fall back to a fresh conversation,
+   * a resume the user clicked may not. `at` carries the stamp of the suspend
+   * this wake came from, so a wake that fails can put the pane back exactly
+   * where it was instead of restamping it. Runtime-only. */
+  | { reason: "waking"; origin: ResumeOrigin; at?: string }
   /** Restored into a launch that parks agents instead of waking them: it
    * waits for the card's explicit start. Runtime-only — the launch policy is
    * a setting, not a fact about this pane, so persisting it would make
@@ -160,17 +159,29 @@ export function paneIsRemoteFresh(pane: Pane): boolean {
  *  one, and resuming rebuilds its resume plan), and the exit is runtime state
  *  this durable model deliberately doesn't carry. */
 export function paneCanSuspend(pane: Pane): boolean {
-  return !pane.idle && !pane.provisioning && !paneIsRemoteFresh(pane);
+  return paneSuspendBlock(pane) === null;
 }
 
-/** Whether an idle marker is one the revive sweep acts on by itself. A pane
- *  idle because a restart dropped its PTY (`restored`), or because a human
- *  just asked for it back (`resuming`), is on its way up; a `suspended` or
- *  `parked` one is staying down until someone says otherwise. Takes the
- *  MARKER, not the pane, so the rendering layer — which is handed the marker
- *  alone — asks the same question instead of re-spelling it. */
+/** WHY a pane can't be suspended, or null when it can. A reason rather than a
+ *  bare `false` because three surfaces have to explain the refusal — the
+ *  hotkey, the command and the close dialog — and a boolean forces each to
+ *  guess, which is how one of them came to tell a remote pane's user that
+ *  their running agent "has no session to stop". Mirrors the `ResumeBlock`
+ *  shape the session picker already uses for the same job. */
+export type PaneSuspendBlock = "idle" | "provisioning" | "remote";
+
+export function paneSuspendBlock(pane: Pane): PaneSuspendBlock | null {
+  if (pane.idle) return "idle";
+  if (pane.provisioning) return "provisioning";
+  if (paneIsRemoteFresh(pane)) return "remote";
+  return null;
+}
+
+/** Whether an idle marker is one the revive sweep acts on by itself: a pane
+ *  on its way up, whoever asked. A `suspended` or `parked` one is staying
+ *  down until someone says otherwise. */
 export function idleWakesAutomatically(idle: PaneIdle): boolean {
-  return idle.reason === "restored" || idle.reason === "resuming";
+  return idle.reason === "waking";
 }
 
 /** Whether the revive sweep may wake this pane on its own. The single

@@ -14,7 +14,6 @@ import {
   findWorkspaceByRef,
   firstFreeWorktree,
   paneAgentType,
-  paneCanSuspend,
   paneDisplayTitle,
   paneId,
   type Pane,
@@ -26,6 +25,7 @@ import { mintAgentSeq } from "./ids";
 import { paneInputReady, pasteToPane, writeRawToPane } from "./paneInput";
 import { provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
+import { suspendRefusalText, type SuspendOutcome } from "./useSuspend";
 import type { Deck } from "./useDeck";
 
 /**
@@ -43,7 +43,9 @@ export interface CoreCommandDeps {
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
   /** Stop an agent, keeping its pane — the same flow as ⇧⌘W. Resolves to
    * whether it actually suspended. */
-  suspendAgent(wsId: string, paneId: string): Promise<boolean>;
+  suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
+  /** Ask for a stopped agent back — the same gesture as its card's Resume. */
+  resumeAgent(wsId: string, paneId: string): void;
   /** Open the settings dialog; `sectionId` lands it on a specific section
    * (a plugin's `plugin:<id>`), null on the first. */
   openSettings(sectionId: string | null): void;
@@ -362,14 +364,45 @@ export function registerCoreCommands(
         const ws = targetWorkspace(deck, str(args, "workspace"));
         const pane = targetPane(deck, agents, ws, str(args, "agent"));
         const label = paneDisplayTitle(pane, ws.panes.indexOf(pane), agents);
-        if (!paneCanSuspend(pane)) {
-          throw new Error(`${label} cannot be suspended`);
+        // A caller that hears "ok" must be able to believe it, and one that
+        // hears "no" deserves the real reason — the same sentence the hotkey
+        // shows, not a second guess at it.
+        const outcome = await deps.suspendAgent(ws.id, pane.id);
+        if (outcome !== "suspended") {
+          throw new Error(suspendRefusalText(outcome, label));
         }
-        // A caller that hears "ok" must be able to believe it: the flow also
-        // declines when a suspend for this pane is already in flight.
-        if (!(await deps.suspendAgent(ws.id, pane.id))) {
-          throw new Error(`${label} was not suspended — one is already running`);
+        return { workspaceId: ws.id, paneId: pane.id };
+      },
+    }),
+
+    registry.register({
+      id: "agent.resume",
+      title: "Resume a stopped agent pane",
+      args: [
+        {
+          name: "agent",
+          type: "string",
+          description: "Agent pane title, name, or id; the selected one when omitted",
+        },
+        {
+          name: "workspace",
+          type: "string",
+          description: "Workspace name or id; the active one when omitted",
+        },
+      ],
+      // The inverse of `agent.suspend`. Without it an automation that parks an
+      // agent has stranded it: nothing it can address brings the pane back.
+      run: (args) => {
+        const deck = deps.deck();
+        const agents = deps.agents();
+        const ws = targetWorkspace(deck, str(args, "workspace"));
+        const pane = targetPane(deck, agents, ws, str(args, "agent"));
+        if (!pane.idle) {
+          throw new Error(
+            `${paneDisplayTitle(pane, ws.panes.indexOf(pane), agents)} is already running`,
+          );
         }
+        deps.resumeAgent(ws.id, pane.id);
         return { workspaceId: ws.id, paneId: pane.id };
       },
     }),
@@ -481,7 +514,9 @@ export function useCoreCommands(deps: {
   deck: Deck;
   agents: AgentInfo[];
   requestCloseAgent(wsId: string, paneId: string, label: string): void;
-  suspendAgent(wsId: string, paneId: string): Promise<boolean>;
+  suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
+  /** Ask for a stopped agent back — the same gesture as its card's Resume. */
+  resumeAgent(wsId: string, paneId: string): void;
   openSettings(sectionId: string | null): void;
   openUsage(): void;
 }): void {
@@ -496,6 +531,8 @@ export function useCoreCommands(deps: {
           ref.current.requestCloseAgent(wsId, paneIdToClose, label),
         suspendAgent: (wsId, paneIdToSuspend) =>
           ref.current.suspendAgent(wsId, paneIdToSuspend),
+        resumeAgent: (wsId, paneIdToResume) =>
+          ref.current.resumeAgent(wsId, paneIdToResume),
         openSettings: (sectionId) => ref.current.openSettings(sectionId),
         openUsage: () => ref.current.openUsage(),
       }),

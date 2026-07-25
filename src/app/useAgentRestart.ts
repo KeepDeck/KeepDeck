@@ -166,6 +166,11 @@ export function useAgentRestart(
       dropPaneSpawnSpec(target.paneId);
       return;
     }
+    // Same guard as the fresh path: a suspend can land inside the awaits above
+    // (the two flows hold separate in-flight sets) and leaves every field
+    // `sameResumeTarget` compares untouched, so only the idle marker says so.
+    if (findPane(deckRef.current.workspaces, target.workspace.id, target.paneId)?.idle)
+      return;
     bumpEpoch(target.paneId);
   };
 

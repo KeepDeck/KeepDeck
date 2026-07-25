@@ -5,6 +5,7 @@ import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
+import type { SuspendOutcome } from "./useSuspend";
 import type { Deck } from "./useDeck";
 
 const HOST = { kind: "host" } as const;
@@ -83,9 +84,10 @@ function setup(workspaces: Workspace[]) {
   const registry = createCommandRegistry();
   const deck = fakeDeck(workspaces);
   const requestCloseAgent = vi.fn();
-  const suspendAgent = vi.fn<(wsId: string, paneId: string) => Promise<boolean>>(
-    () => Promise.resolve(true),
-  );
+  const suspendAgent = vi.fn<
+    (wsId: string, paneId: string) => Promise<SuspendOutcome>
+  >(() => Promise.resolve("suspended"));
+  const resumeAgent = vi.fn();
   const openSettings = vi.fn();
   const openUsage = vi.fn();
   const dispose = registerCoreCommands(registry, {
@@ -93,6 +95,7 @@ function setup(workspaces: Workspace[]) {
     agents: () => AGENTS,
     requestCloseAgent,
     suspendAgent,
+    resumeAgent,
     openSettings,
     openUsage,
   });
@@ -101,6 +104,7 @@ function setup(workspaces: Workspace[]) {
     deck,
     requestCloseAgent,
     suspendAgent,
+    resumeAgent,
     openSettings,
     openUsage,
     dispose,
@@ -337,7 +341,7 @@ describe("agent.focus / agent.close / pane.write", () => {
     expect(info?.destructive).toBeFalsy();
   });
 
-  it("refuses to suspend a pane that cannot be suspended", async () => {
+  it("reports the flow's own reason for refusing, not a second guess at it", async () => {
     const { registry, suspendAgent } = setup([
       workspace({
         panes: [
@@ -345,9 +349,33 @@ describe("agent.focus / agent.close / pane.write", () => {
         ],
       }),
     ]);
+    suspendAgent.mockResolvedValueOnce("remote");
+
     const result = await registry.execute("agent.suspend", {}, HOST);
+
     expect(result.ok).toBe(false);
-    expect(suspendAgent).not.toHaveBeenCalled();
+    // The caller hears why: a remote pane's session lives on the server, so
+    // stopping the local client would not park it.
+    if (!result.ok) expect(result.error.message).toContain("remote server");
+  });
+
+  it("resumes a stopped pane, and refuses one that is already running", async () => {
+    const { registry, resumeAgent } = setup([
+      workspace({
+        panes: [
+          { id: "p1", agentType: "claude", idle: { reason: "parked" } },
+          { id: "p2", agentType: "codex", name: "live" },
+        ],
+      }),
+    ]);
+
+    const ok = await registry.execute("agent.resume", { agent: "p1" }, HOST);
+    expect(ok).toEqual({ ok: true, value: { workspaceId: "ws-1", paneId: "p1" } });
+    expect(resumeAgent).toHaveBeenCalledWith("ws-1", "p1");
+
+    // Without this inverse an automation that suspends an agent strands it.
+    const already = await registry.execute("agent.resume", { agent: "live" }, HOST);
+    expect(already.ok).toBe(false);
   });
 
   it("pastes text into the addressed pane; submit sends Enter as a separate raw write", async () => {

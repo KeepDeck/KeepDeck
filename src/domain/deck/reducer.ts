@@ -28,6 +28,7 @@ import {
   resolveActiveId,
   resolvePaneProvisioning,
   clearPaneIdle,
+  failPaneWake,
   setPaneAutoTitle,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
@@ -130,6 +131,9 @@ export type DeckAction =
   /** Hand a suspended/parked pane back to the revive sweep, which resumes it
    * the same way it resumes any restored pane. */
   | { type: "wakePane"; wsId: string; paneId: string }
+  /** That wake could not be prepared — put the pane back down where it was,
+   * rather than let it come up as a different conversation. */
+  | { type: "failPaneWake"; wsId: string; paneId: string; at: string }
   /** Detach a pane from a gone worktree (drops cwd/branch/session) so it can
    * start fresh in the workspace cwd ([F7] restore reconcile). */
   | { type: "resetPaneLocation"; wsId: string; paneId: string }
@@ -543,6 +547,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return withWorkspaces(
         state,
         wakePane(state.workspaces, action.wsId, action.paneId),
+      );
+    case "failPaneWake":
+      return withWorkspaces(
+        state,
+        failPaneWake(state.workspaces, action.wsId, action.paneId, action.at),
       );
     case "resetPaneLocation":
       return withWorkspaces(

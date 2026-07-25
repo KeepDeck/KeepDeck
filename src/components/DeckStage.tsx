@@ -93,6 +93,10 @@ interface DeckStageProps {
   /** Idle panes blocked from waking: paneId → the missing directory
    * ([F7] restore reconcile). */
   idleBlocked: Record<string, string>;
+  /** Panes whose user-requested resume could not be prepared: paneId → why.
+   * They stayed stopped; their cards explain instead of coming up as a
+   * different conversation. */
+  wakeFailed: Record<string, string>;
   /** Spawn plan per live pane — args + env carrying its session identity
    * ([F7]/[F8] v2: assigned id or armed reporter, resume recipe). */
   specByPane: Record<string, SpawnPlan>;
@@ -168,6 +172,7 @@ export function DeckStage({
   onRenamePane,
   onPaneTitle,
   idleBlocked,
+  wakeFailed,
   specByPane,
   failedPanes,
   onStartFresh,
@@ -304,6 +309,17 @@ export function DeckStage({
             });
           }
         }
+        // "Reads as stopped", decided once per pane and shared by the tile and
+        // the tray stand-in. A pane on its way up is excluded (it resolves in
+        // milliseconds and would only flicker) — but one BLOCKED on a missing
+        // folder is stuck until the user relocates it, and when it is also
+        // minimized the chip is the only thing left to say the agent is dead.
+        const stoppedById = new Map(
+          ws.panes.map((pane) => [
+            pane.id,
+            paneIsStopped(pane) || !!idleBlocked[pane.id],
+          ]),
+        );
         // Pane order, so an explicit minimize and a maximize-hidden pane sit
         // where their tiles were.
         const trayPanes = ws.panes.filter((pane) => restoreById.has(pane.id));
@@ -316,11 +332,7 @@ export function DeckStage({
               agents.find((a) => a.id === paneAgentType(pane))?.icon ?? null,
             gitBadge: badgeOf(pane),
             yolo: pane.yolo,
-            // A pane on its way up is excluded (it resolves in milliseconds
-            // and would only flicker) — but one BLOCKED on a missing folder is
-            // stuck until the user relocates it, and its tile is hidden, so
-            // the chip is the only thing left to say the agent isn't running.
-            stopped: paneIsStopped(pane) || !!idleBlocked[pane.id],
+            stopped: stoppedById.get(pane.id) ?? false,
             label: `Restore ${title}`,
             onRestore: restoreById.get(pane.id)!,
           };
@@ -385,6 +397,11 @@ export function DeckStage({
               selected={pane.id === selectedPaneId}
               solo={layout.solo}
               idle={pane.idle}
+              // One rule, computed once: the tray's marker above reads the
+              // same boolean, so the grid and the tray cannot disagree about
+              // which agents are stopped.
+              stopped={stoppedById.get(pane.id) ?? false}
+              wakeError={wakeFailed[pane.id] ?? null}
               blockedDir={idleBlocked[pane.id] ?? null}
               provisioning={pane.provisioning}
               unavailableAgent={unavailableAgent}

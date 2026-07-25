@@ -246,7 +246,9 @@ export function parkRestoredPanes(state: DeckState): DeckState {
     workspaces: state.workspaces.map((ws) => ({
       ...ws,
       panes: ws.panes.map((pane) =>
-        pane.idle?.reason === "restored"
+        // Hydration's own marker only — a pane the user suspended keeps its
+        // stamp, and no other reason can exist this early.
+        pane.idle?.reason === "waking" && pane.idle.origin === "restore"
           ? { ...pane, idle: { reason: "parked" as const } }
           : pane,
       ),
@@ -371,25 +373,23 @@ function readPane(value: unknown): Pane | null {
     pane.provisioning = { ...provisioning, error: PROVISIONING_INTERRUPTED };
   }
   const extras = collectExtras(value, PANE_KNOWN_KEYS);
-  // `idle` is a KNOWN key, so `collectExtras` would drop a marker written by a
-  // NEWER revision (a reason this build has no name for) — and the sparse
-  // write only re-emits our own `suspended`, so it would be gone for good.
-  // Anything we didn't recognise rides along verbatim instead, like every
-  // other unknown field. Our own suspend is excluded: it round-trips through
-  // the typed field, and duplicating it would let a stale copy win later.
-  if (value.idle !== undefined && pane.idle?.reason !== "suspended") {
-    extras.idle = value.idle;
-  }
   if (Object.keys(extras).length > 0) pane.extras = extras;
   return pane;
 }
 
 /** Why a restored pane has no PTY. A stored `suspended` marker is honoured —
  * that is the whole point of persisting it — and anything else (absent,
- * malformed, or a runtime reason a hand edit put there) degrades to
- * `restored`, so the pane simply wakes with the rest. Degrading toward "wake
- * it" is deliberate: the failure mode is an agent starting when it might not
- * have needed to, not one silently refusing to come back. */
+ * malformed, or a reason from a NEWER revision this build has no name for)
+ * degrades to a plain wake, so the pane simply comes up with the rest.
+ *
+ * The unknown marker is deliberately NOT carried through as a pane extra, the
+ * way an unknown ordinary field is. Extras preserve facts this build does not
+ * understand and does not touch; an idle marker is lifecycle state this build
+ * rewrites within a second of opening the file — hydration marks every pane
+ * idle and the sweep wakes it. Re-emitting the old marker afterwards would
+ * tell the newer build that a pane it is watching run is still parked, which
+ * is worse than the honest signal it gets from the marker's absence: an older
+ * build took this pane somewhere else. */
 function readIdle(value: unknown): PaneIdle {
   if (
     isRecord(value) &&
@@ -402,7 +402,7 @@ function readIdle(value: unknown): PaneIdle {
   ) {
     return { reason: "suspended", at: value.at };
   }
-  return { reason: "restored" };
+  return { reason: "waking", origin: "restore" };
 }
 
 /** Tolerant read of a persisted plugin-slot bag: `null` for anything that

@@ -358,7 +358,7 @@ export function usePaneSpawnSpecs(
   const { plugins } = useAppRuntime();
   const contributions = useContributions(plugins.pluginRegistries.agents);
   // The cache version: bumped when a build lands, so the snapshot below
-  // refreshes. (Resume plans land via `buildResumeSpec` before `revivePane`
+  // refreshes. (Resume plans land via `buildResumeSpec` before `clearPaneIdle`
   // flips deck state — that state change refreshes the snapshot instead.)
   const [tick, setTick] = useState(0);
 

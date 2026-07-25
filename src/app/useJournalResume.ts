@@ -4,6 +4,7 @@ import {
   findWorkspaceByRef,
   MAX_PANES,
   paneId,
+  paneIsStopped,
   WORKSPACE_FULL_MESSAGE,
   type Pane,
 } from "../domain/deck";
@@ -76,8 +77,10 @@ export function useJournalResume(
       // an enabled button that does NOTHING reads as dead — say why. An IDLE
       // claimant isn't "running": the honest message points at the pane that
       // owns the binding instead.
+      // "Stopped" only for a pane that really is staying down: one already on
+      // its way up has no Resume button to point the user at.
       throw new Error(
-        claimant.idle
+        paneIsStopped(claimant)
           ? "The session already belongs to a stopped pane — resume that pane instead"
           : "The session is already running in a pane",
       );

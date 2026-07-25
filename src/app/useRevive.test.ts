@@ -88,7 +88,7 @@ const restored = (pane: object): DeckState => ({
       cwd: "/repo",
       worktreeBaseDir: null,
       panes: [
-        { id: "pane-1", agentType: "claude", idle: { reason: "restored" }, ...pane },
+        { id: "pane-1", agentType: "claude", idle: { reason: "waking", origin: "restore" }, ...pane },
       ],
     },
   ],
@@ -203,7 +203,7 @@ describe("useRevive — session policy", () => {
     );
     await settle();
 
-    expect(pane().idle).toEqual({ reason: "restored" });
+    expect(pane().idle).toEqual({ reason: "waking", origin: "restore" });
     expect(ipc.probeWorktree).not.toHaveBeenCalled();
     expect(pane().session).toEqual({ id: "old", boundAt: "t" });
   });
@@ -216,7 +216,7 @@ describe("useRevive — session policy", () => {
     act(() => deck.hydrate(restored({})));
     await settle();
 
-    expect(pane().idle).toEqual({ reason: "restored" });
+    expect(pane().idle).toEqual({ reason: "waking", origin: "restore" });
     expect(ipc.probeWorktree).not.toHaveBeenCalled();
   });
 
@@ -230,7 +230,7 @@ describe("useRevive — session policy", () => {
     act(() => deck.hydrate(restored({ cwd: "/repo/wt-gone" })));
     await settle();
 
-    expect(pane().idle).toEqual({ reason: "restored" });
+    expect(pane().idle).toEqual({ reason: "waking", origin: "restore" });
     expect(revive.blocked["pane-1"]).toBe("/repo/wt-gone");
   });
 
@@ -349,12 +349,73 @@ describe("useRevive — resuming a suspended pane", () => {
     );
   });
 
+  it("a resume whose plan cannot be BUILT stays stopped instead of starting a new conversation", async () => {
+    // The second door onto the same failure: the CLI never even runs. A
+    // plugin with no resume.plan hook returns false without throwing, and
+    // waking anyway would let the fresh sweep spawn a NEW conversation whose
+    // reporter then overwrites the binding the card promised by name.
+    vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
+    act(() => deck.hydrate(suspended()));
+    await settle();
+
+    act(() => deck.wakePane("ws-1", "pane-1"));
+    await settle();
+
+    // Back down where it was, with its stamp and its binding intact…
+    expect(pane().idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T09:00:00.000Z",
+    });
+    expect(pane().session).toEqual({ id: "s-1", boundAt: "t" });
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
+    // …and the card can say why.
+    expect(revive.wakeFailed["pane-1"]).toContain("resume plan");
+  });
+
+  it("a BOOT restore whose plan cannot be built still degrades to a fresh wake", async () => {
+    // The documented trade the manual path deliberately does not take:
+    // nobody is watching a launch, and an empty pane beats a dead one.
+    vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
+    act(() => deck.hydrate(suspended({ idle: { reason: "waking", origin: "restore" } })));
+    await settle();
+
+    expect(pane().idle).toBeUndefined(); // woken
+    expect(revive.wakeFailed["pane-1"]).toBeUndefined();
+  });
+
+  it("a resume whose resume.plan THROWS is treated the same way", async () => {
+    vi.mocked(buildResumeSpec).mockRejectedValueOnce(new Error("hook exploded"));
+    act(() => deck.hydrate(suspended()));
+    await settle();
+
+    act(() => deck.wakePane("ws-1", "pane-1"));
+    await settle();
+
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+    expect(revive.wakeFailed["pane-1"]).toContain("hook exploded");
+  });
+
+  it("asking again clears the last refusal", async () => {
+    vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
+    act(() => deck.hydrate(suspended()));
+    await settle();
+    act(() => deck.wakePane("ws-1", "pane-1"));
+    await settle();
+    expect(revive.wakeFailed["pane-1"]).toBeDefined();
+
+    act(() => deck.wakePane("ws-1", "pane-1"));
+    await settle();
+
+    expect(revive.wakeFailed["pane-1"]).toBeUndefined();
+    expect(pane().idle).toBeUndefined(); // the retry succeeded
+  });
+
   it("a pane the RESTART left idle still builds as restore — only a click is manual", async () => {
     // The distinction lives on the pane's own marker, so the sweep cannot
     // guess wrong: an ordinary restored pane keeps the boot semantics.
     vi.mocked(buildResumeSpec).mockClear();
     act(() =>
-      deck.hydrate(suspended({ idle: { reason: "restored" } })),
+      deck.hydrate(suspended({ idle: { reason: "waking", origin: "restore" } })),
     );
     await settle();
 
@@ -384,7 +445,7 @@ describe("useRevive — resuming a suspended pane", () => {
     // No process, no resume plan: the pane stays idle and reports the missing
     // directory, so its card can explain itself instead of failing in a
     // terminal that spawned somewhere unexpected.
-    expect(pane().idle).toEqual({ reason: "resuming" });
+    expect(pane().idle).toMatchObject({ reason: "waking", origin: "manual" });
     expect(revive.blocked["pane-1"]).toBe("/repo/wt-1");
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
     // The binding survives — nothing has decided to abandon that session yet.
@@ -473,11 +534,11 @@ describe("useRevive — waking across workspace switches", () => {
   });
 
   it("RESTORED panes wake lazily: the active workspace at launch, the other on its first activation", async () => {
-    act(() => deck.hydrate(twoWorkspaces({ reason: "restored" })));
+    act(() => deck.hydrate(twoWorkspaces({ reason: "waking", origin: "restore" })));
     await settle();
 
     expect(paneOf("ws-1").idle).toBeUndefined(); // launched with the deck
-    expect(paneOf("ws-2").idle).toEqual({ reason: "restored" }); // still asleep
+    expect(paneOf("ws-2").idle).toEqual({ reason: "waking", origin: "restore" }); // still asleep
 
     act(() => deck.selectWorkspace("ws-2"));
     await settle();

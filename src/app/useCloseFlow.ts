@@ -9,6 +9,7 @@ import {
 } from "../domain/deck";
 import { probeWorktree } from "../ipc/worktree";
 import { clearPostProvision, discardWorktrees } from "./provisioning";
+import type { SuspendOutcome } from "./useSuspend";
 import { closePanes } from "./ptyManager";
 import { dropPaneSpawnSpec } from "./spawnSpecs";
 import { clearPaneUsage } from "./usageManager";
@@ -65,7 +66,7 @@ export function useCloseFlow(
     /** Suspend an agent instead of closing it — the dialog's third action.
      * Injected rather than imported so this hook keeps owning only the close
      * decision. */
-    suspendAgent(wsId: string, paneId: string): Promise<boolean> | void;
+    suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
   },
 ) {
   const { onError, gitPositions, suspendAgent } = deps;
@@ -173,6 +174,10 @@ export function useCloseFlow(
   /** Whether the dialog should offer suspending instead of closing at all. */
   const canSuspendInstead = !!closingPane && paneCanSuspend(closingPane);
 
+  /** The pane being closed has no process — the dialog must not promise to
+   * end a session that already ended. */
+  const closingIsStopped = !!closingPane && !!closingPane.idle;
+
   /**
    * Take the alternative: dismiss the dialog and park the agent.
    *
@@ -199,6 +204,7 @@ export function useCloseFlow(
     confirmClose,
     cancelClose,
     canSuspendInstead,
+    closingIsStopped,
     suspendInstead,
   };
 }

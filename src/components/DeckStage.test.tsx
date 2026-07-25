@@ -103,6 +103,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   unavailableAgentReasons: new Map(),
   gitHeads: new Map(),
   idleBlocked: {},
+  wakeFailed: {},
   specByPane: {
     "pane-1": { command: "codex", args: [], env: [] },
     "pane-2": { command: "codex", args: [], env: [] },
@@ -510,7 +511,10 @@ describe("DeckStage — suspended agents", () => {
         {
           ...workspaces[0],
           panes: [
-            { ...workspaces[0].panes[0], idle: { reason: "restored" as const } },
+            {
+              ...workspaces[0].panes[0],
+              idle: { reason: "waking" as const, origin: "restore" as const },
+            },
             workspaces[0].panes[1],
           ],
         },
@@ -531,7 +535,10 @@ describe("DeckStage — suspended agents", () => {
         {
           ...workspaces[0],
           panes: [
-            { ...workspaces[0].panes[0], idle: { reason: "restored" as const } },
+            {
+              ...workspaces[0].panes[0],
+              idle: { reason: "waking" as const, origin: "restore" as const },
+            },
             workspaces[0].panes[1],
           ],
         },

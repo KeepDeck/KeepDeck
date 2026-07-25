@@ -86,7 +86,10 @@ describe("usePersistence", () => {
 
     expect(restoring).toBe(false);
     expect(deck.workspaces.map((w) => w.id)).toEqual(["ws-1"]);
-    expect(deck.workspaces[0].panes[0].idle).toEqual({ reason: "restored" });
+    expect(deck.workspaces[0].panes[0].idle).toEqual({
+      reason: "waking",
+      origin: "restore",
+    });
 
     // The post-hydrate save is debounced and writes the normalized document.
     await act(async () => vi.runOnlyPendingTimers());

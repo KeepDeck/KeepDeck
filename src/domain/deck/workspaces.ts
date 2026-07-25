@@ -299,11 +299,15 @@ export function clearPaneIdle(
   );
 }
 
-/** Ask for a stopped pane back: it becomes `resuming`, which the revive sweep
- * acts on exactly like a restored pane — same directory probe, same
- * resume-plan build, same wake — while recording that a HUMAN asked. That
- * distinction is not cosmetic: a boot restore whose session id turns out dead
- * may fall back to a fresh conversation, and a resume someone clicked may not.
+/** Ask for a stopped pane back: it starts waking, which the revive sweep acts
+ * on exactly like a restored pane — same directory probe, same resume-plan
+ * build, same wake — while recording that a HUMAN asked. That distinction is
+ * not cosmetic: a boot restore whose session id turns out dead may fall back
+ * to a fresh conversation, and a resume someone clicked may not.
+ *
+ * The suspend's stamp rides along so a wake that FAILS can put the pane back
+ * where it was ([`failPaneWake`]) rather than restamping it as freshly
+ * suspended.
  *
  * Returns the SAME array for a live pane, one already on its way up, or an
  * unknown id. */
@@ -314,9 +318,40 @@ export function wakePane(
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
   if (!pane?.idle || idleWakesAutomatically(pane.idle)) return workspaces;
+  const at = pane.idle.reason === "suspended" ? pane.idle.at : undefined;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) =>
-      p.id === paneId ? { ...p, idle: { reason: "resuming" } } : p,
+      p.id === paneId
+        ? { ...p, idle: { reason: "waking", origin: "manual", ...(at && { at }) } }
+        : p,
+    ),
+  );
+}
+
+/** A wake the user asked for could not be prepared — put the pane back down
+ * instead of letting it come up as something else. Only a MANUAL wake is
+ * reversed: a boot restore that can't build a resume plan takes the documented
+ * fresh-start degradation, because nobody is watching it.
+ *
+ * The pane returns to `suspended` carrying the stamp it went up with, so its
+ * card reads exactly as it did before the failed attempt; a pane that was
+ * merely parked gets `at` instead, since it has no earlier stamp to restore.
+ *
+ * Returns the SAME array unless the pane really is mid-manual-wake. */
+export function failPaneWake(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+  at: string,
+): Workspace[] {
+  const pane = findPane(workspaces, workspaceId, paneId);
+  if (pane?.idle?.reason !== "waking" || pane.idle.origin !== "manual") {
+    return workspaces;
+  }
+  const stamp = pane.idle.at ?? at;
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) =>
+      p.id === paneId ? { ...p, idle: { reason: "suspended", at: stamp } } : p,
     ),
   );
 }
