@@ -659,7 +659,7 @@ describe("AgentPane — manual restart after exit", () => {
 
   it("resumes from the primary action and offers an explicit fresh alternative", () => {
     const onRestart = vi.fn();
-    mount({ canResume: true, onRestart });
+    mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(2);
 
     const buttons = actionButtons();
@@ -675,7 +675,7 @@ describe("AgentPane — manual restart after exit", () => {
 
   it("uses fresh mode from the secondary action", () => {
     const onRestart = vi.fn();
-    mount({ canResume: true, onRestart });
+    mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(2);
 
     act(() => actionButtons()[1].click());
@@ -687,7 +687,7 @@ describe("AgentPane — manual restart after exit", () => {
   it("guards an in-flight restart from repeated clicks", () => {
     const pending = new Promise<void>(() => {});
     const onRestart = vi.fn(() => pending);
-    mount({ canResume: true, onRestart });
+    mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(0);
 
     const primary = actionButtons()[0];
@@ -707,7 +707,7 @@ describe("AgentPane — manual restart after exit", () => {
       rejectRestart = reject;
     });
     const onRestart = vi.fn(() => pending);
-    mount({ canResume: true, onRestart });
+    mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(1);
 
     act(() => actionButtons()[0].click());
@@ -753,7 +753,7 @@ describe("AgentPane — suspended / parked card", () => {
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at } as const,
-          canResume: true,
+          resumeSessionId: "sess-abc",
           onResume,
         }),
       ),
@@ -761,7 +761,7 @@ describe("AgentPane — suspended / parked card", () => {
 
     expect(document.body.textContent).toContain("Suspended");
     expect(document.body.textContent).toContain("2h ago");
-    expect(document.body.textContent).toContain("Resumes its session");
+    expect(document.body.textContent).toContain("Resume session: sess-abc");
     // A suspended pane has no process — mounting a terminal would spawn one.
     expect(TerminalPane).not.toHaveBeenCalled();
 
@@ -770,20 +770,61 @@ describe("AgentPane — suspended / parked card", () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
+  it("names the session it will resume, in full on hover", () => {
+    const id = "0198e2f3-4a1b-7c9d-8e2f-1a2b3c4d5e6f";
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "suspended", at: new Date().toISOString() } as const,
+          resumeSessionId: id,
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+
+    const line = document.querySelector<HTMLElement>(".pane__idle-session")!;
+    expect(line).not.toBeNull();
+    expect(line.textContent).toBe(`Resume session: ${id}`);
+    // A uuid outgrows a narrow tile, so the line ellipsizes and carries the
+    // whole id as its tooltip.
+    expect(line.title).toBe(id);
+    expect(
+      document.querySelector(".pane__idle-session-id")?.textContent,
+    ).toBe(id);
+  });
+
+  it("shows the session id on a parked pane too — same promise, same evidence", () => {
+    act(() =>
+      root.render(
+        createElement(AgentPane, {
+          ...baseProps,
+          idle: { reason: "parked" } as const,
+          resumeSessionId: "sess-abc",
+          onResume: vi.fn(),
+        }),
+      ),
+    );
+    expect(document.querySelector(".pane__idle-session")?.textContent).toBe(
+      "Resume session: sess-abc",
+    );
+  });
+
   it("promises a FRESH session when the pane carries no binding", () => {
     act(() =>
       root.render(
         createElement(AgentPane, {
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
-          canResume: false,
+          resumeSessionId: null,
           onResume: vi.fn(),
         }),
       ),
     );
 
     expect(document.body.textContent).toContain("Starts a fresh session");
-    expect(document.body.textContent).not.toContain("Resumes its session");
+    expect(document.body.textContent).not.toContain("Resume session");
+    expect(document.querySelector(".pane__idle-session")).toBeNull();
   });
 
   it("reads as never-started (not stale-dated) for a pane parked at launch", () => {

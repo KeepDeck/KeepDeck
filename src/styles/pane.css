@@ -354,6 +354,19 @@
   white-space: nowrap;
 }
 
+/* "Resume session: <id>" on a stopped pane's card. The line ellipsizes (a
+   uuid outgrows a narrow tile) and stays selectable so the id can be copied. */
+.pane__idle-session {
+  user-select: text;
+}
+
+/* The id itself: monospace, so it can be read and compared character by
+   character against a session list. */
+.pane__idle-session-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
 .pane__dormant-action {
   margin-top: 10px;
   border: 1px solid #2a3343;

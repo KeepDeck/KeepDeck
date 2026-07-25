@@ -399,7 +399,9 @@ export function DeckStage({
               onSpawnFailed={(message) =>
                 onAgentSpawnFailed(ws.id, pane.id, message)
               }
-              canResume={!paneIsRemoteFresh(pane) && !!pane.session?.id}
+              resumeSessionId={
+                paneIsRemoteFresh(pane) ? null : (pane.session?.id ?? null)
+              }
               onRestart={(mode) => onRestartAgent(ws.id, pane.id, mode)}
             />
           );

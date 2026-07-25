@@ -116,8 +116,11 @@ interface AgentPaneProps {
   onExited?(code: number | null): void;
   /** The spawn itself failed — feeds the notification center upstream. */
   onSpawnFailed?(message: string): void;
-  /** Whether the exited process is bound to a resumable agent session. */
-  canResume?: boolean;
+  /** The agent session this pane would come back to, or null when it would
+   * start a new one. The id itself rather than a "can resume" flag: the idle
+   * card names the session it will resume, and a flag beside the id would be
+   * a second source for the same fact. */
+  resumeSessionId?: string | null;
   /** Manually restart an exited agent, either from its binding or fresh. */
   onRestart?(mode: AgentRestartMode): Promise<void> | void;
 }
@@ -161,7 +164,7 @@ export function AgentPane({
   onTitle,
   onExited,
   onSpawnFailed,
-  canResume,
+  resumeSessionId,
   onRestart,
   onStartFresh,
   onResume,
@@ -172,6 +175,7 @@ export function AgentPane({
   // to track. A narrow selector: only this pane re-renders when its own ctx%
   // changes.
   const ctxPct = usePaneContextPct(paneId);
+  const canResume = !!resumeSessionId;
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
   // A successful restart remounts the whole pane via its epoch. Until then,
@@ -427,9 +431,22 @@ export function AgentPane({
                 {/* Say what the button will actually do: an unbound pane comes
                     back as a NEW conversation, and a card that promised to
                     resume one would be lying about the thing that matters. */}
-                <span className="pane__exit-sub">
-                  {canResume ? "Resumes its session" : "Starts a fresh session"}
-                </span>
+                {/* Say what the button does AND which session it does it to:
+                    the pane's own binding, so a stopped agent can be matched
+                    against the agent's session store (or the Sessions
+                    browser) without waking it first. Ellipsized in a narrow
+                    tile; the title carries the full id. */}
+                {resumeSessionId ? (
+                  <span
+                    className="pane__exit-sub pane__dormant-path pane__idle-session"
+                    title={resumeSessionId}
+                  >
+                    Resume session:{" "}
+                    <span className="pane__idle-session-id">{resumeSessionId}</span>
+                  </span>
+                ) : (
+                  <span className="pane__exit-sub">Starts a fresh session</span>
+                )}
                 {onResume && (
                   <button
                     type="button"
