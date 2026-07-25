@@ -3,7 +3,7 @@ import { emptyJournal } from "../domain/journal";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DeckState } from "../domain/deck";
+import type { DeckState, PaneIdle } from "../domain/deck";
 import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import {
@@ -388,5 +388,70 @@ describe("useRevive — resuming a suspended pane", () => {
     expect(pane().branch).toBeUndefined();
     expect(pane().session).toBeUndefined();
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
+  });
+});
+
+describe("useRevive — waking across workspace switches", () => {
+  let root: Root;
+
+  /** Two workspaces, ws-1 active, one pane each with the given idle reason. */
+  const twoWorkspaces = (idle: PaneIdle): DeckState => ({
+    workspaces: ["ws-1", "ws-2"].map((id) => ({
+      id,
+      instance: createWorkspaceInstance(),
+      name: id,
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [{ id: `${id}-pane`, agentType: "claude", idle }],
+    })),
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  });
+
+  const paneOf = (wsId: string) =>
+    deck.workspaces.find((w) => w.id === wsId)!.panes[0];
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  it("RESTORED panes wake lazily: the active workspace at launch, the other on its first activation", async () => {
+    act(() => deck.hydrate(twoWorkspaces({ reason: "restored" })));
+    await settle();
+
+    expect(paneOf("ws-1").idle).toBeUndefined(); // launched with the deck
+    expect(paneOf("ws-2").idle).toEqual({ reason: "restored" }); // still asleep
+
+    act(() => deck.selectWorkspace("ws-2"));
+    await settle();
+
+    expect(paneOf("ws-2").idle).toBeUndefined(); // woken by the switch
+  });
+
+  it("PARKED panes stay stopped through a workspace switch, not just at launch", async () => {
+    act(() => deck.hydrate(twoWorkspaces({ reason: "parked" })));
+    await settle();
+
+    act(() => deck.selectWorkspace("ws-2"));
+    await settle();
+
+    expect(paneOf("ws-1").idle).toEqual({ reason: "parked" });
+    expect(paneOf("ws-2").idle).toEqual({ reason: "parked" });
+    expect(ipc.probeWorktree).not.toHaveBeenCalled();
   });
 });
