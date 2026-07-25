@@ -920,27 +920,20 @@ describe("failPaneWake", () => {
     });
   });
 
-  it("keeps the ORIGINAL landing place when a rising pane is asked for again", () => {
-    // Upgrading a wake changes who asked, not where the pane came from. A
-    // second request that overwrote `from` with the transient `waking` marker
-    // would lose the suspend the first one was carrying.
+  it("lands on the LATEST suspend when the user stops a pane mid-wake", () => {
+    // Reachable in three gestures: resume a suspended pane, stop it again
+    // while the sweep is still probing, resume once more. The second suspend
+    // is the one the pane must return to — restoring the first would date the
+    // card by a decision the user has already replaced.
+    const LATER = "2026-07-25T11:30:00.000Z";
     const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
-    const once = requestPaneWake(suspended, "a", "a-p1");
-    const twice = requestPaneWake(
-      // Force a second pass by rewinding the origin the way the sweep's own
-      // restore marker would look, keeping the carried state.
-      [
-        {
-          ...once[0],
-          panes: [{ id: "a-p1", idle: { reason: "waking", origin: "restore", from: { reason: "suspended", at: AT } } }],
-        },
-      ],
-      "a",
-      "a-p1",
-    );
-    expect(failPaneWake(twice, "a", "a-p1")[0].panes[0].idle).toEqual({
+    const rising = requestPaneWake(suspended, "a", "a-p1");
+    const stoppedAgain = suspendPane(rising, "a", "a-p1", LATER);
+    const risingAgain = requestPaneWake(stoppedAgain, "a", "a-p1");
+
+    expect(failPaneWake(risingAgain, "a", "a-p1")[0].panes[0].idle).toEqual({
       reason: "suspended",
-      at: AT,
+      at: LATER,
     });
   });
 

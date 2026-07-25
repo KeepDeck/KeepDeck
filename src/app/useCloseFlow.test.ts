@@ -447,10 +447,16 @@ describe("what the dialog promises is what confirming does", () => {
     expect(flow.closeMessage).toContain("Suspending stops the agent instead");
 
     // A remote pane can't be suspended — the sentence must not offer it.
-    act(() => {
-      deck.workspaces[0].panes[0].remoteEndpoint = "ws://vps:4500";
-      flow.requestCloseAgent(wsId, "pane-1", "Agent 1");
-    });
+    // Seeded through the deck rather than mutated in place: reading a pane
+    // object the reducer never produced would pass here and mean nothing.
+    act(() =>
+      deck.addAgentPane("ws-1", {
+        id: "pane-remote",
+        agentType: "claude",
+        remoteEndpoint: "ws://vps:4500",
+      }),
+    );
+    act(() => flow.requestCloseAgent(wsId, "pane-remote", "Remote"));
     expect(flow.canSuspendInstead).toBe(false);
     expect(flow.closeMessage).toBe("Its terminal session will be ended.");
   });

@@ -112,6 +112,15 @@ describe("paneCanSuspend", () => {
     // A LIVE pane is never stopped by a stale entry: it has no idle marker,
     // and a running agent is not "already stopped" whatever the map says.
     expect(paneSuspendBlock({ id: "p" }, true)).toBeNull();
+    // Already-down panes answer the same with or without a block — the
+    // argument can only ADD a reason to refuse, never remove one.
+    for (const idle of [
+      { reason: "parked" },
+      { reason: "suspended", at: "t" },
+    ] as const) {
+      expect(paneSuspendBlock({ id: "p", idle }, false)).toBe("stopped");
+      expect(paneSuspendBlock({ id: "p", idle }, true)).toBe("stopped");
+    }
   });
 
   it("false while a worktree create is in flight — no process to stop", () => {

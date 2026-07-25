@@ -14,7 +14,7 @@ import {
 } from "./spawnSpecs";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
-import { useRevive, type ReviveApi } from "./useRevive";
+import { useRevive, type ResumeRequest, type ReviveApi } from "./useRevive";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -179,7 +179,9 @@ describe("useRevive — session policy", () => {
     // even a stale `session` is ignored — never handed to the resume path
     // (which would spawn locally and drop the endpoint).
     ipc.probeWorktree.mockClear();
-    vi.mocked(buildResumeSpec).mockClear();
+    // Reset, not clear: `mockClear` leaves an unconsumed `…Once` queue in
+    // place, which then answers the FIRST build of the next test.
+    vi.mocked(buildResumeSpec).mockReset();
     act(() =>
       deck.hydrate(
         restored({
@@ -337,7 +339,9 @@ describe("useRevive — resuming a suspended pane", () => {
     // respawns fresh AND its binding is wiped, with no notification. That is
     // right for a launch nobody is watching and wrong for a button the user
     // pressed after being promised this session by name.
-    vi.mocked(buildResumeSpec).mockClear();
+    // Reset, not clear: `mockClear` leaves an unconsumed `…Once` queue in
+    // place, which then answers the FIRST build of the next test.
+    vi.mocked(buildResumeSpec).mockReset();
     act(() => deck.hydrate(withPane()));
     await settle();
 
@@ -422,7 +426,9 @@ describe("useRevive — resuming a suspended pane", () => {
   it("a pane RESTORED at launch still builds as restore — only a click is manual", async () => {
     // The distinction lives on the pane's own marker, so the sweep cannot
     // guess wrong: a pane hydration woke keeps the boot semantics.
-    vi.mocked(buildResumeSpec).mockClear();
+    // Reset, not clear: `mockClear` leaves an unconsumed `…Once` queue in
+    // place, which then answers the FIRST build of the next test.
+    vi.mocked(buildResumeSpec).mockReset();
     act(() =>
       deck.hydrate(withPane({ idle: { reason: "waking", origin: "restore" } })),
     );
@@ -671,7 +677,9 @@ describe("useRevive — a request that lands mid-flight", () => {
 
   beforeEach(() => {
     resetPaneSpawnSpecs();
-    vi.mocked(buildResumeSpec).mockClear();
+    // Reset, not clear: `mockClear` leaves an unconsumed `…Once` queue in
+    // place, which then answers the FIRST build of the next test.
+    vi.mocked(buildResumeSpec).mockReset();
     ipc.probeWorktree.mockReset();
     catalog.ready = true;
     document.body.innerHTML = "<div id='host'></div>";
@@ -710,7 +718,11 @@ describe("useRevive — a request that lands mid-flight", () => {
     await act(async () => {});
 
     // The pane is mid-probe; ask for it by name (the `agent.resume` path).
-    expect(revive.resume("ws-1", "pane-1")).toBe("resuming");
+    let asked: ResumeRequest | undefined;
+    act(() => {
+      asked = revive.resume("ws-1", "pane-1");
+    });
+    expect(asked).toBe("resuming");
     release();
     await settle();
 
@@ -790,6 +802,47 @@ describe("useRevive — a request that lands mid-flight", () => {
     expect(pane().idle).toBeUndefined();
   });
 
+  it("keeps the pane down when the REBUILT plan fails", async () => {
+    // The upgrade path's own failure: the restore build succeeded, the
+    // request arrived mid-build, and the rebuild for it came back empty. The
+    // pane must stay stopped and say so — waking it would hand the user's
+    // named resume to the ordinary fresh sweep, which is the substitution
+    // this whole path exists to prevent. Neither build failing alone covers
+    // this: only here is a good plan already cached when the second fails.
+    let releaseFirst!: () => void;
+    vi.mocked(buildResumeSpec)
+      // The sweep's own restore build, held open so the request lands inside
+      // it — that is the only way to reach the rebuild at all.
+      .mockImplementationOnce(
+        () => new Promise<boolean>((resolve) => (releaseFirst = () => resolve(true))),
+      )
+      // The rebuild for the user's request comes back with no plan.
+      .mockResolvedValueOnce(false);
+    ipc.probeWorktree.mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
+    await act(async () => {});
+
+    act(() => {
+      revive.resume("ws-1", "pane-1");
+    });
+    releaseFirst();
+    await settle();
+
+    expect(origins()).toEqual(["restore", "manual"]);
+    // Back where it rose from: this pane came off disk, so it has no suspend
+    // to return to and must not be handed a forged one.
+    expect(pane().idle).toEqual({ reason: "parked" });
+    expect(revive.wakeFailed["pane-1"]).toBeTruthy();
+    // The plan built for the abandoned attempt must not survive as this
+    // pane's next spawn.
+    expect(vi.mocked(dropPaneSpawnSpec)).toHaveBeenCalledWith("pane-1");
+  });
+
   it("drops the outcome of a wake the user CANCELLED mid-probe", async () => {
     // Suspending a rising pane cancels the wake. Building a plan for it
     // afterwards would hand a stopped pane a live resume spec, and reporting
@@ -837,7 +890,9 @@ describe("useRevive — a pane asked for by name in another workspace", () => {
 
   beforeEach(() => {
     resetPaneSpawnSpecs();
-    vi.mocked(buildResumeSpec).mockClear();
+    // Reset, not clear: `mockClear` leaves an unconsumed `…Once` queue in
+    // place, which then answers the FIRST build of the next test.
+    vi.mocked(buildResumeSpec).mockReset();
     ipc.probeWorktree.mockReset().mockResolvedValue({
       exists: true,
       isWorktree: false,
