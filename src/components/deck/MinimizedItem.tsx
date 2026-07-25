@@ -168,6 +168,7 @@ export function MinimizedItem({
           id={tooltipId}
           title={title}
           gitBadge={gitBadge}
+          stopped={stopped}
         />
       )}
     </>

@@ -421,7 +421,7 @@ describe("deckReducer restore actions ([F7])", () => {
       },
     );
     const woken = deckReducer(suspended, {
-      type: "wakePane",
+      type: "requestPaneWake",
       wsId: "ws-1",
       paneId: "pane-2",
     });
@@ -442,13 +442,13 @@ describe("deckReducer restore actions ([F7])", () => {
     const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     // pane-1 is `restored` (already on its way up), pane-2 is live.
     expect(
-      deckReducer(start, { type: "wakePane", wsId: "ws-1", paneId: "pane-1" }),
+      deckReducer(start, { type: "requestPaneWake", wsId: "ws-1", paneId: "pane-1" }),
     ).toBe(start);
     expect(
-      deckReducer(start, { type: "wakePane", wsId: "ws-1", paneId: "pane-2" }),
+      deckReducer(start, { type: "requestPaneWake", wsId: "ws-1", paneId: "pane-2" }),
     ).toBe(start);
     expect(
-      deckReducer(start, { type: "wakePane", wsId: "ws-1", paneId: "nope" }),
+      deckReducer(start, { type: "requestPaneWake", wsId: "ws-1", paneId: "nope" }),
     ).toBe(start);
   });
 

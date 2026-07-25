@@ -303,3 +303,10 @@
   -webkit-line-clamp: 3;
   overflow: hidden;
 }
+
+/* "Stopped" in the hover details — the chip's inline marker is a glyph whose
+   own title this tooltip suppresses, so the state is spelled out here. */
+.minimized-tooltip__stopped {
+  color: #8b93a3;
+  font-size: 11px;
+}

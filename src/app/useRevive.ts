@@ -43,6 +43,11 @@ export interface ReviveApi {
   /** Detach the pane from the missing worktree and start it fresh in the
    * workspace cwd. */
   startFresh(wsId: string, paneId: string): void;
+  /** Probe the pane's directory again. A blocked pane is skipped by the sweep
+   * for the rest of the session, so without this a folder that comes back —
+   * an unmounted volume, a worktree recreated by hand — leaves the pane stuck
+   * behind a card whose only other exit destroys its session binding. */
+  retryBlocked(wsId: string, paneId: string): void;
 }
 
 export function useRevive(
@@ -237,5 +242,13 @@ export function useRevive(
     deckRef.current.clearPaneIdle(wsId, paneId);
   };
 
-  return { blocked, wakeFailed, startFresh };
+  /** Drop the block; the pane is still idle, so the sweep picks it up again on
+   * the very next pass and re-probes. */
+  const retryBlocked = (wsId: string, paneId: string) => {
+    setBlocked(({ [paneId]: _gone, ...rest }) => rest);
+    // A pane the user is retrying has, by definition, been asked for.
+    deckRef.current.requestPaneWake(wsId, paneId);
+  };
+
+  return { blocked, wakeFailed, startFresh, retryBlocked };
 }

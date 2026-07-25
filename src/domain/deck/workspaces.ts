@@ -279,7 +279,7 @@ export function setPaneAutoTitle(
  * what it does rather than for the goal: calling it to "wake" a pane skips
  * both of those and spawns a fresh session into a directory that may be gone,
  * which is exactly what the sweep exists to prevent. To ask for a pane back,
- * use [`wakePane`].
+ * use [`requestPaneWake`].
  *
  * Returns the SAME array when the pane is absent or already live, so a
  * repeated revive effect doesn't re-render anything. */
@@ -311,7 +311,7 @@ export function clearPaneIdle(
  *
  * Returns the SAME array for a live pane, one already on its way up, or an
  * unknown id. */
-export function wakePane(
+export function requestPaneWake(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,

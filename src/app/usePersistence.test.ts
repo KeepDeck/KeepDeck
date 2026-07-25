@@ -210,13 +210,13 @@ describe("usePersistence", () => {
     await act(async () => vi.runOnlyPendingTimers());
     ipc.saveDeckState.mockClear();
 
-    act(() => deck.wakePane("ws-1", "pane-1"));
+    act(() => deck.requestPaneWake("ws-1", "pane-1"));
 
     expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
     expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("suspended");
   });
 
-  it("the sweep waking restored panes does NOT force a save per pane", async () => {
+  it("the sweep waking a restored pane does NOT force a save", async () => {
     // `restored`/`parked`/`resuming` never reach disk, so folding them into
     // the immediate signature would fire one write per pane at every launch.
     ipc.loadDeckState.mockResolvedValue(STORED);

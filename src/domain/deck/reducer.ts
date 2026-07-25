@@ -35,7 +35,7 @@ import {
   setPaneSession,
   setWorkspacePluginSlot,
   suspendPane,
-  wakePane,
+  requestPaneWake,
   workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
@@ -123,14 +123,14 @@ export type DeckAction =
   | { type: "hydrate"; state: DeckState }
   /** Drop an idle pane's marker so its terminal mounts and spawns — the LAST
    * step of the revive sweep, after the probe and the plan ([F7]). To ask for
-   * a stopped pane back, dispatch `wakePane` instead. */
+   * a stopped pane back, dispatch `requestPaneWake` instead. */
   | { type: "clearPaneIdle"; wsId: string; paneId: string }
   /** Suspend a live pane: it keeps its place, session binding and worktree,
    * but nothing wakes it again except an explicit resume. */
   | { type: "suspendPane"; wsId: string; paneId: string; at: string }
   /** Hand a suspended/parked pane back to the revive sweep, which resumes it
    * the same way it resumes any restored pane. */
-  | { type: "wakePane"; wsId: string; paneId: string }
+  | { type: "requestPaneWake"; wsId: string; paneId: string }
   /** That wake could not be prepared — put the pane back down where it was,
    * rather than let it come up as a different conversation. */
   | { type: "failPaneWake"; wsId: string; paneId: string; at: string }
@@ -543,10 +543,10 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
         state,
         suspendPane(state.workspaces, action.wsId, action.paneId, action.at),
       );
-    case "wakePane":
+    case "requestPaneWake":
       return withWorkspaces(
         state,
-        wakePane(state.workspaces, action.wsId, action.paneId),
+        requestPaneWake(state.workspaces, action.wsId, action.paneId),
       );
     case "failPaneWake":
       return withWorkspaces(

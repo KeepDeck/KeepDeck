@@ -808,6 +808,7 @@ function App() {
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={revive.startFresh}
+            onRetryBlocked={revive.retryBlocked}
             onResumeAgent={suspendFlow.resume}
             onRetryProvision={provisioning.retryPane}
             onAgentExited={(wsId, paneId, code) => {

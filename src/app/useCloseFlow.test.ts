@@ -248,7 +248,7 @@ describe("useCloseFlow + ptyManager", () => {
   });
 
   describe("suspending instead of closing", () => {
-    it("dismisses the dialog and parks the agent, closing nothing", () => {
+    it("dismisses the dialog and delegates to suspend, closing nothing", () => {
       const wsId = seed();
       act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
       expect(flow.canSuspendInstead).toBe(true);

@@ -99,7 +99,7 @@ export function useSuspend(deck: Deck): SuspendApi {
   };
 
   const resume = (wsId: string, paneId: string) => {
-    deckRef.current.wakePane(wsId, paneId);
+    deckRef.current.requestPaneWake(wsId, paneId);
   };
 
   return { suspend, resume };

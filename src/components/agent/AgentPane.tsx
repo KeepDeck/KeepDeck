@@ -85,6 +85,8 @@ interface AgentPaneProps {
   blockedDir?: string | null;
   /** Detach from the missing worktree and start fresh in the workspace cwd. */
   onStartFresh?(): void;
+  /** Probe the missing directory again — the non-destructive way out. */
+  onRetryBlocked?(): void;
   /** Wake a suspended (or parked) pane — the idle card's own gesture. */
   onResume?(): void;
   /** The pane's worktree create in flight or failed — render a status card
@@ -177,6 +179,7 @@ export function AgentPane({
   resumeSessionId,
   onRestart,
   onStartFresh,
+  onRetryBlocked,
   onResume,
   onRetryProvision,
 }: AgentPaneProps) {
@@ -425,6 +428,18 @@ export function AgentPane({
                 <span className="pane__exit-sub pane__dormant-path" title={blockedDir}>
                   {blockedDir}
                 </span>
+                {/* Two ways out, and the order matters: looking again costs
+                    nothing and keeps the session, while starting fresh throws
+                    the binding away with the folder. */}
+                {onRetryBlocked && (
+                  <button
+                    type="button"
+                    className="pane__dormant-action"
+                    onClick={onRetryBlocked}
+                  >
+                    Look again
+                  </button>
+                )}
                 {onStartFresh && (
                   <button
                     type="button"

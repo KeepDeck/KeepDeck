@@ -24,7 +24,7 @@ import {
   setPaneProvisioningPhase,
   setWorkspacePluginSlot,
   suspendPane,
-  wakePane,
+  requestPaneWake,
   worktreeTargets,
   type Workspace,
 } from "./workspaces";
@@ -797,7 +797,7 @@ describe("wakePane", () => {
   const withPane = (pane: Pane): Workspace[] => [{ ...ws("a", []), panes: [pane] }];
 
   it("hands a suspended pane back to the sweep, marked as the user's doing", () => {
-    const after = wakePane(
+    const after = requestPaneWake(
       withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } }),
       "a",
       "a-p1",
@@ -814,7 +814,7 @@ describe("wakePane", () => {
   });
 
   it("does the same for a pane parked by the launch policy", () => {
-    const after = wakePane(
+    const after = requestPaneWake(
       withPane({ id: "a-p1", idle: { reason: "parked" } }),
       "a",
       "a-p1",
@@ -824,14 +824,14 @@ describe("wakePane", () => {
 
   it("is a no-op (same ref) for a live pane, one already rising, or an unknown id", () => {
     const live = withPane({ id: "a-p1" });
-    expect(wakePane(live, "a", "a-p1")).toBe(live);
+    expect(requestPaneWake(live, "a", "a-p1")).toBe(live);
     const restored = withPane({ id: "a-p1", idle: { reason: "waking", origin: "restore" } });
-    expect(wakePane(restored, "a", "a-p1")).toBe(restored);
-    expect(wakePane(restored, "a", "nope")).toBe(restored);
-    expect(wakePane(restored, "nope", "a-p1")).toBe(restored);
+    expect(requestPaneWake(restored, "a", "a-p1")).toBe(restored);
+    expect(requestPaneWake(restored, "a", "nope")).toBe(restored);
+    expect(requestPaneWake(restored, "nope", "a-p1")).toBe(restored);
     // A second click while the sweep is still working must not re-mark it.
     const resuming = withPane({ id: "a-p1", idle: { reason: "waking", origin: "manual" } });
-    expect(wakePane(resuming, "a", "a-p1")).toBe(resuming);
+    expect(requestPaneWake(resuming, "a", "a-p1")).toBe(resuming);
   });
 });
 
@@ -842,7 +842,7 @@ describe("failPaneWake", () => {
 
   it("puts a manual wake back down with the stamp it went up with", () => {
     const suspended = withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } });
-    const waking = wakePane(suspended, "a", "a-p1");
+    const waking = requestPaneWake(suspended, "a", "a-p1");
     const back = failPaneWake(waking, "a", "a-p1", LATER);
     // The card reads exactly as it did before the failed attempt — restamping
     // it "just now" would misdate a suspend the user made hours ago.
@@ -850,7 +850,7 @@ describe("failPaneWake", () => {
   });
 
   it("stamps a pane that was only PARKED — it has no earlier stamp to restore", () => {
-    const waking = wakePane(withPane({ id: "a-p1", idle: { reason: "parked" } }), "a", "a-p1");
+    const waking = requestPaneWake(withPane({ id: "a-p1", idle: { reason: "parked" } }), "a", "a-p1");
     const back = failPaneWake(waking, "a", "a-p1", LATER);
     expect(back[0].panes[0].idle).toEqual({ reason: "suspended", at: LATER });
   });
