@@ -405,8 +405,15 @@ function readIdle(value: unknown): PaneIdle {
   // A marker we cannot make sense of: `parked`, not a wake. The pane stays
   // down with a card and a button rather than spawning a process — for a doc
   // that plainly meant "this pane was stopped", starting the agent anyway is
-  // the destructive reading of corrupt data, and `parked` is runtime-only, so
-  // nothing about the bad marker becomes durable.
+  // the destructive reading of corrupt data.
+  //
+  // The protection lasts exactly this launch, and deliberately so: `parked`
+  // is runtime-only, so the first save drops the unreadable marker and the
+  // NEXT launch wakes the pane normally. That is the intended trade — the
+  // alternative, re-emitting a marker this build could not read, would carry
+  // lifecycle state we don't understand into a document we do own, and
+  // writing `suspended` instead would forge a decision the user never made.
+  // One launch behind a card is enough for the user to decide.
   if (value !== undefined) return { reason: "parked" };
   return { reason: "waking", origin: "restore" };
 }

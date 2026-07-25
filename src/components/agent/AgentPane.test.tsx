@@ -1004,7 +1004,10 @@ describe("AgentPane — a refused resume explains itself", () => {
   });
 
   it("offers the non-destructive way out FIRST on a blocked pane", () => {
-    const onRetryBlocked = vi.fn();
+    // "Look again" and the idle card's "Resume" are the SAME gesture — asking
+    // for the pane back — so they share one prop. Two props pointing at one
+    // handler let a caller wire only one of them and leave the other dead.
+    const onResume = vi.fn();
     const onStartFresh = vi.fn();
     act(() =>
       root.render(
@@ -1012,7 +1015,7 @@ describe("AgentPane — a refused resume explains itself", () => {
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
           blockedDir: "/gone/worktree",
-          onRetryBlocked,
+          onResume,
           onStartFresh,
         }),
       ),
@@ -1029,7 +1032,7 @@ describe("AgentPane — a refused resume explains itself", () => {
     ]);
 
     act(() => actions[0].click());
-    expect(onRetryBlocked).toHaveBeenCalledTimes(1);
+    expect(onResume).toHaveBeenCalledTimes(1);
     expect(onStartFresh).not.toHaveBeenCalled();
 
     act(() => actions[1].click());

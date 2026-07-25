@@ -87,6 +87,11 @@ export function useUsageTails(
   const armRecordedTails = () => {
     for (const ws of deckRef.current.workspaces) {
       for (const pane of ws.panes) {
+        // A stopped pane is never ARMED here — it has no spawn token to
+        // authenticate one with. A pane suspended while already tailed keeps
+        // its watcher on purpose: its file cannot change with the process
+        // gone, and re-arming on resume would re-read the rollout from the
+        // top. The watcher is released when the pane leaves the deck.
         if (pane.idle || pane.provisioning) continue;
         const sessionId = pane.session?.id;
         if (!sessionId || tailedRef.current.has(pane.id)) continue;

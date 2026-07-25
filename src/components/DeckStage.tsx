@@ -409,7 +409,6 @@ export function DeckStage({
               onRename={(name) => onRenamePane(ws.id, pane.id, name)}
               onTitle={(t) => onPaneTitle(ws.id, pane.id, t)}
               onStartFresh={() => onStartFresh(ws.id, pane.id)}
-              onRetryBlocked={() => onResumeAgent(ws.id, pane.id)}
               onResume={() => onResumeAgent(ws.id, pane.id)}
               onRetryProvision={() => onRetryProvision(ws.id, pane.id)}
               onExited={(code) => onAgentExited(ws.id, pane.id, code)}

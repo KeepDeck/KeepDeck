@@ -84,9 +84,10 @@ interface AgentPaneProps {
   blockedDir?: string | null;
   /** Detach from the missing worktree and start fresh in the workspace cwd. */
   onStartFresh?(): void;
-  /** Probe the missing directory again — the non-destructive way out. */
-  onRetryBlocked?(): void;
-  /** Wake a suspended (or parked) pane — the idle card's own gesture. */
+  /** Ask for this pane back — the idle card's Resume and, on a pane whose
+   * folder is gone, its "Look again". One gesture with two labels rather than
+   * two props pointing at one handler: the card already knows which state it
+   * is in, and the split invited a caller to wire only one of them. */
   onResume?(): void;
   /** The pane's worktree create in flight or failed — render a status card
    * instead of a terminal until it resolves (optimistic provisioning). */
@@ -177,7 +178,6 @@ export function AgentPane({
   resumeSessionId,
   onRestart,
   onStartFresh,
-  onRetryBlocked,
   onResume,
   onRetryProvision,
 }: AgentPaneProps) {
@@ -222,7 +222,12 @@ export function AgentPane({
   const dated = idle?.reason === "suspended";
   useEffect(() => {
     if (!dated) return;
-    setNow(Date.now());
+    // The clock is refreshed on the way IN too: a pane that ran for an hour
+    // between two suspends would otherwise date its card by the hour-old
+    // reading. Below the formatter's own resolution the state is left
+    // untouched, so React bails out — mounting a stopped deck costs no extra
+    // render, which is the only case where this runs with nothing to correct.
+    setNow((prev) => (Date.now() - prev >= 60_000 ? Date.now() : prev));
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, [dated]);
@@ -444,11 +449,11 @@ export function AgentPane({
                 {/* Two ways out, and the order matters: looking again costs
                     nothing and keeps the session, while starting fresh throws
                     the binding away with the folder. */}
-                {onRetryBlocked && (
+                {onResume && (
                   <button
                     type="button"
                     className="pane__dormant-action"
-                    onClick={onRetryBlocked}
+                    onClick={onResume}
                   >
                     Look again
                   </button>
