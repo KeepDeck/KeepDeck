@@ -186,6 +186,33 @@ describe("useAgentRestart", () => {
     expect(restart.epochs.get("pane-1")).toBe(1);
   });
 
+  it("a suspend landing mid-restart keeps its binding — the two flows do not block each other", async () => {
+    // Each pane-lifecycle hook holds its OWN in-flight set, so ⇧⌘W inside the
+    // restart's `await closePane` slips through. The pane is parked by the
+    // time the restart resumes, and its binding is exactly what its resume
+    // needs: wiping it would turn the user's suspend into a new conversation.
+    seed();
+    let release!: () => void;
+    pty.closePane.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+
+    let restarting!: Promise<void>;
+    act(() => {
+      restarting = restart.restart("ws-1", "pane-1", "fresh");
+    });
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    await act(async () => {
+      release();
+      await restarting;
+    });
+
+    expect(pane().session).toEqual({ id: "session-old", boundAt: "2026-07-11T00:00:00Z" });
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+    // No remount either: the pane is stopped, there is nothing to mount.
+    expect(restart.epochs.get("pane-1")).toBeUndefined();
+  });
+
   it("falls back to fresh safely when resume was requested without a binding", async () => {
     seed(null);
 

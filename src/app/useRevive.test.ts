@@ -326,6 +326,48 @@ describe("useRevive — resuming a suspended pane", () => {
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "s-1"]);
   });
 
+  it("builds the resume plan as MANUAL — a rejected id must not silently start a new conversation", async () => {
+    // The boot restore path stamps "restore", which arms a one-shot fallback:
+    // if the CLI refuses the recorded id and dies without reporting, the pane
+    // respawns fresh AND its binding is wiped, with no notification. That is
+    // right for a launch nobody is watching and wrong for a button the user
+    // pressed after being promised this session by name.
+    vi.mocked(buildResumeSpec).mockClear();
+    act(() => deck.hydrate(suspended()));
+    await settle();
+
+    act(() => deck.wakePane("ws-1", "pane-1"));
+    await settle();
+
+    expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
+      expect.anything(),
+      "claude",
+      expect.anything(),
+      expect.anything(),
+      "s-1",
+      "manual",
+    );
+  });
+
+  it("a pane the RESTART left idle still builds as restore — only a click is manual", async () => {
+    // The distinction lives on the pane's own marker, so the sweep cannot
+    // guess wrong: an ordinary restored pane keeps the boot semantics.
+    vi.mocked(buildResumeSpec).mockClear();
+    act(() =>
+      deck.hydrate(suspended({ idle: { reason: "restored" } })),
+    );
+    await settle();
+
+    expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
+      expect.anything(),
+      "claude",
+      expect.anything(),
+      expect.anything(),
+      "s-1",
+      "restore",
+    );
+  });
+
   it("a DELETED worktree blocks the resume instead of spawning into nowhere", async () => {
     ipc.probeWorktree.mockResolvedValue({
       exists: false,
@@ -342,7 +384,7 @@ describe("useRevive — resuming a suspended pane", () => {
     // No process, no resume plan: the pane stays idle and reports the missing
     // directory, so its card can explain itself instead of failing in a
     // terminal that spawned somewhere unexpected.
-    expect(pane().idle).toEqual({ reason: "restored" });
+    expect(pane().idle).toEqual({ reason: "resuming" });
     expect(revive.blocked["pane-1"]).toBe("/repo/wt-1");
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
     // The binding survives — nothing has decided to abandon that session yet.

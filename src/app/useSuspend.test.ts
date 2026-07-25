@@ -168,8 +168,10 @@ describe("useSuspend", () => {
     act(() => suspend.resume("ws-1", "pane-1"));
 
     // NOT live yet: the sweep still has to probe the directory and build the
-    // resume plan — resuming reuses that path rather than duplicating it.
-    expect(pane().idle).toEqual({ reason: "restored" });
+    // resume plan — resuming reuses that path rather than duplicating it. The
+    // reason records that a HUMAN asked, which is what keeps a rejected
+    // session id from silently becoming a new conversation.
+    expect(pane().idle).toEqual({ reason: "resuming" });
     expect(pane().session).toEqual({
       id: "s-1",
       boundAt: "2026-07-25T09:00:00.000Z",

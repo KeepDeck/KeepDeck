@@ -8,7 +8,14 @@ import type {
   WorkspaceInstance,
   WorkspaceRef,
 } from "../workspaceInstance";
-import { appendPane, removePane, type Pane, type PaneSession } from "./panes";
+import {
+  appendPane,
+  idleWakesAutomatically,
+  paneCanSuspend,
+  removePane,
+  type Pane,
+  type PaneSession,
+} from "./panes";
 
 /** A workspace owns its own set of agent panes, all running the same agent type
  * in the same working directory. Switching the active workspace swaps which set
@@ -267,11 +274,16 @@ export function setPaneAutoTitle(
   );
 }
 
-/** Wake an idle (no PTY) pane so its terminal mounts and spawns — whatever
- * left it idle: a restart ([F7]), the launch policy, or a suspend. Returns the
- * SAME array when the pane is absent or already live, so a repeated revive
- * effect doesn't re-render anything. */
-export function revivePane(
+/** Drop a pane's idle marker — the LAST step of waking one, run by the revive
+ * sweep once it has probed the directory and built the resume plan. Named for
+ * what it does rather than for the goal: calling it to "wake" a pane skips
+ * both of those and spawns a fresh session into a directory that may be gone,
+ * which is exactly what the sweep exists to prevent. To ask for a pane back,
+ * use [`wakePane`].
+ *
+ * Returns the SAME array when the pane is absent or already live, so a
+ * repeated revive effect doesn't re-render anything. */
+export function clearPaneIdle(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
@@ -287,12 +299,13 @@ export function revivePane(
   );
 }
 
-/** Hand an idle pane back to the revive sweep: a suspended (or parked) pane
- * becomes `restored`, the one reason the sweep acts on. Resuming therefore
- * reuses the entire restore path — directory probe, resume-plan build, wake —
- * instead of growing a second implementation of it beside the first.
+/** Ask for a stopped pane back: it becomes `resuming`, which the revive sweep
+ * acts on exactly like a restored pane — same directory probe, same
+ * resume-plan build, same wake — while recording that a HUMAN asked. That
+ * distinction is not cosmetic: a boot restore whose session id turns out dead
+ * may fall back to a fresh conversation, and a resume someone clicked may not.
  *
- * Returns the SAME array for a live pane, an already-restored one, or an
+ * Returns the SAME array for a live pane, one already on its way up, or an
  * unknown id. */
 export function wakePane(
   workspaces: Workspace[],
@@ -300,10 +313,10 @@ export function wakePane(
   paneId: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane?.idle || pane.idle.reason === "restored") return workspaces;
+  if (!pane?.idle || idleWakesAutomatically(pane.idle)) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) =>
-      p.id === paneId ? { ...p, idle: { reason: "restored" } } : p,
+      p.id === paneId ? { ...p, idle: { reason: "resuming" } } : p,
     ),
   );
 }
@@ -312,10 +325,10 @@ export function wakePane(
  * it but an explicit resume. The PTY teardown is the app layer's half — this
  * records the intent that outlives it (and the save).
  *
- * Returns the SAME array for a pane that is absent, already idle, or still
- * PROVISIONING: a pane whose worktree create is in flight has no process to
- * suspend, and marking it idle would strand the create behind a card that
- * offers to resume something that never started. */
+ * Returns the SAME array for any pane [`paneCanSuspend`] rejects. The guard
+ * consults that predicate rather than restating it: this action is exported
+ * through the deck barrel, so a future "suspend every agent here" would
+ * otherwise park the remote panes the predicate exists to protect. */
 export function suspendPane(
   workspaces: Workspace[],
   workspaceId: string,
@@ -323,7 +336,7 @@ export function suspendPane(
   at: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (!pane || pane.idle || pane.provisioning) return workspaces;
+  if (!pane || !paneCanSuspend(pane)) return workspaces;
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) =>
       p.id === paneId ? { ...p, idle: { reason: "suspended", at } } : p,

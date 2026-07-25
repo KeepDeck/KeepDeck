@@ -11,7 +11,8 @@ import {
   paneExecutionCwd,
   paneGrid,
   paneGridTrackColumns,
-  paneIsRemoteFresh,
+  paneIsStopped,
+  paneResumeSessionId,
   partitionPanes,
   resolveFocus,
   type GitPosition,
@@ -315,9 +316,11 @@ export function DeckStage({
               agents.find((a) => a.id === paneAgentType(pane))?.icon ?? null,
             gitBadge: badgeOf(pane),
             yolo: pane.yolo,
-            // `restored` is excluded: it resolves within milliseconds of the
-            // sweep reaching the pane, and marking it stopped would flicker.
-            stopped: !!pane.idle && pane.idle.reason !== "restored",
+            // A pane on its way up is excluded (it resolves in milliseconds
+            // and would only flicker) — but one BLOCKED on a missing folder is
+            // stuck until the user relocates it, and its tile is hidden, so
+            // the chip is the only thing left to say the agent isn't running.
+            stopped: paneIsStopped(pane) || !!idleBlocked[pane.id],
             label: `Restore ${title}`,
             onRestore: restoreById.get(pane.id)!,
           };
@@ -399,9 +402,7 @@ export function DeckStage({
               onSpawnFailed={(message) =>
                 onAgentSpawnFailed(ws.id, pane.id, message)
               }
-              resumeSessionId={
-                paneIsRemoteFresh(pane) ? null : (pane.session?.id ?? null)
-              }
+              resumeSessionId={paneResumeSessionId(pane)}
               onRestart={(mode) => onRestartAgent(ws.id, pane.id, mode)}
             />
           );

@@ -127,20 +127,27 @@ export function usePersistence(deck: Deck): {
   serializedRef.current = serialized;
 
   // What a quit must never lose: the deck's SHAPE (which workspaces/panes
-  // exist), each pane's session binding AND its provisioning transition.
-  // These save immediately, never debounced — a just-added pane or a fresh
-  // binding lost on quit is data loss (a wiped binding resumes someone
-  // else's conversation; a resolved worktree saved as still-creating would
-  // restore as an interrupted card whose Retry mints a -2 sibling), ⌘Q is a
-  // native menu role that never reaches the webview, and `beforeunload` is
-  // not reliable in Tauri as a safety net.
+  // exist), each pane's session binding, its provisioning transition AND
+  // whether the user suspended it. These save immediately, never debounced —
+  // a just-added pane or a fresh binding lost on quit is data loss (a wiped
+  // binding resumes someone else's conversation; a resolved worktree saved as
+  // still-creating would restore as an interrupted card whose Retry mints a
+  // -2 sibling; a suspend lost on quit starts the agent the user parked), ⌘Q
+  // is a native menu role that never reaches the webview, and `beforeunload`
+  // is not reliable in Tauri as a safety net.
+  //
+  // Only the DURABLE idle reason counts here: `restored`/`parked`/`resuming`
+  // never reach disk, so folding them in would fire an immediate save for
+  // every pane the revive sweep wakes at launch.
   const immediate = deck.workspaces
     .map(
       (w) =>
         `${w.id}:${w.panes
           .map(
             (p) =>
-              `${p.id}=${p.session?.id ?? ""}${p.provisioning ? "+wip" : ""}`,
+              `${p.id}=${p.session?.id ?? ""}${p.provisioning ? "+wip" : ""}${
+                p.idle?.reason === "suspended" ? "+susp" : ""
+              }`,
           )
           .join(",")}`,
     )

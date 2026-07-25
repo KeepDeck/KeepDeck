@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentInfo, SpawnPlanContext } from "../domain/agents";
+import type {
+  AgentInfo,
+  ResumeOrigin,
+  SpawnPlanContext,
+} from "../domain/agents";
 import {
   findWorkspace,
   paneAgentType,
   paneIsRemoteFresh,
+  paneResumeSessionId,
   paneWakesAutomatically,
   skillRootsOf,
   type Pane,
@@ -97,13 +102,18 @@ export function useRevive(
       // binding clings to it, resuming would run locally and drop the
       // endpoint (the binding layer prevents new ones; this is the
       // consume-side guard).
-      const sessionId = paneIsRemoteFresh(pane)
-        ? null
-        : (pane.session?.id ?? null);
+      const sessionId = paneResumeSessionId(pane);
+      // WHOSE resume this is decides what happens when the CLI rejects the id.
+      // A boot restore takes the one-shot fall back to a fresh conversation —
+      // nobody is watching, and an empty pane beats a dead one. A resume the
+      // user CLICKED must not: they were promised this session by name, so a
+      // rejection has to stay visible as an exited pane they can act on.
+      const origin: ResumeOrigin =
+        pane.idle?.reason === "resuming" ? "manual" : "restore";
       log.info(
         "web:revive",
         `${pane.id} (${agentType}): ` +
-          (sessionId ? `resume ${sessionId}` : "fresh"),
+          (sessionId ? `${origin} resume ${sessionId}` : "fresh"),
       );
       if (sessionId && ctxRef.current) {
         // Built through the agent plugin's resume.plan hook and cached
@@ -125,7 +135,7 @@ export function useRevive(
             },
             ctxRef.current,
             sessionId,
-            "restore",
+            origin,
           );
         } catch (e) {
           log.warn(
@@ -134,7 +144,7 @@ export function useRevive(
           );
         }
       }
-      deckRef.current.revivePane(active.id, pane.id);
+      deckRef.current.clearPaneIdle(active.id, pane.id);
     };
 
     for (const pane of active.panes) {
@@ -182,7 +192,7 @@ export function useRevive(
             "web:revive",
             `${pane.id}: probe failed, waking fresh: ${describeError(e)}`,
           );
-          deckRef.current.revivePane(active.id, pane.id);
+          deckRef.current.clearPaneIdle(active.id, pane.id);
         })
         .finally(() => waking.current.delete(pane.id));
     }
@@ -191,7 +201,7 @@ export function useRevive(
   const startFresh = (wsId: string, paneId: string) => {
     setBlocked(({ [paneId]: _gone, ...rest }) => rest);
     deckRef.current.resetPaneLocation(wsId, paneId);
-    deckRef.current.revivePane(wsId, paneId);
+    deckRef.current.clearPaneIdle(wsId, paneId);
   };
 
   return { blocked, startFresh };

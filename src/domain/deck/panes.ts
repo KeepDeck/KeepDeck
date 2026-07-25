@@ -27,6 +27,11 @@ export type PaneIdle =
   /** Restored from disk — the revive sweep wakes it as soon as its workspace
    * is active ([F7]). Runtime-only. */
   | { reason: "restored" }
+  /** A human asked for this pane back and the sweep has not woken it yet.
+   * Distinct from `restored` only in INTENT, and that difference decides how
+   * a rejected session id is handled: a boot restore may fall back to a fresh
+   * conversation, a resume the user clicked may not. Runtime-only. */
+  | { reason: "resuming" }
   /** Restored into a launch that parks agents instead of waking them: it
    * waits for the card's explicit start. Runtime-only — the launch policy is
    * a setting, not a fact about this pane, so persisting it would make
@@ -158,13 +163,38 @@ export function paneCanSuspend(pane: Pane): boolean {
   return !pane.idle && !pane.provisioning && !paneIsRemoteFresh(pane);
 }
 
-/** Whether the revive sweep may wake this pane on its own. Only a pane that
- *  is idle merely because a restart dropped its PTY qualifies: waking a
- *  `suspended` one would undo the user's decision behind their back, and a
- *  `parked` one would defeat the launch policy that parked it. The single
+/** Whether an idle marker is one the revive sweep acts on by itself. A pane
+ *  idle because a restart dropped its PTY (`restored`), or because a human
+ *  just asked for it back (`resuming`), is on its way up; a `suspended` or
+ *  `parked` one is staying down until someone says otherwise. Takes the
+ *  MARKER, not the pane, so the rendering layer — which is handed the marker
+ *  alone — asks the same question instead of re-spelling it. */
+export function idleWakesAutomatically(idle: PaneIdle): boolean {
+  return idle.reason === "restored" || idle.reason === "resuming";
+}
+
+/** Whether the revive sweep may wake this pane on its own. The single
  *  predicate the sweep consults, so the rule lives in one place. */
 export function paneWakesAutomatically(pane: Pane): boolean {
-  return pane.idle?.reason === "restored";
+  return !!pane.idle && idleWakesAutomatically(pane.idle);
+}
+
+/** Whether the pane has no process AND nothing is bringing it back on its own
+ *  — the state every "this agent is not running" affordance keys on (the
+ *  dimmed tile, the tray's stopped marker). A pane on its way up is excluded:
+ *  it resolves in milliseconds, and marking it would only flicker. */
+export function paneIsStopped(pane: Pane): boolean {
+  return !!pane.idle && !idleWakesAutomatically(pane.idle);
+}
+
+/** The session this pane would come back to, or null when it would start a
+ *  new one. One place, because three layers ask it and must agree: the card
+ *  that NAMES the session to the user, the sweep that builds the resume plan,
+ *  and the restart that picks resume-vs-fresh. A remote pane always answers
+ *  null — its conversation lives on the server, so a local resume would be a
+ *  different one. */
+export function paneResumeSessionId(pane: Pane): string | null {
+  return paneIsRemoteFresh(pane) ? null : (pane.session?.id ?? null);
 }
 
 /**

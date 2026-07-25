@@ -367,22 +367,22 @@ describe("deckReducer restore actions ([F7])", () => {
     );
   });
 
-  it("revivePane clears the idle marker", () => {
+  it("clearPaneIdle drops the idle marker", () => {
     const next = deckReducer(state({ workspaces: [idleWs], activeId: "ws-1" }), {
-      type: "revivePane",
+      type: "clearPaneIdle",
       wsId: "ws-1",
       paneId: "pane-1",
     });
     expect(next.workspaces[0].panes[0]).toEqual({ id: "pane-1" });
   });
 
-  it("revivePane is a no-op (same ref) for a live or unknown pane", () => {
+  it("clearPaneIdle is a no-op (same ref) for a live or unknown pane", () => {
     const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     expect(
-      deckReducer(start, { type: "revivePane", wsId: "ws-1", paneId: "pane-2" }),
+      deckReducer(start, { type: "clearPaneIdle", wsId: "ws-1", paneId: "pane-2" }),
     ).toBe(start);
     expect(
-      deckReducer(start, { type: "revivePane", wsId: "ws-1", paneId: "nope" }),
+      deckReducer(start, { type: "clearPaneIdle", wsId: "ws-1", paneId: "nope" }),
     ).toBe(start);
   });
 
@@ -410,7 +410,7 @@ describe("deckReducer restore actions ([F7])", () => {
     ).toBe(start);
   });
 
-  it("revivePane wakes a SUSPENDED pane too — resume runs through the same action", () => {
+  it("wakePane hands a suspended pane to the sweep, marked as the user's doing", () => {
     const suspended = deckReducer(
       state({ workspaces: [idleWs], activeId: "ws-1" }),
       {
@@ -421,11 +421,31 @@ describe("deckReducer restore actions ([F7])", () => {
       },
     );
     const woken = deckReducer(suspended, {
-      type: "revivePane",
+      type: "wakePane",
       wsId: "ws-1",
       paneId: "pane-2",
     });
-    expect(woken.workspaces[0].panes[1]).toEqual({ id: "pane-2" });
+    // Still idle: the sweep owns the probe and the resume plan. `resuming`
+    // rather than `restored`, so a rejected session id stays visible instead
+    // of silently falling back to a new conversation.
+    expect(woken.workspaces[0].panes[1]).toEqual({
+      id: "pane-2",
+      idle: { reason: "resuming" },
+    });
+  });
+
+  it("wakePane is a no-op (same ref) for a live pane, one already rising, or an unknown id", () => {
+    const start = state({ workspaces: [idleWs], activeId: "ws-1" });
+    // pane-1 is `restored` (already on its way up), pane-2 is live.
+    expect(
+      deckReducer(start, { type: "wakePane", wsId: "ws-1", paneId: "pane-1" }),
+    ).toBe(start);
+    expect(
+      deckReducer(start, { type: "wakePane", wsId: "ws-1", paneId: "pane-2" }),
+    ).toBe(start);
+    expect(
+      deckReducer(start, { type: "wakePane", wsId: "ws-1", paneId: "nope" }),
+    ).toBe(start);
   });
 
   it("resetPaneLocation drops cwd/branch/session; no-op when nothing to drop", () => {

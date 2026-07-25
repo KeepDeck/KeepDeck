@@ -597,6 +597,31 @@ describe("AgentPane — manual restart after exit", () => {
       document.querySelectorAll<HTMLButtonElement>(".pane__exit-action"),
     );
 
+  it("forgets the exit when the pane stops — a resume must not come back veiled", () => {
+    // Suspending is allowed on an exited pane, and neither suspend nor resume
+    // remounts the component (no epoch bump, unlike a restart), so without an
+    // explicit reset the exit card would paint over the terminal the resume
+    // just brought back — with a Restart button that kills it again.
+    mount({ onRestart: vi.fn() });
+    reportExit(0);
+    expect(document.querySelector(".pane__exit")).not.toBeNull();
+
+    // Suspended: the card is replaced by the stopped one…
+    mount({
+      onRestart: vi.fn(),
+      idle: { reason: "suspended", at: new Date().toISOString() },
+      onResume: vi.fn(),
+    });
+    expect(document.querySelector(".pane__exit")).toBeNull();
+
+    // …and resuming leaves a clean, live pane.
+    vi.mocked(TerminalPane).mockClear();
+    mount({ onRestart: vi.fn() });
+    expect(document.querySelector(".pane__exit")).toBeNull();
+    expect(actionButtons()).toHaveLength(0);
+    expect(TerminalPane).toHaveBeenCalled();
+  });
+
   it("shows no restart controls before exit and reports both exit-code forms", () => {
     mount({ onRestart: vi.fn() });
 

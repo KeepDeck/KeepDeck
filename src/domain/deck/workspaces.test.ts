@@ -18,7 +18,7 @@ import {
   setPaneAutoTitle,
   paneOccupyingPath,
   pathOccupancy,
-  revivePane,
+  clearPaneIdle,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setWorkspacePluginSlot,
@@ -776,11 +776,18 @@ describe("suspendPane", () => {
     expect(suspendPane(creating, "a", "a-p1", AT)).toBe(creating);
   });
 
-  it("round-trips through revivePane: suspend then wake leaves a plain live pane", () => {
+  it("round-trips through clearPaneIdle: suspend then wake leaves a plain live pane", () => {
     const start = withPanes([{ id: "a-p1", cwd: "/wt/one" }]);
     const suspended = suspendPane(start, "a", "a-p1", AT);
-    const woken = revivePane(suspended, "a", "a-p1");
+    const woken = clearPaneIdle(suspended, "a", "a-p1");
     expect(woken[0].panes[0]).toEqual({ id: "a-p1", cwd: "/wt/one" });
+  });
+
+  it("refuses a REMOTE pane — the guard is the predicate, not a copy of it", () => {
+    // The action is exported through the deck barrel, so a future "suspend
+    // every agent here" must not park the panes the predicate protects.
+    const remote = withPanes([{ id: "a-p1", remoteEndpoint: "ws://vps:4500" }]);
+    expect(suspendPane(remote, "a", "a-p1", AT)).toBe(remote);
   });
 });
 
@@ -788,14 +795,16 @@ describe("wakePane", () => {
   const AT = "2026-07-25T10:00:00.000Z";
   const withPane = (pane: Pane): Workspace[] => [{ ...ws("a", []), panes: [pane] }];
 
-  it("hands a suspended pane back to the sweep as a restored one", () => {
+  it("hands a suspended pane back to the sweep, marked as the user's doing", () => {
     const after = wakePane(
       withPane({ id: "a-p1", idle: { reason: "suspended", at: AT } }),
       "a",
       "a-p1",
     );
     // Still idle — the sweep owns the probe, the resume plan and the wake.
-    expect(after[0].panes[0].idle).toEqual({ reason: "restored" });
+    // `resuming`, not `restored`: the difference is what a rejected session id
+    // is allowed to do afterwards.
+    expect(after[0].panes[0].idle).toEqual({ reason: "resuming" });
   });
 
   it("does the same for a pane parked by the launch policy", () => {
@@ -804,15 +813,18 @@ describe("wakePane", () => {
       "a",
       "a-p1",
     );
-    expect(after[0].panes[0].idle).toEqual({ reason: "restored" });
+    expect(after[0].panes[0].idle).toEqual({ reason: "resuming" });
   });
 
-  it("is a no-op (same ref) for a live, already-restored or unknown pane", () => {
+  it("is a no-op (same ref) for a live pane, one already rising, or an unknown id", () => {
     const live = withPane({ id: "a-p1" });
     expect(wakePane(live, "a", "a-p1")).toBe(live);
     const restored = withPane({ id: "a-p1", idle: { reason: "restored" } });
     expect(wakePane(restored, "a", "a-p1")).toBe(restored);
     expect(wakePane(restored, "a", "nope")).toBe(restored);
     expect(wakePane(restored, "nope", "a-p1")).toBe(restored);
+    // A second click while the sweep is still working must not re-mark it.
+    const resuming = withPane({ id: "a-p1", idle: { reason: "resuming" } });
+    expect(wakePane(resuming, "a", "a-p1")).toBe(resuming);
   });
 });

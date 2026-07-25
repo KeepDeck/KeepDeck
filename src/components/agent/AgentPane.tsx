@@ -1,6 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentRestartMode } from "../../domain/agents";
-import type { PaneIdle, PaneProvisioning } from "../../domain/deck";
+import {
+  idleWakesAutomatically,
+  type PaneIdle,
+  type PaneProvisioning,
+} from "../../domain/deck";
 // A generic "3m ago" formatter that happens to live beside the usage
 // formatters; the idle card dates itself with the same wording the usage
 // popover uses, rather than growing a second one.
@@ -200,6 +204,18 @@ export function AgentPane({
       recover();
     }
   };
+  // A pane that stops keeps this component MOUNTED — suspending and resuming
+  // bump no mount epoch, unlike a restart — so its runtime view state would
+  // otherwise outlive the process it describes: an exited pane that is parked
+  // and then resumed would paint "Agent exited", over a live terminal, with a
+  // Restart button that kills the session the user just brought back.
+  useEffect(() => {
+    if (!idle) return;
+    restartInFlight.current = false;
+    setExit(null);
+    setRestarting(false);
+    setRestartFailed(false);
+  }, [idle]);
   // Inline rename of the header title ([F11]).
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -218,11 +234,11 @@ export function AgentPane({
       tabIndex={-1}
       // A stopped pane is dimmed so a grid of six reads at a glance: which
       // ones are actually running is otherwise only visible by looking into
-      // each body. The rule is "idle and staying that way": a plain `restored`
-      // pane lasts milliseconds (flashing every pane dim on every launch would
-      // be noise), but one the sweep BLOCKED on a missing directory is stuck
-      // until the user relocates it — and reads as running if left undimmed.
-      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}${idle && (idle.reason !== "restored" || !!blockedDir) ? " pane--idle" : ""}`}
+      // each body. The rule is "idle and staying that way" — a pane on its way
+      // up lasts milliseconds (dimming it would only flicker), but one the
+      // sweep BLOCKED on a missing directory is stuck until the user relocates
+      // it, and reads as running if left undimmed.
+      className={`pane${hidden ? " pane--hidden" : ""}${folded ? " pane--folded" : ""}${selected && !focused && !solo ? " pane--active" : ""}${idle && (!idleWakesAutomatically(idle) || !!blockedDir) ? " pane--idle" : ""}`}
       style={colSpan > 1 ? { gridColumn: `span ${colSpan}` } : undefined}
       // A folded row expands only from an EXPLICIT header click (below), never
       // from raw mousedown/focus: descendant focus bubbling would expand rows
@@ -416,7 +432,7 @@ export function AgentPane({
                   </button>
                 )}
               </>
-            ) : idle.reason === "restored" ? (
+            ) : idleWakesAutomatically(idle) ? (
               <span className="pane__exit-title">Waking up…</span>
             ) : (
               <>
@@ -428,9 +444,6 @@ export function AgentPane({
                     {formatAge(Date.parse(idle.at), Date.now())}
                   </span>
                 )}
-                {/* Say what the button will actually do: an unbound pane comes
-                    back as a NEW conversation, and a card that promised to
-                    resume one would be lying about the thing that matters. */}
                 {/* Say what the button does AND which session it does it to:
                     the pane's own binding, so a stopped agent can be matched
                     against the agent's session store (or the Sessions

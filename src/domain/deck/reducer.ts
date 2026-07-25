@@ -27,7 +27,7 @@ import {
   resetPaneLocation,
   resolveActiveId,
   resolvePaneProvisioning,
-  revivePane,
+  clearPaneIdle,
   setPaneAutoTitle,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
@@ -120,8 +120,10 @@ export type DeckAction =
   | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string }
   /** Replace the whole deck with a restored one (app boot, [F7]). */
   | { type: "hydrate"; state: DeckState }
-  /** Wake an idle pane — its terminal mounts and spawns ([F7]). */
-  | { type: "revivePane"; wsId: string; paneId: string }
+  /** Drop an idle pane's marker so its terminal mounts and spawns — the LAST
+   * step of the revive sweep, after the probe and the plan ([F7]). To ask for
+   * a stopped pane back, dispatch `wakePane` instead. */
+  | { type: "clearPaneIdle"; wsId: string; paneId: string }
   /** Suspend a live pane: it keeps its place, session binding and worktree,
    * but nothing wakes it again except an explicit resume. */
   | { type: "suspendPane"; wsId: string; paneId: string; at: string }
@@ -523,12 +525,12 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
             ),
           }
         : state;
-    case "revivePane":
-      // revivePane returns the same ref for an absent/already-live pane, so a
-      // re-fired revive effect causes no re-render.
+    case "clearPaneIdle":
+      // clearPaneIdle returns the same ref for an absent/already-live pane, so
+      // a re-fired revive effect causes no re-render.
       return withWorkspaces(
         state,
-        revivePane(state.workspaces, action.wsId, action.paneId),
+        clearPaneIdle(state.workspaces, action.wsId, action.paneId),
       );
     case "suspendPane":
       // suspendPane returns the same ref for a pane that is absent, already

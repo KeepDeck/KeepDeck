@@ -179,6 +179,54 @@ describe("usePersistence", () => {
     ]);
   });
 
+  it("a suspend saves IMMEDIATELY — quit must not restart the agent the user parked", async () => {
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    // The revive sweep lives elsewhere; stand in for it so the pane is live
+    // and can actually be suspended.
+    act(() => deck.clearPaneIdle("ws-1", "pane-1"));
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+
+    // No timer advance: the intent must not ride the debounce, because ⌘Q
+    // never reaches the webview and there is no flush on the Rust side.
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    const saved = JSON.parse(ipc.saveDeckState.mock.calls[0][0]);
+    expect(saved.workspaces[0].panes[0].idle).toMatchObject({
+      reason: "suspended",
+    });
+  });
+
+  it("waking a suspended pane saves IMMEDIATELY too — the marker must not outlive the intent", async () => {
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    act(() => deck.clearPaneIdle("ws-1", "pane-1"));
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    act(() => deck.wakePane("ws-1", "pane-1"));
+
+    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
+    expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("suspended");
+  });
+
+  it("the sweep waking restored panes does NOT force a save per pane", async () => {
+    // `restored`/`parked`/`resuming` never reach disk, so folding them into
+    // the immediate signature would fire one write per pane at every launch.
+    ipc.loadDeckState.mockResolvedValue(STORED);
+    await mount();
+    await act(async () => vi.runOnlyPendingTimers());
+    ipc.saveDeckState.mockClear();
+
+    // The pane comes back `restored`; the sweep clearing that marker is a
+    // launch event, not a durable change — it may ride the debounce.
+    act(() => deck.clearPaneIdle("ws-1", "pane-1"));
+    expect(ipc.saveDeckState).not.toHaveBeenCalled();
+  });
+
   it("a session binding saves IMMEDIATELY — quit must not lose it", async () => {
     // ⌘Q is a native menu role that never reaches the webview, so a binding
     // riding the debounce would vanish with it — and next launch would
