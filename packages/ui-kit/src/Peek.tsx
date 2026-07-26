@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 
 /**
  * The wide "peek" overlay — a dock plugin's detail surface. A 340px rail can't
@@ -62,24 +62,25 @@ export function Peek({
 }: PeekProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  // Focus the scroll body so arrow keys scroll the content; Esc closes from
-  // anywhere inside via the backdrop handler below.
-  useEffect(() => {
-    bodyRef.current?.focus();
-  }, []);
-
-  // New content, fresh viewport. Both axes: the body scrolls horizontally too
-  // (a diff is sized to its widest line), and a long line's offset carries
-  // over just the same. Explicit rather than left to the browser's clamping of
-  // a shrinking placeholder — that only resets when the swap happens to
-  // straddle a layout, which is a race, not a behavior. Layout effect, so it
-  // lands before paint: the old content is still mounted here, and the reader
-  // never sees the position move.
+  // New content, fresh viewport — and the keys that scroll it aimed back at
+  // it. Both axes: the body scrolls horizontally too (a diff is sized to its
+  // widest line), and a long line's offset carries over just the same.
+  // Explicit rather than left to the browser's clamping of a shrinking
+  // placeholder — that only resets when the swap happens to straddle a layout,
+  // which is a race, not a behavior. Layout effect, so it lands before paint:
+  // the old content is still mounted here, and the reader never sees the
+  // position move.
   useLayoutEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
     body.scrollTop = 0;
     body.scrollLeft = 0;
+    // Focus tracks the content, not just the mount. The body is what
+    // PageUp/PageDown scroll, and on engines where clicking a control focuses
+    // it — an `aside` rail's rows are usually real buttons — a mount-only
+    // focus would hand it away on the first click and never take it back.
+    // `preventScroll` so restoring it cannot undo the reset above.
+    body.focus({ preventScroll: true });
   }, [scrollKey]);
 
   return (

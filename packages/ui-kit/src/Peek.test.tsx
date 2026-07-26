@@ -60,16 +60,23 @@ describe("Peek", () => {
     expect(body().scrollLeft).toBe(120);
   });
 
-  it("the body outlives its content, keeping focus across a change", () => {
+  it("takes focus back when the content changes", () => {
     render();
     const before = body();
     expect(document.activeElement).toBe(before);
 
+    // Something else took focus mid-peek — on engines where clicking a
+    // control focuses it, an aside rail's rows are real buttons.
+    const thief = document.body.appendChild(document.createElement("button"));
+    thief.focus();
+    expect(document.activeElement).toBe(thief);
+
     render({ scrollKey: "b.ts", children: "other content" });
 
-    // The same node, not a remount — which is precisely why resetting the
-    // scroll has to be explicit, and why the focus that makes PageUp/PageDown
-    // work is not re-established per file.
+    // The same node, not a remount — which is why both the scroll reset and
+    // the focus have to be explicit: nothing about rendering new children
+    // would restore either, and PageUp/PageDown would keep scrolling whatever
+    // stole focus for the rest of the peek's life.
     expect(body()).toBe(before);
     expect(document.activeElement).toBe(before);
   });
