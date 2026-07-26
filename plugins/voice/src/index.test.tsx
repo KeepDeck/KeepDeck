@@ -95,6 +95,24 @@ describe("voice plugin activation", () => {
     expect(runtime().bindings.get()).toEqual(saved[HOTKEYS_KEY]);
   });
 
+  it("loads them again after a restart, not just on the first activation", async () => {
+    const saved = {
+      [HOTKEYS_KEY]: {
+        command: { code: "KeyJ", alt: false, shift: false, ctrl: true, meta: true },
+        dictation: DEFAULT_BINDINGS.dictation,
+      },
+    };
+    const h = activate(saved);
+    await flush();
+    // What the settings "Restart" button does: deactivate, then activate again
+    // on a fresh store and a freshly registered section.
+    await plugin.deactivate?.();
+    await plugin.activate(h.ctx);
+    await flush();
+
+    expect(runtime().bindings.get()).toEqual(saved[HOTKEYS_KEY]);
+  });
+
   it("disposes the bindings subscription on deactivate", async () => {
     const h = activate();
     await plugin.deactivate?.();

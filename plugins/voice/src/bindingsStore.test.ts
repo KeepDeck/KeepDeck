@@ -41,7 +41,7 @@ describe("createBindingsStore", () => {
     expect(store.get()).toEqual(DEFAULT_BINDINGS);
   });
 
-  it("reads nothing before it is loaded — a settings change cannot reach it", () => {
+  it("ignores settings changes until it is loaded", () => {
     const host = voiceHost();
     const store = createBindingsStore(host.ctx);
 
@@ -84,6 +84,27 @@ describe("createBindingsStore", () => {
       ctrl: false,
       meta: true,
     });
+  });
+
+  it("re-loading replaces the subscription instead of stacking one", async () => {
+    const host = voiceHost();
+    const store = createBindingsStore(host.ctx);
+    store.load();
+    store.load();
+    await flush();
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    host.fire.settingsChanged(customBag({ code: "KeyM", meta: true }, { code: "KeyN", meta: true }));
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    // The real check: BOTH subscriptions are accounted for — the first was
+    // released by the second load, the second by dispose. Leave one behind and
+    // the host still holds a live callback into a store nobody owns (and the
+    // host, unlike this fake's callback set, wraps each subscription
+    // separately, so it would apply every later change twice).
+    store.dispose();
+    expect(host.unsubscribes.settingsChanged).toBe(2);
   });
 
   it("stops tracking after dispose", async () => {

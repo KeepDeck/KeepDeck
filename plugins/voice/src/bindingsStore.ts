@@ -43,6 +43,10 @@ export function createBindingsStore(ctx: PluginContext): BindingsStore {
       return () => listeners.delete(cb);
     },
     load() {
+      // Idempotent: a second load REPLACES the subscription. Stacking one
+      // would apply every later change twice and strand the first for the
+      // lifetime of the store.
+      sub?.dispose();
       // A write from the settings recorder persists through the host and comes
       // back here via onChange — one loop keeps every reader in sync.
       void ctx.settings.read().then(apply);
