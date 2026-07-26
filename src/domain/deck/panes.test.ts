@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { AgentDialogResult } from "../agents";
 import { MAX_PANES } from "./layout";
 import {
   appendPane,
   makePanes,
   makeProvisioningPanes,
   paneCanSuspend,
+  paneFromAgentRequest,
   paneDisplayTitle,
   paneIdleIsDurable,
   paneIsRemoteFresh,
@@ -304,6 +306,140 @@ describe("makeProvisioningPanes", () => {
         name: "ws",
       }),
     ).toHaveLength(MAX_PANES);
+  });
+});
+
+describe("paneFromAgentRequest", () => {
+  const ws = { cwd: "/repo", name: "deck" };
+  const request = (over: Partial<AgentDialogResult> = {}): AgentDialogResult => ({
+    agentType: "claude",
+    name: "",
+    location: { kind: "main" },
+    yolo: false,
+    ...over,
+  });
+
+  it("shapes a bare pane for the main repo", () => {
+    expect(paneFromAgentRequest("pane-1", request(), ws, 1)).toEqual({
+      id: "pane-1",
+      agentType: "claude",
+    });
+  });
+
+  it("carries the endpoint and NOTHING local for a remote agent", () => {
+    // The location field still holds whatever the dialog last showed; a
+    // remote pane must not pick up a cwd on this machine from it.
+    expect(
+      paneFromAgentRequest(
+        "pane-1",
+        request({
+          location: { kind: "existing", path: "/wt/a", branch: "kd/a" },
+          remoteEndpoint: "wss://vps",
+        }),
+        ws,
+        1,
+      ),
+    ).toEqual({
+      id: "pane-1",
+      agentType: "claude",
+      remoteEndpoint: "wss://vps",
+    });
+  });
+
+  it("pins an existing worktree by cwd and branch", () => {
+    expect(
+      paneFromAgentRequest(
+        "pane-2",
+        request({ location: { kind: "existing", path: "/wt/a", branch: "kd/a" } }),
+        ws,
+        3,
+      ),
+    ).toEqual({
+      id: "pane-2",
+      agentType: "claude",
+      cwd: "/wt/a",
+      branch: "kd/a",
+    });
+  });
+
+  it("carries the create intent for a worktree that does not exist yet", () => {
+    expect(
+      paneFromAgentRequest(
+        "pane-3",
+        request({
+          location: {
+            kind: "new",
+            path: "/wt/kd-deck-3",
+            branch: "kd/deck/3",
+            baseBranch: "release",
+          },
+        }),
+        ws,
+        3,
+      ),
+    ).toEqual({
+      id: "pane-3",
+      agentType: "claude",
+      provisioning: {
+        repo: "/repo",
+        path: "/wt/kd-deck-3",
+        branch: "kd/deck/3",
+        base: "release",
+        workspace: "deck",
+        index: 3,
+      },
+    });
+  });
+
+  it("never stamps runsSetup — a pane added later is not part of the batch", () => {
+    // The workspace's one-time setup command belongs to the create form's
+    // batch. Stamping it here would make "+ Agent" re-run it per pane.
+    const pane = paneFromAgentRequest(
+      "pane-3",
+      request({
+        location: { kind: "new", path: "/wt/a", branch: "kd/a" },
+      }),
+      ws,
+      1,
+    );
+    expect(pane.provisioning?.runsSetup).toBeUndefined();
+  });
+
+  it("keeps unset fields OFF the pane rather than present-and-undefined", () => {
+    // Persistence and the deck's equality checks both read presence, so a
+    // blank name or branch must not land as a key at all.
+    const pane = paneFromAgentRequest(
+      "pane-4",
+      request({
+        name: "   ",
+        location: { kind: "new", path: "/wt/a", branch: "", baseBranch: "" },
+      }),
+      ws,
+      1,
+    );
+    expect(Object.keys(pane).sort()).toEqual(["agentType", "id", "provisioning"]);
+    expect(Object.keys(pane.provisioning!).sort()).toEqual([
+      "index",
+      "path",
+      "repo",
+      "workspace",
+    ]);
+  });
+
+  it("trims the name and arms yolo only when asked", () => {
+    expect(
+      paneFromAgentRequest(
+        "pane-5",
+        request({ name: "  planner  ", yolo: true }),
+        ws,
+        1,
+      ),
+    ).toEqual({
+      id: "pane-5",
+      name: "planner",
+      agentType: "claude",
+      yolo: true,
+    });
   });
 });
 
