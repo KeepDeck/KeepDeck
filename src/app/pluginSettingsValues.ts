@@ -1,34 +1,24 @@
-import {
-  mergeSectionValues,
-  type SettingsSectionContribution,
-} from "@keepdeck/plugin-api";
+import type { SettingsSectionContribution } from "@keepdeck/plugin-api";
 
 /**
- * A plugin's effective settings values, with a diagnostic for the one answer
- * the merge cannot distinguish: values ARE on disk, but the plugin has not
- * declared its section yet, so every one of them is dropped and the plugin is
- * handed `{}` — the same answer a first run gives.
+ * The stored keys a section declares no field for — values the host will never
+ * hand the plugin, because `mergeSectionValues` builds its answer out of the
+ * declared fields alone.
  *
- * That silence is what let the voice plugin seed its push-to-talk chords from
- * an empty bag and run every launch on the shipped defaults while the user's
- * sat in settings.json. A plugin reading at construction time cannot tell the
- * two apart, so the host says so in the plugin's own log instead.
+ * This is the shape that hid the voice model pick: the manager wrote and read
+ * `model` while the section declared `models`, so the settings page showed the
+ * choice (a custom field used to receive the raw bag) while the plugin was
+ * handed nothing, every launch, silently.
  *
- * Deliberately NOT warned: a stored key that no CURRENT field declares. That
- * is the documented, intended drop (a removed field's leftovers must not leak
- * back), so warning on it would be noise on a legitimate case.
+ * Checked once, when the section is DECLARED — not on the read path, which also
+ * serves the change-fingerprint and would repeat this on every settings write.
+ * A key the plugin genuinely retired surfaces here too, and that is the same
+ * useful signal: the value is dead weight on disk that nothing can consume.
  */
-export function readDeclaredValues(
-  section: SettingsSectionContribution | undefined,
+export function undeclaredStoredKeys(
+  section: SettingsSectionContribution,
   stored: Record<string, unknown> | undefined,
-  warn: (message: string) => void,
-): Record<string, unknown> {
-  const dropped = section ? 0 : Object.keys(stored ?? {}).length;
-  if (dropped > 0) {
-    warn(
-      `settings read before the section was registered — ${dropped} stored ` +
-        "value(s) dropped; register the section first, then read",
-    );
-  }
-  return mergeSectionValues(section, stored);
+): string[] {
+  const declared = new Set(section.fields.map((field) => field.key));
+  return Object.keys(stored ?? {}).filter((key) => !declared.has(key));
 }

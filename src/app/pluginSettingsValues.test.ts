@@ -1,42 +1,43 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { SettingsSectionContribution } from "@keepdeck/plugin-api";
-import { readDeclaredValues } from "./pluginSettingsValues";
+import { undeclaredStoredKeys } from "./pluginSettingsValues";
 
-const section: SettingsSectionContribution = {
+const section = (...keys: string[]): SettingsSectionContribution => ({
   label: "Voice",
-  fields: [{ kind: "string", key: "note", label: "Note", default: "" }],
-};
+  fields: keys.map((key) => ({
+    kind: "string" as const,
+    key,
+    label: key,
+    default: "",
+  })),
+});
 
-describe("readDeclaredValues", () => {
-  it("says so when stored values are dropped for want of a section", () => {
-    const warn = vi.fn();
-
-    const values = readDeclaredValues(undefined, { note: "hi" }, warn);
-
-    // The plugin still gets the host's honest answer — the warning is the
-    // only thing that separates it from "you have nothing stored".
-    expect(values).toEqual({});
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toMatch(/before the section was registered/);
+describe("undeclaredStoredKeys", () => {
+  it("names a stored key whose field the section never declares", () => {
+    // The voice drift verbatim: written and read as "model", declared "models".
+    expect(undeclaredStoredKeys(section("hotkeys", "models"), { model: "big" })).toEqual([
+      "model",
+    ]);
   });
 
-  it("stays quiet on a first run — no section AND nothing stored", () => {
-    const warn = vi.fn();
-
-    expect(readDeclaredValues(undefined, undefined, warn)).toEqual({});
-    expect(readDeclaredValues(undefined, {}, warn)).toEqual({});
-
-    expect(warn).not.toHaveBeenCalled();
+  it("is empty when every stored key has a field", () => {
+    expect(
+      undeclaredStoredKeys(section("hotkeys", "model"), { model: "big", hotkeys: {} }),
+    ).toEqual([]);
   });
 
-  it("stays quiet once declared, and resolves through the merge", () => {
-    const warn = vi.fn();
+  it("is empty for a plugin that has stored nothing yet", () => {
+    expect(undeclaredStoredKeys(section("model"), undefined)).toEqual([]);
+    expect(undeclaredStoredKeys(section("model"), {})).toEqual([]);
+  });
 
-    // Both a declared value and a stored key the section no longer declares:
-    // dropping the latter is intended, so it must not warn.
-    const values = readDeclaredValues(section, { note: "hi", gone: 1 }, warn);
+  it("names every stray key, not just the first", () => {
+    expect(
+      undeclaredStoredKeys(section("model"), { model: "big", gone: 1, alsoGone: 2 }),
+    ).toEqual(["gone", "alsoGone"]);
+  });
 
-    expect(values).toEqual({ note: "hi" });
-    expect(warn).not.toHaveBeenCalled();
+  it("declares nothing, so everything stored is stray", () => {
+    expect(undeclaredStoredKeys(section(), { model: "big" })).toEqual(["model"]);
   });
 });

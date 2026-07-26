@@ -9,6 +9,7 @@ import {
 import { readText as clipboardReadText, writeText as clipboardWriteText } from "../ipc/clipboard";
 import {
   declaredAgentBins,
+  mergeSectionValues,
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
@@ -23,7 +24,7 @@ import {
   PluginHost,
   type PluginInstall,
 } from "../plugins";
-import { readDeclaredValues } from "./pluginSettingsValues";
+import { undeclaredStoredKeys } from "./pluginSettingsValues";
 import {
   createCapabilityGate,
   createPluginCommandsPort,
@@ -677,12 +678,34 @@ export function createPluginManager(appDownloads: DownloadManager) {
     const section = pluginRegistries.settingsSections
       .list()
       .find((c) => c.pluginId === pluginId)?.entry;
-    return readDeclaredValues(
-      section,
-      getSettings()?.plugins.values[pluginId],
-      (message) => loggerFor(pluginId).warn(message),
-    );
+    return mergeSectionValues(section, getSettings()?.plugins.values[pluginId]);
   }
+
+  /** Plugins whose declaration has already been checked — once per id per run.
+   * The check belongs at DECLARATION, not on the read path: `readPluginValues`
+   * also computes the change fingerprint, so warning there would repeat on
+   * every settings write. */
+  const driftChecked = new Set<string>();
+
+  /** Name, once, any stored value a plugin's own section declares no field for
+   * — the host can never hand those back, so they are silently dead. */
+  function reportSettingsDrift(): void {
+    for (const { pluginId, entry } of pluginRegistries.settingsSections.list()) {
+      if (driftChecked.has(pluginId)) continue;
+      driftChecked.add(pluginId);
+      const stray = undeclaredStoredKeys(
+        entry,
+        getSettings()?.plugins.values[pluginId],
+      );
+      if (stray.length > 0) {
+        loggerFor(pluginId).warn(
+          `stored settings this section declares no field for: ${stray.join(", ")}` +
+            " — the plugin is never handed them; declare a field or drop the value",
+        );
+      }
+    }
+  }
+  pluginRegistries.settingsSections.subscribe(reportSettingsDrift);
 
   // -------------------------------------------------------------- bootstrap
 
