@@ -166,7 +166,13 @@ export function createFakeHost(
     },
     settings: {
       registerSection: (section) => record(settingsSections, section),
-      read: async () => options.settingsValues ?? {},
+      // The host resolves a plugin's stored values against the section it has
+      // REGISTERED (`readPluginValues` → `mergeSectionValues`), so a read taken
+      // before `registerSection` answers with nothing. The fake models that
+      // ORDER — the per-field merge itself stays the host's business — because
+      // a read that always answers hides a plugin seeding its state too early,
+      // which is how the voice plugin shipped a launch on default hotkeys.
+      read: async () => (settingsSections.length > 0 ? options.settingsValues ?? {} : {}),
       onChange: (cb) => {
         settingsCbs.add(cb);
         return {

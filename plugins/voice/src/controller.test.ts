@@ -3,12 +3,26 @@ import type { PluginContext, SpeechTranscript } from "@keepdeck/plugin-api";
 import {
   createFakeHost,
   fakeManifest,
+  type FakeHost,
 } from "../../../packages/plugin-guest/src/fakeHost";
 import { createVoiceController } from "./controller";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 
 const installedModels = async (): Promise<VoiceModelInfo[]> =>
   MODEL_CATALOG.map((model) => ({ ...model, installed: true }));
+
+/** A host holding persisted plugin values, with the settings section declared:
+ * the host serves a plugin's values only through the section it registered, so
+ * a read before that answers empty — `activate` declares first, and so must a
+ * test that means to exercise a stored value. */
+function hostWithSettings(settingsValues: Record<string, unknown>): FakeHost {
+  const host = createFakeHost({
+    manifest: fakeManifest("keepdeck.voice"),
+    settingsValues,
+  });
+  host.ctx.settings.registerSection({ label: "Voice", fields: [] });
+  return host;
+}
 
 /** A fake host whose speech service yields scripted transcripts and whose
  * command results are primeable — the controller under real wiring. */
@@ -82,10 +96,7 @@ describe("createVoiceController", () => {
       seconds: 1,
       level: 0.1,
     }));
-    const host = createFakeHost({
-      manifest: fakeManifest("keepdeck.voice"),
-      settingsValues: { model: "whisper-small-q5_1" },
-    });
+    const host = hostWithSettings({ model: "whisper-small-q5_1" });
     const ctx: PluginContext = {
       ...host.ctx,
       services: {
@@ -173,10 +184,7 @@ describe("createVoiceController", () => {
   });
 
   it("falls back when the persisted model is stale or not installed", async () => {
-    const host = createFakeHost({
-      manifest: fakeManifest("keepdeck.voice"),
-      settingsValues: { model: "removed-model" },
-    });
+    const host = hostWithSettings({ model: "removed-model" });
     const stopCapture = vi.fn(async () => ({
       text: "",
       silence: true,

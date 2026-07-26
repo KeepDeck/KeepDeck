@@ -30,6 +30,9 @@ describe("createBindingsStore", () => {
       manifest: fakeManifest("keepdeck.voice"),
       settingsValues: customBag({ code: "KeyG", ctrl: true }, { code: "KeyH", ctrl: true }),
     });
+    // The host serves a plugin's values only through the section it registered
+    // — the store reads after `activate` has declared one.
+    host.ctx.settings.registerSection({ label: "Voice", fields: [] });
     const store = createBindingsStore(host.ctx);
     await flush();
     expect(store.get().command).toEqual({
