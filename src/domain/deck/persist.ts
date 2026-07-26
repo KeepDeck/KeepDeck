@@ -1,7 +1,7 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneIdle, PaneProvisioning } from "./panes";
-import { paneWakeOrigin, resolveFocus } from "./panes";
+import { paneIdleIsDurable, paneWakeOrigin, resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
 import { nextIdSequence } from "../idSequence";
@@ -117,7 +117,7 @@ export function serializeDeck(
           // Sparse, and only the durable reason: `waking`/`parked` describe
           // a launch, so writing them would make every ordinary restart look
           // like a deliberate suspend on the NEXT one.
-          ...(p.idle?.reason === "suspended" && { idle: p.idle }),
+          ...(paneIdleIsDurable(p.idle) && { idle: p.idle }),
           // The intent only: error and phase are runtime state, and hydration
           // stamps its own error ("interrupted") on whatever comes back.
           ...(p.provisioning !== undefined && {
@@ -391,6 +391,12 @@ function readPane(value: unknown): Pane | null {
  * is worse than the honest signal it gets from the marker's absence: an older
  * build took this pane somewhere else. */
 function readIdle(value: unknown): PaneIdle {
+  // The reason list here is the READ side of [`paneIdleIsDurable`], which
+  // decides what the write side puts on disk. It cannot call it — a stored
+  // marker is `unknown` until this function has validated its shape, and the
+  // predicate takes a `PaneIdle` — but the two must name the same reasons: a
+  // durable reason added to one and not the other is written on quit and
+  // silently degraded to `parked` on the next launch.
   if (
     isRecord(value) &&
     value.reason === "suspended" &&
@@ -431,7 +437,7 @@ function readWorkspacePlugins(value: unknown): Record<string, unknown> | null {
 }
 
 /** The persisted worktree-create intent, or `null` when absent/malformed —
- * a bad intent degrades the pane to a plain dormant one instead of rejecting
+ * a bad intent degrades the pane to a plain idle one instead of rejecting
  * the deck (mirrors the agentType degradation above). */
 function readProvisioning(
   value: unknown,

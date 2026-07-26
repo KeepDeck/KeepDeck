@@ -472,7 +472,7 @@ describe("DeckStage — suspended agents", () => {
       "pane-2",
     ]);
 
-    const resume = pane.querySelector<HTMLButtonElement>(".pane__dormant-action")!;
+    const resume = pane.querySelector<HTMLButtonElement>(".pane__card-action")!;
     act(() => resume.click());
     expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
   });

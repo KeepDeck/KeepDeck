@@ -449,6 +449,18 @@ export function bindPaneSpawnSpecSession(
   specs.set(paneId, { ...spec, forkSessionId: sessionId });
 }
 
+/** Re-stamp WHO asked for a cached resume plan. The origin is a field of the
+ * assembled plan and never reaches the agent's `resume.plan` hook, so a wake
+ * whose requester changes mid-build has nothing to re-derive: rebuilding
+ * would run a third party's hook a second time for something it cannot see,
+ * and nothing forbids that hook from having effects. Only a resume plan has
+ * an origin; anything else is left alone. */
+export function markPaneResumeOrigin(paneId: string, origin: ResumeOrigin): void {
+  const spec = specs.get(paneId);
+  if (!spec?.resumeOf) return;
+  specs.set(paneId, { ...spec, resumeOrigin: origin });
+}
+
 /** Whether this exact provider session began with inherited counters. */
 export function spawnPlanNeedsUsageBaseline(
   spec: Pick<SpawnPlan, "resumeOf" | "forkSessionId"> | undefined,

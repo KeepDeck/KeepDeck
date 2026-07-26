@@ -967,12 +967,44 @@ mod tests {
         )
         .expect("create with a branch-name base");
 
-        let created =
-            provenance::created_branches(&repo, Path::new(&record.path)).expect("provenance");
-        assert_eq!(created, [record.branch.clone()], "birth branch not attributed");
+        // The branch's OWN creation record is what this test is about: a
+        // name-sourced one ("branch: Created from main") is refused by
+        // provenance's trust rule, a sha-sourced one is accepted.
+        //
+        // Asserting through `created_branches` instead would drag in the
+        // timestamp pairing, which is a different rule and an inherently racy
+        // one: `git worktree add -b` writes the branch ref and the worktree's
+        // HEAD as two ref updates stamping whole seconds of their own, so a
+        // create that straddles a tick fails to pair. That made this test
+        // flaky under the parallel suite (3 failures in 10 runs) while saying
+        // nothing about the base resolution it is named for. The pairing is
+        // unit-tested against hand-built reflogs in `provenance`.
+        let source = git_out(&repo, &["log", "-g", "--format=%gs", &record.branch])
+            .lines()
+            .last()
+            .map(|line| {
+                line.trim()
+                    .strip_prefix("branch: Created from ")
+                    .map(str::to_string)
+            });
 
+        // Swept before ANY assertion or unwrap below, so no failure mode
+        // leaves the repo and its worktree behind — and so the sweep happens
+        // even when the parse, not the rule, is what went wrong.
         let _ = std::fs::remove_dir_all(&base_dir);
         let _ = std::fs::remove_dir_all(&repo);
+
+        let source = source
+            .expect("the branch has a creation reflog entry")
+            .expect("created, not moved");
+        // The same widths `head::is_commit_sha` trusts — SHA-1 and SHA-256.
+        // Asserting only 40 would fail a correct build on a sha256 repo and
+        // point at "base resolution", which would not be the problem.
+        assert!(
+            matches!(source.len(), 40 | 64)
+                && source.chars().all(|c| c.is_ascii_hexdigit()),
+            "base reached git as {source:?}, not a resolved commit sha",
+        );
     }
 
     #[test]

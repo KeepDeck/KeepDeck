@@ -335,9 +335,12 @@
   font-size: 11px;
 }
 
-/* Restored-but-not-running tile ([F7]) — shown instead of the terminal until
-   the pane is revived; persists only when its directory is gone. */
-.pane__dormant {
+/* Every status card a pane shows INSTEAD of its terminal: a worktree being
+   created or failed, an unavailable agent, a spawn plan that failed or is
+   pending, a gone folder, and the stopped/starting tile. Named for the shape,
+   not for one of its occupants — `.pane--idle` above is the modifier that
+   means "this pane is stopped", and the two are not the same question. */
+.pane__card {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -347,7 +350,7 @@
   background-color: #0b0e14;
 }
 
-.pane__dormant-path {
+.pane__card-path {
   max-width: 80%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -372,7 +375,7 @@
   font-size: 11px;
 }
 
-.pane__dormant-action {
+.pane__card-action {
   margin-top: 10px;
   border: 1px solid #2a3343;
   background-color: #161b26;
@@ -384,7 +387,7 @@
   cursor: pointer;
 }
 
-.pane__dormant-action:hover {
+.pane__card-action:hover {
   background-color: #1b2230;
   border-color: #3a4658;
 }

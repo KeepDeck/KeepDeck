@@ -6,8 +6,9 @@ import {
   makeProvisioningPanes,
   paneCanSuspend,
   paneDisplayTitle,
+  paneIdleIsDurable,
   paneIsRemoteFresh,
-  paneIsStopped,
+  idleReadsAsStopped,
   paneOnScreen,
   paneSuspendBlock,
   paneResumeSessionId,
@@ -111,6 +112,15 @@ describe("paneCanSuspend", () => {
     // A LIVE pane is never stopped by a stale entry: it has no idle marker,
     // and a running agent is not "already stopped" whatever the map says.
     expect(paneSuspendBlock({ id: "p" }, true)).toBeNull();
+    // Already-down panes answer the same with or without a block — the
+    // argument can only ADD a reason to refuse, never remove one.
+    for (const idle of [
+      { reason: "parked" },
+      { reason: "suspended", at: "t" },
+    ] as const) {
+      expect(paneSuspendBlock({ id: "p", idle }, false)).toBe("stopped");
+      expect(paneSuspendBlock({ id: "p", idle }, true)).toBe("stopped");
+    }
   });
 
   it("false while a worktree create is in flight — no process to stop", () => {
@@ -126,6 +136,21 @@ describe("paneCanSuspend", () => {
     expect(
       paneCanSuspend({ id: "p", remoteEndpoint: "ws://vps:4500" }, false),
     ).toBe(false);
+  });
+});
+
+describe("paneIdleIsDurable", () => {
+  it("names the one reason that reaches disk", () => {
+    // Asked in two layers — the codec decides what to WRITE, the save
+    // scheduler decides what may not wait for a debounce — and they were two
+    // copies of one literal. A fifth durable reason added to the codec alone
+    // would still be saved, but only on the timer, so a quit inside that
+    // window would lose it.
+    expect(paneIdleIsDurable({ reason: "suspended", at: "t" })).toBe(true);
+    expect(paneIdleIsDurable({ reason: "parked" })).toBe(false);
+    expect(paneIdleIsDurable({ reason: "waking", origin: "restore" })).toBe(false);
+    expect(paneIdleIsDurable({ reason: "waking", origin: "manual" })).toBe(false);
+    expect(paneIdleIsDurable(undefined)).toBe(false);
   });
 });
 
@@ -171,15 +196,21 @@ describe("paneWakeOrigin / paneWakesAutomatically", () => {
   });
 });
 
-describe("paneIsStopped", () => {
+describe("idleReadsAsStopped", () => {
   it("true only when nothing is bringing the pane back on its own", () => {
-    expect(paneIsStopped({ id: "p" })).toBe(false); // running
-    expect(paneIsStopped({ id: "p", idle: { reason: "waking", origin: "restore" } })).toBe(false);
-    expect(paneIsStopped({ id: "p", idle: { reason: "waking", origin: "manual" } })).toBe(false);
-    expect(paneIsStopped({ id: "p", idle: { reason: "parked" } })).toBe(true);
-    expect(
-      paneIsStopped({ id: "p", idle: { reason: "suspended", at: "t" } }),
-    ).toBe(true);
+    expect(idleReadsAsStopped(undefined, false)).toBe(false); // running
+    expect(idleReadsAsStopped({ reason: "waking", origin: "restore" }, false)).toBe(false);
+    expect(idleReadsAsStopped({ reason: "waking", origin: "manual" }, false)).toBe(false);
+    expect(idleReadsAsStopped({ reason: "parked" }, false)).toBe(true);
+    expect(idleReadsAsStopped({ reason: "suspended", at: "t" }, false)).toBe(true);
+  });
+
+  it("counts the sweep's gone-folder verdict as stopped too", () => {
+    // A rising pane that will never rise. This is the whole reason the
+    // predicate takes the verdict rather than deriving from the marker alone.
+    expect(idleReadsAsStopped({ reason: "waking", origin: "restore" }, true)).toBe(true);
+    // But a LIVE pane is not stopped by a stale entry.
+    expect(idleReadsAsStopped(undefined, true)).toBe(false);
   });
 });
 

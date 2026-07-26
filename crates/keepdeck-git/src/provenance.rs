@@ -11,8 +11,9 @@
 //!
 //! A branch is attributed to worktree W when its creation stamp lines up with
 //! W's HEAD log — same timestamp AND same branch name as a checkout target
-//! (`git switch -c`), or, for the branch W was born on, the same timestamp as
-//! W's birth entry (`git worktree add -b`, which writes no checkout line) —
+//! (`git switch -c`), or, for the branch W was born on, the same timestamp
+//! AND the same COMMIT as W's birth entry (`git worktree add -b`, which
+//! writes no checkout line) —
 //! AND its creation SOURCE is one a single create-and-checkout operation
 //! writes: `HEAD` (`switch -c`, `worktree add -b` off HEAD) or a full commit
 //! sha (a pinned-base `worktree add -b <path> <sha>`, KeepDeck's own create).
@@ -43,6 +44,14 @@
 //! - a created branch later RENAMED — the checkout entries still carry the old
 //!   name, so the new name no longer pairs up.
 //! - expired or disabled reflogs — no evidence, no claim.
+//! - `worktree add -b` whose two ref writes STRADDLE a tick. It forks
+//!   `git branch` as a child process and samples the clock again for the
+//!   worktree's HEAD, so under load the two land a second apart and the
+//!   branch goes unattributed. Measured at 3 in 10 runs of a loaded test
+//!   suite, so it is the likeliest reason a KeepDeck-made `kd/ws/N` survives
+//!   "Also delete the worktree and its branches". Deliberate: the alternative
+//!   is a tolerance, and a tolerance cannot tell this apart from the residual
+//!   below — a miss keeps a branch, a false claim deletes one.
 //!
 //! Residual false-claim: a standalone creation with a TRUSTED source —
 //! `git branch Y HEAD` or `git branch Y <sha>`, which check nothing out —
@@ -137,16 +146,33 @@ fn initial_branch<'a>(entries: &'a [ReflogEntry], fallback: Option<&'a str>) -> 
 }
 
 /// The provenance verdict for one branch: does its creation stamp pair up with
-/// this worktree's HEAD log (birth entry for the initial branch, else a
-/// same-second checkout TO that branch)?
+/// this worktree's HEAD log — for the initial branch, the birth entry on BOTH
+/// second and commit; otherwise a same-second checkout TO that branch whose
+/// old and new sides agree. `creation` is that stamp: `(second, commit)`.
 fn is_created_here(
     entries: &[ReflogEntry],
     initial: Option<&str>,
     branch: &str,
-    creation_ts: u64,
+    creation: (u64, &str),
 ) -> bool {
-    let born_with_worktree =
-        initial == Some(branch) && entries.last().is_some_and(|birth| birth.ts == creation_ts);
+    let (creation_ts, creation_sha) = creation;
+    // The SECOND is not negotiable here, and the commit is an extra demand on
+    // top of it — not a licence to relax it.
+    //
+    // `git worktree add -b` writes the branch ref and the worktree's HEAD as
+    // two ref updates, each stamping its own whole second, so a create that
+    // straddles a tick genuinely goes unattributed and its branch is KEPT.
+    // That is the safe direction, and it is the one to fail in: an ATTACH
+    // (`git branch mine HEAD` then `git worktree add wt mine`) writes exactly
+    // the shape a birth does — no checkout entry, `initial_branch` on its
+    // fallback, and a HEAD sha that necessarily equals the adopted branch's
+    // tip. Nothing but the second separates a branch this worktree was born
+    // with from one the user made and handed to it, and this list is what
+    // `reap_created_branches` DELETES.
+    let born_with_worktree = initial == Some(branch)
+        && entries
+            .last()
+            .is_some_and(|birth| birth.new_sha == creation_sha && birth.ts == creation_ts);
     born_with_worktree
         || entries.iter().enumerate().any(|(i, e)| {
             e.ts == creation_ts
@@ -184,16 +210,19 @@ fn reflog(dir: &Path, reference: &str) -> Result<Vec<ReflogEntry>, GitError> {
     }
 }
 
-/// The unix timestamp a branch was created at — its reflog's oldest entry,
+/// When a branch was created AND at which commit — the pair, because both are
+/// load-bearing: `is_created_here` demands the birth entry agree on the second
+/// and on the sha, and dropping either half widens what may be deleted. Read
+/// from its reflog's oldest entry,
 /// counted only when that entry is a creation record with a trusted source
 /// ([`trusted_creation`]; an expired reflog whose tail was cut is no evidence
 /// either). `None` when the reflog is gone entirely; every case collapses to
 /// "cannot attribute" — an answer, not an error.
-fn creation_ts(repo_path: &Path, branch: &str) -> Result<Option<u64>, GitError> {
+fn creation_stamp(repo_path: &Path, branch: &str) -> Result<Option<(u64, String)>, GitError> {
     Ok(reflog(repo_path, branch)?
         .last()
         .filter(|e| trusted_creation(&e.message))
-        .map(|e| e.ts))
+        .map(|e| (e.ts, e.new_sha.clone())))
 }
 
 /// The worktree's HEAD reflog plus the fallback branch for [`initial_branch`],
@@ -333,10 +362,10 @@ pub fn created_branches(repo_path: &Path, worktree: &Path) -> Result<Vec<String>
         if !wanted.contains(branch.as_str()) {
             continue;
         }
-        let Some(ts) = creation_ts(repo_path, &branch)? else {
+        let Some((ts, sha)) = creation_stamp(repo_path, &branch)? else {
             continue;
         };
-        if is_created_here(&head_log, initial, &branch, ts) {
+        if is_created_here(&head_log, initial, &branch, (ts, &sha)) {
             created.push(branch);
         }
     }
@@ -404,21 +433,47 @@ mod tests {
     #[test]
     fn the_birth_branch_matches_only_with_the_birth_timestamp() {
         let log = head_log();
-        assert!(is_created_here(&log, Some("born"), "born", 100));
+        assert!(is_created_here(&log, Some("born"), "born", (100, "A")));
         // Same name, wrong second — an attached pre-existing branch.
-        assert!(!is_created_here(&log, Some("born"), "born", 99));
+        assert!(!is_created_here(&log, Some("born"), "born", (99, "Z")));
         // Same second, different branch — the neighbour-worktree collision.
-        assert!(!is_created_here(&log, Some("born"), "elsewhere", 100));
+        assert!(!is_created_here(&log, Some("born"), "elsewhere", (100, "A")));
+    }
+
+    #[test]
+    fn a_branch_the_worktree_was_merely_attached_to_is_never_attributed() {
+        // `git branch mine HEAD` (a TRUSTED source — it checks nothing out)
+        // and then `git worktree add wt mine` a second later, both on the same
+        // commit. The attach writes the same shape a birth does: no checkout
+        // entry, `initial_branch` falling back to the current branch, and a
+        // HEAD whose sha necessarily equals the tip of the branch it adopted.
+        // Only the SECOND tells the two apart, so the second is not negotiable
+        // — this is a branch the user created and KeepDeck must not delete.
+        let log = head_log();
+        assert!(!is_created_here(&log, Some("born"), "born", (99, "A")));
+        assert!(!is_created_here(&log, Some("born"), "born", (101, "A")));
+        // Same second and same commit still attributes: that pairing is the
+        // create-and-checkout the module trusts, and its residual is recorded
+        // in the module doc rather than widened here.
+        assert!(is_created_here(&log, Some("born"), "born", (100, "A")));
+        // The sha is what this branch ADDED over an equality-only rule: a
+        // same-second creation at a different commit is no longer enough.
+        assert!(!is_created_here(&log, Some("born"), "born", (100, "B")));
     }
 
     #[test]
     fn a_checkout_target_matches_only_as_a_timestamp_name_pair() {
         let log = head_log();
-        assert!(is_created_here(&log, Some("born"), "inside", 200));
+        assert!(is_created_here(&log, Some("born"), "inside", (200, "A")));
         // `git branch` in the same second as a switch: name pairing rejects it.
-        assert!(!is_created_here(&log, Some("born"), "no-checkout", 200));
+        assert!(!is_created_here(&log, Some("born"), "no-checkout", (200, "A")));
         // Switched TO at 300, but created earlier elsewhere.
-        assert!(!is_created_here(&log, Some("born"), "other", 250));
+        assert!(!is_created_here(&log, Some("born"), "other", (250, "B")));
+        // A second off is a second off on this arm too — the rule is exact
+        // everywhere, and a `switch -c` could not straddle a tick anyway: it
+        // is one builtin writing both refs, where `worktree add -b` forks
+        // `git branch` as a CHILD PROCESS and samples the clock twice.
+        assert!(!is_created_here(&log, Some("born"), "inside", (199, "A")));
     }
 
     #[test]
@@ -427,7 +482,7 @@ mod tests {
         // `other` was visited at 300 moving A→B: even if its creation second
         // coincided (a trusted-source bystander, `git branch other HEAD`), the
         // old/new disagreement proves the checkout didn't create it.
-        assert!(!is_created_here(&log, Some("born"), "other", 300));
+        assert!(!is_created_here(&log, Some("born"), "other", (300, "B")));
         // The documented residual: with COINCIDING tips the same shape passes
         // — same-second, same-commit adoption is beyond reflog evidence.
         let flat = vec![
@@ -435,7 +490,7 @@ mod tests {
             entry(200, "A", "checkout: moving from born to inside"),
             entry(100, "A", ""),
         ];
-        assert!(is_created_here(&flat, Some("born"), "other", 300));
+        assert!(is_created_here(&flat, Some("born"), "other", (300, "A")));
     }
 
     #[test]

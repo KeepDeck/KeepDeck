@@ -11,7 +11,7 @@ import {
   findWorkspaceByRef,
   firstFreeWorktree,
   paneId,
-  paneIsStopped,
+  idleReadsAsStopped,
   parentDir,
   type Pane,
   type Workspace,
@@ -71,7 +71,18 @@ export interface AgentDialogSpec {
 export function useAgentDialog(
   deck: Deck,
   agents: AgentInfo[],
-  journal?: AgentDialogJournalRouting,
+  /** Where "Start from" hands a picked session. Explicit rather than
+   * optional: an optional here is what forced the argument below to carry a
+   * default, and that default is the bug it exists to prevent. */
+  journal: AgentDialogJournalRouting | undefined,
+  /** paneId → the missing directory, from the revive sweep. A pane stuck on a
+   * gone folder is going nowhere, so the picker must call its session stopped
+   * like the tile and the tray already do — the model alone still reads that
+   * pane as rising.
+   *
+   * REQUIRED, like `paneSuspendBlock`'s: a default is how the next surface
+   * omits it, compiles, and tells the user a dead pane is running again. */
+  blockedPanes: Record<string, string>,
 ) {
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
   const deckRef = useRef(deck);
@@ -339,8 +350,11 @@ export function useAgentDialog(
         if (p.session?.id === sessionId) {
           // "Stopped" only for a pane staying down: one on its way up will be
           // running in a moment, and telling the user to go resume it there
-          // points at a card with no button.
-          return paneIsStopped(p) ? "stopped" : "running";
+          // points at a card with no button. A blocked pane IS staying down,
+          // whatever its marker says.
+          return idleReadsAsStopped(p.idle, p.id in blockedPanes)
+            ? "stopped"
+            : "running";
         }
       }
     }

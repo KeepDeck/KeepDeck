@@ -278,7 +278,7 @@ describe("AgentPane — provisioning cards", () => {
     expect(TerminalPane).not.toHaveBeenCalled();
 
     const retry = document.querySelector<HTMLButtonElement>(
-      ".pane__dormant-action",
+      ".pane__card-action",
     );
     expect(retry).not.toBeNull();
     expect(retry!.textContent).toBe("Retry");
@@ -322,7 +322,7 @@ describe("AgentPane — plan-error tile", () => {
     expect(TerminalPane).not.toHaveBeenCalled();
 
     const retry =
-      document.querySelector<HTMLButtonElement>(".pane__dormant-action");
+      document.querySelector<HTMLButtonElement>(".pane__card-action");
     expect(retry).not.toBeNull();
     expect(retry!.textContent).toBe("Try again");
     act(() => retry!.click());
@@ -768,7 +768,7 @@ describe("AgentPane — suspended / parked card", () => {
   });
 
   const action = () =>
-    document.querySelector<HTMLButtonElement>(".pane__dormant-action");
+    document.querySelector<HTMLButtonElement>(".pane__card-action");
 
   it("shows when it was suspended, what resume will do, and fires onResume", () => {
     const onResume = vi.fn();
@@ -985,7 +985,7 @@ describe("AgentPane — a refused resume explains itself", () => {
     expect(note?.getAttribute("role")).toBeNull();
     // The gesture is still there — the note explains, it doesn't replace.
     expect(
-      document.querySelector<HTMLButtonElement>(".pane__dormant-action")
+      document.querySelector<HTMLButtonElement>(".pane__card-action")
         ?.textContent,
     ).toBe("Resume");
   });
@@ -1022,7 +1022,7 @@ describe("AgentPane — a refused resume explains itself", () => {
     );
 
     const actions = Array.from(
-      document.querySelectorAll<HTMLButtonElement>(".pane__dormant-action"),
+      document.querySelectorAll<HTMLButtonElement>(".pane__card-action"),
     );
     // Order is the point: looking again costs nothing and keeps the session,
     // while starting fresh throws the binding away with the folder.

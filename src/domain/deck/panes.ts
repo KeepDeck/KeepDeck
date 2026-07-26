@@ -159,9 +159,10 @@ export function paneIsRemoteFresh(pane: Pane): boolean {
   return !!pane.remoteEndpoint;
 }
 
-/** Whether this pane can be suspended right now — the single rule behind
- *  every affordance that offers it, so the menu, the close dialog and the
- *  card can never disagree about which panes qualify.
+/** Whether this pane can be suspended right now — the boolean form of
+ *  [`paneSuspendBlock`], which is what every UI surface calls, because each
+ *  of them has to SAY why it refuses. This form is for the caller that only
+ *  needs the verdict: the reducer's own guard on `suspendPane`.
  *
  *  Excluded: a pane that is already idle (nothing to stop); one whose worktree
  *  create is still in flight (no process yet, and its create must not be
@@ -216,10 +217,27 @@ function idleWakesAutomatically(idle: PaneIdle): boolean {
   return idle.reason === "waking";
 }
 
-/** Whether the revive sweep may wake this pane on its own. The single
- *  predicate the sweep consults, so the rule lives in one place. */
+/** Whether the revive sweep may wake this pane on its own — the boolean form
+ *  of [`paneWakeOrigin`], which is what the sweep itself reads (it needs WHO
+ *  asked, not just whether). Kept for the callers that only need the yes/no:
+ *  the close dialog's "is it starting up" sentence. */
 export function paneWakesAutomatically(pane: Pane): boolean {
   return !!pane.idle && idleWakesAutomatically(pane.idle);
+}
+
+/** Whether this idle marker OUTLIVES the session that produced it. The one
+ *  place the answer lives, because two layers ask it about the same pane and
+ *  had a copy each: the codec decides what to write, and the save scheduler
+ *  decides what may not wait for the debounce. A reason added to one alone
+ *  reaches disk only on the timer, so a quit inside that window loses it —
+ *  which is the whole reason the immediate lane exists.
+ *
+ *  A THIRD site names the same reasons and cannot call this: `readIdle` in
+ *  the codec, which validates an `unknown` from disk and so cannot be handed
+ *  a `PaneIdle`. Adding a durable reason means editing both — otherwise it is
+ *  written on quit and degraded to `parked` on the next launch. */
+export function paneIdleIsDurable(idle: PaneIdle | undefined): boolean {
+  return idle?.reason === "suspended";
 }
 
 /** WHO asked for this pane to come up, or null when it isn't coming up at
@@ -230,14 +248,6 @@ export function paneWakesAutomatically(pane: Pane): boolean {
  *  different conversation. */
 export function paneWakeOrigin(pane: Pane): ResumeOrigin | null {
   return pane.idle?.reason === "waking" ? pane.idle.origin : null;
-}
-
-/** Whether the pane has no process AND nothing is bringing it back on its own
- *  — the state every "this agent is not running" affordance keys on (the
- *  dimmed tile, the tray's stopped marker). A pane on its way up is excluded:
- *  it resolves in milliseconds, and marking it would only flicker. */
-export function paneIsStopped(pane: Pane): boolean {
-  return !!pane.idle && !idleWakesAutomatically(pane.idle);
 }
 
 /** Whether a pane READS as stopped to the user — no process, and nothing

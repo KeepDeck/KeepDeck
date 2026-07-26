@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { hydrateDeck, parkRestoredPanes, serializeDeck } from "../domain/deck";
+import {
+  hydrateDeck,
+  paneIdleIsDurable,
+  parkRestoredPanes,
+  serializeDeck,
+} from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
 import { describeError, log } from "../ipc/log";
 import { loadDeckState, quarantineDeckState, saveDeckState } from "../ipc/state";
@@ -175,7 +180,7 @@ export function usePersistence(deck: Deck): {
           .map(
             (p) =>
               `${p.id}=${p.session?.id ?? ""}${p.provisioning ? "+wip" : ""}${
-                p.idle?.reason === "suspended" ? "+susp" : ""
+                paneIdleIsDurable(p.idle) ? "+susp" : ""
               }`,
           )
           .join(",")}`,

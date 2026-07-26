@@ -99,3 +99,86 @@ describe("ConfirmDialog — secondary action", () => {
     expect(document.querySelector(".confirm__hint")).toBeNull();
   });
 });
+
+describe("ConfirmDialog — a held key dismisses once", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    baseProps.onCancel.mockClear();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() =>
+      root.render(createElement(ConfirmDialog, { ...baseProps })),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const escape = (repeat: boolean) =>
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", repeat }),
+      );
+    });
+
+  it("ignores the auto-repeat of a held Escape", () => {
+    // Notices queue behind one another, so a repeat would dismiss one the
+    // user never saw: the dialog's text swaps in place while their finger is
+    // still down. One press, one dismissal.
+    escape(false);
+    escape(true);
+    escape(true);
+    expect(baseProps.onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("still answers a second, deliberate press", () => {
+    escape(false);
+    escape(false);
+    expect(baseProps.onCancel).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ConfirmDialog — a held ENTER cannot run the button twice", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() =>
+      root.render(createElement(ConfirmDialog, { ...baseProps })),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const enter = (repeat: boolean) => {
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      repeat,
+      cancelable: true,
+      bubbles: true,
+    });
+    window.dispatchEvent(event);
+    return event;
+  };
+
+  it("cancels the auto-repeat, which is what stops the engine's second click", () => {
+    // A focused <button> is activated by the ENGINE on `keypress`, which is a
+    // default action of `keydown` — so the repeat cannot be filtered at the
+    // click (it carries no `repeat` flag). Cancelling the keydown removes the
+    // keypress and with it the click. Verified in a real browser: one press
+    // plus four auto-repeats dismissed FIVE queued notices without this, and
+    // one with it.
+    expect(enter(true).defaultPrevented).toBe(true);
+  });
+
+  it("leaves a deliberate press alone", () => {
+    // The first keydown of a hold is not a repeat, and neither is a normal
+    // press: the button must still activate.
+    expect(enter(false).defaultPrevented).toBe(false);
+  });
+});
