@@ -3,6 +3,7 @@ import {
   findPane,
   findWorkspace,
   paneAgentType,
+  paneExecutionCwd,
   paneIsRemoteFresh,
   paneRunIntent,
   paneWakeOrigin,
@@ -24,6 +25,7 @@ import {
   type SpawnPluginAccess,
 } from "./spawnSpecs";
 import type { SpawnPlan, SpawnPlanContext } from "../domain/agents";
+import type { PaneSessionState, PaneSpawnSpec } from "./ptyManager";
 
 /**
  * The owner of an agent pane's run lifecycle.
@@ -96,7 +98,10 @@ export type ResumeRequest =
  * the panes its absence kept idle, without an app restart — hence a live
  * source rather than a snapshot. */
 export interface AgentCatalogPort {
-  ids(): ReadonlySet<string>;
+  /** id → the binary that agent runs. Membership answers "does a plugin
+   * provide this agent"; the value is the fallback program for a degraded
+   * plan that names none. */
+  commands(): ReadonlyMap<string, string>;
   /** Resolves once the plugin system has booted. Before that every pane's
    * agent would read as unknown, and waking anything would misjudge it. */
   ready(): Promise<void>;
@@ -121,7 +126,21 @@ export interface LaunchPolicyPort {
  * either — without this the orchestrator would never rebuild the plan. */
 export interface SessionRegistryPort {
   subscribe(listener: () => void): () => void;
+  /** Whether a process already belongs to this pane — the other half of the
+   * comparison the intent starts. */
+  state(paneId: string): PaneSessionState;
+  /** Ensure the pane runs `spec`. Idempotent per (pane, command, cwd). */
+  acquire(paneId: string, spec: PaneSpawnSpec): void;
 }
+
+/**
+ * The size a session is spawned at before its terminal has measured itself.
+ * Harmless because a pane only spawns while its workspace is on screen, so a
+ * mounted terminal syncs the real size through `onReady` within a frame. It
+ * would NOT be harmless for a background pane, which would format a whole
+ * session at the wrong width — see the unopened-workspace rule.
+ */
+const SPAWN_PLACEHOLDER_SIZE = { cols: 80, rows: 24 };
 
 export interface AgentOrchestratorDeps {
   deck: DeckStore;
@@ -381,7 +400,12 @@ export function createAgentOrchestrator(
     for (const ws of deck.getSnapshot().workspaces) {
       for (const pane of ws.panes) {
         void buildLivePaneSpec(plugins, ws, pane, ctx).then((changed) => {
-          if (changed) publish();
+          if (!changed) return;
+          publish();
+          // A plan landing is what a pane waiting to start was waiting FOR —
+          // reconcile again, or nothing spawns until an unrelated notification
+          // happens along.
+          schedule();
         });
       }
     }
@@ -397,25 +421,42 @@ export function createAgentOrchestrator(
     const state = deck.getSnapshot();
     const active = findWorkspace(state.workspaces, state.activeId);
     if (!active) return;
-    const available = agents.ids();
+    const commands = agents.commands();
 
     for (const ws of state.workspaces) {
       for (const pane of ws.panes) {
-        // Whether a process ALREADY belongs to this pane. The deck's own
-        // marker is the only answer available here: a pane with none is up (or
-        // the render path is about to bring it up), and nothing in this sweep
-        // may touch it.
-        if (!pane.idle || inFlight.has(pane.id)) continue;
-        // Everything else — a decision the user or the policy made, an agent
-        // no plugin provides, a directory that is gone, a workspace nobody has
-        // opened — is one question with one answer, and the reason it gives is
-        // the same reason the card shows.
+        // One question, one answer: a decision the user or the policy made, an
+        // agent no plugin provides, a directory that is gone, a workspace
+        // nobody has opened — and the reason it gives is the reason the card
+        // shows.
+        const agentType = paneAgentType(pane);
         const intent = paneRunIntent(pane, {
-          agentAvailable: available.has(paneAgentType(pane)),
+          agentAvailable: commands.has(agentType),
           missingDir: blocked.get(pane.id) ?? null,
           workspaceActive: ws.id === active.id,
           parkOnLaunch: launchPolicy.parkOnLaunch(),
         });
+        if (intent.kind === "run" && !pane.idle) {
+          // A pane with no marker: it should run, and the only question left
+          // is whether it already does and whether there is anything to run.
+          // Never a reason to END one — this pass starts processes only.
+          if (sessions.state(pane.id).kind !== "none") continue;
+          const spec = peekPaneSpawnSpec(pane.id);
+          if (!spec) continue;
+          sessions.acquire(pane.id, {
+            command:
+              spec.command !== undefined
+                ? spec.command
+                : (commands.get(agentType) ?? agentType),
+            args: spec.args,
+            env: spec.env,
+            envDefaults: spec.envDefaults,
+            cwd: paneExecutionCwd(ws, pane),
+            ...SPAWN_PLACEHOLDER_SIZE,
+          });
+          continue;
+        }
+        if (!pane.idle || inFlight.has(pane.id)) continue;
         if (intent.kind === "hold") {
           // A pane the launch policy holds is not merely skipped: it stops
           // rising, so its card says "stopped" and offers Resume instead of
@@ -499,7 +540,7 @@ export function createAgentOrchestrator(
       // The same catalog gate the sweep applies. Asked here too, because the
       // sweep's version is a silent skip: marking the pane first would strand
       // it in a state nothing settles.
-      if (!agents.ids().has(paneAgentType(pane))) return "unavailable";
+      if (!agents.commands().has(paneAgentType(pane))) return "unavailable";
       // Clear the last attempt's verdicts first: a stale block would make the
       // sweep skip this pane forever, and a stale note would explain a failure
       // the user is already retrying.

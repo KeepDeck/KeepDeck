@@ -4,7 +4,6 @@ import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import {
-  acquirePane,
   attachPane,
   isPaneLaunched,
   resizePane,
@@ -271,15 +270,11 @@ export function TerminalPane({
       fileOpen,
     );
 
-    acquirePane(paneId, {
-      command,
-      args: argsRef.current,
-      env: envRef.current,
-      envDefaults: envDefaultsRef.current,
-      cwd,
-      cols: term.cols,
-      rows: term.rows,
-    });
+    // Whether this pane should have a process, and what it runs, is settled
+    // before anything is rendered — see the agent orchestrator. This view only
+    // listens: it attaches whenever the deck shows it, and the session it
+    // finds may be older than the terminal or arrive after it.
+    //
     // A fresh spawn (mount, or a cwd/command change that re-ran this effect)
     // hasn't launched yet — re-arm the overlay; an already-live re-attach keeps
     // it down (the sink's onLaunched below fires again through the replay).

@@ -44,9 +44,17 @@ const gate = vi.hoisted(() => ({ build: null as Promise<void> | null }));
 vi.mock("./spawnSpecs", () => {
   const specs = new Map<string, unknown>();
   return {
-    // These tests are about WAKING; the ordinary live-pane plan sweep is
-    // covered in spawnSpecs.test.ts and only has to stay out of the way.
-    buildLivePaneSpec: vi.fn(async () => false),
+    // What the ordinary plan sweep does, in miniature: an unmarked pane with
+    // no plan gets one. Faithful enough for the question these tests ask —
+    // whether a pane that should run is started — and the build itself is
+    // covered in spawnSpecs.test.ts.
+    buildLivePaneSpec: vi.fn(
+      async (_plugins: unknown, _ws: unknown, pane: { id: string; idle?: unknown }) => {
+        if (pane.idle || specs.has(pane.id)) return false;
+        specs.set(pane.id, { command: "claude", args: [], env: [] });
+        return true;
+      },
+    ),
     peekPanePlanError: () => false,
     buildResumeSpec: vi.fn(
       async (
@@ -78,6 +86,25 @@ vi.mock("./spawnSpecs", () => {
     resetPaneSpawnSpecs: () => specs.clear(),
   };
 });
+/** The session registry as the orchestrator sees it: what it started, and
+ *  what each pane's process is doing. */
+const pty = {
+  acquired: [] as { paneId: string; command?: string | null; cwd?: string | null }[],
+  live: new Set<string>(),
+  acquire(paneId: string, spec: { command?: string | null; cwd?: string | null }) {
+    pty.acquired.push({ paneId, command: spec.command, cwd: spec.cwd });
+    pty.live.add(paneId);
+  },
+  state: (paneId: string) =>
+    pty.live.has(paneId)
+      ? ({ kind: "live" } as const)
+      : ({ kind: "none" } as const),
+  reset() {
+    pty.acquired = [];
+    pty.live.clear();
+  },
+};
+
 let deck: Deck;
 let agentRun: AgentRunView & Pick<AgentOrchestrator, "resume" | "startFresh">;
 const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
@@ -113,7 +140,8 @@ function Probe() {
         deck: store,
         spawnContext: { get: () => ctx, subscribe: () => () => {} },
         agents: {
-          ids: () => new Set(catalog.agents.map((a) => a.id)),
+          commands: () =>
+            new Map(catalog.agents.map((a) => [a.id, a.command])),
           // A catalog that is not ready never resolves: waking anything before
           // the plugin system has booted would misjudge every pane's agent.
           ready: () =>
@@ -124,7 +152,11 @@ function Probe() {
           parkOnLaunch: () => catalog.parkOnLaunch,
           subscribe: () => () => {},
         },
-        sessions: { subscribe: () => () => {} },
+        sessions: {
+          subscribe: () => () => {},
+          state: (paneId: string) => pty.state(paneId),
+          acquire: pty.acquire,
+        },
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
       }),
@@ -176,6 +208,7 @@ describe("agent orchestrator —session policy", () => {
     });
     catalog.ready = true;
     catalog.parkOnLaunch = false;
+    pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -228,7 +261,8 @@ describe("agent orchestrator —session policy", () => {
     await settle();
 
     expect(pane().idle).toBeUndefined();
-    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh spawn plan
+    // It came up on the ordinary plan: nothing to resume in its args.
+    expect(peekPaneSpawnSpec("pane-1")?.args).toEqual([]);
   });
 
   it("a REMOTE pane wakes fresh — no directory probe, no resume", async () => {
@@ -253,8 +287,7 @@ describe("agent orchestrator —session policy", () => {
     await settle();
 
     expect(pane().idle).toBeUndefined(); // woken
-    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined(); // fresh, not resumed
-    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled(); // fresh
     expect(ipc.probeWorktree).not.toHaveBeenCalled(); // no local dir to probe
   });
 
@@ -367,6 +400,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     });
     catalog.ready = true;
     catalog.parkOnLaunch = false;
+    pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -577,22 +611,24 @@ describe("agent orchestrator —resuming a suspended pane", () => {
     expect(pane().cwd).toBeUndefined();
     expect(pane().branch).toBeUndefined();
     expect(pane().session).toBeUndefined();
-    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
+    // The ordinary plan, carrying nothing to resume.
+    expect(peekPaneSpawnSpec("pane-1")?.args).toEqual([]);
   });
 });
 
 describe("agent orchestrator —waking across workspace switches", () => {
   let root: Root;
 
-  /** Two workspaces, ws-1 active, one pane each with the given idle reason. */
-  const twoWorkspaces = (idle: PaneIdle): DeckState => ({
+  /** Two workspaces, ws-1 active, one pane each with the given idle reason
+   *  (or none, for panes that simply exist). */
+  const twoWorkspaces = (idle?: PaneIdle): DeckState => ({
     workspaces: ["ws-1", "ws-2"].map((id) => ({
       id,
       instance: createWorkspaceInstance(),
       name: id,
       cwd: "/repo",
       worktreeBaseDir: null,
-      panes: [{ id: `${id}-pane`, agentType: "claude", idle }],
+      panes: [{ id: `${id}-pane`, agentType: "claude", ...(idle && { idle }) }],
     })),
     activeId: "ws-1",
     journal: emptyJournal,
@@ -612,6 +648,7 @@ describe("agent orchestrator —waking across workspace switches", () => {
     });
     catalog.ready = true;
     catalog.parkOnLaunch = false;
+    pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -619,6 +656,36 @@ describe("agent orchestrator —waking across workspace switches", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+  });
+
+  it("starts the pane on screen and leaves the one nobody has opened alone", async () => {
+    // The economy this whole gate exists for: a workspace that may never be
+    // used costs nothing. Both panes are unmarked and both have plans — only
+    // the visible one gets a process.
+    act(() => deck.hydrate(twoWorkspaces(undefined)));
+    await settle();
+
+    expect(pty.acquired.map((a) => a.paneId)).toEqual(["ws-1-pane"]);
+  });
+
+  it("starts the second one when its workspace is opened, and only then", async () => {
+    act(() => deck.hydrate(twoWorkspaces(undefined)));
+    await settle();
+    act(() => deck.selectWorkspace("ws-2"));
+    await settle();
+
+    expect(pty.acquired.map((a) => a.paneId)).toEqual(["ws-1-pane", "ws-2-pane"]);
+  });
+
+  it("does not start a second process for a pane that already has one", async () => {
+    act(() => deck.hydrate(twoWorkspaces(undefined)));
+    await settle();
+    // Any notification re-runs the reconcile; the started pane must be left
+    // exactly as it is.
+    act(() => deck.renameWorkspace("ws-1", "renamed"));
+    await settle();
+
+    expect(pty.acquired).toHaveLength(1);
   });
 
   it("stops starting agents the moment the launch policy says so, and says they are stopped", async () => {
@@ -728,6 +795,7 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
     ipc.probeWorktree.mockReset();
     catalog.ready = true;
     catalog.parkOnLaunch = false;
+    pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -801,6 +869,7 @@ describe("agent orchestrator —a request that lands mid-flight", () => {
     ipc.probeWorktree.mockReset();
     catalog.ready = true;
     catalog.parkOnLaunch = false;
+    pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -983,6 +1052,7 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
     });
     catalog.ready = true;
     catalog.parkOnLaunch = false;
+    pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));

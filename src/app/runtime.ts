@@ -12,7 +12,11 @@ import {
   type AgentCatalogPort,
 } from "./agentOrchestrator";
 import { getSettings, subscribeSettings } from "./settingsManager";
-import { subscribeSessions } from "./ptyManager";
+import {
+  acquirePane,
+  paneSessionState,
+  subscribeSessions,
+} from "./ptyManager";
 import { openPath } from "../ipc/app";
 import { probeWorktree } from "../ipc/worktree";
 import { log } from "../ipc/log";
@@ -27,7 +31,8 @@ function agentCatalogPort(
 ): AgentCatalogPort {
   const registry = plugins.pluginRegistries.agents;
   return {
-    ids: () => new Set(registry.list().map((c) => c.entry.id)),
+    commands: () =>
+      new Map(registry.list().map((c) => [c.entry.id, c.entry.detect.bin])),
     ready: () => plugins.bootstrapPlugins(),
     subscribe: registry.subscribe,
   };
@@ -67,7 +72,11 @@ export function createAppRuntime(
         parkOnLaunch: () => getSettings()?.parkAgentsOnLaunch ?? false,
         subscribe: subscribeSettings,
       },
-      sessions: { subscribe: subscribeSessions },
+      sessions: {
+        subscribe: subscribeSessions,
+        state: paneSessionState,
+        acquire: acquirePane,
+      },
       plugins,
       probe: probeWorktree,
     }),
