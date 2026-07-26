@@ -60,7 +60,8 @@ describe("useAgentDialog suggestions", () => {
   function Host({ deck }: { deck: Deck }) {
     // No settings store seeded here: the default-agent preference falls back
     // to "claude" — these tests cover suggestions, not the type picker.
-    flow = useAgentDialog(deck, []);
+    // No journal routing and no blocked panes: these tests cover suggestions.
+    flow = useAgentDialog(deck, [], undefined, {});
     return null;
   }
 

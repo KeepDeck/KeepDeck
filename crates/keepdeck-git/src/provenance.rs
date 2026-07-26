@@ -200,7 +200,10 @@ fn reflog(dir: &Path, reference: &str) -> Result<Vec<ReflogEntry>, GitError> {
     }
 }
 
-/// The unix timestamp a branch was created at — its reflog's oldest entry,
+/// When a branch was created AND at which commit — the pair, because both are
+/// load-bearing: `is_created_here` demands the birth entry agree on the second
+/// and on the sha, and dropping either half widens what may be deleted. Read
+/// from its reflog's oldest entry,
 /// counted only when that entry is a creation record with a trusted source
 /// ([`trusted_creation`]; an expired reflog whose tail was cut is no evidence
 /// either). `None` when the reflog is gone entirely; every case collapses to

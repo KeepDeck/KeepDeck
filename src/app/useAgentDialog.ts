@@ -71,12 +71,18 @@ export interface AgentDialogSpec {
 export function useAgentDialog(
   deck: Deck,
   agents: AgentInfo[],
-  journal?: AgentDialogJournalRouting,
+  /** Where "Start from" hands a picked session. Explicit rather than
+   * optional: an optional here is what forced the argument below to carry a
+   * default, and that default is the bug it exists to prevent. */
+  journal: AgentDialogJournalRouting | undefined,
   /** paneId → the missing directory, from the revive sweep. A pane stuck on a
    * gone folder is going nowhere, so the picker must call its session stopped
    * like the tile and the tray already do — the model alone still reads that
-   * pane as rising. */
-  blockedPanes: Record<string, string> = {},
+   * pane as rising.
+   *
+   * REQUIRED, like `paneSuspendBlock`'s: a default is how the next surface
+   * omits it, compiles, and tells the user a dead pane is running again. */
+  blockedPanes: Record<string, string>,
 ) {
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
   const deckRef = useRef(deck);

@@ -54,10 +54,12 @@ const record = (over: Partial<SessionRecord> = {}): SessionRecord =>
 
 let deck: Deck;
 let api: JournalResumeApi;
+/** The revive sweep's gone-directory verdicts, as the hook receives them. */
+let blockedPanes: Record<string, string> = {};
 
 function Probe() {
   deck = useDeck();
-  api = useJournalResume(deck, CTX);
+  api = useJournalResume(deck, CTX, blockedPanes);
   return null;
 }
 
@@ -67,6 +69,7 @@ describe("useJournalResume", () => {
   beforeEach(() => {
     plans.specs.clear();
     plans.buildResumeSpec.mockClear();
+    blockedPanes = {};
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -136,6 +139,46 @@ describe("useJournalResume", () => {
     ).rejects.toThrow("already running");
     expect(deck.workspaces[0].panes).toHaveLength(1);
     expect(plans.buildResumeSpec).not.toHaveBeenCalled();
+  });
+
+  it("points at the pane that HOLDS the session when that pane is stopped", async () => {
+    // "Already running" would be false and useless: the pane is stopped, and
+    // the thing to do is resume it there, where its card has the button.
+    await mount();
+    act(() =>
+      deck.addAgentPane("ws-1", {
+        id: "pane-77",
+        agentType: "codex",
+        session: { id: "s-1", boundAt: "2026-07-19T00:00:00.000Z" },
+      }),
+    );
+    act(() => deck.suspendPane("ws-1", "pane-77"));
+
+    await expect(
+      act(async () => api.resume("ws-1", record())),
+    ).rejects.toThrow("stopped pane");
+  });
+
+  it("calls a claimant stuck on a gone folder stopped, not running", async () => {
+    // Its marker still says `waking`; only the sweep's runtime verdict knows
+    // it will never get there. Without that verdict this message sent the
+    // user to look for a running agent that isn't.
+    await mount();
+    act(() =>
+      deck.addAgentPane("ws-1", {
+        id: "pane-77",
+        agentType: "codex",
+        session: { id: "s-1", boundAt: "2026-07-19T00:00:00.000Z" },
+      }),
+    );
+    act(() => deck.suspendPane("ws-1", "pane-77"));
+    act(() => deck.requestPaneWake("ws-1", "pane-77"));
+    blockedPanes = { "pane-77": "/gone/worktree" };
+    await act(async () => root.render(createElement(Probe)));
+
+    await expect(
+      act(async () => api.resume("ws-1", record())),
+    ).rejects.toThrow("stopped pane");
   });
 
   it("rejects — and mints no pane — when the plan cannot be prepared", async () => {

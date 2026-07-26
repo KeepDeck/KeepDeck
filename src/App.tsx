@@ -797,9 +797,9 @@ function App() {
             onResumeSession={(wsId, record) =>
               void journalResume.resume(wsId, record).catch((e: unknown) =>
                 // A user-requested continuation must fail VISIBLY — the row
-                // staying put with no signal reads as a dead button. First
-                // Queued behind whatever is up: a slow earlier failure must
-                // not be clobbered by a later one, and neither is dropped.
+                // staying put with no signal reads as a dead button. Queued
+                // behind whatever is up: a slow earlier failure must not be
+                // clobbered by a later one, and neither is dropped.
                 pushAlert("Could not resume the session", describeError(e)),
               )
             }

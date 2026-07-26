@@ -51,8 +51,11 @@ export function useJournalResume(
   ctx: SpawnPlanContext | null,
   /** paneId → the missing directory, from the revive sweep. A pane stuck on a
    * gone folder is going nowhere, so the honest message points at it as
-   * stopped — the model alone still reads that pane as rising. */
-  blockedPanes: Record<string, string> = {},
+   * stopped — the model alone still reads that pane as rising.
+   *
+   * REQUIRED, like `paneSuspendBlock`'s: a default is how the next surface
+   * omits it, compiles, and tells the user a dead pane is running again. */
+  blockedPanes: Record<string, string>,
 ): JournalResumeApi {
   const { plugins } = useAppRuntime();
   const { deckRef, ctxRef, inFlight } = useLiveRefs(deck, ctx);

@@ -791,7 +791,7 @@ describe("useRevive — a request that lands mid-flight", () => {
     expect(origins()).toEqual(["manual"]);
   });
 
-  it("rebuilds a plan already built as a restore when the request arrives mid-BUILD", async () => {
+  it("re-stamps a plan already built as a restore when the request arrives mid-BUILD", async () => {
     // The origin is baked into the cached plan — it is what arms the one-shot
     // fall back to a fresh conversation. A plan built as a restore therefore
     // cannot serve a resume the user asked for.
