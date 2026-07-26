@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 import { emptyJournal } from "../domain/journal";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DeckLayout, MinimizeStyle } from "../domain/settings";
 import type { DeckState } from "../domain/deck";
 import { useDeck, type Deck } from "./useDeck";
+import { createDeckStore } from "./deckStore";
 import { useMinimizeMode } from "./useMinimizeMode";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -23,7 +24,9 @@ describe("useMinimizeMode", () => {
     deckLayout: DeckLayout;
     minimizeStyle: MinimizeStyle;
   }) {
-    deck = useDeck();
+    // Fresh per mount (a bare call would rebuild it on every render).
+    const [store] = useState(createDeckStore);
+    deck = useDeck(store);
     useMinimizeMode(deckLayout, minimizeStyle, deck);
     return null;
   }

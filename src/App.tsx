@@ -91,8 +91,9 @@ import "./styles/index.css";
  * and file drops — to the components that render them.
  */
 function App() {
+  const runtime = useAppRuntime();
   const { bootstrapPlugins, pluginRegistries, revealPluginDockTab, pluginHost } =
-    useAppRuntime().plugins;
+    runtime.plugins;
   const [info, setInfo] = useState<AppInfo | null>(null);
   const updateState = useUpdate();
 
@@ -108,7 +109,7 @@ function App() {
   // The deck's workspaces + active id + per-workspace maximize/selection, in one
   // reducer so close transitions clean focus + selection atomically ([S1], [B2],
   // [L6]).
-  const deck = useDeck();
+  const deck = useDeck(runtime.deckStore);
   // The agent catalog: cli plugins' contributions + install detection.
   const { agents, loading: agentsLoading } = useAgents();
   // Agents whose plugin is enabled but unavailable (CLI not installed) —

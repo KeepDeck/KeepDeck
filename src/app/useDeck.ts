@@ -1,4 +1,4 @@
-import { useCallback, useRef, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import {
   type DeckState,
   type Pane,
@@ -7,7 +7,7 @@ import {
   type WorkspaceView,
 } from "../domain/deck";
 import type { JournalRecords } from "../domain/journal";
-import { createDeckStore, type DeckStore } from "./deckStore";
+import type { DeckStore } from "./deckStore";
 import { mintWorkspaceSeq } from "./ids";
 
 /** An empty view — the defaults for a workspace with no view entry yet. Shared
@@ -25,14 +25,17 @@ export type WorkspaceCreationResult =
   | { ok: false; reason: "sequence-exhausted" | "duplicate-id" };
 
 /**
- * Owns the deck's reducer and exposes the state plus bound action helpers, so
+ * Binds `store` to React and exposes its state plus bound action helpers, so
  * `App` drives the deck through one well-typed surface instead of juggling four
  * coupled `useState`s and cleaning them by hand on every removal.
+ *
+ * The store is passed IN rather than created here: it is owned by the app
+ * runtime, because non-React code dispatches against the same state and must
+ * not depend on a component being mounted. Taken as a required argument rather
+ * than read from context, so every caller says which store it drives — a test
+ * builds its own, and no two surfaces can silently end up on different ones.
  */
-export function useDeck() {
-  const storeRef = useRef<DeckStore | null>(null);
-  if (storeRef.current === null) storeRef.current = createDeckStore();
-  const store = storeRef.current;
+export function useDeck(store: DeckStore) {
   const state = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,

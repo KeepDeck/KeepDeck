@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Pane } from "../domain/deck";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
+import { createDeckStore } from "./deckStore";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -41,7 +42,9 @@ let suspend: SuspendApi;
 let blockedPanes: Record<string, string> = {};
 
 function Probe() {
-  deck = useDeck();
+  // Fresh per mount (a bare call would rebuild it on every render).
+  const [store] = useState(createDeckStore);
+  deck = useDeck(store);
   suspend = useSuspend(deck, blockedPanes);
   return null;
 }

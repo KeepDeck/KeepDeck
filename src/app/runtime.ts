@@ -5,6 +5,7 @@ import {
 } from "./downloadManager";
 import { createPluginManager } from "./pluginManager";
 import { createFileOpenManager } from "./fileOpenManager";
+import { createDeckStore } from "./deckStore";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
 
@@ -21,6 +22,12 @@ export function createAppRuntime(
   return {
     downloads,
     plugins,
+    // The deck's state owner. It lives HERE, not in `useDeck`, because code
+    // outside React has to read and dispatch against the same state — the
+    // agent orchestrator drives pane lifecycles whether or not any component
+    // is mounted, and a store created inside a component would tie the deck's
+    // lifetime (and the processes it describes) to a render tree.
+    deckStore: createDeckStore(),
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),
       openPath,

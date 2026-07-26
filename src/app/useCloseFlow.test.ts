@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PathProbe } from "../domain/agents";
@@ -7,6 +7,7 @@ import type { GitPosition } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
+import { createDeckStore } from "./deckStore";
 import {
   closeMessageFor,
   useCloseFlow,
@@ -81,7 +82,9 @@ const agentSnapshot = () => {
 };
 
 function Probe() {
-  deck = useDeck();
+  // Fresh per mount (a bare call would rebuild it on every render).
+  const [store] = useState(createDeckStore);
+  deck = useDeck(store);
   flow = useCloseFlow(deck, {
     onError: (message) => errors.push(message),
     onSuspendRefused: (message) => refusals.push(message),
