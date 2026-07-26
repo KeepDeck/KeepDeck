@@ -11,7 +11,7 @@ import {
   matchChord,
   parseBindings,
   pttMode,
-  standingWarning,
+  standingIssue,
   validateChord,
   withSlot,
   type Chord,
@@ -219,7 +219,7 @@ describe("formatChord / isModifierKey", () => {
   });
 });
 
-describe("withSlot / blockingIssue / standingWarning", () => {
+describe("withSlot / blockingIssue / standingIssue", () => {
   it("rebinds one slot and carries the other through untouched", () => {
     const next = chord({ code: "KeyJ", ctrl: true });
 
@@ -231,10 +231,13 @@ describe("withSlot / blockingIssue / standingWarning", () => {
     expect(bound.dictation).toEqual(DEFAULT_BINDINGS.dictation);
   });
 
-  it("blocks a chord already bound to the other slot, and Escape", () => {
+  it("blocks a chord already bound to the other slot", () => {
     expect(blockingIssue("command", DEFAULT_BINDINGS.dictation, DEFAULT_BINDINGS)).toMatch(
       /different chords/,
     );
+    // Escape is blocked here too, though the recorder never gets that far: it
+    // treats Escape as cancel before a chord is ever built. The live guard for
+    // a hand-edited Escape is standingIssue, below.
     expect(blockingIssue("command", chord({ code: "Escape" }), DEFAULT_BINDINGS)).toMatch(
       /reserved/,
     );
@@ -245,11 +248,28 @@ describe("withSlot / blockingIssue / standingWarning", () => {
     expect(blockingIssue("command", chord({ code: "KeyB" }), DEFAULT_BINDINGS)).toBeNull();
   });
 
-  it("surfaces the standing warning only for a modifier-less persisted chord", () => {
+  it("says nothing about a sound persisted chord, warns about a bare one", () => {
     const bare = withSlot(DEFAULT_BINDINGS, "command", chord({ code: "KeyB" }));
 
-    expect(standingWarning("command", bare)).toMatch(/shadow/);
-    expect(standingWarning("dictation", bare)).toBeNull();
-    expect(standingWarning("command", DEFAULT_BINDINGS)).toBeNull();
+    expect(standingIssue("command", DEFAULT_BINDINGS)).toBeNull();
+    expect(standingIssue("command", bare)?.message).toMatch(/shadow/);
+    expect(standingIssue("command", bare)?.severity).toBe("warning");
+    expect(standingIssue("dictation", bare)).toBeNull();
+  });
+
+  it("surfaces the ERRORS a hand-edited file can persist — the recorder can't", () => {
+    // Both slots on one chord: parseBindings loads it as written and pttMode
+    // resolves the tie to dictation, leaving command dead. Without this the
+    // editor showed two identical rows and no explanation.
+    const dup = withSlot(DEFAULT_BINDINGS, "command", DEFAULT_BINDINGS.dictation);
+    expect(standingIssue("command", dup)).toEqual({
+      severity: "error",
+      message: "Command and dictation must use different chords.",
+    });
+
+    // Same for a hand-bound Escape, which the recorder's cancel key swallows.
+    const escaped = withSlot(DEFAULT_BINDINGS, "command", chord({ code: "Escape" }));
+    expect(standingIssue("command", escaped)?.severity).toBe("error");
+    expect(standingIssue("command", escaped)?.message).toMatch(/reserved/);
   });
 });

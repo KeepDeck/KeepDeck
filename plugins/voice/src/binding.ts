@@ -183,9 +183,10 @@ export function validateChord(
 }
 
 /**
- * One slot rebound, as the COMPLETE pair that persists under
- * {@link HOTKEYS_KEY}: {@link parseBindings} reads a pair, so a write carrying
- * one slot alone would silently drop the other to its shipped default.
+ * One slot rebound, as the pair that persists under {@link HOTKEYS_KEY}. The
+ * shape is the point: {@link parseBindings} reads a PAIR and defaults whatever
+ * is missing, so every writer has to carry the slot it isn't changing. Keeping
+ * that in one place is what stops a second writer from rediscovering it.
  */
 export function withSlot(
   bindings: VoiceBindings,
@@ -209,17 +210,27 @@ export function blockingIssue(
   return blocking?.message ?? null;
 }
 
-/** The standing warning for an ALREADY-persisted chord (a modifier-less
- * binding), or null. The duplicate/Escape errors can't apply to a state that is
- * already on disk, so only warnings surface for one. */
-export function standingWarning(
+/**
+ * What an ALREADY-persisted chord raises, worst first, or null when it is
+ * sound. An error outranks the modifier-less warning.
+ *
+ * An error can only get on disk by hand — the recorder blocks both of them at
+ * capture time ({@link blockingIssue}) — and `parseBindings` deliberately loads
+ * such a file as written. Surfacing it here is the only thing that tells the
+ * user why a chord they typed into settings.json does nothing: a duplicated
+ * pair leaves `command` dead ({@link pttMode} resolves the tie to dictation),
+ * and a bound Escape is swallowed by the recorder's cancel.
+ */
+export function standingIssue(
   slot: keyof VoiceBindings,
   bindings: VoiceBindings,
-): string | null {
-  const warning = validateChord(slot, bindings[slot], bindings).find(
-    (issue) => issue.severity === "warning",
+): BindingIssue | null {
+  const issues = validateChord(slot, bindings[slot], bindings);
+  return (
+    issues.find((issue) => issue.severity === "error") ??
+    issues.find((issue) => issue.severity === "warning") ??
+    null
   );
-  return warning?.message ?? null;
 }
 
 /** A readable chord label in mac glyph order (⌃⌥⇧⌘): ⌥⇧Space, ⌃⌘J. */
