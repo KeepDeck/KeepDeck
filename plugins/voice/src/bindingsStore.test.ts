@@ -36,16 +36,21 @@ describe("createBindingsStore", () => {
     const host = voiceHost();
     const store = createBindingsStore(host.ctx);
     expect(store.get()).toEqual(DEFAULT_BINDINGS);
-    store.load();
     await flush();
     expect(store.get()).toEqual(DEFAULT_BINDINGS);
   });
 
-  it("ignores settings changes until it is loaded", () => {
-    const host = voiceHost();
+  it("reads nothing when the section has not been declared yet", async () => {
+    // Constructed against a host with values but NO section: the host resolves
+    // a plugin's values against its declared fields, so this is what building
+    // the store too early looks like — the reason it is constructed after
+    // registerSection in activate.
+    const host = createFakeHost({
+      manifest: fakeManifest("keepdeck.voice"),
+      settingsValues: customBag({ code: "KeyG", ctrl: true }, { code: "KeyH", ctrl: true }),
+    });
     const store = createBindingsStore(host.ctx);
-
-    host.fire.settingsChanged(customBag({ code: "KeyM", meta: true }, { code: "KeyN", meta: true }));
+    await flush();
 
     expect(store.get()).toEqual(DEFAULT_BINDINGS);
   });
@@ -55,7 +60,6 @@ describe("createBindingsStore", () => {
       customBag({ code: "KeyG", ctrl: true }, { code: "KeyH", ctrl: true }),
     );
     const store = createBindingsStore(host.ctx);
-    store.load();
     await flush();
     expect(store.get().command).toEqual({
       code: "KeyG",
@@ -69,7 +73,6 @@ describe("createBindingsStore", () => {
   it("updates live and notifies when settings change", async () => {
     const host = voiceHost();
     const store = createBindingsStore(host.ctx);
-    store.load();
     await flush();
     const listener = vi.fn();
     store.subscribe(listener);
@@ -86,31 +89,9 @@ describe("createBindingsStore", () => {
     });
   });
 
-  it("re-loading replaces the subscription instead of stacking one", async () => {
-    const host = voiceHost();
-    const store = createBindingsStore(host.ctx);
-    store.load();
-    store.load();
-    await flush();
-    const listener = vi.fn();
-    store.subscribe(listener);
-
-    host.fire.settingsChanged(customBag({ code: "KeyM", meta: true }, { code: "KeyN", meta: true }));
-
-    expect(listener).toHaveBeenCalledTimes(1);
-    // The real check: BOTH subscriptions are accounted for — the first was
-    // released by the second load, the second by dispose. Leave one behind and
-    // the host still holds a live callback into a store nobody owns (and the
-    // host, unlike this fake's callback set, wraps each subscription
-    // separately, so it would apply every later change twice).
-    store.dispose();
-    expect(host.unsubscribes.settingsChanged).toBe(2);
-  });
-
   it("stops tracking after dispose", async () => {
     const host = voiceHost();
     const store = createBindingsStore(host.ctx);
-    store.load();
     await flush();
     store.dispose();
 

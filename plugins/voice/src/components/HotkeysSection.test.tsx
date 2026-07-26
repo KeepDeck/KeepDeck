@@ -55,7 +55,6 @@ describe("HotkeysSection", () => {
       fields: [{ kind: "custom", key: HOTKEYS_KEY, Component: () => null }],
     });
     const store = createBindingsStore(host.ctx);
-    store.load();
     await flush();
     latch = createRecordingLatch();
     // A write round-trips through the host: persist, then echo the change back

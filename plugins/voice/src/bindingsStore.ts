@@ -1,4 +1,4 @@
-import type { Disposable, PluginContext } from "@keepdeck/plugin-api";
+import type { PluginContext } from "@keepdeck/plugin-api";
 import { DEFAULT_BINDINGS, parseBindings, type VoiceBindings } from "./binding";
 
 export interface BindingsStore {
@@ -7,14 +7,6 @@ export interface BindingsStore {
   /** Stable snapshot for useSyncExternalStore (same reference until a change). */
   snapshot(): VoiceBindings;
   subscribe(cb: () => void): () => void;
-  /**
-   * Read the persisted bindings and follow later edits. Call this only once the
-   * plugin's settings SECTION is registered: the host resolves a plugin's stored
-   * values against the fields it has declared, so a read taken before that
-   * answers with an empty bag — and since nothing writes settings at boot, the
-   * store would then sit on the defaults for the whole session.
-   */
-  load(): void;
   /** Stop tracking settings changes. */
   dispose(): void;
 }
@@ -22,18 +14,28 @@ export interface BindingsStore {
 /**
  * Holds the live push-to-talk bindings: read from the plugin's settings values
  * and kept current as the user edits them, so the hotkey handler, the settings
- * recorder, and the help copy all read ONE truth. Until [`load`] resolves, the
- * shipped defaults stand, so the hotkeys work from the first frame.
+ * recorder, and the help copy all read ONE truth. Until the read resolves (one
+ * microtask), the shipped defaults stand, so the hotkeys work from the first
+ * frame.
+ *
+ * CONSTRUCT THIS AFTER the plugin has registered its settings section: the host
+ * resolves a plugin's stored values against the fields it has declared, so a
+ * store built earlier reads an empty bag, and since nothing writes settings at
+ * boot it would sit on the defaults for the whole session.
  */
 export function createBindingsStore(ctx: PluginContext): BindingsStore {
   let bindings: VoiceBindings = DEFAULT_BINDINGS;
-  let sub: Disposable | null = null;
   const listeners = new Set<() => void>();
 
   function apply(values: Record<string, unknown>): void {
     bindings = parseBindings(values);
     for (const cb of [...listeners]) cb();
   }
+
+  // A write from the settings recorder persists through the host and comes
+  // back here via onChange — one loop keeps every reader in sync.
+  void ctx.settings.read().then(apply);
+  const sub = ctx.settings.onChange(apply);
 
   return {
     get: () => bindings,
@@ -42,19 +44,6 @@ export function createBindingsStore(ctx: PluginContext): BindingsStore {
       listeners.add(cb);
       return () => listeners.delete(cb);
     },
-    load() {
-      // Idempotent: a second load REPLACES the subscription. Stacking one
-      // would apply every later change twice and strand the first for the
-      // lifetime of the store.
-      sub?.dispose();
-      // A write from the settings recorder persists through the host and comes
-      // back here via onChange — one loop keeps every reader in sync.
-      void ctx.settings.read().then(apply);
-      sub = ctx.settings.onChange(apply);
-    },
-    dispose() {
-      sub?.dispose();
-      sub = null;
-    },
+    dispose: () => sub.dispose(),
   };
 }
