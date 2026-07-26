@@ -417,7 +417,7 @@ export function parkPane(
  *
  * `blocked` is false here because the domain has no sweep verdict to consult
  * — that lives in the app layer, which refuses such a pane before dispatching
- * (`useSuspend`). This guard is the backstop for the rules the MODEL can see,
+ * (the orchestrator's). This guard is the backstop for the rules the MODEL can see,
  * and the argument is spelled out rather than defaulted so the omission is a
  * decision on the page instead of an invisible one. */
 export function suspendPane(

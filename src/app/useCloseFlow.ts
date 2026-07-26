@@ -39,7 +39,7 @@ export type ClosingTarget = { targets: WorktreeTarget[] } & (
        * a pane with no process.
        *
        * So they travel together, and the actions re-check rather than the
-       * text: `useSuspend` refuses a stale offer at the click, and says so. */
+       * text: the suspend refuses a stale offer at the click, and says so. */
       pane: ClosingPaneFacts;
     }
   | { kind: "workspace"; id: string; name: string; count: number }

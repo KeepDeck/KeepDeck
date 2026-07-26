@@ -28,16 +28,6 @@ export type SpawnPluginAccess = Pick<
   "pluginHost" | "pluginRegistries"
 >;
 
-/** What `usePaneSpawnSpecs` hands back each render: every live pane's plan,
- *  plus the panes whose last build FAILED (so the deck can show an error tile
- *  with a retry). `failed` rides the same snapshot identity as `specs`, so a
- *  failure re-renders consumers with the new set in hand — no render-time
- *  side-channel into the module-level `failed` Set. */
-export interface SpawnSpecs {
-  specs: Record<string, SpawnPlan>;
-  failed: ReadonlySet<string>;
-}
-
 /**
  * Spawn plans, built through the cli plugins' hooks ([F7]/[F8] v2).
  *

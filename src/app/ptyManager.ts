@@ -15,9 +15,9 @@ import { describeError, log } from "../ipc/log";
  * assumptions about React internals.
  *
  * One global manager, not one per workspace: pane ids are unique across the
- * deck (a single mint sequence), the Rust `SessionRegistry` behind the IPC is
- * already app-global, and a workspace close is just a bulk [`closePanes`] over
- * its pane ids. If remote hosts ever arrive, the key grows a host part here.
+ * deck (a single mint sequence), and the Rust `SessionRegistry` behind the IPC
+ * is already app-global. If remote hosts ever arrive, the key grows a host
+ * part here.
  *
  * Output is mirrored into a bounded per-pane ring buffer at all times, so a
  * re-attaching view (remount) replays recent history into its fresh xterm
@@ -339,10 +339,6 @@ export function closePane(paneId: string): Promise<void> {
   });
 }
 
-/** Close a batch (a workspace teardown). Settles when every close has. */
-export function closePanes(paneIds: string[]): Promise<void> {
-  return Promise.allSettled(paneIds.map(closePane)).then(() => undefined);
-}
 
 /** Output kept for a one-off command's caller — enough to see the error. */
 const ONCE_TAIL_CHARS = 600;

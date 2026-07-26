@@ -11,10 +11,13 @@ import { mintWorkspaceSeq } from "./ids";
  * pane lifecycles has to reach them whether or not anything is mounted. The
  * hook adds the subscription; this adds nothing but names.
  *
- * Built once per store, so every action is referentially stable — effects may
- * depend on them without a memo of their own.
+ * One set per store, so every action is referentially stable — effects may
+ * depend on them without a memo of their own. Cached rather than merely
+ * documented: the deck has two long-lived callers (the orchestrator and the
+ * hook), and the moment an action carries per-instance state — a debounce, a
+ * batching buffer — two sets would silently be two behaviours.
  */
-export type DeckActions = ReturnType<typeof createDeckActions>;
+export type DeckActions = ReturnType<typeof buildDeckActions>;
 
 export type WorkspaceCreationResult =
   | { ok: true; workspace: Workspace }
@@ -24,7 +27,17 @@ export type WorkspaceCreationResult =
  * taking them from the action, minted here at the dispatch boundary. */
 const nowIso = () => new Date().toISOString();
 
-export function createDeckActions(store: DeckStore) {
+const byStore = new WeakMap<DeckStore, DeckActions>();
+
+export function createDeckActions(store: DeckStore): DeckActions {
+  const existing = byStore.get(store);
+  if (existing) return existing;
+  const actions = buildDeckActions(store);
+  byStore.set(store, actions);
+  return actions;
+}
+
+function buildDeckActions(store: DeckStore) {
   const dispatch = store.dispatch;
   return {
     selectWorkspace: (id: string) => dispatch({ type: "selectWorkspace", id }),
