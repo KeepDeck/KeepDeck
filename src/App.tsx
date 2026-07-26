@@ -21,7 +21,7 @@ import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useAgentRunView } from "./app/useAgentRunView";
-import { suspendRefusalText, useSuspend } from "./app/useSuspend";
+import { suspendRefusalText } from "./app/suspendOutcome";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useUsageChannel } from "./app/useUsageChannel";
 import { useSettings } from "./app/useSettings";
@@ -142,7 +142,6 @@ function App() {
   // and report gone directories ([F7]/[F8]).
   const orchestrator = runtime.orchestrator;
   const runView = useAgentRunView(orchestrator);
-  const suspendFlow = useSuspend(deck, runView.blocked);
   // Manual exited-card restart plus the separate, one-shot recovery for a
   // rejected boot resume. Both replace only runtime PTY/spec state; the pane
   // keeps its identity and layout position.
@@ -242,7 +241,7 @@ function App() {
       pushAlert("Can't suspend this agent", message),
     gitPositions: gitHeads,
     blockedPanes: runView.blocked,
-    suspendAgent: suspendFlow.suspend,
+    suspendAgent: orchestrator.suspend,
   });
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
@@ -251,7 +250,7 @@ function App() {
     deck,
     agents,
     requestCloseAgent: closeFlow.requestCloseAgent,
-    suspendAgent: suspendFlow.suspend,
+    suspendAgent: orchestrator.suspend,
     resumeAgent: orchestrator.resume,
     createPane: orchestrator.createPane,
     openSettings: (sectionId) => {
@@ -453,7 +452,7 @@ function App() {
       // parked agent would make the cheap gesture expensive. A REFUSAL does
       // get a word, though — a blind chord that silently does nothing is
       // indistinguishable from one that didn't reach the app at all.
-      void suspendFlow.suspend(target.wsId, target.paneId).then((outcome) => {
+      void orchestrator.suspend(target.wsId, target.paneId).then((outcome) => {
         if (outcome === "suspended") return;
         pushAlert(
           "Can't suspend this agent",

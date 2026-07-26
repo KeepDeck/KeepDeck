@@ -30,7 +30,7 @@ import type {
   CreatePaneRequest,
   ResumeRequest,
 } from "./agentOrchestrator";
-import { suspendRefusalText, type SuspendOutcome } from "./useSuspend";
+import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
 import type { Deck } from "./useDeck";
 
 /**

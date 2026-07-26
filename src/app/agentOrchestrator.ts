@@ -10,6 +10,7 @@ import {
   paneId,
   paneIsRemoteFresh,
   paneRunIntent,
+  paneSuspendBlock,
   paneWakeOrigin,
   skillRootsOf,
   WORKSPACE_FULL_MESSAGE,
@@ -24,6 +25,8 @@ import {
 } from "../domain/workspaceInstance";
 import { describeError, log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
+import { clearPaneUsage } from "./usageManager";
+import type { SuspendOutcome } from "./suspendOutcome";
 import {
   clearPostProvision,
   planPanes,
@@ -98,6 +101,20 @@ export interface AgentOrchestrator {
   /** Re-issue a failed pane's worktree create from the intent its card still
    * carries. */
   retryProvisioning(wsId: string, paneId: string): void;
+  /**
+   * Stop a pane's agent while the pane keeps everything that makes it
+   * resumable — its place in the deck, its name, its worktree, its session
+   * binding. The mirror of closing, which takes all of that away.
+   *
+   * The one place a hold reason means "there must be NO process" rather than
+   * "not yet": every other reason the run sweep produces leaves the pane
+   * waiting, and this is the gesture that ends one deliberately.
+   *
+   * Resolves once the process is reaped, so a caller can sequence work — a
+   * worktree removal — after it, and reports what happened: a caller that
+   * announced success regardless would be lying to whoever asked.
+   */
+  suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
   /**
    * Continue a recorded session in a NEW pane of `wsId` ([F8]) — the journal
    * row's Resume and the "+ Agent" dialog's "Start from".
@@ -261,6 +278,9 @@ export interface SessionRegistryPort {
   state(paneId: string): PaneSessionState;
   /** Ensure the pane runs `spec`. Idempotent per (pane, command, cwd). */
   acquire(paneId: string, spec: PaneSpawnSpec): void;
+  /** End the pane's process and drop its entry. Resolves once it is reaped,
+   * so a caller can sequence a worktree removal after it. */
+  close(paneId: string): Promise<void>;
 }
 
 /**
@@ -498,6 +518,11 @@ export function createAgentOrchestrator(
    * by recorded session id. A double-click guard only: forking the same
    * session repeatedly is legitimate, racing two at once is not. */
   const continuing = new Set<string>();
+
+  /** Panes whose process is being reaped. Distinct from `inFlight`, which
+   * tracks panes on their way UP: the two gestures can be asked for in either
+   * order, and one must not read as the other's guard. */
+  const suspending = new Set<string>();
 
   /** Wake one pane onto `sessionId`, or fresh when it is null. */
   async function wake(
@@ -755,6 +780,39 @@ export function createAgentOrchestrator(
       // Back to the creating card first, then re-issue the same intent.
       actions.setPaneProvisioningError(wsId, paneId, null);
       provisionPanes(ws, [pane]);
+    },
+    async suspend(wsId, paneId) {
+      if (suspending.has(paneId)) return "in-flight";
+      const pane = findPane(deck.getSnapshot().workspaces, wsId, paneId);
+      if (!pane) return "gone";
+      // A pane the sweep found stuck on a gone folder has no process and is
+      // going nowhere: every other surface already draws it as stopped, and
+      // taking the gesture would write a durable `suspended` stamp over a
+      // pane whose real problem is a missing directory.
+      const refusal = paneSuspendBlock(pane, blocked.has(paneId));
+      if (refusal) return refusal;
+      suspending.add(paneId);
+      try {
+        log.info("web:orchestrator", `${paneId}: suspending`);
+        // ORDER MATTERS, and it is the reverse of what closing does.
+        //
+        // Marking the pane idle FIRST takes it out of the run sweep and
+        // unmounts its terminal. Tearing the process down first would leave a
+        // live, plan-less pane for a beat — long enough for the sweep to
+        // build it a fresh plan and acquire a NEW process, which the
+        // following teardown would then orphan (unmounting a view never kills
+        // a session; only closing the pane does).
+        actions.suspendPane(wsId, paneId);
+        // Revoke the bridge token before the process can report anything
+        // else; a postback landing in the gap above is harmless (it binds the
+        // pane's own real session, which is what a later resume wants).
+        dropPaneSpawnSpec(paneId);
+        clearPaneUsage(paneId);
+        await sessions.close(paneId);
+        return "suspended";
+      } finally {
+        suspending.delete(paneId);
+      }
     },
     async resumeSession(wsId, record, opts) {
       const ctx = spawnContext.get();

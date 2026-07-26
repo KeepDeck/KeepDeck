@@ -12,7 +12,7 @@ import {
 } from "../domain/deck";
 import { probeWorktree } from "../ipc/worktree";
 import { clearPostProvision, discardWorktrees } from "./provisioning";
-import { suspendRefusalText, type SuspendOutcome } from "./useSuspend";
+import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
 import { closePanes } from "./ptyManager";
 import { dropPaneSpawnSpec } from "./spawnSpecs";
 import { clearPaneUsage } from "./usageManager";

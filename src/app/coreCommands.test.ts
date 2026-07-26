@@ -10,7 +10,7 @@ import type {
   CreatePaneRequest,
   ResumeRequest,
 } from "./agentOrchestrator";
-import type { SuspendOutcome } from "./useSuspend";
+import type { SuspendOutcome } from "./suspendOutcome";
 import type { Deck } from "./useDeck";
 
 const HOST = { kind: "host" } as const;

@@ -14,6 +14,7 @@ import {
 import { getSettings, subscribeSettings } from "./settingsManager";
 import {
   acquirePane,
+  closePane,
   paneSessionState,
   subscribeSessions,
 } from "./ptyManager";
@@ -77,6 +78,7 @@ export function createAppRuntime(
         subscribe: subscribeSessions,
         state: paneSessionState,
         acquire: acquirePane,
+        close: closePane,
       },
       plugins,
       probe: probeWorktree,
