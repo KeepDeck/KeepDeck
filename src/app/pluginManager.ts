@@ -9,7 +9,6 @@ import {
 import { readText as clipboardReadText, writeText as clipboardWriteText } from "../ipc/clipboard";
 import {
   declaredAgentBins,
-  mergeSectionValues,
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
@@ -24,6 +23,7 @@ import {
   PluginHost,
   type PluginInstall,
 } from "../plugins";
+import { readDeclaredValues } from "./pluginSettingsValues";
 import {
   createCapabilityGate,
   createPluginCommandsPort,
@@ -676,7 +676,11 @@ export function createPluginManager(appDownloads: DownloadManager) {
     const section = pluginRegistries.settingsSections
       .list()
       .find((c) => c.pluginId === pluginId)?.entry;
-    return mergeSectionValues(section, getSettings()?.plugins.values[pluginId]);
+    return readDeclaredValues(
+      section,
+      getSettings()?.plugins.values[pluginId],
+      (message) => loggerFor(pluginId).warn(message),
+    );
   }
 
   // -------------------------------------------------------------- bootstrap
