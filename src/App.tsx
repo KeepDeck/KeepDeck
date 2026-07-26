@@ -141,7 +141,7 @@ function App() {
   const [frozenAck, setFrozenAck] = useState(false);
   // Per-install spawn-plan constants (bridge inbox, reporter activation) — the
   // deck's first paint waits for it ([F7]/[F8] session identity v2).
-  const spawnCtx = useSpawnContext();
+  const spawnCtx = useSpawnContext(runtime.spawnContext);
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
   const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);

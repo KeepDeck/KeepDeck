@@ -6,6 +6,7 @@ import {
 import { createPluginManager } from "./pluginManager";
 import { createFileOpenManager } from "./fileOpenManager";
 import { createDeckStore } from "./deckStore";
+import { createSpawnContextSource } from "./spawnContextSource";
 import { openPath } from "../ipc/app";
 import { log } from "../ipc/log";
 
@@ -28,6 +29,9 @@ export function createAppRuntime(
     // is mounted, and a store created inside a component would tie the deck's
     // lifetime (and the processes it describes) to a render tree.
     deckStore: createDeckStore(),
+    // Loads on construction, for the same reason the deck store lives here:
+    // the resume plans built from it are prepared before any terminal mounts.
+    spawnContext: createSpawnContextSource(),
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),
       openPath,
