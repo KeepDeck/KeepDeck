@@ -5,9 +5,9 @@ import {
   fakeManifest,
   type FakeHost,
 } from "../../../packages/plugin-guest/src/fakeHost";
-// Reaching into the host merge on purpose: this is the exact seam F1 broke —
-// a custom field's value must survive mergeSectionValues to reach the plugin.
-import { mergeSectionValues } from "../../../src/app/pluginSettingsValues";
+// The contract's own merge — the exact seam a custom field's value has to
+// survive to reach the plugin.
+import { mergeSectionValues } from "@keepdeck/plugin-api";
 import plugin from "./index";
 import { runtime } from "./runtime";
 import { MODEL_KEY } from "./controller";

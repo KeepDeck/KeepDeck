@@ -9,6 +9,7 @@ import {
 import { readText as clipboardReadText, writeText as clipboardWriteText } from "../ipc/clipboard";
 import {
   declaredAgentBins,
+  mergeSectionValues,
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
@@ -76,7 +77,6 @@ import {
   setOverlayVisibility,
 } from "./overlayVisibility";
 import { clearPluginCrashes } from "./pluginHealth";
-import { mergeSectionValues } from "./pluginSettingsValues";
 import type { DownloadManager } from "./downloadManager";
 import {
   applyBuiltinDownloadMigrations,

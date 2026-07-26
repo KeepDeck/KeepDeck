@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SettingsSectionContribution } from "@keepdeck/plugin-api";
-import { mergeSectionValues } from "./pluginSettingsValues";
+import { mergeSectionValues, type SettingsSectionContribution } from "./settings.ts";
 
 // A no-op component stands in for a real custom field's body — mergeSectionValues
 // never renders it, it only reads the stored value at the field key.
