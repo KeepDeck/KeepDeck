@@ -198,4 +198,24 @@ describe("FileViewer", () => {
     await act(async () => relative.click());
     expect(openUrl).toHaveBeenCalledTimes(1); // still only the external one
   });
+
+  it("a second file opened over the first starts at the top", async () => {
+    // FilesOverlay keeps ONE viewer across open requests, so a terminal link
+    // followed while a preview is open swaps `path` on the mounted component
+    // — the previous file's scroll offset is right there to be inherited.
+    const files = {
+      "/repo/a.ts": fsFile("/repo/a.ts", TS_TEXT),
+      "/repo/b.ts": fsFile("/repo/b.ts", TS_TEXT),
+    };
+    await mount("/repo/a.ts", files);
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    body.scrollTop = 720;
+    body.scrollLeft = 90;
+
+    await mount("/repo/b.ts", files);
+
+    expect(host.querySelector(".peek__body")).toBe(body);
+    expect(body.scrollTop).toBe(0);
+    expect(body.scrollLeft).toBe(0);
+  });
 });
