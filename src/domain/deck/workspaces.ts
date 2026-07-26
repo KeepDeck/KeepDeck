@@ -10,6 +10,7 @@ import type {
 } from "../workspaceInstance";
 import {
   appendPane,
+  paneCanPark,
   paneCanSuspend,
   removePane,
   type Pane,
@@ -395,8 +396,7 @@ export function parkPane(
   workspaceId: string,
   paneId: string,
 ): Workspace[] {
-  const pane = findPane(workspaces, workspaceId, paneId);
-  if (pane?.idle?.reason !== "waking" || pane.idle.origin === "manual") {
+  if (!paneCanPark(findPane(workspaces, workspaceId, paneId))) {
     return workspaces;
   }
   return mapWorkspace(workspaces, workspaceId, (panes) =>

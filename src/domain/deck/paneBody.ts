@@ -1,4 +1,4 @@
-import type { Pane } from "./panes";
+import { paneBlock, type Pane } from "./panes";
 
 /**
  * What a pane's BODY shows — one answer to "is this thing running", for every
@@ -46,12 +46,11 @@ export interface PaneBodyEnv {
 }
 
 export function paneBody(pane: Pane, env: PaneBodyEnv): PaneBody {
-  // The same precedence [`paneRunIntent`] applies, for the same reasons:
-  // provisioning makes everything else moot, and an absent agent explains the
-  // pane whatever else is true of it.
-  if (pane.provisioning) return "provisioning";
-  if (!env.agentAvailable) return "agent-unavailable";
-  if (pane.idle) return "stopped";
+  // The shared head, asked once rather than restated: provisioning makes
+  // everything else moot, an absent agent explains the pane whatever else is
+  // true, and a marker means someone put it down.
+  const block = paneBlock(pane, env.agentAvailable);
+  if (block) return block.kind === "stopped" ? "stopped" : block.kind;
   // A plan outranks a past failure: a rebuild that succeeded is the newer
   // answer, and leaving the error tile up would offer a retry for something
   // that already worked.

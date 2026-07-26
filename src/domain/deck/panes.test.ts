@@ -5,6 +5,8 @@ import {
   appendPane,
   makePanes,
   makeProvisioningPanes,
+  paneBlock,
+  paneCanPark,
   paneCanSuspend,
   paneFromAgentRequest,
   paneDisplayTitle,
@@ -306,6 +308,68 @@ describe("makeProvisioningPanes", () => {
         name: "ws",
       }),
     ).toHaveLength(MAX_PANES);
+  });
+});
+
+describe("paneBlock — the head both ladders share", () => {
+  it("answers nothing for an ordinary pane", () => {
+    expect(paneBlock({ id: "p1", agentType: "claude" }, true)).toBeNull();
+  });
+
+  it("puts provisioning first — nothing else can be acted on", () => {
+    expect(
+      paneBlock(
+        {
+          id: "p1",
+          idle: { reason: "parked" },
+          provisioning: { repo: "/r", workspace: "w", index: 1 },
+        },
+        false,
+      ),
+    ).toEqual({ kind: "provisioning" });
+  });
+
+  it("names an absent agent over a stopped marker", () => {
+    expect(
+      paneBlock({ id: "p1", agentType: "codex", idle: { reason: "parked" } }, false),
+    ).toEqual({ kind: "agent-unavailable", agent: "codex" });
+  });
+
+  it("carries the idle marker WHOLE, so a caller can put it back", () => {
+    const idle = { reason: "suspended", at: "2026-07-27T10:00:00.000Z" } as const;
+    expect(paneBlock({ id: "p1", idle }, true)).toEqual({
+      kind: "stopped",
+      by: idle,
+    });
+  });
+});
+
+describe("paneCanPark", () => {
+  it("parks a pane still rising by the sweep's own reasons", () => {
+    expect(
+      paneCanPark({ id: "p1", idle: { reason: "waking", origin: "restore" } }),
+    ).toBe(true);
+  });
+
+  it("never parks one a user just asked for", () => {
+    expect(
+      paneCanPark({ id: "p1", idle: { reason: "waking", origin: "manual" } }),
+    ).toBe(false);
+  });
+
+  it("never parks a running pane — a preference must not stop a live agent", () => {
+    expect(paneCanPark({ id: "p1" })).toBe(false);
+  });
+
+  it("never re-parks one that is already down", () => {
+    expect(paneCanPark({ id: "p1", idle: { reason: "parked" } })).toBe(false);
+    expect(
+      paneCanPark({ id: "p1", idle: { reason: "suspended", at: "t" } }),
+    ).toBe(false);
+  });
+
+  it("says no for a pane that is not there", () => {
+    expect(paneCanPark(undefined)).toBe(false);
   });
 });
 

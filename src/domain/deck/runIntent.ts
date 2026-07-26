@@ -1,6 +1,7 @@
 import type { ResumeOrigin } from "../agents";
 import {
-  paneAgentType,
+  paneBlock,
+  paneCanPark,
   paneResumeSessionId,
   type Pane,
   type PaneStopped,
@@ -105,14 +106,13 @@ export interface PaneRunEnv {
 }
 
 export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
-  // Ordered by what makes the others moot. Provisioning first: without a
-  // directory nothing else can be acted on. Availability next, matching the
-  // card ladder — a pane whose agent no plugin provides explains THAT, whatever
-  // else is also true of it.
-  if (pane.provisioning) return hold({ kind: "provisioning" });
-  if (!env.agentAvailable) {
-    return hold({ kind: "agent-unavailable", agent: paneAgentType(pane) });
-  }
+  // The shared head — see [`paneBlock`]. Ordered by what makes the others
+  // moot, and asked in one place because the card ladder needs the same three
+  // answers in the same order.
+  const block = paneBlock(pane, env.agentAvailable);
+  // A `stopped` block is NOT a refusal on its own: a pane on its way up
+  // carries a marker too, and the rest of this decision is about that case.
+  if (block && block.kind !== "stopped") return hold(block);
   const idle = pane.idle;
   // No marker: nothing about this pane says it should stay down. It may still
   // have to wait for its workspace — whether a process ALREADY exists is the
@@ -129,7 +129,7 @@ export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
   // and which workspace is on screen are questions about a start that is not
   // happening. A pane asked for BY NAME is exempt — the policy governs what
   // rises on its own, not what a user just asked for.
-  if (env.parkOnLaunch && idle.origin !== "manual") {
+  if (env.parkOnLaunch && paneCanPark(pane)) {
     return hold({ kind: "stopped", by: { reason: "parked" } });
   }
   if (env.missingDir !== null) {

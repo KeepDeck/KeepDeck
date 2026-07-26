@@ -214,6 +214,50 @@ export function paneSuspendBlock(
   return null;
 }
 
+/**
+ * What is true of a pane BEFORE anything situational is asked about it, or
+ * null when nothing is.
+ *
+ * The three answers every surface has to reach the same way and in the same
+ * order: a pane with no directory yet cannot be acted on at all, a pane whose
+ * agent no plugin provides explains itself whatever else is true, and a pane
+ * carrying an idle marker is down by a decision someone made.
+ *
+ * Shared because both ladders that consume it — [`paneRunIntent`] and
+ * [`paneBody`] — had this prefix written out separately, each restating the
+ * order and the reasons in a comment. They diverge legitimately AFTER it (one
+ * asks whether a process belongs, the other what the user sees, and a running
+ * background pane needs opposite answers), so only the head is shared.
+ */
+export type PaneBlock =
+  | { kind: "provisioning" }
+  | { kind: "agent-unavailable"; agent: AgentType }
+  | { kind: "stopped"; by: PaneIdle };
+
+export function paneBlock(pane: Pane, agentAvailable: boolean): PaneBlock | null {
+  if (pane.provisioning) return { kind: "provisioning" };
+  if (!agentAvailable) {
+    return { kind: "agent-unavailable", agent: paneAgentType(pane) };
+  }
+  return pane.idle ? { kind: "stopped", by: pane.idle } : null;
+}
+
+/**
+ * Whether the launch policy may park this pane: still on its way up by the
+ * sweep's OWN reasons, never one a user just asked for.
+ *
+ * A predicate rather than a condition restated at the store boundary, for the
+ * reason its sibling [`paneCanSuspend`] is: the decision and the guard that
+ * enforces it must not be able to drift, and a fourth `ResumeOrigin` exempt
+ * from parking would otherwise have to be remembered in two files. Getting
+ * that wrong is silent — the sweep decides `parked` on every pass while the
+ * store refuses, and the pane waits on "Waking up…" for a start that is not
+ * coming.
+ */
+export function paneCanPark(pane: Pane | undefined): boolean {
+  return pane?.idle?.reason === "waking" && pane.idle.origin !== "manual";
+}
+
 /** Whether an idle marker is one the revive sweep acts on by itself: a pane
  *  on its way up, whoever asked. A `suspended` or `parked` one is staying
  *  down until someone says otherwise. Module-private: every consumer asks one

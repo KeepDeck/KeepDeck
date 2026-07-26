@@ -51,6 +51,23 @@ describe("paneBody", () => {
     ).toBe("agent-unavailable");
   });
 
+  it("shows the error tile over a stopped marker only when the pane is NOT stopped", () => {
+    // The pair the closed set exists to order: a stopped pane reads by its
+    // marker, whatever its plan did.
+    expect(
+      paneBody(
+        pane({ idle: { reason: "parked" } }),
+        env({ hasPlan: false, planFailed: true }),
+      ),
+    ).toBe("stopped");
+  });
+
+  it("reads a WAKING pane as stopped — the commonest marker there is", () => {
+    expect(
+      paneBody(pane({ idle: { reason: "waking", origin: "restore" } }), env()),
+    ).toBe("stopped");
+  });
+
   it("puts provisioning first: nothing else can be acted on without a directory", () => {
     expect(
       paneBody(
