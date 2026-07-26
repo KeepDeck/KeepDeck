@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { SpawnPlanContext } from "../domain/agents";
 import {
   findWorkspace,
@@ -59,6 +60,11 @@ export function useJournalResume(
 ): JournalResumeApi {
   const { plugins } = useAppRuntime();
   const { deckRef, ctxRef, inFlight } = useLiveRefs(deck, ctx);
+  // Through a ref, like the deck beside it: this flow spans awaits, and a
+  // verdict read from the render closure would age against a deck read live.
+  // No await precedes the read today — this keeps that from mattering.
+  const blockedRef = useRef(blockedPanes);
+  blockedRef.current = blockedPanes;
 
   const resume = async (
     wsId: string,
@@ -87,7 +93,7 @@ export function useJournalResume(
       // "Stopped" only for a pane that really is staying down: one already on
       // its way up has no Resume button to point the user at.
       throw new Error(
-        idleReadsAsStopped(claimant.idle, claimant.id in blockedPanes)
+        idleReadsAsStopped(claimant.idle, claimant.id in blockedRef.current)
           ? "The session already belongs to a stopped pane — resume that pane instead"
           : "The session is already running in a pane",
       );

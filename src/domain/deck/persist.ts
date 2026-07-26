@@ -391,6 +391,12 @@ function readPane(value: unknown): Pane | null {
  * is worse than the honest signal it gets from the marker's absence: an older
  * build took this pane somewhere else. */
 function readIdle(value: unknown): PaneIdle {
+  // The reason list here is the READ side of [`paneIdleIsDurable`], which
+  // decides what the write side puts on disk. It cannot call it — a stored
+  // marker is `unknown` until this function has validated its shape, and the
+  // predicate takes a `PaneIdle` — but the two must name the same reasons: a
+  // durable reason added to one and not the other is written on quit and
+  // silently degraded to `parked` on the next launch.
   if (
     isRecord(value) &&
     value.reason === "suspended" &&

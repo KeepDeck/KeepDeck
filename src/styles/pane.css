@@ -338,7 +338,7 @@
 /* Every status card a pane shows INSTEAD of its terminal: a worktree being
    created or failed, an unavailable agent, a spawn plan that failed or is
    pending, a gone folder, and the stopped/starting tile. Named for the shape,
-   not for one of its occupants — `.pane--idle` below is the modifier that
+   not for one of its occupants — `.pane--idle` above is the modifier that
    means "this pane is stopped", and the two are not the same question. */
 .pane__card {
   flex: 1;

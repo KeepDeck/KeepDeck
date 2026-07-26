@@ -982,19 +982,27 @@ mod tests {
         let source = git_out(&repo, &["log", "-g", "--format=%gs", &record.branch])
             .lines()
             .last()
-            .expect("the branch has a creation reflog entry")
-            .trim()
-            .strip_prefix("branch: Created from ")
-            .expect("created, not moved")
-            .to_string();
+            .map(|line| {
+                line.trim()
+                    .strip_prefix("branch: Created from ")
+                    .map(str::to_string)
+            });
 
-        // Swept BEFORE the assertion: a panic here would otherwise leave the
-        // repo and its worktree behind for every failing run.
+        // Swept before ANY assertion or unwrap below, so no failure mode
+        // leaves the repo and its worktree behind — and so the sweep happens
+        // even when the parse, not the rule, is what went wrong.
         let _ = std::fs::remove_dir_all(&base_dir);
         let _ = std::fs::remove_dir_all(&repo);
 
+        let source = source
+            .expect("the branch has a creation reflog entry")
+            .expect("created, not moved");
+        // The same widths `head::is_commit_sha` trusts — SHA-1 and SHA-256.
+        // Asserting only 40 would fail a correct build on a sha256 repo and
+        // point at "base resolution", which would not be the problem.
         assert!(
-            source.len() == 40 && source.chars().all(|c| c.is_ascii_hexdigit()),
+            matches!(source.len(), 40 | 64)
+                && source.chars().all(|c| c.is_ascii_hexdigit()),
             "base reached git as {source:?}, not a resolved commit sha",
         );
     }
