@@ -97,10 +97,20 @@ export interface AgentCatalogPort {
  * behind the app's back. */
 export type WorktreeProbePort = (dir: string) => Promise<{ exists: boolean }>;
 
+/** Whether restored agents come back stopped instead of resuming. Live, not a
+ * value captured once: the setting is not a fact about any pane, and the panes
+ * it governs are precisely the ones that have not started yet — including the
+ * ones still waiting in a workspace nobody has opened. */
+export interface LaunchPolicyPort {
+  parkOnLaunch(): boolean;
+  subscribe(listener: () => void): () => void;
+}
+
 export interface AgentOrchestratorDeps {
   deck: DeckStore;
   spawnContext: SpawnContextSource;
   agents: AgentCatalogPort;
+  launchPolicy: LaunchPolicyPort;
   plugins: SpawnPluginAccess;
   probe: WorktreeProbePort;
 }
@@ -118,7 +128,7 @@ const EMPTY_VIEW: AgentRunView = { blocked: {}, wakeFailed: {} };
 export function createAgentOrchestrator(
   deps: AgentOrchestratorDeps,
 ): AgentOrchestrator {
-  const { deck, spawnContext, agents, plugins, probe } = deps;
+  const { deck, spawnContext, agents, launchPolicy, plugins, probe } = deps;
   const actions: DeckActions = createDeckActions(deck);
   const blocked = new Map<string, string>();
   const wakeFailed = new Map<string, string>();
@@ -350,8 +360,22 @@ export function createAgentOrchestrator(
           agentAvailable: available.has(paneAgentType(pane)),
           missingDir: blocked.get(pane.id) ?? null,
           workspaceActive: ws.id === active.id,
+          parkOnLaunch: launchPolicy.parkOnLaunch(),
         });
-        if (intent.kind === "hold") continue;
+        if (intent.kind === "hold") {
+          // A pane the launch policy holds is not merely skipped: it stops
+          // rising, so its card says "stopped" and offers Resume instead of
+          // promising a start that is never coming. Only that reason — every
+          // other hold either already has its own marker or describes a
+          // condition the pane should keep waiting on.
+          if (
+            intent.reason.kind === "stopped" &&
+            intent.reason.by.reason === "parked"
+          ) {
+            actions.parkPane(ws.id, pane.id);
+          }
+          continue;
+        }
         const sessionId = intent.resume?.sessionId ?? null;
         inFlight.add(pane.id);
         // A remote pane's agent runs against a VPS endpoint — it has no local
@@ -384,6 +408,7 @@ export function createAgentOrchestrator(
   deck.subscribe(schedule);
   spawnContext.subscribe(schedule);
   agents.subscribe(schedule);
+  launchPolicy.subscribe(schedule);
   void agents.ready().then(() => {
     booted = true;
     schedule();

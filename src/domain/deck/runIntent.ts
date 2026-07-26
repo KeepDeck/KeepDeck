@@ -70,6 +70,12 @@ export interface PaneRunEnv {
   missingDir: string | null;
   /** This pane's workspace is the one on screen. */
   workspaceActive: boolean;
+  /** The launch policy: restored agents come back stopped rather than
+   * resuming. Read LIVE and asked HERE, not applied once to the deck at
+   * hydration — a pane that has not started yet is exactly what the setting
+   * governs, whether it was restored a second ago or has been waiting in an
+   * unopened workspace since the app booted. */
+  parkOnLaunch: boolean;
 }
 
 export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
@@ -86,6 +92,14 @@ export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
   // actually exists is the caller's half of the comparison, not the pane's.
   if (!idle) return { kind: "run", resume: null };
   if (idle.reason !== "waking") return hold({ kind: "stopped", by: idle });
+  // The launch policy, before anything that describes HOW the pane would come
+  // up: a pane it holds is not starting, so whether its directory still exists
+  // and which workspace is on screen are questions about a start that is not
+  // happening. A pane asked for BY NAME is exempt — the policy governs what
+  // rises on its own, not what a user just asked for.
+  if (env.parkOnLaunch && idle.origin !== "manual") {
+    return hold({ kind: "stopped", by: { reason: "parked" } });
+  }
   if (env.missingDir !== null) {
     return hold({ kind: "worktree-missing", dir: env.missingDir });
   }

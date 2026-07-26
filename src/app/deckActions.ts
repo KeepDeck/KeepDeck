@@ -82,6 +82,8 @@ export function createDeckActions(store: DeckStore) {
       dispatch({ type: "requestPaneWake", wsId, paneId }),
     failPaneWake: (wsId: string, paneId: string) =>
       dispatch({ type: "failPaneWake", wsId, paneId }),
+    parkPane: (wsId: string, paneId: string) =>
+      dispatch({ type: "parkPane", wsId, paneId }),
     resetPaneLocation: (wsId: string, paneId: string) =>
       dispatch({ type: "resetPaneLocation", wsId, paneId }),
     setPaneSession: (

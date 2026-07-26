@@ -6,7 +6,6 @@ import {
   DECK_STATE_VERSION,
   PROVISIONING_INTERRUPTED,
   hydrateDeck,
-  parkRestoredPanes,
   serializeDeck,
   type HydratedDeck,
 } from "./persist";
@@ -1079,49 +1078,21 @@ describe("schema revisions and the compatibility floor", () => {
   });
 });
 
-describe("parkRestoredPanes", () => {
-  const suspendedAt = "2026-07-25T09:00:00.000Z";
+describe("the launch policy never reaches disk", () => {
   const deckWith = (panes: DeckState["workspaces"][number]["panes"]): DeckState => ({
     ...state,
     workspaces: [{ ...state.workspaces[0], panes }],
   });
 
-  it("turns restored panes into parked ones", () => {
-    const parked = parkRestoredPanes(
-      deckWith([
-        { id: "pane-1", idle: { reason: "waking", origin: "restore" } },
-        { id: "pane-2", idle: { reason: "waking", origin: "restore" } },
-      ]),
-    );
-    expect(parked.workspaces[0].panes.map((p) => p.idle)).toEqual([
-      { reason: "parked" },
-      { reason: "parked" },
+  it("a parked deck serializes exactly like the restored one it came from", () => {
+    // `parked` says what THIS launch decided, not what is true of the pane.
+    // Writing it would make the decision durable, and turning the setting off
+    // could never bring the pane back.
+    const restored = deckWith([
+      { id: "pane-1", idle: { reason: "waking", origin: "restore" } },
     ]);
-  });
-
-  it("leaves a SUSPENDED pane alone — its stamp is what dates its card", () => {
-    const parked = parkRestoredPanes(
-      deckWith([{ id: "pane-1", idle: { reason: "suspended", at: suspendedAt } }]),
-    );
-    expect(parked.workspaces[0].panes[0].idle).toEqual({
-      reason: "suspended",
-      at: suspendedAt,
-    });
-  });
-
-  it("leaves an interrupted provisioning pane alone — it has no idle marker", () => {
-    const intent = { repo: "/repo", workspace: "deck", index: 1 };
-    const parked = parkRestoredPanes(
-      deckWith([{ id: "pane-1", provisioning: { ...intent, error: "interrupted" } }]),
-    );
-    expect(parked.workspaces[0].panes[0].idle).toBeUndefined();
-  });
-
-  it("is never persisted: a parked deck serializes exactly like a restored one", () => {
-    const restored = deckWith([{ id: "pane-1", idle: { reason: "waking", origin: "restore" } }]);
-    expect(serializeDeck(parkRestoredPanes(restored))).toBe(
-      serializeDeck(restored),
-    );
+    const parked = deckWith([{ id: "pane-1", idle: { reason: "parked" } }]);
+    expect(serializeDeck(parked)).toBe(serializeDeck(restored));
   });
 });
 

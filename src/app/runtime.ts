@@ -11,6 +11,7 @@ import {
   createAgentOrchestrator,
   type AgentCatalogPort,
 } from "./agentOrchestrator";
+import { getSettings, subscribeSettings } from "./settingsManager";
 import { openPath } from "../ipc/app";
 import { probeWorktree } from "../ipc/worktree";
 import { log } from "../ipc/log";
@@ -61,6 +62,10 @@ export function createAppRuntime(
       deck: deckStore,
       spawnContext,
       agents: agentCatalogPort(plugins),
+      launchPolicy: {
+        parkOnLaunch: () => getSettings()?.parkAgentsOnLaunch ?? false,
+        subscribe: subscribeSettings,
+      },
       plugins,
       probe: probeWorktree,
     }),

@@ -100,22 +100,26 @@ describe("usePersistence", () => {
     expect(JSON.parse(ipc.saveDeckState.mock.calls[0][0]).activeId).toBe("ws-1");
   });
 
-  it("restores panes PARKED when the launch policy says so", async () => {
+  it("restores panes RISING whatever the launch policy says", async () => {
+    // Hydration answers "what does this document say". Whether these panes may
+    // start is the orchestrator's question, asked live and asked again every
+    // time the answer could change — deciding it here once is what let a pane
+    // in an unopened workspace ignore a setting the user had since flipped.
     settings.parkAgentsOnLaunch = true;
     ipc.loadDeckState.mockResolvedValue(STORED);
     await mount();
 
-    // Parked, not restored: the revive sweep leaves it alone and the pane's
-    // own card starts it, instead of every agent launching at once.
-    expect(deck.workspaces[0].panes[0].idle).toEqual({ reason: "parked" });
-
-    // The policy is a launch decision, never a fact about the pane — it must
-    // not reach disk, or turning the setting off would strand these panes.
-    await act(async () => vi.runOnlyPendingTimers());
-    expect(ipc.saveDeckState.mock.calls[0][0]).not.toContain("parked");
+    expect(deck.workspaces[0].panes[0].idle).toEqual({
+      reason: "waking",
+      origin: "restore",
+    });
   });
 
   it("waits for the settings load before hydrating — a slow read must not mean 'wake everything'", async () => {
+    // The orchestrator acts the moment panes appear. Hydrating ahead of the
+    // settings would let it find them while the policy still reads its
+    // default, start the active workspace's agents, and then have nothing to
+    // undo: a running agent is deliberately never stopped by a preference.
     settings.parkAgentsOnLaunch = true;
     let settleSettings!: () => void;
     settings.initSettings.mockReturnValue(
@@ -129,7 +133,7 @@ describe("usePersistence", () => {
     expect(deck.workspaces).toHaveLength(0); // deck read, policy not known yet
 
     await act(async () => settleSettings());
-    expect(deck.workspaces[0].panes[0].idle).toEqual({ reason: "parked" });
+    expect(deck.workspaces).toHaveLength(1);
   });
 
   it("NEVER saves while the load is still pending — the store must not be wiped", async () => {

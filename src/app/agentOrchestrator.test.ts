@@ -78,9 +78,11 @@ let deck: Deck;
 let agentRun: AgentRunView & Pick<AgentOrchestrator, "resume" | "startFresh">;
 const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
-// The catalog the revive gate consults — swappable per test (the id set is
-// open: revive must skip panes whose agent no plugin provides).
+// What the orchestrator's gate consults — swappable per test. The id set is
+// open (a pane whose agent no plugin provides must be skipped), and the launch
+// policy is read live, so a test may flip it while the deck stands.
 const catalog = {
+  parkOnLaunch: false,
   agents: ["claude", "codex", "opencode"].map((id) => ({
     id,
     label: id,
@@ -112,6 +114,10 @@ function Probe() {
           // the plugin system has booted would misjudge every pane's agent.
           ready: () =>
             catalog.ready ? Promise.resolve() : new Promise<void>(() => {}),
+          subscribe: () => () => {},
+        },
+        launchPolicy: {
+          parkOnLaunch: () => catalog.parkOnLaunch,
           subscribe: () => () => {},
         },
         plugins: {} as SpawnPluginAccess,
@@ -164,6 +170,7 @@ describe("agent orchestrator —session policy", () => {
       branch: null,
     });
     catalog.ready = true;
+    catalog.parkOnLaunch = false;
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -354,6 +361,7 @@ describe("agent orchestrator —resuming a suspended pane", () => {
       branch: null,
     });
     catalog.ready = true;
+    catalog.parkOnLaunch = false;
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -598,6 +606,7 @@ describe("agent orchestrator —waking across workspace switches", () => {
       branch: null,
     });
     catalog.ready = true;
+    catalog.parkOnLaunch = false;
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -605,6 +614,53 @@ describe("agent orchestrator —waking across workspace switches", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+  });
+
+  it("stops starting agents the moment the launch policy says so, and says they are stopped", async () => {
+    // The bug this closes: the policy used to be applied once, to the deck as
+    // it was hydrated. A pane waiting in an unopened workspace kept the marker
+    // it was given at boot, so turning the setting on and then switching
+    // workspaces started every agent in them anyway.
+    act(() => deck.hydrate(twoWorkspaces({ reason: "waking", origin: "restore" })));
+    await settle();
+    expect(paneOf("ws-2").idle).toEqual({ reason: "waking", origin: "restore" });
+
+    // ws-1's pane legitimately started with the deck; only what happens AFTER
+    // the flip is the subject.
+    ipc.probeWorktree.mockClear();
+    catalog.parkOnLaunch = true;
+    act(() => deck.selectWorkspace("ws-2"));
+    await settle();
+
+    expect(paneOf("ws-2").idle).toEqual({ reason: "parked" });
+    // Not merely unstarted: nothing was even probed for it.
+    expect(ipc.probeWorktree).not.toHaveBeenCalled();
+  });
+
+  it("leaves the agent that is already running alone when the policy flips", async () => {
+    // ws-1's pane started with the deck. A preference changing must not reach
+    // back and kill a live agent.
+    act(() => deck.hydrate(twoWorkspaces({ reason: "waking", origin: "restore" })));
+    await settle();
+    expect(paneOf("ws-1").idle).toBeUndefined();
+
+    catalog.parkOnLaunch = true;
+    act(() => deck.selectWorkspace("ws-2"));
+    await settle();
+
+    expect(paneOf("ws-1").idle).toBeUndefined();
+  });
+
+  it("still serves a resume the user asks for while the policy is on", async () => {
+    catalog.parkOnLaunch = true;
+    act(() => deck.hydrate(twoWorkspaces({ reason: "parked" })));
+    await settle();
+    expect(paneOf("ws-2").idle).toEqual({ reason: "parked" });
+
+    expect(agentRun.resume("ws-2", "ws-2-pane")).toBe("resuming");
+    await settle();
+
+    expect(paneOf("ws-2").idle).toBeUndefined();
   });
 
   it("RESTORED panes wake lazily: the active workspace at launch, the other on its first activation", async () => {
@@ -666,6 +722,7 @@ describe("agent orchestrator —a blocked pane can be re-probed", () => {
     resetPaneSpawnSpecs();
     ipc.probeWorktree.mockReset();
     catalog.ready = true;
+    catalog.parkOnLaunch = false;
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -738,6 +795,7 @@ describe("agent orchestrator —a request that lands mid-flight", () => {
     gate.build = null;
     ipc.probeWorktree.mockReset();
     catalog.ready = true;
+    catalog.parkOnLaunch = false;
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
@@ -919,6 +977,7 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
       branch: null,
     });
     catalog.ready = true;
+    catalog.parkOnLaunch = false;
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));

@@ -14,6 +14,7 @@ const env = (over: Partial<PaneRunEnv> = {}): PaneRunEnv => ({
   agentAvailable: true,
   missingDir: null,
   workspaceActive: true,
+  parkOnLaunch: false,
   ...over,
 });
 
@@ -139,6 +140,68 @@ describe("paneRunIntent — lazy revive", () => {
     ).toEqual({
       kind: "hold",
       reason: { kind: "worktree-missing", dir: "/gone" },
+    });
+  });
+});
+
+describe("paneRunIntent — the launch policy", () => {
+  it("parks a restored pane that has not started yet", () => {
+    expect(
+      paneRunIntent(pane({ idle: waking }), env({ parkOnLaunch: true })),
+    ).toEqual({
+      kind: "hold",
+      reason: { kind: "stopped", by: { reason: "parked" } },
+    });
+  });
+
+  it("parks one waiting in a background workspace too — that is the point", () => {
+    // The population the setting names is "restored agents that have not
+    // started", and a pane in an unopened workspace has been exactly that
+    // since the app booted, however long ago the policy was turned on.
+    expect(
+      paneRunIntent(
+        pane({ idle: waking }),
+        env({ parkOnLaunch: true, workspaceActive: false }),
+      ),
+    ).toEqual({
+      kind: "hold",
+      reason: { kind: "stopped", by: { reason: "parked" } },
+    });
+  });
+
+  it("does NOT hold a wake the user asked for by name", () => {
+    expect(
+      paneRunIntent(
+        pane({ idle: { reason: "waking", origin: "manual" } }),
+        env({ parkOnLaunch: true }),
+      ),
+    ).toEqual({ kind: "run", resume: null });
+  });
+
+  it("leaves a RUNNING pane alone — a preference must not kill a live agent", () => {
+    expect(paneRunIntent(pane(), env({ parkOnLaunch: true }))).toEqual({
+      kind: "run",
+      resume: null,
+    });
+  });
+
+  it("outranks a gone directory: a pane that is not starting is not relocating", () => {
+    expect(
+      paneRunIntent(
+        pane({ idle: waking }),
+        env({ parkOnLaunch: true, missingDir: "/gone" }),
+      ),
+    ).toEqual({
+      kind: "hold",
+      reason: { kind: "stopped", by: { reason: "parked" } },
+    });
+  });
+
+  it("keeps a suspend stamp rather than overwriting it with the policy's", () => {
+    const idle = { reason: "suspended", at: "2026-07-26T10:00:00.000Z" } as const;
+    expect(paneRunIntent(pane({ idle }), env({ parkOnLaunch: true }))).toEqual({
+      kind: "hold",
+      reason: { kind: "stopped", by: idle },
     });
   });
 });
