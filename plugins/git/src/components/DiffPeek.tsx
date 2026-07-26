@@ -18,7 +18,7 @@ import {
   shortSha,
   type HistoryScope,
 } from "../domain/history";
-import { diffKey } from "../domain/peek";
+import { diffKey } from "../domain/identity";
 import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
 
 /** What the peek shows. `file` is a chosen row's diff (worktree or history

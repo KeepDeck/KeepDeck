@@ -119,11 +119,11 @@ describe("DiffPeek", () => {
 
   /** Draw one file of a drilled-in COMMIT — the case where the diff is read
    * across a revision range rather than against the index. */
-  const drawHistoryFile = async (path: string, sha: string) => {
+  const drawHistoryFile = async (path: string, sha: string, repo = "/repo") => {
     await act(async () => {
       root.render(
         createElement(DiffPeek, {
-          repo: "/repo",
+          repo,
           view: {
             kind: "file",
             row: { path, origPath: null, code: "M", kind: "history" },
@@ -373,5 +373,35 @@ describe("DiffPeek", () => {
     expect(host.querySelector(".peek__body")).toBe(body);
     expect(body.scrollTop).toBe(0);
     expect(body.scrollLeft).toBe(0);
+  });
+
+  it("the same commit in another worktree is another change set", async () => {
+    // Two worktrees of one repo share shas, so the revision range alone does
+    // not identify a file list — without the repo in the key the rail would
+    // decide "same change set" and keep showing the first worktree's files,
+    // then seed a foreign path from them.
+    const diffFile = vi.fn(
+      async (_repo: string, _path: string, _range?: unknown) => TS_DIFF,
+    );
+    const changedFiles = vi.fn(async (_repo: string) => [
+      { path: "src/main.ts", origPath: null, code: "M" },
+    ]);
+    setRuntime({
+      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    await drawHistoryFile("src/main.ts", "aaa1111");
+    await drawHistoryFile("src/main.ts", "aaa1111", "/wt/one");
+
+    // Both the rail's list and the body's diff are re-read for the new root.
+    expect(changedFiles.mock.calls.map((call) => call[0])).toEqual([
+      "/repo",
+      "/wt/one",
+    ]);
+    expect(diffFile.mock.calls.map((call) => call[0])).toEqual([
+      "/repo",
+      "/wt/one",
+    ]);
   });
 });

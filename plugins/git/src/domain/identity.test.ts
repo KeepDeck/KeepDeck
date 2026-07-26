@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffKey } from "./peek";
+import { changeSetKey, diffKey } from "./identity";
 import { commitRange } from "./history";
 import type { ChangeRow } from "./status";
 
@@ -11,12 +11,38 @@ const row = (over: Partial<ChangeRow> = {}): ChangeRow => ({
   ...over,
 });
 
+describe("changeSetKey", () => {
+  it("the repo is part of it — two worktrees of one repo share shas", () => {
+    // The whole point: a range alone would call two different file lists the
+    // same list, and the second would never be fetched.
+    const range = commitRange("aaa1111");
+    expect(changeSetKey("/repo", range)).not.toBe(
+      changeSetKey("/wt/one", range),
+    );
+  });
+
+  it("the range is part of it, and no range is its own answer", () => {
+    expect(changeSetKey("/repo", commitRange("aaa1111"))).not.toBe(
+      changeSetKey("/repo", commitRange("bbb2222")),
+    );
+    // The worktree — not any commit's range.
+    expect(changeSetKey("/repo", undefined)).not.toBe(
+      changeSetKey("/repo", commitRange("aaa1111")),
+    );
+  });
+});
+
 describe("diffKey", () => {
-  it("the same file read the same way is the same diff", () => {
-    // Fresh row objects: identity is the VALUES, not the reference — the
-    // status feed rebuilds these rows on every refresh.
+  it("identity is the row's values, not its reference", () => {
+    // The status feed rebuilds every row on each refresh, so keying on
+    // identity would blank the body on every watcher tick. The second
+    // assertion keeps the first honest: a key that ignored its arguments
+    // would satisfy it too.
     expect(diffKey("/repo", row(), undefined)).toBe(
       diffKey("/repo", row(), undefined),
+    );
+    expect(diffKey("/repo", row(), undefined)).not.toBe(
+      diffKey("/repo", row({ path: "src/other.ts" }), undefined),
     );
   });
 

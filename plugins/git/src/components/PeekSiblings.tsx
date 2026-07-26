@@ -10,6 +10,7 @@ import {
   shortSha,
   type HistoryScope,
 } from "../domain/history";
+import { changeSetKey } from "../domain/identity";
 import { navigate, type ArrowKey } from "../domain/navigate";
 import { FileRow, FileSection } from "./FileRows";
 
@@ -109,12 +110,14 @@ export function PeekSiblings({
       ?.scrollIntoView({ block: "nearest" });
   }, [current?.path, current?.kind]);
 
-  // A version bump refetches IN PLACE; only a different scope clears the
-  // list first (the HistoryView drill's idiom).
+  // A version bump refetches IN PLACE; only a different change set clears the
+  // list first (the HistoryView drill's idiom). One key drives both the clear
+  // and the re-read, so they cannot disagree about what a different list is —
+  // `repo` included, since two worktrees of one repo share shas.
+  const key = changeSetKey(repo, range || undefined);
   const keyRef = useRef("");
   useEffect(() => {
     if (!range) return;
-    const key = `${range.from}..${range.to ?? ""}`;
     if (keyRef.current !== key) {
       keyRef.current = key;
       setFiles(null);
@@ -139,7 +142,9 @@ export function PeekSiblings({
     return () => {
       cancelled = true;
     };
-  }, [repo, range?.from, range?.to, version]);
+    // `version` rides alongside the key: it must refetch WITHOUT counting as
+    // a different change set.
+  }, [key, version]);
 
   // A History scope opens the peek without a file yet — seed the first one
   // the moment its file list lands, so the body shows a diff at once. The
