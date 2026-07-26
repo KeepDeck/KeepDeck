@@ -46,7 +46,6 @@ import {
   shouldRevealPluginDock,
   workspaceForNotification,
 } from "./app/notificationNavigation";
-import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useCoreCommands } from "./app/coreCommands";
@@ -229,7 +228,6 @@ function App() {
   // top bar's update chip jumps to Updates, and a plugin's `settings.open`
   // command jumps to that plugin's page.
   const [settingsSection, setSettingsSection] = useState<string | undefined>();
-  const provisioning = useProvisioning(deck);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
   const agentFlow = useAgentDialog(deck, agents, {
@@ -590,7 +588,7 @@ function App() {
 
   const handleCreateWorkspace = (config: SpawnConfig) => {
     // Optimistic: the workspace (and its provisioning cards) land at once.
-    const result = provisioning.createWorkspace(config);
+    const result = orchestrator.createWorkspace(config);
     if (!result.ok) {
       pushAlert(
         "Workspace creation failed",
@@ -813,7 +811,7 @@ function App() {
             failedPanes={failedPanes}
             onStartFresh={orchestrator.startFresh}
             onResumeAgent={orchestrator.resume}
-            onRetryProvision={provisioning.retryPane}
+            onRetryProvision={orchestrator.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {
               // The one-shot boot-resume recovery respawns by itself — that
               // exit is not a crash. A clean exit (code 0) is the user's own

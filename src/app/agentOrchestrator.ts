@@ -11,12 +11,25 @@ import {
   paneWakeOrigin,
   skillRootsOf,
   type Pane,
+  type SpawnConfig,
   type Workspace,
 } from "../domain/deck";
-import type { WorkspaceRef } from "../domain/workspaceInstance";
+import {
+  createWorkspaceInstance,
+  type WorkspaceRef,
+} from "../domain/workspaceInstance";
 import { describeError, log } from "../ipc/log";
-import { provisionInto, type ProvisionCallbacks } from "./provisioning";
-import { createDeckActions, type DeckActions } from "./deckActions";
+import { mintAgentSeqs } from "./ids";
+import {
+  planPanes,
+  provisionInto,
+  type ProvisionCallbacks,
+} from "./provisioning";
+import {
+  createDeckActions,
+  type DeckActions,
+  type WorkspaceCreationResult,
+} from "./deckActions";
 import type { DeckStore } from "./deckStore";
 import type { SpawnContextSource } from "./spawnContextSource";
 import {
@@ -62,6 +75,18 @@ export interface AgentOrchestrator {
    * each of them.
    */
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
+  /**
+   * Register a whole new workspace and its agents from the create form.
+   *
+   * Optimistic, like every other arrival: the workspace and its panes land in
+   * the deck synchronously — as provisioning cards in worktree mode — and the
+   * worktree creates run behind them. So there is no busy state and nothing
+   * to double-submit; the form closes on the tick that registers the panes.
+   */
+  createWorkspace(config: SpawnConfig): WorkspaceCreationResult;
+  /** Re-issue a failed pane's worktree create from the intent its card still
+   * carries. */
+  retryProvisioning(wsId: string, paneId: string): void;
   /** Detach the pane from the missing worktree and start it fresh in the
    * workspace cwd. */
   startFresh(wsId: string, paneId: string): void;
@@ -368,7 +393,9 @@ export function createAgentOrchestrator(
   }
 
   /**
-   * Start the worktree create behind a pane that arrived as a card.
+   * Start the worktree creates behind panes that arrived as cards. Panes
+   * without an intent are ignored, so a caller may pass a whole workspace's
+   * worth or a single retry.
    *
    * The workspace's one-time setup command runs only for a pane whose intent
    * says the create form's batch stamped it. A "+ Agent", fork or command
@@ -376,14 +403,19 @@ export function createAgentOrchestrator(
    * preparation per pane is not what "one-time" means. The same reading gives
    * a Retry its rule for free: it consults the stamp, so it can never have
    * wider effects than the attempt it retries.
+   *
+   * Split by that stamp rather than reading the first pane's answer for the
+   * whole batch — one of the two groups is always empty in practice, and a
+   * rule that happens to hold is not a rule.
    */
-  function provisionPaneOf(ws: Workspace, pane: Pane): void {
-    if (!pane.provisioning) return;
-    void provision(
-      [pane],
-      provisionInto(actions, ws.id),
-      pane.provisioning.runsSetup ? ws.setup : undefined,
-    );
+  function provisionPanes(ws: Workspace, panes: Pane[]): void {
+    const cards = panes.filter((pane) => pane.provisioning);
+    const stamped = cards.filter((pane) => pane.provisioning?.runsSetup);
+    const plain = cards.filter((pane) => !pane.provisioning?.runsSetup);
+    if (stamped.length > 0) {
+      void provision(stamped, provisionInto(actions, ws.id), ws.setup);
+    }
+    if (plain.length > 0) void provision(plain, provisionInto(actions, ws.id));
   }
 
   /** Wake one pane onto `sessionId`, or fresh when it is null. */
@@ -613,8 +645,51 @@ export function createAgentOrchestrator(
         return { kind: "full" };
       }
       actions.addAgentPane(ws.id, pane);
-      provisionPaneOf(ws, pane);
+      provisionPanes(ws, [pane]);
       return { kind: "created" };
+    },
+    createWorkspace(config) {
+      const setup = config.setup?.trim() || undefined;
+      // Allocation and insertion are one operation on the state owner, so two
+      // creates in the same batch cannot observe or append the same id.
+      const created = actions.createWorkspaceFromSequence((seq): Workspace => {
+        const name = config.name.trim() || `workspace-${seq}`;
+        return {
+          id: `ws-${seq}`,
+          instance: createWorkspaceInstance(),
+          name,
+          cwd: config.cwd,
+          worktreeBaseDir: config.worktreeBaseDir,
+          // Core field since deck v5: provisioning owns the setup command —
+          // it runs whether or not the Run plugin is installed.
+          ...(setup && { setup }),
+          panes: planPanes(
+            { cwd: config.cwd, worktreeBaseDir: config.worktreeBaseDir, name },
+            mintAgentSeqs(config.count),
+            config.count,
+            config.agentType,
+            config.yolo ?? false,
+          ),
+        };
+      });
+      if (!created.ok) {
+        log.error(
+          "web:orchestrator",
+          `workspace create rejected: ${created.reason}`,
+        );
+        return created;
+      }
+      provisionPanes(created.workspace, created.workspace.panes);
+      return created;
+    },
+    retryProvisioning(wsId, paneId) {
+      const workspaces = deck.getSnapshot().workspaces;
+      const ws = findWorkspace(workspaces, wsId);
+      const pane = findPane(workspaces, wsId, paneId);
+      if (!ws || !pane?.provisioning) return;
+      // Back to the creating card first, then re-issue the same intent.
+      actions.setPaneProvisioningError(wsId, paneId, null);
+      provisionPanes(ws, [pane]);
     },
     startFresh(wsId, paneId) {
       let changed = blocked.delete(paneId);
