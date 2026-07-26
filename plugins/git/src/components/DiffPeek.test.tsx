@@ -375,6 +375,53 @@ describe("DiffPeek", () => {
     expect(body.scrollLeft).toBe(0);
   });
 
+  it("seeding a history scope's first file starts its diff in place", async () => {
+    // The real path a History scope takes: it opens with no file, the rail
+    // fetches the change set and hands back the first row, and GitTab fills it
+    // in on the SAME mounted peek. Every other test stops at the hand-off.
+    const diffFile = vi.fn(
+      async (_repo: string, _path: string, range?: { from: string; to?: string }) => {
+        void range;
+        return TS_DIFF;
+      },
+    );
+    const changedFiles = vi.fn(async (_repo: string) => [
+      { path: "src/main.ts", origPath: null, code: "M" },
+    ]);
+    setRuntime({
+      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: {
+            kind: "waiting",
+            scope: { kind: "commit", sha: "aaa1111", subject: "work" },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    expect(diffFile).not.toHaveBeenCalled();
+
+    await drawHistoryFile("src/main.ts", "aaa1111");
+
+    // The blank body becomes a diff read across the scope's range, without
+    // remounting — and the keys that scroll it are aimed at it.
+    expect(diffFile.mock.calls.map((call) => call[2])).toEqual([
+      { from: "aaa1111^", to: "aaa1111" },
+    ]);
+    expect(host.querySelector(".peek__body")).toBe(body);
+    expect(document.activeElement).toBe(body);
+  });
+
   it("the same commit in another worktree is another change set", async () => {
     // Two worktrees of one repo share shas, so the revision range alone does
     // not identify a file list — without the repo in the key the rail would
