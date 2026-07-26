@@ -1,55 +1,24 @@
-import type {
-  SettingsField,
-  SettingsSectionContribution,
-} from "@keepdeck/plugin-api";
+import type { SettingsSectionContribution } from "@keepdeck/plugin-api";
 
 /**
- * A plugin's effective settings values: the section's field defaults overlaid
- * with whatever the user stored (`settings.plugins.values[pluginId]`). Only
- * keys the section DECLARES come through — a stale stored key from a removed
- * field doesn't leak back into the plugin, mirroring how the host renders
- * only declared fields.
+ * The stored keys a section declares no field for — values the host will never
+ * hand the plugin, because `mergeSectionValues` builds its answer out of the
+ * declared fields alone.
+ *
+ * This is the shape that hid the voice model pick: the manager wrote and read
+ * `model` while the section declared `models`, so the settings page showed the
+ * choice (a custom field used to receive the raw bag) while the plugin was
+ * handed nothing, every launch, silently.
+ *
+ * Checked once, when the section is DECLARED — not on the read path, which also
+ * serves the change-fingerprint and would repeat this on every settings write.
+ * A key the plugin genuinely retired surfaces here too, and that is the same
+ * useful signal: the value is dead weight on disk that nothing can consume.
  */
-export function mergeSectionValues(
-  section: SettingsSectionContribution | undefined,
+export function undeclaredStoredKeys(
+  section: SettingsSectionContribution,
   stored: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  if (!section) return {};
-  const values: Record<string, unknown> = {};
-  for (const field of section.fields) {
-    values[field.key] = pick(field, stored?.[field.key]);
-  }
-  return values;
-}
-
-/** The stored value when it matches the field's type; the default when it is
- * absent or the wrong shape (the settings file is hand-editable). */
-function pick(field: SettingsField, stored: unknown): unknown {
-  switch (field.kind) {
-    case "string":
-      return typeof stored === "string" ? stored : field.default;
-    case "boolean":
-      return typeof stored === "boolean" ? stored : field.default;
-    case "number":
-      return typeof stored === "number" && Number.isFinite(stored)
-        ? stored
-        : field.default;
-    case "select":
-      return typeof stored === "string" &&
-        field.options.some((o) => o.value === stored)
-        ? stored
-        : field.default;
-    case "stringList":
-      return Array.isArray(stored) &&
-        stored.every((item) => typeof item === "string")
-        ? stored
-        : field.default;
-    case "custom":
-      // A custom (built-in-tier) field's shape is the plugin's own — the host
-      // has no type or default to enforce, so pass the stored value through as
-      // it went in. Without this the round-trip (`ctx.settings.read`/`onChange`)
-      // silently drops every custom field, so a plugin reading its own custom
-      // state that way (not just via the render prop) never sees it.
-      return stored;
-  }
+): string[] {
+  const declared = new Set(section.fields.map((field) => field.key));
+  return Object.keys(stored ?? {}).filter((key) => !declared.has(key));
 }

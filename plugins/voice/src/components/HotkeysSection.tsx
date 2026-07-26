@@ -1,12 +1,14 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { CustomSettingsFieldProps } from "@keepdeck/plugin-api";
 import {
+  blockingIssue,
   chordFromEvent,
   DEFAULT_BINDINGS,
   formatChord,
   HOTKEYS_KEY,
   isModifierKey,
-  validateChord,
+  standingIssue,
+  withSlot,
   type VoiceBindings,
 } from "../binding";
 import { runtime } from "../runtime";
@@ -21,19 +23,22 @@ import { runtime } from "../runtime";
  *
  * Display reads the shared bindings STORE — not the `values` prop that sibling
  * fields like ModelsSection read — because the PTT handler reads that same
- * store and both must show one truth, and the store applies per-slot defaults
- * so the `{...bindings, [slot]: next}` write is always a complete pair. A pick
- * still persists through the host `write`, which round-trips back to the store,
- * so the row updates on its own.
+ * store and both must show one truth, and the store always holds a complete
+ * pair for `withSlot` to write back. A pick still persists through the host
+ * `write`, which round-trips back to the store, so the row updates on its own.
  */
-const ROWS: { slot: keyof VoiceBindings; label: string; hint: string }[] = [
-  { slot: "command", label: "Command", hint: "Hold to speak a deck command" },
-  {
-    slot: "dictation",
-    label: "Dictation",
-    hint: "Hold to dictate into the focused agent",
-  },
-];
+/** Copy per bindable slot. A Record, not a list: add a slot to VoiceBindings
+ * and this stops compiling until the slot has a row, instead of quietly
+ * shipping a binding the user cannot reach. */
+const ROW_COPY: Record<keyof VoiceBindings, { label: string; hint: string }> = {
+  command: { label: "Command", hint: "Hold to speak a deck command" },
+  dictation: { label: "Dictation", hint: "Hold to dictate into the focused agent" },
+};
+
+const ROWS = Object.entries(ROW_COPY).map(([slot, copy]) => ({
+  slot: slot as keyof VoiceBindings,
+  ...copy,
+}));
 
 export function HotkeysSection({ write }: CustomSettingsFieldProps) {
   const { bindings: store } = runtime();
@@ -59,14 +64,12 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
       // Wait for the main key — a chord is modifiers PLUS one key.
       if (isModifierKey(e.key)) return;
       const next = chordFromEvent(e);
-      const blocking = validateChord(recording, next, bindings).find(
-        (i) => i.severity === "error",
-      );
+      const blocking = blockingIssue(recording, next, bindings);
       if (blocking) {
-        setError(blocking.message);
+        setError(blocking);
         return; // stay recording; let the user try another chord
       }
-      write(HOTKEYS_KEY, { ...bindings, [recording]: next });
+      write(HOTKEYS_KEY, withSlot(bindings, recording, next));
       setError(null);
       setRecording(null);
     };
@@ -90,7 +93,7 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
   const reset = (slot: keyof VoiceBindings): void => {
     setError(null);
     setRecording(null);
-    write(HOTKEYS_KEY, { ...bindings, [slot]: DEFAULT_BINDINGS[slot] });
+    write(HOTKEYS_KEY, withSlot(bindings, slot, DEFAULT_BINDINGS[slot]));
   };
 
   return (
@@ -102,7 +105,7 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
       </div>
       {ROWS.map((row) => {
         const isRecording = recording === row.slot;
-        const warning = warningFor(row.slot, bindings);
+        const issue = standingIssue(row.slot, bindings);
         return (
           <div key={row.slot} className="voice-hotkeys__row">
             <div className="voice-hotkeys__labels">
@@ -133,25 +136,20 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
             {isRecording && error && (
               <div className="voice-hotkeys__error">{error}</div>
             )}
-            {!isRecording && warning && (
-              <div className="voice-hotkeys__warn">{warning}</div>
+            {!isRecording && issue && (
+              <div
+                className={
+                  issue.severity === "error"
+                    ? "voice-hotkeys__error"
+                    : "voice-hotkeys__warn"
+                }
+              >
+                {issue.message}
+              </div>
             )}
           </div>
         );
       })}
     </div>
   );
-}
-
-/** The standing warning for a persisted chord (a modifier-less binding), or
- * null. The duplicate/Escape errors can't apply to an already-persisted state,
- * so only warnings surface here. */
-function warningFor(
-  slot: keyof VoiceBindings,
-  bindings: VoiceBindings,
-): string | null {
-  const w = validateChord(slot, bindings[slot], bindings).find(
-    (i) => i.severity === "warning",
-  );
-  return w?.message ?? null;
 }

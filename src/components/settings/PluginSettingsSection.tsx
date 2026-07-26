@@ -3,6 +3,7 @@ import type {
   SettingsField,
   SettingsSectionContribution,
 } from "@keepdeck/plugin-api";
+import { mergeSectionValues } from "@keepdeck/plugin-api";
 import { listApplications } from "../../ipc/app";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { getSettings, updateSettings } from "../../app/settingsManager";
@@ -26,6 +27,12 @@ export function PluginSettingsSection({
   section: SettingsSectionContribution;
 }) {
   const stored = useSettings()?.plugins.values[pluginId] ?? {};
+  // Resolved through the CONTRACT's merge — the very values `ctx.settings.read`
+  // hands the plugin. Rendering off the raw bag instead is what let the voice
+  // model manager show a pick as active for months while the plugin was handed
+  // nothing: the field was declared under one key and written under another,
+  // and only this surface papered over it.
+  const values = mergeSectionValues(section, stored);
 
   // The write path re-reads the live bag imperatively (not via the hook):
   // two quick edits in one render frame must not clobber each other.
@@ -46,15 +53,15 @@ export function PluginSettingsSection({
     <>
       {section.fields.map((field) =>
         field.kind === "custom" ? (
-          // Built-in tier only: the plugin owns this body outright. It gets
-          // the whole values bag and the write-through, so custom state
-          // persists exactly like a declarative field's.
-          <field.Component key={field.key} values={stored} write={write} />
+          // Built-in tier only: the plugin owns this body outright. It gets the
+          // resolved values and the write-through, so custom state persists —
+          // and RESOLVES — exactly like a declarative field's.
+          <field.Component key={field.key} values={values} write={write} />
         ) : (
           <PluginField
             key={field.key}
             field={field}
-            stored={stored[field.key]}
+            value={values[field.key]}
             onWrite={(value) => write(field.key, value)}
           />
         ),
@@ -63,17 +70,19 @@ export function PluginSettingsSection({
   );
 }
 
-/** One host-rendered control; a stored value of the wrong shape falls back
- * to the field's default (the settings file is hand-editable). */
+/** One host-rendered control. The value arrives already resolved against the
+ * field (`mergeSectionValues` applied the default for anything absent or the
+ * wrong shape — the settings file is hand-editable), so the type checks below
+ * only narrow `unknown`; they are not a second opinion on what is valid. */
 function PluginField({
   field,
-  stored,
+  value,
   onWrite,
 }: {
   /** Declarative kinds only — `custom` renders above, never through here. */
   field: Exclude<SettingsField, { kind: "custom" }>;
-  stored: unknown;
-  onWrite(value: unknown): void;
+  value: unknown;
+  onWrite(newValue: unknown): void;
 }) {
   switch (field.kind) {
     case "boolean":
@@ -81,7 +90,7 @@ function PluginField({
         <label className="settings__toggle">
           <input
             type="checkbox"
-            checked={typeof stored === "boolean" ? stored : field.default}
+            checked={typeof value === "boolean" ? value : field.default}
             onChange={(e) => onWrite(e.target.checked)}
             aria-label={field.label}
           />
@@ -96,7 +105,7 @@ function PluginField({
             {...noAutoCorrect}
             className="form__input"
             type={field.secret ? "password" : "text"}
-            value={typeof stored === "string" ? stored : field.default}
+            value={typeof value === "string" ? value : field.default}
             placeholder={field.placeholder}
             onChange={(e) => onWrite(e.target.value)}
             aria-label={field.label}
@@ -110,7 +119,7 @@ function PluginField({
           <input
             className="form__input"
             type="number"
-            value={typeof stored === "number" ? stored : field.default}
+            value={typeof value === "number" ? value : field.default}
             onChange={(e) => {
               const parsed = Number(e.target.value);
               if (Number.isFinite(parsed)) onWrite(parsed);
@@ -125,7 +134,7 @@ function PluginField({
           <span className="form__label">{field.label}</span>
           <Dropdown
             options={field.options}
-            value={typeof stored === "string" ? stored : field.default}
+            value={typeof value === "string" ? value : field.default}
             onChange={onWrite}
             ariaLabel={field.label}
           />
@@ -136,9 +145,8 @@ function PluginField({
         <StringListField
           field={field}
           value={
-            Array.isArray(stored) &&
-            stored.every((item) => typeof item === "string")
-              ? stored
+            Array.isArray(value) && value.every((item) => typeof item === "string")
+              ? value
               : field.default
           }
           onWrite={onWrite}

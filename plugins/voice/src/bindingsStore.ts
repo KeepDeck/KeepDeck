@@ -12,11 +12,16 @@ export interface BindingsStore {
 }
 
 /**
- * Holds the live push-to-talk bindings: seeded from the plugin's settings
- * values and kept current as the user edits them, so the hotkey handler, the
- * settings recorder, and the help copy all read ONE truth. Until the initial
- * read resolves, the shipped defaults stand, so the hotkeys work from the
- * first frame.
+ * Holds the live push-to-talk bindings: read from the plugin's settings values
+ * and kept current as the user edits them, so the hotkey handler, the settings
+ * recorder, and the help copy all read ONE truth. Until the read resolves (one
+ * microtask), the shipped defaults stand, so the hotkeys work from the first
+ * frame.
+ *
+ * CONSTRUCT THIS AFTER the plugin has registered its settings section: the host
+ * resolves a plugin's stored values against the fields it has declared, so a
+ * store built earlier reads an empty bag, and since nothing writes settings at
+ * boot it would sit on the defaults for the whole session.
  */
 export function createBindingsStore(ctx: PluginContext): BindingsStore {
   let bindings: VoiceBindings = DEFAULT_BINDINGS;

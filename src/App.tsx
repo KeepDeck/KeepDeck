@@ -280,12 +280,13 @@ function App() {
     openUsage: () => setStatsOpen(true),
   });
   // The plugin system: the bridge wires deck accessors + deck events; the
-  // built-ins boot once settings settle (enabled flags live there); the
-  // contribution registries drive the dock and the top bar below.
+  // built-ins boot once (bootstrapPlugins waits for settings itself — enabled
+  // flags and every plugin's values live there); the contribution registries
+  // drive the dock and the top bar below.
   usePluginDeckBridge(deck);
   useEffect(() => {
-    if (settings) void bootstrapPlugins();
-  }, [settings]);
+    void bootstrapPlugins();
+  }, [bootstrapPlugins]);
   const pluginDockTabs = useContributions(pluginRegistries.dockTabs);
   const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
   // Runtime crash reports — they flip a plugin's tab to the failure panel.

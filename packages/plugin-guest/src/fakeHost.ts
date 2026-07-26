@@ -16,6 +16,7 @@ import type {
   TopBarActionContribution,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
+import { mergeSectionValues } from "@keepdeck/plugin-api";
 
 /**
  * A fake `PluginContext` for driving the RPC bridge in tests — the host-side
@@ -108,6 +109,14 @@ export function createFakeHost(
   const fileOpeners: FileOpenHandler[] = [];
   const overlays: OverlayContribution[] = [];
   const settingsSections: SettingsSectionContribution[] = [];
+  /** The section a read resolves against: the MOST RECENT registration. The
+   * real host retires the previous one when a plugin is deactivated, so after a
+   * restart exactly one is live — reading the first would answer from the dead
+   * one and hide a broken re-registration. */
+  const currentSection = () => settingsSections[settingsSections.length - 1];
+  /** The persisted bag. `fire.settingsChanged` replaces it, so a read after a
+   * change sees what the change said — as it would through the real store. */
+  let storedValues = options.settingsValues;
   const agents: AgentContribution[] = [];
   const commands: PluginCommandSpec[] = [];
   const executedCommands: { id: string; args: CommandArgs }[] = [];
@@ -166,7 +175,13 @@ export function createFakeHost(
     },
     settings: {
       registerSection: (section) => record(settingsSections, section),
-      read: async () => options.settingsValues ?? {},
+      // Answered with the contract's OWN merge, exactly as the host answers it
+      // (`readPluginValues` → `mergeSectionValues`): values reach a plugin only
+      // through a REGISTERED section, and only under the keys that section
+      // declares. Anything looser lets a test pass on a value production drops
+      // — a read taken before registration, or a key the plugin never declared.
+      // Both of those shipped as real bugs before the fake agreed with the host.
+      read: async () => mergeSectionValues(currentSection(), storedValues),
       onChange: (cb) => {
         settingsCbs.add(cb);
         return {
@@ -361,7 +376,15 @@ export function createFakeHost(
       workspaceClosed: (e) => workspaceClosedCbs.forEach((cb) => cb(e)),
       paneSelected: (e) => paneSelectedCbs.forEach((cb) => cb(e)),
       deckChanged: () => deckChangedCbs.forEach((cb) => cb()),
-      settingsChanged: (v) => settingsCbs.forEach((cb) => cb(v)),
+      // Through the same merge as `read`, and over the SAME bag: the host
+      // pushes `readPluginValues()` off the store it just wrote, so a later
+      // read agrees with the push. (The host also drops a push whose values
+      // didn't change; the fake fires whenever a test asks, since the test IS
+      // the change.)
+      settingsChanged: (v) => {
+        storedValues = v;
+        settingsCbs.forEach((cb) => cb(mergeSectionValues(currentSection(), v)));
+      },
     },
     unsubscribes,
     sessions,

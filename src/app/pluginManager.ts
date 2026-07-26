@@ -9,6 +9,7 @@ import {
 import { readText as clipboardReadText, writeText as clipboardWriteText } from "../ipc/clipboard";
 import {
   declaredAgentBins,
+  mergeSectionValues,
   readManifest,
   type DownloadRequest,
   type DownloadTarget,
@@ -23,6 +24,7 @@ import {
   PluginHost,
   type PluginInstall,
 } from "../plugins";
+import { undeclaredStoredKeys } from "./pluginSettingsValues";
 import {
   createCapabilityGate,
   createPluginCommandsPort,
@@ -66,6 +68,7 @@ import { spawnSession } from "../ipc/session";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import {
   getSettings,
+  initSettings,
   subscribeSettings,
   updateSettings,
 } from "./settingsManager";
@@ -76,7 +79,6 @@ import {
   setOverlayVisibility,
 } from "./overlayVisibility";
 import { clearPluginCrashes } from "./pluginHealth";
-import { mergeSectionValues } from "./pluginSettingsValues";
 import type { DownloadManager } from "./downloadManager";
 import {
   applyBuiltinDownloadMigrations,
@@ -679,6 +681,32 @@ export function createPluginManager(appDownloads: DownloadManager) {
     return mergeSectionValues(section, getSettings()?.plugins.values[pluginId]);
   }
 
+  /** Plugins whose declaration has already been checked — once per id per run.
+   * The check belongs at DECLARATION, not on the read path: `readPluginValues`
+   * also computes the change fingerprint, so warning there would repeat on
+   * every settings write. */
+  const driftChecked = new Set<string>();
+
+  /** Name, once, any stored value a plugin's own section declares no field for
+   * — the host can never hand those back, so they are silently dead. */
+  function reportSettingsDrift(): void {
+    for (const { pluginId, entry } of pluginRegistries.settingsSections.list()) {
+      if (driftChecked.has(pluginId)) continue;
+      driftChecked.add(pluginId);
+      const stray = undeclaredStoredKeys(
+        entry,
+        getSettings()?.plugins.values[pluginId],
+      );
+      if (stray.length > 0) {
+        loggerFor(pluginId).warn(
+          `stored settings this section declares no field for: ${stray.join(", ")}` +
+            " — the plugin is never handed them; declare a field or drop the value",
+        );
+      }
+    }
+  }
+  pluginRegistries.settingsSections.subscribe(reportSettingsDrift);
+
   // -------------------------------------------------------------- bootstrap
 
   let boot: Promise<void> | null = null;
@@ -693,9 +721,20 @@ export function createPluginManager(appDownloads: DownloadManager) {
    */
   function bootstrapPlugins(): Promise<void> {
     boot ??= (async () => {
-      const builtins = import.meta.env.DEV
-        ? discoverDevPlugins()
-        : await discoverBuiltPlugins();
+      // Discovery is pure IO and needs nothing from settings, so it runs
+      // ALONGSIDE the settings load rather than behind it — gating the whole
+      // bootstrap on that read would add its latency to every launch.
+      const discovery = import.meta.env.DEV
+        ? Promise.resolve(discoverDevPlugins())
+        : discoverBuiltPlugins();
+      // But nothing may be INSTALLED or activated until settings are in hand:
+      // which plugins are enabled lives there, and so do the values a plugin
+      // reads the moment it activates. Gating this at the CALL sites left it to
+      // whichever one ran first — and one of them (the agent catalog's) doesn't
+      // gate at all, so a plugin the user turned off could activate on the
+      // default policy before the file was read.
+      await initSettings();
+      const builtins = await discovery;
       for (const install of builtins) {
         builtinCategories.set(install.manifest.id, install.manifest.category);
         await applyBuiltinDownloadMigrations(

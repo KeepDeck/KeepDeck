@@ -238,3 +238,84 @@ describe("PluginSettingsSection — the application-picker add flow", () => {
     ).toEqual(["Toggle Add Open in applications options"]);
   });
 });
+
+describe("PluginSettingsSection — one resolution rule with the plugin", () => {
+  let host: HTMLElement;
+  let root: Root;
+
+  const selectSection: SettingsSectionContribution = {
+    label: "Sample",
+    fields: [
+      {
+        kind: "select",
+        key: "mode",
+        label: "Mode",
+        default: "auto",
+        options: [
+          { value: "auto", label: "Auto" },
+          { value: "manual", label: "Manual" },
+        ],
+      },
+    ],
+  };
+
+  const mountWith = async (
+    section: SettingsSectionContribution,
+    values: Record<string, unknown>,
+  ) => {
+    ipc.loadSettings.mockResolvedValueOnce(
+      JSON.stringify({
+        version: 12,
+        plugins: { enabled: {}, values: { "keepdeck.sample": values }, consented: {} },
+      }),
+    );
+    await initSettings();
+    await act(async () => {
+      root.render(
+        createElement(PluginSettingsSection, { pluginId: "keepdeck.sample", section }),
+      );
+    });
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetSettingsManager();
+    document.body.innerHTML = "";
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    resetSettingsManager();
+  });
+
+  it("shows the default for a stored value the contract rejects", async () => {
+    // settings.json is hand-editable: "bogus" is not one of the options, so the
+    // plugin is handed "auto". The page must say the same thing — displaying
+    // the raw value here is how a surface starts lying about what is in force.
+    await mountWith(selectSection, { mode: "bogus" });
+
+    expect(document.querySelector(".dropdown__label")?.textContent).toBe("Auto");
+  });
+
+  it("hands a custom field only the keys its section declares", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const customSection: SettingsSectionContribution = {
+      label: "Sample",
+      fields: [
+        {
+          kind: "custom",
+          key: "model",
+          Component: ({ values }) => {
+            seen.push(values);
+            return null;
+          },
+        },
+      ],
+    };
+    // "models" is the drift shape: stored, but no field declares it.
+    await mountWith(customSection, { model: "big", models: "stale" });
+
+    expect(seen[seen.length - 1]).toEqual({ model: "big" });
+  });
+});

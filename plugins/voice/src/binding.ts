@@ -182,6 +182,57 @@ export function validateChord(
   return issues;
 }
 
+/**
+ * One slot rebound, as the pair that persists under {@link HOTKEYS_KEY}. The
+ * shape is the point: {@link parseBindings} reads a PAIR and defaults whatever
+ * is missing, so every writer has to carry the slot it isn't changing. Keeping
+ * that in one place is what stops a second writer from rediscovering it.
+ */
+export function withSlot(
+  bindings: VoiceBindings,
+  slot: keyof VoiceBindings,
+  chord: Chord,
+): VoiceBindings {
+  return { ...bindings, [slot]: chord };
+}
+
+/** The recorder's gate: the message of the first ERROR a proposed chord raises
+ * for that slot, or null when it may be bound — warnings inform, they never
+ * block (see {@link validateChord}). */
+export function blockingIssue(
+  slot: keyof VoiceBindings,
+  chord: Chord,
+  bindings: VoiceBindings,
+): string | null {
+  const blocking = validateChord(slot, chord, bindings).find(
+    (issue) => issue.severity === "error",
+  );
+  return blocking?.message ?? null;
+}
+
+/**
+ * What an ALREADY-persisted chord raises, worst first, or null when it is
+ * sound. An error outranks the modifier-less warning.
+ *
+ * An error can only get on disk by hand — the recorder blocks both of them at
+ * capture time ({@link blockingIssue}) — and `parseBindings` deliberately loads
+ * such a file as written. Surfacing it here is the only thing that tells the
+ * user why a chord they typed into settings.json does nothing: a duplicated
+ * pair leaves `command` dead ({@link pttMode} resolves the tie to dictation),
+ * and a bound Escape is swallowed by the recorder's cancel.
+ */
+export function standingIssue(
+  slot: keyof VoiceBindings,
+  bindings: VoiceBindings,
+): BindingIssue | null {
+  const issues = validateChord(slot, bindings[slot], bindings);
+  return (
+    issues.find((issue) => issue.severity === "error") ??
+    issues.find((issue) => issue.severity === "warning") ??
+    null
+  );
+}
+
 /** A readable chord label in mac glyph order (⌃⌥⇧⌘): ⌥⇧Space, ⌃⌘J. */
 export function formatChord(chord: Chord): string {
   const parts: string[] = [];

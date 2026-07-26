@@ -8,7 +8,8 @@
  */
 import "./styles.css";
 import type { KeepDeckPlugin, PluginContext } from "@keepdeck/plugin-api";
-import { createVoiceController } from "./controller";
+import { createVoiceController, MODEL_KEY } from "./controller";
+import { HOTKEYS_KEY } from "./binding";
 import { createModelDownloads } from "./downloads";
 import { createModelsStore } from "./models";
 import { createBindingsStore } from "./bindingsStore";
@@ -29,24 +30,34 @@ const plugin: KeepDeckPlugin = {
     // A finished download refreshes the shared model list, so the tab's
     // "no model" prompt clears without reopening.
     const downloads = createModelDownloads(ctx, () => void models.refresh());
-    // The live push-to-talk chords: seeded from settings, updated as the user
-    // edits them, read by both the hotkey handler and the help copy.
-    const bindings = createBindingsStore(ctx);
     // Silences push-to-talk while the settings recorder captures a new chord.
     const recordingLatch = createRecordingLatch();
+
+    // Declared FIRST, because the host serves a plugin only the values its own
+    // section declares — anything reading settings above this line gets an
+    // empty bag. Two custom fields: the push-to-talk hotkey editor and the
+    // model manager (whisper auto-detects the language, so there is nothing
+    // else to set). The keys come from the constants those two surfaces READ
+    // and WRITE, never from literals: a key that drifts from its constant is a
+    // value that never comes back.
+    ctx.settings.registerSection({
+      label: "Voice",
+      fields: [
+        { kind: "custom", key: HOTKEYS_KEY, Component: HotkeysSection },
+        { kind: "custom", key: MODEL_KEY, Component: ModelsSection },
+      ],
+    });
+    // The live push-to-talk chords, read at construction now that the fields
+    // exist: updated as the user edits them, read by both the hotkey handler
+    // and the help copy. Registering the section above hands the host a
+    // Component that calls `runtime()` when RENDERED — safe before setRuntime
+    // because nothing between these two statements awaits, so no render can
+    // interleave.
+    const bindings = createBindingsStore(ctx);
     setRuntime({ ctx, controller, downloads, models, bindings, recordingLatch });
 
     ctx.ui.registerDockTab({ id: "voice", label: "Voice", Component: VoiceTab });
     ctx.ui.registerOverlay({ id: "pill", Component: VoiceOverlay });
-    // Two custom fields: the push-to-talk hotkey editor and the model manager
-    // (whisper auto-detects the language, so there is nothing else to set).
-    ctx.settings.registerSection({
-      label: "Voice",
-      fields: [
-        { kind: "custom", key: "hotkeys", Component: HotkeysSection },
-        { kind: "custom", key: "models", Component: ModelsSection },
-      ],
-    });
 
     uninstallHotkeys = installPttHotkeys(
       controller,

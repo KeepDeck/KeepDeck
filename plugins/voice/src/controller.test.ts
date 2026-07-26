@@ -3,12 +3,29 @@ import type { PluginContext, SpeechTranscript } from "@keepdeck/plugin-api";
 import {
   createFakeHost,
   fakeManifest,
+  type FakeHost,
 } from "../../../packages/plugin-guest/src/fakeHost";
-import { createVoiceController } from "./controller";
+import { createVoiceController, MODEL_KEY } from "./controller";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 
 const installedModels = async (): Promise<VoiceModelInfo[]> =>
   MODEL_CATALOG.map((model) => ({ ...model, installed: true }));
+
+/** A host holding persisted plugin values, with the model field declared just
+ * as `activate` declares it: a plugin is handed a stored value only through a
+ * registered section, and only under a key that section names — so a test
+ * exercising the persisted pick has to declare it too, or it proves nothing. */
+function hostWithSettings(settingsValues: Record<string, unknown>): FakeHost {
+  const host = createFakeHost({
+    manifest: fakeManifest("keepdeck.voice"),
+    settingsValues,
+  });
+  host.ctx.settings.registerSection({
+    label: "Voice",
+    fields: [{ kind: "custom", key: MODEL_KEY, Component: () => null }],
+  });
+  return host;
+}
 
 /** A fake host whose speech service yields scripted transcripts and whose
  * command results are primeable — the controller under real wiring. */
@@ -82,10 +99,7 @@ describe("createVoiceController", () => {
       seconds: 1,
       level: 0.1,
     }));
-    const host = createFakeHost({
-      manifest: fakeManifest("keepdeck.voice"),
-      settingsValues: { model: "whisper-small-q5_1" },
-    });
+    const host = hostWithSettings({ model: "whisper-small-q5_1" });
     const ctx: PluginContext = {
       ...host.ctx,
       services: {
@@ -172,20 +186,20 @@ describe("createVoiceController", () => {
     expect(waiting.snapshot().phase).toBe("idle");
   });
 
-  it("falls back when the persisted model is stale or not installed", async () => {
-    const host = createFakeHost({
-      manifest: fakeManifest("keepdeck.voice"),
-      settingsValues: { model: "removed-model" },
-    });
+  it("falls back to a CURRENT model, never a retired one, when the pick is gone", async () => {
+    const host = hostWithSettings({ model: "removed-model" });
     const stopCapture = vi.fn(async () => ({
       text: "",
       silence: true,
       seconds: 0,
       level: 0,
     }));
+    // Two installed models, one of them retired. A pick that resolves to
+    // nothing must land on the current one — the retired model is only ever a
+    // last resort, and nothing else in the suite pins that preference.
     const models = (await installedModels()).map((model) => ({
       ...model,
-      installed: model.id === "whisper-small",
+      installed: model.id === "whisper-small" || model.id === "whisper-base-q5_1",
     }));
     const controller = createVoiceController(
       {
@@ -209,6 +223,46 @@ describe("createVoiceController", () => {
     await controller.stop();
     expect(stopCapture).toHaveBeenCalledWith(
       expect.objectContaining({ modelPath: "models/ggml-small.bin" }),
+    );
+  });
+
+  it("honors an installed pick even once the catalog retires it", async () => {
+    // The discriminating half of the pair above: a retired model is never what
+    // the fallback chain reaches for, so selecting one proves the persisted
+    // pick was actually read — the fallback alone could not produce it.
+    const host = hostWithSettings({ model: "whisper-base-q5_1" });
+    const stopCapture = vi.fn(async () => ({
+      text: "",
+      silence: true,
+      seconds: 0,
+      level: 0,
+    }));
+    const models = (await installedModels()).map((model) => ({
+      ...model,
+      installed: model.id === "whisper-small" || model.id === "whisper-base-q5_1",
+    }));
+    const controller = createVoiceController(
+      {
+        ...host.ctx,
+        services: {
+          ...host.ctx.services,
+          speech: {
+            ...host.ctx.services.speech,
+            startCapture: vi.fn(async () => ({
+              stop: stopCapture,
+              cancel: vi.fn(async () => {}),
+            })),
+          },
+        },
+      },
+      () => 42,
+      async () => models,
+    );
+    host.commandResults.set("workspace.list", { ok: true, value: [] });
+    await controller.start("command");
+    await controller.stop();
+    expect(stopCapture).toHaveBeenCalledWith(
+      expect.objectContaining({ modelPath: "models/ggml-base-q5_1.bin" }),
     );
   });
 
