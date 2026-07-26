@@ -2333,7 +2333,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
       release = resolve;
     });
 
-    let restarting!: Promise<void>;
+    let restarting!: Promise<unknown>;
     act(() => {
       restarting = agentRun.restart("ws-1", "pane-1", "fresh");
     });
@@ -2363,7 +2363,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
       release = resolve;
     });
 
-    let restarting!: Promise<void>;
+    let restarting!: Promise<unknown>;
     act(() => {
       restarting = agentRun.restart("ws-1", "pane-1", "resume");
     });
@@ -2413,7 +2413,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
       release = resolve;
     });
 
-    let first!: Promise<void>;
+    let first!: Promise<unknown>;
     act(() => {
       first = agentRun.restart("ws-1", "pane-1", "fresh");
       void agentRun.restart("ws-1", "pane-1", "fresh");
@@ -2433,7 +2433,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
       release = resolve;
     });
 
-    let pending!: Promise<void>;
+    let pending!: Promise<unknown>;
     act(() => {
       pending = agentRun.restart("ws-1", "pane-1", "resume");
     });
@@ -2459,6 +2459,41 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(pty.closed).toEqual([]);
     expect(epoch()).toBeUndefined();
     expect(pane().session?.id).toBe("session-old");
+  });
+
+  it("says it stood down when a suspend beat it, instead of reporting success", async () => {
+    // The card clears its "Restarting…" state on this answer. Reading a
+    // resolved promise as a restart left it promising one that never came.
+    seed();
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = agentRun.restart("ws-1", "pane-1", "fresh");
+    });
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    let outcome: unknown;
+    await act(async () => {
+      release();
+      outcome = await pending;
+    });
+    expect(outcome).toBe("stopped");
+  });
+
+  it("refuses a second click by name, and a pane that is gone", async () => {
+    seed();
+    pty.hold = new Promise<void>(() => {});
+    act(() => {
+      void agentRun.restart("ws-1", "pane-1", "fresh");
+    });
+    expect(await act(async () => agentRun.restart("ws-1", "pane-1", "fresh"))).toBe(
+      "in-flight",
+    );
+    expect(await act(async () => agentRun.restart("ws-1", "nope", "fresh"))).toBe(
+      "gone",
+    );
   });
 
   it("retryPlanBuild drops the failure and the half-built plan, without a reap", async () => {
@@ -2645,6 +2680,27 @@ describe("agent orchestrator —continuing a recorded session", () => {
     await expect(
       act(async () => agentRun.resumeSession("ws-1", handle())),
     ).rejects.toThrow("stopped pane");
+  });
+
+  it("is not blocked by a FORK of the same session — they are not alternatives", async () => {
+    // A fork copies the session, a resume claims it. Sharing one guard let a
+    // fork's store surgery — seconds of export/rekey/import — swallow the
+    // Resume beside it: no pane, no error, a dead button.
+    let release!: () => void;
+    vi.mocked(buildForkSpec).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        release = () => resolve(true);
+      }),
+    );
+    act(() => {
+      void agentRun.forkSession("ws-1", handle(), { kind: "dir", cwd: "/x" });
+    });
+
+    await act(async () => agentRun.resumeSession("ws-1", handle()));
+    expect(deck.workspaces[0].panes.some((p) => p.session?.id === "s-1")).toBe(
+      true,
+    );
+    await act(async () => release());
   });
 
   it("rejects — and mints no pane — when the plan cannot be prepared", async () => {

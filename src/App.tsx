@@ -226,6 +226,7 @@ function App() {
     onResumeFailed: (message) =>
       pushAlert("Could not resume the session", message),
     onForkFailed: (message) => pushAlert("Could not fork the session", message),
+    onCreateFailed: (message) => pushAlert("Could not add the agent", message),
   }, runView.blocked);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, {

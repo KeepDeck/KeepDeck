@@ -74,7 +74,11 @@ const runtime = {
 } as unknown as AppRuntime;
 /** Where a failed continuation reports. A dialog that just closes on a failed
  * fork reads as success, so the wiring is worth asserting. */
-const notices = { onResumeFailed: vi.fn(), onForkFailed: vi.fn() };
+const notices = {
+  onResumeFailed: vi.fn(),
+  onForkFailed: vi.fn(),
+  onCreateFailed: vi.fn(),
+};
 /** What the dialog asked for on its `n`th confirm. */
 const offered = (n = 0) => createPane.mock.calls[n][0];
 const mountHost = (
@@ -105,6 +109,7 @@ describe("useAgentDialog suggestions", () => {
     root = createRoot(host);
     blockedDirs.clear();
     createPane.mockClear();
+    notices.onCreateFailed.mockClear();
     vi.mocked(inspectRepo).mockReset().mockResolvedValue({
       isRepo: true,
       head: "abc",
@@ -301,6 +306,28 @@ describe("useAgentDialog suggestions", () => {
     expect(flow.dialog).toBeNull();
   });
 
+  it("says so when the workspace refuses the pane", async () => {
+    // The dialog has already closed by the time the answer comes back, so a
+    // dropped refusal is an agent the user asked for that never appears.
+    const ws = workspace({});
+    const deck = { workspaces: [ws] } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
+    await act(async () => flow.openFor(ws));
+    createPane.mockReturnValueOnce({ kind: "full" });
+
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: false,
+      }),
+    );
+    expect(notices.onCreateFailed).toHaveBeenCalledWith(
+      expect.stringContaining("full"),
+    );
+  });
+
   it("does not confirm into a replacement with the same public id", async () => {
     const old = workspace({});
     const oldDeck = { workspaces: [old] } as unknown as Deck;
@@ -358,6 +385,7 @@ describe("useAgentDialog start-from routing", () => {
     forkSession.mockClear();
     notices.onResumeFailed.mockClear();
     notices.onForkFailed.mockClear();
+    notices.onCreateFailed.mockClear();
   });
   afterEach(() => act(() => root.unmount()));
 

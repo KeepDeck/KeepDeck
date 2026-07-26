@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentRestartMode } from "../../domain/agents";
+import type { RestartOutcome } from "../../app/agentOrchestrator";
 import {
   idleReadsAsStopped,
   type PaneBody,
@@ -131,7 +132,7 @@ interface AgentPaneProps {
    * a second source for the same fact. */
   resumeSessionId?: string | null;
   /** Manually restart an exited agent, either from its binding or fresh. */
-  onRestart?(mode: AgentRestartMode): Promise<void> | void;
+  onRestart?(mode: AgentRestartMode): Promise<RestartOutcome> | void;
 }
 
 /**
@@ -210,8 +211,16 @@ export function AgentPane({
       setRestarting(false);
       setRestartFailed(true);
     };
+    // A restart that STOOD DOWN — the pane was stopped, closed, or changed
+    // under it — resolves without a remount, so treating "resolved" as
+    // "restarted" left the card promising a restart that was not coming.
+    const settle = (outcome: RestartOutcome | void) => {
+      if (outcome === undefined || outcome === "restarted") return;
+      restartInFlight.current = false;
+      setRestarting(false);
+    };
     try {
-      void Promise.resolve(onRestart(mode)).catch(recover);
+      void Promise.resolve(onRestart(mode)).then(settle, recover);
     } catch {
       recover();
     }

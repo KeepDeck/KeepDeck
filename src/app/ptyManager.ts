@@ -383,10 +383,17 @@ export function runPaneOnce(
     const decoder = new TextDecoder();
     const settle = (ok: boolean, note: string) => {
       detach();
+      unwatch();
       void closePane(paneId);
       resolve({ ok, tail: plainText(note).trim().slice(-ONCE_TAIL_CHARS) });
     };
     acquirePane(paneId, spec);
+    // The slot emptying without an exit means the pane was closed under us.
+    const unwatch = subscribeSessions(() => {
+      if (paneSessionState(paneId).kind !== "none") return;
+      detach();
+      unwatch();
+    });
     detach = attachPane(paneId, {
       onOutput: (bytes) => {
         tail = (tail + decoder.decode(bytes, { stream: true })).slice(

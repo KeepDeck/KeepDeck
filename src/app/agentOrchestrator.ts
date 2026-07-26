@@ -144,8 +144,16 @@ export interface AgentOrchestrator {
    * A `resume` restart that cannot prepare its plan REJECTS rather than
    * falling back: the user asked for that conversation by name, and quietly
    * starting a different one is the substitution this whole path guards.
+   *
+   * Answers what it did, like every other refusable gesture here. Four things
+   * can stop a restart short of failing, and a caller that reads "resolved"
+   * as "restarted" leaves its card promising a restart that is not coming.
    */
-  restart(wsId: string, paneId: string, mode: AgentRestartMode): Promise<void>;
+  restart(
+    wsId: string,
+    paneId: string,
+    mode: AgentRestartMode,
+  ): Promise<RestartOutcome>;
   /**
    * The one-shot recovery for a BOOT resume the CLI rejected: the process
    * exited without ever reporting a session, so there is nothing to show the
@@ -280,6 +288,22 @@ export type CloseRequest = {
   | { kind: "agent"; wsId: string; paneId: string }
   | { kind: "workspace"; wsId: string }
 );
+
+/** What a restart did. `restarted` means a new process is on its way; the
+ * rest are reasons it stood down, none of them a failure — a failure REJECTS
+ * so the card can offer to try again. */
+export type RestartOutcome =
+  | "restarted"
+  /** A restart for this pane is already under way. */
+  | "in-flight"
+  /** The pane (or its workspace) is no longer in the deck. */
+  | "gone"
+  /** It was stopped while the restart was out — a suspend the user asked for
+   * outranks a restart that started first. */
+  | "stopped"
+  /** Its agent, directory or session changed mid-flight; the plan prepared
+   * for it would mount over a pane that is no longer the same one. */
+  | "changed";
 
 /** What asking for a pane back did. */
 export type ResumeRequest =
@@ -635,10 +659,18 @@ export function createAgentOrchestrator(
     return { kind: "created" };
   }
 
-  /** Sessions with a continuation (a resume or a fork) already under way,
-   * by recorded session id. A double-click guard only: forking the same
-   * session repeatedly is legitimate, racing two at once is not. */
-  const continuing = new Set<string>();
+  /**
+   * Sessions with a continuation already under way, by recorded session id —
+   * a double-click guard. Resuming the same session twice is one gesture
+   * repeated; forking it twice is two legitimate forks racing.
+   *
+   * Two sets, not one. The gestures are not alternatives to each other: a
+   * fork COPIES a session and a resume CLAIMS it, so a fork's store surgery —
+   * seconds of export/rekey/import — must not silently swallow the Resume
+   * next to it, leaving a dead button and no error.
+   */
+  const resuming = new Set<string>();
+  const forking = new Set<string>();
 
   /**
    * Panes the user asked for BY NAME that have not started yet.
@@ -703,24 +735,25 @@ export function createAgentOrchestrator(
     )?.idle;
   }
 
-  async function restartFresh(target: RestartTarget): Promise<void> {
+  async function restartFresh(target: RestartTarget): Promise<RestartOutcome> {
     // Invalidate the old bridge token before anything can report late from
     // the retired process. The next plan build is triggered by the epoch.
     dropPaneSpawnSpec(target.paneId);
     clearPaneUsage(target.paneId);
     await sessions.close(target.paneId);
-    if (!restartTargetOf(target.workspace, target.paneId)) return;
+    if (!restartTargetOf(target.workspace, target.paneId)) return "gone";
     // The pane is parked now, and its binding is exactly what its resume
     // needs: dropping it here would turn the user's suspend into a fresh
     // conversation.
-    if (stoppedNow(target)) return;
+    if (stoppedNow(target)) return "stopped";
     // Fresh means fresh on the next app launch too. Keep cwd/branch/worktree;
     // only the exact session binding is replaced by the new reporter later.
     actions.setPaneSession(target.workspace.id, target.paneId, null);
     bumpEpoch(target.paneId);
+    return "restarted";
   }
 
-  async function restartResume(target: RestartTarget): Promise<void> {
+  async function restartResume(target: RestartTarget): Promise<RestartOutcome> {
     const ctx = spawnContext.get();
     if (!ctx) throw new Error("Agent spawn context is unavailable");
     if (!target.sessionId) return restartFresh(target);
@@ -751,7 +784,7 @@ export function createAgentOrchestrator(
     const current = restartTargetOf(target.workspace, target.paneId);
     if (!current) {
       dropPaneSpawnSpec(target.paneId);
-      return;
+      return "gone";
     }
     if (!sameResumeTarget(current, target)) {
       dropPaneSpawnSpec(target.paneId);
@@ -774,10 +807,11 @@ export function createAgentOrchestrator(
     const afterClose = restartTargetOf(target.workspace, target.paneId);
     if (!afterClose || !sameResumeTarget(afterClose, target)) {
       dropPaneSpawnSpec(target.paneId);
-      return;
+      return afterClose ? "changed" : "gone";
     }
-    if (stoppedNow(target)) return;
+    if (stoppedNow(target)) return "stopped";
     bumpEpoch(target.paneId);
+    return "restarted";
   }
 
   /** Wake one pane onto `sessionId`, or fresh when it is null. */
@@ -1117,17 +1151,18 @@ export function createAgentOrchestrator(
       return discardWorktrees(request.worktrees);
     },
     async restart(wsId, paneId, mode) {
-      if (restarting.has(paneId)) return;
+      if (restarting.has(paneId)) return "in-flight";
       const target = restartTargetOf(wsId, paneId);
-      if (!target) return;
+      if (!target) return "gone";
       restarting.add(paneId);
       try {
         // "Resume" with nothing recorded is a fresh start, and saying so here
         // keeps the log honest about which one actually ran.
         const effective = mode === "resume" && target.sessionId ? "resume" : "fresh";
         log.info("web:orchestrator", `${paneId}: manual restart (${effective})`);
-        if (effective === "resume") await restartResume(target);
-        else await restartFresh(target);
+        return effective === "resume"
+          ? await restartResume(target)
+          : await restartFresh(target);
       } catch (error) {
         log.warn(
           "web:orchestrator",
@@ -1178,7 +1213,7 @@ export function createAgentOrchestrator(
       if (!ctx) throw new Error("Agent spawn context is unavailable");
       const ws = findWorkspace(deck.getSnapshot().workspaces, wsId);
       if (!ws) return;
-      if (continuing.has(record.sessionId)) return;
+      if (resuming.has(record.sessionId)) return;
       // A session runs in at most one pane, ever. The browser offers Resume
       // for every row (it cannot know lifecycle), so say why rather than
       // leaving an enabled button that does nothing. An IDLE claimant is not
@@ -1197,7 +1232,7 @@ export function createAgentOrchestrator(
       // An explicit override (a dialog with a YOLO toggle) wins; a bare
       // browser resume passes nothing and inherits the recorded mode.
       const yolo = opts?.yolo ?? record.yolo;
-      continuing.add(record.sessionId);
+      resuming.add(record.sessionId);
       try {
         const id = paneId(mintAgentSeqs(1));
         const built = await buildResumeSpec(
@@ -1259,7 +1294,7 @@ export function createAgentOrchestrator(
         );
         throw error;
       } finally {
-        continuing.delete(record.sessionId);
+        resuming.delete(record.sessionId);
       }
     },
     async forkSession(wsId, record, target, opts) {
@@ -1267,10 +1302,10 @@ export function createAgentOrchestrator(
       if (!ctx) throw new Error("Agent spawn context is unavailable");
       const ws = findWorkspace(deck.getSnapshot().workspaces, wsId);
       if (!ws) return;
-      if (continuing.has(record.sessionId)) return;
+      if (forking.has(record.sessionId)) return;
       const yolo = opts?.yolo ?? record.yolo;
       const workspace = { id: ws.id, instance: ws.instance };
-      continuing.add(record.sessionId);
+      forking.add(record.sessionId);
       try {
         const id = paneId(mintAgentSeqs(1));
         const name = opts?.name?.trim();
@@ -1364,7 +1399,7 @@ export function createAgentOrchestrator(
         );
         throw error;
       } finally {
-        continuing.delete(record.sessionId);
+        forking.delete(record.sessionId);
       }
     },
     startFresh(wsId, paneId) {

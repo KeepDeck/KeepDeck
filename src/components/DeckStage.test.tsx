@@ -95,7 +95,7 @@ const callbacks = {
   onRetryPlanBuild: vi.fn(),
   onAgentExited: vi.fn(),
   onAgentSpawnFailed: vi.fn(),
-  onRestartAgent: vi.fn(() => Promise.resolve()),
+  onRestartAgent: vi.fn(() => Promise.resolve("restarted" as const)),
 };
 
 const browser = {

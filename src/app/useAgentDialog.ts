@@ -15,6 +15,7 @@ import {
   paneId,
   idleReadsAsStopped,
   parentDir,
+  WORKSPACE_FULL_MESSAGE,
   type Workspace,
 } from "../domain/deck";
 import { handleFromHit } from "../domain/journal";
@@ -35,6 +36,10 @@ import type { Deck } from "./useDeck";
 export interface AgentDialogNotices {
   onResumeFailed(message: string): void;
   onForkFailed(message: string): void;
+  /** The workspace refused the pane — it filled up, or it is gone. The
+   * dialog has already closed by then, so without this the agent the user
+   * asked for simply never appears. */
+  onCreateFailed(message: string): void;
 }
 
 /** Everything the "+ Agent" dialog needs to render, captured at open time. */
@@ -202,10 +207,14 @@ export function useAgentDialog(
     // owner of what arriving in a workspace entails. Whether it lands as a
     // terminal or as a provisioning card is the pane's shape to say, not this
     // surface's to arrange.
-    orchestrator.createPane({
+    const landed = orchestrator.createPane({
       workspace: dlg.workspace,
       pane: paneFromAgentRequest(dlg.agentId, result, ws, dlg.index),
     });
+    if (landed.kind === "full") notices.onCreateFailed(WORKSPACE_FULL_MESSAGE);
+    else if (landed.kind === "gone") {
+      notices.onCreateFailed("That workspace was closed.");
+    }
   };
 
   /**

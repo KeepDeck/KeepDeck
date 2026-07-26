@@ -33,6 +33,7 @@ import {
 } from "../domain/journal";
 import { SessionsBrowser } from "./history/SessionsBrowser";
 import type { SessionsBrowserApi } from "../app/useSessionsBrowser";
+import type { RestartOutcome } from "../app/agentOrchestrator";
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
  * props (command, spec, cwd, badge) are the same everywhere. */
@@ -121,7 +122,7 @@ interface DeckStageProps {
     wsId: string,
     paneId: string,
     mode: AgentRestartMode,
-  ): Promise<void>;
+  ): Promise<RestartOutcome>;
   /** Bumped after the old PTY entry is retired to remount the same pane. */
   restartEpochs: Record<string, number>;
   /** Retry a pane whose spawn plan failed to build (no PTY was spawned) —
