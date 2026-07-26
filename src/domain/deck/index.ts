@@ -10,4 +10,5 @@ export * from "./panes";
 export * from "./persist";
 export * from "./railDnd";
 export * from "./reducer";
+export * from "./runIntent";
 export * from "./workspaces";

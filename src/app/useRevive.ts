@@ -9,7 +9,7 @@ import {
   findWorkspace,
   paneAgentType,
   paneIsRemoteFresh,
-  paneResumeSessionId,
+  paneRunIntent,
   paneWakeOrigin,
   skillRootsOf,
   type Pane,
@@ -209,8 +209,13 @@ export function useRevive(
     // the agent's identity mechanism) AND the catalog (see `agentsReady`).
     if (!active || !ctx || !agentsReady) return;
 
-    /** Resolve the resume session and wake one pane. */
-    const wake = async (ws: Workspace, pane: Pane, dir: string) => {
+    /** Wake one pane onto `sessionId`, or fresh when it is null. */
+    const wake = async (
+      ws: Workspace,
+      pane: Pane,
+      dir: string,
+      sessionId: string | null,
+    ) => {
       const agentType = paneAgentType(pane);
       // A recorded binding is TRUSTED: it came from the pane's own process
       // (the reporter posts at session creation), so it existed. If it was
@@ -222,8 +227,9 @@ export function useRevive(
       // is optional). A REMOTE pane is always fresh-session: even if a stale
       // binding clings to it, resuming would run locally and drop the
       // endpoint (the binding layer prevents new ones; this is the
-      // consume-side guard).
-      const sessionId = paneResumeSessionId(pane);
+      // consume-side guard). All of that is `paneRunIntent`'s answer, decided
+      // at the gate below and handed here rather than re-derived.
+      //
       // WHOSE resume this is decides what happens when the CLI rejects the id.
       // A boot restore takes the one-shot fall back to a fresh conversation —
       // nobody is watching, and an empty pane beats a dead one. A resume the
@@ -302,33 +308,31 @@ export function useRevive(
 
     for (const ws of deckRef.current.workspaces) {
       for (const pane of ws.panes) {
-        // Only a pane on its way up: a suspended or parked one waits for its
-        // card's explicit gesture, which routes through the same wake below
-        // once it flips the pane to `waking`.
-        const origin = paneWakeOrigin(pane);
-        if (!origin || pane.id in blocked || waking.current.has(pane.id))
-          continue;
-        // Lazy revive is about the panes that rise BY THEMSELVES: waking six
-        // restored agents in a workspace nobody has opened is what the policy
-        // exists to prevent. A pane someone asked for BY NAME is not that —
-        // `agent.resume` takes a workspace argument precisely so it can reach
-        // one that isn't on screen, and leaving that request unserved stranded
-        // the pane in a state that is neither running nor durably stopped.
-        if (ws.id !== active.id && origin !== "manual") continue;
-        // An agent no plugin provides must NOT wake: the spawn would run the
-        // bare id as a command, and the presence check would answer "absent"
-        // for the unknown store and WIPE a binding that resumes fine once the
-        // plugin returns. The pane stays idle behind its
-        // "agent unavailable" card.
+        // Whether a process ALREADY belongs to this pane. The deck's own
+        // marker is the only answer available here: a pane with none is up (or
+        // the render path is about to bring it up), and nothing in this sweep
+        // may touch it. The orchestrator replaces this with the session
+        // registry's answer once it owns the spawn.
+        if (!pane.idle || waking.current.has(pane.id)) continue;
+        // Everything else — a decision the user or the policy made, an agent
+        // no plugin provides, a directory that is gone, a workspace nobody has
+        // opened — is one question with one answer, and the reason it gives is
+        // the same reason the card shows.
         const agentType = paneAgentType(pane);
-        if (!agentsRef.current.some((a) => a.id === agentType)) continue;
+        const intent = paneRunIntent(pane, {
+          agentAvailable: agentsRef.current.some((a) => a.id === agentType),
+          missingDir: blocked[pane.id] ?? null,
+          workspaceActive: ws.id === active.id,
+        });
+        if (intent.kind === "hold") continue;
+        const sessionId = intent.resume?.sessionId ?? null;
         waking.current.add(pane.id);
         // A remote pane's agent runs against a VPS endpoint — it has no local
         // working directory to probe (so a gone workspace cwd never blocks it)
         // and no recorded session to resume (fresh-session only). Wake it
         // straight to a fresh remote plan built by the spawn-spec sweep.
         if (paneIsRemoteFresh(pane)) {
-          void wake(ws, pane, ws.cwd).finally(() =>
+          void wake(ws, pane, ws.cwd, sessionId).finally(() =>
             waking.current.delete(pane.id),
           );
           continue;
@@ -336,7 +340,7 @@ export function useRevive(
         const dir = pane.cwd ?? ws.cwd;
         void probeWorktree(dir)
           .then((probe) => {
-            if (probe.exists) return wake(ws, pane, dir);
+            if (probe.exists) return wake(ws, pane, dir, sessionId);
             settle(ws.id, pane, { kind: "blocked", dir });
           })
           // A probe that REJECTS is a failed attempt like any other: it used
