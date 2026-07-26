@@ -218,4 +218,60 @@ describe("FileViewer", () => {
     expect(body.scrollTop).toBe(0);
     expect(body.scrollLeft).toBe(0);
   });
+
+  it("the Markdown source is its own thing to read, from its own top", async () => {
+    const path = "/repo/README.md";
+    await mount(path, { [path]: fsFile(path, "# Title\n\nsome prose\n") });
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    body.scrollTop = 500;
+
+    await act(async () =>
+      host
+        .querySelector<HTMLElement>('[aria-label="Toggle Markdown source view"]')!
+        .click(),
+    );
+
+    // A document and its source share a path but not a single line, and the
+    // rendered view is the shorter of the two — carrying the offset over
+    // would have clamped it away and lost the place in both.
+    expect(host.querySelector(".files__code")).not.toBeNull();
+    expect(host.querySelector(".peek__body")).toBe(body);
+    expect(body.scrollTop).toBe(0);
+  });
+
+  it("toggling wrap holds the reader's line, not their pixel offset", async () => {
+    const path = "/repo/wide.ts";
+    const text = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
+    await mount(path, { [path]: fsFile(path, text) });
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    const code = host.querySelector<HTMLElement>(".files__code")!;
+
+    // happy-dom lays nothing out, so stand in for a layout: the viewport
+    // starts at 100 and rows are 20 tall, which puts row 5 as the first one
+    // still (partly) on screen.
+    vi.spyOn(body, "getBoundingClientRect").mockReturnValue({
+      top: 100,
+    } as DOMRect);
+    const rows = [...code.children];
+    rows.forEach((row, i) =>
+      vi.spyOn(row, "getBoundingClientRect").mockReturnValue({
+        bottom: i * 20 + 20,
+      } as DOMRect),
+    );
+    const held = rows.map((row) =>
+      vi.spyOn(row, "scrollIntoView").mockImplementation(() => {}),
+    );
+    body.scrollTop = 100;
+
+    await act(async () =>
+      host.querySelector<HTMLElement>('[aria-label="Toggle line wrapping"]')!.click(),
+    );
+
+    // Exactly the line they were reading is put back at the top. Wrapping
+    // re-lays-out the same lines, so it is NOT a different thing to read —
+    // the peek must not have reset anything.
+    expect(held.filter((row) => row.mock.calls.length)).toHaveLength(1);
+    expect(held[5]).toHaveBeenCalledWith({ block: "start" });
+    expect(body.scrollTop).toBe(100);
+  });
 });

@@ -1,4 +1,10 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import type { FsFile } from "@keepdeck/plugin-api";
 import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
@@ -61,6 +67,23 @@ export function FileViewer({
     };
   }, [path]);
 
+  // Wrapping re-lays-out the SAME lines, so the reader's place is a line, not
+  // a pixel offset — keeping the offset would drift them by however much the
+  // long lines above grew or shrank, and shrinking past the end would clamp it
+  // away for good. The anchor is read in the toggle handler because that is
+  // the last moment the old layout still exists.
+  const codeRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef(0);
+  const toggleWrap = () => {
+    anchorRef.current = firstVisibleRow(codeRef.current);
+    setWrap((on) => !on);
+  };
+  useLayoutEffect(() => {
+    codeRef.current?.children[anchorRef.current]?.scrollIntoView({
+      block: "start",
+    });
+  }, [wrap]);
+
   const openExternally = () => void getRuntime().services.opener.openPath(path);
   const hasText = file !== null && !file.isBinary && file.text !== null;
   const markdown = langFor(path) === "markdown";
@@ -93,7 +116,7 @@ export function FileViewer({
             <button
               type="button"
               className={`peek__act${wrap ? " peek__act--on" : ""}`}
-              onClick={() => setWrap((w) => !w)}
+              onClick={toggleWrap}
               title={wrap ? "Don't wrap lines" : "Wrap lines"}
               aria-label="Toggle line wrapping"
               aria-pressed={wrap}
@@ -114,8 +137,14 @@ export function FileViewer({
       }
       path={breadcrumb(root, path)}
       // The overlay reuses one viewer across open requests, so a second file
-      // opened over the first must not inherit its scroll offset.
-      scrollKey={path}
+      // opened over the first must not inherit its scroll offset. The
+      // rendering counts as part of what is being read: a document and its
+      // Markdown source share a path but not a single line, so carrying an
+      // offset between them lands nowhere in particular — and the taller-to-
+      // shorter direction would clamp it away, losing the place in BOTH.
+      // Wrapping is deliberately absent: same document, same lines, only laid
+      // out differently, and `toggleWrap` keeps the reader on their line.
+      scrollKey={`${path}\0${showRendered ? "document" : "source"}`}
       onClose={onClose}
     >
       {loading && <p className="peek__note">Loading…</p>}
@@ -141,6 +170,7 @@ export function FileViewer({
           wrap={wrap}
           truncated={file.truncated}
           size={file.size}
+          codeRef={codeRef}
         />
       )}
     </Peek>
@@ -159,18 +189,24 @@ function TextView({
   wrap,
   truncated,
   size,
+  codeRef,
 }: {
   text: string;
   path: string;
   wrap: boolean;
   truncated: boolean;
   size: number;
+  /** The rows' container, so the wrap toggle can keep the reader's line. */
+  codeRef: RefObject<HTMLDivElement | null>;
 }) {
   const lines = text.split("\n");
   const tokens = useHighlight(text, langFor(path));
   return (
     <>
-      <div className={`files__code${wrap ? " files__code--wrap" : ""}`}>
+      <div
+        ref={codeRef}
+        className={`files__code${wrap ? " files__code--wrap" : ""}`}
+      >
         {lines.map((line, index) => (
           // Lines are positional and never reordered — index is a stable key.
           <div className="files__coderow" key={index}>
@@ -187,6 +223,21 @@ function TextView({
       {truncated && <TruncatedNote size={size} />}
     </>
   );
+}
+
+/** Index of the first row the reader can still see — the line to hold onto
+ * while the rows are re-laid-out under them. Compared against the scroll
+ * viewport, which is the peek body this content sits in; `bottom > top` keeps
+ * the row that is only partly scrolled off, since that is the one being read.
+ * Falls back to the first row whenever there is nothing to measure. */
+function firstVisibleRow(code: HTMLDivElement | null): number {
+  const viewportTop = code?.parentElement?.getBoundingClientRect().top;
+  if (!code || viewportTop === undefined) return 0;
+  const rows = [...code.children];
+  const seen = rows.findIndex(
+    (row) => row.getBoundingClientRect().bottom > viewportTop,
+  );
+  return seen === -1 ? 0 : seen;
 }
 
 /** The read stopped at the fs cap — say so under either view, in one voice. */
