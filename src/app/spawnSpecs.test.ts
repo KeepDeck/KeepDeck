@@ -21,6 +21,7 @@ import {
   buildResumeSpec,
   clearPanePlanError,
   dropPaneSpawnSpec,
+  markPaneResumeOrigin,
   peekPanePlanError,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
@@ -575,4 +576,55 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(resumeDiedSilently({ args: [], env: [] }, 0)).toBe(false);
     expect(resumeDiedSilently(undefined, 0)).toBe(false);
   });
+
+  it("re-stamps a cached RESUME plan and leaves everything else about it alone", async () => {
+    // The origin arms (or disarms) the one-shot fall back to a fresh
+    // conversation, and it is the only field a mid-build change of requester
+    // needs to alter — the agent's `resume.plan` hook never sees it, so
+    // rebuilding would re-run a third party's code for nothing.
+    register(adopting);
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    await buildResumeSpec(
+      plugins,
+      "claude",
+      { paneId: "pane-1", workspace: W1, cwd: "/repo" },
+      ctx,
+      "old-id",
+      "restore",
+    );
+    const before = peekPaneSpawnSpec("pane-1")!;
+    expect(before.resumeOrigin).toBe("restore");
+
+    markPaneResumeOrigin("pane-1", "manual");
+
+    const after = peekPaneSpawnSpec("pane-1")!;
+    expect(after.resumeOrigin).toBe("manual");
+    // Same plan otherwise: the args the CLI runs, the bridge token its
+    // reporter echoes, and the resume key all have to survive untouched.
+    expect(after.args).toEqual(before.args);
+    expect(after.token).toBe(before.token);
+    expect(after.resumeOf).toBe(before.resumeOf);
+    // And the flip disarms the auto-fresh fallback, which is the point.
+    expect(resumeDiedSilently(after, after.postbackMark ?? 0)).toBe(false);
+  });
+
+  it("refuses a plan that is not a resume, and a pane with no plan at all", async () => {
+    // A fresh or forked plan has no requester to re-stamp; stamping one would
+    // put a resume field on a plan that never resumes anything.
+    register(adopting);
+    await mount(ws([{ id: "pane-1", agentType: "claude" }]));
+    await settle();
+    const fresh = peekPaneSpawnSpec("pane-1");
+    expect(fresh?.resumeOf).toBeUndefined();
+
+    markPaneResumeOrigin("pane-1", "manual");
+    expect(peekPaneSpawnSpec("pane-1")?.resumeOrigin).toBeUndefined();
+
+    // A dropped (or never-built) plan must not be resurrected by a stamp.
+    dropPaneSpawnSpec("pane-1");
+    markPaneResumeOrigin("pane-1", "manual");
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
+  });
 });
+
