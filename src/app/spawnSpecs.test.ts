@@ -627,4 +627,3 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
   });
 });
-
