@@ -16,9 +16,9 @@ import {
   scopeRange,
   scopeSha,
   shortSha,
-  type GitRange,
   type HistoryScope,
 } from "../domain/history";
+import { diffKey } from "../domain/peek";
 import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
 
 /** What the peek shows. `file` is a chosen row's diff (worktree or history
@@ -30,19 +30,6 @@ import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
 export type PeekView =
   | { kind: "file"; row: ChangeRow; changeSet: ChangeSet }
   | { kind: "waiting"; scope: HistoryScope };
-
-/** Identity of the diff on screen: which row, read at which revision range.
- * The fetch clears-and-refetches on it and the peek resets its scroll on it —
- * one definition, so the two can never disagree about what counts as "a
- * different diff". The range is load-bearing: one path browsed at two commits
- * renders the same name and the same header, and is not the same diff.
- *
- * `version` is deliberately absent. A watcher refresh re-reads the SAME diff
- * in place; treating that as a new diff would blank the body and throw the
- * reader back to the top every time the working tree moved. */
-function diffKey(row: ChangeRow, range: GitRange | undefined): string {
-  return `${row.kind}:${row.path}:${range?.from ?? ""}:${range?.to ?? ""}`;
-}
 
 /**
  * One change's diff, inside the shared `Peek` overlay (ui-kit) — the shell is
@@ -90,6 +77,9 @@ export function DiffPeek({
         ? view.changeSet.scope
         : null;
   const range = scope ? scopeRange(scope) : undefined;
+  // Which diff is on screen, decided once: the fetch below re-reads on it, the
+  // stale-content clear compares it, and the peek resets its scroll on it.
+  const key = diffKey(repo, row, range);
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Joined flat text compares by VALUE in the hook's deps, so rebuilding the
@@ -107,7 +97,6 @@ export function DiffPeek({
   useEffect(() => {
     // No file to diff yet — the rail seeds the first file of a History scope.
     if (!row) return;
-    const key = diffKey(row, range);
     if (diffKeyRef.current !== key) {
       diffKeyRef.current = key;
       setDiff(null);
@@ -146,7 +135,9 @@ export function DiffPeek({
     return () => {
       cancelled = true;
     };
-  }, [repo, row?.path, row?.kind, range?.from, range?.to, version]);
+    // `version` rides alongside the key rather than inside it: it is the one
+    // input that must refetch WITHOUT counting as a different diff.
+  }, [key, version]);
 
   const waiting = view.kind === "waiting";
   return (
@@ -184,13 +175,7 @@ export function DiffPeek({
           />
         )
       }
-      scrollKey={
-        // A scope with no file yet has a blank body — key it by the scope so
-        // seeding the first file reads as the content change it is.
-        view.kind === "file"
-          ? diffKey(view.row, range)
-          : `waiting:${range?.from ?? ""}:${range?.to ?? ""}`
-      }
+      scrollKey={key}
       onClose={onClose}
     >
       {/* A waiting scope has no file yet — the body stays blank; the rail
