@@ -11,7 +11,12 @@ import {
   type SpawnPlan,
   type SpawnPlanContext,
 } from "../domain/agents";
-import { paneAgentType, skillRootsOf, type Workspace } from "../domain/deck";
+import {
+  paneAgentType,
+  skillRootsOf,
+  type Pane,
+  type Workspace,
+} from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { mintBridgeToken } from "./ids";
 import { postbackCount } from "./postbacks";
@@ -342,10 +347,72 @@ export async function buildForkSpec(
 }
 
 /**
+ * Build and cache the ordinary spawn plan for ONE pane, if it still needs one.
+ * Resolves to whether the cache changed, so a caller that publishes a snapshot
+ * knows when to republish — a FAILED build counts, or the error tile never
+ * renders and the pane hangs on "Waking up…" until some unrelated change.
+ *
+ * Which panes qualify is decided here, once: a dormant one gets its plan at
+ * wake time instead (an exclusive resume plan, not this), a provisioning one
+ * has no working directory yet — building would plan a spawn into the
+ * workspace cwd, exactly the fallback the provisioning cards replaced — and an
+ * agent no plugin provides is blocked by its own card. A pane already holding
+ * a plan, mid-build, or with a failed build is left alone: the reservation is
+ * what keeps a StrictMode re-run, or a sweep racing a manual resume, from
+ * building twice.
+ *
+ * Separated from the sweep because the two answer different questions — what
+ * this pane needs, and when to look — and only the second one belongs to
+ * whoever is driving.
+ */
+export async function buildLivePaneSpec(
+  plugins: SpawnPluginAccess,
+  ws: Workspace,
+  pane: Pane,
+  ctx: SpawnPlanContext,
+): Promise<boolean> {
+  if (pane.idle || pane.provisioning) return false;
+  if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id)) {
+    return false;
+  }
+  const agent = findAgent(plugins, paneAgentType(pane));
+  if (!agent) return false;
+  try {
+    return await buildAndCache(pane.id, () =>
+      buildPlan(
+        plugins,
+        agent,
+        {
+          paneId: pane.id,
+          workspace: { id: ws.id, instance: ws.instance },
+          cwd: pane.cwd ?? ws.cwd,
+          branch: pane.branch,
+          yolo: pane.yolo,
+          wsSkillRoots: skillRootsOf(ws),
+          ...(pane.remoteEndpoint
+            ? {
+                target: {
+                  kind: "nativeServer" as const,
+                  endpoint: pane.remoteEndpoint,
+                },
+              }
+            : {}),
+        },
+        ctx,
+      ),
+    );
+  } catch (error) {
+    log.error(
+      "web:agents",
+      `${pane.id} plan build failed: ${describeError(error)}`,
+    );
+    // `buildAndCache` recorded the pane in `failed`; the cache DID change.
+    return true;
+  }
+}
+
+/**
  * The live panes' spawn plans, built lazily through the plugin hooks.
- * Dormant panes get theirs at revive time; a provisioning pane has no
- * working directory yet, so building would plan a spawn into the workspace
- * cwd — exactly the fallback the provisioning cards replaced.
  */
 export function usePaneSpawnSpecs(
   workspaces: Workspace[],
@@ -366,50 +433,10 @@ export function usePaneSpawnSpecs(
     if (!ctx || !agentsReady) return;
     let alive = true;
     for (const ws of workspaces) {
-      const wsSkillRoots = skillRootsOf(ws);
       for (const pane of ws.panes) {
-        if (pane.idle || pane.provisioning) continue;
-        if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id))
-          continue;
-        const agent = findAgent(plugins, paneAgentType(pane));
-        if (!agent) continue; // the unavailable card blocks the terminal
-        void buildAndCache(pane.id, () =>
-          buildPlan(
-            plugins,
-            agent,
-            {
-              paneId: pane.id,
-              workspace: { id: ws.id, instance: ws.instance },
-              cwd: pane.cwd ?? ws.cwd,
-              branch: pane.branch,
-              yolo: pane.yolo,
-              wsSkillRoots,
-              ...(pane.remoteEndpoint
-                ? {
-                    target: {
-                      kind: "nativeServer" as const,
-                      endpoint: pane.remoteEndpoint,
-                    },
-                  }
-                : {}),
-            },
-            ctx,
-          ),
-        )
-          .then((committed) => {
-            if (committed && alive) setTick((t) => t + 1);
-          })
-          .catch((error: unknown) => {
-            log.error(
-              "web:agents",
-              `${pane.id} plan build failed: ${describeError(error)}`,
-            );
-            // A failed build recorded the pane in `failed`; bump the tick so
-            // the snapshot refreshes and DeckStage re-reads peekPanePlanError
-            // — without this the error tile never renders and the pane hangs
-            // on "Waking up…" until some unrelated re-render happens.
-            if (alive) setTick((t) => t + 1);
-          });
+        void buildLivePaneSpec(plugins, ws, pane, ctx).then((changed) => {
+          if (changed && alive) setTick((t) => t + 1);
+        });
       }
     }
     return () => {
