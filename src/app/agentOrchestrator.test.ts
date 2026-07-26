@@ -1333,6 +1333,29 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
     expect(peekPaneSpawnSpec("pane-2")?.args).toEqual(["--resume", "s-2"]);
   });
 
+  it("actually STARTS the off-screen pane it says it is resuming", async () => {
+    // The whole point of the workspace argument. The wake cleared the pane's
+    // durable `suspended` stamp and the next pass then judged it by the
+    // unopened-workspace economy — which the request is exempt from — so the
+    // pane was left neither running nor durably stopped. Quitting before
+    // visiting ws-2 persisted it as a plain running pane, and the next launch
+    // started the agent the user had parked.
+    act(() =>
+      deck.hydrate(twoWorkspaces({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" })),
+    );
+    await settle();
+    pty.acquired = [];
+
+    act(() => {
+      agentRun.resume("ws-2", "pane-2");
+    });
+    await settle();
+
+    expect(background().idle).toBeUndefined();
+    expect(pty.acquired.map((a) => a.paneId)).toEqual(["pane-2"]);
+    expect(agentRun.specs["pane-2"]).toBeDefined();
+  });
+
   it("refuses a pane no plugin can start, instead of stranding it", async () => {
     // The sweep skips a pane whose agent no plugin provides, so marking it
     // `waking` puts it somewhere nothing will ever settle: the durable

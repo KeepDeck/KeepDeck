@@ -505,13 +505,16 @@ export function createAgentOrchestrator(
       deck.getSnapshot().workspaces.flatMap((w) => w.panes.map((p) => p.id)),
     );
     let dropped = false;
-    for (const map of [blocked, wakeFailed]) {
+    for (const map of [blocked, wakeFailed, epochs]) {
       for (const paneId of [...map.keys()]) {
         if (!live.has(paneId)) {
           map.delete(paneId);
           dropped = true;
         }
       }
+    }
+    for (const paneId of [...askedByName]) {
+      if (!live.has(paneId)) askedByName.delete(paneId);
     }
     return dropped;
   }
@@ -636,6 +639,17 @@ export function createAgentOrchestrator(
    * by recorded session id. A double-click guard only: forking the same
    * session repeatedly is legitimate, racing two at once is not. */
   const continuing = new Set<string>();
+
+  /**
+   * Panes the user asked for BY NAME that have not started yet.
+   *
+   * The request has to outlive the pane's own `waking` marker, which is
+   * cleared the moment the wake succeeds — one pass before the process is
+   * acquired. Held here rather than on the pane because it is not a fact
+   * about the pane: it is a fact about a request in flight, and it stops
+   * being true as soon as the pane has a process.
+   */
+  const askedByName = new Set<string>();
 
   /** Panes whose process is being reaped. Distinct from `inFlight`, which
    * tracks panes on their way UP: the two gestures can be asked for in either
@@ -892,12 +906,17 @@ export function createAgentOrchestrator(
           missingDir: blocked.get(pane.id) ?? null,
           workspaceActive: ws.id === active.id,
           parkOnLaunch: launchPolicy.parkOnLaunch(),
+          askedByName: askedByName.has(pane.id),
         });
         if (intent.kind === "run" && !pane.idle) {
           // A pane with no marker: it should run, and the only question left
           // is whether it already does and whether there is anything to run.
           // Never a reason to END one — this pass starts processes only.
-          if (sessions.state(pane.id).kind !== "none") continue;
+          if (sessions.state(pane.id).kind !== "none") {
+            // It has one: whatever was asked for by name has happened.
+            askedByName.delete(pane.id);
+            continue;
+          }
           const spec = peekPaneSpawnSpec(pane.id);
           if (!spec) continue;
           sessions.acquire(pane.id, {
@@ -1352,6 +1371,7 @@ export function createAgentOrchestrator(
       let changed = blocked.delete(paneId);
       changed = wakeFailed.delete(paneId) || changed;
       if (changed) publish();
+      askedByName.add(paneId);
       actions.resetPaneLocation(wsId, paneId);
       // Ask for a wake rather than clearing the marker outright: the pane is
       // pointed at the workspace folder now, and the sweep should probe it like
@@ -1373,6 +1393,7 @@ export function createAgentOrchestrator(
       let changed = blocked.delete(paneId);
       changed = wakeFailed.delete(paneId) || changed;
       if (changed) publish();
+      askedByName.add(paneId);
       actions.requestPaneWake(wsId, paneId);
       return "resuming";
     },

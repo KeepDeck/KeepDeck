@@ -15,6 +15,7 @@ const env = (over: Partial<PaneRunEnv> = {}): PaneRunEnv => ({
   missingDir: null,
   workspaceActive: true,
   parkOnLaunch: false,
+  askedByName: false,
   ...over,
 });
 
@@ -130,6 +131,16 @@ describe("paneRunIntent — lazy revive", () => {
       kind: "hold",
       reason: { kind: "workspace-inactive" },
     });
+  });
+
+  it("keeps running a pane asked for by name AFTER its marker is cleared", () => {
+    // The wake succeeds one pass before the process is acquired, and the
+    // marker that carried the exemption is cleared in between. Reading the
+    // exemption off the marker alone stranded the pane in that gap: no
+    // durable stamp, no process, and a command that reported success.
+    expect(
+      paneRunIntent(pane(), env({ workspaceActive: false, askedByName: true })),
+    ).toEqual({ kind: "run", resume: null });
   });
 
   it("runs a pane asked for BY NAME off screen — the request must reach it", () => {

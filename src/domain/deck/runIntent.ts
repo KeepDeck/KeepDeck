@@ -84,6 +84,17 @@ export interface PaneRunEnv {
    * governs, whether it was restored a second ago or has been waiting in an
    * unopened workspace since the app booted. */
   parkOnLaunch: boolean;
+  /**
+   * The user asked for THIS pane by name and it has not started yet — a
+   * clicked Resume, `agent.resume` with a workspace argument, a Start fresh.
+   *
+   * Separate from the pane's own `waking` origin because that marker is
+   * cleared the moment the wake succeeds, one pass BEFORE the process is
+   * acquired. Reading the exemption off the marker meant an off-screen pane
+   * lost it in exactly that gap and was held by the economy rule forever:
+   * its durable stamp gone, no process, the command reporting success.
+   */
+  askedByName: boolean;
 }
 
 export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
@@ -101,7 +112,7 @@ export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
   // caller's half of the comparison, and an existing one is never disturbed by
   // a hold.
   if (!idle) {
-    return env.workspaceActive
+    return env.workspaceActive || env.askedByName
       ? { kind: "run", resume: null }
       : hold({ kind: "workspace-inactive" });
   }
@@ -117,7 +128,7 @@ export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
   if (env.missingDir !== null) {
     return hold({ kind: "worktree-missing", dir: env.missingDir });
   }
-  if (!env.workspaceActive && idle.origin !== "manual") {
+  if (!env.workspaceActive && idle.origin !== "manual" && !env.askedByName) {
     return hold({ kind: "workspace-inactive" });
   }
   // A remote pane answers null here (its conversation lives on the server, so
