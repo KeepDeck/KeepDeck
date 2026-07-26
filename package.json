@@ -1,7 +1,7 @@
 {
   "name": "keepdeck",
   "private": true,
-  "version": "0.16.30",
+  "version": "0.16.31",
   "packageManager": "pnpm@10.28.0",
   "description": "Desktop deck for a fleet of coding agents.",
   "type": "module",
