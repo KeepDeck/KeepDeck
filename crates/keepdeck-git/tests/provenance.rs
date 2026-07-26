@@ -138,6 +138,63 @@ fn a_pinned_base_birth_branch_is_claimed() {
     fs::remove_dir_all(&wt_root).ok();
 }
 
+/// The attach a TRUSTED source cannot be rejected on: `git branch mine HEAD`
+/// records `branch: Created from HEAD`, which passes the trust guard, so the
+/// SECOND is the only thing separating it from a branch this worktree was
+/// born with. One second later it must not be claimed.
+///
+/// This is the shape the destructive regression flowed through. Every other
+/// attach test here uses a NAME-sourced branch, which the trust guard refuses
+/// before the timestamp is ever consulted — so none of them could see a
+/// widened second, and a change that deleted a user's branch shipped with the
+/// suite green. Pinned with `git_at`, so the boundary is asserted rather than
+/// raced for.
+#[test]
+fn a_trusted_source_attach_a_second_later_is_not_claimed() {
+    let repo_dir = init_repo();
+    git_at(&repo_dir, BIRTH, &["branch", "mine", "HEAD"]);
+
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("agent-1");
+    git_at(
+        &repo_dir,
+        BIRTH + 1,
+        &["worktree", "add", "-q", wt.to_str().unwrap(), "mine"],
+    );
+
+    let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
+    assert!(
+        created.is_empty(),
+        "claimed a branch this worktree was only handed: {created:?}",
+    );
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
+/// The same shape inside ONE second IS claimed — the residual the module doc
+/// records. Asserted so the boundary is visible: widening the rule by a
+/// single tick turns the test above into this one.
+#[test]
+fn a_trusted_source_attach_in_the_same_second_is_the_documented_residual() {
+    let repo_dir = init_repo();
+    git_at(&repo_dir, BIRTH, &["branch", "mine", "HEAD"]);
+
+    let wt_root = unique_dir("wt");
+    let wt = wt_root.join("agent-1");
+    git_at(
+        &repo_dir,
+        BIRTH,
+        &["worktree", "add", "-q", wt.to_str().unwrap(), "mine"],
+    );
+
+    let created = provenance::created_branches(&repo_dir, &wt).expect("provenance");
+    assert_eq!(created, ["mine"], "the residual changed shape");
+
+    fs::remove_dir_all(&repo_dir).ok();
+    fs::remove_dir_all(&wt_root).ok();
+}
+
 /// The reproduced false-claim, attach arm: `git branch X && git worktree add
 /// wt X` inside ONE second. The attach's birth reflog is byte-identical to a
 /// `-b` creation's — the trust guard (X is name-sourced) is what rejects it.

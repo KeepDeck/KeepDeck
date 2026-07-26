@@ -11,8 +11,9 @@
 //!
 //! A branch is attributed to worktree W when its creation stamp lines up with
 //! W's HEAD log — same timestamp AND same branch name as a checkout target
-//! (`git switch -c`), or, for the branch W was born on, the same timestamp as
-//! W's birth entry (`git worktree add -b`, which writes no checkout line) —
+//! (`git switch -c`), or, for the branch W was born on, the same timestamp
+//! AND the same COMMIT as W's birth entry (`git worktree add -b`, which
+//! writes no checkout line) —
 //! AND its creation SOURCE is one a single create-and-checkout operation
 //! writes: `HEAD` (`switch -c`, `worktree add -b` off HEAD) or a full commit
 //! sha (a pinned-base `worktree add -b <path> <sha>`, KeepDeck's own create).
@@ -43,6 +44,14 @@
 //! - a created branch later RENAMED — the checkout entries still carry the old
 //!   name, so the new name no longer pairs up.
 //! - expired or disabled reflogs — no evidence, no claim.
+//! - `worktree add -b` whose two ref writes STRADDLE a tick. It forks
+//!   `git branch` as a child process and samples the clock again for the
+//!   worktree's HEAD, so under load the two land a second apart and the
+//!   branch goes unattributed. Measured at 3 in 10 runs of a loaded test
+//!   suite, so it is the likeliest reason a KeepDeck-made `kd/ws/N` survives
+//!   "Also delete the worktree and its branches". Deliberate: the alternative
+//!   is a tolerance, and a tolerance cannot tell this apart from the residual
+//!   below — a miss keeps a branch, a false claim deletes one.
 //!
 //! Residual false-claim: a standalone creation with a TRUSTED source —
 //! `git branch Y HEAD` or `git branch Y <sha>`, which check nothing out —
@@ -137,8 +146,9 @@ fn initial_branch<'a>(entries: &'a [ReflogEntry], fallback: Option<&'a str>) -> 
 }
 
 /// The provenance verdict for one branch: does its creation stamp pair up with
-/// this worktree's HEAD log (birth entry for the initial branch, else a
-/// same-second checkout TO that branch)?
+/// this worktree's HEAD log — for the initial branch, the birth entry on BOTH
+/// second and commit; otherwise a same-second checkout TO that branch whose
+/// old and new sides agree. `creation` is that stamp: `(second, commit)`.
 fn is_created_here(
     entries: &[ReflogEntry],
     initial: Option<&str>,
@@ -459,9 +469,10 @@ mod tests {
         assert!(!is_created_here(&log, Some("born"), "no-checkout", (200, "A")));
         // Switched TO at 300, but created earlier elsewhere.
         assert!(!is_created_here(&log, Some("born"), "other", (250, "B")));
-        // A checkout target keeps the exact-second rule: only the BIRTH entry
-        // is written by the same command as the branch ref, so only it can
-        // straddle a tick with it.
+        // A second off is a second off on this arm too — the rule is exact
+        // everywhere, and a `switch -c` could not straddle a tick anyway: it
+        // is one builtin writing both refs, where `worktree add -b` forks
+        // `git branch` as a CHILD PROCESS and samples the clock twice.
         assert!(!is_created_here(&log, Some("born"), "inside", (199, "A")));
     }
 
