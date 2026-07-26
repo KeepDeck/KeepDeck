@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  blockingIssue,
   chordFromEvent,
   chordsEqual,
   DEFAULT_BINDINGS,
@@ -10,7 +11,9 @@ import {
   matchChord,
   parseBindings,
   pttMode,
+  standingWarning,
   validateChord,
+  withSlot,
   type Chord,
   type KeyLike,
   type VoiceBindings,
@@ -213,5 +216,40 @@ describe("formatChord / isModifierKey", () => {
       expect(isModifierKey(k)).toBe(true);
     }
     expect(isModifierKey("a")).toBe(false);
+  });
+});
+
+describe("withSlot / blockingIssue / standingWarning", () => {
+  it("rebinds one slot and carries the other through untouched", () => {
+    const next = chord({ code: "KeyJ", ctrl: true });
+
+    const bound = withSlot(DEFAULT_BINDINGS, "command", next);
+
+    expect(bound.command).toEqual(next);
+    // The pair persists whole: parseBindings reads both slots, so a write that
+    // dropped this one would reset dictation to its shipped chord.
+    expect(bound.dictation).toEqual(DEFAULT_BINDINGS.dictation);
+  });
+
+  it("blocks a chord already bound to the other slot, and Escape", () => {
+    expect(blockingIssue("command", DEFAULT_BINDINGS.dictation, DEFAULT_BINDINGS)).toMatch(
+      /different chords/,
+    );
+    expect(blockingIssue("command", chord({ code: "Escape" }), DEFAULT_BINDINGS)).toMatch(
+      /reserved/,
+    );
+  });
+
+  it("lets a warned chord through — a warning informs, it does not block", () => {
+    // No ⌥/⌃/⌘: warned as terminal-shadowing, but the user asked for it.
+    expect(blockingIssue("command", chord({ code: "KeyB" }), DEFAULT_BINDINGS)).toBeNull();
+  });
+
+  it("surfaces the standing warning only for a modifier-less persisted chord", () => {
+    const bare = withSlot(DEFAULT_BINDINGS, "command", chord({ code: "KeyB" }));
+
+    expect(standingWarning("command", bare)).toMatch(/shadow/);
+    expect(standingWarning("dictation", bare)).toBeNull();
+    expect(standingWarning("command", DEFAULT_BINDINGS)).toBeNull();
   });
 });

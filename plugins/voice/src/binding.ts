@@ -182,6 +182,46 @@ export function validateChord(
   return issues;
 }
 
+/**
+ * One slot rebound, as the COMPLETE pair that persists under
+ * {@link HOTKEYS_KEY}: {@link parseBindings} reads a pair, so a write carrying
+ * one slot alone would silently drop the other to its shipped default.
+ */
+export function withSlot(
+  bindings: VoiceBindings,
+  slot: keyof VoiceBindings,
+  chord: Chord,
+): VoiceBindings {
+  return { ...bindings, [slot]: chord };
+}
+
+/** The recorder's gate: the message of the first ERROR a proposed chord raises
+ * for that slot, or null when it may be bound — warnings inform, they never
+ * block (see {@link validateChord}). */
+export function blockingIssue(
+  slot: keyof VoiceBindings,
+  chord: Chord,
+  bindings: VoiceBindings,
+): string | null {
+  const blocking = validateChord(slot, chord, bindings).find(
+    (issue) => issue.severity === "error",
+  );
+  return blocking?.message ?? null;
+}
+
+/** The standing warning for an ALREADY-persisted chord (a modifier-less
+ * binding), or null. The duplicate/Escape errors can't apply to a state that is
+ * already on disk, so only warnings surface for one. */
+export function standingWarning(
+  slot: keyof VoiceBindings,
+  bindings: VoiceBindings,
+): string | null {
+  const warning = validateChord(slot, bindings[slot], bindings).find(
+    (issue) => issue.severity === "warning",
+  );
+  return warning?.message ?? null;
+}
+
 /** A readable chord label in mac glyph order (⌃⌥⇧⌘): ⌥⇧Space, ⌃⌘J. */
 export function formatChord(chord: Chord): string {
   const parts: string[] = [];

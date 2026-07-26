@@ -1,12 +1,14 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { CustomSettingsFieldProps } from "@keepdeck/plugin-api";
 import {
+  blockingIssue,
   chordFromEvent,
   DEFAULT_BINDINGS,
   formatChord,
   HOTKEYS_KEY,
   isModifierKey,
-  validateChord,
+  standingWarning,
+  withSlot,
   type VoiceBindings,
 } from "../binding";
 import { runtime } from "../runtime";
@@ -59,14 +61,12 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
       // Wait for the main key — a chord is modifiers PLUS one key.
       if (isModifierKey(e.key)) return;
       const next = chordFromEvent(e);
-      const blocking = validateChord(recording, next, bindings).find(
-        (i) => i.severity === "error",
-      );
+      const blocking = blockingIssue(recording, next, bindings);
       if (blocking) {
-        setError(blocking.message);
+        setError(blocking);
         return; // stay recording; let the user try another chord
       }
-      write(HOTKEYS_KEY, { ...bindings, [recording]: next });
+      write(HOTKEYS_KEY, withSlot(bindings, recording, next));
       setError(null);
       setRecording(null);
     };
@@ -90,7 +90,7 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
   const reset = (slot: keyof VoiceBindings): void => {
     setError(null);
     setRecording(null);
-    write(HOTKEYS_KEY, { ...bindings, [slot]: DEFAULT_BINDINGS[slot] });
+    write(HOTKEYS_KEY, withSlot(bindings, slot, DEFAULT_BINDINGS[slot]));
   };
 
   return (
@@ -102,7 +102,7 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
       </div>
       {ROWS.map((row) => {
         const isRecording = recording === row.slot;
-        const warning = warningFor(row.slot, bindings);
+        const warning = standingWarning(row.slot, bindings);
         return (
           <div key={row.slot} className="voice-hotkeys__row">
             <div className="voice-hotkeys__labels">
@@ -141,17 +141,4 @@ export function HotkeysSection({ write }: CustomSettingsFieldProps) {
       })}
     </div>
   );
-}
-
-/** The standing warning for a persisted chord (a modifier-less binding), or
- * null. The duplicate/Escape errors can't apply to an already-persisted state,
- * so only warnings surface here. */
-function warningFor(
-  slot: keyof VoiceBindings,
-  bindings: VoiceBindings,
-): string | null {
-  const w = validateChord(slot, bindings[slot], bindings).find(
-    (i) => i.severity === "warning",
-  );
-  return w?.message ?? null;
 }
