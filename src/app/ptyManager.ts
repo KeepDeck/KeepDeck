@@ -72,7 +72,6 @@ interface Entry {
    * (resume ids go stale the moment the session runs), so they don't key. */
   key: string;
   session: Session | null;
-  sink: PaneSink | null;
   chunks: Uint8Array[];
   buffered: number;
   exited: { code: number | null } | null;
@@ -116,6 +115,19 @@ export type PaneSessionState =
   | { kind: "failed"; message: string };
 
 const entries = new Map<string, Entry>();
+
+/**
+ * The views listening to each pane, kept OUTSIDE the session entry.
+ *
+ * A view used to be reachable only through the entry, which made the order of
+ * `acquirePane` and `attachPane` load-bearing: a terminal that attached first
+ * found no entry, got a no-op detach, and sat empty forever. That was safe
+ * only while the same effect did both. With the spawn owned by the
+ * orchestrator the two happen independently, so the listener has to be able to
+ * arrive first — and, having arrived, to survive the session being replaced
+ * under it (a restart hands the same view a new process).
+ */
+const sinks = new Map<string, PaneSink>();
 
 /** Shared so an absent pane always answers with the SAME object: consumers
  * subscribe through `useSyncExternalStore`, which re-renders forever on a
@@ -164,7 +176,6 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     paneId,
     key: identity(spec),
     session: null,
-    sink: null,
     chunks: [],
     buffered: 0,
     exited: null,
@@ -192,12 +203,12 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       if (entry.closed) return;
       if (event.type === "output") {
         const bytes = new Uint8Array(event.bytes);
-        entry.sink?.onOutput(bytes);
+        sinks.get(paneId)?.onOutput(bytes);
         if (!entry.launched) {
           // First byte from the process: the CLI has painted — announce the
           // launch once, then never again for this session.
           entry.launched = true;
-          entry.sink?.onLaunched();
+          sinks.get(paneId)?.onLaunched();
         }
         remember(entry, bytes);
       } else {
@@ -205,9 +216,10 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         entry.session = null;
         setSessionState(paneId, { kind: "exited", code: event.code });
         log.info("web:pty", `${paneId}: exited (code ${event.code ?? "?"})`);
-        if (entry.sink) {
+        const sink = sinks.get(paneId);
+        if (sink) {
           entry.exitAnnounced = true;
-          entry.sink.onExit(event.code, false);
+          sink.onExit(event.code, false);
         }
       }
     },
@@ -223,16 +235,17 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       // An exit can land before the spawn promise settles (a process that dies
       // immediately) — the death is the later truth, so it must not be undone.
       if (!entry.exited) setSessionState(paneId, { kind: "live" });
-      entry.sink?.onReady();
+      sinks.get(paneId)?.onReady();
     })
     .catch((err: unknown) => {
       if (entry.closed) return;
       entry.failed = describeError(err);
       setSessionState(paneId, { kind: "failed", message: entry.failed });
       log.error("web:pty", `${paneId}: spawn failed: ${entry.failed}`);
-      if (entry.sink) {
+      const sink = sinks.get(paneId);
+      if (sink) {
         entry.failedAnnounced = true;
-        entry.sink.onSpawnError(entry.failed, false);
+        sink.onSpawnError(entry.failed, false);
       }
     });
 }
@@ -241,11 +254,21 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
  * Point the pane's view at its session: recent output replays first, then the
  * session's current state (ready / exited / failed) is announced. Returns the
  * detach fn for the view's cleanup — detaching leaves the session running.
+ *
+ * Attaching BEFORE there is a session is fine and expected: the view mounts
+ * when the deck renders it, the process starts when the orchestrator decides
+ * it should, and neither waits for the other. The listener is simply recorded
+ * and hears the session from its first event.
  */
 export function attachPane(paneId: string, sink: PaneSink): () => void {
+  sinks.set(paneId, sink);
+  const detach = () => {
+    // Only detach if this sink is still the current one — a re-mount may have
+    // already attached its own before the old cleanup ran.
+    if (sinks.get(paneId) === sink) sinks.delete(paneId);
+  };
   const entry = entries.get(paneId);
-  if (!entry) return () => {};
-  entry.sink = sink;
+  if (!entry) return detach;
   for (const chunk of entry.chunks) sink.onOutput(chunk);
   if (entry.failed !== null) {
     // Same once-per-failure contract as exits below: a failure nobody heard
@@ -264,11 +287,7 @@ export function attachPane(paneId: string, sink: PaneSink): () => void {
   // Already-launched session (re-attach): tell the view now, after the replay,
   // so it opens without the launch overlay instead of flashing it again.
   if (entry.launched) sink.onLaunched();
-  return () => {
-    // Only detach if this sink is still the current one — a re-mount may have
-    // already attached its own before the old cleanup ran.
-    if (entries.get(paneId) === entry && entry.sink === sink) entry.sink = null;
-  };
+  return detach;
 }
 
 /**
@@ -306,7 +325,8 @@ export function closePane(paneId: string): Promise<void> {
   states.delete(paneId);
   for (const listener of [...stateListeners]) listener();
   entry.closed = true;
-  entry.sink = null;
+  // The listener is NOT dropped: the view outlives the session it was showing,
+  // and a restart hands the same terminal the next process.
   entry.chunks = [];
   entry.buffered = 0;
   const session = entry.session;
@@ -327,6 +347,9 @@ export function closePanes(paneIds: string[]): Promise<void> {
 /** Test hook: drop every entry, closing what's live. */
 export function resetPtyManager(): void {
   for (const id of [...entries.keys()]) void closePane(id);
+  // Listeners outlive the sessions they watch — deliberately, so a restart
+  // keeps the same terminal attached — so nothing else drops them.
+  sinks.clear();
 }
 
 function remember(entry: Entry, bytes: Uint8Array): void {

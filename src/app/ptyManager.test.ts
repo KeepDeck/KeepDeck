@@ -150,6 +150,39 @@ describe("attachPane", () => {
     expect(late.onReady).toHaveBeenCalledTimes(1);
   });
 
+  it("takes a listener that arrives BEFORE the session and feeds it from the first event", async () => {
+    // The view mounts when the deck renders it; the process starts when the
+    // orchestrator decides it should. Neither waits for the other, so a
+    // listener that arrives first used to attach to nothing and sit empty.
+    const sink = makeSink();
+    attachPane("pane-1", sink);
+
+    acquirePane("pane-1", SPEC);
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+    expect(sink.onReady).toHaveBeenCalled();
+
+    output(0, 7);
+    expect(sink.onOutput).toHaveBeenCalledWith(new Uint8Array([7]));
+    expect(sink.onLaunched).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the listener across a session being replaced under it", async () => {
+    // A restart closes the process and spawns another into the same pane. The
+    // terminal is not remounted for that, so dropping its listener on close
+    // would leave it showing a session nobody is feeding.
+    const sink = makeSink();
+    acquirePane("pane-1", SPEC);
+    attachPane("pane-1", sink);
+    await closePane("pane-1");
+
+    acquirePane("pane-1", SPEC);
+    harness.spawns[1].resolve(harness.makeSession());
+    await settle();
+    output(1, 5);
+    expect(sink.onOutput).toHaveBeenCalledWith(new Uint8Array([5]));
+  });
+
   it("a death nobody heard reaches its FIRST listener as live; later attaches replay", async () => {
     acquirePane("pane-1", SPEC);
     harness.spawns[0].resolve(harness.makeSession());
