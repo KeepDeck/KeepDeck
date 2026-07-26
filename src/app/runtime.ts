@@ -12,6 +12,7 @@ import {
   type AgentCatalogPort,
 } from "./agentOrchestrator";
 import { getSettings, subscribeSettings } from "./settingsManager";
+import { subscribeSessions } from "./ptyManager";
 import { openPath } from "../ipc/app";
 import { probeWorktree } from "../ipc/worktree";
 import { log } from "../ipc/log";
@@ -66,6 +67,7 @@ export function createAppRuntime(
         parkOnLaunch: () => getSettings()?.parkAgentsOnLaunch ?? false,
         subscribe: subscribeSettings,
       },
+      sessions: { subscribe: subscribeSessions },
       plugins,
       probe: probeWorktree,
     }),

@@ -31,7 +31,6 @@ import { useMinimizeMode } from "./app/useMinimizeMode";
 import { DEFAULT_SETTINGS } from "./domain/settings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
-import { usePaneSpawnSpecs } from "./app/spawnSpecs";
 import { useAgentRestart } from "./app/useAgentRestart";
 import { setSourceVisibilityProbe } from "./app/notificationCenter";
 import {
@@ -159,17 +158,11 @@ function App() {
     wsId: string;
     record: SessionHandle;
   } | null>(null);
-  // Every live pane's spawn plan, built through its agent plugin's hooks
-  // (async — the pane's terminal waits for its plan; mounting is what
-  // spawns). Dormant panes get theirs at revive time.
-  // Restart epochs force a full remount only after an explicit manual restart
-  // (or the accepted boot-recovery exception) has retired the old PTY entry.
-  const { specs: specByPane, failed: failedPanes } = usePaneSpawnSpecs(
-    deck.workspaces,
-    spawnCtx,
-    !agentsLoading,
-    agentRestart.epochs,
-  );
+  // Every live pane's spawn plan comes from the orchestrator, which builds it
+  // through the agent plugin's hooks as part of the same reconciliation that
+  // decides the pane should run at all.
+  const specByPane = runView.specs;
+  const failedPanes = runView.planFailed;
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
   useSessionBinding(deck);
   // Wire bridge usage reports into the usage store (single mount) and prune

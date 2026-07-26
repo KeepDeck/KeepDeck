@@ -44,6 +44,10 @@ const gate = vi.hoisted(() => ({ build: null as Promise<void> | null }));
 vi.mock("./spawnSpecs", () => {
   const specs = new Map<string, unknown>();
   return {
+    // These tests are about WAKING; the ordinary live-pane plan sweep is
+    // covered in spawnSpecs.test.ts and only has to stay out of the way.
+    buildLivePaneSpec: vi.fn(async () => false),
+    peekPanePlanError: () => false,
     buildResumeSpec: vi.fn(
       async (
         _plugins: unknown,
@@ -120,6 +124,7 @@ function Probe() {
           parkOnLaunch: () => catalog.parkOnLaunch,
           subscribe: () => () => {},
         },
+        sessions: { subscribe: () => () => {} },
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
       }),

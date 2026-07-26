@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import type {
   AgentContribution,
   ForkPlanInput,
@@ -22,9 +21,7 @@ import { mintBridgeToken } from "./ids";
 import { postbackCount } from "./postbacks";
 import { stagedSkillsFor } from "./skillsStaging";
 import type { PluginManager } from "./pluginManager";
-import { useAppRuntime } from "./runtimeContext";
 import { execCovers } from "../plugins/capabilities/execCovers";
-import { useContributions } from "../plugins/react";
 
 export type SpawnPluginAccess = Pick<
   PluginManager,
@@ -412,53 +409,8 @@ export async function buildLivePaneSpec(
 }
 
 /**
- * The live panes' spawn plans, built lazily through the plugin hooks.
+ * When to look for the plans is the orchestrator's — see its reconcile.
  */
-export function usePaneSpawnSpecs(
-  workspaces: Workspace[],
-  ctx: SpawnPlanContext | null,
-  agentsReady: boolean,
-  /** Any value whose change must re-run the build sweep — the respawn
-   * path drops a plan from the module cache, which no other dep observes. */
-  rebuildKey?: unknown,
-): SpawnSpecs {
-  const { plugins } = useAppRuntime();
-  const contributions = useContributions(plugins.pluginRegistries.agents);
-  // The cache version: bumped when a build lands, so the snapshot below
-  // refreshes. (Resume plans land via `buildResumeSpec` before `clearPaneIdle`
-  // flips deck state — that state change refreshes the snapshot instead.)
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    if (!ctx || !agentsReady) return;
-    let alive = true;
-    for (const ws of workspaces) {
-      for (const pane of ws.panes) {
-        void buildLivePaneSpec(plugins, ws, pane, ctx).then((changed) => {
-          if (changed && alive) setTick((t) => t + 1);
-        });
-      }
-    }
-    return () => {
-      alive = false;
-    };
-  }, [workspaces, ctx, agentsReady, contributions, rebuildKey, plugins]);
-
-  // A fresh snapshot object per cache change — cheap (small maps), and lets
-  // consumers stay referentially honest. `failed` rides the SAME snapshot so a
-  // failure re-renders consumers with the new set in hand (no render-time
-  // side-channel into the module-level `failed` Set).
-  return useMemo(() => {
-    const snapshot: Record<string, SpawnPlan> = {};
-    for (const ws of workspaces) {
-      for (const pane of ws.panes) {
-        const spec = specs.get(pane.id);
-        if (spec) snapshot[pane.id] = spec;
-      }
-    }
-    return { specs: snapshot, failed: new Set(failed) };
-  }, [workspaces, tick, rebuildKey]);
-}
 
 /** The cached plan, if any (no building) — for the binding effect. */
 export function peekPaneSpawnSpec(paneId: string): SpawnPlan | undefined {

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -13,7 +13,6 @@ import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createContributionRegistries } from "../plugins/registries/contributions";
 import type { AppRuntime } from "./runtime";
-import { AppRuntimeProvider } from "./runtimeContext";
 import { invalidateSkillsStaging } from "./skillsStaging";
 import {
   bindPaneSpawnSpecSession,
@@ -28,7 +27,7 @@ import {
   resumeDiedSilently,
   spawnPlanNeedsUsageBaseline,
   type SpawnPluginAccess,
-  usePaneSpawnSpecs,
+  buildLivePaneSpec,
 } from "./spawnSpecs";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -83,10 +82,6 @@ const ws = (panes: Workspace["panes"]): Workspace[] => [
 ];
 
 let seen: Record<string, SpawnPlan>;
-function Probe({ workspaces }: { workspaces: Workspace[] }) {
-  seen = usePaneSpawnSpecs(workspaces, ctx, true).specs;
-  return null;
-}
 
 /** Let the build→cache→tick chain settle. */
 const settle = async () => {
@@ -116,16 +111,23 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     registered = [];
   });
 
-  const mount = (workspaces: Workspace[]) =>
-    act(async () =>
-      root.render(
-        createElement(
-          AppRuntimeProvider,
-          { runtime },
-          createElement(Probe, { workspaces }),
-        ),
-      ),
-    );
+  /** Build every live pane's plan, the way the orchestrator's reconcile does,
+   *  and collect what landed in the cache. No render: deciding what a pane
+   *  runs stopped needing one. */
+  const mount = async (workspaces: Workspace[]) => {
+    for (const workspace of workspaces) {
+      for (const pane of workspace.panes) {
+        await buildLivePaneSpec(runtime.plugins, workspace, pane, ctx);
+      }
+    }
+    seen = {};
+    for (const workspace of workspaces) {
+      for (const pane of workspace.panes) {
+        const spec = peekPaneSpawnSpec(pane.id);
+        if (spec) seen[pane.id] = spec;
+      }
+    }
+  };
 
   it("builds through the hook and arms the bridge on top", async () => {
     register(adopting);
@@ -346,26 +348,20 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
         },
       },
     });
-    let renders = 0;
-    const CountProbe = ({ workspaces }: { workspaces: Workspace[] }) => {
-      usePaneSpawnSpecs(workspaces, ctx, true);
-      renders++;
-      return null;
-    };    await act(async () =>
-      root.render(
-        createElement(
-          AppRuntimeProvider,
-          { runtime },
-          createElement(CountProbe, {
-            workspaces: ws([
-              { id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
-            ]),
-          }),
-        ),
-      ),
+    const workspaces = ws([
+      { id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
+    ]);
+    const changed = await buildLivePaneSpec(
+      runtime.plugins,
+      workspaces[0],
+      workspaces[0].panes[0],
+      ctx,
     );
-    await settle();
-    expect(renders).toBeGreaterThan(1);
+
+    // A failure is a CHANGE, and saying so is what gets the error tile drawn:
+    // reported as "nothing happened", the pane would sit on "Waking up…" until
+    // something unrelated redrew the deck.
+    expect(changed).toBe(true);
     expect(peekPanePlanError("pane-1")).toBe(true);
   });
 

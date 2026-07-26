@@ -15,11 +15,15 @@ import { createDeckActions, type DeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 import type { SpawnContextSource } from "./spawnContextSource";
 import {
+  buildLivePaneSpec,
   buildResumeSpec,
   dropPaneSpawnSpec,
   markPaneResumeOrigin,
+  peekPanePlanError,
+  peekPaneSpawnSpec,
   type SpawnPluginAccess,
 } from "./spawnSpecs";
+import type { SpawnPlan, SpawnPlanContext } from "../domain/agents";
 
 /**
  * The owner of an agent pane's run lifecycle.
@@ -64,6 +68,12 @@ export interface AgentRunView {
    * pane stayed stopped rather than coming up as a different conversation;
    * its card says this. Cleared when the pane is asked for again. */
   wakeFailed: Record<string, string>;
+  /** Each live pane's spawn plan, once its build lands. A pane without one
+   * yet has nothing to run: its terminal waits. */
+  specs: Record<string, SpawnPlan>;
+  /** Panes whose plan build FAILED — the deck shows an error tile with a
+   * retry instead of leaving them on "Waking up…" forever. */
+  planFailed: ReadonlySet<string>;
 }
 
 /** What asking for a pane back did. */
@@ -106,11 +116,19 @@ export interface LaunchPolicyPort {
   subscribe(listener: () => void): () => void;
 }
 
+/** The live PTY sessions. Subscribed to rather than polled: a restart drops a
+ * pane's cached plan and closes its process, and nothing in the deck records
+ * either — without this the orchestrator would never rebuild the plan. */
+export interface SessionRegistryPort {
+  subscribe(listener: () => void): () => void;
+}
+
 export interface AgentOrchestratorDeps {
   deck: DeckStore;
   spawnContext: SpawnContextSource;
   agents: AgentCatalogPort;
   launchPolicy: LaunchPolicyPort;
+  sessions: SessionRegistryPort;
   plugins: SpawnPluginAccess;
   probe: WorktreeProbePort;
 }
@@ -123,12 +141,18 @@ type Attempt =
   /** The probe or the resume plan refused; `why` is shown on the card. */
   | { kind: "failed"; why: string };
 
-const EMPTY_VIEW: AgentRunView = { blocked: {}, wakeFailed: {} };
+const EMPTY_VIEW: AgentRunView = {
+  blocked: {},
+  wakeFailed: {},
+  specs: {},
+  planFailed: new Set(),
+};
 
 export function createAgentOrchestrator(
   deps: AgentOrchestratorDeps,
 ): AgentOrchestrator {
-  const { deck, spawnContext, agents, launchPolicy, plugins, probe } = deps;
+  const { deck, spawnContext, agents, launchPolicy, sessions, plugins, probe } =
+    deps;
   const actions: DeckActions = createDeckActions(deck);
   const blocked = new Map<string, string>();
   const wakeFailed = new Map<string, string>();
@@ -141,9 +165,23 @@ export function createAgentOrchestrator(
   let scheduled = false;
 
   function publish(): void {
+    // The plan snapshot is read off the shared cache rather than mirrored:
+    // resume and fork plans are written there by other paths, and a second
+    // copy here would be a second answer to "what does this pane run".
+    const specs: Record<string, SpawnPlan> = {};
+    const planFailed = new Set<string>();
+    for (const ws of deck.getSnapshot().workspaces) {
+      for (const pane of ws.panes) {
+        const spec = peekPaneSpawnSpec(pane.id);
+        if (spec) specs[pane.id] = spec;
+        if (peekPanePlanError(pane.id)) planFailed.add(pane.id);
+      }
+    }
     view = {
       blocked: Object.fromEntries(blocked),
       wakeFailed: Object.fromEntries(wakeFailed),
+      specs,
+      planFailed,
     };
     for (const listener of [...listeners]) listener();
   }
@@ -334,12 +372,28 @@ export function createAgentOrchestrator(
     settle(ws.id, pane, { kind: "woken" });
   }
 
+  /** Every live pane needs a plan before its terminal has anything to run.
+   * Kept next to the wake pass because they are the same reconciliation seen
+   * from two sides — one decides that a pane should run, the other prepares
+   * what running means — and splitting them across two owners is how a pane
+   * came to be woken with no plan cached for it. */
+  function planLivePanes(ctx: SpawnPlanContext): void {
+    for (const ws of deck.getSnapshot().workspaces) {
+      for (const pane of ws.panes) {
+        void buildLivePaneSpec(plugins, ws, pane, ctx).then((changed) => {
+          if (changed) publish();
+        });
+      }
+    }
+  }
+
   function reconcile(): void {
     if (reap()) publish();
     // Wait for the spawn context (a resume plan built without it would miss
     // the agent's identity mechanism) AND the catalog (see `ready`).
     const ctx = spawnContext.get();
     if (!ctx || !booted) return;
+    planLivePanes(ctx);
     const state = deck.getSnapshot();
     const active = findWorkspace(state.workspaces, state.activeId);
     if (!active) return;
@@ -409,6 +463,7 @@ export function createAgentOrchestrator(
   spawnContext.subscribe(schedule);
   agents.subscribe(schedule);
   launchPolicy.subscribe(schedule);
+  sessions.subscribe(schedule);
   void agents.ready().then(() => {
     booted = true;
     schedule();
