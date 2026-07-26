@@ -113,6 +113,9 @@ export function FileViewer({
         </>
       }
       path={breadcrumb(root, path)}
+      // The overlay reuses one viewer across open requests, so a second file
+      // opened over the first must not inherit its scroll offset.
+      scrollKey={path}
       onClose={onClose}
     >
       {loading && <p className="peek__note">Loading…</p>}

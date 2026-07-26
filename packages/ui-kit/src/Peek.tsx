@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 
 /**
  * The wide "peek" overlay — a dock plugin's detail surface. A 340px rail can't
@@ -13,6 +13,11 @@ import { useEffect, useRef, type ReactNode } from "react";
  * `actions` (styled `.peek__act`, `.peek__act--on` when toggled on) and the
  * optional `path` line under the header. Styles live in the host stylesheet
  * (`peek.css`), per the builtin-tier rule.
+ *
+ * The body is the overlay's ONE scroll container, and it survives a change of
+ * content — consumers swap what's inside without remounting it. So the shell
+ * owns the scroll position too: `scrollKey` says which thing is on screen, and
+ * a new one starts at the top.
  */
 export interface PeekProps {
   /** Accessible name for the dialog. */
@@ -28,6 +33,17 @@ export interface PeekProps {
   /** An optional right-hand rail beside the body — a sibling list, an
    * outline. Scrolls on its own; the body's scrolling is untouched. */
   aside?: ReactNode;
+  /** Identity of what the body is showing — a path, a revision-qualified file
+   * key. A CHANGE scrolls the body back to the top: the next file starts at
+   * its first line, not at the previous one's offset. Re-renders under the
+   * same key (a load step landing, a watcher refresh re-reading the same
+   * content) leave the reader's position alone, so this must encode only
+   * *which* thing is on screen — never how far along its load it is.
+   *
+   * Required on purpose: the body outlives its content, so every consumer has
+   * to answer this. Two files that render an identical header are still two
+   * different things — key off what you fetched, not what you display. */
+  scrollKey: string;
   onClose: () => void;
   /** The scrollable body content. */
   children: ReactNode;
@@ -40,6 +56,7 @@ export function Peek({
   actions,
   path,
   aside,
+  scrollKey,
   onClose,
   children,
 }: PeekProps) {
@@ -50,6 +67,20 @@ export function Peek({
   useEffect(() => {
     bodyRef.current?.focus();
   }, []);
+
+  // New content, fresh viewport. Both axes: the body scrolls horizontally too
+  // (a diff is sized to its widest line), and a long line's offset carries
+  // over just the same. Explicit rather than left to the browser's clamping of
+  // a shrinking placeholder — that only resets when the swap happens to
+  // straddle a layout, which is a race, not a behavior. Layout effect, so it
+  // lands before paint: the old content is still mounted here, and the reader
+  // never sees the position move.
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    body.scrollTop = 0;
+    body.scrollLeft = 0;
+  }, [scrollKey]);
 
   return (
     <div
