@@ -16,6 +16,7 @@ import type {
   TopBarActionContribution,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
+import { mergeSectionValues } from "@keepdeck/plugin-api";
 
 /**
  * A fake `PluginContext` for driving the RPC bridge in tests — the host-side
@@ -166,13 +167,14 @@ export function createFakeHost(
     },
     settings: {
       registerSection: (section) => record(settingsSections, section),
-      // The host resolves a plugin's stored values against the section it has
-      // REGISTERED (`readPluginValues` → `mergeSectionValues`), so a read taken
-      // before `registerSection` answers with nothing. The fake models that
-      // ORDER — the per-field merge itself stays the host's business — because
-      // a read that always answers hides a plugin seeding its state too early,
-      // which is how the voice plugin shipped a launch on default hotkeys.
-      read: async () => (settingsSections.length > 0 ? options.settingsValues ?? {} : {}),
+      // Answered with the contract's OWN merge, exactly as the host answers it
+      // (`readPluginValues` → `mergeSectionValues`): values reach a plugin only
+      // through a REGISTERED section, and only under the keys that section
+      // declares. Anything looser lets a test pass on a value production drops
+      // — a read taken before registration, or a key the plugin never declared.
+      // Both of those shipped as real bugs before the fake agreed with the host.
+      read: async () =>
+        mergeSectionValues(settingsSections[0], options.settingsValues),
       onChange: (cb) => {
         settingsCbs.add(cb);
         return {
@@ -367,7 +369,14 @@ export function createFakeHost(
       workspaceClosed: (e) => workspaceClosedCbs.forEach((cb) => cb(e)),
       paneSelected: (e) => paneSelectedCbs.forEach((cb) => cb(e)),
       deckChanged: () => deckChangedCbs.forEach((cb) => cb()),
-      settingsChanged: (v) => settingsCbs.forEach((cb) => cb(v)),
+      // Through the same merge as `read`: the host pushes `readPluginValues()`,
+      // never the raw bag, so a subscriber sees only its declared keys. (The
+      // host also drops a push whose values didn't change; the fake fires
+      // whenever a test asks, since the test IS the change.)
+      settingsChanged: (v) => {
+        const values = mergeSectionValues(settingsSections[0], v);
+        settingsCbs.forEach((cb) => cb(values));
+      },
     },
     unsubscribes,
     sessions,

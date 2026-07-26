@@ -173,6 +173,12 @@ describe("external plugin bridge", () => {
     let disposable: Disposable | undefined;
     const plugin: KeepDeckPlugin = {
       activate(ctx) {
+        // Declared first, as the host requires: a plugin is only ever handed
+        // the keys its own section names.
+        ctx.settings.registerSection({
+          label: "Sec",
+          fields: [{ kind: "string", key: "theme", label: "Theme", default: "" }],
+        });
         disposable = ctx.settings.onChange((values) => seen.push(values));
       },
     };

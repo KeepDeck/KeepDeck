@@ -5,22 +5,25 @@ import {
   fakeManifest,
   type FakeHost,
 } from "../../../packages/plugin-guest/src/fakeHost";
-import { createVoiceController } from "./controller";
+import { createVoiceController, MODEL_KEY } from "./controller";
 import { MODEL_CATALOG, type VoiceModelInfo } from "./modelCatalog";
 
 const installedModels = async (): Promise<VoiceModelInfo[]> =>
   MODEL_CATALOG.map((model) => ({ ...model, installed: true }));
 
-/** A host holding persisted plugin values, with the settings section declared:
- * the host serves a plugin's values only through the section it registered, so
- * a read before that answers empty — `activate` declares first, and so must a
- * test that means to exercise a stored value. */
+/** A host holding persisted plugin values, with the model field declared just
+ * as `activate` declares it: a plugin is handed a stored value only through a
+ * registered section, and only under a key that section names — so a test
+ * exercising the persisted pick has to declare it too, or it proves nothing. */
 function hostWithSettings(settingsValues: Record<string, unknown>): FakeHost {
   const host = createFakeHost({
     manifest: fakeManifest("keepdeck.voice"),
     settingsValues,
   });
-  host.ctx.settings.registerSection({ label: "Voice", fields: [] });
+  host.ctx.settings.registerSection({
+    label: "Voice",
+    fields: [{ kind: "custom", key: MODEL_KEY, Component: () => null }],
+  });
   return host;
 }
 

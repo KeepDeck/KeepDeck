@@ -16,9 +16,24 @@ const customBag = (command: Partial<Chord>, dictation: Partial<Chord>) => ({
   },
 });
 
+/** A host with the hotkeys field declared, exactly as `activate` declares it:
+ * a plugin is handed a stored value only through a registered section, and
+ * only under a key that section names. */
+function voiceHost(settingsValues?: Record<string, unknown>) {
+  const host = createFakeHost({
+    manifest: fakeManifest("keepdeck.voice"),
+    settingsValues,
+  });
+  host.ctx.settings.registerSection({
+    label: "Voice",
+    fields: [{ kind: "custom", key: HOTKEYS_KEY, Component: () => null }],
+  });
+  return host;
+}
+
 describe("createBindingsStore", () => {
   it("stands on the shipped defaults until the read resolves", async () => {
-    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const host = voiceHost();
     const store = createBindingsStore(host.ctx);
     expect(store.get()).toEqual(DEFAULT_BINDINGS);
     store.load();
@@ -27,7 +42,7 @@ describe("createBindingsStore", () => {
   });
 
   it("reads nothing before it is loaded — a settings change cannot reach it", () => {
-    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const host = voiceHost();
     const store = createBindingsStore(host.ctx);
 
     host.fire.settingsChanged(customBag({ code: "KeyM", meta: true }, { code: "KeyN", meta: true }));
@@ -36,13 +51,9 @@ describe("createBindingsStore", () => {
   });
 
   it("seeds from the persisted settings values", async () => {
-    const host = createFakeHost({
-      manifest: fakeManifest("keepdeck.voice"),
-      settingsValues: customBag({ code: "KeyG", ctrl: true }, { code: "KeyH", ctrl: true }),
-    });
-    // The host serves a plugin's values only through the section it registered
-    // — the store reads after `activate` has declared one.
-    host.ctx.settings.registerSection({ label: "Voice", fields: [] });
+    const host = voiceHost(
+      customBag({ code: "KeyG", ctrl: true }, { code: "KeyH", ctrl: true }),
+    );
     const store = createBindingsStore(host.ctx);
     store.load();
     await flush();
@@ -56,7 +67,7 @@ describe("createBindingsStore", () => {
   });
 
   it("updates live and notifies when settings change", async () => {
-    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const host = voiceHost();
     const store = createBindingsStore(host.ctx);
     store.load();
     await flush();
@@ -76,7 +87,7 @@ describe("createBindingsStore", () => {
   });
 
   it("stops tracking after dispose", async () => {
-    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const host = voiceHost();
     const store = createBindingsStore(host.ctx);
     store.load();
     await flush();

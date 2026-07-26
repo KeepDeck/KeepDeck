@@ -48,6 +48,12 @@ describe("HotkeysSection", () => {
 
     persisted = {};
     const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    // Declared as `activate` declares it — the host round-trips a plugin's
+    // values only under the keys its own section names.
+    host.ctx.settings.registerSection({
+      label: "Voice",
+      fields: [{ kind: "custom", key: HOTKEYS_KEY, Component: () => null }],
+    });
     const store = createBindingsStore(host.ctx);
     store.load();
     await flush();
