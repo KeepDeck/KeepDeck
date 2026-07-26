@@ -38,7 +38,7 @@ export type UnavailableAgent =
    * installed on this machine; `reason` is the gate's sentence. */
   | { kind: "bin-missing"; agent: string; reason: string };
 
-interface AgentPaneProps {
+export interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
   paneId: string;
   title: string;
@@ -398,7 +398,7 @@ export function AgentPane({
         </div>
       </header>
       <div className="pane__body">
-        {provisioning ? (
+        {body === "provisioning" && provisioning ? (
           // The worktree behind this pane is still being created (or failed):
           // a status card instead of a terminal — mounting one now would
           // spawn the agent into somebody else's directory.
@@ -432,7 +432,7 @@ export function AgentPane({
               <ProvisionLocation provisioning={provisioning} />
             </div>
           )
-        ) : unavailableAgent ? (
+        ) : body === "agent-unavailable" && unavailableAgent ? (
           // The pane keeps its identity and session binding; the revive
           // effect skips it, and fixing the cause brings it back live.
           <div className="pane__card" role="alert">
@@ -446,7 +446,7 @@ export function AgentPane({
                 : `No plugin provides “${unavailableAgent.agent}” — enable it in Settings → Plugins`}
             </span>
           </div>
-        ) : idle ? (
+        ) : body === "stopped" && idle ? (
           // No PTY behind it ([F7]). A rising pane is normally transient
           // (the revive sweep wakes active-workspace panes) and persists only
           // when its directory is gone; the other reasons wait for the user.
@@ -558,7 +558,7 @@ export function AgentPane({
           <div className="pane__card" role="status">
             <span className="pane__exit-title">Waking up…</span>
           </div>
-        ) : (
+        ) : body === "terminal" ? (
           <TerminalPane
             paneId={paneId}
             command={command}
@@ -582,6 +582,21 @@ export function AgentPane({
             }}
             onTitle={onTitle}
           />
+        ) : body === "provisioning" ||
+          body === "agent-unavailable" ||
+          body === "stopped" ? (
+          // Those three rungs also need the prop that carries their detail,
+          // and it is the deck that pairs the two. A body without its detail
+          // describes nothing, so render nothing — never the terminal the old
+          // fall-through reached for.
+          null
+        ) : (
+          // Every member of the union is answered above, so a NEW one is a
+          // type error HERE. That is the whole point of the body being a
+          // closed set, and it is what the old hand-written ladder could not
+          // give: an unhandled state fell through to a terminal, mounted for a
+          // pane that must not have one.
+          unreachableBody(body)
         )}
         {exit && !idle && !unavailableAgent && (
           <div className="pane__exit" role="status">
@@ -621,6 +636,19 @@ export function AgentPane({
       </div>
     </section>
   );
+}
+
+/**
+ * The body ladder answers every [`PaneBody`] there is, so this is dead at
+ * runtime — it exists to make a NEW member a type error here rather than a
+ * silent fall-through. It renders nothing if a mismatched prop pair ever
+ * reaches it: a blank body is the honest answer to a state nobody described,
+ * and strictly better than the terminal the old ladder would have mounted for
+ * a pane that must not have one.
+ */
+function unreachableBody(body: never): null {
+  void body;
+  return null;
 }
 
 /** The creating card's location line: "branch · path" from what the intent
