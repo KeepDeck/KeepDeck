@@ -43,6 +43,7 @@ import {
   resetUsageManager,
 } from "../../app/usageManager";
 import { AgentPane } from "./AgentPane";
+import type { PaneBody } from "../../domain/deck";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -65,6 +66,9 @@ const baseProps = {
   onClose: () => {},
   onRename: () => {},
   onTitle: () => {},
+  // What the deck decided this pane's body shows. Overridden per case; the
+  // decision itself is `paneBody`'s and is tested in the domain.
+  body: "terminal" as PaneBody,
 };
 
 // A death recorded by one test is not a fact about the next one.
@@ -148,6 +152,7 @@ describe("AgentPane — header badges", () => {
       root.render(
         createElement(AgentPane, {
           ...baseProps,
+          body: "stopped" as PaneBody,
           idle: { reason: "waking", origin: "restore" } as const,
         }),
       ),
@@ -159,10 +164,19 @@ describe("AgentPane — header badges", () => {
   it.each([
     [
       "provisioning",
-      { provisioning: { repo: "/r", baseDir: "/w", branch: "b", workspace: "w", index: 1 } },
+      {
+        body: "provisioning" as PaneBody,
+        provisioning: { repo: "/r", baseDir: "/w", branch: "b", workspace: "w", index: 1 },
+      },
     ],
-    ["unavailable", { unavailableAgent: { kind: "no-plugin" as const, agent: "gemini" } }],
-    ["plan-pending", { planPending: true }],
+    [
+      "unavailable",
+      {
+        body: "agent-unavailable" as PaneBody,
+        unavailableAgent: { kind: "no-plugin" as const, agent: "gemini" },
+      },
+    ],
+    ["plan-pending", { body: "waiting" as PaneBody }],
   ] as const)(
     "hides the context meter on a %s pane despite usage",
     (_label, override) => {
@@ -335,14 +349,14 @@ describe("AgentPane — plan-error tile", () => {
       root.render(
         createElement(AgentPane, {
           ...baseProps,
-          planError: true,
+          body: "plan-failed" as PaneBody,
           onRetryPlan,
         }),
       ),
     );
 
     expect(document.body.textContent).toContain("Couldn't start this agent");
-    // Not the planPending tile, and no terminal mounted.
+    // Not the waiting tile, and no terminal mounted.
     expect(document.body.textContent).not.toContain("Waking up");
     expect(TerminalPane).not.toHaveBeenCalled();
 
@@ -354,9 +368,11 @@ describe("AgentPane — plan-error tile", () => {
     expect(onRetryPlan).toHaveBeenCalledTimes(1);
   });
 
-  it("does not render the error tile when planError is false (planPending path)", () => {
+  it("shows the waiting card, not the error tile, when no build has failed", () => {
     act(() =>
-      root.render(createElement(AgentPane, { ...baseProps, planPending: true })),
+      root.render(
+        createElement(AgentPane, { ...baseProps, body: "waiting" as PaneBody }),
+      ),
     );
     expect(document.body.textContent).not.toContain("Couldn't start this agent");
     expect(document.body.textContent).toContain("Waking up");

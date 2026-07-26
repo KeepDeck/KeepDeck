@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentRestartMode } from "../../domain/agents";
 import {
   idleReadsAsStopped,
+  type PaneBody,
   type PaneIdle,
   type PaneProvisioning,
 } from "../../domain/deck";
@@ -102,10 +103,7 @@ interface AgentPaneProps {
   /** The pane's spawn plan is still being built (async plugin hooks) —
    * render the quiet tile instead of a terminal; mounting would spawn
    * without the plan's identity args. */
-  planPending?: boolean;
-  /** The pane's spawn plan FAILED to build (e.g. a remote spawn.plan threw) —
-   *  render an error tile with a retry instead of "Waking up…" forever. */
-  planError?: boolean;
+  body: PaneBody;
   /** Retry building the pane's spawn plan (the error tile's "Try again"). */
   onRetryPlan?(): void;
   /** Re-issue the failed create from its stored intent. */
@@ -164,8 +162,7 @@ export function AgentPane({
   blockedDir,
   provisioning,
   unavailableAgent,
-  planPending,
-  planError,
+  body,
   onRetryPlan,
   colSpan,
   onSelect,
@@ -257,8 +254,9 @@ export function AgentPane({
   // The context meter belongs on a LIVE pane only — a frozen, undimmed ctx% on
   // an exited / idle / unavailable / provisioning pane would read as live
   // (its last usage report lingers in the store until the pane leaves the deck).
-  const paneLive =
-    !exit && !idle && !provisioning && !unavailableAgent && !planPending;
+  // The domain's answer, not a second derivation of it: a frozen ctx% on an
+  // exited / idle / unavailable / provisioning pane would read as live.
+  const paneLive = !exit && body === "terminal";
   return (
     <section
       data-pane-id={paneId}
@@ -526,7 +524,7 @@ export function AgentPane({
               </>
             )}
           </div>
-        ) : planError ? (
+        ) : body === "plan-failed" ? (
           // The spawn plan FAILED to build (e.g. a remote spawn.plan threw).
           // The pane would otherwise hang on "Waking up…" forever — surface
           // the failure and offer a retry (drops it + re-runs the build).
@@ -545,7 +543,7 @@ export function AgentPane({
               </button>
             )}
           </div>
-        ) : planPending ? (
+        ) : body === "waiting" ? (
           // The spawn plan is a beat away (async plugin hooks) — same quiet
           // tile as a waking pane; it resolves within milliseconds.
           <div className="pane__card" role="status">

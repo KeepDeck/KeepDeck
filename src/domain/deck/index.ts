@@ -6,6 +6,7 @@
 export * from "./hotkeys";
 export * from "./layout";
 export * from "./paneDnd";
+export * from "./paneBody";
 export * from "./panes";
 export * from "./persist";
 export * from "./railDnd";

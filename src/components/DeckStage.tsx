@@ -19,6 +19,7 @@ import {
   type Pane,
   type Workspace,
   type WorkspaceView,
+  paneBody,
 } from "../domain/deck";
 import type { MinimizeStyle, DeckLayout } from "../domain/settings";
 import { gitBadge } from "../ui/gitBadge";
@@ -358,18 +359,13 @@ export function DeckStage({
                     : { kind: "no-plugin", agent: agentType };
                 })()
               : null;
-          const planError =
-            !spec &&
-            !pane.idle &&
-            !pane.provisioning &&
-            !unavailableAgent &&
-            failedPanes.has(pane.id);
-          const planPending =
-            !spec &&
-            !pane.idle &&
-            !pane.provisioning &&
-            !unavailableAgent &&
-            !planError;
+          // One question, one answer — the conjunction used to be spelled
+          // out here and again inside the pane.
+          const body = paneBody(pane, {
+            agentAvailable: !unavailableAgent,
+            hasPlan: !!spec,
+            planFailed: failedPanes.has(pane.id),
+          });
           const displayTitle = titleOf(pane);
           const executionCwd = paneExecutionCwd(ws, pane);
           const badge = badgeOf(pane);
@@ -384,8 +380,7 @@ export function DeckStage({
               args={spec?.args}
               env={spec?.env}
               envDefaults={spec?.envDefaults}
-              planPending={planPending}
-              planError={planError}
+              body={body}
               onRetryPlan={() => onRetryPlanBuild(pane.id)}
               cwd={executionCwd}
               gitBadge={badge}
