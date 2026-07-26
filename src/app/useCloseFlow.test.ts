@@ -533,6 +533,21 @@ describe("what the dialog promises is what confirming does", () => {
     expect(flow.canSuspendInstead).toBe(false);
   });
 
+  it("does not count an agent that has not started yet", async () => {
+    // The ordinary shape of a just-launched deck: panes come back `waking`
+    // and the revive sweep has not reached them. They have no session, so a
+    // close ends none — the same distinction the agent branch draws with "It
+    // is starting up", missing from the branch that counts.
+    const wsId = seed();
+    act(() => deck.suspendPane(wsId, "pane-1"));
+    act(() => deck.requestPaneWake(wsId, "pane-1"));
+    act(() => deck.suspendPane(wsId, "pane-2"));
+    act(() => deck.requestPaneWake(wsId, "pane-2"));
+
+    await act(async () => flow.requestCloseWorkspace(wsId));
+    expect(flow.closeMessage).toBe("This ends no sessions; closing removes 2 agents.");
+  });
+
   it("counts the agents a workspace close ends", async () => {
     const wsId = seed();
     await act(async () => flow.requestCloseWorkspace(wsId));
@@ -550,7 +565,7 @@ describe("what the dialog promises is what confirming does", () => {
 
     act(() => deck.suspendPane(wsId, "pane-2"));
     await act(async () => flow.requestCloseWorkspace(wsId));
-    expect(flow.closeMessage).toBe("Its agents are stopped; closing removes them.");
+    expect(flow.closeMessage).toBe("This ends no sessions; closing removes 2 agents.");
   });
 
   it("does not promise to end a session a pane never had", async () => {
@@ -669,11 +684,13 @@ describe("closeMessageFor", () => {
     expect(closeMessageFor(workspace(2), 1)).toBe(
       "This ends 1 agent and its session.",
     );
+    // None running says so in the one way that is true of every reason for
+    // having no session — stopped, still rising, or mid-create.
     expect(closeMessageFor(workspace(2), 0)).toBe(
-      "Its agents are stopped; closing removes them.",
+      "This ends no sessions; closing removes 2 agents.",
     );
     expect(closeMessageFor(workspace(1), 0)).toBe(
-      "Its agent is stopped; closing removes it.",
+      "This ends no session; closing removes 1 agent.",
     );
   });
 });

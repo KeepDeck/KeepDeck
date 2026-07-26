@@ -109,12 +109,15 @@ export function closeMessageFor(
   if (!closing) return "";
   if (closing.kind === "workspace") {
     if (closing.count === 0) return "This workspace has no agents.";
-    // Only the agents that still HAVE a session are counted as losing one:
-    // a workspace of suspended agents ends nothing at all.
+    // Only the agents that actually HOLD a session are counted as losing one.
+    // "Stopped" is not the word for all of them — a pane on its way up has no
+    // session YET, and one mid-create has never had one — so the none-running
+    // case says what is true of every way of having none, rather than
+    // branching on a distinction this sentence does not need.
     if (runningAgents === 0) {
       return closing.count === 1
-        ? "Its agent is stopped; closing removes it."
-        : "Its agents are stopped; closing removes them.";
+        ? "This ends no session; closing removes 1 agent."
+        : `This ends no sessions; closing removes ${closing.count} agents.`;
     }
     return runningAgents === 1
       ? "This ends 1 agent and its session."
@@ -302,8 +305,14 @@ export function useCloseFlow(
   const runningAgentsOf = (target: ClosingTarget | null): number => {
     if (target?.kind !== "workspace") return 0;
     const ws = findWorkspace(deck.workspaces, target.id);
+    // A session exists only behind a live process. `idle` of ANY reason means
+    // there is none — including `waking`, which is a pane whose session is
+    // still ahead of it — and a pane mid-create has never had one. Asking
+    // "does it read as stopped" instead counted every rising pane as holding
+    // a session it has not opened yet, which is what a just-launched
+    // workspace is entirely made of.
     return (ws?.panes ?? []).filter(
-      (pane) => !idleReadsAsStopped(pane.idle, pane.id in blockedPanes),
+      (pane) => !pane.idle && !pane.provisioning,
     ).length;
   };
 
