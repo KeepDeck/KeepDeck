@@ -56,11 +56,26 @@ const gate = vi.hoisted(() => ({ build: null as Promise<void> | null }));
 
 /** The plan cache behind the mock, reachable so a test can stand in a plan the
  * deck restored but never built here (a rejected boot resume). */
-const plans = vi.hoisted(() => ({ specs: new Map<string, unknown>() }));
+const plans = vi.hoisted(() => ({
+  specs: new Map<string, unknown>(),
+  /** Set by the mock factory; a test that seeds the cache by hand calls it. */
+  notify: (() => {}) as () => void,
+}));
 
 vi.mock("./spawnSpecs", () => {
   const { specs } = plans;
+  // The cache tells its readers when a plan lands. Faked with the same
+  // contract as the real one: every write notifies.
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of [...listeners]) listener();
+  };
+  plans.notify = notify;
   return {
+    subscribeSpawnSpecs: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     // What the ordinary plan sweep does, in miniature: an unmarked pane with
     // no plan gets one. Faithful enough for the question these tests ask —
     // whether a pane that should run is started — and the build itself is
@@ -69,11 +84,12 @@ vi.mock("./spawnSpecs", () => {
       async (_plugins: unknown, _ws: unknown, pane: { id: string; idle?: unknown }) => {
         if (pane.idle || specs.has(pane.id)) return false;
         specs.set(pane.id, { command: "claude", args: [], env: [] });
+        notify();
         return true;
       },
     ),
     peekPanePlanError: () => false,
-    clearPanePlanError: vi.fn(),
+    clearPanePlanError: vi.fn(() => notify()),
     // The real predicate's shape: a RESTORE resume whose process died without
     // ever posting back. A manual one is ineligible by design.
     resumeDiedSilently: (
@@ -100,6 +116,7 @@ vi.mock("./spawnSpecs", () => {
           resumeOrigin: origin,
           postbackMark: 0,
         });
+        notify();
         return true;
       },
     ),
@@ -107,6 +124,7 @@ vi.mock("./spawnSpecs", () => {
     // and says whether it could. What the surgery DOES is the plugin's test.
     buildForkSpec: vi.fn(async (_p: unknown, _a: string, facts: { paneId: string }) => {
       specs.set(facts.paneId, { args: [], env: [] });
+      notify();
       return true;
     }),
     peekPaneSpawnSpec: (id: string) =>
@@ -120,12 +138,22 @@ vi.mock("./spawnSpecs", () => {
         | undefined,
     // A refused manual wake drops the half-built plan, or the pane's next
     // wake lands on the plan-error tile instead of a terminal.
-    dropPaneSpawnSpec: vi.fn((id: string) => specs.delete(id)),
+    dropPaneSpawnSpec: vi.fn((id: string) => {
+      const had = specs.delete(id);
+      notify();
+      return had;
+    }),
     markPaneResumeOrigin: vi.fn((id: string, origin: string) => {
       const spec = specs.get(id) as Record<string, unknown> | undefined;
       if (spec) specs.set(id, { ...spec, resumeOrigin: origin });
+      notify();
     }),
-    resetPaneSpawnSpecs: () => specs.clear(),
+    resetPaneSpawnSpecs: () => {
+      specs.clear();
+      // The orchestrator under test subscribes on construction; a listener
+      // from a previous mount would keep reconciling its own dead deck.
+      listeners.clear();
+    },
   };
 });
 /** The post-provision map is write-only by design (a step is consumed when it
@@ -158,10 +186,33 @@ vi.mock("./provisioning", async (importOriginal) => {
 /** The session registry as the orchestrator sees it: what it started, and
  *  what each pane's process is doing. */
 const pty = {
-  acquired: [] as { paneId: string; command?: string | null; cwd?: string | null }[],
+  /** The WHOLE spec, args and env included. Recording only the pane id left
+   *  the step the orchestrator absorbed from TerminalPane unguarded: nothing
+   *  proved a resume plan's `--resume <id>` reached the spawned process. */
+  acquired: [] as {
+    paneId: string;
+    command?: string | null;
+    cwd?: string | null;
+    args?: string[];
+    env?: [string, string][];
+  }[],
   live: new Set<string>(),
-  acquire(paneId: string, spec: { command?: string | null; cwd?: string | null }) {
-    pty.acquired.push({ paneId, command: spec.command, cwd: spec.cwd });
+  acquire(
+    paneId: string,
+    spec: {
+      command?: string | null;
+      cwd?: string | null;
+      args?: string[];
+      env?: [string, string][];
+    },
+  ) {
+    pty.acquired.push({
+      paneId,
+      command: spec.command,
+      cwd: spec.cwd,
+      args: spec.args,
+      env: spec.env,
+    });
     pty.live.add(paneId);
   },
   closed: [] as string[],
@@ -355,6 +406,35 @@ describe("agent orchestrator —session policy", () => {
   });
 
   const pane = () => deck.workspaces[0].panes[0];
+
+  it("publishes the resumed pane's plan, not just the process", async () => {
+    // The plan reaching the cache is not the point — the DECK reads the
+    // published view to decide whether to mount a terminal at all. A resume
+    // filled the cache directly, so the ordinary plan sweep short-circuited
+    // and nothing ever republished: the agent ran behind a permanent
+    // "Waking up…" card, with no terminal attached to hear it exit.
+    act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
+    await settle();
+
+    expect(pty.acquired.map((a) => a.paneId)).toEqual(["pane-1"]);
+    expect(agentRun.specs["pane-1"]).toBeDefined();
+  });
+
+  it("spawns the resume plan's OWN argv, not a bare fresh agent", async () => {
+    // The orchestrator took this step over from the terminal, so the pane's
+    // plan and the process it starts are now one owner's business. A spawn
+    // that dropped the args would start a DIFFERENT conversation and let its
+    // reporter overwrite the binding — the substitution the manual origin
+    // exists to prevent, invisible to every assertion on the cache.
+    act(() => deck.hydrate(restored({ session: { id: "s-1", boundAt: "t" } })));
+    await settle();
+
+    expect(pty.acquired[0]).toMatchObject({
+      paneId: "pane-1",
+      args: ["--resume", "s-1"],
+      cwd: "/repo",
+    });
+  });
 
   it("a recorded binding is TRUSTED and resumed — no store is read", async () => {
     // The binding came from the pane's own process (the reporter posts at
@@ -2350,6 +2430,21 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(epoch()).toBe(1);
     // No process was ever started for a failed-plan pane — nothing to close.
     expect(pty.closed).toEqual([]);
+  });
+
+  it("retryPlanBuild actually REBUILDS — the tile's retry is not just a reset", async () => {
+    // Dropping the failed plan is half a retry. Nothing else was listening to
+    // that cache, so the sweep never re-ran and the error tile turned into a
+    // permanent "Waking up…" spinner with its retry button gone.
+    seed();
+    await settle();
+    expect(peekPaneSpawnSpec("pane-1")).toBeDefined();
+
+    act(() => agentRun.retryPlanBuild("pane-1"));
+    await settle();
+
+    expect(peekPaneSpawnSpec("pane-1")).toBeDefined();
+    expect(agentRun.specs["pane-1"]).toBeDefined();
   });
 
   it("auto-recovers a rejected BOOT resume exactly once", async () => {

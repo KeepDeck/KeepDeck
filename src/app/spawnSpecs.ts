@@ -73,6 +73,33 @@ const failed = new Set<string>();
  * result after a newer manual/fresh decision. */
 const buildGenerations = new Map<string, number>();
 
+/**
+ * Who to tell when the answer to "what does this pane run" changes.
+ *
+ * This cache has several writers — the ordinary sweep, a manual resume, a
+ * fork's surgery, a retry — and one of them landing is exactly what a pane
+ * waiting to start, or a card waiting to stop saying "Waking up…", is waiting
+ * FOR. Without a notification each writer had to remember to poke whoever
+ * cared, and the ones reached through an await did not: a resumed pane got a
+ * real process and a view that never learned its plan existed.
+ *
+ * The registry beside it ([`subscribeSessions`]) already worked this way. A
+ * module-level store that mutates behind an await needs a way to say so.
+ */
+const specListeners = new Set<() => void>();
+
+/** Tell me when any pane's plan, or its build failure, changes. */
+export function subscribeSpawnSpecs(listener: () => void): () => void {
+  specListeners.add(listener);
+  return () => {
+    specListeners.delete(listener);
+  };
+}
+
+function notifySpecs(): void {
+  for (const listener of [...specListeners]) listener();
+}
+
 function reserveBuild(paneId: string): number {
   const generation = (buildGenerations.get(paneId) ?? 0) + 1;
   buildGenerations.set(paneId, generation);
@@ -91,6 +118,7 @@ async function buildAndCache(
     pending.delete(paneId);
     specs.set(paneId, plan);
     failed.delete(paneId);
+    notifySpecs();
     return true;
   } catch (error) {
     if (buildGenerations.get(paneId) === generation) {
@@ -99,6 +127,7 @@ async function buildAndCache(
       // hanging on "Waking up…" — a remote spawn that can't build its plan
       // must not silently become a local one (the reason buildPlan rethrows).
       failed.add(paneId);
+      notifySpecs();
     }
     throw error;
   }
@@ -282,6 +311,7 @@ export function dropPaneSpawnSpec(paneId: string): void {
   specs.delete(paneId);
   pending.delete(paneId);
   failed.delete(paneId);
+  notifySpecs();
   buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
 }
 
@@ -426,6 +456,7 @@ export function bindPaneSpawnSpecSession(
   const spec = specs.get(paneId);
   if (!spec?.forkOf || spec.forkSessionId) return;
   specs.set(paneId, { ...spec, forkSessionId: sessionId });
+  notifySpecs();
 }
 
 /** Re-stamp WHO asked for a cached resume plan. The origin is a field of the
@@ -438,6 +469,7 @@ export function markPaneResumeOrigin(paneId: string, origin: ResumeOrigin): void
   const spec = specs.get(paneId);
   if (!spec?.resumeOf) return;
   specs.set(paneId, { ...spec, resumeOrigin: origin });
+  notifySpecs();
 }
 
 /** Whether this exact provider session began with inherited counters. */
@@ -461,14 +493,20 @@ export function clearPanePlanError(paneId: string): void {
   failed.delete(paneId);
   pending.delete(paneId);
   buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
+  // Last, so a listener that reacts by rebuilding sees the invalidation it
+  // is reacting to rather than the generation it is about to replace.
+  notifySpecs();
 }
 
-/** Test isolation. */
+/** Test isolation. Listeners go with the rest of the state: a subscriber
+ * outliving the cache it watches would keep reacting to a later test's
+ * writes. */
 export function resetPaneSpawnSpecs(): void {
   specs.clear();
   pending.clear();
   failed.clear();
   buildGenerations.clear();
+  specListeners.clear();
 }
 
 function findAgent(

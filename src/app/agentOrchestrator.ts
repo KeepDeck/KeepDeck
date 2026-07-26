@@ -56,6 +56,7 @@ import {
   markPaneResumeOrigin,
   peekPanePlanError,
   peekPaneSpawnSpec,
+  subscribeSpawnSpecs,
   type SpawnPluginAccess,
 } from "./spawnSpecs";
 import type {
@@ -957,6 +958,16 @@ export function createAgentOrchestrator(
   }
 
   deck.subscribe(schedule);
+  // A plan landing is what a pane waiting to start is waiting FOR, and what a
+  // card saying "Waking up…" is waiting to stop saying. Several paths write
+  // that cache — the sweep, a manual resume, a fork's surgery, a retry — and
+  // the ones that go through an await used to reach neither the view nor the
+  // next pass: a resumed pane got a real process behind a permanent
+  // placeholder, and the plan-error tile's Retry rebuilt nothing.
+  subscribeSpawnSpecs(() => {
+    publish();
+    schedule();
+  });
   spawnContext.subscribe(schedule);
   agents.subscribe(schedule);
   launchPolicy.subscribe(schedule);
