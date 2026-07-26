@@ -409,6 +409,44 @@ describe("useAgentDialog start-from routing", () => {
     });
   });
 
+  it("reports a failed resume — a dialog that just closes reads as success", async () => {
+    const ws = workspace({});
+    await mountAndOpen(ws);
+    resumeSession.mockRejectedValueOnce(new Error("Agent could not prepare a resume plan"));
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: false,
+        session: { mode: "resume", handle },
+      }),
+    );
+    expect(notices.onResumeFailed).toHaveBeenCalledWith(
+      expect.stringContaining("could not prepare a resume plan"),
+    );
+    expect(notices.onForkFailed).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed fork through its OWN notice, not the resume one", async () => {
+    const ws = workspace({});
+    await mountAndOpen(ws);
+    forkSession.mockRejectedValueOnce(new Error("opencode fork: unexpected id layout"));
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: false,
+        session: { mode: "fork", handle },
+      }),
+    );
+    expect(notices.onForkFailed).toHaveBeenCalledWith(
+      expect.stringContaining("unexpected id layout"),
+    );
+    expect(notices.onResumeFailed).not.toHaveBeenCalled();
+  });
+
   it("fork maps every location kind onto its ForkTarget", async () => {
     const ws = workspace({});
     const confirmFork = async (

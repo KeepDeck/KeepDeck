@@ -165,6 +165,13 @@ const steps = vi.hoisted(() => ({
 }));
 vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
 
+/** A retired session's telemetry must not stay bound to the pane, or a
+ *  suspended card keeps showing the dead conversation's ctx% and cost and a
+ *  restarted pane accumulates on top of the old baseline. Five call sites,
+ *  previously none of them asserted. */
+const usage = vi.hoisted(() => ({ clearPaneUsage: vi.fn() }));
+vi.mock("./usageManager", () => usage);
+
 vi.mock("./provisioning", async (importOriginal) => {
   const real = await importOriginal<typeof import("./provisioning")>();
   return {
@@ -1842,6 +1849,9 @@ const handle = (over: Partial<SessionHandle> = {}): SessionHandle =>
     cwd: "/repo/wt",
     branch: "kd/x/1",
     yolo: true,
+    // The plugin's fork hook needs the SOURCE transcript; without it a fork
+    // lands in an empty conversation with a wrong usage baseline.
+    transcriptPath: "/t/s-1.jsonl",
     ...over,
   }) as SessionHandle;
 
@@ -1858,6 +1868,7 @@ describe("agent orchestrator —suspending an agent", () => {
   beforeEach(() => {
     resetPaneSpawnSpecs();
     vi.mocked(dropPaneSpawnSpec).mockClear();
+    usage.clearPaneUsage.mockClear();
     ipc.probeWorktree.mockReset().mockResolvedValue({
       exists: true,
       isWorktree: false,
@@ -1931,10 +1942,11 @@ describe("agent orchestrator —suspending an agent", () => {
     expect(pane().idle).toEqual({ reason: "suspended", at: expect.any(String) });
   });
 
-  it("revokes the bridge token before the process can report anything else", async () => {
+  it("revokes the bridge token and drops the pane's usage", async () => {
     seed();
     await act(async () => agentRun.suspend("ws-1", "pane-1"));
     expect(vi.mocked(dropPaneSpawnSpec)).toHaveBeenCalledWith("pane-1");
+    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
   });
 
   it("reports the in-flight refusal apart from every other one", async () => {
@@ -2068,6 +2080,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
   beforeEach(() => {
     resetPaneSpawnSpecs();
     vi.mocked(dropPaneSpawnSpec).mockClear();
+    usage.clearPaneUsage.mockClear();
     steps.clear.mockClear();
     discardFailures = [];
     ipc.probeWorktree.mockReset().mockResolvedValue({
@@ -2115,6 +2128,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
     expect(pty.closed).toEqual(["pane-1"]);
     expect(vi.mocked(dropPaneSpawnSpec)).toHaveBeenCalledWith("pane-1");
+    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
     // An abandoned fork card's post-provision step goes too: no Retry is
     // coming for a pane that is gone.
     expect(steps.clear).toHaveBeenCalledWith("pane-1");
@@ -2218,6 +2232,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     vi.mocked(buildResumeSpec).mockReset();
     vi.mocked(dropPaneSpawnSpec).mockClear();
     vi.mocked(clearPanePlanError).mockClear();
+    usage.clearPaneUsage.mockClear();
     gate.build = null;
     ipc.probeWorktree.mockReset().mockResolvedValue({
       exists: true,
@@ -2283,6 +2298,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
       "manual",
     );
     expect(pty.closed).toEqual(["pane-1"]);
+    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
     expect(epoch()).toBe(1);
     expect(pane()).toMatchObject({
       cwd: "/worktree",
@@ -2297,6 +2313,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
 
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
     expect(pty.closed).toEqual(["pane-1"]);
+    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
     expect(pane()).toMatchObject({
       cwd: "/worktree",
       branch: "feature/restart",
@@ -2486,6 +2503,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     await act(async () => {});
 
     expect(pty.closed).toEqual(["pane-1"]);
+    expect(usage.clearPaneUsage).toHaveBeenCalledWith("pane-1");
     expect(pane().session).toBeUndefined();
     expect(epoch()).toBe(1);
     // The spec is gone, so the predicate answers false for the next exit.
@@ -2759,7 +2777,13 @@ describe("agent orchestrator —forking a recorded session", () => {
     expect(pane.session).toBeUndefined();
     const call = vi.mocked(buildForkSpec).mock.calls[0];
     expect(call[2]).toMatchObject({ paneId: pane.id, cwd: "/elsewhere" });
-    expect(call[4]).toMatchObject({ sessionId: "s-1", sourceCwd: "/old/wt" });
+    // Exact, not a subset: an extra or renamed field in the fork request is
+    // as much a defect as a missing one.
+    expect(call[4]).toEqual({
+      sessionId: "s-1",
+      sourceCwd: "/old/wt",
+      transcriptPath: "/t/s-1.jsonl",
+    });
   });
 
   it("the workspace's own folder stays a plain pane", async () => {
