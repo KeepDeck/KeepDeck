@@ -268,6 +268,7 @@ function App() {
     requestCloseAgent: closeFlow.requestCloseAgent,
     suspendAgent: suspendFlow.suspend,
     resumeAgent: orchestrator.resume,
+    createPane: orchestrator.createPane,
     openSettings: (sectionId) => {
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);

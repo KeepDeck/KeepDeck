@@ -17,6 +17,7 @@ import {
   paneSessionState,
   subscribeSessions,
 } from "./ptyManager";
+import { runProvisioning } from "./provisioning";
 import { openPath } from "../ipc/app";
 import { probeWorktree } from "../ipc/worktree";
 import { log } from "../ipc/log";
@@ -79,6 +80,7 @@ export function createAppRuntime(
       },
       plugins,
       probe: probeWorktree,
+      provision: runProvisioning,
     }),
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),

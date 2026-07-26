@@ -5,7 +5,11 @@ import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
-import type { ResumeRequest } from "./agentOrchestrator";
+import type {
+  CreatePaneOutcome,
+  CreatePaneRequest,
+  ResumeRequest,
+} from "./agentOrchestrator";
 import type { SuspendOutcome } from "./useSuspend";
 import type { Deck } from "./useDeck";
 
@@ -63,8 +67,7 @@ const workspace = (over: Partial<Workspace>): Workspace => ({
   ...over,
 });
 
-/** A deck stub: live workspaces array + recording actions. addAgentPane
- * mutates the array so follow-up reads see the new pane, like the reducer. */
+/** A deck stub: the live workspaces array + recording actions. */
 function fakeDeck(workspaces: Workspace[]): Deck {
   return {
     workspaces,
@@ -72,12 +75,6 @@ function fakeDeck(workspaces: Workspace[]): Deck {
     viewOf: () => ({}),
     selectWorkspace: vi.fn(),
     selectPane: vi.fn(),
-    addAgentPane: vi.fn((wsId: string, pane: Workspace["panes"][number]) => {
-      workspaces.find((w) => w.id === wsId)?.panes.push(pane);
-    }),
-    resolvePaneProvisioning: vi.fn(),
-    setPaneProvisioningError: vi.fn(),
-    setPaneProvisioningPhase: vi.fn(),
   } as unknown as Deck;
 }
 
@@ -91,6 +88,20 @@ function setup(workspaces: Workspace[]) {
   const resumeAgent = vi.fn<(wsId: string, paneId: string) => ResumeRequest>(
     () => "resuming",
   );
+  // The orchestrator's landing sequence in miniature: the exact-lifetime
+  // check and the add, mutating the array so follow-up reads see the pane.
+  // What it does with a provisioning card is its own test's subject; these
+  // tests are about what the command hands it.
+  const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
+    ({ workspace: ref, pane }) => {
+      const ws = workspaces.find(
+        (w) => w.id === ref.id && w.instance === ref.instance,
+      );
+      if (!ws) return { kind: "gone" };
+      ws.panes.push(pane);
+      return { kind: "created" };
+    },
+  );
   const openSettings = vi.fn();
   const openUsage = vi.fn();
   const dispose = registerCoreCommands(registry, {
@@ -99,6 +110,7 @@ function setup(workspaces: Workspace[]) {
     requestCloseAgent,
     suspendAgent,
     resumeAgent,
+    createPane,
     openSettings,
     openUsage,
   });
@@ -108,6 +120,7 @@ function setup(workspaces: Workspace[]) {
     requestCloseAgent,
     suspendAgent,
     resumeAgent,
+    createPane,
     openSettings,
     openUsage,
     dispose,
@@ -249,7 +262,7 @@ describe("agent.spawn", () => {
         finishInspect = resolve;
       });
     const workspaces = [workspace({})];
-    const { registry, deck } = setup(workspaces);
+    const { registry, deck, createPane } = setup(workspaces);
 
     const pending = registry.execute(
       "agent.spawn",
@@ -268,7 +281,9 @@ describe("agent.spawn", () => {
       },
     });
     expect(replacement.panes).toEqual([]);
-    expect(deck.addAgentPane).not.toHaveBeenCalled();
+    // The pane is never even offered: the workspace the spawn started in is
+    // gone, and the command notices before shaping anything for it.
+    expect(createPane).not.toHaveBeenCalled();
     expect(deck.selectWorkspace).not.toHaveBeenCalled();
   });
 

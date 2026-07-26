@@ -2,6 +2,8 @@ import type { ResumeOrigin } from "../domain/agents";
 import {
   findPane,
   findWorkspace,
+  findWorkspaceByRef,
+  MAX_PANES,
   paneAgentType,
   paneExecutionCwd,
   paneIsRemoteFresh,
@@ -11,7 +13,9 @@ import {
   type Pane,
   type Workspace,
 } from "../domain/deck";
+import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { describeError, log } from "../ipc/log";
+import { provisionInto, type ProvisionCallbacks } from "./provisioning";
 import { createDeckActions, type DeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 import type { SpawnContextSource } from "./spawnContextSource";
@@ -47,6 +51,17 @@ export interface AgentOrchestrator {
    * changes (the `useSyncExternalStore` snapshot contract). */
   getView(): AgentRunView;
   subscribe(listener: () => void): () => void;
+  /**
+   * Land a new agent pane in a workspace and carry it through everything its
+   * arrival implies — the capacity refusal, the worktree create behind its
+   * card, the workspace's setup command when its intent calls for one. From
+   * here on the run sweep takes over: nothing else has to start it.
+   *
+   * Every creation surface routes through this, because the checks around the
+   * add are not the surface's business and were getting done differently at
+   * each of them.
+   */
+  createPane(request: CreatePaneRequest): CreatePaneOutcome;
   /** Detach the pane from the missing worktree and start it fresh in the
    * workspace cwd. */
   startFresh(wsId: string, paneId: string): void;
@@ -77,6 +92,29 @@ export interface AgentRunView {
    * retry instead of leaving them on "Waking up…" forever. */
   planFailed: ReadonlySet<string>;
 }
+
+export interface CreatePaneRequest {
+  /** The workspace by its exact lifetime, not its id. Every creation surface
+   * decides asynchronously (a repo inspect, a worktree suggestion, a plugin's
+   * fork surgery), and by the time it gets here the workspace may be closed —
+   * with its `ws-N` slot already handed to a replacement that must not adopt
+   * this pane. */
+  workspace: WorkspaceRef;
+  /** The pane as the surface shaped it, id included: the flows that build a
+   * spawn plan BEFORE the pane exists key that plan by this id. */
+  pane: Pane;
+}
+
+/** Whether a new pane made it into the deck. Answered rather than assumed:
+ * both refusals leave the caller holding something to undo — a fork's store
+ * surgery, a dialog left open — and a silent no-op is how a provisioned
+ * worktree ends up on disk with no pane to own it. */
+export type CreatePaneOutcome =
+  | { kind: "created" }
+  /** The workspace is gone (or its id now names a different one). */
+  | { kind: "gone" }
+  /** The workspace already holds MAX_PANES. */
+  | { kind: "full" };
 
 /** What asking for a pane back did. */
 export type ResumeRequest =
@@ -111,6 +149,17 @@ export interface AgentCatalogPort {
 /** Does this directory still exist? The pane's worktree may have been removed
  * behind the app's back. */
 export type WorktreeProbePort = (dir: string) => Promise<{ exists: boolean }>;
+
+/** Creates the worktrees behind provisioning cards, reporting each result
+ * into the deck as it lands. Injected like the probe: it shells out to git
+ * and runs the workspace's setup command in a PTY, neither of which a test
+ * of the creation sequence wants to actually do. Never throws — a failure
+ * lands on its pane's card. */
+export type ProvisionPort = (
+  panes: Pane[],
+  report: ProvisionCallbacks,
+  setup?: string,
+) => Promise<void>;
 
 /** Whether restored agents come back stopped instead of resuming. Live, not a
  * value captured once: the setting is not a fact about any pane, and the panes
@@ -150,6 +199,7 @@ export interface AgentOrchestratorDeps {
   sessions: SessionRegistryPort;
   plugins: SpawnPluginAccess;
   probe: WorktreeProbePort;
+  provision: ProvisionPort;
 }
 
 /** How one attempt to bring a pane up ended. */
@@ -170,8 +220,16 @@ const EMPTY_VIEW: AgentRunView = {
 export function createAgentOrchestrator(
   deps: AgentOrchestratorDeps,
 ): AgentOrchestrator {
-  const { deck, spawnContext, agents, launchPolicy, sessions, plugins, probe } =
-    deps;
+  const {
+    deck,
+    spawnContext,
+    agents,
+    launchPolicy,
+    sessions,
+    plugins,
+    probe,
+    provision,
+  } = deps;
   const actions: DeckActions = createDeckActions(deck);
   const blocked = new Map<string, string>();
   const wakeFailed = new Map<string, string>();
@@ -307,6 +365,25 @@ export function createAgentOrchestrator(
     // wake lands on the plan-error tile instead of a terminal.
     dropPaneSpawnSpec(pane.id);
     actions.failPaneWake(wsId, pane.id);
+  }
+
+  /**
+   * Start the worktree create behind a pane that arrived as a card.
+   *
+   * The workspace's one-time setup command runs only for a pane whose intent
+   * says the create form's batch stamped it. A "+ Agent", fork or command
+   * pane joins a workspace that was prepared once already, and re-running the
+   * preparation per pane is not what "one-time" means. The same reading gives
+   * a Retry its rule for free: it consults the stamp, so it can never have
+   * wider effects than the attempt it retries.
+   */
+  function provisionPaneOf(ws: Workspace, pane: Pane): void {
+    if (!pane.provisioning) return;
+    void provision(
+      [pane],
+      provisionInto(actions, ws.id),
+      pane.provisioning.runsSetup ? ws.setup : undefined,
+    );
   }
 
   /** Wake one pane onto `sessionId`, or fresh when it is null. */
@@ -521,6 +598,23 @@ export function createAgentOrchestrator(
       return () => {
         listeners.delete(listener);
       };
+    },
+    createPane({ workspace, pane }) {
+      const ws = findWorkspaceByRef(deck.getSnapshot().workspaces, workspace);
+      // Both refusals drop whatever plan the caller cached under this id:
+      // there is no pane to run it, and ids are never reused, so it would sit
+      // in the cache for the life of the process.
+      if (!ws) {
+        dropPaneSpawnSpec(pane.id);
+        return { kind: "gone" };
+      }
+      if (ws.panes.length >= MAX_PANES) {
+        dropPaneSpawnSpec(pane.id);
+        return { kind: "full" };
+      }
+      actions.addAgentPane(ws.id, pane);
+      provisionPaneOf(ws, pane);
+      return { kind: "created" };
     },
     startFresh(wsId, paneId) {
       let changed = blocked.delete(paneId);

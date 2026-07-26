@@ -3,7 +3,8 @@ import { emptyJournal } from "../domain/journal";
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DeckState, PaneIdle } from "../domain/deck";
+import type { DeckState, Pane, PaneIdle } from "../domain/deck";
+import { MAX_PANES } from "../domain/deck";
 import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import {
@@ -106,7 +107,12 @@ const pty = {
 };
 
 let deck: Deck;
-let agentRun: AgentRunView & Pick<AgentOrchestrator, "resume" | "startFresh">;
+let agentRun: AgentRunView &
+  Pick<AgentOrchestrator, "resume" | "startFresh" | "createPane">;
+/** The worktree creates the orchestrator asked for, recorded instead of run.
+ *  Per mount like the deck beside it, so no `describe` has to remember to
+ *  clear it. */
+let provisions: { panes: Pane[]; setup: string | undefined }[];
 const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
 // What the orchestrator's gate consults — swappable per test. The id set is
@@ -134,8 +140,10 @@ const catalog = {
 function Probe() {
   const [wiring] = useState(() => {
     const store = createDeckStore();
+    const asked: { panes: Pane[]; setup: string | undefined }[] = [];
     return {
       store,
+      asked,
       orchestrator: createAgentOrchestrator({
         deck: store,
         spawnContext: { get: () => ctx, subscribe: () => () => {} },
@@ -159,14 +167,20 @@ function Probe() {
         },
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
+        provision: (panes, _report, setup) => {
+          asked.push({ panes, setup });
+          return Promise.resolve();
+        },
       }),
     };
   });
   deck = useDeck(wiring.store);
+  provisions = wiring.asked;
   agentRun = {
     ...useAgentRunView(wiring.orchestrator),
     resume: wiring.orchestrator.resume,
     startFresh: wiring.orchestrator.startFresh,
+    createPane: wiring.orchestrator.createPane,
   };
   return null;
 }
@@ -1149,5 +1163,188 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
 
     expect(background().idle).toEqual({ reason: "waking", origin: "restore" });
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+  });
+});
+
+describe("agent orchestrator —a new pane arriving", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    catalog.parkOnLaunch = false;
+    pty.reset();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  /** One empty workspace with a setup command, its ref captured. */
+  const instance = () => deck.workspaces[0].instance;
+  const seed = (panes: Pane[] = []): DeckState => ({
+    workspaces: [
+      {
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        setup: "pnpm install",
+        panes,
+      },
+    ],
+    activeId: "ws-1",
+    journal: emptyJournal,
+    viewByWs: {},
+  });
+
+  const card = (over: object = {}): Pane => ({
+    id: "pane-9",
+    agentType: "claude",
+    provisioning: { repo: "/repo", path: "/wt/a", workspace: "ws", index: 1 },
+    ...over,
+  });
+
+  it("lands a plain pane and leaves the worktree runner alone", async () => {
+    act(() => deck.hydrate(seed()));
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: { id: "pane-9", agentType: "claude" },
+      });
+    });
+    expect(outcome).toEqual({ kind: "created" });
+    expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-9"]);
+    expect(provisions).toEqual([]);
+  });
+
+  it("starts the worktree create behind a pane that arrives as a card", async () => {
+    act(() => deck.hydrate(seed()));
+    await act(async () => {
+      agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: card(),
+      });
+    });
+    expect(provisions).toHaveLength(1);
+    expect(provisions[0].panes.map((p) => p.id)).toEqual(["pane-9"]);
+  });
+
+  it("does NOT re-run the workspace's one-time setup for a pane added later", async () => {
+    // The setup command prepares a worktree once, as part of the create
+    // form's batch. A "+ Agent" pane joins a workspace already prepared, and
+    // running it again per pane is not what "one-time" means.
+    act(() => deck.hydrate(seed()));
+    await act(async () => {
+      agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: card(),
+      });
+    });
+    expect(provisions[0].setup).toBeUndefined();
+  });
+
+  it("DOES run it for a pane the batch stamped", async () => {
+    act(() => deck.hydrate(seed()));
+    await act(async () => {
+      agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: card({
+          provisioning: {
+            repo: "/repo",
+            baseDir: "/wt",
+            runsSetup: true,
+            workspace: "ws",
+            index: 1,
+          },
+        }),
+      });
+    });
+    expect(provisions[0].setup).toBe("pnpm install");
+  });
+
+  it("refuses a workspace whose id now names a REPLACEMENT", async () => {
+    // `ws-N` is a reusable slot. A creation surface decides asynchronously —
+    // a repo inspect, a worktree suggestion — and the workspace it started
+    // from can be closed and its slot reissued before it gets here.
+    act(() => deck.hydrate(seed()));
+    const stale = instance();
+    act(() => deck.hydrate(seed()));
+
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: stale },
+        pane: card(),
+      });
+    });
+    expect(outcome).toEqual({ kind: "gone" });
+    expect(deck.workspaces[0].panes).toEqual([]);
+    // Nothing was added, so nothing may be created on disk for it.
+    expect(provisions).toEqual([]);
+  });
+
+  it("refuses a full workspace rather than provisioning an ownerless worktree", async () => {
+    // The add is a silent no-op once the workspace is full. Kicking the
+    // create off anyway would leave a git worktree on disk with no pane to
+    // own it, and nothing that would ever clean it up.
+    act(() =>
+      deck.hydrate(
+        seed(
+          Array.from({ length: MAX_PANES }, (_, i) => ({
+            id: `pane-${i + 1}`,
+            agentType: "claude" as const,
+          })),
+        ),
+      ),
+    );
+    let outcome;
+    await act(async () => {
+      outcome = agentRun.createPane({
+        workspace: { id: "ws-1", instance: instance() },
+        pane: card(),
+      });
+    });
+    expect(outcome).toEqual({ kind: "full" });
+    expect(deck.workspaces[0].panes).toHaveLength(MAX_PANES);
+    expect(provisions).toEqual([]);
+  });
+
+  it("drops a refused pane's cached plan — nothing will ever run it", async () => {
+    // The plan-first flows (a journal resume, a fork) build and cache a plan
+    // keyed by the pane id BEFORE the pane exists. Pane ids are never reused,
+    // so a plan left behind by a refusal sits in the cache for the life of
+    // the process.
+    act(() => deck.hydrate(seed()));
+    const stale = instance();
+    act(() => deck.hydrate(seed()));
+    await buildResumeSpec(
+      {} as SpawnPluginAccess,
+      "claude",
+      { paneId: "pane-9", workspace: { id: "ws-1", instance: stale }, cwd: "/repo" },
+      ctx,
+      "s-1",
+      "manual",
+    );
+    expect(peekPaneSpawnSpec("pane-9")).toBeDefined();
+
+    await act(async () => {
+      agentRun.createPane({
+        workspace: { id: "ws-1", instance: stale },
+        pane: card(),
+      });
+    });
+    expect(peekPaneSpawnSpec("pane-9")).toBeUndefined();
   });
 });

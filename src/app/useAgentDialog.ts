@@ -10,10 +10,10 @@ import {
   baseName,
   findWorkspaceByRef,
   firstFreeWorktree,
+  paneFromAgentRequest,
   paneId,
   idleReadsAsStopped,
   parentDir,
-  type Pane,
   type Workspace,
 } from "../domain/deck";
 import { handleFromHit, type SessionHandle } from "../domain/journal";
@@ -23,7 +23,7 @@ import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";
-import { provisionInto, runProvisioning } from "./provisioning";
+import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
 import type { ForkTarget } from "./useJournalFork";
 
@@ -84,6 +84,7 @@ export function useAgentDialog(
    * omits it, compiles, and tells the user a dead pane is running again. */
   blockedPanes: Record<string, string>,
 ) {
+  const { orchestrator } = useAppRuntime();
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
   const deckRef = useRef(deck);
   deckRef.current = deck;
@@ -156,14 +157,8 @@ export function useAgentDialog(
     });
   };
 
-  const confirm = ({
-    agentType,
-    name,
-    location,
-    yolo,
-    remoteEndpoint,
-    session,
-  }: AgentDialogResult) => {
+  const confirm = (result: AgentDialogResult) => {
+    const { name, location, yolo, session } = result;
     const dlg = dialog;
     if (!dlg) return;
     setDialog(null);
@@ -202,67 +197,14 @@ export function useAgentDialog(
       });
       return;
     }
-    // Sparse like persistence: only the armed mode lands on the pane.
-    const paneYolo = yolo ? { yolo: true as const } : {};
-    // Remote: a bare pane carrying the endpoint. The agent's cwd lives on the
-    // box the server runs on, so the local worktree/location is moot — the
-    // pane's terminal runs the local thin-client attached to the endpoint.
-    // (Remote is fresh-session only for now: the dialog forces "new" and
-    // hides Start-from, so `session` is never set alongside this.)
-    if (remoteEndpoint) {
-      currentDeck.addAgentPane(dlg.workspace.id, {
-        id: dlg.agentId,
-        name: paneName,
-        agentType,
-        ...paneYolo,
-        remoteEndpoint,
-      });
-      return;
-    }
-    // Main repo: a bare pane that runs in the workspace cwd.
-    if (location.kind === "main") {
-      currentDeck.addAgentPane(dlg.workspace.id, {
-        id: dlg.agentId,
-        name: paneName,
-        agentType,
-        ...paneYolo,
-      });
-      return;
-    }
-    // Existing worktree: attach in place, no git mutation ([F12]-lite).
-    if (location.kind === "existing") {
-      currentDeck.addAgentPane(dlg.workspace.id, {
-        id: dlg.agentId,
-        cwd: location.path,
-        branch: location.branch || undefined,
-        name: paneName,
-        agentType,
-        ...paneYolo,
-      });
-      return;
-    }
-    // New worktree AT the chosen path (created verbatim, no suffix): the pane
-    // joins the grid as a provisioning card right away; the background create
-    // resolves it — or flips it to the failed card with Retry.
-    const pane: Pane = {
-      id: dlg.agentId,
-      name: paneName,
-      agentType,
-      ...paneYolo,
-      provisioning: {
-        repo: ws.cwd,
-        path: location.path,
-        branch: location.branch || undefined,
-        base: location.baseBranch,
-        workspace: ws.name,
-        index: dlg.index,
-      },
-    };
-    currentDeck.addAgentPane(dlg.workspace.id, pane);
-    void runProvisioning(
-      [pane],
-      provisionInto(currentDeck, dlg.workspace.id),
-    );
+    // A fresh conversation: the pane the request describes, handed to the one
+    // owner of what arriving in a workspace entails. Whether it lands as a
+    // terminal or as a provisioning card is the pane's shape to say, not this
+    // surface's to arrange.
+    orchestrator.createPane({
+      workspace: dlg.workspace,
+      pane: paneFromAgentRequest(dlg.agentId, result, ws, dlg.index),
+    });
   };
 
   /**
