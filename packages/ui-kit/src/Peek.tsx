@@ -15,9 +15,9 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
  * (`peek.css`), per the builtin-tier rule.
  *
  * The body is the overlay's ONE scroll container, and it survives a change of
- * content — consumers swap what's inside without remounting it. So the shell
- * owns the scroll position too: `scrollKey` says which thing is on screen, and
- * a new one starts at the top.
+ * content — consumers swap what's inside without remounting it. That makes
+ * scroll position and focus the shell's to manage rather than each consumer's;
+ * `scrollKey` carries the rule.
  */
 export interface PeekProps {
   /** Accessible name for the dialog. */
@@ -34,11 +34,12 @@ export interface PeekProps {
    * outline. Scrolls on its own; the body's scrolling is untouched. */
   aside?: ReactNode;
   /** Identity of what the body is showing — a path, a revision-qualified file
-   * key. A CHANGE scrolls the body back to the top: the next file starts at
-   * its first line, not at the previous one's offset. Re-renders under the
-   * same key (a load step landing, a watcher refresh re-reading the same
-   * content) leave the reader's position alone, so this must encode only
-   * *which* thing is on screen — never how far along its load it is.
+   * key. A CHANGE returns the body to the top and takes focus back, so the
+   * next thing starts at its first line with the keys that scroll it aimed at
+   * it. Re-renders under the same key (a load step landing, a watcher refresh
+   * re-reading the same content) leave the reader's position alone, so this
+   * must encode only *which* thing is on screen — never how far along its
+   * load it is.
    *
    * Required on purpose: the body outlives its content, so every consumer has
    * to answer this. Two files that render an identical header are still two
