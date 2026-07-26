@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { useEscape } from "./useEscape";
+import { useEscape, useHeldEnterGuard } from "./useEscape";
 import { DestructiveButton } from "./DestructiveButton";
 import { ModalOverlay } from "./ModalOverlay";
 
@@ -53,6 +53,10 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   // Esc cancels a yes/no prompt, or dismisses a one-button notice.
   useEscape(onCancel ?? onConfirm);
+  // The dialog auto-focuses a button, so it INVITES a held Enter — and a hold
+  // that outlives one dialog would run the next one's button too, which is how
+  // a queue of notices gets dismissed unread.
+  useHeldEnterGuard();
   const hasCancel = Boolean(cancelLabel && onCancel);
 
   return (
