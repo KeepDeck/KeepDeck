@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import {
   agentSupportsYolo,
-  defaultAgentType,
   type AgentInfo,
 } from "../domain/agents";
 import {
@@ -12,7 +11,6 @@ import {
 } from "../domain/commands";
 import {
   findWorkspaceByRef,
-  firstFreeWorktree,
   paneAgentType,
   paneDisplayTitle,
   paneId,
@@ -20,7 +18,8 @@ import {
   type Pane,
   type Workspace,
 } from "../domain/deck";
-import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
+import { inspectRepo } from "../ipc/worktree";
+import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "./newAgentDefaults";
 import { commands } from "./commandRegistry";
 import { mintAgentSeq } from "./ids";
 import { paneInputReady, pasteToPane, writeRawToPane } from "./paneInput";
@@ -222,16 +221,9 @@ export function registerCoreCommands(
         const requested = str(args, "agentType");
         if (requested && !agents.some((a) => a.id === requested))
           throw new Error(`unknown agent type "${requested}"`);
-        const agentType =
-          requested ??
-          defaultAgentType(
-            agents,
-            ws.panes[ws.panes.length - 1]?.agentType ??
-              getSettings()?.defaultAgent ??
-              "claude",
-          );
+        const agentType = requested ?? nextAgentType(agents, ws);
         const id = paneId(mintAgentSeq());
-        const index = ws.panes.length + 1;
+        const index = nextAgentIndex(ws);
 
         // The global YOLO default reaches this surface too, gated on the
         // resolved agent's support like every other creation path.
@@ -250,13 +242,11 @@ export function registerCoreCommands(
         };
         const info = await inspectRepo(ws.cwd).catch(() => null);
         let current = currentTarget();
-        if (info?.isRepo && current.workspace.worktreeBaseDir) {
-          const free = await firstFreeWorktree(
+        if (info?.isRepo) {
+          const free = await firstFreeAgentWorktree(
             current.deck.workspaces,
-            current.workspace.worktreeBaseDir,
-            (i) => suggestWorktree(current.workspace.name, i).catch(() => null),
+            current.workspace,
             index,
-            (path) => probeWorktree(path).catch(() => null),
           );
           current = currentTarget();
           if (free) {

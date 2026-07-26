@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
 import {
-  defaultAgentType,
   type AgentDialogResult,
   type AgentInfo,
   type AgentType,
@@ -26,6 +25,11 @@ import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";
+import {
+  firstFreeAgentWorktree,
+  nextAgentIndex,
+  nextAgentType,
+} from "./newAgentDefaults";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
 
@@ -102,17 +106,8 @@ export function useAgentDialog(
   const openFor = async (ws: Workspace) => {
     const workspace = { id: ws.id, instance: ws.instance };
     const seq = mintAgentSeq();
-    const index = ws.panes.length + 1;
-    // Default the type to the last pane's if it's still selectable — the
-    // workspace's own momentum beats the global preference ([F6]) — else the
-    // preference (a snapshot read is right: the value matters at open time),
-    // else the first installed agent ([F1]).
-    const defaultType = defaultAgentType(
-      agents,
-      ws.panes[ws.panes.length - 1]?.agentType ??
-        getSettings()?.defaultAgent ??
-        "claude",
-    );
+    const index = nextAgentIndex(ws);
+    const defaultType = nextAgentType(agents, ws);
     // Offer the worktree location only when the workspace cwd is a git repo.
     const info = await inspectRepo(ws.cwd).catch(() => null);
     const repo = info?.isRepo ? { cwd: ws.cwd, branch: info.branch } : null;
@@ -120,16 +115,13 @@ export function useAgentDialog(
     let suggestedBranch = "";
     if (repo) {
       if (ws.worktreeBaseDir) {
-        // [F2]: prefill a path ONLY when the workspace has a base folder —
-        // and never a dir an open pane already runs in, nor one blocked on
-        // disk: jump straight to the first usable suggestion instead of
-        // opening onto an occupied- or blocked-path error.
-        const free = await firstFreeWorktree(
+        // [F2]: prefill a path ONLY when the workspace has a base folder, so
+        // the dialog opens on the first usable suggestion rather than onto an
+        // occupied- or blocked-path error.
+        const free = await firstFreeAgentWorktree(
           deckRef.current.workspaces,
-          ws.worktreeBaseDir,
-          suggestFor(ws),
+          ws,
           index,
-          probeFor,
         );
         if (free) {
           suggestedPath = free.path;
