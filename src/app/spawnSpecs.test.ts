@@ -28,6 +28,7 @@ import {
   spawnPlanNeedsUsageBaseline,
   type SpawnPluginAccess,
   buildLivePaneSpec,
+  subscribeSpawnSpecs,
 } from "./spawnSpecs";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -621,5 +622,152 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     dropPaneSpawnSpec("pane-1");
     markPaneResumeOrigin("pane-1", "manual");
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
+  });
+});
+
+describe("subscribeSpawnSpecs — the cache tells its readers", () => {
+  // Tested against the REAL module deliberately. The orchestrator's own suite
+  // replaces this module with a fake, so nothing there can prove a writer
+  // notifies — and the writers reached through an await are exactly the ones
+  // that silently did not, leaving a resumed pane with a live process and a
+  // view that never learned its plan existed.
+  let registered: Disposable[] = [];
+  let heard: number;
+  let stop: () => void;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    hostState.installed = [];
+    invalidateSkillsStaging();
+    registered.push(pluginRegistries.agents.add("test-plugin", adopting));
+    heard = 0;
+    stop = subscribeSpawnSpecs(() => {
+      heard += 1;
+    });
+  });
+
+  afterEach(() => {
+    stop();
+    for (const entry of registered) entry.dispose();
+    registered = [];
+  });
+
+  const facts = { paneId: "pane-1", workspace: W1, cwd: "/repo" };
+
+  it("announces a plan built by the ordinary sweep", async () => {
+    await buildLivePaneSpec(plugins, ws([{ id: "pane-1", agentType: "claude" }])[0], { id: "pane-1", agentType: "claude" }, ctx);
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  it("announces a RESUME plan — the path that regressed", async () => {
+    // A resume fills the cache directly, so the sweep's own rebuild
+    // short-circuits and cannot be the thing that publishes.
+    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  it("announces a FORK plan", async () => {
+    registered.push(
+      pluginRegistries.agents.add("test-plugin", {
+        id: "forker",
+        label: "Forker",
+        detect: { bin: "forker" },
+        hooks: {
+          "fork.plan": (input, output) => {
+            output.args = ["--fork", input.sessionId];
+          },
+        },
+      }),
+    );
+    await buildForkSpec(plugins, "forker", facts, ctx, {
+      sessionId: "s-1",
+      sourceCwd: "/old",
+    });
+    expect(peekPaneSpawnSpec("pane-1")).toBeDefined();
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  it("stays SILENT when a plan could not be prepared at all", async () => {
+    // No fork hook: nothing is cached, so there is nothing to announce and a
+    // listener must not be woken to find the cache unchanged.
+    expect(
+      await buildForkSpec(plugins, "claude", facts, ctx, {
+        sessionId: "s-1",
+        sourceCwd: "/old",
+      }),
+    ).toBe(false);
+    expect(heard).toBe(0);
+  });
+
+  it("announces a plan being dropped", async () => {
+    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
+    heard = 0;
+    dropPaneSpawnSpec("pane-1");
+    expect(heard).toBe(1);
+  });
+
+  it("announces a build FAILURE, so the error tile can replace the placeholder", async () => {
+    registered.push(
+      pluginRegistries.agents.add("test-plugin", {
+        id: "throws",
+        label: "Throws",
+        detect: { bin: "throws" },
+        hooks: {
+          "resume.plan": () => {
+            throw new Error("hook exploded");
+          },
+        },
+      }),
+    );
+    await expect(
+      buildResumeSpec(plugins, "throws", { ...facts, paneId: "pane-2" }, ctx, "s-2", "manual"),
+    ).rejects.toThrow("hook exploded");
+    expect(peekPanePlanError("pane-2")).toBe(true);
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  it("announces a failure being cleared, so a retry can rebuild", async () => {
+    registered.push(
+      pluginRegistries.agents.add("test-plugin", {
+        id: "throws2",
+        label: "Throws",
+        detect: { bin: "throws2" },
+        hooks: {
+          "resume.plan": () => {
+            throw new Error("boom");
+          },
+        },
+      }),
+    );
+    await expect(
+      buildResumeSpec(plugins, "throws2", { ...facts, paneId: "pane-3" }, ctx, "s-3", "manual"),
+    ).rejects.toThrow();
+    heard = 0;
+    clearPanePlanError("pane-3");
+    expect(heard).toBe(1);
+  });
+
+  it("announces a re-stamped resume origin", async () => {
+    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "restore");
+    heard = 0;
+    markPaneResumeOrigin("pane-1", "manual");
+    expect(heard).toBe(1);
+  });
+
+  it("lets a listener go, and forgets every listener on reset", async () => {
+    stop();
+    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
+    expect(heard).toBe(0);
+
+    let after = 0;
+    const again = subscribeSpawnSpecs(() => {
+      after += 1;
+    });
+    // Reset drops listeners with the rest of the state: a subscriber that
+    // outlived the cache would keep reacting to a later test's writes.
+    resetPaneSpawnSpecs();
+    dropPaneSpawnSpec("pane-1");
+    expect(after).toBe(0);
+    again();
   });
 });
