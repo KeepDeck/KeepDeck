@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentDialogResult } from "../domain/agents";
-import type { Workspace } from "../domain/deck";
+import { WORKSPACE_FULL_MESSAGE, type Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { inspectRepo } from "../ipc/worktree";
 import { useAgentDialog } from "./useAgentDialog";
@@ -324,7 +324,7 @@ describe("useAgentDialog suggestions", () => {
       }),
     );
     expect(notices.onCreateFailed).toHaveBeenCalledWith(
-      expect.stringContaining("full"),
+      WORKSPACE_FULL_MESSAGE,
     );
   });
 

@@ -58,6 +58,8 @@ const gate = vi.hoisted(() => ({ build: null as Promise<void> | null }));
  * deck restored but never built here (a rejected boot resume). */
 const plans = vi.hoisted(() => ({
   specs: new Map<string, unknown>(),
+  /** Panes whose last plan build failed — the error tile's source. */
+  failed: new Set<string>(),
   /** Set by the mock factory; a test that seeds the cache by hand calls it. */
   notify: (() => {}) as () => void,
 }));
@@ -88,8 +90,14 @@ vi.mock("./spawnSpecs", () => {
         return true;
       },
     ),
-    peekPanePlanError: () => false,
-    clearPanePlanError: vi.fn(() => notify()),
+    // Real state, not a hardcoded `false`: the published `planFailed` set is
+    // what turns a pane into the error tile with its retry, and with no way to
+    // put a pane INTO that state nothing about the tile could be tested.
+    peekPanePlanError: (id: string) => plans.failed.has(id),
+    clearPanePlanError: vi.fn((id: string) => {
+      plans.failed.delete(id);
+      notify();
+    }),
     // The real predicate's shape: a RESTORE resume whose process died without
     // ever posting back. A manual one is ineligible by design.
     resumeDiedSilently: (
@@ -150,6 +158,7 @@ vi.mock("./spawnSpecs", () => {
     }),
     resetPaneSpawnSpecs: () => {
       specs.clear();
+      plans.failed.clear();
       // The orchestrator under test subscribes on construction; a listener
       // from a previous mount would keep reconciling its own dead deck.
       listeners.clear();
@@ -1105,6 +1114,10 @@ describe("agent orchestrator —a request that lands mid-flight", () => {
     // Reset, not clear: `mockClear` leaves an unconsumed `…Once` queue in
     // place, which then answers the FIRST build of the next test.
     vi.mocked(buildResumeSpec).mockReset();
+    // This block asserts CALL HISTORY on the drop; without a clear it would
+    // be satisfied by an earlier describe's calls for the same pane id, and
+    // the branch it targets could stop dropping without anything failing.
+    vi.mocked(dropPaneSpawnSpec).mockClear();
     gate.build = null;
     ipc.probeWorktree.mockReset();
     catalog.ready = true;
@@ -1380,6 +1393,72 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
     expect(agentRun.specs["pane-2"]).toBeDefined();
   });
 
+  it("stops owing a start once the pane has a process", async () => {
+    // The debt exempts a pane from the unopened-workspace economy. Left
+    // behind, it would keep exempting that pane for the session — respawning
+    // it on every exit in a workspace nobody has opened.
+    act(() =>
+      deck.hydrate(twoWorkspaces({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" })),
+    );
+    await settle();
+    act(() => {
+      agentRun.resume("ws-2", "pane-2");
+    });
+    await settle();
+    expect(pty.acquired.map((a) => a.paneId)).toContain("pane-2");
+
+    // Its process dies. Nothing asked for it again, so nothing restarts it.
+    pty.acquired = [];
+    act(() => {
+      pty.live.delete("pane-2");
+      pty.notify();
+    });
+    await settle();
+    expect(pty.acquired).toEqual([]);
+  });
+
+  it("stops owing a start when the attempt gives up", async () => {
+    // A refused wake is not a start still owed. Keeping the debt would exempt
+    // the pane from the economy for the rest of the session.
+    ipc.probeWorktree.mockResolvedValue({
+      exists: false,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    act(() =>
+      deck.hydrate(twoWorkspaces({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" })),
+    );
+    await settle();
+    act(() => {
+      agentRun.resume("ws-2", "pane-2");
+    });
+    await settle();
+    expect(agentRun.blocked["pane-2"]).toBe("/other");
+    // Put back where it came from, not left rising.
+    expect(background().idle).toMatchObject({ reason: "suspended" });
+
+    // The folder comes back. Nothing has asked for the pane since the refusal,
+    // so a plain sweep leaves it alone — the debt did not survive.
+    ipc.probeWorktree.mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    pty.acquired = [];
+    act(() => deck.renameWorkspace("ws-2", "two again"));
+    await settle();
+    expect(pty.acquired).toEqual([]);
+
+    // Asking again re-owes it, and the pane starts even off screen.
+    act(() => {
+      agentRun.startFresh("ws-2", "pane-2");
+    });
+    await settle();
+    expect(pty.acquired.map((a) => a.paneId)).toEqual(["pane-2"]);
+  });
+
   it("refuses a pane no plugin can start, instead of stranding it", async () => {
     // The sweep skips a pane whose agent no plugin provides, so marking it
     // `waking` puts it somewhere nothing will ever settle: the durable
@@ -1412,6 +1491,63 @@ describe("agent orchestrator —a pane asked for by name in another workspace", 
 
     expect(background().idle).toEqual({ reason: "waking", origin: "restore" });
     expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+  });
+});
+
+describe("agent orchestrator —what resume answers", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    catalog.parkOnLaunch = false;
+    pty.reset();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const only = (pane: object) =>
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [{ id: "pane-1", agentType: "claude", ...pane }],
+      }),
+    );
+
+  it("says a live pane has nothing to bring back", () => {
+    // A caller reporting success for this would be lying, and the command
+    // surfaces the answer as a sentence.
+    only({});
+    expect(agentRun.resume("ws-1", "pane-1")).toBe("running");
+  });
+
+  it("tells a pane mid-create apart from a running one", async () => {
+    // Its own doc: telling the user a pane mid-create is already running is
+    // simply false — it has never run, so there is no session to come back to.
+    only({ provisioning: { repo: "/repo", workspace: "ws", index: 1 } });
+    await settle();
+    expect(agentRun.resume("ws-1", "pane-1")).toBe("provisioning");
+  });
+
+  it("says gone for a pane, and for a workspace, that is not there", () => {
+    only({ idle: { reason: "parked" } });
+    expect(agentRun.resume("ws-1", "nope")).toBe("gone");
+    expect(agentRun.resume("nope", "pane-1")).toBe("gone");
   });
 });
 
@@ -2561,6 +2697,36 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(epoch()).toBe(1);
     // No process was ever started for a failed-plan pane — nothing to close.
     expect(pty.closed).toEqual([]);
+  });
+
+  it("publishes a failed build as the error tile, and clears it on retry", async () => {
+    // The tile is what a pane whose plan could not be built shows instead of
+    // hanging on "Waking up…" forever, and the retry is the only way off it.
+    seed();
+    await settle();
+    act(() => {
+      plans.failed.add("pane-1");
+      plans.notify();
+    });
+    expect([...agentRun.planFailed]).toEqual(["pane-1"]);
+
+    act(() => agentRun.retryPlanBuild("pane-1"));
+    await settle();
+    expect([...agentRun.planFailed]).toEqual([]);
+    expect(agentRun.specs["pane-1"]).toBeDefined();
+  });
+
+  it("answers what a restart DID, for every way it can end", async () => {
+    // The card clears its spinner on any answer but "restarted", so a wrong
+    // literal either strands it or clears it too early.
+    seed();
+    await settle();
+    expect(await act(async () => agentRun.restart("ws-1", "pane-1", "fresh"))).toBe(
+      "restarted",
+    );
+    expect(await act(async () => agentRun.restart("ws-1", "nope", "fresh"))).toBe(
+      "gone",
+    );
   });
 
   it("retryPlanBuild actually REBUILDS — the tile's retry is not just a reset", async () => {

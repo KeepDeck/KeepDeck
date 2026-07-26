@@ -335,12 +335,11 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(peekPanePlanError("pane-1")).toBe(false);
   });
 
-  it("a failed build re-renders consumers (bumps the snapshot tick)", async () => {
-    // The .catch must bump the snapshot tick, else the memo never refreshes
-    // and DeckStage never re-reads peekPanePlanError — the pane would hang on
-    // "Waking up…" until some unrelated re-render (the bug r3 caught). A
-    // render-counting probe observes the re-render directly: with the fix the
-    // failed build triggers a second render; without it, renders stays at 1.
+  it("reports a failed build as a CHANGE, so the error tile can replace the spinner", async () => {
+    // The failure has to count as a cache change: its consumer decides
+    // between the error tile and "Waking up…" from what the cache says, and a
+    // build that failed silently would leave the pane on the spinner until
+    // some unrelated event happened along.
     register({
       ...adopting,
       hooks: {

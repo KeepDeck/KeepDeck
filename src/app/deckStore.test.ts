@@ -61,9 +61,15 @@ describe("createDeckActions", () => {
     expect(createDeckActions(store)).toBe(createDeckActions(store));
   });
 
-  it("keeps two stores apart", () => {
-    expect(createDeckActions(createDeckStore())).not.toBe(
-      createDeckActions(createDeckStore()),
-    );
+  it("keeps two stores apart — each set dispatches to its OWN", () => {
+    // Not just "different objects": any non-memoized factory satisfies that.
+    // What matters is that the cache cannot hand one store's actions to the
+    // other, which is the whole risk of keying by identity.
+    const first = createDeckStore();
+    const second = createDeckStore();
+    createDeckActions(first).createWorkspace(workspace("ws-1"));
+
+    expect(first.getSnapshot().workspaces.map((w) => w.id)).toEqual(["ws-1"]);
+    expect(second.getSnapshot().workspaces).toEqual([]);
   });
 });

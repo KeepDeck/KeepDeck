@@ -71,7 +71,12 @@ describe("nextAgentType", () => {
   });
 
   it("falls to the first installed agent when neither says anything", () => {
-    expect(nextAgentType(AGENTS, ws())).toBe("claude");
+    // Claude is deliberately absent: with it installed the chain's own
+    // "claude" literal answers, and the test would pass whether or not the
+    // first-installed rule existed at all.
+    expect(nextAgentType([agent("codex"), agent("opencode")], ws())).toBe(
+      "codex",
+    );
   });
 
   it("ignores momentum toward an agent no plugin provides any more", () => {
