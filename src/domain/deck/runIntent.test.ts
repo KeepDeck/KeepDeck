@@ -15,7 +15,7 @@ const env = (over: Partial<PaneRunEnv> = {}): PaneRunEnv => ({
   missingDir: null,
   workspaceActive: true,
   parkOnLaunch: false,
-  askedByName: false,
+  startOwed: false,
   ...over,
 });
 
@@ -133,13 +133,25 @@ describe("paneRunIntent — lazy revive", () => {
     });
   });
 
-  it("keeps running a pane asked for by name AFTER its marker is cleared", () => {
+  it("keeps running a pane owed a start AFTER its marker is cleared", () => {
     // The wake succeeds one pass before the process is acquired, and the
     // marker that carried the exemption is cleared in between. Reading the
     // exemption off the marker alone stranded the pane in that gap: no
     // durable stamp, no process, and a command that reported success.
     expect(
-      paneRunIntent(pane(), env({ workspaceActive: false, askedByName: true })),
+      paneRunIntent(pane(), env({ workspaceActive: false, startOwed: true })),
+    ).toEqual({ kind: "run", resume: null });
+  });
+
+  it("runs a pane owed a start that is still WAKING off screen", () => {
+    // A restart, or the boot-resume recovery, retires the process and owes
+    // one back. Neither sets a `manual` origin, so this rung — not the one
+    // above — is what a resume reaching an off-screen pane depends on.
+    expect(
+      paneRunIntent(
+        pane({ idle: { reason: "waking", origin: "restore" } }),
+        env({ workspaceActive: false, startOwed: true }),
+      ),
     ).toEqual({ kind: "run", resume: null });
   });
 

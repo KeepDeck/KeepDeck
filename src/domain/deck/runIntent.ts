@@ -85,16 +85,23 @@ export interface PaneRunEnv {
    * unopened workspace since the app booted. */
   parkOnLaunch: boolean;
   /**
-   * The user asked for THIS pane by name and it has not started yet — a
-   * clicked Resume, `agent.resume` with a workspace argument, a Start fresh.
+   * A start is OWED to this pane and has not happened yet.
+   *
+   * Two kinds of debt, one rule. Something was asked for it by name — a
+   * clicked Resume, `agent.resume` with a workspace argument, a Start fresh —
+   * or its process was deliberately retired on the promise of another: a
+   * restart, or the one-shot recovery for a boot resume the CLI rejected.
+   *
+   * The unopened-workspace economy governs panes that would rise on their
+   * OWN. None of these would: each is a process the app has already taken
+   * away, or one a user is waiting for. Holding them would leave a pane
+   * neither running nor durably stopped.
    *
    * Separate from the pane's own `waking` origin because that marker is
-   * cleared the moment the wake succeeds, one pass BEFORE the process is
-   * acquired. Reading the exemption off the marker meant an off-screen pane
-   * lost it in exactly that gap and was held by the economy rule forever:
-   * its durable stamp gone, no process, the command reporting success.
+   * cleared the moment a wake succeeds, one pass BEFORE the process is
+   * acquired — and a restart never sets it at all.
    */
-  askedByName: boolean;
+  startOwed: boolean;
 }
 
 export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
@@ -112,7 +119,7 @@ export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
   // caller's half of the comparison, and an existing one is never disturbed by
   // a hold.
   if (!idle) {
-    return env.workspaceActive || env.askedByName
+    return env.workspaceActive || env.startOwed
       ? { kind: "run", resume: null }
       : hold({ kind: "workspace-inactive" });
   }
@@ -128,7 +135,7 @@ export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
   if (env.missingDir !== null) {
     return hold({ kind: "worktree-missing", dir: env.missingDir });
   }
-  if (!env.workspaceActive && idle.origin !== "manual" && !env.askedByName) {
+  if (!env.workspaceActive && idle.origin !== "manual" && !env.startOwed) {
     return hold({ kind: "workspace-inactive" });
   }
   // A remote pane answers null here (its conversation lives on the server, so

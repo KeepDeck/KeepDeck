@@ -221,6 +221,7 @@ const pty = {
       env: spec.env,
     });
     pty.live.add(paneId);
+    pty.notify();
   },
   closed: [] as string[],
   /** Reaping is not instant: a test may hold it open to see what the deck
@@ -229,7 +230,20 @@ const pty = {
   close(paneId: string) {
     pty.closed.push(paneId);
     pty.live.delete(paneId);
+    // The real registry drops the entry and fires its listeners SYNCHRONOUSLY,
+    // before the teardown IPC settles. A no-op stub here made the sweep that
+    // this notification drives invisible to every test in the file — which is
+    // exactly where a restart racing that sweep would have shown up.
+    pty.notify();
     return pty.hold ?? Promise.resolve();
+  },
+  listeners: new Set<() => void>(),
+  subscribe(listener: () => void) {
+    pty.listeners.add(listener);
+    return () => pty.listeners.delete(listener);
+  },
+  notify() {
+    for (const listener of [...pty.listeners]) listener();
   },
   /** One-off commands run in a pane's slot — the workspace setup step. */
   ranOnce: [] as { paneId: string; args: string[] | undefined }[],
@@ -247,6 +261,9 @@ const pty = {
     pty.closed = [];
     pty.ranOnce = [];
     pty.hold = null;
+    // Listeners go with the rest: an orchestrator from a previous mount would
+    // otherwise keep reconciling its own dead deck on every state change.
+    pty.listeners.clear();
   },
 };
 
@@ -325,7 +342,7 @@ function Probe() {
           subscribe: () => () => {},
         },
         sessions: {
-          subscribe: () => () => {},
+          subscribe: pty.subscribe,
           state: (paneId: string) => pty.state(paneId),
           acquire: pty.acquire,
           close: pty.close,
@@ -2277,6 +2294,15 @@ describe("agent orchestrator —restarting an exited agent", () => {
 
   const pane = () => deck.workspaces[0].panes[0];
   const epoch = () => agentRun.epochs["pane-1"];
+  /** A second workspace to switch to, leaving ws-1 off screen. */
+  const otherWorkspace = () => ({
+    id: "ws-2",
+    instance: createWorkspaceInstance(),
+    name: "two",
+    cwd: "/other",
+    worktreeBaseDir: null,
+    panes: [],
+  });
 
   it("resumes the exact binding with a new plan and keeps the pane's facts", async () => {
     seed();
@@ -2461,6 +2487,36 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(pane().session?.id).toBe("session-old");
   });
 
+  it("does not let the SWEEP spawn the process it is retiring", async () => {
+    // Closing the session empties the slot, which reads to the sweep exactly
+    // like a pane that should be started. Spawning there would race the
+    // restart's own continuation, which then finishes against a process it
+    // did not start — and its stand-down path revokes a LIVE process's bridge
+    // token, silencing that agent's reports for the rest of its life.
+    seed();
+    await settle();
+    pty.acquired = [];
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = agentRun.restart("ws-1", "pane-1", "resume");
+    });
+    await settle();
+    expect(pty.acquired).toEqual([]);
+
+    // …and once it is done, the sweep is told to look again.
+    await act(async () => {
+      release();
+      await pending;
+    });
+    await settle();
+    expect(pty.acquired.map((a) => a.paneId)).toEqual(["pane-1"]);
+  });
+
   it("says it stood down when a suspend beat it, instead of reporting success", async () => {
     // The card clears its "Restarting…" state on this answer. Reading a
     // resolved promise as a restart left it promising one that never came.
@@ -2546,6 +2602,35 @@ describe("agent orchestrator —restarting an exited agent", () => {
       agentRun.recoverRejectedResume("ws-1", "pane-1", 1);
     });
     expect(pty.closed).toEqual(["pane-1"]);
+  });
+
+  it("keeps the promise it makes the caller — respawns even off screen", async () => {
+    // It answers `true`, which is how App knows this exit is a respawn and not
+    // a crash worth notifying about. The respawn is the sweep's job now, and
+    // the sweep holds a pane whose workspace nobody has opened — so the pane
+    // was left with its binding wiped, no process, and nothing saying so.
+    seed();
+    act(() => deck.createWorkspace(otherWorkspace()));
+    act(() => deck.selectWorkspace("ws-2"));
+    await settle();
+    pty.acquired = [];
+    plans.specs.set("pane-1", {
+      args: ["resume", "session-old"],
+      env: [],
+      resumeOf: "session-old",
+      resumeOrigin: "restore",
+      postbackMark: 0,
+    });
+
+    let recovering: unknown;
+    act(() => {
+      recovering = agentRun.recoverRejectedResume("ws-1", "pane-1", 1);
+    });
+    await settle();
+
+    expect(recovering).toBe(true);
+    expect(pane().session).toBeUndefined();
+    expect(pty.acquired.map((a) => a.paneId)).toEqual(["pane-1"]);
   });
 
   it("never auto-recovers an ordinary exit or a rejected MANUAL resume", () => {

@@ -537,8 +537,8 @@ export function createAgentOrchestrator(
         }
       }
     }
-    for (const paneId of [...askedByName]) {
-      if (!live.has(paneId)) askedByName.delete(paneId);
+    for (const paneId of [...startOwed]) {
+      if (!live.has(paneId)) startOwed.delete(paneId);
     }
     return dropped;
   }
@@ -556,6 +556,11 @@ export function createAgentOrchestrator(
    * came from and says why on its card.
    */
   function settle(wsId: string, pane: Pane, attempt: Attempt): void {
+    // Every exit but a successful wake gives the attempt up, so the debt goes
+    // with it. Left behind, it would exempt the pane from the
+    // unopened-workspace economy for the rest of the session — and a start
+    // nobody is coming back for is not a start that is owed.
+    if (attempt.kind !== "woken") startOwed.delete(pane.id);
     const origin = askedBy(wsId, pane.id);
     if (!origin) {
       // The pane stopped rising while this attempt was out — closed, or
@@ -566,6 +571,7 @@ export function createAgentOrchestrator(
         "web:orchestrator",
         `${pane.id}: wake outcome dropped — the pane is no longer rising`,
       );
+      startOwed.delete(pane.id);
       return;
     }
     if (attempt.kind === "woken") {
@@ -673,15 +679,15 @@ export function createAgentOrchestrator(
   const forking = new Set<string>();
 
   /**
-   * Panes the user asked for BY NAME that have not started yet.
+   * Panes owed a process that has not arrived yet — see [`PaneRunEnv`]'s
+   * `startOwed`. Every gesture that asks for a pane by name, and every one
+   * that retires a process on the promise of another, records the debt here.
    *
-   * The request has to outlive the pane's own `waking` marker, which is
-   * cleared the moment the wake succeeds — one pass before the process is
-   * acquired. Held here rather than on the pane because it is not a fact
-   * about the pane: it is a fact about a request in flight, and it stops
-   * being true as soon as the pane has a process.
+   * Held here rather than on the pane because it is not a fact about the
+   * pane: it is a fact about an operation in flight. It stops being true when
+   * the pane has a process, when the attempt gives up, or when the pane goes.
    */
-  const askedByName = new Set<string>();
+  const startOwed = new Set<string>();
 
   /** Panes whose process is being reaped. Distinct from `inFlight`, which
    * tracks panes on their way UP: the two gestures can be asked for in either
@@ -940,15 +946,24 @@ export function createAgentOrchestrator(
           missingDir: blocked.get(pane.id) ?? null,
           workspaceActive: ws.id === active.id,
           parkOnLaunch: launchPolicy.parkOnLaunch(),
-          askedByName: askedByName.has(pane.id),
+          startOwed: startOwed.has(pane.id),
         });
         if (intent.kind === "run" && !pane.idle) {
           // A pane with no marker: it should run, and the only question left
           // is whether it already does and whether there is anything to run.
           // Never a reason to END one — this pass starts processes only.
+          //
+          // Unless a restart owns it. A restart retires the process and starts
+          // it again, and the retiring half empties the slot — which looks
+          // exactly like a pane that should be started. Spawning here would
+          // race the restart's own continuation: it would then finish against
+          // a process it did not start, and its stand-down path would revoke a
+          // LIVE process's bridge token, silencing that agent's reports for
+          // good. The restart schedules another pass when it is done.
+          if (restarting.has(pane.id)) continue;
           if (sessions.state(pane.id).kind !== "none") {
-            // It has one: whatever was asked for by name has happened.
-            askedByName.delete(pane.id);
+            // It has one: the debt is paid.
+            startOwed.delete(pane.id);
             continue;
           }
           const spec = peekPaneSpawnSpec(pane.id);
@@ -1155,6 +1170,10 @@ export function createAgentOrchestrator(
       const target = restartTargetOf(wsId, paneId);
       if (!target) return "gone";
       restarting.add(paneId);
+      // A restart takes the process away and owes one back, so the sweep must
+      // start it even in a workspace nobody is looking at — otherwise the card
+      // reports a restart that never comes.
+      startOwed.add(paneId);
       try {
         // "Resume" with nothing recorded is a fresh start, and saying so here
         // keeps the log honest about which one actually ran.
@@ -1171,6 +1190,9 @@ export function createAgentOrchestrator(
         throw error;
       } finally {
         restarting.delete(paneId);
+        // The sweep stood aside while this ran; tell it to look again, or the
+        // pane waits for an unrelated notification to start its new process.
+        schedule();
       }
     },
     recoverRejectedResume(wsId, paneId, code) {
@@ -1188,6 +1210,11 @@ export function createAgentOrchestrator(
       if (!target) return false;
 
       restarting.add(paneId);
+      // Same debt as a restart, and this one is louder: the caller is told
+      // "not a crash, a respawn is coming", so the crash notice is suppressed.
+      // Without this the promise went unkept whenever the pane's workspace was
+      // off screen — binding wiped, no process, and nothing said so.
+      startOwed.add(paneId);
       log.warn(
         "web:orchestrator",
         `${paneId}: resume of ${spec?.resumeOf} exited (${code ?? "?"}) without reporting — respawning fresh`,
@@ -1200,7 +1227,10 @@ export function createAgentOrchestrator(
         .then(() => {
           if (restartTargetOf(target.workspace, paneId)) bumpEpoch(paneId);
         })
-        .finally(() => restarting.delete(paneId));
+        .finally(() => {
+          restarting.delete(paneId);
+          schedule();
+        });
       return true;
     },
     retryPlanBuild(paneId) {
@@ -1406,7 +1436,7 @@ export function createAgentOrchestrator(
       let changed = blocked.delete(paneId);
       changed = wakeFailed.delete(paneId) || changed;
       if (changed) publish();
-      askedByName.add(paneId);
+      startOwed.add(paneId);
       actions.resetPaneLocation(wsId, paneId);
       // Ask for a wake rather than clearing the marker outright: the pane is
       // pointed at the workspace folder now, and the sweep should probe it like
@@ -1428,7 +1458,7 @@ export function createAgentOrchestrator(
       let changed = blocked.delete(paneId);
       changed = wakeFailed.delete(paneId) || changed;
       if (changed) publish();
-      askedByName.add(paneId);
+      startOwed.add(paneId);
       actions.requestPaneWake(wsId, paneId);
       return "resuming";
     },
