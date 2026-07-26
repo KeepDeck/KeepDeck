@@ -21,6 +21,7 @@ import {
   partitionPanes,
   removePane,
   resolveFocus,
+  sessionClaimant,
   type Pane,
 } from "./panes";
 
@@ -341,6 +342,74 @@ describe("paneBlock — the head both ladders share", () => {
       kind: "stopped",
       by: idle,
     });
+  });
+});
+
+describe("sessionClaimant", () => {
+  const decks = (panes: Pane[]) => [{ panes }];
+  const free = () => false;
+
+  it("says nothing when no pane holds the session", () => {
+    expect(sessionClaimant(decks([{ id: "p1" }]), "s-1", free)).toBeNull();
+  });
+
+  it("finds the holder across workspaces and calls a live one running", () => {
+    const holder: Pane = { id: "p2", session: { id: "s-1", boundAt: "t" } };
+    expect(
+      sessionClaimant([{ panes: [{ id: "p1" }] }, { panes: [holder] }], "s-1", free),
+    ).toEqual({ pane: holder, reads: "running" });
+  });
+
+  it("calls a suspended holder stopped — that pane has the button", () => {
+    expect(
+      sessionClaimant(
+        decks([
+          {
+            id: "p1",
+            idle: { reason: "suspended", at: "t" },
+            session: { id: "s-1", boundAt: "t" },
+          },
+        ]),
+        "s-1",
+        free,
+      )?.reads,
+    ).toBe("stopped");
+  });
+
+  it("calls a RISING holder running — it will be, in a moment", () => {
+    // Sending the user to resume a pane that is already coming up points at a
+    // card with no button on it.
+    expect(
+      sessionClaimant(
+        decks([
+          {
+            id: "p1",
+            idle: { reason: "waking", origin: "restore" },
+            session: { id: "s-1", boundAt: "t" },
+          },
+        ]),
+        "s-1",
+        free,
+      )?.reads,
+    ).toBe("running");
+  });
+
+  it("calls a rising holder STOPPED once the sweep says its folder is gone", () => {
+    // Its own marker still says it is rising; only the runtime verdict knows
+    // it never will.
+    expect(
+      sessionClaimant(
+        decks([
+          {
+            id: "p1",
+            idle: { reason: "waking", origin: "restore" },
+            session: { id: "s-1", boundAt: "t" },
+          },
+        ]),
+        "s-1",
+        (paneId) => paneId === "p1",
+      )?.reads,
+    ).toBe("stopped");
   });
 });
 

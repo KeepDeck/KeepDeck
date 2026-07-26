@@ -243,6 +243,44 @@ export function paneBlock(pane: Pane, agentAvailable: boolean): PaneBlock | null
 }
 
 /**
+ * Which pane holds a recorded session, and whether it reads as running or
+ * stopped — or null when no pane holds it.
+ *
+ * A session runs in at most one pane, ever, and three surfaces need to say so
+ * in agreement: the picker dims a claimed row, a resume refuses with a
+ * sentence naming where to go instead, and the flow re-checks after its
+ * build. All three matched on `session?.id` by hand and composed the stopped
+ * reading themselves, from two different blocked-map channels — so a fourth
+ * reason to read as stopped would have made the row say "running" while the
+ * error said "stopped pane", pointing the user at a card with no button.
+ *
+ * `blocked` is the sweep's gone-directory verdict, for the reason
+ * [`idleReadsAsStopped`] takes it: such a pane is staying down whatever its
+ * own marker says.
+ */
+export function sessionClaimant(
+  workspaces: { panes: Pane[] }[],
+  sessionId: string,
+  blocked: (paneId: string) => boolean,
+): { pane: Pane; reads: "running" | "stopped" } | null {
+  for (const ws of workspaces) {
+    for (const pane of ws.panes) {
+      if (pane.session?.id !== sessionId) continue;
+      // "Stopped" only for a pane STAYING down: one on its way up will be
+      // running in a moment, and sending the user to resume it there points at
+      // a card with no button.
+      return {
+        pane,
+        reads: idleReadsAsStopped(pane.idle, blocked(pane.id))
+          ? "stopped"
+          : "running",
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Whether the launch policy may park this pane: still on its way up by the
  * sweep's OWN reasons, never one a user just asked for.
  *

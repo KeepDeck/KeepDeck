@@ -3,7 +3,6 @@ import {
   findPane,
   findWorkspace,
   findWorkspaceByRef,
-  idleReadsAsStopped,
   MAX_PANES,
   paneAgentType,
   paneExecutionCwd,
@@ -13,6 +12,7 @@ import {
   paneRunIntent,
   paneSuspendBlock,
   paneWakeOrigin,
+  sessionClaimant,
   skillRootsOf,
   WORKSPACE_FULL_MESSAGE,
   type Pane,
@@ -1248,13 +1248,14 @@ export function createAgentOrchestrator(
       // for every row (it cannot know lifecycle), so say why rather than
       // leaving an enabled button that does nothing. An IDLE claimant is not
       // "running" — point at the pane that owns the binding.
-      const claimant = deck
-        .getSnapshot()
-        .workspaces.flatMap((w) => w.panes)
-        .find((pane) => pane.session?.id === record.sessionId);
+      const claimant = sessionClaimant(
+        deck.getSnapshot().workspaces,
+        record.sessionId,
+        (paneId) => blocked.has(paneId),
+      );
       if (claimant) {
         throw new Error(
-          idleReadsAsStopped(claimant.idle, blocked.has(claimant.id))
+          claimant.reads === "stopped"
             ? "The session already belongs to a stopped pane — resume that pane instead"
             : "The session is already running in a pane",
         );
@@ -1287,12 +1288,13 @@ export function createAgentOrchestrator(
           throw new Error("Agent could not prepare a resume plan");
         }
         // The session may have been claimed while the build was out (a
-        // concurrent revive) — then there is nothing left to resume.
-        const claimedNow = deck
-          .getSnapshot()
-          .workspaces.some((w) =>
-            w.panes.some((pane) => pane.session?.id === record.sessionId),
-          );
+        // concurrent revive) — then there is nothing left to resume. Same
+        // question as the check above, so the same answer.
+        const claimedNow = sessionClaimant(
+          deck.getSnapshot().workspaces,
+          record.sessionId,
+          (paneId) => blocked.has(paneId),
+        );
         if (claimedNow) {
           dropPaneSpawnSpec(id);
           return;

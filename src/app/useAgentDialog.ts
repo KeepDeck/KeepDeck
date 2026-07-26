@@ -3,7 +3,7 @@ import {
   type AgentDialogResult,
   type AgentInfo,
   type AgentType,
-  type ForkTarget,
+  forkTargetFor,
   type SessionPickRow,
 } from "../domain/agents";
 import {
@@ -12,8 +12,8 @@ import {
   firstFreeWorktree,
   paneFromAgentRequest,
   paneId,
-  idleReadsAsStopped,
   parentDir,
+  sessionClaimant,
   WORKSPACE_FULL_MESSAGE,
   type Workspace,
 } from "../domain/deck";
@@ -181,19 +181,8 @@ export function useAgentDialog(
           .catch((e: unknown) => notices.onResumeFailed(describeError(e)));
         return;
       }
-      const target: ForkTarget =
-        location.kind === "new"
-          ? {
-              kind: "worktree",
-              path: location.path,
-              branch: location.branch,
-              ...(location.baseBranch && { base: location.baseBranch }),
-            }
-          : location.kind === "existing"
-            ? { kind: "dir", cwd: location.path }
-            : { kind: "dir", cwd: ws.cwd };
       void orchestrator
-        .forkSession(dlg.workspace.id, session.handle, target, {
+        .forkSession(dlg.workspace.id, session.handle, forkTargetFor(location, ws.cwd), {
           name: paneName,
           yolo,
           ...(location.kind === "existing" &&
@@ -298,22 +287,12 @@ export function useAgentDialog(
   /** How a session is already held by a pane: running behind a live PTY,
    * stopped (idle — restored, parked or suspended), or not at all — the picker
    * dims claimed rows for resume with the honest wording. */
-  const sessionClaim = (sessionId: string): "running" | "stopped" | null => {
-    for (const w of deckRef.current.workspaces) {
-      for (const p of w.panes) {
-        if (p.session?.id === sessionId) {
-          // "Stopped" only for a pane staying down: one on its way up will be
-          // running in a moment, and telling the user to go resume it there
-          // points at a card with no button. A blocked pane IS staying down,
-          // whatever its marker says.
-          return idleReadsAsStopped(p.idle, p.id in blockedPanes)
-            ? "stopped"
-            : "running";
-        }
-      }
-    }
-    return null;
-  };
+  const sessionClaim = (sessionId: string): "running" | "stopped" | null =>
+    sessionClaimant(
+      deckRef.current.workspaces,
+      sessionId,
+      (paneId) => paneId in blockedPanes,
+    )?.reads ?? null;
 
   const cancel = () => setDialog(null);
 
