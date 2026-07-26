@@ -29,8 +29,9 @@ const plugin: KeepDeckPlugin = {
     // A finished download refreshes the shared model list, so the tab's
     // "no model" prompt clears without reopening.
     const downloads = createModelDownloads(ctx, () => void models.refresh());
-    // The live push-to-talk chords: seeded from settings, updated as the user
-    // edits them, read by both the hotkey handler and the help copy.
+    // The live push-to-talk chords: read from settings, updated as the user
+    // edits them, read by both the hotkey handler and the help copy. It is
+    // LOADED further down, once the settings section exists.
     const bindings = createBindingsStore(ctx);
     // Silences push-to-talk while the settings recorder captures a new chord.
     const recordingLatch = createRecordingLatch();
@@ -47,6 +48,12 @@ const plugin: KeepDeckPlugin = {
         { kind: "custom", key: "models", Component: ModelsSection },
       ],
     });
+
+    // Only now, with the fields declared: the host answers `settings.read` from
+    // the section a plugin has registered, so a load before this one reads an
+    // empty bag and every launch would push-to-talk on the shipped defaults
+    // while the user's chords sat untouched in settings.json.
+    bindings.load();
 
     uninstallHotkeys = installPttHotkeys(
       controller,

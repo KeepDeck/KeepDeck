@@ -17,11 +17,21 @@ const customBag = (command: Partial<Chord>, dictation: Partial<Chord>) => ({
 });
 
 describe("createBindingsStore", () => {
-  it("stands on the shipped defaults until the first read resolves", async () => {
+  it("stands on the shipped defaults until the read resolves", async () => {
     const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
     const store = createBindingsStore(host.ctx);
     expect(store.get()).toEqual(DEFAULT_BINDINGS);
+    store.load();
     await flush();
+    expect(store.get()).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it("reads nothing before it is loaded — a settings change cannot reach it", () => {
+    const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
+    const store = createBindingsStore(host.ctx);
+
+    host.fire.settingsChanged(customBag({ code: "KeyM", meta: true }, { code: "KeyN", meta: true }));
+
     expect(store.get()).toEqual(DEFAULT_BINDINGS);
   });
 
@@ -34,6 +44,7 @@ describe("createBindingsStore", () => {
     // — the store reads after `activate` has declared one.
     host.ctx.settings.registerSection({ label: "Voice", fields: [] });
     const store = createBindingsStore(host.ctx);
+    store.load();
     await flush();
     expect(store.get().command).toEqual({
       code: "KeyG",
@@ -47,6 +58,7 @@ describe("createBindingsStore", () => {
   it("updates live and notifies when settings change", async () => {
     const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
     const store = createBindingsStore(host.ctx);
+    store.load();
     await flush();
     const listener = vi.fn();
     store.subscribe(listener);
@@ -66,6 +78,7 @@ describe("createBindingsStore", () => {
   it("stops tracking after dispose", async () => {
     const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
     const store = createBindingsStore(host.ctx);
+    store.load();
     await flush();
     store.dispose();
 

@@ -49,6 +49,7 @@ describe("HotkeysSection", () => {
     persisted = {};
     const host = createFakeHost({ manifest: fakeManifest("keepdeck.voice") });
     const store = createBindingsStore(host.ctx);
+    store.load();
     await flush();
     latch = createRecordingLatch();
     // A write round-trips through the host: persist, then echo the change back

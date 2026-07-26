@@ -9,9 +9,13 @@ import {
 // a custom field's value must survive mergeSectionValues to reach the plugin.
 import { mergeSectionValues } from "../../../src/app/pluginSettingsValues";
 import plugin from "./index";
+import { runtime } from "./runtime";
 import { DEFAULT_BINDINGS, HOTKEYS_KEY, parseBindings } from "./binding";
 
 let host: FakeHost | null = null;
+
+/** Let the async settings.read().then(...) microtask settle. */
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
 afterEach(async () => {
   await plugin.deactivate?.();
@@ -62,6 +66,22 @@ describe("voice plugin activation", () => {
       ctrl: true,
       meta: true,
     });
+  });
+
+  it("puts the persisted chords in the live store, not the shipped defaults", async () => {
+    // The user's own binding: the two shipped chords, swapped.
+    const saved = {
+      [HOTKEYS_KEY]: {
+        command: { code: "Space", alt: true, shift: true, ctrl: false, meta: false },
+        dictation: { code: "Space", alt: true, shift: false, ctrl: false, meta: false },
+      },
+    };
+    activate(saved);
+    await flush();
+    // Seeding the store before the section is declared reads an empty bag, and
+    // nothing writes settings at boot to correct it — so every launch would run
+    // push-to-talk on the defaults while settings.json held these.
+    expect(runtime().bindings.get()).toEqual(saved[HOTKEYS_KEY]);
   });
 
   it("disposes the bindings subscription on deactivate", async () => {
