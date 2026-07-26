@@ -3,13 +3,15 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type RefObject,
+  type Ref,
 } from "react";
 import type { FsFile } from "@keepdeck/plugin-api";
 import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
 import { baseName } from "../domain/tree";
+import { rowAtViewportTop } from "../domain/anchor";
+import { previewKey } from "../domain/identity";
 import { CodeIcon, OpenExternalIcon, WrapIcon } from "../icons";
 import { MarkdownView } from "./MarkdownView";
 
@@ -70,18 +72,23 @@ export function FileViewer({
   // Wrapping re-lays-out the SAME lines, so the reader's place is a line, not
   // a pixel offset — keeping the offset would drift them by however much the
   // long lines above grew or shrank, and shrinking past the end would clamp it
-  // away for good. The anchor is read in the toggle handler because that is
-  // the last moment the old layout still exists.
+  // away for good.
+  const bodyRef = useRef<HTMLDivElement>(null);
   const codeRef = useRef<HTMLDivElement>(null);
-  const anchorRef = useRef(0);
+  // Read in the toggle handler: the last moment the old layout still exists.
+  // Held as "pending" rather than a plain index so the effect below fires only
+  // for a toggle — never on mount, and never on some other change that
+  // happened to land in the same commit carrying a stale anchor.
+  const pendingAnchor = useRef<number | null>(null);
   const toggleWrap = () => {
-    anchorRef.current = firstVisibleRow(codeRef.current);
+    pendingAnchor.current = readAnchor(codeRef.current, bodyRef.current);
     setWrap((on) => !on);
   };
   useLayoutEffect(() => {
-    codeRef.current?.children[anchorRef.current]?.scrollIntoView({
-      block: "start",
-    });
+    const anchor = pendingAnchor.current;
+    if (anchor === null) return;
+    pendingAnchor.current = null;
+    codeRef.current?.children[anchor]?.scrollIntoView({ block: "start" });
   }, [wrap]);
 
   const openExternally = () => void getRuntime().services.opener.openPath(path);
@@ -136,15 +143,10 @@ export function FileViewer({
         </>
       }
       path={breadcrumb(root, path)}
-      // The overlay reuses one viewer across open requests, so a second file
-      // opened over the first must not inherit its scroll offset. The
-      // rendering counts as part of what is being read: a document and its
-      // Markdown source share a path but not a single line, so carrying an
-      // offset between them lands nowhere in particular — and the taller-to-
-      // shorter direction would clamp it away, losing the place in BOTH.
-      // Wrapping is deliberately absent: same document, same lines, only laid
-      // out differently, and `toggleWrap` keeps the reader on their line.
-      scrollKey={`${path}\0${showRendered ? "document" : "source"}`}
+      // One viewer serves every open request, so a second file opened over the
+      // first would otherwise inherit its offset.
+      scrollKey={previewKey(path, showRendered)}
+      bodyRef={bodyRef}
       onClose={onClose}
     >
       {loading && <p className="peek__note">Loading…</p>}
@@ -196,8 +198,9 @@ function TextView({
   wrap: boolean;
   truncated: boolean;
   size: number;
-  /** The rows' container, so the wrap toggle can keep the reader's line. */
-  codeRef: RefObject<HTMLDivElement | null>;
+  /** Optional handle on the rows' container, so a caller that owns the wrap
+   * toggle can keep the reader's line across it. */
+  codeRef?: Ref<HTMLDivElement>;
 }) {
   const lines = text.split("\n");
   const tokens = useHighlight(text, langFor(path));
@@ -225,19 +228,19 @@ function TextView({
   );
 }
 
-/** Index of the first row the reader can still see — the line to hold onto
- * while the rows are re-laid-out under them. Compared against the scroll
- * viewport, which is the peek body this content sits in; `bottom > top` keeps
- * the row that is only partly scrolled off, since that is the one being read.
- * Falls back to the first row whenever there is nothing to measure. */
-function firstVisibleRow(code: HTMLDivElement | null): number {
-  const viewportTop = code?.parentElement?.getBoundingClientRect().top;
-  if (!code || viewportTop === undefined) return 0;
-  const rows = [...code.children];
-  const seen = rows.findIndex(
-    (row) => row.getBoundingClientRect().bottom > viewportTop,
+/** Read the geometry and let the domain say which row it means. The viewport
+ * is the peek's scroll body, handed to us — measuring against whatever happens
+ * to be the code block's parent would be a guess about another package's DOM
+ * that fails silently the day it stops holding. */
+function readAnchor(
+  code: HTMLDivElement | null,
+  body: HTMLDivElement | null,
+): number {
+  if (!code || !body) return 0;
+  return rowAtViewportTop(
+    [...code.children].map((row) => row.getBoundingClientRect().bottom),
+    body.getBoundingClientRect().top,
   );
-  return seen === -1 ? 0 : seen;
 }
 
 /** The read stopped at the fs cap — say so under either view, in one voice. */

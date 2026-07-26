@@ -15,9 +15,11 @@ import { useLayoutEffect, useRef, type ReactNode, type Ref } from "react";
  * (`peek.css`), per the builtin-tier rule.
  *
  * The body is the overlay's ONE scroll container, and it survives a change of
- * content — consumers swap what's inside without remounting it. That makes
- * scroll position and focus the shell's to manage rather than each consumer's;
- * `scrollKey` carries the rule.
+ * content — consumers swap what's inside without remounting it. So the shell
+ * owns where a CHANGE of content leaves the reader: `scrollKey` carries that
+ * rule. A consumer that re-lays-out the SAME content — wrapping lines, say —
+ * keeps its own place across it, and takes `bodyRef` to measure against rather
+ * than guessing at this element from a child.
  */
 export interface PeekProps {
   /** Accessible name for the dialog. */
