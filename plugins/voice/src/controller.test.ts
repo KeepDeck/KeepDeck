@@ -186,7 +186,7 @@ describe("createVoiceController", () => {
     expect(waiting.snapshot().phase).toBe("idle");
   });
 
-  it("falls back when the persisted model is stale or not installed", async () => {
+  it("falls back to a CURRENT model, never a retired one, when the pick is gone", async () => {
     const host = hostWithSettings({ model: "removed-model" });
     const stopCapture = vi.fn(async () => ({
       text: "",
@@ -194,9 +194,12 @@ describe("createVoiceController", () => {
       seconds: 0,
       level: 0,
     }));
+    // Two installed models, one of them retired. A pick that resolves to
+    // nothing must land on the current one — the retired model is only ever a
+    // last resort, and nothing else in the suite pins that preference.
     const models = (await installedModels()).map((model) => ({
       ...model,
-      installed: model.id === "whisper-small",
+      installed: model.id === "whisper-small" || model.id === "whisper-base-q5_1",
     }));
     const controller = createVoiceController(
       {
@@ -220,6 +223,46 @@ describe("createVoiceController", () => {
     await controller.stop();
     expect(stopCapture).toHaveBeenCalledWith(
       expect.objectContaining({ modelPath: "models/ggml-small.bin" }),
+    );
+  });
+
+  it("honors an installed pick even once the catalog retires it", async () => {
+    // The discriminating half of the pair above: a retired model is never what
+    // the fallback chain reaches for, so selecting one proves the persisted
+    // pick was actually read — the fallback alone could not produce it.
+    const host = hostWithSettings({ model: "whisper-base-q5_1" });
+    const stopCapture = vi.fn(async () => ({
+      text: "",
+      silence: true,
+      seconds: 0,
+      level: 0,
+    }));
+    const models = (await installedModels()).map((model) => ({
+      ...model,
+      installed: model.id === "whisper-small" || model.id === "whisper-base-q5_1",
+    }));
+    const controller = createVoiceController(
+      {
+        ...host.ctx,
+        services: {
+          ...host.ctx.services,
+          speech: {
+            ...host.ctx.services.speech,
+            startCapture: vi.fn(async () => ({
+              stop: stopCapture,
+              cancel: vi.fn(async () => {}),
+            })),
+          },
+        },
+      },
+      () => 42,
+      async () => models,
+    );
+    host.commandResults.set("workspace.list", { ok: true, value: [] });
+    await controller.start("command");
+    await controller.stop();
+    expect(stopCapture).toHaveBeenCalledWith(
+      expect.objectContaining({ modelPath: "models/ggml-base-q5_1.bin" }),
     );
   });
 
