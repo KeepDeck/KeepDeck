@@ -12,6 +12,7 @@ import type {
 } from "../domain/deck";
 import { MAX_PANES } from "../domain/deck";
 import type { WorkspaceCreationResult } from "./deckActions";
+import type { SetupStep } from "./provisioning";
 import type { SuspendOutcome } from "./suspendOutcome";
 import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
@@ -172,6 +173,12 @@ const pty = {
     pty.live.delete(paneId);
     return pty.hold ?? Promise.resolve();
   },
+  /** One-off commands run in a pane's slot — the workspace setup step. */
+  ranOnce: [] as { paneId: string; args: string[] | undefined }[],
+  runOnce(paneId: string, spec: { args?: string[] }) {
+    pty.ranOnce.push({ paneId, args: spec.args });
+    return Promise.resolve({ ok: true, tail: "" });
+  },
   state: (paneId: string) =>
     pty.live.has(paneId)
       ? ({ kind: "live" } as const)
@@ -180,6 +187,7 @@ const pty = {
     pty.acquired = [];
     pty.live.clear();
     pty.closed = [];
+    pty.ranOnce = [];
     pty.hold = null;
   },
 };
@@ -204,7 +212,7 @@ let agentRun: AgentRunView &
 /** The worktree creates the orchestrator asked for, recorded instead of run.
  *  Per mount like the deck beside it, so no `describe` has to remember to
  *  clear it. */
-let provisions: { panes: Pane[]; setup: string | undefined }[];
+let provisions: { panes: Pane[]; setup: SetupStep | undefined }[];
 /** The worktree removals a confirmed close asked for, per mount. */
 let discards: WorktreeTarget[][];
 /** What the removal reports back as un-deletable. */
@@ -236,7 +244,7 @@ const catalog = {
 function Probe() {
   const [wiring] = useState(() => {
     const store = createDeckStore();
-    const asked: { panes: Pane[]; setup: string | undefined }[] = [];
+    const asked: { panes: Pane[]; setup: SetupStep | undefined }[] = [];
     const discarded: WorktreeTarget[][] = [];
     return {
       store,
@@ -263,6 +271,7 @@ function Probe() {
           state: (paneId: string) => pty.state(paneId),
           acquire: pty.acquire,
           close: pty.close,
+          runOnce: pty.runOnce,
         },
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
@@ -1368,6 +1377,14 @@ describe("agent orchestrator —a new pane arriving", () => {
     expect(provisions[0].setup).toBeUndefined();
   });
 
+  /** Run the step the orchestrator handed over, as the worktree runner would,
+   *  and report the command that reached the pane's slot. */
+  const ranSetup = async (step: SetupStep | undefined) => {
+    if (!step) return undefined;
+    await step("pane-9", { cwd: "/wt/a", branch: "kd/a" });
+    return pty.ranOnce[pty.ranOnce.length - 1]?.args;
+  };
+
   it("DOES run it for a pane the batch stamped", async () => {
     act(() => deck.hydrate(seed()));
     await act(async () => {
@@ -1384,7 +1401,7 @@ describe("agent orchestrator —a new pane arriving", () => {
         }),
       });
     });
-    expect(provisions[0].setup).toBe("pnpm install");
+    expect(await ranSetup(provisions[0].setup)).toEqual(["-c", "pnpm install"]);
   });
 
   it("refuses a workspace whose id now names a REPLACEMENT", async () => {
@@ -1584,13 +1601,17 @@ describe("agent orchestrator —a new workspace", () => {
     expect(provisions).toEqual([]);
   });
 
-  it("hands the whole batch to the worktree runner in ONE call", () => {
+  it("hands the whole batch to the worktree runner in ONE call", async () => {
     // One call, not one per pane: the runner pins a single base commit across
     // the batch, so concurrent creates don't straddle a moving HEAD.
     create({ count: 3, worktreeBaseDir: "/wt", setup: "  pnpm install  " });
     expect(provisions).toHaveLength(1);
     expect(provisions[0].panes).toHaveLength(3);
-    expect(provisions[0].setup).toBe("pnpm install");
+    // The trimmed command reaches the pane's own slot when the step runs.
+    await provisions[0].setup!("pane-1", { cwd: "/wt/a", branch: "kd/a" });
+    expect(pty.ranOnce).toEqual([
+      { paneId: "pane-1", args: ["-c", "pnpm install"] },
+    ]);
   });
 
   it("does not reach the worktree runner at all without a base folder", () => {
@@ -1666,10 +1687,11 @@ describe("agent orchestrator —retrying a failed worktree create", () => {
     expect(provisions[0].setup).toBeUndefined();
   });
 
-  it("batch panes (runsSetup intent) keep their setup on retry", () => {
+  it("batch panes (runsSetup intent) keep their setup on retry", async () => {
     failedCard({ baseDir: "/repo-wt", runsSetup: true });
     act(() => agentRun.retryProvisioning("ws-1", "pane-1"));
-    expect(provisions[0].setup).toBe("pnpm i");
+    await provisions[0].setup!("pane-1", { cwd: "/repo-wt/a", branch: "kd/a" });
+    expect(pty.ranOnce).toEqual([{ paneId: "pane-1", args: ["-c", "pnpm i"] }]);
   });
 
   it("an auto-placed pane WITHOUT the runsSetup stamp still skips setup on retry", () => {

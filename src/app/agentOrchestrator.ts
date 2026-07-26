@@ -35,7 +35,9 @@ import {
   planPanes,
   provisionInto,
   registerPostProvision,
+  setupStepFor,
   type ProvisionCallbacks,
+  type SetupStep,
 } from "./provisioning";
 import {
   createDeckActions,
@@ -320,7 +322,7 @@ export type WorktreeProbePort = (dir: string) => Promise<{ exists: boolean }>;
 export type ProvisionPort = (
   panes: Pane[],
   report: ProvisionCallbacks,
-  setup?: string,
+  setup?: SetupStep,
 ) => Promise<void>;
 
 /** Tears down the git worktrees a confirmed close asked to delete, returning
@@ -352,6 +354,14 @@ export interface SessionRegistryPort {
   /** End the pane's process and drop its entry. Resolves once it is reaped,
    * so a caller can sequence a worktree removal after it. */
   close(paneId: string): Promise<void>;
+  /** Run a command to completion in the pane's slot, resolving to whether it
+   * passed and the tail of what it printed. The workspace's one-time setup
+   * command is the only user: it runs behind a provisioning card, in the slot
+   * the pane's terminal takes over once the card resolves. */
+  runOnce(
+    paneId: string,
+    spec: PaneSpawnSpec,
+  ): Promise<{ ok: boolean; tail: string }>;
 }
 
 /**
@@ -590,7 +600,13 @@ export function createAgentOrchestrator(
     const stamped = cards.filter((pane) => pane.provisioning?.runsSetup);
     const plain = cards.filter((pane) => !pane.provisioning?.runsSetup);
     if (stamped.length > 0) {
-      void provision(stamped, provisionInto(actions, ws.id), ws.setup);
+      // The setup command occupies the pane's own process slot, so it is
+      // handed over as a step bound to the registry — the same owner every
+      // other process behind a pane goes through.
+      const step = ws.setup
+        ? setupStepFor(ws.setup, sessions.runOnce)
+        : undefined;
+      void provision(stamped, provisionInto(actions, ws.id), step);
     }
     if (plain.length > 0) void provision(plain, provisionInto(actions, ws.id));
   }

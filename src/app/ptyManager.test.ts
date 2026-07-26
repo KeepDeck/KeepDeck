@@ -42,7 +42,9 @@ import {
   attachPane,
   closePane,
   isPaneLaunched,
+  paneSessionState,
   resetPtyManager,
+  runPaneOnce,
   writePane,
 } from "./ptyManager";
 
@@ -394,5 +396,65 @@ describe("writePane", () => {
     expect(() => writePane("pane-none", "x")).not.toThrow();
     acquirePane("pane-1", SPEC);
     expect(() => writePane("pane-1", "x")).not.toThrow();
+  });
+});
+
+describe("runPaneOnce", () => {
+  /** Spawn, let the acquire chain settle, and hand back the event channel. */
+  const started = async () => {
+    await settle();
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+  };
+
+  it("resolves ok on a clean exit and releases the slot for the pane's terminal", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "pnpm i"] });
+    await started();
+    harness.spawns[0].onEvent({ type: "exit", code: 0 });
+
+    await expect(run).resolves.toEqual({ ok: true, tail: "" });
+    // The slot must read as free: the pane's real terminal takes it over
+    // next, and an entry left behind would leave the pane showing this
+    // command's exit instead of mounting a terminal.
+    expect(paneSessionState("pane-1")).toEqual({ kind: "none" });
+  });
+
+  it("carries the output tail back on a nonzero exit, as plain text", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "x"] });
+    await started();
+    output(0, ...new TextEncoder().encode("\x1b[31mnpm ERR! boom\x1b[0m\n"));
+    harness.spawns[0].onEvent({ type: "exit", code: 1 });
+
+    // ANSI colour from the tool has no place on a status card.
+    await expect(run).resolves.toEqual({ ok: false, tail: "npm ERR! boom" });
+  });
+
+  it("says the exit code when the command printed nothing", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "x"] });
+    await started();
+    harness.spawns[0].onEvent({ type: "exit", code: 127 });
+
+    await expect(run).resolves.toEqual({ ok: false, tail: "exit code 127" });
+  });
+
+  it("fails the same way when the shell never starts", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "x"] });
+    await settle();
+    harness.spawns[0].reject(new Error("no shell"));
+
+    await expect(run).resolves.toMatchObject({ ok: false });
+  });
+
+  it("never settles when the pane is closed mid-run — there is nobody to report to", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "x"] });
+    await started();
+    let settled = false;
+    void run.then(() => {
+      settled = true;
+    });
+
+    await closePane("pane-1");
+    await settle();
+    expect(settled).toBe(false);
   });
 });

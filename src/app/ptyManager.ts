@@ -344,6 +344,68 @@ export function closePanes(paneIds: string[]): Promise<void> {
   return Promise.allSettled(paneIds.map(closePane)).then(() => undefined);
 }
 
+/** Output kept for a one-off command's caller — enough to see the error. */
+const ONCE_TAIL_CHARS = 600;
+
+/** ANSI escapes and control bytes have no place on a status card. */
+function plainText(raw: string): string {
+  // eslint-disable-next-line no-control-regex
+  return raw
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/[\x00-\x09\x0b-\x1f]/g, "");
+}
+
+/**
+ * Run a command to completion in a pane's slot, resolving to whether it
+ * succeeded and the tail of what it printed.
+ *
+ * Here rather than in whatever needs it, because every line of it is registry
+ * choreography over one pane's slot, and that slot has one owner. A caller
+ * reaching for acquire/attach/close on its own would be a second answer to
+ * "what process is behind this pane".
+ *
+ * The pane's own slot is the point: sessions are keyed by pane id, so closing
+ * the pane mid-run kills this command's whole process group like any other
+ * session — nothing to leak. The entry is released on completion, and the
+ * pane's terminal (a different spawn identity) then takes the slot over
+ * cleanly. If the pane IS closed mid-run the promise never settles, which is
+ * exactly right: there is nobody left to report to.
+ */
+export function runPaneOnce(
+  paneId: string,
+  spec: PaneSpawnSpec,
+): Promise<{ ok: boolean; tail: string }> {
+  return new Promise((resolve) => {
+    let tail = "";
+    // Assigned below; the default covers a sink that settles before
+    // `attachPane` returns (a replayed exit).
+    let detach: () => void = () => {};
+    const decoder = new TextDecoder();
+    const settle = (ok: boolean, note: string) => {
+      detach();
+      void closePane(paneId);
+      resolve({ ok, tail: plainText(note).trim().slice(-ONCE_TAIL_CHARS) });
+    };
+    acquirePane(paneId, spec);
+    detach = attachPane(paneId, {
+      onOutput: (bytes) => {
+        tail = (tail + decoder.decode(bytes, { stream: true })).slice(
+          -ONCE_TAIL_CHARS * 4,
+        );
+      },
+      onExit: (code) =>
+        code === 0
+          ? settle(true, "")
+          : settle(false, tail || `exit code ${code ?? "?"}`),
+      onSpawnError: (message) => settle(false, message),
+      onReady: () => {},
+      // A one-off command runs behind a status card, not a terminal — its
+      // first output drives no launch overlay.
+      onLaunched: () => {},
+    });
+  });
+}
+
 /** Test hook: drop every entry, closing what's live. */
 export function resetPtyManager(): void {
   for (const id of [...entries.keys()]) void closePane(id);

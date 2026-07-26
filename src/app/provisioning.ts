@@ -8,7 +8,6 @@ import {
 } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { createWorktree, inspectRepo, removeWorktree } from "../ipc/worktree";
-import { acquirePane, attachPane, closePane } from "./ptyManager";
 
 /**
  * Optimistic provisioning: panes land in the deck the moment they're asked
@@ -150,7 +149,7 @@ export function planPanes(
 export async function runProvisioning(
   panes: Pane[],
   cb: ProvisionCallbacks,
-  setup?: string,
+  setup?: SetupStep,
 ): Promise<void> {
   const pending = panes.filter((p) => p.provisioning);
   if (pending.length === 0) return;
@@ -173,7 +172,7 @@ async function provisionPane(
   intent: PaneProvisioning,
   base: string | undefined,
   cb: ProvisionCallbacks,
-  setup?: string,
+  setup?: SetupStep,
 ): Promise<void> {
   let rec: { path: string; branch: string };
   try {
@@ -199,7 +198,7 @@ async function provisionPane(
 
   if (setup) {
     cb.onSetup?.(paneId);
-    const result = await runSetup(paneId, rec.path, rec.branch, setup);
+    const result = await setup(paneId, { cwd: rec.path, branch: rec.branch });
     if (!result.ok) {
       log.error(
         "web:provisioning",
@@ -250,66 +249,50 @@ async function rollbackWorktree(
   );
 }
 
-/** Output tail kept for the failed card — enough to see the actual error. */
-const SETUP_TAIL_CHARS = 600;
-
-/** ANSI escapes and control bytes have no place on a status card. */
-function plainText(raw: string): string {
-  // eslint-disable-next-line no-control-regex
-  return raw.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/[\x00-\x09\x0b-\x1f]/g, "");
-}
+/**
+ * The workspace's one-time preparation for ONE created worktree: run it, and
+ * say whether it passed with the output tail for the card.
+ *
+ * A step the caller supplies rather than something built here, because it
+ * occupies the pane's own process slot — and that slot has one owner. Build
+ * one with [`setupStepFor`].
+ */
+export type SetupStep = (
+  paneId: string,
+  worktree: { cwd: string; branch: string },
+) => Promise<{ ok: boolean; tail: string }>;
 
 /**
- * Run the setup command in the created worktree, through the pane's own PTY
- * slot: `ptyManager` keys sessions by pane id, so closing the pane mid-setup
- * kills the setup's whole process group like any other session — nothing to
- * leak. The entry is released on completion; the pane's terminal (a different
- * spawn identity) then takes the slot over cleanly. If the pane IS closed
- * mid-setup the promise never settles — its `runProvisioning` chain dies with
- * it, which is exactly right: there is no card left to report to.
+ * The workspace's setup command as a step, bound to the env contract below
+ * and to `run` — the caller's way of occupying a pane's slot.
+ *
+ * The pane's OWN slot is the point: sessions are keyed by pane id, so closing
+ * the pane mid-setup kills the whole process group like any other session,
+ * and the pane's terminal takes the slot over cleanly afterwards.
  */
-function runSetup(
-  paneId: string,
-  worktree: string,
-  branch: string,
+export function setupStepFor(
   command: string,
-): Promise<{ ok: boolean; tail: string }> {
-  return new Promise((resolve) => {
-    let tail = "";
-    // Assigned below; the default covers a sink that settles before
-    // `attachPane` returns (a replayed exit).
-    let detach: () => void = () => {};
-    const decoder = new TextDecoder();
-    const settle = (ok: boolean, note: string) => {
-      detach();
-      void closePane(paneId);
-      resolve({ ok, tail: plainText(note).trim().slice(-SETUP_TAIL_CHARS) });
-    };
-    acquirePane(paneId, {
+  run: (
+    paneId: string,
+    spec: {
+      command: null;
+      args: string[];
+      env: [string, string][];
+      cwd: string;
+      cols: number;
+      rows: number;
+    },
+  ) => Promise<{ ok: boolean; tail: string }>,
+): SetupStep {
+  return (paneId, worktree) =>
+    run(paneId, {
       command: null, // the user's shell
       args: ["-c", command],
-      env: setupEnv(worktree, branch),
-      cwd: worktree,
+      env: setupEnv(worktree.cwd, worktree.branch),
+      cwd: worktree.cwd,
       cols: 80,
       rows: 24,
     });
-    detach = attachPane(paneId, {
-      onOutput: (bytes) => {
-        tail = (tail + decoder.decode(bytes, { stream: true })).slice(
-          -SETUP_TAIL_CHARS * 4,
-        );
-      },
-      onExit: (code) =>
-        code === 0
-          ? settle(true, "")
-          : settle(false, tail || `exit code ${code ?? "?"}`),
-      onSpawnError: (message) => settle(false, message),
-      onReady: () => {},
-      // The setup command runs behind the provisioning card, not a terminal —
-      // its first output drives no launch overlay.
-      onLaunched: () => {},
-    });
-  });
 }
 
 /**

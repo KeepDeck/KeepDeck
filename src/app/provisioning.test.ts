@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PaneSink } from "./ptyManager";
 
 const worktree = vi.hoisted(() => ({
   inspectRepo: vi.fn(),
@@ -8,13 +7,6 @@ const worktree = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/worktree", () => worktree);
 
-const pty = vi.hoisted(() => ({
-  acquirePane: vi.fn(),
-  attachPane: vi.fn(),
-  closePane: vi.fn(() => Promise.resolve()),
-}));
-vi.mock("./ptyManager", () => pty);
-
 import {
   clearPostProvision,
   discardWorktrees,
@@ -22,15 +14,25 @@ import {
   provisionInto,
   registerPostProvision,
   runProvisioning,
+  setupStepFor,
+  type SetupStep,
 } from "./provisioning";
 
-/** Arm the pty mock to end every setup session with `script`. */
-function setupSessionEndsWith(script: (sink: PaneSink) => void) {
-  pty.attachPane.mockImplementation((_paneId: string, sink: PaneSink) => {
-    queueMicrotask(() => script(sink));
-    return () => {};
-  });
-}
+/** The workspace's setup, as provisioning sees it: a step that answers. How
+ * it actually runs — in the pane's own process slot — is the registry's, and
+ * is covered in ptyManager.test.ts. */
+const setupStep = (
+  answer: { ok: boolean; tail: string },
+): { step: SetupStep; calls: { paneId: string; cwd: string; branch: string }[] } => {
+  const calls: { paneId: string; cwd: string; branch: string }[] = [];
+  return {
+    calls,
+    step: (paneId, worktree) => {
+      calls.push({ paneId, cwd: worktree.cwd, branch: worktree.branch });
+      return Promise.resolve(answer);
+    },
+  };
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -159,17 +161,18 @@ describe("runProvisioning", () => {
     expect(worktree.createWorktree).not.toHaveBeenCalled();
   });
 
-  it("without a setup command, no PTY session is ever involved", async () => {
+  it("without a setup command the card resolves straight off the create", async () => {
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree.mockResolvedValue({
       path: "/wt/pane-1",
       branch: "b1",
     });
-    await runProvisioning(cards().slice(0, 1), {
-      onResolved: vi.fn(),
-      onFailed: vi.fn(),
+    const onResolved = vi.fn();
+    await runProvisioning(cards().slice(0, 1), { onResolved, onFailed: vi.fn() });
+    expect(onResolved).toHaveBeenCalledWith("pane-1", {
+      cwd: "/wt/pane-1",
+      branch: "b1",
     });
-    expect(pty.acquirePane).not.toHaveBeenCalled();
   });
 });
 
@@ -185,26 +188,19 @@ describe("runProvisioning with a setup command", () => {
     });
   });
 
-  it("runs setup in the created worktree via the pane's PTY slot, then resolves", async () => {
-    setupSessionEndsWith((sink) => sink.onExit(0, false));
+  it("runs setup against the CREATED worktree, then resolves the card", async () => {
+    const { step, calls } = setupStep({ ok: true, tail: "" });
     const onResolved = vi.fn();
     const onFailed = vi.fn();
     const onSetup = vi.fn();
 
-    await runProvisioning(oneCard(), { onResolved, onFailed, onSetup }, "pnpm i");
+    await runProvisioning(oneCard(), { onResolved, onFailed, onSetup }, step);
 
     expect(onSetup).toHaveBeenCalledWith("pane-1");
-    expect(pty.acquirePane).toHaveBeenCalledWith(
-      "pane-1",
-      expect.objectContaining({
-        command: null, // the user's shell
-        args: ["-c", "pnpm i"],
-        cwd: "/wt/pane-1",
-        env: expect.arrayContaining([["KEEPDECK_WORKTREE", "/wt/pane-1"]]),
-      }),
-    );
-    // The slot is released for the pane's real terminal to take over.
-    expect(pty.closePane).toHaveBeenCalledWith("pane-1");
+    // The path the create actually returned — not the one that was asked for.
+    expect(calls).toEqual([
+      { paneId: "pane-1", cwd: "/wt/pane-1", branch: "kd/ws/1" },
+    ]);
     expect(onResolved).toHaveBeenCalledWith("pane-1", {
       cwd: "/wt/pane-1",
       branch: "kd/ws/1",
@@ -212,16 +208,13 @@ describe("runProvisioning with a setup command", () => {
     expect(onFailed).not.toHaveBeenCalled();
   });
 
-  it("a failed setup rolls the worktree back and lands the output tail on the card", async () => {
-    setupSessionEndsWith((sink) => {
-      sink.onOutput(new TextEncoder().encode("\x1b[31mnpm ERR! boom\x1b[0m\n"));
-      sink.onExit(1, false);
-    });
+  it("a failed setup rolls the worktree back and lands the tail on the card", async () => {
+    const { step } = setupStep({ ok: false, tail: "npm ERR! boom" });
     worktree.removeWorktree.mockResolvedValue(undefined);
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await runProvisioning(oneCard(), { onResolved, onFailed }, "pnpm i");
+    await runProvisioning(oneCard(), { onResolved, onFailed }, step);
 
     // Rollback, so Retry re-creates instead of hitting "already exists".
     expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
@@ -231,18 +224,49 @@ describe("runProvisioning with a setup command", () => {
     expect(onResolved).not.toHaveBeenCalled();
     const [paneId, error] = onFailed.mock.calls[0];
     expect(paneId).toBe("pane-1");
-    // The tail is plain text — ANSI colors from the tool are stripped.
     expect(error).toBe("Setup failed: npm ERR! boom");
   });
 
-  it("a spawn error (no shell) fails the card like a nonzero exit", async () => {
-    setupSessionEndsWith((sink) => sink.onSpawnError("spawn failed", false));
+  it("a step that could not run at all fails the card the same way", async () => {
+    const { step } = setupStep({ ok: false, tail: "spawn failed" });
     worktree.removeWorktree.mockResolvedValue(undefined);
     const onFailed = vi.fn();
 
-    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed }, "pnpm i");
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed }, step);
 
     expect(onFailed).toHaveBeenCalledWith("pane-1", "Setup failed: spawn failed");
+  });
+});
+
+describe("setupStepFor", () => {
+  it("runs the command through the user's shell in the created worktree", async () => {
+    const run = vi.fn(() => Promise.resolve({ ok: true, tail: "" }));
+    const step = setupStepFor("pnpm i", run);
+
+    await step("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
+
+    expect(run).toHaveBeenCalledWith("pane-1", {
+      command: null, // the user's shell
+      args: ["-c", "pnpm i"],
+      env: [
+        ["KEEPDECK_WORKTREE", "/wt/pane-1"],
+        ["KEEPDECK_BRANCH", "kd/ws/1"],
+      ],
+      cwd: "/wt/pane-1",
+      cols: 80,
+      rows: 24,
+    });
+  });
+
+  it("omits KEEPDECK_PORT — setup runs before any port is allocated", async () => {
+    // The workspace env contract the Run plugin implements independently:
+    // two implementers of one convention, and this is where they differ.
+    const seen: [string, string][][] = [];
+    await setupStepFor("x", (_paneId, spec) => {
+      seen.push(spec.env);
+      return Promise.resolve({ ok: true, tail: "" });
+    })("pane-1", { cwd: "/wt/a", branch: "b" });
+    expect(seen[0].map(([name]) => name)).not.toContain("KEEPDECK_PORT");
   });
 });
 
