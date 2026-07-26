@@ -29,7 +29,6 @@ import { useMinimizeMode } from "./app/useMinimizeMode";
 import { DEFAULT_SETTINGS } from "./domain/settings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
-import { useAgentRestart } from "./app/useAgentRestart";
 import { setSourceVisibilityProbe } from "./app/notificationCenter";
 import {
   notifyAgentCrashed,
@@ -142,10 +141,6 @@ function App() {
   // and report gone directories ([F7]/[F8]).
   const orchestrator = runtime.orchestrator;
   const runView = useAgentRunView(orchestrator);
-  // Manual exited-card restart plus the separate, one-shot recovery for a
-  // rejected boot resume. Both replace only runtime PTY/spec state; the pane
-  // keeps its identity and layout position.
-  const agentRestart = useAgentRestart(deck, spawnCtx);
   const sessionsBrowser = useSessionsBrowser();
   // The fork-target dialog's subject, when one is open.
   const [forkDialog, setForkDialog] = useState<{
@@ -802,7 +797,7 @@ function App() {
               // The one-shot boot-resume recovery respawns by itself — that
               // exit is not a crash. A clean exit (code 0) is the user's own
               // doing inside the pane; only abnormal ends notify.
-              const recovering = agentRestart.recoverRejectedResume(
+              const recovering = orchestrator.recoverRejectedResume(
                 wsId,
                 paneId,
                 code,
@@ -814,9 +809,9 @@ function App() {
             onAgentSpawnFailed={(wsId, paneId, message) =>
               notifyAgentSpawnFailed(deck.workspaces, wsId, paneId, message, agents)
             }
-            onRestartAgent={agentRestart.restart}
-            restartEpochs={agentRestart.epochs}
-            onRetryPlanBuild={agentRestart.retryPlanBuild}
+            onRestartAgent={orchestrator.restart}
+            restartEpochs={runView.epochs}
+            onRetryPlanBuild={orchestrator.retryPlanBuild}
           />
 
           {showForm &&

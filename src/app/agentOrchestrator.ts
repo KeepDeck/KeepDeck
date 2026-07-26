@@ -1,4 +1,4 @@
-import type { ResumeOrigin } from "../domain/agents";
+import type { AgentRestartMode, ResumeOrigin } from "../domain/agents";
 import {
   findPane,
   findWorkspace,
@@ -9,6 +9,7 @@ import {
   paneExecutionCwd,
   paneId,
   paneIsRemoteFresh,
+  paneResumeSessionId,
   paneRunIntent,
   paneSuspendBlock,
   paneWakeOrigin,
@@ -26,6 +27,7 @@ import {
 import { describeError, log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
 import { clearPaneUsage } from "./usageManager";
+import { postbackCount } from "./postbacks";
 import type { SuspendOutcome } from "./suspendOutcome";
 import {
   clearPostProvision,
@@ -45,7 +47,9 @@ import {
   buildForkSpec,
   buildLivePaneSpec,
   buildResumeSpec,
+  clearPanePlanError,
   dropPaneSpawnSpec,
+  resumeDiedSilently,
   markPaneResumeOrigin,
   peekPanePlanError,
   peekPaneSpawnSpec,
@@ -115,6 +119,35 @@ export interface AgentOrchestrator {
    * announced success regardless would be lying to whoever asked.
    */
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
+  /**
+   * Restart a pane's agent on the exited card's explicit action — retire the
+   * process and start it again, either fresh or resuming its recorded
+   * session. The pane keeps its identity, its place and its worktree; only
+   * the PTY and the spawn plan are replaced.
+   *
+   * A `resume` restart that cannot prepare its plan REJECTS rather than
+   * falling back: the user asked for that conversation by name, and quietly
+   * starting a different one is the substitution this whole path guards.
+   */
+  restart(wsId: string, paneId: string, mode: AgentRestartMode): Promise<void>;
+  /**
+   * The one-shot recovery for a BOOT resume the CLI rejected: the process
+   * exited without ever reporting a session, so there is nothing to show the
+   * user and nobody watching. Respawns fresh, once.
+   *
+   * Returns whether this exit IS that recovery, so the caller can tell it
+   * apart from a crash — a respawn in progress must not raise a notification.
+   * Ordinary exits and manual resumes are ineligible and stay visible.
+   */
+  recoverRejectedResume(
+    wsId: string,
+    paneId: string,
+    code: number | null,
+  ): boolean;
+  /** Retry a pane whose spawn PLAN failed to build — a plugin's hook threw,
+   * so no process was ever started. Lighter than a restart: there is nothing
+   * to retire, only a failure flag and a half-built plan to drop. */
+  retryPlanBuild(paneId: string): void;
   /**
    * Continue a recorded session in a NEW pane of `wsId` ([F8]) — the journal
    * row's Resume and the "+ Agent" dialog's "Start from".
@@ -189,6 +222,12 @@ export interface AgentRunView {
   /** Panes whose plan build FAILED — the deck shows an error tile with a
    * retry instead of leaving them on "Waking up…" forever. */
   planFailed: ReadonlySet<string>;
+  /** paneId → its mount generation. Bumping one remounts that pane's terminal
+   * view, which is how a restart gets a fresh xterm over the new process
+   * instead of the retired one's scrollback. Runtime state, published rather
+   * than stored: restarting replaces a PTY and a spawn plan, not any of the
+   * pane/worktree/session facts the deck persists. */
+  epochs: Record<string, number>;
 }
 
 export interface CreatePaneRequest {
@@ -316,7 +355,33 @@ const EMPTY_VIEW: AgentRunView = {
   wakeFailed: {},
   specs: {},
   planFailed: new Set(),
+  epochs: {},
 };
+
+/** Everything a restart needs about a pane, read BEFORE the awaits. Compared
+ * against the live pane afterwards: a restart that prepared a plan for one
+ * conversation must not mount it over a pane that has since become another. */
+interface RestartTarget {
+  workspace: WorkspaceRef;
+  paneId: string;
+  agentType: string;
+  cwd: string;
+  branch: string | undefined;
+  yolo: boolean | undefined;
+  sessionId: string | null;
+}
+
+function sameResumeTarget(
+  current: RestartTarget,
+  expected: RestartTarget,
+): boolean {
+  return (
+    current.agentType === expected.agentType &&
+    current.cwd === expected.cwd &&
+    current.branch === expected.branch &&
+    current.sessionId === expected.sessionId
+  );
+}
 
 export function createAgentOrchestrator(
   deps: AgentOrchestratorDeps,
@@ -334,6 +399,7 @@ export function createAgentOrchestrator(
   const actions: DeckActions = createDeckActions(deck);
   const blocked = new Map<string, string>();
   const wakeFailed = new Map<string, string>();
+  const epochs = new Map<string, number>();
   /** Attempts in flight — a notification while one is pending must not
    * double-run it. */
   const inFlight = new Set<string>();
@@ -360,6 +426,7 @@ export function createAgentOrchestrator(
       wakeFailed: Object.fromEntries(wakeFailed),
       specs,
       planFailed,
+      epochs: Object.fromEntries(epochs),
     };
     for (const listener of [...listeners]) listener();
   }
@@ -523,6 +590,130 @@ export function createAgentOrchestrator(
    * tracks panes on their way UP: the two gestures can be asked for in either
    * order, and one must not read as the other's guard. */
   const suspending = new Set<string>();
+
+  /** Panes being restarted. Deliberately NOT shared with `suspending`: a
+   * suspend may land inside a restart's awaits, and the restart's job then is
+   * to notice and stand down — which it cannot do if the suspend was blocked
+   * from happening at all. */
+  const restarting = new Set<string>();
+
+  /** Remount the pane's terminal view over its new process. */
+  function bumpEpoch(paneId: string): void {
+    epochs.set(paneId, (epochs.get(paneId) ?? 0) + 1);
+    publish();
+  }
+
+  /** Everything a restart needs about `paneId`, or null when it is gone. */
+  function restartTargetOf(
+    workspaceRef: string | WorkspaceRef,
+    paneId: string,
+  ): RestartTarget | null {
+    const workspaces = deck.getSnapshot().workspaces;
+    const ws =
+      typeof workspaceRef === "string"
+        ? findWorkspace(workspaces, workspaceRef)
+        : findWorkspaceByRef(workspaces, workspaceRef);
+    const pane = ws?.panes.find((candidate) => candidate.id === paneId);
+    if (!ws || !pane) return null;
+    return {
+      workspace: { id: ws.id, instance: ws.instance },
+      paneId,
+      agentType: paneAgentType(pane),
+      cwd: pane.cwd ?? ws.cwd,
+      branch: pane.branch,
+      yolo: pane.yolo,
+      sessionId: paneResumeSessionId(pane),
+    };
+  }
+
+  /** Is the pane stopped right now? A suspend can land inside a restart's
+   * awaits, and it leaves every field `sameResumeTarget` compares untouched —
+   * only the idle marker says so. Standing down there is what keeps the
+   * user's suspend from being undone by a restart that started first. */
+  function stoppedNow(target: RestartTarget): boolean {
+    return !!findPane(
+      deck.getSnapshot().workspaces,
+      target.workspace.id,
+      target.paneId,
+    )?.idle;
+  }
+
+  async function restartFresh(target: RestartTarget): Promise<void> {
+    // Invalidate the old bridge token before anything can report late from
+    // the retired process. The next plan build is triggered by the epoch.
+    dropPaneSpawnSpec(target.paneId);
+    clearPaneUsage(target.paneId);
+    await sessions.close(target.paneId);
+    if (!restartTargetOf(target.workspace, target.paneId)) return;
+    // The pane is parked now, and its binding is exactly what its resume
+    // needs: dropping it here would turn the user's suspend into a fresh
+    // conversation.
+    if (stoppedNow(target)) return;
+    // Fresh means fresh on the next app launch too. Keep cwd/branch/worktree;
+    // only the exact session binding is replaced by the new reporter later.
+    actions.setPaneSession(target.workspace.id, target.paneId, null);
+    bumpEpoch(target.paneId);
+  }
+
+  async function restartResume(target: RestartTarget): Promise<void> {
+    const ctx = spawnContext.get();
+    if (!ctx) throw new Error("Agent spawn context is unavailable");
+    if (!target.sessionId) return restartFresh(target);
+
+    // Remove the old token immediately, then prepare a plan that explicitly
+    // stays exited if the CLI rejects its id — manual means no fallback.
+    dropPaneSpawnSpec(target.paneId);
+    const ws = findWorkspaceByRef(
+      deck.getSnapshot().workspaces,
+      target.workspace,
+    );
+    const planBuilt = await buildResumeSpec(
+      plugins,
+      target.agentType,
+      {
+        paneId: target.paneId,
+        workspace: target.workspace,
+        cwd: target.cwd,
+        branch: target.branch,
+        yolo: target.yolo,
+        ...(ws ? { wsSkillRoots: skillRootsOf(ws) } : {}),
+      },
+      ctx,
+      target.sessionId,
+      "manual",
+    );
+
+    const current = restartTargetOf(target.workspace, target.paneId);
+    if (!current) {
+      dropPaneSpawnSpec(target.paneId);
+      return;
+    }
+    if (!sameResumeTarget(current, target)) {
+      dropPaneSpawnSpec(target.paneId);
+      throw new Error("Agent changed while its restart was being prepared");
+    }
+    const spec = peekPaneSpawnSpec(target.paneId);
+    if (
+      !planBuilt ||
+      spec?.resumeOrigin !== "manual" ||
+      spec.resumeOf !== target.sessionId
+    ) {
+      // A missing agent or a failed resume hook must not silently degrade a
+      // user-requested continuation into a fresh conversation.
+      dropPaneSpawnSpec(target.paneId);
+      throw new Error("Agent could not prepare a resume plan");
+    }
+
+    clearPaneUsage(target.paneId);
+    await sessions.close(target.paneId);
+    const afterClose = restartTargetOf(target.workspace, target.paneId);
+    if (!afterClose || !sameResumeTarget(afterClose, target)) {
+      dropPaneSpawnSpec(target.paneId);
+      return;
+    }
+    if (stoppedNow(target)) return;
+    bumpEpoch(target.paneId);
+  }
 
   /** Wake one pane onto `sessionId`, or fresh when it is null. */
   async function wake(
@@ -813,6 +1004,63 @@ export function createAgentOrchestrator(
       } finally {
         suspending.delete(paneId);
       }
+    },
+    async restart(wsId, paneId, mode) {
+      if (restarting.has(paneId)) return;
+      const target = restartTargetOf(wsId, paneId);
+      if (!target) return;
+      restarting.add(paneId);
+      try {
+        // "Resume" with nothing recorded is a fresh start, and saying so here
+        // keeps the log honest about which one actually ran.
+        const effective = mode === "resume" && target.sessionId ? "resume" : "fresh";
+        log.info("web:orchestrator", `${paneId}: manual restart (${effective})`);
+        if (effective === "resume") await restartResume(target);
+        else await restartFresh(target);
+      } catch (error) {
+        log.warn(
+          "web:orchestrator",
+          `${paneId}: restart failed: ${describeError(error)}`,
+        );
+        throw error;
+      } finally {
+        restarting.delete(paneId);
+      }
+    },
+    recoverRejectedResume(wsId, paneId, code) {
+      const spec = peekPaneSpawnSpec(paneId);
+      if (!resumeDiedSilently(spec, postbackCount(paneId))) return false;
+      if (restarting.has(paneId)) return true;
+      // A pane that is idle was stopped on purpose; respawning it here would
+      // undo that AND wipe its binding. The suspend path drops the spawn spec
+      // before reaping, so `resumeDiedSilently` already answers false — but
+      // that is an ordering elsewhere, not a guarantee here.
+      if (findPane(deck.getSnapshot().workspaces, wsId, paneId)?.idle) {
+        return false;
+      }
+      const target = restartTargetOf(wsId, paneId);
+      if (!target) return false;
+
+      restarting.add(paneId);
+      log.warn(
+        "web:orchestrator",
+        `${paneId}: resume of ${spec?.resumeOf} exited (${code ?? "?"}) without reporting — respawning fresh`,
+      );
+      actions.setPaneSession(target.workspace.id, paneId, null);
+      dropPaneSpawnSpec(paneId);
+      clearPaneUsage(paneId);
+      void sessions
+        .close(paneId)
+        .then(() => {
+          if (restartTargetOf(target.workspace, paneId)) bumpEpoch(paneId);
+        })
+        .finally(() => restarting.delete(paneId));
+      return true;
+    },
+    retryPlanBuild(paneId) {
+      dropPaneSpawnSpec(paneId);
+      clearPanePlanError(paneId);
+      bumpEpoch(paneId);
     },
     async resumeSession(wsId, record, opts) {
       const ctx = spawnContext.get();

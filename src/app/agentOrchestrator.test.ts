@@ -13,6 +13,7 @@ import type { SessionHandle } from "../domain/journal";
 import {
   buildForkSpec,
   buildResumeSpec,
+  clearPanePlanError,
   dropPaneSpawnSpec,
   peekPaneSpawnSpec,
   resetPaneSpawnSpecs,
@@ -46,8 +47,12 @@ const ipc = vi.hoisted(() => ({
  * needs a plan to re-stamp. */
 const gate = vi.hoisted(() => ({ build: null as Promise<void> | null }));
 
+/** The plan cache behind the mock, reachable so a test can stand in a plan the
+ * deck restored but never built here (a rejected boot resume). */
+const plans = vi.hoisted(() => ({ specs: new Map<string, unknown>() }));
+
 vi.mock("./spawnSpecs", () => {
-  const specs = new Map<string, unknown>();
+  const { specs } = plans;
   return {
     // What the ordinary plan sweep does, in miniature: an unmarked pane with
     // no plan gets one. Faithful enough for the question these tests ask —
@@ -61,6 +66,16 @@ vi.mock("./spawnSpecs", () => {
       },
     ),
     peekPanePlanError: () => false,
+    clearPanePlanError: vi.fn(),
+    // The real predicate's shape: a RESTORE resume whose process died without
+    // ever posting back. A manual one is ineligible by design.
+    resumeDiedSilently: (
+      spec: { resumeOf?: string; resumeOrigin?: string; postbackMark?: number } | undefined,
+      count: number,
+    ) =>
+      spec?.resumeOrigin === "restore" &&
+      !!spec.resumeOf &&
+      spec.postbackMark === count,
     buildResumeSpec: vi.fn(
       async (
         _plugins: unknown,
@@ -76,6 +91,7 @@ vi.mock("./spawnSpecs", () => {
           env: [],
           resumeOf: resumeId,
           resumeOrigin: origin,
+          postbackMark: 0,
         });
         return true;
       },
@@ -88,7 +104,12 @@ vi.mock("./spawnSpecs", () => {
     }),
     peekPaneSpawnSpec: (id: string) =>
       specs.get(id) as
-        | { args: string[]; resumeOf?: string; resumeOrigin?: string }
+        | {
+            args: string[];
+            resumeOf?: string;
+            resumeOrigin?: string;
+            postbackMark?: number;
+          }
         | undefined,
     // A refused manual wake drops the half-built plan, or the pane's next
     // wake lands on the plan-error tile instead of a terminal.
@@ -107,6 +128,8 @@ const steps = vi.hoisted(() => ({
   register: vi.fn(),
   clear: vi.fn(),
 }));
+vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
+
 vi.mock("./provisioning", async (importOriginal) => {
   const real = await importOriginal<typeof import("./provisioning")>();
   return {
@@ -167,6 +190,9 @@ let agentRun: AgentRunView &
     | "resumeSession"
     | "forkSession"
     | "suspend"
+    | "restart"
+    | "recoverRejectedResume"
+    | "retryPlanBuild"
   >;
 /** The worktree creates the orchestrator asked for, recorded instead of run.
  *  Per mount like the deck beside it, so no `describe` has to remember to
@@ -246,6 +272,9 @@ function Probe() {
     resumeSession: wiring.orchestrator.resumeSession,
     forkSession: wiring.orchestrator.forkSession,
     suspend: wiring.orchestrator.suspend,
+    restart: wiring.orchestrator.restart,
+    recoverRejectedResume: wiring.orchestrator.recoverRejectedResume,
+    retryPlanBuild: wiring.orchestrator.retryPlanBuild,
   };
   return null;
 }
@@ -1886,6 +1915,295 @@ describe("agent orchestrator —suspending an agent", () => {
       "suspended",
     );
     expect(pty.closed).toEqual(["pane-1"]);
+  });
+});
+
+describe("agent orchestrator —restarting an exited agent", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    vi.mocked(buildResumeSpec).mockReset();
+    vi.mocked(dropPaneSpawnSpec).mockClear();
+    vi.mocked(clearPanePlanError).mockClear();
+    gate.build = null;
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    catalog.parkOnLaunch = false;
+    pty.reset();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const seed = (sessionId: string | null = "session-old") =>
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [
+          {
+            id: "pane-1",
+            agentType: "codex",
+            cwd: "/worktree",
+            branch: "feature/restart",
+            yolo: true,
+            ...(sessionId
+              ? { session: { id: sessionId, boundAt: "2026-07-11T00:00:00Z" } }
+              : {}),
+          },
+        ],
+      }),
+    );
+
+  const pane = () => deck.workspaces[0].panes[0];
+  const epoch = () => agentRun.epochs["pane-1"];
+
+  it("resumes the exact binding with a new plan and keeps the pane's facts", async () => {
+    seed();
+    await act(async () => agentRun.restart("ws-1", "pane-1", "resume"));
+
+    expect(vi.mocked(buildResumeSpec)).toHaveBeenCalledWith(
+      expect.anything(),
+      "codex",
+      {
+        paneId: "pane-1",
+        workspace: { id: "ws-1", instance: deck.workspaces[0].instance },
+        cwd: "/worktree",
+        branch: "feature/restart",
+        yolo: true,
+        wsSkillRoots: ["/worktree"],
+      },
+      ctx,
+      "session-old",
+      "manual",
+    );
+    expect(pty.closed).toEqual(["pane-1"]);
+    expect(epoch()).toBe(1);
+    expect(pane()).toMatchObject({
+      cwd: "/worktree",
+      branch: "feature/restart",
+      session: { id: "session-old" },
+    });
+  });
+
+  it("starts fresh only on click, clearing the binding but keeping the worktree", async () => {
+    seed();
+    await act(async () => agentRun.restart("ws-1", "pane-1", "fresh"));
+
+    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+    expect(pty.closed).toEqual(["pane-1"]);
+    expect(pane()).toMatchObject({
+      cwd: "/worktree",
+      branch: "feature/restart",
+    });
+    expect(pane().session).toBeUndefined();
+    expect(epoch()).toBe(1);
+  });
+
+  it("a suspend landing mid-restart keeps its binding — neither gesture blocks the other", async () => {
+    // Suspending and restarting hold SEPARATE guards, so ⇧⌘W slips inside the
+    // restart's reap. The pane is parked by the time the restart resumes, and
+    // its binding is exactly what its resume needs: wiping it would turn the
+    // user's suspend into a new conversation.
+    seed();
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let restarting!: Promise<void>;
+    act(() => {
+      restarting = agentRun.restart("ws-1", "pane-1", "fresh");
+    });
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    await act(async () => {
+      release();
+      await restarting;
+    });
+
+    expect(pane().session).toEqual({
+      id: "session-old",
+      boundAt: "2026-07-11T00:00:00Z",
+    });
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+    // No remount either: the pane is stopped, there is nothing to mount.
+    expect(epoch()).toBeUndefined();
+  });
+
+  it("a suspend landing mid-RESUME leaves the pane stopped, not remounted", async () => {
+    // Every field the resume path compares survives a suspend untouched, so
+    // the idle marker is the only thing that says the user changed their mind.
+    // Without that check the epoch bump would remount the pane the suspend
+    // just stopped — a stopped card that spawns a terminal on its own.
+    seed();
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let restarting!: Promise<void>;
+    act(() => {
+      restarting = agentRun.restart("ws-1", "pane-1", "resume");
+    });
+    // The plan is built before the reap, so let it settle, then suspend.
+    await act(async () => {});
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    await act(async () => {
+      release();
+      await restarting;
+    });
+
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+    expect(pane().session).toEqual({
+      id: "session-old",
+      boundAt: "2026-07-11T00:00:00Z",
+    });
+    expect(epoch()).toBeUndefined();
+  });
+
+  it("falls back to fresh safely when resume was asked for without a binding", async () => {
+    seed(null);
+    await act(async () => agentRun.restart("ws-1", "pane-1", "resume"));
+
+    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+    expect(pty.closed).toEqual(["pane-1"]);
+    expect(epoch()).toBe(1);
+  });
+
+  it("restarts a REMOTE pane fresh even with a stale binding clinging to it", async () => {
+    // Resuming it locally would drop the endpoint. The target's session id is
+    // null for a remote pane, so the restart falls through to fresh.
+    seed();
+    act(() => {
+      pane().remoteEndpoint = "ws://vps:4500";
+    });
+    await act(async () => agentRun.restart("ws-1", "pane-1", "resume"));
+
+    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+    expect(pty.closed).toEqual(["pane-1"]);
+    expect(epoch()).toBe(1);
+  });
+
+  it("coalesces repeated clicks while one restart is in flight", async () => {
+    seed();
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let first!: Promise<void>;
+    act(() => {
+      first = agentRun.restart("ws-1", "pane-1", "fresh");
+      void agentRun.restart("ws-1", "pane-1", "fresh");
+    });
+    expect(pty.closed).toEqual(["pane-1"]);
+    await act(async () => {
+      release();
+      await first;
+    });
+    expect(epoch()).toBe(1);
+  });
+
+  it("does not resurrect a pane closed while its resume plan is building", async () => {
+    seed();
+    let release!: () => void;
+    gate.build = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let pending!: Promise<void>;
+    act(() => {
+      pending = agentRun.restart("ws-1", "pane-1", "resume");
+    });
+    act(() => deck.closeAgent("ws-1", "pane-1"));
+    await act(async () => {
+      release();
+      await pending;
+    });
+
+    expect(pty.closed).toEqual([]);
+    expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
+    expect(epoch()).toBeUndefined();
+  });
+
+  it("keeps the pane exited when a manual resume plan cannot be prepared", async () => {
+    seed();
+    vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
+
+    await expect(
+      act(async () => agentRun.restart("ws-1", "pane-1", "resume")),
+    ).rejects.toThrow("could not prepare a resume plan");
+
+    expect(pty.closed).toEqual([]);
+    expect(epoch()).toBeUndefined();
+    expect(pane().session?.id).toBe("session-old");
+  });
+
+  it("retryPlanBuild drops the failure and the half-built plan, without a reap", async () => {
+    seed();
+    act(() => agentRun.retryPlanBuild("pane-1"));
+
+    expect(vi.mocked(dropPaneSpawnSpec)).toHaveBeenCalledWith("pane-1");
+    expect(vi.mocked(clearPanePlanError)).toHaveBeenCalledWith("pane-1");
+    expect(epoch()).toBe(1);
+    // No process was ever started for a failed-plan pane — nothing to close.
+    expect(pty.closed).toEqual([]);
+  });
+
+  it("auto-recovers a rejected BOOT resume exactly once", async () => {
+    seed();
+    plans.specs.set("pane-1", {
+      args: ["resume", "session-old"],
+      env: [],
+      resumeOf: "session-old",
+      resumeOrigin: "restore",
+      postbackMark: 0,
+    });
+
+    act(() => {
+      agentRun.recoverRejectedResume("ws-1", "pane-1", 1);
+    });
+    await act(async () => {});
+
+    expect(pty.closed).toEqual(["pane-1"]);
+    expect(pane().session).toBeUndefined();
+    expect(epoch()).toBe(1);
+    // The spec is gone, so the predicate answers false for the next exit.
+    act(() => {
+      agentRun.recoverRejectedResume("ws-1", "pane-1", 1);
+    });
+    expect(pty.closed).toEqual(["pane-1"]);
+  });
+
+  it("never auto-recovers an ordinary exit or a rejected MANUAL resume", () => {
+    seed();
+    plans.specs.set("pane-1", {
+      args: ["resume", "session-old"],
+      env: [],
+      resumeOf: "session-old",
+      resumeOrigin: "manual",
+      postbackMark: 0,
+    });
+
+    act(() => {
+      expect(agentRun.recoverRejectedResume("ws-1", "pane-1", 1)).toBe(false);
+    });
+    expect(pty.closed).toEqual([]);
+    expect(epoch()).toBeUndefined();
+    expect(pane().session?.id).toBe("session-old");
   });
 });
 

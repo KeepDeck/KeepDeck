@@ -122,7 +122,7 @@ interface DeckStageProps {
     mode: AgentRestartMode,
   ): Promise<void>;
   /** Bumped after the old PTY entry is retired to remount the same pane. */
-  restartEpochs: ReadonlyMap<string, number>;
+  restartEpochs: Record<string, number>;
   /** Retry a pane whose spawn plan failed to build (no PTY was spawned) —
    *  drops the failure and re-runs the build. */
   onRetryPlanBuild(paneId: string): void;
@@ -375,7 +375,7 @@ export function DeckStage({
           const badge = badgeOf(pane);
           return (
             <AgentPane
-              key={`${pane.id}#${restartEpochs.get(pane.id) ?? 0}`}
+              key={`${pane.id}#${restartEpochs[pane.id] ?? 0}`}
               paneId={pane.id}
               title={displayTitle}
               agentIcon={agentInfo?.icon ?? null}

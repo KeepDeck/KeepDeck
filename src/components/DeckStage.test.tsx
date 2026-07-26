@@ -141,7 +141,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
     "pane-2": { command: "codex", args: [], env: [] },
   },
   failedPanes: new Set<string>(),
-  restartEpochs: new Map<string, number>(),
+  restartEpochs: {} as Record<string, number>,
   ...callbacks,
   ...overrides,
 });
@@ -204,7 +204,7 @@ describe("DeckStage — exited agents across layouts", () => {
     act(() => sessions.reset());
     render({
       viewByWs: { "ws-1": {} },
-      restartEpochs: new Map([["pane-1", 1]]),
+      restartEpochs: { "pane-1": 1 },
     });
     expect(
       document.querySelector("[data-pane-id='pane-1'] .pane__exit"),
