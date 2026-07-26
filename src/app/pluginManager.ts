@@ -67,6 +67,7 @@ import { spawnSession } from "../ipc/session";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import {
   getSettings,
+  initSettings,
   subscribeSettings,
   updateSettings,
 } from "./settingsManager";
@@ -697,6 +698,12 @@ export function createPluginManager(appDownloads: DownloadManager) {
    */
   function bootstrapPlugins(): Promise<void> {
     boot ??= (async () => {
+      // Settings first, always: which plugins are enabled lives there, and so
+      // do the values a plugin reads the moment it activates. Gating this at
+      // the CALL sites left it to whichever one ran first — and one of them
+      // (the agent catalog's) doesn't gate at all, so a plugin the user turned
+      // off could activate on the default policy before the file was read.
+      await initSettings();
       const builtins = import.meta.env.DEV
         ? discoverDevPlugins()
         : await discoverBuiltPlugins();

@@ -26,8 +26,9 @@ export function useAgents(): { agents: AgentInfo[]; loading: boolean } {
 
   useEffect(() => {
     let alive = true;
-    // Idempotent join on the app's one bootstrap — App kicked it off at
-    // mount; this only observes completion.
+    // Idempotent join on the app's one bootstrap — this hook's effect may well
+    // be the one that starts it (it is declared before App's), which is safe:
+    // the bootstrap waits for settings itself rather than trusting its callers.
     void bootstrapPlugins().then(() => {
       if (alive) setBooted(true);
     });
