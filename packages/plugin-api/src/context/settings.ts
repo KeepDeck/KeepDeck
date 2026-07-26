@@ -72,9 +72,12 @@ export type SettingsField =
     };
 
 /** What a `custom` settings field's component receives from the host: the
- * plugin's current settings values (defaults NOT applied — absent means
- * unset) and a write that persists one key through the host settings store,
- * feeding `settings.onChange` like any field. */
+ * plugin's current settings values — resolved by {@link mergeSectionValues},
+ * exactly what `settings.read` hands the plugin, so the page and the plugin can
+ * never disagree — and a write that persists one key through the host settings
+ * store, feeding `settings.onChange` like any field. A custom field's own value
+ * passes through untouched (the host has no default to apply), so absent still
+ * means unset; a key no field declares is absent here too. */
 export interface CustomSettingsFieldProps {
   values: Record<string, unknown>;
   write(key: string, value: unknown): void;
