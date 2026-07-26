@@ -132,7 +132,10 @@ export interface AgentPaneProps {
    * a second source for the same fact. */
   resumeSessionId?: string | null;
   /** Manually restart an exited agent, either from its binding or fresh. */
-  onRestart?(mode: AgentRestartMode): Promise<RestartOutcome> | void;
+  /** Answers what it did. NOT optional-returning: a caller that resolved with
+   * nothing would leave the card promising a restart that stood down, which is
+   * the bug the outcome exists to prevent. */
+  onRestart?(mode: AgentRestartMode): Promise<RestartOutcome>;
 }
 
 /**
@@ -214,8 +217,9 @@ export function AgentPane({
     // A restart that STOOD DOWN — the pane was stopped, closed, or changed
     // under it — resolves without a remount, so treating "resolved" as
     // "restarted" left the card promising a restart that was not coming.
-    const settle = (outcome: RestartOutcome | void) => {
-      if (outcome === undefined || outcome === "restarted") return;
+    // Only "restarted" keeps the spinner: the epoch remount clears it.
+    const settle = (outcome: RestartOutcome) => {
+      if (outcome === "restarted") return;
       restartInFlight.current = false;
       setRestarting(false);
     };

@@ -9,7 +9,7 @@
  * later `-s` resume does NOT rebind it. So the import must run FROM the target
  * directory — which means the target must already exist, and the host
  * guarantees it: a dir target exists up front, and a NEW worktree is
- * provisioned BEFORE this runs (useJournalFork's post-provision step). So
+ * provisioned BEFORE this runs (the host's post-provision step). So
  * `relocatingForkId`'s `targetExists` guard is a safety net, and its native
  * fork fallback fires only on a genuine recipe failure (which it also surfaces).
  *

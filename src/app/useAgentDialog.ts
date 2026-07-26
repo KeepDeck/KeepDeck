@@ -158,7 +158,14 @@ export function useAgentDialog(
     setDialog(null);
     const currentDeck = deckRef.current;
     const ws = findWorkspaceByRef(currentDeck.workspaces, dlg.workspace);
-    if (!ws) return;
+    if (!ws) {
+      // The workspace this dialog opened for is gone. Say so here rather than
+      // returning quietly: the dialog has already closed, so silence is an
+      // agent the user asked for that simply never appears. The landing would
+      // refuse it too, but this path never reaches the landing.
+      notices.onCreateFailed("That workspace was closed.");
+      return;
+    }
     const paneName = name.trim() || undefined;
     // "Start from" a picked session: a continuation, not a fresh pane. The
     // orchestrator owns plan-building, the claim re-check and (for a new
@@ -203,6 +210,9 @@ export function useAgentDialog(
       workspace: dlg.workspace,
       pane: paneFromAgentRequest(dlg.agentId, result, ws, dlg.index),
     });
+    // `gone` is reachable here too: the guard above reads this render's deck,
+    // the landing re-resolves against the live store, and a workspace can
+    // close in between.
     if (landed.kind === "full") notices.onCreateFailed(WORKSPACE_FULL_MESSAGE);
     else if (landed.kind === "gone") {
       notices.onCreateFailed("That workspace was closed.");

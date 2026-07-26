@@ -301,8 +301,13 @@ export function dropPaneSpawnSpec(paneId: string): void {
   specs.delete(paneId);
   pending.delete(paneId);
   failed.delete(paneId);
-  notifySpecs();
   buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
+  // Last, for the same reason as its sibling below: a listener that reacts by
+  // starting a build must see the invalidation it is reacting to. Notifying
+  // first would let that build reserve a generation this line then bumps past,
+  // and a build that loses its generation never leaves `pending` — the pane
+  // would be skipped by every later sweep.
+  notifySpecs();
 }
 
 /** Build and cache an exclusive RESUME plan for an idle pane about to wake
@@ -427,10 +432,6 @@ export async function buildLivePaneSpec(
     return true;
   }
 }
-
-/**
- * When to look for the plans is the orchestrator's — see its reconcile.
- */
 
 /** The cached plan, if any (no building) — for the binding effect. */
 export function peekPaneSpawnSpec(paneId: string): SpawnPlan | undefined {

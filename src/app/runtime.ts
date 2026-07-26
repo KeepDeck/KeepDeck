@@ -11,7 +11,7 @@ import {
   createAgentOrchestrator,
   type AgentCatalogPort,
 } from "./agentOrchestrator";
-import { getSettings, subscribeSettings } from "./settingsManager";
+import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import {
   acquirePane,
   closePane,
@@ -36,7 +36,16 @@ function agentCatalogPort(
   return {
     commands: () =>
       new Map(registry.list().map((c) => [c.entry.id, c.entry.detect.bin])),
-    ready: () => plugins.bootstrapPlugins(),
+    // Settings FIRST, then the bootstrap. Which plugins are enabled lives in
+    // the settings store, and the activation gate stamps each one's verdict
+    // once — so a bootstrap that beats the load reads every flag as unset,
+    // activating a built-in the user disabled and marking every external one
+    // disabled, for the whole session. Awaiting is enough: `initSettings` is
+    // idempotent and already in flight from boot.
+    ready: async () => {
+      await initSettings();
+      await plugins.bootstrapPlugins();
+    },
     subscribe: registry.subscribe,
   };
 }
