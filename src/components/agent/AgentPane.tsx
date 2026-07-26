@@ -10,6 +10,7 @@ import {
 // popover uses, rather than growing a second one.
 import { contextLevel, formatAge } from "../../domain/usage";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
+import { usePaneSessionState } from "../../app/usePaneSessionState";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 import {
@@ -191,7 +192,11 @@ export function AgentPane({
   // pane for the tray's marker, and the two must not be able to disagree.
   const stopped = idleReadsAsStopped(idle, !!blockedDir);
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
-  const [exit, setExit] = useState<{ code: number | null } | null>(null);
+  // Read from the session registry rather than remembered here: a pane that
+  // exited, was suspended and then resumed kept a local copy alive and painted
+  // this card, with a working Restart button, over its fresh terminal.
+  const session = usePaneSessionState(paneId);
+  const exit = session.kind === "exited" ? session : null;
   // A successful restart remounts the whole pane via its epoch. Until then,
   // keep both choices inert; only a rejected plan lets the user try again.
   const restartInFlight = useRef(false);
@@ -239,7 +244,6 @@ export function AgentPane({
   useEffect(() => {
     if (!idle) return;
     restartInFlight.current = false;
-    setExit(null);
     setRestarting(false);
     setRestartFailed(false);
   }, [idle]);
@@ -558,7 +562,6 @@ export function AgentPane({
             visible={visible}
             selected={selected}
             onExit={(code, replayed) => {
-              setExit({ code });
               // A replay is attachPane re-announcing an old death to a
               // remounted view (plugin toggled off/on over a crashed pane) —
               // the card must return, but upstream once-per-death reactions

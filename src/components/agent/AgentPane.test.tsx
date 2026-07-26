@@ -10,6 +10,30 @@ vi.mock("../terminal/TerminalPane", () => ({
   TerminalPane: vi.fn(() => null),
 }));
 
+// The pane READS its process state; it does not own it. Stand in for the
+// session registry so a test can put a pane's process where it wants it.
+const sessions = vi.hoisted(() => {
+  let state: { kind: string; code?: number | null } = { kind: "none" };
+  const listeners = new Set<() => void>();
+  return {
+    read: () => state,
+    put(next: { kind: string; code?: number | null }) {
+      state = next;
+      for (const listener of [...listeners]) listener();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+});
+vi.mock("../../app/ptyManager", () => ({
+  paneSessionState: () => sessions.read(),
+  subscribeSessions: sessions.subscribe,
+}));
+
 import type { NormalizedUsage } from "@keepdeck/plugin-api";
 import type { PaneIdle } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
@@ -42,6 +66,9 @@ const baseProps = {
   onRename: () => {},
   onTitle: () => {},
 };
+
+// A death recorded by one test is not a fact about the next one.
+afterEach(() => sessions.put({ kind: "none" }));
 
 describe("AgentPane — header badges", () => {
   let host: HTMLElement;
@@ -173,9 +200,7 @@ describe("AgentPane — header badges", () => {
     act(() => root.render(createElement(AgentPane, baseProps)));
     expect(document.querySelector(".pane__ctx")).not.toBeNull(); // live → shown
     // The PTY exits → the now-frozen ctx% must go.
-    const calls = vi.mocked(TerminalPane).mock.calls;
-    const terminalProps = calls[calls.length - 1]?.[0];
-    act(() => terminalProps?.onExit?.(0, false));
+    act(() => sessions.put({ kind: "exited", code: 0 }));
     expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
@@ -586,10 +611,15 @@ describe("AgentPane — manual restart after exit", () => {
     );
   };
 
+  /** The process dies: the registry records it, and the terminal announces it
+   *  so the once-per-death reactions still get their say. */
   const reportExit = (code: number | null, replayed = false) => {
     const calls = vi.mocked(TerminalPane).mock.calls;
     const terminalProps = calls[calls.length - 1][0];
-    act(() => terminalProps.onExit?.(code, replayed));
+    act(() => {
+      sessions.put({ kind: "exited", code });
+      terminalProps.onExit?.(code, replayed);
+    });
   };
 
   const actionButtons = () =>
@@ -599,14 +629,17 @@ describe("AgentPane — manual restart after exit", () => {
 
   it("forgets the exit when the pane stops — a resume must not come back veiled", () => {
     // Suspending is allowed on an exited pane, and neither suspend nor resume
-    // remounts the component (no epoch bump, unlike a restart), so without an
-    // explicit reset the exit card would paint over the terminal the resume
-    // just brought back — with a Restart button that kills it again.
+    // remounts the component (no epoch bump, unlike a restart), so an exit the
+    // pane remembered itself would paint over the terminal the resume just
+    // brought back — with a Restart button that kills it again. It cannot: the
+    // exit is the session registry's to report, and the suspend closes the
+    // session, so there is nothing left to report.
     mount({ onRestart: vi.fn() });
     reportExit(0);
     expect(document.querySelector(".pane__exit")).not.toBeNull();
 
-    // Suspended: the card is replaced by the stopped one…
+    // Suspended: the suspend's own teardown closes the PTY…
+    act(() => sessions.put({ kind: "none" }));
     mount({
       onRestart: vi.fn(),
       idle: { reason: "suspended", at: new Date().toISOString() },

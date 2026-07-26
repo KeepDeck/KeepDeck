@@ -93,7 +93,54 @@ interface Entry {
   launched: boolean;
 }
 
+/**
+ * What the app knows about a pane's process, for everything that is NOT the
+ * terminal view: the card that has to say "exited", and the reconciler that
+ * compares what should be running against what is.
+ *
+ * Read, never copied. An exit kept as component state outlived the process it
+ * described — a pane that exited, was suspended and then resumed painted a
+ * dead "Agent exited" veil, with a live Restart button, over a fresh terminal.
+ * Derived from the session registry, the answer cannot outlive its subject:
+ * [`closePane`] drops the entry, and the veil goes with it.
+ */
+export type PaneSessionState =
+  /** No session — never started, or ended by an explicit close. */
+  | { kind: "none" }
+  /** The spawn is in flight; the process does not exist yet. */
+  | { kind: "starting" }
+  | { kind: "live" }
+  /** The process ended. Stays inspectable until [`closePane`]. */
+  | { kind: "exited"; code: number | null }
+  /** The spawn itself failed — there was never a process. */
+  | { kind: "failed"; message: string };
+
 const entries = new Map<string, Entry>();
+
+/** Shared so an absent pane always answers with the SAME object: consumers
+ * subscribe through `useSyncExternalStore`, which re-renders forever on a
+ * snapshot rebuilt at every read. */
+const NO_SESSION: PaneSessionState = { kind: "none" };
+const states = new Map<string, PaneSessionState>();
+const stateListeners = new Set<() => void>();
+
+function setSessionState(paneId: string, next: PaneSessionState): void {
+  states.set(paneId, next);
+  for (const listener of [...stateListeners]) listener();
+}
+
+/** This pane's process state. Stable between changes. */
+export function paneSessionState(paneId: string): PaneSessionState {
+  return states.get(paneId) ?? NO_SESSION;
+}
+
+/** Notify on every process-state change, for any pane. */
+export function subscribeSessions(listener: () => void): () => void {
+  stateListeners.add(listener);
+  return () => {
+    stateListeners.delete(listener);
+  };
+}
 
 function identity(spec: PaneSpawnSpec): string {
   return `${spec.command ?? ""}\u0000${spec.cwd ?? ""}`;
@@ -128,6 +175,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     launched: false,
   };
   entries.set(paneId, entry);
+  setSessionState(paneId, { kind: "starting" });
   log.info("web:pty", `${paneId}: spawn ${spec.command ?? "(shell)"} in ${spec.cwd ?? "(app cwd)"}`);
 
   spawnSession(
@@ -155,6 +203,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       } else {
         entry.exited = { code: event.code };
         entry.session = null;
+        setSessionState(paneId, { kind: "exited", code: event.code });
         log.info("web:pty", `${paneId}: exited (code ${event.code ?? "?"})`);
         if (entry.sink) {
           entry.exitAnnounced = true;
@@ -171,11 +220,15 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         return;
       }
       entry.session = session;
+      // An exit can land before the spawn promise settles (a process that dies
+      // immediately) — the death is the later truth, so it must not be undone.
+      if (!entry.exited) setSessionState(paneId, { kind: "live" });
       entry.sink?.onReady();
     })
     .catch((err: unknown) => {
       if (entry.closed) return;
       entry.failed = describeError(err);
+      setSessionState(paneId, { kind: "failed", message: entry.failed });
       log.error("web:pty", `${paneId}: spawn failed: ${entry.failed}`);
       if (entry.sink) {
         entry.failedAnnounced = true;
@@ -248,6 +301,10 @@ export function closePane(paneId: string): Promise<void> {
   const entry = entries.get(paneId);
   if (!entry) return Promise.resolve();
   entries.delete(paneId);
+  // The state goes with the entry: a close is what makes an exit stop being
+  // the pane's current truth, and anything still showing it must stop.
+  states.delete(paneId);
+  for (const listener of [...stateListeners]) listener();
   entry.closed = true;
   entry.sink = null;
   entry.chunks = [];
