@@ -122,6 +122,16 @@ describe("paneRunIntent — lazy revive", () => {
     ).toEqual({ kind: "hold", reason: { kind: "workspace-inactive" } });
   });
 
+  it("holds an UNMARKED pane off screen — economy applies to every pane, not just restored ones", () => {
+    // A pane minted moments before the user switched away carries no marker,
+    // and is as unopened as any other. Gating on the restore marker left it
+    // free to start an agent in a workspace nobody is looking at.
+    expect(paneRunIntent(pane(), env({ workspaceActive: false }))).toEqual({
+      kind: "hold",
+      reason: { kind: "workspace-inactive" },
+    });
+  });
+
   it("runs a pane asked for BY NAME off screen — the request must reach it", () => {
     expect(
       paneRunIntent(

@@ -54,12 +54,20 @@ export type PaneHoldReason =
   | { kind: "stopped"; by: PaneStopped }
   /** Its directory is gone. It needs relocating, not retrying. */
   | { kind: "worktree-missing"; dir: string }
-  /** Lazy revive: a restored pane in a workspace nobody has opened waits. This
-   * is what keeps opening the app from starting every agent at once. A pane
-   * asked for BY NAME (a clicked Resume, `agent.resume` with a workspace
-   * argument) is not subject to it — that request must reach a pane off
-   * screen, or it would strand the pane in a state that is neither running nor
-   * durably stopped. */
+  /** Its workspace is not on screen. Deliberate economy, not laziness for its
+   * own sake: a workspace nobody has opened may never be used, and starting
+   * its agents costs memory, CPU and API budget for nothing. It applies to
+   * EVERY pane that has no process yet, not only to restored ones — a pane
+   * minted moments before the user switched away is as unopened as any other,
+   * and gating on the restore marker left that hole.
+   *
+   * A pane asked for BY NAME (a clicked Resume, `agent.resume` with a
+   * workspace argument) is exempt: that request must reach a pane off screen,
+   * or it strands it in a state that is neither running nor durably stopped.
+   *
+   * NOT a reason to end anything. A pane already running when its workspace
+   * leaves the screen holds here and keeps running — reading this as "must not
+   * have a process" would kill every background agent on a switch. */
   | { kind: "workspace-inactive" };
 
 /** What the decision cannot read off the pane itself. */
@@ -88,9 +96,15 @@ export function paneRunIntent(pane: Pane, env: PaneRunEnv): PaneRunIntent {
     return hold({ kind: "agent-unavailable", agent: paneAgentType(pane) });
   }
   const idle = pane.idle;
-  // No marker: the deck's own record says a process belongs here. Whether one
-  // actually exists is the caller's half of the comparison, not the pane's.
-  if (!idle) return { kind: "run", resume: null };
+  // No marker: nothing about this pane says it should stay down. It may still
+  // have to wait for its workspace — whether a process ALREADY exists is the
+  // caller's half of the comparison, and an existing one is never disturbed by
+  // a hold.
+  if (!idle) {
+    return env.workspaceActive
+      ? { kind: "run", resume: null }
+      : hold({ kind: "workspace-inactive" });
+  }
   if (idle.reason !== "waking") return hold({ kind: "stopped", by: idle });
   // The launch policy, before anything that describes HOW the pane would come
   // up: a pane it holds is not starting, so whether its directory still exists
