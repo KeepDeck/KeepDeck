@@ -1,9 +1,17 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import type { FsFile } from "@keepdeck/plugin-api";
 import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
 import { baseName } from "../domain/tree";
+import { rowAtViewportTop } from "../domain/anchor";
+import { previewKey } from "../domain/identity";
 import { CodeIcon, OpenExternalIcon, WrapIcon } from "../icons";
 import { MarkdownView } from "./MarkdownView";
 
@@ -61,6 +69,28 @@ export function FileViewer({
     };
   }, [path]);
 
+  // Wrapping re-lays-out the SAME lines, so the reader's place is a line, not
+  // a pixel offset — keeping the offset would drift them by however much the
+  // long lines above grew or shrank, and shrinking past the end would clamp it
+  // away for good.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const codeRef = useRef<HTMLDivElement>(null);
+  // Read in the toggle handler: the last moment the old layout still exists.
+  // Held as "pending" rather than a plain index so the effect below fires only
+  // for a toggle — never on mount, and never on some other change that
+  // happened to land in the same commit carrying a stale anchor.
+  const pendingAnchor = useRef<number | null>(null);
+  const toggleWrap = () => {
+    pendingAnchor.current = readAnchor(codeRef.current, bodyRef.current);
+    setWrap((on) => !on);
+  };
+  useLayoutEffect(() => {
+    const anchor = pendingAnchor.current;
+    if (anchor === null) return;
+    pendingAnchor.current = null;
+    codeRef.current?.children[anchor]?.scrollIntoView({ block: "start" });
+  }, [wrap]);
+
   const openExternally = () => void getRuntime().services.opener.openPath(path);
   const hasText = file !== null && !file.isBinary && file.text !== null;
   const markdown = langFor(path) === "markdown";
@@ -93,7 +123,7 @@ export function FileViewer({
             <button
               type="button"
               className={`peek__act${wrap ? " peek__act--on" : ""}`}
-              onClick={() => setWrap((w) => !w)}
+              onClick={toggleWrap}
               title={wrap ? "Don't wrap lines" : "Wrap lines"}
               aria-label="Toggle line wrapping"
               aria-pressed={wrap}
@@ -113,6 +143,10 @@ export function FileViewer({
         </>
       }
       path={breadcrumb(root, path)}
+      // One viewer serves every open request, so a second file opened over the
+      // first would otherwise inherit its offset.
+      scrollKey={previewKey(path, showRendered)}
+      bodyRef={bodyRef}
       onClose={onClose}
     >
       {loading && <p className="peek__note">Loading…</p>}
@@ -138,6 +172,7 @@ export function FileViewer({
           wrap={wrap}
           truncated={file.truncated}
           size={file.size}
+          codeRef={codeRef}
         />
       )}
     </Peek>
@@ -156,18 +191,25 @@ function TextView({
   wrap,
   truncated,
   size,
+  codeRef,
 }: {
   text: string;
   path: string;
   wrap: boolean;
   truncated: boolean;
   size: number;
+  /** Optional handle on the rows' container, so a caller that owns the wrap
+   * toggle can keep the reader's line across it. */
+  codeRef?: Ref<HTMLDivElement>;
 }) {
   const lines = text.split("\n");
   const tokens = useHighlight(text, langFor(path));
   return (
     <>
-      <div className={`files__code${wrap ? " files__code--wrap" : ""}`}>
+      <div
+        ref={codeRef}
+        className={`files__code${wrap ? " files__code--wrap" : ""}`}
+      >
         {lines.map((line, index) => (
           // Lines are positional and never reordered — index is a stable key.
           <div className="files__coderow" key={index}>
@@ -183,6 +225,21 @@ function TextView({
       </div>
       {truncated && <TruncatedNote size={size} />}
     </>
+  );
+}
+
+/** Read the geometry and let the domain say which row it means. The viewport
+ * is the peek's scroll body, handed to us — measuring against whatever happens
+ * to be the code block's parent would be a guess about another package's DOM
+ * that fails silently the day it stops holding. */
+function readAnchor(
+  code: HTMLDivElement | null,
+  body: HTMLDivElement | null,
+): number {
+  if (!code || !body) return 0;
+  return rowAtViewportTop(
+    [...code.children].map((row) => row.getBoundingClientRect().bottom),
+    body.getBoundingClientRect().top,
   );
 }
 

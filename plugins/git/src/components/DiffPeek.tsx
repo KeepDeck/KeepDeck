@@ -18,6 +18,7 @@ import {
   shortSha,
   type HistoryScope,
 } from "../domain/history";
+import { diffKey } from "../domain/identity";
 import { PeekSiblings, type ChangeSet } from "./PeekSiblings";
 
 /** What the peek shows. `file` is a chosen row's diff (worktree or history
@@ -76,6 +77,9 @@ export function DiffPeek({
         ? view.changeSet.scope
         : null;
   const range = scope ? scopeRange(scope) : undefined;
+  // Which diff is on screen, decided once: the fetch below re-reads on it, the
+  // stale-content clear compares it, and the peek resets its scroll on it.
+  const key = diffKey(repo, row, range);
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Joined flat text compares by VALUE in the hook's deps, so rebuilding the
@@ -93,7 +97,6 @@ export function DiffPeek({
   useEffect(() => {
     // No file to diff yet — the rail seeds the first file of a History scope.
     if (!row) return;
-    const key = `${row.kind}:${row.path}:${range?.from ?? ""}:${range?.to ?? ""}`;
     if (diffKeyRef.current !== key) {
       diffKeyRef.current = key;
       setDiff(null);
@@ -132,7 +135,9 @@ export function DiffPeek({
     return () => {
       cancelled = true;
     };
-  }, [repo, row?.path, row?.kind, range?.from, range?.to, version]);
+    // `version` rides alongside the key rather than inside it: it is the one
+    // input that must refetch WITHOUT counting as a different diff.
+  }, [key, version]);
 
   const waiting = view.kind === "waiting";
   return (
@@ -170,6 +175,7 @@ export function DiffPeek({
           />
         )
       }
+      scrollKey={key}
       onClose={onClose}
     >
       {/* A waiting scope has no file yet — the body stays blank; the rail

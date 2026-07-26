@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
-import type { ChangeRow } from "../domain/status";
+import type { ChangeGroups, ChangeRow } from "../domain/status";
 import { DiffPeek } from "./DiffPeek";
 
 (
@@ -77,6 +77,74 @@ describe("DiffPeek", () => {
       );
     });
     await act(async () => {});
+  };
+
+  // The peek is never remounted between files — GitTab swaps the row on the
+  // mounted component — so the scroll position is free to leak from one file
+  // into the next unless something resets it.
+  const RAIL_ROWS = [changedRow("src/a.ts"), changedRow("src/b.ts")];
+
+  const railGroups = (rows: ChangeRow[]): ChangeGroups => ({
+    conflicted: [],
+    staged: [],
+    unstaged: rows,
+    untracked: [],
+    total: rows.length,
+  });
+
+  /** Draw the peek on one row of a two-file worktree change set, the way
+   * GitTab does: same mounted component, a different `view`. */
+  const drawRow = async (
+    row: ChangeRow,
+    version: number,
+    onSelect: (row: ChangeRow) => void,
+  ) => {
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: {
+            kind: "file",
+            row,
+            changeSet: { kind: "worktree", groups: railGroups(RAIL_ROWS) },
+          },
+          version,
+          onSelect,
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+  };
+
+  /** Draw one file of a drilled-in COMMIT — the case where the diff is read
+   * across a revision range rather than against the index. */
+  const drawHistoryFile = async (path: string, sha: string, repo = "/repo") => {
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo,
+          view: {
+            kind: "file",
+            row: { path, origPath: null, code: "M", kind: "history" },
+            changeSet: {
+              kind: "history",
+              scope: { kind: "commit", sha, subject: `work on ${path}` },
+            },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+  };
+
+  /** Deep into a long diff, and off to the side of a wide one. */
+  const readerScrolledAway = (body: HTMLElement) => {
+    body.scrollTop = 900;
+    body.scrollLeft = 140;
   };
 
   beforeEach(() => {
@@ -227,5 +295,160 @@ describe("DiffPeek", () => {
       kind: "history",
     });
     expect(diffFile).not.toHaveBeenCalled();
+  });
+
+  it("switching files through the rail starts the next diff at the top", async () => {
+    setRuntime(makeCtx(TS_DIFF));
+    const onSelect = vi.fn();
+    await drawRow(RAIL_ROWS[0], 1, onSelect);
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    readerScrolledAway(body);
+
+    const rowB = [
+      ...host.querySelectorAll<HTMLElement>(".peek__aside .git__row"),
+    ].find((node) => node.textContent?.includes("b.ts"))!;
+    act(() => rowB.click());
+    expect(onSelect).toHaveBeenCalledWith(RAIL_ROWS[1]);
+    await drawRow(RAIL_ROWS[1], 1, onSelect);
+
+    // Same scroll container throughout — the reset is what puts it back, not
+    // a remount and not the loading placeholder happening to be short.
+    expect(host.querySelector(".peek__body")).toBe(body);
+    expect(body.scrollTop).toBe(0);
+    expect(body.scrollLeft).toBe(0);
+  });
+
+  it("a watcher refresh re-reads the open diff without moving the reader", async () => {
+    const diffFile = vi.fn(async () => TS_DIFF);
+    setRuntime({
+      services: { git: { diffFile }, fs: { readFile: vi.fn() } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+    const onSelect = vi.fn();
+    await drawRow(RAIL_ROWS[0], 1, onSelect);
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    readerScrolledAway(body);
+
+    await drawRow(RAIL_ROWS[0], 2, onSelect);
+
+    // The bump did re-read the file — and left the reader where they were,
+    // which is why `version` is kept out of the diff's identity: the working
+    // tree moves on its own, and it must not throw anyone back to line one.
+    expect(diffFile).toHaveBeenCalledTimes(2);
+    expect(body.scrollTop).toBe(900);
+    expect(body.scrollLeft).toBe(140);
+  });
+
+  it("the same path at another commit is another diff, read and reset", async () => {
+    // The case the revision range exists for, and the one nothing about the
+    // rendering can distinguish: both commits show `src/main.ts` under an
+    // identical name and an identical path line. Only the range differs.
+    // Typed params so the range argument is what gets asserted, not `any`.
+    const diffFile = vi.fn(
+      async (_repo: string, _path: string, range?: { from: string; to?: string }) => {
+        void range;
+        return TS_DIFF;
+      },
+    );
+    const changedFiles = vi.fn(async () => [
+      { path: "src/main.ts", origPath: null, code: "M" },
+    ]);
+    setRuntime({
+      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    await drawHistoryFile("src/main.ts", "aaa1111");
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    readerScrolledAway(body);
+
+    await drawHistoryFile("src/main.ts", "bbb2222");
+
+    // Read across each commit's own range — the peek is not showing the first
+    // commit's hunks under the second one's heading.
+    expect(diffFile.mock.calls.map((call) => call[2])).toEqual([
+      { from: "aaa1111^", to: "aaa1111" },
+      { from: "bbb2222^", to: "bbb2222" },
+    ]);
+    expect(host.querySelector(".peek__body")).toBe(body);
+    expect(body.scrollTop).toBe(0);
+    expect(body.scrollLeft).toBe(0);
+  });
+
+  it("seeding a history scope's first file starts its diff in place", async () => {
+    // The real path a History scope takes: it opens with no file, the rail
+    // fetches the change set and hands back the first row, and GitTab fills it
+    // in on the SAME mounted peek. Every other test stops at the hand-off.
+    const diffFile = vi.fn(
+      async (_repo: string, _path: string, range?: { from: string; to?: string }) => {
+        void range;
+        return TS_DIFF;
+      },
+    );
+    const changedFiles = vi.fn(async (_repo: string) => [
+      { path: "src/main.ts", origPath: null, code: "M" },
+    ]);
+    setRuntime({
+      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    await act(async () => {
+      root.render(
+        createElement(DiffPeek, {
+          repo: "/repo",
+          view: {
+            kind: "waiting",
+            scope: { kind: "commit", sha: "aaa1111", subject: "work" },
+          },
+          version: 1,
+          onSelect: vi.fn(),
+          onClose: vi.fn(),
+        }),
+      );
+    });
+    await act(async () => {});
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    expect(diffFile).not.toHaveBeenCalled();
+
+    await drawHistoryFile("src/main.ts", "aaa1111");
+
+    // The blank body becomes a diff read across the scope's range, without
+    // remounting — and the keys that scroll it are aimed at it.
+    expect(diffFile.mock.calls.map((call) => call[2])).toEqual([
+      { from: "aaa1111^", to: "aaa1111" },
+    ]);
+    expect(host.querySelector(".peek__body")).toBe(body);
+    expect(document.activeElement).toBe(body);
+  });
+
+  it("the same commit in another worktree is another change set", async () => {
+    // Two worktrees of one repo share shas, so the revision range alone does
+    // not identify a file list — without the repo in the key the rail would
+    // decide "same change set" and keep showing the first worktree's files,
+    // then seed a foreign path from them.
+    const diffFile = vi.fn(
+      async (_repo: string, _path: string, _range?: unknown) => TS_DIFF,
+    );
+    const changedFiles = vi.fn(async (_repo: string) => [
+      { path: "src/main.ts", origPath: null, code: "M" },
+    ]);
+    setRuntime({
+      services: { git: { diffFile, changedFiles }, fs: { readFile: vi.fn() } },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    } as unknown as PluginContext);
+
+    await drawHistoryFile("src/main.ts", "aaa1111");
+    await drawHistoryFile("src/main.ts", "aaa1111", "/wt/one");
+
+    // Both the rail's list and the body's diff are re-read for the new root.
+    expect(changedFiles.mock.calls.map((call) => call[0])).toEqual([
+      "/repo",
+      "/wt/one",
+    ]);
+    expect(diffFile.mock.calls.map((call) => call[0])).toEqual([
+      "/repo",
+      "/wt/one",
+    ]);
   });
 });
