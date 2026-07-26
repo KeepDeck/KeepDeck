@@ -8,7 +8,8 @@
  */
 import "./styles.css";
 import type { KeepDeckPlugin, PluginContext } from "@keepdeck/plugin-api";
-import { createVoiceController } from "./controller";
+import { createVoiceController, MODEL_KEY } from "./controller";
+import { HOTKEYS_KEY } from "./binding";
 import { createModelDownloads } from "./downloads";
 import { createModelsStore } from "./models";
 import { createBindingsStore } from "./bindingsStore";
@@ -41,11 +42,14 @@ const plugin: KeepDeckPlugin = {
     ctx.ui.registerOverlay({ id: "pill", Component: VoiceOverlay });
     // Two custom fields: the push-to-talk hotkey editor and the model manager
     // (whisper auto-detects the language, so there is nothing else to set).
+    // The keys come from the constants the two surfaces READ and WRITE, never
+    // from literals: the host serves a plugin only the keys it declares here,
+    // so a key that drifts from its constant is a value that never comes back.
     ctx.settings.registerSection({
       label: "Voice",
       fields: [
-        { kind: "custom", key: "hotkeys", Component: HotkeysSection },
-        { kind: "custom", key: "models", Component: ModelsSection },
+        { kind: "custom", key: HOTKEYS_KEY, Component: HotkeysSection },
+        { kind: "custom", key: MODEL_KEY, Component: ModelsSection },
       ],
     });
 
