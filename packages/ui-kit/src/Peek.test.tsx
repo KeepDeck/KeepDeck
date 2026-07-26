@@ -60,24 +60,65 @@ describe("Peek", () => {
     expect(body().scrollLeft).toBe(120);
   });
 
-  it("takes focus back when the content changes", () => {
-    render();
+  const railButton = () =>
+    host.querySelector<HTMLElement>(".peek__aside button")!;
+  const headerButton = () =>
+    host.querySelector<HTMLElement>(".peek__head button:last-of-type")!;
+  const aside = () => createElement("button", { type: "button" }, "sibling");
+  const actions = () => createElement("button", { type: "button" }, "wrap");
+
+  it("takes focus back from a rail row when the content changes", () => {
+    render({ aside: aside() });
     const before = body();
     expect(document.activeElement).toBe(before);
 
-    // Something else took focus mid-peek — on engines where clicking a
-    // control focuses it, an aside rail's rows are real buttons.
-    const thief = document.body.appendChild(document.createElement("button"));
-    thief.focus();
-    expect(document.activeElement).toBe(thief);
+    // The thief is INSIDE the peek, which is the case that matters: on
+    // engines where clicking a control focuses it, picking a file in the rail
+    // leaves focus on that row's button. A reclaim that only fired when focus
+    // had left the dialog would sail past this.
+    railButton().focus();
+    expect(document.activeElement).toBe(railButton());
 
-    render({ scrollKey: "b.ts", children: "other content" });
+    render({ scrollKey: "b.ts", aside: aside(), children: "other content" });
 
-    // The same node, not a remount — which is why both the scroll reset and
-    // the focus have to be explicit: nothing about rendering new children
-    // would restore either, and PageUp/PageDown would keep scrolling whatever
-    // stole focus for the rest of the peek's life.
+    // The same node, not a remount — nothing about rendering new children
+    // would restore the scroll or the focus by itself.
     expect(body()).toBe(before);
     expect(document.activeElement).toBe(before);
+  });
+
+  it("leaves a header control holding focus, so its toggle stays repeatable", () => {
+    render({ actions: actions() });
+    const toggle = headerButton();
+    toggle.focus();
+
+    // A header action that changes the content is a toggle the reader may
+    // want to press again; pulling focus to the body would cost them the
+    // second press and announce nothing to assistive tech.
+    render({ scrollKey: "b.ts", actions: actions(), children: "other content" });
+
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("hands the scrolling keys to the body while the header holds focus", () => {
+    render({ actions: actions() });
+    const scroller = body();
+    Object.defineProperty(scroller, "clientHeight", {
+      value: 100,
+      configurable: true,
+    });
+    const toggle = headerButton();
+    toggle.focus();
+
+    // The header is outside the scroll body, so without this these keys reach
+    // no scrollable ancestor at all and the reader is simply stuck.
+    act(() =>
+      void toggle.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "PageDown", bubbles: true }),
+      ),
+    );
+
+    expect(scroller.scrollTop).toBe(90);
+    expect(document.activeElement).toBe(toggle);
   });
 });
