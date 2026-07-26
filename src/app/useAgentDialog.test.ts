@@ -64,7 +64,17 @@ const workspace = (over: Partial<Workspace>): Workspace => ({
 const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
   () => ({ kind: "created" }),
 );
-const runtime = { orchestrator: { createPane } } as unknown as AppRuntime;
+/** The continuations the dialog's "Start from" routes into. Recorded here
+ * too: this file's subject is the ROUTING — which continuation, with which
+ * target — and what each one then does is the orchestrator's own test. */
+const resumeSession = vi.fn(() => Promise.resolve());
+const forkSession = vi.fn(() => Promise.resolve());
+const runtime = {
+  orchestrator: { createPane, resumeSession, forkSession },
+} as unknown as AppRuntime;
+/** Where a failed continuation reports. A dialog that just closes on a failed
+ * fork reads as success, so the wiring is worth asserting. */
+const notices = { onResumeFailed: vi.fn(), onForkFailed: vi.fn() };
 /** What the dialog asked for on its `n`th confirm. */
 const offered = (n = 0) => createPane.mock.calls[n][0];
 const mountHost = (
@@ -85,7 +95,7 @@ describe("useAgentDialog suggestions", () => {
     // No settings store seeded here: the default-agent preference falls back
     // to "claude" — these tests cover suggestions, not the type picker.
     // No journal routing and no blocked panes: these tests cover suggestions.
-    flow = useAgentDialog(deck, [], undefined, {});
+    flow = useAgentDialog(deck, [], notices, {});
     return null;
   }
 
@@ -322,7 +332,7 @@ describe("useAgentDialog start-from routing", () => {
   let root: Root;
   let flow: ReturnType<typeof useAgentDialog>;
 
-  const journal = { resume: vi.fn(), fork: vi.fn() };
+
   const handle = {
     agent: "claude",
     sessionId: "s-1",
@@ -334,7 +344,7 @@ describe("useAgentDialog start-from routing", () => {
   let blockedPanes: Record<string, string> = {};
 
   function Host({ deck }: { deck: Deck }) {
-    flow = useAgentDialog(deck, [], journal, blockedPanes);
+    flow = useAgentDialog(deck, [], notices, blockedPanes);
     return null;
   }
 
@@ -344,8 +354,10 @@ describe("useAgentDialog start-from routing", () => {
     root = createRoot(host);
     blockedPanes = {};
     createPane.mockClear();
-    journal.resume.mockClear();
-    journal.fork.mockClear();
+    resumeSession.mockClear();
+    forkSession.mockClear();
+    notices.onResumeFailed.mockClear();
+    notices.onForkFailed.mockClear();
   });
   afterEach(() => act(() => root.unmount()));
 
@@ -368,11 +380,11 @@ describe("useAgentDialog start-from routing", () => {
         session: { mode: "resume", handle },
       }),
     );
-    expect(journal.resume).toHaveBeenCalledExactlyOnceWith("ws-1", handle, {
+    expect(resumeSession).toHaveBeenCalledExactlyOnceWith("ws-1", handle, {
       name: "api",
       yolo: false,
     });
-    expect(journal.fork).not.toHaveBeenCalled();
+    expect(forkSession).not.toHaveBeenCalled();
     expect(createPane).not.toHaveBeenCalled(); // the journal flow owns the pane
   });
 
@@ -391,7 +403,7 @@ describe("useAgentDialog start-from routing", () => {
     );
     // The dialog already gates yolo on supportsYolo; confirm forwards the
     // resolved boolean verbatim — no re-gating in the handoff.
-    expect(journal.resume).toHaveBeenLastCalledWith("ws-1", handle, {
+    expect(resumeSession).toHaveBeenLastCalledWith("ws-1", handle, {
       name: undefined,
       yolo: true,
     });
@@ -416,7 +428,7 @@ describe("useAgentDialog start-from routing", () => {
     await mountAndOpen(ws);
 
     await confirmFork({ kind: "main" });
-    expect(journal.fork).toHaveBeenLastCalledWith(
+    expect(forkSession).toHaveBeenLastCalledWith(
       "ws-1",
       handle,
       { kind: "dir", cwd: "/repo" },
@@ -424,7 +436,7 @@ describe("useAgentDialog start-from routing", () => {
     );
 
     await confirmFork({ kind: "existing", path: "/wt/x", branch: "kd/x" });
-    expect(journal.fork).toHaveBeenLastCalledWith(
+    expect(forkSession).toHaveBeenLastCalledWith(
       "ws-1",
       handle,
       { kind: "dir", cwd: "/wt/x" },
@@ -438,7 +450,7 @@ describe("useAgentDialog start-from routing", () => {
       branch: "kd/KeepDeck/1",
       baseBranch: "develop",
     });
-    expect(journal.fork).toHaveBeenLastCalledWith(
+    expect(forkSession).toHaveBeenLastCalledWith(
       "ws-1",
       handle,
       {
@@ -465,7 +477,7 @@ describe("useAgentDialog start-from routing", () => {
     );
     // The dialog already gates yolo on supportsYolo; confirm forwards the
     // resolved boolean verbatim — no re-gating in the handoff.
-    expect(journal.fork).toHaveBeenLastCalledWith(
+    expect(forkSession).toHaveBeenLastCalledWith(
       "ws-1",
       handle,
       { kind: "dir", cwd: "/repo" },

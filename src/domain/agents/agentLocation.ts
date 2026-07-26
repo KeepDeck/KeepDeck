@@ -105,6 +105,22 @@ export type AgentLocation =
     }
   | { kind: "existing"; path: string; branch: string };
 
+/** Where a FORK lands: a directory that already exists (the workspace folder,
+ * or an attached worktree), or a NEW worktree the fork provisions first. The
+ * resolved answer, after the "+ Agent" dialog's [`AgentLocation`] or the fork
+ * dialog's own picker has been read. */
+export type ForkTarget =
+  | { kind: "dir"; cwd: string }
+  | { kind: "worktree"; path: string; branch: string; base?: string };
+
+/** The fork dialog's confirm payload — the chosen landing target plus the
+ * resolved YOLO choice. Named so that dialog's output contract has one home,
+ * mirroring [`AgentDialogResult`]. */
+export interface ForkTargetDialogResult {
+  target: ForkTarget;
+  yolo: boolean;
+}
+
 /** The dialog's "Start from" choice: a fresh conversation, or an existing
  * session of the SELECTED agent continued in place (resume) or copied into
  * a new one (fork) ([F8] spawn-time continuation). */

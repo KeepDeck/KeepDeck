@@ -4,6 +4,7 @@ import {
   type AgentDialogResult,
   type AgentInfo,
   type AgentType,
+  type ForkTarget,
   type SessionPickRow,
 } from "../domain/agents";
 import {
@@ -16,7 +17,8 @@ import {
   parentDir,
   type Workspace,
 } from "../domain/deck";
-import { handleFromHit, type SessionHandle } from "../domain/journal";
+import { handleFromHit } from "../domain/journal";
+import { describeError } from "../ipc/log";
 import { indexSearch } from "../ipc/history";
 import type { Page } from "./usePagedSessionSearch";
 import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
@@ -25,19 +27,14 @@ import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";
 import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
-import type { ForkTarget } from "./useJournalFork";
 
-/** The continuation flows the dialog's "Start from" choice routes into —
- * injected by App with its error surfacing already attached, so confirm
- * stays synchronous here. */
-export interface AgentDialogJournalRouting {
-  resume(wsId: string, handle: SessionHandle, opts: { name?: string; yolo?: boolean }): void;
-  fork(
-    wsId: string,
-    handle: SessionHandle,
-    target: ForkTarget,
-    opts: { name?: string; branch?: string; yolo?: boolean },
-  ): void;
+/** Where a "Start from" continuation reports its failure. A continuation the
+ * user asked for must fail VISIBLY — a dialog that just closes reads as
+ * success — and confirm is synchronous, so the notice is a callback rather
+ * than a rejected promise the caller would have to remember to catch. */
+export interface AgentDialogNotices {
+  onResumeFailed(message: string): void;
+  onForkFailed(message: string): void;
 }
 
 /** Everything the "+ Agent" dialog needs to render, captured at open time. */
@@ -71,10 +68,10 @@ export interface AgentDialogSpec {
 export function useAgentDialog(
   deck: Deck,
   agents: AgentInfo[],
-  /** Where "Start from" hands a picked session. Explicit rather than
-   * optional: an optional here is what forced the argument below to carry a
-   * default, and that default is the bug it exists to prevent. */
-  journal: AgentDialogJournalRouting | undefined,
+  /** Where a "Start from" continuation reports its failure. Explicit rather
+   * than optional: an optional here is what forced the argument below to
+   * carry a default, and that default is the bug it exists to prevent. */
+  notices: AgentDialogNotices,
   /** paneId → the missing directory, from the revive sweep. A pane stuck on a
    * gone folder is going nowhere, so the picker must call its session stopped
    * like the tile and the tray already do — the model alone still reads that
@@ -166,16 +163,18 @@ export function useAgentDialog(
     const ws = findWorkspaceByRef(currentDeck.workspaces, dlg.workspace);
     if (!ws) return;
     const paneName = name.trim() || undefined;
-    // "Start from" a picked session: hand off to the journal flows — they
-    // own plan-building, claim re-checks and (for a new worktree)
-    // provisioning. Resume ignores the location by design: the session runs
-    // where it was recorded.
-    if (session && journal) {
+    // "Start from" a picked session: a continuation, not a fresh pane. The
+    // orchestrator owns plan-building, the claim re-check and (for a new
+    // worktree) the provisioning. Resume ignores the location by design: the
+    // session runs where it was recorded.
+    if (session) {
       if (session.mode === "resume") {
-        journal.resume(dlg.workspace.id, session.handle, {
-          name: paneName,
-          yolo,
-        });
+        void orchestrator
+          .resumeSession(dlg.workspace.id, session.handle, {
+            name: paneName,
+            yolo,
+          })
+          .catch((e: unknown) => notices.onResumeFailed(describeError(e)));
         return;
       }
       const target: ForkTarget =
@@ -189,12 +188,14 @@ export function useAgentDialog(
           : location.kind === "existing"
             ? { kind: "dir", cwd: location.path }
             : { kind: "dir", cwd: ws.cwd };
-      journal.fork(dlg.workspace.id, session.handle, target, {
-        name: paneName,
-        yolo,
-        ...(location.kind === "existing" &&
-          location.branch && { branch: location.branch }),
-      });
+      void orchestrator
+        .forkSession(dlg.workspace.id, session.handle, target, {
+          name: paneName,
+          yolo,
+          ...(location.kind === "existing" &&
+            location.branch && { branch: location.branch }),
+        })
+        .catch((e: unknown) => notices.onForkFailed(describeError(e)));
       return;
     }
     // A fresh conversation: the pane the request describes, handed to the one

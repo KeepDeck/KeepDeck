@@ -16,8 +16,6 @@ import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
 import { useJournalPersistence } from "./app/useJournalPersistence";
-import { useJournalResume } from "./app/useJournalResume";
-import { useJournalFork } from "./app/useJournalFork";
 import { useSessionsBrowser } from "./app/useSessionsBrowser";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
@@ -149,8 +147,6 @@ function App() {
   // rejected boot resume. Both replace only runtime PTY/spec state; the pane
   // keeps its identity and layout position.
   const agentRestart = useAgentRestart(deck, spawnCtx);
-  const journalResume = useJournalResume(deck, spawnCtx, runView.blocked);
-  const journalFork = useJournalFork(deck, spawnCtx);
   const sessionsBrowser = useSessionsBrowser();
   // The fork-target dialog's subject, when one is open.
   const [forkDialog, setForkDialog] = useState<{
@@ -231,20 +227,11 @@ function App() {
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
   const agentFlow = useAgentDialog(deck, agents, {
-    // The dialog's "Start from" continuations, with the same visible-failure
-    // contract as the journal rows' Resume/Fork below.
-    resume: (wsId, handle, opts) =>
-      void journalResume
-        .resume(wsId, handle, opts)
-        .catch((e: unknown) =>
-          pushAlert("Could not resume the session", describeError(e)),
-        ),
-    fork: (wsId, handle, target, opts) =>
-      void journalFork
-        .fork(wsId, handle, target, opts)
-        .catch((e: unknown) =>
-          pushAlert("Could not fork the session", describeError(e)),
-        ),
+    // The dialog's "Start from" continuations fail the same VISIBLE way the
+    // journal rows' Resume/Fork do below.
+    onResumeFailed: (message) =>
+      pushAlert("Could not resume the session", message),
+    onForkFailed: (message) => pushAlert("Could not fork the session", message),
   }, runView.blocked);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, {
@@ -789,7 +776,7 @@ function App() {
             journal={deck.journal.records}
             onDeleteJournalRecord={deck.deleteJournalRecord}
             onResumeSession={(wsId, record) =>
-              void journalResume.resume(wsId, record).catch((e: unknown) =>
+              void orchestrator.resumeSession(wsId, record).catch((e: unknown) =>
                 // A user-requested continuation must fail VISIBLY — the row
                 // staying put with no signal reads as a dead button. Queued
                 // behind whatever is up: a slow earlier failure must not be
@@ -898,7 +885,7 @@ function App() {
               onConfirm={({ target, yolo }) => {
                 const { wsId, record } = forkDialog;
                 setForkDialog(null);
-                void journalFork.fork(wsId, record, target, { yolo }).catch((e: unknown) =>
+                void orchestrator.forkSession(wsId, record, target, { yolo }).catch((e: unknown) =>
                   // Surgery failures carry precise store diagnostics — show
                   // them; a silently closing dialog reads as success.
                   pushAlert("Could not fork the session", describeError(e)),

@@ -3,17 +3,21 @@ import {
   findPane,
   findWorkspace,
   findWorkspaceByRef,
+  idleReadsAsStopped,
   MAX_PANES,
   paneAgentType,
   paneExecutionCwd,
+  paneId,
   paneIsRemoteFresh,
   paneRunIntent,
   paneWakeOrigin,
   skillRootsOf,
+  WORKSPACE_FULL_MESSAGE,
   type Pane,
   type SpawnConfig,
   type Workspace,
 } from "../domain/deck";
+import type { SessionHandle } from "../domain/journal";
 import {
   createWorkspaceInstance,
   type WorkspaceRef,
@@ -21,8 +25,10 @@ import {
 import { describeError, log } from "../ipc/log";
 import { mintAgentSeqs } from "./ids";
 import {
+  clearPostProvision,
   planPanes,
   provisionInto,
+  registerPostProvision,
   type ProvisionCallbacks,
 } from "./provisioning";
 import {
@@ -33,6 +39,7 @@ import {
 import type { DeckStore } from "./deckStore";
 import type { SpawnContextSource } from "./spawnContextSource";
 import {
+  buildForkSpec,
   buildLivePaneSpec,
   buildResumeSpec,
   dropPaneSpawnSpec,
@@ -41,7 +48,11 @@ import {
   peekPaneSpawnSpec,
   type SpawnPluginAccess,
 } from "./spawnSpecs";
-import type { SpawnPlan, SpawnPlanContext } from "../domain/agents";
+import type {
+  ForkTarget,
+  SpawnPlan,
+  SpawnPlanContext,
+} from "../domain/agents";
 import type { PaneSessionState, PaneSpawnSpec } from "./ptyManager";
 
 /**
@@ -87,6 +98,51 @@ export interface AgentOrchestrator {
   /** Re-issue a failed pane's worktree create from the intent its card still
    * carries. */
   retryProvisioning(wsId: string, paneId: string): void;
+  /**
+   * Continue a recorded session in a NEW pane of `wsId` ([F8]) — the journal
+   * row's Resume and the "+ Agent" dialog's "Start from".
+   *
+   * The plan is built and cached BEFORE the pane enters the deck, so the
+   * ordinary fresh-plan sweep never races it, and the pane arrives already
+   * carrying `session`, which claims the record back to live in the same
+   * transition. Always a MANUAL resume: a rejected id fails visibly in the
+   * terminal and stays exited, because a continuation the user asked for must
+   * never quietly become a different conversation.
+   *
+   * Rejects when no plan could be prepared, and when the session already
+   * belongs to a pane — an enabled button that does nothing reads as dead.
+   * `opts.name` names the pane; `opts.yolo` overrides the mode (unset =
+   * inherit the recorded session's).
+   */
+  resumeSession(
+    wsId: string,
+    record: SessionHandle,
+    opts?: { name?: string; yolo?: boolean },
+  ): Promise<void>;
+  /**
+   * Copy a recorded session into a NEW pane of `wsId` ([F8]).
+   *
+   * The agent plugin's `fork.plan` performs its store surgery and yields the
+   * spawn args; the pane then lands like any other. The surgery runs bound to
+   * the directory the fork will LIVE in — which for a `dir` target exists up
+   * front, but for a new worktree only AFTER the create, so it is deferred to
+   * a post-provision step (opencode's `import` binds the session's directory
+   * to the launch cwd, which must be the CREATED worktree). That step re-runs
+   * on Retry, so a retried fork never resolves into a plain pane.
+   *
+   * The forked CLI reports its own NEW session id like a fresh spawn, so the
+   * pane starts unbound. A deleted source directory is fine — forking is
+   * exactly the escape hatch for a session whose worktree is gone.
+   *
+   * `opts.branch` stamps a dir-target pane's worktree branch (the spawn
+   * dialog knows it, a journal row does not).
+   */
+  forkSession(
+    wsId: string,
+    record: SessionHandle,
+    target: ForkTarget,
+    opts?: { name?: string; branch?: string; yolo?: boolean },
+  ): Promise<void>;
   /** Detach the pane from the missing worktree and start it fresh in the
    * workspace cwd. */
   startFresh(wsId: string, paneId: string): void;
@@ -418,6 +474,31 @@ export function createAgentOrchestrator(
     if (plain.length > 0) void provision(plain, provisionInto(actions, ws.id));
   }
 
+  /** See [`AgentOrchestrator.createPane`]. A named function rather than an
+   * object member because the continuation flows below land their panes
+   * through it too. */
+  function landPane({ workspace, pane }: CreatePaneRequest): CreatePaneOutcome {
+    const ws = findWorkspaceByRef(deck.getSnapshot().workspaces, workspace);
+    const refuse = (kind: "gone" | "full"): CreatePaneOutcome => {
+      // Everything a caller cached under this id, dropped together: there is
+      // no pane to run the plan or to finish the fork's surgery, and ids are
+      // never reused, so both would sit there for the life of the process.
+      dropPaneSpawnSpec(pane.id);
+      clearPostProvision(pane.id);
+      return { kind };
+    };
+    if (!ws) return refuse("gone");
+    if (ws.panes.length >= MAX_PANES) return refuse("full");
+    actions.addAgentPane(ws.id, pane);
+    provisionPanes(ws, [pane]);
+    return { kind: "created" };
+  }
+
+  /** Sessions with a continuation (a resume or a fork) already under way,
+   * by recorded session id. A double-click guard only: forking the same
+   * session repeatedly is legitimate, racing two at once is not. */
+  const continuing = new Set<string>();
+
   /** Wake one pane onto `sessionId`, or fresh when it is null. */
   async function wake(
     ws: Workspace,
@@ -631,23 +712,7 @@ export function createAgentOrchestrator(
         listeners.delete(listener);
       };
     },
-    createPane({ workspace, pane }) {
-      const ws = findWorkspaceByRef(deck.getSnapshot().workspaces, workspace);
-      // Both refusals drop whatever plan the caller cached under this id:
-      // there is no pane to run it, and ids are never reused, so it would sit
-      // in the cache for the life of the process.
-      if (!ws) {
-        dropPaneSpawnSpec(pane.id);
-        return { kind: "gone" };
-      }
-      if (ws.panes.length >= MAX_PANES) {
-        dropPaneSpawnSpec(pane.id);
-        return { kind: "full" };
-      }
-      actions.addAgentPane(ws.id, pane);
-      provisionPanes(ws, [pane]);
-      return { kind: "created" };
-    },
+    createPane: landPane,
     createWorkspace(config) {
       const setup = config.setup?.trim() || undefined;
       // Allocation and insertion are one operation on the state owner, so two
@@ -690,6 +755,200 @@ export function createAgentOrchestrator(
       // Back to the creating card first, then re-issue the same intent.
       actions.setPaneProvisioningError(wsId, paneId, null);
       provisionPanes(ws, [pane]);
+    },
+    async resumeSession(wsId, record, opts) {
+      const ctx = spawnContext.get();
+      if (!ctx) throw new Error("Agent spawn context is unavailable");
+      const ws = findWorkspace(deck.getSnapshot().workspaces, wsId);
+      if (!ws) return;
+      if (continuing.has(record.sessionId)) return;
+      // A session runs in at most one pane, ever. The browser offers Resume
+      // for every row (it cannot know lifecycle), so say why rather than
+      // leaving an enabled button that does nothing. An IDLE claimant is not
+      // "running" — point at the pane that owns the binding.
+      const claimant = deck
+        .getSnapshot()
+        .workspaces.flatMap((w) => w.panes)
+        .find((pane) => pane.session?.id === record.sessionId);
+      if (claimant) {
+        throw new Error(
+          idleReadsAsStopped(claimant.idle, blocked.has(claimant.id))
+            ? "The session already belongs to a stopped pane — resume that pane instead"
+            : "The session is already running in a pane",
+        );
+      }
+      // An explicit override (a dialog with a YOLO toggle) wins; a bare
+      // browser resume passes nothing and inherits the recorded mode.
+      const yolo = opts?.yolo ?? record.yolo;
+      continuing.add(record.sessionId);
+      try {
+        const id = paneId(mintAgentSeqs(1));
+        const built = await buildResumeSpec(
+          plugins,
+          record.agent,
+          {
+            paneId: id,
+            workspace: { id: ws.id, instance: ws.instance },
+            cwd: record.cwd,
+            branch: record.branch,
+            yolo,
+            // The pane isn't in the deck yet, so its cwd can't come from
+            // `skillRootsOf` — stage it explicitly.
+            wsSkillRoots: [record.cwd],
+          },
+          ctx,
+          record.sessionId,
+          "manual",
+        );
+        if (!built || peekPaneSpawnSpec(id)?.resumeOf !== record.sessionId) {
+          dropPaneSpawnSpec(id);
+          throw new Error("Agent could not prepare a resume plan");
+        }
+        // The session may have been claimed while the build was out (a
+        // concurrent revive) — then there is nothing left to resume.
+        const claimedNow = deck
+          .getSnapshot()
+          .workspaces.some((w) =>
+            w.panes.some((pane) => pane.session?.id === record.sessionId),
+          );
+        if (claimedNow) {
+          dropPaneSpawnSpec(id);
+          return;
+        }
+        const name = opts?.name?.trim();
+        const landed = landPane({
+          workspace: { id: ws.id, instance: ws.instance },
+          pane: {
+            id,
+            agentType: record.agent,
+            // A cwd of the workspace's own dir is the plain-pane default;
+            // only a foreign dir (the session's worktree) pins the pane,
+            // restoring the exact shape the original pane had.
+            ...(record.cwd !== ws.cwd && { cwd: record.cwd }),
+            ...(record.branch !== undefined && { branch: record.branch }),
+            ...(yolo && { yolo: true }),
+            ...(name && { name }),
+            session: {
+              id: record.sessionId,
+              boundAt: new Date().toISOString(),
+            },
+          },
+        });
+        if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+      } catch (error) {
+        log.warn(
+          "web:orchestrator",
+          `resume of ${record.sessionId} failed: ${describeError(error)}`,
+        );
+        throw error;
+      } finally {
+        continuing.delete(record.sessionId);
+      }
+    },
+    async forkSession(wsId, record, target, opts) {
+      const ctx = spawnContext.get();
+      if (!ctx) throw new Error("Agent spawn context is unavailable");
+      const ws = findWorkspace(deck.getSnapshot().workspaces, wsId);
+      if (!ws) return;
+      if (continuing.has(record.sessionId)) return;
+      const yolo = opts?.yolo ?? record.yolo;
+      const workspace = { id: ws.id, instance: ws.instance };
+      continuing.add(record.sessionId);
+      try {
+        const id = paneId(mintAgentSeqs(1));
+        const name = opts?.name?.trim();
+        // The plugin's surgery, caching the fork plan for `id`. Run against
+        // the directory the fork will LIVE in.
+        const surgery = (cwd: string) =>
+          buildForkSpec(
+            plugins,
+            record.agent,
+            {
+              paneId: id,
+              workspace,
+              cwd,
+              yolo,
+              wsSkillRoots: [cwd],
+            },
+            ctx,
+            {
+              sessionId: record.sessionId,
+              sourceCwd: record.cwd,
+              ...(record.transcriptPath !== undefined && {
+                transcriptPath: record.transcriptPath,
+              }),
+            },
+          );
+
+        if (target.kind === "dir") {
+          // Bail BEFORE the irreversible surgery (export→rekey→import) if the
+          // workspace is already full — else it creates an orphan clone and
+          // only then finds out there is nowhere to put it. The landing's own
+          // check still guards the gap the await opens.
+          if (ws.panes.length >= MAX_PANES) {
+            throw new Error(WORKSPACE_FULL_MESSAGE);
+          }
+          // The target already exists — run the surgery up front.
+          if (!(await surgery(target.cwd))) {
+            dropPaneSpawnSpec(id);
+            throw new Error("Agent could not prepare a fork plan");
+          }
+          const landed = landPane({
+            workspace,
+            pane: {
+              id,
+              agentType: record.agent,
+              ...(target.cwd !== ws.cwd && { cwd: target.cwd }),
+              ...(opts?.branch && { branch: opts.branch }),
+              ...(yolo && { yolo: true }),
+              ...(name && { name }),
+            },
+          });
+          if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+          return;
+        }
+
+        // A new worktree. The pane lands as a provisioning card; the create
+        // lands the worktree, and only THEN does the surgery run — bound to
+        // the CREATED worktree, so opencode's import relocates the session
+        // there. Throwing from the step is how `provisionPane` learns to roll
+        // the worktree back and fail the card.
+        registerPostProvision(id, async (worktree) => {
+          if (!(await surgery(worktree.cwd))) {
+            throw new Error("Agent could not prepare a fork plan");
+          }
+        });
+        const landed = landPane({
+          workspace,
+          pane: {
+            id,
+            agentType: record.agent,
+            ...(yolo && { yolo: true }),
+            ...(name && { name }),
+            provisioning: {
+              repo: ws.cwd,
+              path: target.path,
+              branch: target.branch,
+              ...(target.base !== undefined && { base: target.base }),
+              workspace: ws.name,
+              index: ws.panes.length + 1,
+              // Marks this card a FORK: its surgery is an in-memory step, so
+              // a restart-interrupted fork card must NOT restore as a plain
+              // retryable card (it would Retry into a non-fork pane).
+              fork: true,
+            },
+          },
+        });
+        if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+      } catch (error) {
+        log.warn(
+          "web:orchestrator",
+          `fork of ${record.sessionId} failed: ${describeError(error)}`,
+        );
+        throw error;
+      } finally {
+        continuing.delete(record.sessionId);
+      }
     },
     startFresh(wsId, paneId) {
       let changed = blocked.delete(paneId);
