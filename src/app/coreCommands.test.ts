@@ -5,7 +5,7 @@ import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
-import type { ResumeRequest } from "./useRevive";
+import type { ResumeRequest } from "./agentOrchestrator";
 import type { SuspendOutcome } from "./useSuspend";
 import type { Deck } from "./useDeck";
 

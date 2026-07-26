@@ -22,7 +22,7 @@ import { useSessionsBrowser } from "./app/useSessionsBrowser";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
-import { useRevive } from "./app/useRevive";
+import { useAgentRunView } from "./app/useAgentRunView";
 import { suspendRefusalText, useSuspend } from "./app/useSuspend";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useUsageChannel } from "./app/useUsageChannel";
@@ -144,13 +144,14 @@ function App() {
   const spawnCtx = useSpawnContext(runtime.spawnContext);
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
-  const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);
-  const suspendFlow = useSuspend(deck, revive.blocked);
+  const orchestrator = runtime.orchestrator;
+  const runView = useAgentRunView(orchestrator);
+  const suspendFlow = useSuspend(deck, runView.blocked);
   // Manual exited-card restart plus the separate, one-shot recovery for a
   // rejected boot resume. Both replace only runtime PTY/spec state; the pane
   // keeps its identity and layout position.
   const agentRestart = useAgentRestart(deck, spawnCtx);
-  const journalResume = useJournalResume(deck, spawnCtx, revive.blocked);
+  const journalResume = useJournalResume(deck, spawnCtx, runView.blocked);
   const journalFork = useJournalFork(deck, spawnCtx);
   const sessionsBrowser = useSessionsBrowser();
   // The fork-target dialog's subject, when one is open.
@@ -253,7 +254,7 @@ function App() {
         .catch((e: unknown) =>
           pushAlert("Could not fork the session", describeError(e)),
         ),
-  }, revive.blocked);
+  }, runView.blocked);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, {
     onError: (message) => pushAlert("Worktree error", message),
@@ -262,7 +263,7 @@ function App() {
     onSuspendRefused: (message) =>
       pushAlert("Can't suspend this agent", message),
     gitPositions: gitHeads,
-    blockedPanes: revive.blocked,
+    blockedPanes: runView.blocked,
     suspendAgent: suspendFlow.suspend,
   });
   // The command registry's core set — spawn/focus/close/switch/write behind
@@ -273,7 +274,7 @@ function App() {
     agents,
     requestCloseAgent: closeFlow.requestCloseAgent,
     suspendAgent: suspendFlow.suspend,
-    resumeAgent: revive.resume,
+    resumeAgent: orchestrator.resume,
     openSettings: (sectionId) => {
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
@@ -812,12 +813,12 @@ function App() {
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onPaneTitle={deck.setPaneAutoTitle}
-            idleBlocked={revive.blocked}
-            wakeFailed={revive.wakeFailed}
+            idleBlocked={runView.blocked}
+            wakeFailed={runView.wakeFailed}
             specByPane={specByPane}
             failedPanes={failedPanes}
-            onStartFresh={revive.startFresh}
-            onResumeAgent={revive.resume}
+            onStartFresh={orchestrator.startFresh}
+            onResumeAgent={orchestrator.resume}
             onRetryProvision={provisioning.retryPane}
             onAgentExited={(wsId, paneId, code) => {
               // The one-shot boot-resume recovery respawns by itself — that

@@ -25,7 +25,7 @@ import { mintAgentSeq } from "./ids";
 import { paneInputReady, pasteToPane, writeRawToPane } from "./paneInput";
 import { provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
-import type { ResumeRequest } from "./useRevive";
+import type { ResumeRequest } from "./agentOrchestrator";
 import { suspendRefusalText, type SuspendOutcome } from "./useSuspend";
 import type { Deck } from "./useDeck";
 

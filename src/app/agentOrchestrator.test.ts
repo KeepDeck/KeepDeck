@@ -15,7 +15,14 @@ import {
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { createDeckStore } from "./deckStore";
-import { useRevive, type ResumeRequest, type ReviveApi } from "./useRevive";
+import {
+  createAgentOrchestrator,
+  type AgentOrchestrator,
+  type AgentRunView,
+  type ResumeRequest,
+} from "./agentOrchestrator";
+import { useAgentRunView } from "./useAgentRunView";
+import type { SpawnPluginAccess } from "./spawnSpecs";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -25,7 +32,6 @@ import { useRevive, type ResumeRequest, type ReviveApi } from "./useRevive";
 const ipc = vi.hoisted(() => ({
   probeWorktree: vi.fn(),
 }));
-vi.mock("../ipc/worktree", () => ({ probeWorktree: ipc.probeWorktree }));
 
 // Resume plans are built through the agent plugins' hooks; the seam is
 // mocked with a tiny cache so these tests assert revive POLICY (when a
@@ -68,12 +74,8 @@ vi.mock("./spawnSpecs", () => {
     resetPaneSpawnSpecs: () => specs.clear(),
   };
 });
-vi.mock("./runtimeContext", () => ({
-  useAppRuntime: () => ({ plugins: {} }),
-}));
-
 let deck: Deck;
-let revive: ReviveApi;
+let agentRun: AgentRunView & Pick<AgentOrchestrator, "resume" | "startFresh">;
 const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
 // The catalog the revive gate consults — swappable per test (the id set is
@@ -91,11 +93,38 @@ const catalog = {
   ready: true,
 };
 
+/** One store + one orchestrator per mount, wired to the swappable fakes above
+ *  — the isolation each test relies on, without a `beforeEach` in every
+ *  `describe` having to remember it. The orchestrator itself needs no render;
+ *  the component is only here because these tests also exercise the view it
+ *  publishes. */
 function Probe() {
-  // Fresh per mount (a bare call would rebuild it on every render).
-  const [store] = useState(createDeckStore);
-  deck = useDeck(store);
-  revive = useRevive(deck, catalog.agents, ctx, catalog.ready);
+  const [wiring] = useState(() => {
+    const store = createDeckStore();
+    return {
+      store,
+      orchestrator: createAgentOrchestrator({
+        deck: store,
+        spawnContext: { get: () => ctx, subscribe: () => () => {} },
+        agents: {
+          ids: () => new Set(catalog.agents.map((a) => a.id)),
+          // A catalog that is not ready never resolves: waking anything before
+          // the plugin system has booted would misjudge every pane's agent.
+          ready: () =>
+            catalog.ready ? Promise.resolve() : new Promise<void>(() => {}),
+          subscribe: () => () => {},
+        },
+        plugins: {} as SpawnPluginAccess,
+        probe: ipc.probeWorktree,
+      }),
+    };
+  });
+  deck = useDeck(wiring.store);
+  agentRun = {
+    ...useAgentRunView(wiring.orchestrator),
+    resume: wiring.orchestrator.resume,
+    startFresh: wiring.orchestrator.startFresh,
+  };
   return null;
 }
 
@@ -123,7 +152,7 @@ const settle = async () => {
   for (let i = 0; i < 4; i++) await act(async () => {});
 };
 
-describe("useRevive — session policy", () => {
+describe("agent orchestrator —session policy", () => {
   let root: Root;
 
   beforeEach(() => {
@@ -234,8 +263,14 @@ describe("useRevive — session policy", () => {
 
   it("nothing wakes before the catalog is ready", async () => {
     // Before plugin bootstrap EVERY id is absent from the catalog — waking
-    // then would misjudge every pane. The effect waits for the ready flag.
+    // then would misjudge every pane. The orchestrator waits for the boot.
+    //
+    // Rebuilt rather than re-rendered: readiness is a fact about THIS boot and
+    // never goes back, so the orchestrator captures it once. Re-rendering the
+    // same tree would keep the ready one this describe's setup started.
     catalog.ready = false;
+    act(() => root.unmount());
+    root = createRoot(document.getElementById("host")!);
     act(() => root.render(createElement(Probe)));
     act(() => deck.hydrate(restored({})));
     await settle();
@@ -255,7 +290,7 @@ describe("useRevive — session policy", () => {
     await settle();
 
     expect(pane().idle).toEqual({ reason: "waking", origin: "restore" });
-    expect(revive.blocked["pane-1"]).toBe("/repo/wt-gone");
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
   });
 
   it("closing a blocked pane reaps its blocked entry", async () => {
@@ -269,15 +304,15 @@ describe("useRevive — session policy", () => {
     });
     act(() => deck.hydrate(restored({ cwd: "/repo/wt-gone" })));
     await settle();
-    expect(revive.blocked["pane-1"]).toBe("/repo/wt-gone");
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-gone");
 
     act(() => deck.closeAgent("ws-1", "pane-1"));
     await settle();
-    expect(revive.blocked).toEqual({});
+    expect(agentRun.blocked).toEqual({});
   });
 });
 
-describe("useRevive — resuming a suspended pane", () => {
+describe("agent orchestrator —resuming a suspended pane", () => {
   let root: Root;
 
   /** A deck with one bound pane on a worktree, suspended unless overridden —
@@ -397,7 +432,7 @@ describe("useRevive — resuming a suspended pane", () => {
     expect(pane().session).toEqual({ id: "s-1", boundAt: "t" });
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
     // …and the card can say why.
-    expect(revive.wakeFailed["pane-1"]).toContain("resume plan");
+    expect(agentRun.wakeFailed["pane-1"]).toContain("resume plan");
   });
 
   it("a BOOT restore whose plan cannot be built still degrades to a fresh wake", async () => {
@@ -410,7 +445,7 @@ describe("useRevive — resuming a suspended pane", () => {
     await settle();
 
     expect(pane().idle).toBeUndefined(); // woken
-    expect(revive.wakeFailed["pane-1"]).toBeUndefined();
+    expect(agentRun.wakeFailed["pane-1"]).toBeUndefined();
   });
 
   it("a resume whose resume.plan THROWS is treated the same way", async () => {
@@ -422,23 +457,23 @@ describe("useRevive — resuming a suspended pane", () => {
     await settle();
 
     expect(pane().idle).toMatchObject({ reason: "suspended" });
-    expect(revive.wakeFailed["pane-1"]).toContain("hook exploded");
+    expect(agentRun.wakeFailed["pane-1"]).toContain("hook exploded");
   });
 
   it("asking again clears the last refusal", async () => {
     vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
     act(() => deck.hydrate(withPane()));
     await settle();
-    act(() => revive.resume("ws-1", "pane-1"));
+    act(() => agentRun.resume("ws-1", "pane-1"));
     await settle();
-    expect(revive.wakeFailed["pane-1"]).toBeDefined();
+    expect(agentRun.wakeFailed["pane-1"]).toBeDefined();
 
     // The gesture that asks also forgets — a card must not keep explaining a
     // failure the user is already retrying.
-    act(() => revive.resume("ws-1", "pane-1"));
+    act(() => agentRun.resume("ws-1", "pane-1"));
     await settle();
 
-    expect(revive.wakeFailed["pane-1"]).toBeUndefined();
+    expect(agentRun.wakeFailed["pane-1"]).toBeUndefined();
     expect(pane().idle).toBeUndefined(); // the retry succeeded
   });
 
@@ -482,7 +517,7 @@ describe("useRevive — resuming a suspended pane", () => {
     // itself. Leaving it `waking` would strand it — that state is never
     // persisted, so a restart would lose the suspend entirely.
     expect(pane().idle).toEqual({ reason: "suspended", at: "2026-07-25T09:00:00.000Z" });
-    expect(revive.blocked["pane-1"]).toBe("/repo/wt-1");
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-1");
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
     // The binding survives — nothing has decided to abandon that session yet.
     expect(pane().session).toEqual({ id: "s-1", boundAt: "t" });
@@ -516,13 +551,13 @@ describe("useRevive — resuming a suspended pane", () => {
     );
     act(() => deck.hydrate(withPane()));
     await settle();
-    act(() => revive.resume("ws-1", "pane-1"));
+    act(() => agentRun.resume("ws-1", "pane-1"));
     await settle();
 
-    act(() => revive.startFresh("ws-1", "pane-1"));
+    act(() => agentRun.startFresh("ws-1", "pane-1"));
     await settle();
 
-    expect(revive.blocked).toEqual({});
+    expect(agentRun.blocked).toEqual({});
     expect(pane().idle).toBeUndefined();
     // The worktree is gone, so the conversation recorded against it cannot be
     // resumed here: cwd, branch and binding all go, and the pane starts new.
@@ -533,7 +568,7 @@ describe("useRevive — resuming a suspended pane", () => {
   });
 });
 
-describe("useRevive — waking across workspace switches", () => {
+describe("agent orchestrator —waking across workspace switches", () => {
   let root: Root;
 
   /** Two workspaces, ws-1 active, one pane each with the given idle reason. */
@@ -598,7 +633,7 @@ describe("useRevive — waking across workspace switches", () => {
   });
 });
 
-describe("useRevive — a blocked pane can be re-probed", () => {
+describe("agent orchestrator —a blocked pane can be re-probed", () => {
   let root: Root;
 
   const blockedDeck = (): DeckState => ({
@@ -654,7 +689,7 @@ describe("useRevive — a blocked pane can be re-probed", () => {
     await settle();
     act(() => deck.requestPaneWake("ws-1", "pane-1"));
     await settle();
-    expect(revive.blocked["pane-1"]).toBe("/repo/wt-1");
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-1");
 
     // The volume is back.
     ipc.probeWorktree.mockResolvedValue({
@@ -663,10 +698,10 @@ describe("useRevive — a blocked pane can be re-probed", () => {
       empty: false,
       branch: null,
     });
-    act(() => revive.resume("ws-1", "pane-1"));
+    act(() => agentRun.resume("ws-1", "pane-1"));
     await settle();
 
-    expect(revive.blocked["pane-1"]).toBeUndefined();
+    expect(agentRun.blocked["pane-1"]).toBeUndefined();
     expect(pane().idle).toBeUndefined(); // live again
     expect(pane().session).toEqual({ id: "s-1", boundAt: "t" });
     expect(peekPaneSpawnSpec("pane-1")?.args).toEqual(["--resume", "s-1"]);
@@ -684,15 +719,15 @@ describe("useRevive — a blocked pane can be re-probed", () => {
     act(() => deck.requestPaneWake("ws-1", "pane-1"));
     await settle();
 
-    act(() => revive.resume("ws-1", "pane-1"));
+    act(() => agentRun.resume("ws-1", "pane-1"));
     await settle();
 
-    expect(revive.blocked["pane-1"]).toBe("/repo/wt-1");
+    expect(agentRun.blocked["pane-1"]).toBe("/repo/wt-1");
     expect(pane().session).toEqual({ id: "s-1", boundAt: "t" });
   });
 });
 
-describe("useRevive — a request that lands mid-flight", () => {
+describe("agent orchestrator —a request that lands mid-flight", () => {
   let root: Root;
 
   beforeEach(() => {
@@ -741,7 +776,7 @@ describe("useRevive — a request that lands mid-flight", () => {
     // The pane is mid-probe; ask for it by name (the `agent.resume` path).
     let asked: ResumeRequest | undefined;
     act(() => {
-      asked = revive.resume("ws-1", "pane-1");
+      asked = agentRun.resume("ws-1", "pane-1");
     });
     expect(asked).toBe("resuming");
     release();
@@ -771,7 +806,7 @@ describe("useRevive — a request that lands mid-flight", () => {
     expect(pane().idle).toBeUndefined(); // woken, as documented
     expect(vi.mocked(dropPaneSpawnSpec)).toHaveBeenCalledWith("pane-1");
     // Nobody asked for this wake, so nothing is reported on the card.
-    expect(revive.wakeFailed).toEqual({});
+    expect(agentRun.wakeFailed).toEqual({});
   });
 
   it("sees a request dispatched outside a React event", async () => {
@@ -812,7 +847,7 @@ describe("useRevive — a request that lands mid-flight", () => {
     await act(async () => {});
 
     act(() => {
-      revive.resume("ws-1", "pane-1");
+      agentRun.resume("ws-1", "pane-1");
     });
     releaseBuild();
     await settle();
@@ -840,7 +875,7 @@ describe("useRevive — a request that lands mid-flight", () => {
 
     expect(pane().idle).toMatchObject({ reason: "suspended" });
     expect(origins()).toEqual([]); // no plan built for a cancelled wake
-    expect(revive.wakeFailed).toEqual({});
+    expect(agentRun.wakeFailed).toEqual({});
   });
 
   it("does not BLOCK a pane the user stopped while its folder was being probed", async () => {
@@ -863,12 +898,12 @@ describe("useRevive — a request that lands mid-flight", () => {
     release();
     await settle();
 
-    expect(revive.blocked).toEqual({});
+    expect(agentRun.blocked).toEqual({});
     expect(pane().idle).toMatchObject({ reason: "suspended" });
   });
 });
 
-describe("useRevive — a pane asked for by name in another workspace", () => {
+describe("agent orchestrator —a pane asked for by name in another workspace", () => {
   let root: Root;
 
   beforeEach(() => {
@@ -940,7 +975,7 @@ describe("useRevive — a pane asked for by name in another workspace", () => {
     expect(background().idle).toMatchObject({ reason: "suspended" });
 
     act(() => {
-      revive.resume("ws-2", "pane-2");
+      agentRun.resume("ws-2", "pane-2");
     });
     await settle();
 
@@ -965,7 +1000,7 @@ describe("useRevive — a pane asked for by name in another workspace", () => {
       deck.workspaces[1].panes[0].agentType = "retired-cli";
     });
 
-    expect(revive.resume("ws-2", "pane-2")).toBe("unavailable");
+    expect(agentRun.resume("ws-2", "pane-2")).toBe("unavailable");
     expect(background().idle).toEqual({
       reason: "suspended",
       at: "2026-07-25T09:00:00.000Z",
