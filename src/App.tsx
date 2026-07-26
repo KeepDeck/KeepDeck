@@ -237,6 +237,7 @@ function App() {
     gitPositions: gitHeads,
     blockedPanes: runView.blocked,
     suspendAgent: orchestrator.suspend,
+    closeAgents: orchestrator.close,
   });
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go

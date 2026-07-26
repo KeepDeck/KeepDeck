@@ -18,6 +18,7 @@ import {
   type Pane,
   type SpawnConfig,
   type Workspace,
+  type WorktreeTarget,
 } from "../domain/deck";
 import type { SessionHandle } from "../domain/journal";
 import {
@@ -119,6 +120,18 @@ export interface AgentOrchestrator {
    * announced success regardless would be lying to whoever asked.
    */
   suspend(wsId: string, paneId: string): Promise<SuspendOutcome>;
+  /**
+   * Take a pane — or a whole workspace's worth — out of the deck and end the
+   * processes behind them. The mirror of suspending, which keeps everything.
+   *
+   * The order is the reverse of a suspend's, and deliberately so: the bridge
+   * tokens are revoked BEFORE the reducer forgets the panes, so neither an
+   * in-flight reporter nor a later pane reusing the id can write again.
+   *
+   * Resolves to the worktrees it could not delete, so the surface that asked
+   * can say so. Empty when the close asked for none, or all of them went.
+   */
+  close(request: CloseRequest): Promise<string[]>;
   /**
    * Restart a pane's agent on the exited card's explicit action — retire the
    * process and start it again, either fresh or resuming its recorded
@@ -253,6 +266,18 @@ export type CreatePaneOutcome =
   /** The workspace already holds MAX_PANES. */
   | { kind: "full" };
 
+/** A close the user has already confirmed. The worktrees are passed in rather
+ * than derived here: which of a pane's directories are candidates, and whether
+ * the user ticked the box that deletes them, is what the confirm dialog was
+ * FOR — by the time it reaches this, the destructive choice is settled. */
+export type CloseRequest = {
+  /** Empty unless the user asked for the directories to go too. */
+  worktrees: WorktreeTarget[];
+} & (
+  | { kind: "agent"; wsId: string; paneId: string }
+  | { kind: "workspace"; wsId: string }
+);
+
 /** What asking for a pane back did. */
 export type ResumeRequest =
   | "resuming"
@@ -298,6 +323,13 @@ export type ProvisionPort = (
   setup?: string,
 ) => Promise<void>;
 
+/** Tears down the git worktrees a confirmed close asked to delete, returning
+ * the ones it could not. Injected for the same reason as the create beside
+ * it: `git worktree remove --force` is not something a test performs. */
+export type DiscardWorktreesPort = (
+  targets: WorktreeTarget[],
+) => Promise<string[]>;
+
 /** Whether restored agents come back stopped instead of resuming. Live, not a
  * value captured once: the setting is not a fact about any pane, and the panes
  * it governs are precisely the ones that have not started yet — including the
@@ -340,6 +372,7 @@ export interface AgentOrchestratorDeps {
   plugins: SpawnPluginAccess;
   probe: WorktreeProbePort;
   provision: ProvisionPort;
+  discardWorktrees: DiscardWorktreesPort;
 }
 
 /** How one attempt to bring a pane up ended. */
@@ -395,6 +428,7 @@ export function createAgentOrchestrator(
     plugins,
     probe,
     provision,
+    discardWorktrees,
   } = deps;
   const actions: DeckActions = createDeckActions(deck);
   const blocked = new Map<string, string>();
@@ -1004,6 +1038,37 @@ export function createAgentOrchestrator(
       } finally {
         suspending.delete(paneId);
       }
+    },
+    async close(request) {
+      // Snapshot the ids before the reducer forgets them.
+      const ws = findWorkspace(deck.getSnapshot().workspaces, request.wsId);
+      const paneIds =
+        request.kind === "agent"
+          ? [request.paneId]
+          : (ws?.panes.map((pane) => pane.id) ?? []);
+      // A closing workspace's plugin-owned resources (the Run plugin's
+      // sessions, say) die through the plugin event bridge's
+      // onWorkspaceClosed — no per-feature teardown here.
+      for (const paneId of paneIds) {
+        // Revoke bridge authentication BEFORE the reducer drops membership;
+        // neither an in-flight reporter nor a reused pane id may write again.
+        dropPaneSpawnSpec(paneId);
+        clearPaneUsage(paneId);
+        // A fork card abandoned instead of retried leaves its post-provision
+        // step registered (it is kept across a failure so Retry can re-run
+        // it) — there is no Retry coming now.
+        clearPostProvision(paneId);
+      }
+      if (request.kind === "agent") {
+        actions.closeAgent(request.wsId, request.paneId);
+      } else {
+        actions.closeWorkspace(request.wsId);
+      }
+      await Promise.allSettled(paneIds.map((id) => sessions.close(id)));
+      // Only AFTER the processes are reaped: a worktree that is still some
+      // agent's cwd cannot be removed.
+      if (request.worktrees.length === 0) return [];
+      return discardWorktrees(request.worktrees);
     },
     async restart(wsId, paneId, mode) {
       if (restarting.has(paneId)) return;

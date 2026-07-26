@@ -3,7 +3,13 @@ import { emptyJournal } from "../domain/journal";
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DeckState, Pane, PaneIdle, SpawnConfig } from "../domain/deck";
+import type {
+  DeckState,
+  Pane,
+  PaneIdle,
+  SpawnConfig,
+  WorktreeTarget,
+} from "../domain/deck";
 import { MAX_PANES } from "../domain/deck";
 import type { WorkspaceCreationResult } from "./deckActions";
 import type { SuspendOutcome } from "./suspendOutcome";
@@ -193,11 +199,16 @@ let agentRun: AgentRunView &
     | "restart"
     | "recoverRejectedResume"
     | "retryPlanBuild"
+    | "close"
   >;
 /** The worktree creates the orchestrator asked for, recorded instead of run.
  *  Per mount like the deck beside it, so no `describe` has to remember to
  *  clear it. */
 let provisions: { panes: Pane[]; setup: string | undefined }[];
+/** The worktree removals a confirmed close asked for, per mount. */
+let discards: WorktreeTarget[][];
+/** What the removal reports back as un-deletable. */
+let discardFailures: string[] = [];
 const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 
 // What the orchestrator's gate consults — swappable per test. The id set is
@@ -226,9 +237,11 @@ function Probe() {
   const [wiring] = useState(() => {
     const store = createDeckStore();
     const asked: { panes: Pane[]; setup: string | undefined }[] = [];
+    const discarded: WorktreeTarget[][] = [];
     return {
       store,
       asked,
+      discarded,
       orchestrator: createAgentOrchestrator({
         deck: store,
         spawnContext: { get: () => ctx, subscribe: () => () => {} },
@@ -257,11 +270,16 @@ function Probe() {
           asked.push({ panes, setup });
           return Promise.resolve();
         },
+        discardWorktrees: (targets) => {
+          discarded.push(targets);
+          return Promise.resolve(discardFailures);
+        },
       }),
     };
   });
   deck = useDeck(wiring.store);
   provisions = wiring.asked;
+  discards = wiring.discarded;
   agentRun = {
     ...useAgentRunView(wiring.orchestrator),
     resume: wiring.orchestrator.resume,
@@ -275,6 +293,7 @@ function Probe() {
     restart: wiring.orchestrator.restart,
     recoverRejectedResume: wiring.orchestrator.recoverRejectedResume,
     retryPlanBuild: wiring.orchestrator.retryPlanBuild,
+    close: wiring.orchestrator.close,
   };
   return null;
 }
@@ -1915,6 +1934,154 @@ describe("agent orchestrator —suspending an agent", () => {
       "suspended",
     );
     expect(pty.closed).toEqual(["pane-1"]);
+  });
+});
+
+describe("agent orchestrator —closing panes and workspaces", () => {
+  let root: Root;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    vi.mocked(dropPaneSpawnSpec).mockClear();
+    steps.clear.mockClear();
+    discardFailures = [];
+    ipc.probeWorktree.mockReset().mockResolvedValue({
+      exists: true,
+      isWorktree: false,
+      empty: false,
+      branch: null,
+    });
+    catalog.ready = true;
+    catalog.parkOnLaunch = false;
+    pty.reset();
+    document.body.innerHTML = "<div id='host'></div>";
+    root = createRoot(document.getElementById("host")!);
+    act(() => root.render(createElement(Probe)));
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-1",
+        instance: createWorkspaceInstance(),
+        name: "ws",
+        cwd: "/repo",
+        worktreeBaseDir: null,
+        panes: [
+          { id: "pane-1", agentType: "claude" },
+          { id: "pane-2", agentType: "claude", cwd: "/wt/2", branch: "kd/ws/2" },
+        ],
+      }),
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+  });
+
+  const target = { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" };
+
+  it("takes one pane out of the deck and ends exactly its process", async () => {
+    await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        worktrees: [],
+      }),
+    );
+    expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
+    expect(pty.closed).toEqual(["pane-1"]);
+    expect(vi.mocked(dropPaneSpawnSpec)).toHaveBeenCalledWith("pane-1");
+    // An abandoned fork card's post-provision step goes too: no Retry is
+    // coming for a pane that is gone.
+    expect(steps.clear).toHaveBeenCalledWith("pane-1");
+  });
+
+  it("closing a workspace ends every pane it held", async () => {
+    await act(async () =>
+      agentRun.close({ kind: "workspace", wsId: "ws-1", worktrees: [] }),
+    );
+    expect(deck.workspaces).toHaveLength(0);
+    expect(pty.closed).toEqual(["pane-1", "pane-2"]);
+    expect(vi.mocked(dropPaneSpawnSpec).mock.calls).toEqual([
+      ["pane-1"],
+      ["pane-2"],
+    ]);
+  });
+
+  it("revokes the bridge token BEFORE the reducer forgets the pane", async () => {
+    // The reverse of a suspend's order, and deliberately: a reporter still in
+    // flight — or a later pane reusing the id — must not be able to write.
+    const order: string[] = [];
+    vi.mocked(dropPaneSpawnSpec).mockImplementationOnce(() => {
+      order.push(`revoked:${deck.workspaces[0].panes.length}`);
+    });
+    await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        worktrees: [],
+      }),
+    );
+    expect(order).toEqual(["revoked:2"]);
+  });
+
+  it("removes worktrees only AFTER the processes are reaped", async () => {
+    // A directory that is still some agent's cwd cannot be removed.
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let closing!: Promise<string[]>;
+    act(() => {
+      closing = agentRun.close({
+        kind: "workspace",
+        wsId: "ws-1",
+        worktrees: [target],
+      });
+    });
+    expect(discards).toEqual([]);
+    await act(async () => {
+      release();
+      await closing;
+    });
+    expect(discards).toEqual([[target]]);
+  });
+
+  it("reports back what it could not delete, rather than swallowing it", async () => {
+    discardFailures = ["kd/ws/2: still in use"];
+    const failures = await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        worktrees: [target],
+      }),
+    );
+    expect(failures).toEqual(["kd/ws/2: still in use"]);
+  });
+
+  it("never reaches the worktree runner when nothing was asked for", async () => {
+    const failures = await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        worktrees: [],
+      }),
+    );
+    expect(failures).toEqual([]);
+    expect(discards).toEqual([]);
+  });
+
+  it("still reaps a pane whose reap REJECTS, and the rest with it", async () => {
+    // One process refusing to die must not strand the others, nor leave the
+    // worktree removal waiting on a promise that never settles.
+    pty.hold = Promise.reject(new Error("pty gone"));
+    const failures = await act(async () =>
+      agentRun.close({ kind: "workspace", wsId: "ws-1", worktrees: [target] }),
+    );
+    expect(failures).toEqual([]);
+    expect(discards).toEqual([[target]]);
   });
 });
 

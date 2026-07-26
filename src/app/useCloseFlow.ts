@@ -11,11 +11,8 @@ import {
   type WorktreeTarget,
 } from "../domain/deck";
 import { probeWorktree } from "../ipc/worktree";
-import { clearPostProvision, discardWorktrees } from "./provisioning";
 import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
-import { closePanes } from "./ptyManager";
-import { dropPaneSpawnSpec } from "./spawnSpecs";
-import { clearPaneUsage } from "./usageManager";
+import type { CloseRequest } from "./agentOrchestrator";
 import type { Deck } from "./useDeck";
 
 /** A pending close awaiting confirmation ([U6]) — an agent pane or a whole
@@ -176,6 +173,11 @@ export function useCloseFlow(
      * Injected rather than imported so this hook keeps owning only the close
      * decision. */
     suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
+    /** Carry out a close the user has confirmed, resolving to the worktrees
+     * it could not delete. Injected for the same reason: what this hook owns
+     * is the CONFIRMATION — which panes, which directories, and whether the
+     * user meant it — not the teardown that follows. */
+    closeAgents(request: CloseRequest): Promise<string[]>;
   },
 ) {
   const {
@@ -184,6 +186,7 @@ export function useCloseFlow(
     gitPositions,
     blockedPanes,
     suspendAgent,
+    closeAgents,
   } = deps;
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
   // Opt-in: also delete the closing target's worktree(s) + branch(es). Reset
@@ -252,41 +255,21 @@ export function useCloseFlow(
 
   const confirmClose = () => {
     if (!closing) return;
-    const targets = deleteWorktree ? closing.targets : [];
-    // Snapshot the pane ids before the reducer forgets them.
-    const paneIds =
-      closing.kind === "agent"
-        ? [closing.paneId]
-        : (deck.workspaces
-            .find((w) => w.id === closing.id)
-            ?.panes.map((p) => p.id) ?? []);
-    // A closing workspace's plugin-owned resources (e.g. the Run plugin's
-    // sessions) die through the plugin event bridge's onWorkspaceClosed —
-    // no manual per-feature teardown here.
-    for (const paneId of paneIds) {
-      // Revoke bridge authentication before the reducer drops membership;
-      // neither an in-flight reporter nor a reused pane id may write again.
-      dropPaneSpawnSpec(paneId);
-      clearPaneUsage(paneId);
-      // A fork card abandoned instead of retried leaves its post-provision
-      // step registered (kept across failure for Retry) — drop it on close.
-      clearPostProvision(paneId);
-    }
-    if (closing.kind === "agent") deck.closeAgent(closing.wsId, closing.paneId);
-    else deck.closeWorkspace(closing.id);
+    // The destructive choice is settled here and nowhere later: what the
+    // dialog offered, against the box the user actually ticked.
+    const worktrees = deleteWorktree ? closing.targets : [];
     setClosing(null);
     setDeleteWorktree(false);
-    const closed = closePanes(paneIds);
-    if (targets.length > 0) {
-      void closed
-        .then(() => discardWorktrees(targets))
-        .then((failures) => {
-          if (failures.length > 0)
-            onError(
-              `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
-            );
-        });
-    }
+    void closeAgents(
+      closing.kind === "agent"
+        ? { kind: "agent", wsId: closing.wsId, paneId: closing.paneId, worktrees }
+        : { kind: "workspace", wsId: closing.id, worktrees },
+    ).then((failures) => {
+      if (failures.length > 0)
+        onError(
+          `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.join("\n")}`,
+        );
+    });
   };
 
   const cancelClose = () => setClosing(null);

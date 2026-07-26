@@ -15,39 +15,22 @@ import {
   type ClosingTarget,
 } from "./useCloseFlow";
 import type { SuspendOutcome } from "./suspendOutcome";
+import type { CloseRequest } from "./agentOrchestrator";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
-const pty = vi.hoisted(() => ({
-  closePanes: vi.fn<(ids: string[]) => Promise<void>>(() => Promise.resolve()),
-}));
-vi.mock("./ptyManager", () => pty);
-
-const lifecycle = vi.hoisted(() => ({
-  dropPaneSpawnSpec: vi.fn(),
-  clearPaneUsage: vi.fn(),
-  clearPostProvision: vi.fn(),
-}));
-vi.mock("./spawnSpecs", () => ({
-  dropPaneSpawnSpec: lifecycle.dropPaneSpawnSpec,
-}));
-vi.mock("./usageManager", () => ({
-  clearPaneUsage: lifecycle.clearPaneUsage,
-}));
-
-const worktrees = vi.hoisted(() => ({
-  order: [] as string[],
-  discardWorktrees: vi.fn<() => Promise<string[]>>(() => {
-    worktrees.order.push("discard");
-    return Promise.resolve([]);
-  }),
-}));
-vi.mock("./provisioning", () => ({
-  discardWorktrees: worktrees.discardWorktrees,
-  clearPostProvision: lifecycle.clearPostProvision,
-}));
+/** The teardown, as this hook sees it: a request, recorded. What the close
+ * then DOES — the token revocations, the reaping, the worktree removal and
+ * their order — belongs to the orchestrator and is asserted there. This file
+ * is about the CONFIRMATION: which panes, which directories, and whether the
+ * user meant it. */
+const closeAgents = vi.fn<(request: CloseRequest) => Promise<string[]>>(() =>
+  Promise.resolve([]),
+);
+/** The last close this test asked for. */
+const requested = () => closeAgents.mock.calls[0][0];
 
 const probes = vi.hoisted(() => ({
   probeWorktree: vi.fn<(path: string) => Promise<PathProbe>>(),
@@ -91,6 +74,7 @@ function Probe() {
     gitPositions: runtimeHeads,
     blockedPanes,
     suspendAgent,
+    closeAgents,
   });
   return null;
 }
@@ -115,16 +99,11 @@ function seed(extra: { id: string; cwd: string; branch: string }[] = []) {
   return "ws-1";
 }
 
-describe("useCloseFlow + ptyManager", () => {
+describe("useCloseFlow", () => {
   let root: Root;
 
   beforeEach(() => {
-    pty.closePanes.mockClear();
-    lifecycle.dropPaneSpawnSpec.mockClear();
-    lifecycle.clearPaneUsage.mockClear();
-    lifecycle.clearPostProvision.mockClear();
-    worktrees.discardWorktrees.mockClear();
-    worktrees.order.length = 0;
+    closeAgents.mockClear();
     suspendAgent.mockClear();
     probes.probeWorktree.mockReset();
     probes.probeWorktree.mockResolvedValue(probed(true));
@@ -138,57 +117,26 @@ describe("useCloseFlow + ptyManager", () => {
     act(() => root.unmount());
   });
 
-  it("closing an agent ends exactly that pane's session", () => {
+  it("closing an agent names exactly that pane", () => {
     const wsId = seed();
     act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     act(() => flow.confirmClose());
-    expect(pty.closePanes).toHaveBeenCalledWith(["pane-1"]);
-    expect(lifecycle.dropPaneSpawnSpec).toHaveBeenCalledWith("pane-1");
-    expect(lifecycle.clearPaneUsage).toHaveBeenCalledWith("pane-1");
-    // An abandoned fork card's post-provision step is dropped on close too.
-    expect(lifecycle.clearPostProvision).toHaveBeenCalledWith("pane-1");
-    expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
+    expect(requested()).toEqual({
+      kind: "agent",
+      wsId,
+      paneId: "pane-1",
+      worktrees: [],
+    });
   });
 
-  it("closing a workspace ends every pane's session", async () => {
+  it("closing a workspace names the workspace, not its panes", async () => {
+    // Which panes a workspace holds is a fact about the deck at the moment
+    // the close runs — reading it here would be a second answer to it.
     const wsId = seed();
     // The dialog opens only after the worktree probe answers.
     await act(async () => flow.requestCloseWorkspace(wsId));
     act(() => flow.confirmClose());
-    expect(pty.closePanes).toHaveBeenCalledWith(["pane-1", "pane-2"]);
-    expect(lifecycle.dropPaneSpawnSpec.mock.calls).toEqual([
-      ["pane-1"],
-      ["pane-2"],
-    ]);
-    expect(lifecycle.clearPaneUsage.mock.calls).toEqual([
-      ["pane-1"],
-      ["pane-2"],
-    ]);
-    expect(deck.workspaces).toHaveLength(0);
-  });
-
-  it("discards worktrees only after the session closes settle", async () => {
-    const wsId = seed();
-    let releaseClose!: () => void;
-    pty.closePanes.mockImplementationOnce(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseClose = () => {
-            worktrees.order.push("closed");
-            resolve();
-          };
-        }),
-    );
-    await act(async () => flow.requestCloseWorkspace(wsId));
-    act(() => {
-      flow.setDeleteWorktree(true);
-    });
-    act(() => flow.confirmClose());
-    expect(worktrees.discardWorktrees).not.toHaveBeenCalled();
-    releaseClose();
-    await act(async () => {});
-    expect(worktrees.order).toEqual(["closed", "discard"]);
-    expect(worktrees.discardWorktrees).toHaveBeenCalledTimes(1);
+    expect(requested()).toEqual({ kind: "workspace", wsId, worktrees: [] });
   });
 
   it("uses the observed current branch when discarding an owned worktree", async () => {
@@ -199,7 +147,7 @@ describe("useCloseFlow + ptyManager", () => {
     act(() => flow.confirmClose());
     await act(async () => {});
 
-    expect(worktrees.discardWorktrees).toHaveBeenCalledWith([
+    expect(requested().worktrees).toEqual([
       { repo: "/repo", path: "/wt/2", branch: "feature/current" },
     ]);
   });
@@ -217,8 +165,7 @@ describe("useCloseFlow + ptyManager", () => {
     act(() => flow.setDeleteWorktree(true));
     act(() => flow.confirmClose());
     await act(async () => {});
-    expect(worktrees.discardWorktrees).not.toHaveBeenCalled();
-    expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-1"]);
+    expect(requested().worktrees).toEqual([]);
   });
 
   it("a workspace close keeps only the worktrees that still exist", async () => {
@@ -231,7 +178,7 @@ describe("useCloseFlow + ptyManager", () => {
     act(() => flow.confirmClose());
     await act(async () => {});
 
-    expect(worktrees.discardWorktrees).toHaveBeenCalledWith([
+    expect(requested().worktrees).toEqual([
       { repo: "/repo", path: "/wt/3", branch: "kd/ws/3" },
     ]);
   });
@@ -266,7 +213,7 @@ describe("useCloseFlow + ptyManager", () => {
     const wsId = seed();
     act(() => flow.requestCloseAgent(wsId, "pane-1", "Agent 1"));
     act(() => flow.cancelClose());
-    expect(pty.closePanes).not.toHaveBeenCalled();
+    expect(closeAgents).not.toHaveBeenCalled();
     expect(deck.workspaces[0].panes).toHaveLength(2);
   });
 
@@ -282,7 +229,7 @@ describe("useCloseFlow + ptyManager", () => {
       expect(flow.closing).toBeNull();
       // The pane stays in the deck and its session is not torn down here —
       // that is the whole difference from confirming.
-      expect(pty.closePanes).not.toHaveBeenCalled();
+      expect(closeAgents).not.toHaveBeenCalled();
       expect(deck.workspaces[0].panes).toHaveLength(2);
     });
 
@@ -297,7 +244,7 @@ describe("useCloseFlow + ptyManager", () => {
       // would destroy what it returns to, and ignoring the ticked box is worse.
       expect(suspendAgent).not.toHaveBeenCalled();
       expect(flow.closing).not.toBeNull();
-      expect(worktrees.discardWorktrees).not.toHaveBeenCalled();
+      expect(closeAgents).not.toHaveBeenCalled();
     });
 
     it("is not offered for a workspace close — a different verb on a different object", async () => {
@@ -338,7 +285,7 @@ describe("closing a pane that is already stopped", () => {
   let root: Root;
 
   beforeEach(() => {
-    pty.closePanes.mockClear();
+    closeAgents.mockClear();
     suspendAgent.mockClear().mockResolvedValue("suspended");
     probes.probeWorktree.mockReset().mockResolvedValue(probed(true));
     errors.length = 0;
@@ -416,8 +363,7 @@ describe("what the dialog promises is what confirming does", () => {
   let root: Root;
 
   beforeEach(() => {
-    pty.closePanes.mockClear();
-    worktrees.discardWorktrees.mockClear();
+    closeAgents.mockClear();
     suspendAgent.mockClear().mockResolvedValue("suspended");
     probes.probeWorktree.mockReset().mockResolvedValue(probed(true));
     errors.length = 0;
@@ -447,7 +393,7 @@ describe("what the dialog promises is what confirming does", () => {
 
     act(() => flow.confirmClose());
     await act(async () => {});
-    expect(worktrees.discardWorktrees).not.toHaveBeenCalled();
+    expect(requested().worktrees).toEqual([]);
   });
 
   it("offers the alternative only when it is really on offer", () => {
