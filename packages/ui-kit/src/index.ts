@@ -11,6 +11,15 @@
  * vocabulary.
  */
 export { AgentGlyph, type AgentGlyphIcon } from "./AgentGlyph.tsx";
+export {
+  BranchBadge,
+  StoppedMarker,
+  YoloBadge,
+  STOPPED_MARKER_TITLE,
+  YOLO_BADGE_TITLE,
+  type BranchBadgeProps,
+  type YoloBadgeProps,
+} from "./badges.tsx";
 export { Chip, type ChipProps } from "./Chip.tsx";
 export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
 export { Combobox, fuzzyFilter } from "./Combobox.tsx";
