@@ -6,6 +6,7 @@ import {
   BranchBadge,
   StoppedMarker,
   YoloBadge,
+  YOLO_BADGE_LABEL,
   YOLO_BADGE_TITLE,
   STOPPED_MARKER_TITLE,
 } from "./badges";
@@ -37,7 +38,7 @@ describe("badges", () => {
       expect(badge.querySelector(".chip__label")).toBeNull();
       expect(badge.title).toBe(YOLO_BADGE_TITLE);
       expect(badge.getAttribute("role")).toBe("img");
-      expect(badge.getAttribute("aria-label")).toBe("YOLO mode");
+      expect(badge.getAttribute("aria-label")).toBe(YOLO_BADGE_LABEL);
     });
 
     it("sizes through the shared anatomy and carries the site hook", () => {
@@ -79,6 +80,8 @@ describe("badges", () => {
       expect(badge.querySelector(".chip__icon svg")).not.toBeNull();
       expect(badge.querySelector(".chip__label")!.textContent).toBe("main");
       expect(badge.title).toBe("on main");
+      // Standalone = self-naming: never aria-hidden unless the site asks.
+      expect(badge.getAttribute("aria-hidden")).toBeNull();
     });
 
     it("omits the tooltip and names itself decorative when the site asks", () => {

@@ -5,5 +5,6 @@ export {
   StoppedMarker,
   YoloBadge,
   type BranchBadgeProps,
+  type StoppedMarkerProps,
   type YoloBadgeProps,
 } from "@keepdeck/ui-kit/badges";
