@@ -16,6 +16,17 @@
   background-color: #0c1119;
 }
 
+/* A floating dock lies over the deck, so the tray's own box keeps its full
+   width while the right end of it is covered. The tray fills that width with
+   chips and puts the "+N" overflow trigger last — under the panel, where it
+   cannot be clicked, taking every agent behind it with it. Unlike a covered
+   pane header, which the menu and its hotkeys still reach, that popover is the
+   only way back to those agents, so this is the one place the deck reserves
+   room instead of letting the panel win. */
+.deck__body--dock-float .deck__tray {
+  padding-right: calc(var(--kd-dock-width) + 10px);
+}
+
 .deck__tray-sizer {
   position: absolute;
   top: 0;

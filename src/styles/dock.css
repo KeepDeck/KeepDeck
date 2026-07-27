@@ -1,8 +1,16 @@
 /* The dock: the collapsible tool panel on the right — the workspaces rail's
    mirror. Tabs across the top; each tab's body scrolls on its own. */
 
+:root {
+  /* On :root because a floating dock is out of flow: the deck can no longer
+     learn its width from the layout, and the one surface that must keep clear
+     of it (the minimized tray, minimize.css) is in another stylesheet. Two
+     copies of 340 would drift into a tray that reserves the wrong strip. */
+  --kd-dock-width: 340px;
+}
+
 .dock {
-  width: 340px;
+  width: var(--kd-dock-width);
   flex: none;
   display: flex;
   flex-direction: column;
