@@ -2,7 +2,7 @@
 import { DROP_BLOCKER_ATTR } from "@keepdeck/ui-kit/dropBlocker";
 import { describe, expect, it, vi } from "vitest";
 import { log } from "../ipc/log";
-import { collectDropSurface, deliverDrop, deliverPathsToPoint } from "./dragDrop";
+import { collectDropSurface, deliverPathsToPoint } from "./dragDrop";
 import { registerPaneInput } from "./paneInput";
 
 describe("collectDropSurface (real DOM)", () => {
@@ -73,23 +73,6 @@ describe("collectDropSurface (real DOM)", () => {
     const surface = collectDropSurface();
     expect(surface.panes.map((p) => p.id)).toEqual(["pane-1"]);
     expect(surface.blockers).toHaveLength(2);
-  });
-});
-
-describe("deliverDrop", () => {
-  it("writes the formatted paths (image bracketed) into the target pane", () => {
-    const write = vi.fn();
-    const off = registerPaneInput("pane-9", { write });
-    expect(deliverDrop("pane-9", ["/x/shot.png"], [true])).toBe(true);
-    expect(write).toHaveBeenCalledWith("\x1b[200~/x/shot.png\x1b[201~");
-    off();
-  });
-
-  it("no-ops with no target pane or no paths", () => {
-    expect(deliverDrop(null, ["/a"], [false])).toBe(false);
-    const off = registerPaneInput("pane-10", { write: () => {} });
-    expect(deliverDrop("pane-10", [], [])).toBe(false);
-    off();
   });
 });
 

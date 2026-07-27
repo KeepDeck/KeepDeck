@@ -57,8 +57,13 @@ export function collectDropSurface(doc: Document = document): DropSurface {
 /**
  * Insert dropped paths into the target pane's PTY input. Returns false when
  * there is no target pane or nothing to insert.
+ *
+ * Module-private, like the pane snapshot and for the same reason: it is the
+ * write step alone, reachable without the blocker hit-test, the empty-path
+ * filter or the image sniff. Exported, it would be the shortest way to type a
+ * path into a pane — and the shortest way is the one the next surface takes.
  */
-export function deliverDrop(
+function deliverDrop(
   paneId: string | null,
   paths: string[],
   isImage: boolean[],
