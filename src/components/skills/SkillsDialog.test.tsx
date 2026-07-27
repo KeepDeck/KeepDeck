@@ -11,6 +11,8 @@ import { SkillsDialog } from "./SkillsDialog";
 
 const lib = vi.hoisted(() => ({
   skills: [] as StoredSkill[] | null,
+  /** The library could not be READ — distinct from being empty. */
+  unreadable: false,
   error: null as string | null,
   clearError: vi.fn(),
   save: vi.fn(async () => true),
@@ -20,6 +22,7 @@ const lib = vi.hoisted(() => ({
 vi.mock("../../app/useSkills", () => ({
   useSkillsLibrary: () => ({
     skills: lib.skills,
+    unreadable: lib.unreadable,
     error: lib.error,
     clearError: lib.clearError,
     save: lib.save,
@@ -73,6 +76,7 @@ describe("SkillsDialog", () => {
 
   beforeEach(() => {
     lib.skills = [];
+    lib.unreadable = false;
     lib.error = null;
     lib.clearError.mockClear();
     lib.save.mockClear();
@@ -167,6 +171,9 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ name: "deep-review" }),
+      // Not a create: the rename above already moved the directory, so what
+      // lands is an overwrite of a skill that exists.
+      false,
     );
   });
 
@@ -189,6 +196,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenLastCalledWith(
       { kind: "global" },
       expect.objectContaining({ name: "deep-review" }),
+      false,
     );
   });
 
@@ -274,6 +282,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ description: "reviews diffs with subagents read-only" }),
+      false,
     );
   });
 
@@ -340,6 +349,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ description: "first edit" }),
+      false,
     );
   });
 
@@ -401,6 +411,43 @@ describe("SkillsDialog", () => {
         body: "Steps",
         extraFrontmatter: [],
       },
+      // A create says so, so the backend refuses a name already on disk even
+      // if the dialog's own collision check was working from a library it
+      // could not read.
+      true,
+    );
+  });
+
+  it("will not create while the library could not be read", async () => {
+    // The collision check is derived from the listed library, so an
+    // unreadable one makes every name look free — and Create would then
+    // write straight over whatever is actually on disk under that name.
+    lib.unreadable = true;
+    await mount();
+    act(() => buttonByTitle("New global skill")!.click());
+    type(input("skill-name"), "review");
+    type(input("skill-description"), "Reviews diffs");
+    type(textarea(), "Steps");
+
+    expect(button("Create")!.disabled).toBe(true);
+    await act(async () => button("Create")!.click());
+    expect(lib.save).not.toHaveBeenCalled();
+  });
+
+  it("still lets an EDIT save while the library could not be read", async () => {
+    // The user reached this skill from a row that WAS listed, so there is no
+    // collision to miss — refusing here would block editing over a hiccup.
+    lib.skills = [skill("review")];
+    lib.unreadable = true;
+    await mount();
+    act(() => row("review")!.click());
+    type(input("skill-description"), "edited");
+
+    await act(async () => button("Save")!.click());
+    expect(lib.save).toHaveBeenCalledWith(
+      { kind: "global" },
+      expect.objectContaining({ description: "edited" }),
+      false,
     );
   });
 

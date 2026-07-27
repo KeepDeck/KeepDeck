@@ -118,18 +118,24 @@ pub fn skills_list() -> Result<Vec<SkillDto>, String> {
     list(&skills_root()?).map_err(|e| e.to_string())
 }
 
-/// Create or overwrite one skill's `SKILL.md` (content is composed and
-/// validated by the webview; this side only refuses unsafe path segments).
+/// Write one skill's `SKILL.md` (content is composed and validated by the
+/// webview; this side refuses unsafe path segments — and, when the caller says
+/// this is a CREATE, a name that is already taken).
 #[tauri::command(async)]
 pub fn skills_save(
     scope: String,
     ws_id: Option<String>,
     name: String,
     content: String,
+    expect_new: bool,
 ) -> Result<(), String> {
     let root = skills_root()?;
     let dir = scope_dir(&root, &scope, ws_id.as_deref())?;
-    save(&dir, &name, &content).map_err(|e| e.to_string())
+    if expect_new {
+        create(&dir, &name, &content).map_err(|e| e.to_string())
+    } else {
+        save(&dir, &name, &content).map_err(|e| e.to_string())
+    }
 }
 
 /// Remove one skill's directory entirely (assets included). Missing is fine.
@@ -280,6 +286,24 @@ fn sorted_dirs(dir: &Path) -> io::Result<Vec<PathBuf>> {
 fn save(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {
     require_safe(name, "skill name").map_err(io::Error::other)?;
     write_atomic(&scope_dir.join(name).join(SKILL_FILE), content.as_bytes())
+}
+
+/// Write a skill that must NOT already exist.
+///
+/// Its own operation rather than a flag on [`save`], because the two differ in
+/// what they are allowed to destroy. The webview checks a new name against the
+/// library it listed, but that list degrades to empty whenever the backend read
+/// fails — and then every name looks free, so the write would silently destroy
+/// the skill it collided with. [`rename`] has always refused this collision; a
+/// create is the same one at the same cost.
+fn create(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {
+    require_safe(name, "skill name").map_err(io::Error::other)?;
+    if scope_dir.join(name).join(SKILL_FILE).exists() {
+        return Err(io::Error::other(format!(
+            "a skill named {name:?} already exists"
+        )));
+    }
+    save(scope_dir, name, content)
 }
 
 fn delete(scope_dir: &Path, name: &str) -> io::Result<()> {
@@ -878,6 +902,29 @@ mod tests {
         delete(&global(&root), "review").unwrap();
         assert!(list(&root).unwrap().is_empty());
         delete(&global(&root), "review").unwrap(); // missing is fine
+    }
+
+    #[test]
+    fn create_refuses_a_name_that_is_taken_but_save_still_overwrites() {
+        // The webview gates a create on the library it listed, and that list
+        // degrades to empty whenever the backend read fails — so every name
+        // looks free and the write lands on top of a real skill. An edit of an
+        // existing skill is a legitimate overwrite and must stay one.
+        let (_tmp, root) = root();
+        create(&global(&root), "review", "original").unwrap();
+
+        let err = create(&global(&root), "review", "clobber").unwrap_err();
+        assert!(err.to_string().contains("already exists"), "{err}");
+        assert_eq!(list(&root).unwrap()[0].content, "original");
+
+        save(&global(&root), "review", "edited").unwrap();
+        assert_eq!(list(&root).unwrap()[0].content, "edited");
+    }
+
+    #[test]
+    fn create_refuses_unsafe_names_like_save() {
+        let (_tmp, root) = root();
+        assert!(create(&global(&root), "../escape", "x").is_err());
     }
 
     #[test]

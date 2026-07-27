@@ -36,21 +36,22 @@ export async function fetchSkills(): Promise<StoredSkill[]> {
   return await invoke<StoredSkill[]>("skills_list");
 }
 
-/** Every stored skill. Degrades to an empty library if the backend errors —
- * the editor then starts blank rather than dead. */
-export async function listSkills(): Promise<StoredSkill[]> {
-  try {
-    return await fetchSkills();
-  } catch (e) {
-    log.warn("web:skills", `skills_list failed; empty library: ${describeError(e)}`);
-    return [];
-  }
-}
-
-/** Create or overwrite one skill's SKILL.md. Throws on failure — a save the
- * user asked for must not silently vanish. */
-export async function saveSkill(scope: SkillScope, name: string, content: string): Promise<void> {
-  await invoke("skills_save", { ...wire(scope), name, content });
+/**
+ * Write one skill's SKILL.md. Throws on failure — a save the user asked for
+ * must not silently vanish.
+ *
+ * `expectNew` says this is a CREATE, and the backend then refuses a name that
+ * is already taken. The dialog checks the name too, but only against the
+ * library it managed to list; this is the check that cannot be skipped by a
+ * read that failed.
+ */
+export async function saveSkill(
+  scope: SkillScope,
+  name: string,
+  content: string,
+  expectNew: boolean,
+): Promise<void> {
+  await invoke("skills_save", { ...wire(scope), name, content, expectNew });
 }
 
 /** Remove one skill (its whole directory). Throws on failure. */

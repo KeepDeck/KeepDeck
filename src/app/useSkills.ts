@@ -10,7 +10,6 @@ import { composeSkillFile, type SkillDraft, type SkillScope } from "../domain/sk
 import {
   deleteSkill,
   fetchSkills,
-  listSkills,
   renameSkill,
   saveSkill,
   type StoredSkill,
@@ -21,11 +20,18 @@ import { invalidateSkillsStaging } from "./skillsStaging";
 export interface SkillsLibrary {
   /** The stored skills; `null` while the first load is in flight. */
   skills: StoredSkill[] | null;
+  /** The library could not be READ — as distinct from being empty. The two
+   * used to look identical here, and the name-collision check is derived from
+   * this list: with an unreadable library every name looked free, so creating
+   * one that already existed wrote straight over it. */
+  unreadable: boolean;
   /** The last failed operation, human-readable; cleared by the next success
    * or by `clearError` (navigation away from the failed skill). */
   error: string | null;
   clearError(): void;
-  save(scope: SkillScope, draft: SkillDraft): Promise<boolean>;
+  /** `expectNew` marks a CREATE, which the backend refuses if the name is
+   * already taken — the guard that survives an unreadable library. */
+  save(scope: SkillScope, draft: SkillDraft, expectNew: boolean): Promise<boolean>;
   /** Move the skill's directory. Deliberately does NOT reload the list —
    * a rename is always followed by a save (whose refresh covers both), so
    * one user action costs one reload, not two. */
@@ -35,14 +41,28 @@ export interface SkillsLibrary {
 
 export function useSkillsLibrary(open: boolean): SkillsLibrary {
   const [skills, setSkills] = useState<StoredSkill[] | null>(null);
+  const [unreadable, setUnreadable] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    void listSkills().then((all) => {
-      if (alive) setSkills(all);
-    });
+    // Reading the raw form and handling the failure here, rather than taking
+    // a wrapper's empty-list fallback: an empty library and one that could not
+    // be read must not arrive as the same value.
+    void fetchSkills().then(
+      (all) => {
+        if (!alive) return;
+        setSkills(all);
+        setUnreadable(false);
+      },
+      (e: unknown) => {
+        if (!alive) return;
+        log.warn("web:skills", `skills_list failed: ${describeError(e)}`);
+        setSkills([]);
+        setUnreadable(true);
+      },
+    );
     return () => {
       alive = false;
     };
@@ -52,6 +72,7 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     invalidateSkillsStaging();
     try {
       setSkills(await fetchSkills());
+      setUnreadable(false);
     } catch (e) {
       // The operation itself succeeded; only the re-read failed. Keep the
       // stale list — blanking it right after a successful write reads as
@@ -62,9 +83,9 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
   }, []);
 
   const save = useCallback(
-    async (scope: SkillScope, draft: SkillDraft) => {
+    async (scope: SkillScope, draft: SkillDraft, expectNew: boolean) => {
       try {
-        await saveSkill(scope, draft.name, composeSkillFile(draft));
+        await saveSkill(scope, draft.name, composeSkillFile(draft), expectNew);
         await refresh();
         return true;
       } catch (e) {
@@ -115,5 +136,5 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     [refresh],
   );
 
-  return { skills, error, clearError, save, rename, remove };
+  return { skills, unreadable, error, clearError, save, rename, remove };
 }

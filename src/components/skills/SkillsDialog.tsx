@@ -56,7 +56,8 @@ const scopeOf = (skill: StoredSkill): SkillScope =>
  * rule.
  */
 export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
-  const { skills, error, clearError, save, rename, remove } = useSkillsLibrary(true);
+  const { skills, unreadable, error, clearError, save, rename, remove } =
+    useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<SkillFormState>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
@@ -167,8 +168,17 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   // so saving one would "work" and then never reach the agent.
   const descriptionOk =
     form.description.trim() !== "" && isValidSkillDescription(form.description);
+  // A CREATE additionally needs a library we could actually read: `nameTaken`
+  // is derived from that list, so an unreadable one makes every name look
+  // free — and the write would land on the skill it collided with. Editing a
+  // skill is unaffected: the user reached it from a row that WAS listed.
   const canSave =
-    selection !== null && dirty && nameOk && !nameTaken && descriptionOk;
+    selection !== null &&
+    dirty &&
+    nameOk &&
+    !nameTaken &&
+    descriptionOk &&
+    !(creating && unreadable);
 
   const submit = async () => {
     // The rename half is not idempotent: a double ⌘S entering twice would
@@ -204,7 +214,10 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
       }
     }
     const draft: SkillDraft = { ...form };
-    if (await save(scope, draft)) {
+    // A rename above has already moved the directory, so what lands now is an
+    // overwrite of a skill that exists — only an untouched create is new.
+    const expectNew = selection.mode === "create";
+    if (await save(scope, draft, expectNew)) {
       if (navEpoch.current === nav) {
         setSelection({ mode: "edit", scope, name: draft.name });
         // Keystrokes typed DURING the save are on screen but not on disk —

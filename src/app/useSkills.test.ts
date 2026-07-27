@@ -10,7 +10,6 @@ import { useSkillsLibrary, type SkillsLibrary } from "./useSkills";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const wire = vi.hoisted(() => ({
-  listSkills: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
   fetchSkills: vi.fn<() => Promise<StoredSkill[]>>(async () => []),
   saveSkill: vi.fn(async () => {}),
   deleteSkill: vi.fn(async () => {}),
@@ -31,7 +30,6 @@ describe("the skills library hook", () => {
   let root: Root;
 
   beforeEach(() => {
-    wire.listSkills.mockClear();
     wire.fetchSkills.mockClear();
     wire.fetchSkills.mockResolvedValue([]);
     wire.saveSkill.mockClear();
@@ -49,7 +47,7 @@ describe("the skills library hook", () => {
   const mount = () => act(async () => root.render(createElement(Probe)));
 
   it("loads the library when opened", async () => {
-    wire.listSkills.mockResolvedValue([
+    wire.fetchSkills.mockResolvedValue([
       { scope: "global", wsId: null, name: "review", content: "x" },
     ]);
     await mount();
@@ -70,6 +68,7 @@ describe("the skills library hook", () => {
           body: "Steps\n",
           extraFrontmatter: ["license: MIT"],
         },
+        false,
       );
     });
 
@@ -78,17 +77,20 @@ describe("the skills library hook", () => {
       { kind: "global" },
       "deploy",
       "---\nname: deploy\ndescription: Ships it\nlicense: MIT\n---\nSteps\n",
+      false,
     );
     // The spawn side re-stages on the next spawn, and the list is fresh —
     // via the STRICT read, so a transient error keeps the stale list
     // instead of blanking a library the user just successfully wrote to.
     expect(staging.invalidateSkillsStaging).toHaveBeenCalledTimes(1);
-    expect(wire.fetchSkills).toHaveBeenCalledTimes(1);
-    expect(wire.listSkills).toHaveBeenCalledTimes(1); // the initial load only
+    // The initial load and the post-save reload — both through the strict
+    // read, so a transient error keeps the stale list instead of blanking a
+    // library the user just successfully wrote to.
+    expect(wire.fetchSkills).toHaveBeenCalledTimes(2);
   });
 
   it("a successful save whose reload fails keeps the stale list too", async () => {
-    wire.listSkills.mockResolvedValue([
+    wire.fetchSkills.mockResolvedValue([
       { scope: "global", wsId: null, name: "review", content: "x" },
     ]);
     await mount();
@@ -100,6 +102,7 @@ describe("the skills library hook", () => {
       ok = await lib.save(
         { kind: "global" },
         { name: "x", description: "d", body: "", extraFrontmatter: [] },
+        false,
       );
     });
 
@@ -116,6 +119,7 @@ describe("the skills library hook", () => {
       ok = await lib.save(
         { kind: "global" },
         { name: "x", description: "", body: "", extraFrontmatter: [] },
+        false,
       );
     });
 
@@ -138,8 +142,9 @@ describe("the skills library hook", () => {
       "deep-review",
     );
     expect(staging.invalidateSkillsStaging).toHaveBeenCalledTimes(1);
-    // One user action, one reload: rename itself must not re-read the list.
-    expect(wire.listSkills).toHaveBeenCalledTimes(1);
+    // One user action, one reload: rename itself must not re-read the list,
+    // so only the dialog's initial load has happened.
+    expect(wire.fetchSkills).toHaveBeenCalledTimes(1);
   });
 
   it("a failed rename surfaces the error and leaves staging alone", async () => {
@@ -156,7 +161,7 @@ describe("the skills library hook", () => {
   });
 
   it("a failed save whose reload also fails keeps the stale list", async () => {
-    wire.listSkills.mockResolvedValue([
+    wire.fetchSkills.mockResolvedValue([
       { scope: "global", wsId: null, name: "review", content: "x" },
     ]);
     await mount();
@@ -168,6 +173,7 @@ describe("the skills library hook", () => {
       await lib.save(
         { kind: "global" },
         { name: "x", description: "d", body: "", extraFrontmatter: [] },
+        false,
       );
     });
 

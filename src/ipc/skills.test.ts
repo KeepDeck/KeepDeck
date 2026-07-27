@@ -20,7 +20,6 @@ import {
   deleteSkill,
   disarmSkills,
   fetchSkills,
-  listSkills,
   pruneSkills,
   renameSkill,
   saveSkill,
@@ -35,15 +34,27 @@ describe("the skills invoke-key contract", () => {
 
   it("pins every command name and argument key", async () => {
     tauri.invoke.mockResolvedValueOnce([]);
-    await listSkills();
+    await fetchSkills();
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_list");
 
-    await saveSkill({ kind: "global" }, "review", "content");
+    await saveSkill({ kind: "global" }, "review", "content", false);
     expect(tauri.invoke).toHaveBeenLastCalledWith("skills_save", {
       scope: "global",
       wsId: null,
       name: "review",
       content: "content",
+      expectNew: false,
+    });
+
+    // A create says so, and the backend refuses a name already taken — the
+    // guard that survives a library the dialog could not read.
+    await saveSkill({ kind: "global" }, "fresh", "content", true);
+    expect(tauri.invoke).toHaveBeenLastCalledWith("skills_save", {
+      scope: "global",
+      wsId: null,
+      name: "fresh",
+      content: "content",
+      expectNew: true,
     });
 
     await deleteSkill({ kind: "workspace", wsId: "ws-2" }, "review");
@@ -78,23 +89,27 @@ describe("the skills invoke-key contract", () => {
     });
   });
 
-  it("list and stage degrade on a backend error; disarm and prune stay silent", async () => {
+  it("stage degrades on a backend error; disarm and prune stay silent", async () => {
     tauri.invoke.mockRejectedValue(new Error("boom"));
-    expect(await listSkills()).toEqual([]);
     expect(await stageSkills("ws-1", [])).toBeNull();
     await disarmSkills(["/x"]); // must not throw
     await pruneSkills(["ws-1"]); // must not throw
   });
 
-  it("fetchSkills THROWS where listSkills degrades — callers rely on it", async () => {
+  it("the library read THROWS rather than degrading to an empty library", async () => {
+    // There is deliberately no swallowing wrapper any more. "Empty" and
+    // "unreadable" are different answers, and the create path's collision
+    // check is derived from the list: reported as empty, every name looks
+    // free and a create writes over the skill it collided with.
     tauri.invoke.mockRejectedValue(new Error("boom"));
     await expect(fetchSkills()).rejects.toThrow("boom");
-    expect(await listSkills()).toEqual([]);
   });
 
   it("save, delete and rename surface their failures", async () => {
     tauri.invoke.mockRejectedValue(new Error("boom"));
-    await expect(saveSkill({ kind: "global" }, "x", "c")).rejects.toThrow("boom");
+    await expect(saveSkill({ kind: "global" }, "x", "c", false)).rejects.toThrow(
+      "boom",
+    );
     await expect(deleteSkill({ kind: "global" }, "x")).rejects.toThrow("boom");
     await expect(renameSkill({ kind: "global" }, "a", "b")).rejects.toThrow("boom");
   });
