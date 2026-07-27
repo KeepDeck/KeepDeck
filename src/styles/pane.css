@@ -122,6 +122,9 @@
   white-space: nowrap;
   flex: 1 1 auto;
   min-width: 0;
+  /* The shared optical nudge (--text-optical-nudge, chip.css) — the title
+     rides beside the header's centered chips, same as the stand-in's. */
+  transform: translateY(var(--text-optical-nudge));
 }
 
 /* Inline rename of the pane title ([F11]). */

@@ -6,6 +6,16 @@
    pill itself lives here so the sites cannot drift apart. Imported early so
    the site stylesheets win at equal specificity. */
 
+/* Optical centering: flex centers a text LINE BOX, and system-ui's large
+   ascent (~0.95em) leaves the x-height band ~2px below the geometric center
+   (measured on the branch badge, 11px in a 20px pill), while icons — bare
+   boxes — center exactly. ONE nudge value for every text slot that sits
+   beside centered pills/glyphs: chip labels and the bare pane/stand-in
+   titles (.pane__title, .minimized__title consume it from their sheets). */
+:root {
+  --text-optical-nudge: -1px;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -82,9 +92,6 @@ button.chip {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
-  /* Optical centering: flex centers the label's LINE BOX, and system-ui's
-     large ascent (~0.95em) leaves the x-height band ~2px below the chip's
-     geometric center (measured on the branch badge, 11px in a 20px pill),
-     while the icon — a bare box — centers exactly. Nudge the label back up. */
-  transform: translateY(-1px);
+  /* See --text-optical-nudge at the top of this sheet. */
+  transform: translateY(var(--text-optical-nudge));
 }
