@@ -3,7 +3,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import { DockPanel } from "../components/dock/DockPanel";
-import { collectDropSurface, deliverDrop, deliverPathToPoint } from "./dragDrop";
+import { log } from "../ipc/log";
+import { collectDropSurface, deliverDrop, deliverPathsToPoint } from "./dragDrop";
 import { registerPaneInput } from "./paneInput";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -114,7 +115,7 @@ describe("deliverDrop", () => {
   });
 });
 
-describe("deliverPathToPoint (in-app pointer path drag)", () => {
+describe("deliverPathsToPoint (both drop paths)", () => {
   const surface = {
     panes: [{ id: "pane-1", rect: { left: 0, top: 0, right: 100, bottom: 100 } }],
     blockers: [],
@@ -123,8 +124,8 @@ describe("deliverPathToPoint (in-app pointer path drag)", () => {
   it("writes a dragged path into the pane under the drop point, returning its id", async () => {
     const write = vi.fn();
     const off = registerPaneInput("pane-1", { write });
-    const id = await deliverPathToPoint(
-      "/repo/main.ts",
+    const id = await deliverPathsToPoint(
+      ["/repo/main.ts"],
       { x: 50, y: 50 },
       surface,
       async () => [false],
@@ -134,22 +135,38 @@ describe("deliverPathToPoint (in-app pointer path drag)", () => {
     off();
   });
 
+  it("writes a whole OS drop's paths in one insertion", async () => {
+    // The Finder path carries many at once; the pointer drag carries one. Both
+    // now go through here, so the multi-path case is this function's too.
+    const write = vi.fn();
+    const off = registerPaneInput("pane-1", { write });
+    const id = await deliverPathsToPoint(
+      ["/repo/a.ts", "/repo/b.ts"],
+      { x: 50, y: 50 },
+      surface,
+      async () => [false, false],
+    );
+    expect(id).toBe("pane-1");
+    expect(write).toHaveBeenCalledWith("/repo/a.ts /repo/b.ts");
+    off();
+  });
+
   it("bracket-pastes an image path so the agent attaches it", async () => {
     const write = vi.fn();
     const off = registerPaneInput("pane-1", { write });
-    await deliverPathToPoint("/repo/logo.png", { x: 10, y: 10 }, surface, async () => [true]);
+    await deliverPathsToPoint(["/repo/logo.png"], { x: 10, y: 10 }, surface, async () => [true]);
     expect(write).toHaveBeenCalledWith("\x1b[200~/repo/logo.png\x1b[201~");
     off();
   });
 
   it("ignores an empty path", async () => {
-    const result = await deliverPathToPoint("", { x: 50, y: 50 }, surface, async () => []);
+    const result = await deliverPathsToPoint([""], { x: 50, y: 50 }, surface, async () => []);
     expect(result).toBeNull();
   });
 
   it("ignores a drop that misses every pane", async () => {
     const off = registerPaneInput("pane-1", { write: vi.fn() });
-    const result = await deliverPathToPoint("/a", { x: 500, y: 500 }, surface, async () => [false]);
+    const result = await deliverPathsToPoint(["/a"], { x: 500, y: 500 }, surface, async () => [false]);
     expect(result).toBeNull();
     off();
   });
@@ -157,10 +174,24 @@ describe("deliverPathToPoint (in-app pointer path drag)", () => {
   it("treats an image-sniff failure as plain text, not a dropped file", async () => {
     const write = vi.fn();
     const off = registerPaneInput("pane-1", { write });
-    await deliverPathToPoint("/a/f", { x: 1, y: 1 }, surface, async () => {
+    await deliverPathsToPoint(["/a/f"], { x: 1, y: 1 }, surface, async () => {
       throw new Error("sniff failed");
     });
     expect(write).toHaveBeenCalledWith("/a/f");
+    off();
+  });
+
+  it("traces a sniff failure rather than degrading the drop in silence", async () => {
+    // The two drop paths used to disagree here: one logged, one swallowed, so
+    // the same backend failure was diagnosable through Finder drops and
+    // invisible through a dragged tree row.
+    const off = registerPaneInput("pane-1", { write: vi.fn() });
+    const debug = vi.spyOn(log, "debug").mockImplementation(() => {});
+    await deliverPathsToPoint(["/a/f"], { x: 1, y: 1 }, surface, async () => {
+      throw new Error("sniff failed");
+    });
+    expect(debug).toHaveBeenCalledWith("web:dnd", expect.stringContaining("sniff failed"));
+    debug.mockRestore();
     off();
   });
 });

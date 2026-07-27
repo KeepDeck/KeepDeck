@@ -5,6 +5,7 @@ import {
   type Rect,
 } from "../domain/deck";
 import { formatDroppedPaths } from "../domain/terminal";
+import { describeError, log } from "../ipc/log";
 import { writeRawToPane } from "./paneInput";
 
 /**
@@ -77,25 +78,38 @@ export function deliverDrop(
 }
 
 /**
- * Deliver a dragged file `path` released at `point`: hit-test the pane under the
- * point against `surface`, decide image-vs-text, and write the path into that
- * pane's PTY. Returns the target pane id on delivery, else null. The SAME core
- * as the OS file drop (`paneAtPoint` + `deliverDrop`), reached from the plugin
- * tree's POINTER drag (see `usePaneDrag`) — a Finder drop and a dragged tree
- * row land in the terminal identically. Pointer-based, not HTML5 drag-and-drop:
- * Tauri's native OS drag-drop (needed for Finder file drops) disables HTML5 DnD
- * inside the webview. `isImageOf` is injected (the `paths_are_images` IPC in the
- * app, a fake in tests).
+ * Deliver `paths` released at `point`: hit-test the pane under the point
+ * against `surface`, decide image-vs-text, and write them into that pane's
+ * PTY. Returns the target pane id on delivery, else null.
+ *
+ * The WHOLE sequence, for both ways a file can be dropped — an OS drop from
+ * Finder ([`useDragDrop`]) and a pointer drag of a plugin tree row
+ * ([`usePaneDrag`]). Each used to assemble these steps for itself, which is
+ * how they came to disagree about a failed image sniff: one traced it, the
+ * other swallowed it, so the same backend failure was diagnosable through one
+ * entry point and invisible through the other. Only the surface snapshot stays
+ * with the callers — it is a live DOM read, and injecting it is what keeps
+ * this testable.
+ *
+ * Pointer-based, not HTML5 drag-and-drop: Tauri's native OS drag-drop (needed
+ * for Finder file drops) disables HTML5 DnD inside the webview. `isImageOf` is
+ * injected (the `paths_are_images` IPC in the app, a fake in tests).
  */
-export async function deliverPathToPoint(
-  path: string,
+export async function deliverPathsToPoint(
+  paths: string[],
   point: { x: number; y: number },
   surface: DropSurface,
   isImageOf: (paths: string[]) => Promise<boolean[]>,
 ): Promise<string | null> {
-  if (!path) return null;
+  const dropped = paths.filter((path) => path !== "");
+  if (dropped.length === 0) return null;
   const id = paneAtPoint(point.x, point.y, surface);
   if (!id) return null;
-  const isImage = await isImageOf([path]).catch(() => [false]);
-  return deliverDrop(id, [path], isImage) ? id : null;
+  // A sniff that fails is not a drop that fails — the paths still go in, as
+  // text. Traced, because a silently degraded drop looks like a working one.
+  const isImage = await isImageOf(dropped).catch((e: unknown) => {
+    log.debug("web:dnd", `image sniff failed, treating drop as text: ${describeError(e)}`);
+    return dropped.map(() => false);
+  });
+  return deliverDrop(id, dropped, isImage) ? id : null;
 }
