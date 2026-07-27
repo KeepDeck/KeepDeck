@@ -32,6 +32,7 @@ import { clearPaneUsage } from "./usageManager";
 import { postbackCount } from "./postbacks";
 import type { SuspendOutcome } from "./suspendOutcome";
 import {
+  awaitProvisionedWorktree,
   clearPostProvision,
   planPanes,
   provisionInto,
@@ -285,6 +286,12 @@ export type CreatePaneOutcome =
 export type CloseRequest = {
   /** Empty unless the user asked for the directories to go too. */
   worktrees: WorktreeTarget[];
+  /** Closing panes whose worktree create is still in flight, so they have no
+   * `cwd` yet and contributed no target above. Carried separately because
+   * what to delete is not known until the create settles — and a create
+   * cannot be cancelled, so waiting is the only way not to strand it. Ignored
+   * unless the user asked for the directories to go. */
+  pendingPanes: string[];
 } & (
   | { kind: "agent"; wsId: string; paneId: string }
   | { kind: "workspace"; wsId: string }
@@ -1220,10 +1227,27 @@ export function createAgentOrchestrator(
         actions.closeWorkspace(request.wsId);
       }
       await Promise.allSettled(paneIds.map((id) => sessions.close(id)));
+      // A create still out when the close ran: wait for it, and delete what it
+      // actually made. Without this the directory and branch land moments
+      // after the pane is gone and nothing ever names them again — the dialog
+      // could not even offer them, since a pane mid-create has no cwd to build
+      // a target from. Only the panes the user asked about are waited on; the
+      // rest are consumed unobserved so no settled promise is left behind and
+      // nothing they do delays the close.
+      const asked = new Set(request.pendingPanes);
+      for (const id of paneIds) {
+        if (!asked.has(id)) void awaitProvisionedWorktree(id);
+      }
+      const late = (
+        await Promise.all(
+          request.pendingPanes.map((id) => awaitProvisionedWorktree(id)),
+        )
+      ).filter((made) => made !== null);
+      const worktrees = [...request.worktrees, ...late];
       // Only AFTER the processes are reaped: a worktree that is still some
       // agent's cwd cannot be removed.
-      if (request.worktrees.length === 0) return [];
-      return discardWorktrees(request.worktrees);
+      if (worktrees.length === 0) return [];
+      return discardWorktrees(worktrees);
     },
     async restart(wsId, paneId, mode) {
       if (restarting.has(paneId)) return "in-flight";

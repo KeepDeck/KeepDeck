@@ -9,6 +9,7 @@ import {
   worktreeTargets,
   type GitPosition,
   type Pane,
+  type Workspace,
   type WorktreeTarget,
 } from "../domain/deck";
 import { probeWorktree } from "../ipc/worktree";
@@ -22,7 +23,15 @@ import type { Deck } from "./useDeck";
  * delete (empty in non-worktree mode), snapshotted — and probed for
  * existence — at open time; the modal blocks all mutation, so it can't go
  * stale. */
-export type ClosingTarget = { targets: WorktreeTarget[] } & (
+export type ClosingTarget = {
+  targets: WorktreeTarget[];
+  /** Closing panes whose worktree create is still in flight. They have no
+   * `cwd` yet, so `worktreeTargets` cannot describe them and they are absent
+   * from `targets` — but a create that lands after the close leaves a
+   * directory and branch nothing will ever name again, so the offer has to
+   * cover them. What each one actually made is only known once it settles. */
+  pendingPanes: string[];
+} & (
   | {
       kind: "agent";
       wsId: string;
@@ -224,8 +233,17 @@ export function useCloseFlow(
     });
   };
 
+  /** The closing panes whose worktree is still being created — no `cwd` yet,
+   * so `worktreeTargets` cannot see them, but a create that lands after the
+   * close still leaves one behind. */
+  const pendingOf = (ws: Workspace | undefined, paneId?: string): string[] =>
+    (ws?.panes ?? [])
+      .filter((pane) => (!paneId || pane.id === paneId) && pane.provisioning)
+      .map((pane) => pane.id);
+
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
     const ws = findWorkspace(deck.workspaces, wsId);
+    const pendingPanes = pendingOf(ws, paneId);
     // Read inside `make`, which `park` calls when the dialog actually OPENS —
     // one worktree probe later. Reading here would describe a pane the user
     // never saw a dialog for; the refs are what make "at open" true.
@@ -239,18 +257,21 @@ export function useCloseFlow(
         paneId in blockedRef.current,
       ),
       targets,
+      pendingPanes,
     }));
   };
 
   const requestCloseWorkspace = (id: string) => {
     const ws = findWorkspace(deck.workspaces, id);
     if (!ws) return;
+    const pendingPanes = pendingOf(ws);
     park(worktreeTargets(ws, undefined, gitPositions), (targets) => ({
       kind: "workspace",
       id,
       name: ws.name,
       count: ws.panes.length,
       targets,
+      pendingPanes,
     }));
   };
 
@@ -259,12 +280,21 @@ export function useCloseFlow(
     // The destructive choice is settled here and nowhere later: what the
     // dialog offered, against the box the user actually ticked.
     const worktrees = deleteWorktree ? closing.targets : [];
+    // A create still in flight is deleted on the same choice, once it settles
+    // and there is something to name.
+    const pendingPanes = deleteWorktree ? closing.pendingPanes : [];
     setClosing(null);
     setDeleteWorktree(false);
     void closeAgents(
       closing.kind === "agent"
-        ? { kind: "agent", wsId: closing.wsId, paneId: closing.paneId, worktrees }
-        : { kind: "workspace", wsId: closing.id, worktrees },
+        ? {
+            kind: "agent",
+            wsId: closing.wsId,
+            paneId: closing.paneId,
+            worktrees,
+            pendingPanes,
+          }
+        : { kind: "workspace", wsId: closing.id, worktrees, pendingPanes },
     ).then((failures) => {
       if (failures.length > 0)
         onError(
@@ -300,6 +330,13 @@ export function useCloseFlow(
 
   const closeMessage = closeMessageFor(closing, runningAgentsOf(closing));
 
+  /** How many worktrees the delete offer covers — the ones that exist plus the
+   * creates still out. The dialog gates its checkbox on this rather than on
+   * `targets`, which cannot see a pane mid-create. */
+  const worktreeCount = closing
+    ? closing.targets.length + closing.pendingPanes.length
+    : 0;
+
   /**
    * Take the alternative: dismiss the dialog and park the agent.
    *
@@ -327,6 +364,7 @@ export function useCloseFlow(
   return {
     closing,
     closeMessage,
+    worktreeCount,
     deleteWorktree,
     setDeleteWorktree,
     requestCloseAgent,

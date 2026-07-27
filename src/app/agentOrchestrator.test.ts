@@ -182,10 +182,22 @@ vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
 const usage = vi.hoisted(() => ({ clearPaneUsage: vi.fn() }));
 vi.mock("./usageManager", () => usage);
 
+/** Worktree creates still out when a close runs, keyed by pane — what the real
+ *  registry in `provisioning` publishes for exactly this question. */
+const pendingCreates = vi.hoisted(
+  () => new Map<string, Promise<{ repo: string; path: string; branch: string } | null>>(),
+);
+
 vi.mock("./provisioning", async (importOriginal) => {
   const real = await importOriginal<typeof import("./provisioning")>();
   return {
     ...real,
+    awaitProvisionedWorktree: (paneId: string) => {
+      const made = pendingCreates.get(paneId);
+      if (!made) return Promise.resolve(null);
+      pendingCreates.delete(paneId);
+      return made;
+    },
     registerPostProvision: (
       paneId: string,
       step: (worktree: { cwd: string; branch: string }) => Promise<void>,
@@ -2277,6 +2289,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         wsId: "ws-1",
         paneId: "pane-1",
         worktrees: [],
+        pendingPanes: [],
       }),
     );
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
@@ -2290,7 +2303,12 @@ describe("agent orchestrator —closing panes and workspaces", () => {
 
   it("closing a workspace ends every pane it held", async () => {
     await act(async () =>
-      agentRun.close({ kind: "workspace", wsId: "ws-1", worktrees: [] }),
+      agentRun.close({
+        kind: "workspace",
+        wsId: "ws-1",
+        worktrees: [],
+        pendingPanes: [],
+      }),
     );
     expect(deck.workspaces).toHaveLength(0);
     expect(pty.closed).toEqual(["pane-1", "pane-2"]);
@@ -2313,6 +2331,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         wsId: "ws-1",
         paneId: "pane-1",
         worktrees: [],
+        pendingPanes: [],
       }),
     );
     expect(order).toEqual(["revoked:2"]);
@@ -2330,6 +2349,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         kind: "workspace",
         wsId: "ws-1",
         worktrees: [target],
+        pendingPanes: [],
       });
     });
     expect(discards).toEqual([]);
@@ -2348,6 +2368,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         wsId: "ws-1",
         paneId: "pane-2",
         worktrees: [target],
+        pendingPanes: [],
       }),
     );
     expect(failures).toEqual(["kd/ws/2: still in use"]);
@@ -2360,10 +2381,64 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         wsId: "ws-1",
         paneId: "pane-2",
         worktrees: [],
+        pendingPanes: [],
       }),
     );
     expect(failures).toEqual([]);
     expect(discards).toEqual([]);
+  });
+
+  it("waits for a create still in flight and deletes what it actually made", async () => {
+    // A pane mid-create has no cwd, so it contributes no target and the close
+    // used to finish without it — the create then landed a directory and
+    // branch that nothing would ever name again. A `git worktree add` cannot
+    // be cancelled, so waiting for it is the only way to know what to remove.
+    const made = { repo: "/repo", path: "/wt/9", branch: "kd/ws/9" };
+    let finishCreate!: () => void;
+    pendingCreates.set(
+      "pane-1",
+      new Promise((resolve) => {
+        finishCreate = () => resolve(made);
+      }),
+    );
+
+    let closing!: Promise<string[]>;
+    act(() => {
+      closing = agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        worktrees: [],
+        pendingPanes: ["pane-1"],
+      });
+    });
+    // Nothing removed while the create is still writing the directory.
+    expect(discards).toEqual([]);
+
+    await act(async () => {
+      finishCreate();
+      await closing;
+    });
+    expect(discards).toEqual([[made]]);
+  });
+
+  it("leaves an in-flight create alone when its deletion was not asked for", async () => {
+    pendingCreates.set(
+      "pane-1",
+      Promise.resolve({ repo: "/repo", path: "/wt/9", branch: "kd/ws/9" }),
+    );
+    await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        worktrees: [],
+        pendingPanes: [],
+      }),
+    );
+    expect(discards).toEqual([]);
+    // Consumed all the same, so nothing is left holding a settled promise.
+    expect(pendingCreates.has("pane-1")).toBe(false);
   });
 
   it("still reaps a pane whose reap REJECTS, and the rest with it", async () => {
@@ -2371,7 +2446,12 @@ describe("agent orchestrator —closing panes and workspaces", () => {
     // worktree removal waiting on a promise that never settles.
     pty.hold = Promise.reject(new Error("pty gone"));
     const failures = await act(async () =>
-      agentRun.close({ kind: "workspace", wsId: "ws-1", worktrees: [target] }),
+      agentRun.close({
+        kind: "workspace",
+        wsId: "ws-1",
+        worktrees: [target],
+        pendingPanes: [],
+      }),
     );
     expect(failures).toEqual([]);
     expect(discards).toEqual([[target]]);

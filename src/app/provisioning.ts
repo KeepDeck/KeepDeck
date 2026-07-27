@@ -74,6 +74,46 @@ const postProvisionSteps = new Map<
   (worktree: { cwd: string; branch: string }) => Promise<void>
 >();
 
+/**
+ * Worktree creates currently in flight, by pane id — what each one ENDED UP
+ * making, or null if it made nothing.
+ *
+ * A close can land while a create is still out, and until then the pane has no
+ * `cwd`, so it contributes no delete target and the close dialog cannot even
+ * offer the checkbox. The create then finishes into a directory and branch no
+ * surface will ever name again. Waiting on the create is the only way to know
+ * what to remove — a `git worktree add` cannot be cancelled, and removing the
+ * path while it is being written would race it.
+ */
+const inFlightCreates = new Map<string, Promise<CreatedWorktree | null>>();
+
+/** What a create made: enough to hand straight to [`discardWorktrees`]. */
+export interface CreatedWorktree {
+  repo: string;
+  path: string;
+  branch: string;
+}
+
+/**
+ * Wait for `paneId`'s worktree create to settle and answer what it made.
+ *
+ * Null when nothing is in flight (the common case — the pane's worktree
+ * already resolved onto it, or it never had one) and when the create failed,
+ * which rolls its own directory back.
+ */
+export function awaitProvisionedWorktree(
+  paneId: string,
+): Promise<CreatedWorktree | null> {
+  const pending = inFlightCreates.get(paneId);
+  if (!pending) return Promise.resolve(null);
+  // Consumed on read. Settled entries are kept until someone asks precisely
+  // because the asker is the close flow, which cannot know whether the create
+  // finished before or after it took its snapshot — dropping the answer the
+  // moment the create landed would put the orphan back for that interleaving.
+  inFlightCreates.delete(paneId);
+  return pending;
+}
+
 /** Register a step to run after `paneId`'s worktree lands (see the map doc). */
 export function registerPostProvision(
   paneId: string,
@@ -166,7 +206,12 @@ export async function runProvisioning(
   );
 }
 
-/** One pane's create (+ optional setup) → its card resolves or fails. */
+/**
+ * One pane's create (+ optional setup) → its card resolves or fails, with the
+ * worktree it made published for the duration so a close landing mid-create
+ * can still find it. Only a create that leaves something ON DISK records a
+ * result; every failure path here rolls its own directory back.
+ */
 async function provisionPane(
   paneId: string,
   intent: PaneProvisioning,
@@ -174,6 +219,30 @@ async function provisionPane(
   cb: ProvisionCallbacks,
   setup?: SetupStep,
 ): Promise<void> {
+  let publish!: (made: CreatedWorktree | null) => void;
+  inFlightCreates.set(
+    paneId,
+    new Promise<CreatedWorktree | null>((resolve) => {
+      publish = resolve;
+    }),
+  );
+  try {
+    publish(await createOnePane(paneId, intent, base, cb, setup));
+  } catch (e) {
+    // An unexpected throw must not leave a close waiting on a promise that
+    // never settles.
+    publish(null);
+    throw e;
+  }
+}
+
+async function createOnePane(
+  paneId: string,
+  intent: PaneProvisioning,
+  base: string | undefined,
+  cb: ProvisionCallbacks,
+  setup?: SetupStep,
+): Promise<CreatedWorktree | null> {
   let rec: { path: string; branch: string };
   try {
     rec = await createWorktree({
@@ -193,7 +262,7 @@ async function provisionPane(
       `worktree create failed for ${paneId}: ${describeError(e)}`,
     );
     cb.onFailed(paneId, describeError(e));
-    return;
+    return null;
   }
 
   if (setup) {
@@ -206,7 +275,7 @@ async function provisionPane(
       );
       await rollbackWorktree(intent.repo, rec);
       cb.onFailed(paneId, `Setup failed: ${result.tail}`);
-      return;
+      return null;
     }
   }
 
@@ -225,10 +294,11 @@ async function provisionPane(
     );
     await rollbackWorktree(intent.repo, rec);
     cb.onFailed(paneId, stepError);
-    return;
+    return null;
   }
 
   cb.onResolved(paneId, { cwd: rec.path, branch: rec.branch });
+  return { repo: intent.repo, path: rec.path, branch: rec.branch };
 }
 
 /** Best-effort teardown of a half-prepared worktree so Retry re-creates cleanly

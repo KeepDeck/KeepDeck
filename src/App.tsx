@@ -1031,7 +1031,7 @@ function App() {
               onConfirm={closeFlow.confirmClose}
               onCancel={closeFlow.cancelClose}
             >
-              {closeFlow.closing.targets.length > 0 && (
+              {closeFlow.worktreeCount > 0 && (
                 <label className="confirm__option">
                   <input
                     type="checkbox"
@@ -1041,9 +1041,12 @@ function App() {
                     }
                   />
                   <span className="confirm__option-text">
-                    {closeFlow.closing.targets.length === 1
+                    {/* Counts the creates still in flight too: they have no
+                        directory to name yet, but one is coming, and without
+                        the offer it would be left with no owner. */}
+                    {closeFlow.worktreeCount === 1
                       ? "Also delete the worktree and its branches"
-                      : `Also delete all ${closeFlow.closing.targets.length} worktrees and their branches`}
+                      : `Also delete all ${closeFlow.worktreeCount} worktrees and their branches`}
                     <span className="confirm__option-note">
                       Discards any uncommitted work.
                     </span>

@@ -126,7 +126,66 @@ describe("useCloseFlow", () => {
       wsId,
       paneId: "pane-1",
       worktrees: [],
+      pendingPanes: [],
     });
+  });
+
+  it("offers to delete a worktree that is still being created", async () => {
+    // A pane mid-create has no cwd, so `worktreeTargets` cannot describe it
+    // and the checkbox was never rendered — the create then landed a
+    // directory and branch that no surface would ever name again.
+    act(() => {
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "two",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        panes: [
+          {
+            id: "pane-9",
+            agentType: "claude",
+            provisioning: { repo: "/repo", workspace: "two", index: 1 },
+          },
+        ],
+      });
+    });
+    await act(async () => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
+
+    // No target — there is no directory to name yet — but the offer stands.
+    expect(flow.closing?.targets).toEqual([]);
+    expect(flow.worktreeCount).toBe(1);
+
+    act(() => flow.setDeleteWorktree(true));
+    act(() => flow.confirmClose());
+    expect(requested()).toMatchObject({
+      kind: "agent",
+      paneId: "pane-9",
+      pendingPanes: ["pane-9"],
+    });
+  });
+
+  it("does not ask to delete an in-flight create the user left unticked", async () => {
+    act(() => {
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "two",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        panes: [
+          {
+            id: "pane-9",
+            agentType: "claude",
+            provisioning: { repo: "/repo", workspace: "two", index: 1 },
+          },
+        ],
+      });
+    });
+    await act(async () => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
+    act(() => flow.confirmClose());
+
+    expect(requested()).toMatchObject({ pendingPanes: [] });
   });
 
   it("closing a workspace names the workspace, not its panes", async () => {
@@ -136,7 +195,12 @@ describe("useCloseFlow", () => {
     // The dialog opens only after the worktree probe answers.
     await act(async () => flow.requestCloseWorkspace(wsId));
     act(() => flow.confirmClose());
-    expect(requested()).toEqual({ kind: "workspace", wsId, worktrees: [] });
+    expect(requested()).toEqual({
+      kind: "workspace",
+      wsId,
+      worktrees: [],
+      pendingPanes: [],
+    });
   });
 
   it("uses the observed current branch when discarding an owned worktree", async () => {
@@ -570,6 +634,7 @@ describe("closeMessageFor", () => {
       path: `/wt/${i}`,
       branch: `kd/ws/${i}`,
     })),
+    pendingPanes: [],
   });
   const workspace = (count: number): ClosingTarget => ({
     kind: "workspace",
@@ -577,6 +642,7 @@ describe("closeMessageFor", () => {
     name: "ws",
     count,
     targets: [],
+    pendingPanes: [],
   });
 
   it("says nothing without a target", () => {
