@@ -52,6 +52,17 @@ export type MinimizeStyle = "tray" | "strip" | "none";
  * allow-list a stored value is validated against. */
 export const MINIMIZE_STYLES: readonly MinimizeStyle[] = ["tray", "strip", "none"];
 
+/** How the right-hand dock occupies the window:
+ * - `docked`   — it takes a column of its own and the deck grid shrinks to fit;
+ * - `floating` — it lies OVER the deck at the same edge, so the grid keeps its
+ *   full width and never re-tiles when the dock opens or closes.
+ * Only the dock's geometry: which tabs it holds and whether it is open at all
+ * stay exactly as they were. */
+export type DockMode = "docked" | "floating";
+
+/** Every dock mode, in picker order; also the allow-list for a stored value. */
+export const DOCK_MODES: readonly DockMode[] = ["docked", "floating"];
+
 /** Which delivery channels notifications use:
  * - `system-and-app` — OS banners plus the in-app bell/center;
  * - `system` — OS banners only, no bell in the chrome;
@@ -87,6 +98,8 @@ export interface Settings {
   deckLayout: DeckLayout;
   /** How a minimized agent is presented in the grid layout (tray / strip). */
   minimizeStyle: MinimizeStyle;
+  /** Whether the dock takes a column beside the deck or floats over it. */
+  dockMode: DockMode;
   /** Per-plugin persisted settings, keyed by plugin id. The plugin system
    * itself is not a flag — it simply exists (user decision); `enabled` is
    * each plugin's own on/off switch, `values` is what a plugin's
@@ -131,6 +144,7 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollback: 10_000,
   deckLayout: "grid",
   minimizeStyle: "tray",
+  dockMode: "docked",
   plugins: { enabled: {}, values: {}, consented: {} },
   notifications: { enabled: true, mode: "system-and-app", mutedPlugins: [] },
   usageDisplay: "used",
@@ -301,6 +315,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (MINIMIZE_STYLES.includes(doc.minimizeStyle as MinimizeStyle)) {
     settings.minimizeStyle = doc.minimizeStyle as MinimizeStyle;
+  }
+  if (DOCK_MODES.includes(doc.dockMode as DockMode)) {
+    settings.dockMode = doc.dockMode as DockMode;
   }
   const notifications = readNotifications(doc.notifications);
   if (notifications) settings.notifications = notifications;
