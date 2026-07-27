@@ -187,6 +187,11 @@ describe("hydrateSettings", () => {
       settings: { ...base.settings, dockMode: "floating" as const },
     };
     expect(JSON.parse(serializeSettings(changed)).dockMode).toBe("floating");
+    // And the write survives being read back: the allow-list and the sparse
+    // loop are separate mechanisms, and only a round trip covers the seam.
+    expect(hydrateSettings(serializeSettings(changed))?.settings).toEqual(
+      changed.settings,
+    );
   });
 
   it("v5 graduation: an explicit experimentRunPresets=false disables the Run plugin", () => {

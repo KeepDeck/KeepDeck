@@ -119,7 +119,10 @@
   min-height: 0;
   /* The containing block a floating dock (dock.css) positions against, so it
      spans the body's height and stops at the top bar rather than the viewport.
-     Inert for the flex children — the rail and the stage are static. */
+     It steals nothing from the other children: neither the rail nor the stage
+     has an absolutely-positioned descendant that resolved further up — every
+     one of them already resolves against `.deck__stage`, which is positioned
+     itself, seven lines below. */
   position: relative;
 }
 

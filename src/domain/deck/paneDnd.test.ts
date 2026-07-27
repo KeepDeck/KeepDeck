@@ -51,8 +51,14 @@ describe("paneAtPoint", () => {
       expect(at(50, 150, [dock])).toBe("pane-3");
     });
 
-    it("still returns null where a blocker covers no pane at all", () => {
-      expect(at(250, 150, [dock])).toBeNull();
+    it("takes the first blocker that contains the point, not the first listed", () => {
+      // Several surfaces can cover the deck at once — a floating dock and a
+      // plugin's full-window overlay. A point inside the SECOND one must be
+      // swallowed just the same, so this cannot be written as "is anything
+      // blocking?" nor as a check of the first entry only.
+      const elsewhere: Rect = { left: 0, top: 400, right: 300, bottom: 500 };
+      expect(at(50, 50, [elsewhere, dock])).toBe("pane-1");
+      expect(at(160, 50, [elsewhere, dock])).toBeNull();
     });
   });
 });

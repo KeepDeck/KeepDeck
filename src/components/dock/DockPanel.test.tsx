@@ -104,9 +104,13 @@ describe("DockPanel (controlled tab)", () => {
 
     // Identity, not equality. A tab body holds a plugin's iframe or an xterm,
     // and neither has any state a test can inspect — the DOM node surviving IS
-    // the document staying loaded and the scrollback staying put. Branching on
-    // `floating` anywhere above these nodes, or moving them into a portal,
-    // fails here.
+    // the document staying loaded and the scrollback staying put.
+    //
+    // What this catches is a change of ELEMENT: a different tag, a wrapper, a
+    // key that varies with the mode, a portal. It does NOT catch a ternary
+    // returning the same `<aside>` from two branches — React reconciles by
+    // (type, position, key) and reuses the node either way — so it is not the
+    // guard for "a class, not a branch"; the component's docstring is.
     expect(host.querySelector(".dock")).toBe(panel);
     expect(host.querySelector('[data-body="p:two"]')).toBe(body);
   });

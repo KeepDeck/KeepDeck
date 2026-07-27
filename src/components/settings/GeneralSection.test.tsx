@@ -49,11 +49,20 @@ describe("GeneralSection — dock mode", () => {
     );
 
   it("marks the stored mode active and offers the other one", () => {
+    // Both directions: an inverted comparison that happens to light the
+    // non-default mode correctly would still leave the default one dead.
+    mount();
+    expect(dockButtons().get("Docked")?.className).toContain("form__type--active");
+    expect(dockButtons().get("Floating")?.className).not.toContain(
+      "form__type--active",
+    );
+
     settings.current = { ...DEFAULT_SETTINGS, dockMode: "floating" };
     mount();
-    const buttons = dockButtons();
-    expect(buttons.get("Floating")?.className).toContain("form__type--active");
-    expect(buttons.get("Docked")?.className).not.toContain("form__type--active");
+    expect(dockButtons().get("Floating")?.className).toContain("form__type--active");
+    expect(dockButtons().get("Docked")?.className).not.toContain(
+      "form__type--active",
+    );
   });
 
   it("writes the picked mode through to settings", () => {
@@ -76,11 +85,11 @@ describe("GeneralSection — dock mode", () => {
     const floating = Array.from(host.querySelectorAll(".settings__hint")).map(
       (h) => h.textContent,
     );
-    expect(docked).toContain(
-      "The dock takes a column of its own — the agent grid shrinks to fit.",
-    );
-    expect(floating).toContain(
-      "The dock lies over the deck — the agent grid keeps its full width.",
-    );
+    // The distinguishing phrase, not the sentence: what must hold is that the
+    // hint follows the mode, and pinning the wording would make a typo fix
+    // read as a regression. Sibling sections assert the same way.
+    expect(docked.join(" ")).toContain("takes a column of its own");
+    expect(floating.join(" ")).toContain("lies over the deck");
+    expect(floating.join(" ")).not.toContain("takes a column of its own");
   });
 });
