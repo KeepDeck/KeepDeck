@@ -3,6 +3,7 @@ import {
   findPane,
   findWorkspace,
   idleReadsAsStopped,
+  paneHasProcess,
   paneSuspendBlock,
   paneWakesAutomatically,
   worktreeTargets,
@@ -21,7 +22,15 @@ import type { Deck } from "./useDeck";
  * delete (empty in non-worktree mode), snapshotted — and probed for
  * existence — at open time; the modal blocks all mutation, so it can't go
  * stale. */
-export type ClosingTarget = { targets: WorktreeTarget[] } & (
+export type ClosingTarget = {
+  targets: WorktreeTarget[];
+  /** Closing panes whose worktree create is still in flight. They have no
+   * `cwd` yet, so `worktreeTargets` cannot describe them and they are absent
+   * from `targets` — but a create that lands after the close leaves a
+   * directory and branch nothing will ever name again, so the offer has to
+   * cover them. What each one actually made is only known once it settles. */
+  pendingPanes: string[];
+} & (
   | {
       kind: "agent";
       wsId: string;
@@ -223,8 +232,27 @@ export function useCloseFlow(
     });
   };
 
+  /**
+   * The closing panes whose worktree create is genuinely STILL OUT — no `cwd`
+   * yet, so `worktreeTargets` cannot see them, but one that lands after the
+   * close would leave a directory behind.
+   *
+   * `error` is what separates them from the two look-alikes that also keep a
+   * `provisioning` intent: a create that already failed (and rolled its own
+   * directory back), and one interrupted by a quit and restored as a failed
+   * card. Counting those made the checkbox promise to delete worktrees that do
+   * not exist.
+   */
+  const pendingCreates = (panes: readonly Pane[]): string[] =>
+    panes
+      .filter((pane) => pane.provisioning && !pane.provisioning.error)
+      .map((pane) => pane.id);
+
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
     const ws = findWorkspace(deck.workspaces, wsId);
+    const pendingPanes = pendingCreates(
+      ws?.panes.filter((pane) => pane.id === paneId) ?? [],
+    );
     // Read inside `make`, which `park` calls when the dialog actually OPENS —
     // one worktree probe later. Reading here would describe a pane the user
     // never saw a dialog for; the refs are what make "at open" true.
@@ -238,18 +266,21 @@ export function useCloseFlow(
         paneId in blockedRef.current,
       ),
       targets,
+      pendingPanes,
     }));
   };
 
   const requestCloseWorkspace = (id: string) => {
     const ws = findWorkspace(deck.workspaces, id);
     if (!ws) return;
+    const pendingPanes = pendingCreates(ws.panes);
     park(worktreeTargets(ws, undefined, gitPositions), (targets) => ({
       kind: "workspace",
       id,
       name: ws.name,
       count: ws.panes.length,
       targets,
+      pendingPanes,
     }));
   };
 
@@ -257,13 +288,30 @@ export function useCloseFlow(
     if (!closing) return;
     // The destructive choice is settled here and nowhere later: what the
     // dialog offered, against the box the user actually ticked.
+    // The DECISION travels separately from the list. This list was frozen when
+    // the dialog opened and cannot be complete — a create landing while the
+    // user reads it owns a worktree nothing here has ever seen — so the close
+    // finishes it against the live deck. What this list still contributes is
+    // the observed branch per pane, which a bare pane read cannot give.
+    const deleteWorktrees = deleteWorktree;
     const worktrees = deleteWorktree ? closing.targets : [];
     setClosing(null);
     setDeleteWorktree(false);
     void closeAgents(
       closing.kind === "agent"
-        ? { kind: "agent", wsId: closing.wsId, paneId: closing.paneId, worktrees }
-        : { kind: "workspace", wsId: closing.id, worktrees },
+        ? {
+            kind: "agent",
+            wsId: closing.wsId,
+            paneId: closing.paneId,
+            deleteWorktrees,
+            worktrees,
+          }
+        : {
+            kind: "workspace",
+            wsId: closing.id,
+            deleteWorktrees,
+            worktrees,
+          },
     ).then((failures) => {
       if (failures.length > 0)
         onError(
@@ -294,12 +342,17 @@ export function useCloseFlow(
     // "does it read as stopped" instead counted every rising pane as holding
     // a session it has not opened yet, which is what a just-launched
     // workspace is entirely made of.
-    return (ws?.panes ?? []).filter(
-      (pane) => !pane.idle && !pane.provisioning,
-    ).length;
+    return (ws?.panes ?? []).filter(paneHasProcess).length;
   };
 
   const closeMessage = closeMessageFor(closing, runningAgentsOf(closing));
+
+  /** How many worktrees the delete offer covers — the ones that exist plus the
+   * creates still out. The dialog gates its checkbox on this rather than on
+   * `targets`, which cannot see a pane mid-create. */
+  const worktreeCount = closing
+    ? closing.targets.length + closing.pendingPanes.length
+    : 0;
 
   /**
    * Take the alternative: dismiss the dialog and park the agent.
@@ -328,6 +381,7 @@ export function useCloseFlow(
   return {
     closing,
     closeMessage,
+    worktreeCount,
     deleteWorktree,
     setDeleteWorktree,
     requestCloseAgent,

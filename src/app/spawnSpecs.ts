@@ -12,6 +12,7 @@ import {
 } from "../domain/agents";
 import {
   paneAgentType,
+  paneHasProcess,
   skillRootsOf,
   type Pane,
   type Workspace,
@@ -239,9 +240,10 @@ async function buildPlan(
   // The token is PER PANE, not per build: a rebuild while the pane's
   // process is alive (observed: a double-revive rebuilding the resume
   // plan) must not orphan the token that process's reporters echo — every
-  // postback would fail verification forever. An explicit restart drops
-  // the spec first (`dropPaneSpawnSpec`), so a genuinely new process still
-  // gets a fresh token.
+  // postback would fail verification forever. Every path that RETIRES a
+  // process drops the spec first (`dropPaneSpawnSpec` — restart, suspend,
+  // close), so a genuinely new process still gets a fresh token and the
+  // dead one's credential stops being accepted.
   const token = ctx.bridgeDir
     ? (specs.get(paneId)?.token ?? mintBridgeToken())
     : null;
@@ -393,7 +395,7 @@ export async function buildLivePaneSpec(
   pane: Pane,
   ctx: SpawnPlanContext,
 ): Promise<boolean> {
-  if (pane.idle || pane.provisioning) return false;
+  if (!paneHasProcess(pane)) return false;
   if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id)) {
     return false;
   }

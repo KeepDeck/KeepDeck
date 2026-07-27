@@ -14,7 +14,9 @@ import {
   paneWakeOrigin,
   sessionClaimant,
   skillRootsOf,
+  worktreeTargets,
   WORKSPACE_FULL_MESSAGE,
+  WORKSPACE_GONE_MESSAGE,
   type Pane,
   type SpawnConfig,
   type Workspace,
@@ -33,6 +35,7 @@ import type { SuspendOutcome } from "./suspendOutcome";
 import {
   clearPostProvision,
   planPanes,
+  takeCreatedWorktree,
   provisionInto,
   registerPostProvision,
   setupStepFor,
@@ -145,9 +148,10 @@ export interface AgentOrchestrator {
    * falling back: the user asked for that conversation by name, and quietly
    * starting a different one is the substitution this whole path guards.
    *
-   * Answers what it did, like every other refusable gesture here. Four things
-   * can stop a restart short of failing, and a caller that reads "resolved"
-   * as "restarted" leaves its card promising a restart that is not coming.
+   * Answers what it did, like every other refusable gesture here. Three
+   * things can stop a restart short of failing, and a caller that reads
+   * "resolved" as "restarted" leaves its card promising a restart that is not
+   * coming.
    */
   restart(
     wsId: string,
@@ -282,7 +286,14 @@ export type CreatePaneOutcome =
  * the user ticked the box that deletes them, is what the confirm dialog was
  * FOR — by the time it reaches this, the destructive choice is settled. */
 export type CloseRequest = {
-  /** Empty unless the user asked for the directories to go too. */
+  /** Did the user ask for the directories to go too? The DECISION, separate
+   * from the list below, because the list cannot be complete: a create that
+   * lands while the confirm dialog is open owns a worktree the dialog never
+   * saw. The close finishes the list against the live deck. */
+  deleteWorktrees: boolean;
+  /** The worktrees the dialog offered, probed for existence when it opened.
+   * Not the whole answer — see above — but it leads, because it carries each
+   * pane's OBSERVED current branch, which a bare pane read cannot. */
   worktrees: WorktreeTarget[];
 } & (
   | { kind: "agent"; wsId: string; paneId: string }
@@ -300,10 +311,7 @@ export type RestartOutcome =
   | "gone"
   /** It was stopped while the restart was out — a suspend the user asked for
    * outranks a restart that started first. */
-  | "stopped"
-  /** Its agent, directory or session changed mid-flight; the plan prepared
-   * for it would mount over a pane that is no longer the same one. */
-  | "changed";
+  | "stopped";
 
 /** What asking for a pane back did. */
 export type ResumeRequest =
@@ -437,6 +445,19 @@ interface RestartTarget {
   branch: string | undefined;
   yolo: boolean | undefined;
   sessionId: string | null;
+}
+
+/** One entry per directory. The close builds its delete list from three
+ * overlapping sources — the dialog's probed offer, the live deck, and the
+ * creates it just consumed — and the same worktree can appear in more than
+ * one of them. The FIRST wins, which is why the probed offer leads: it is the
+ * one carrying the observed branch. */
+function dedupeByPath(targets: WorktreeTarget[]): WorktreeTarget[] {
+  const byPath = new Map<string, WorktreeTarget>();
+  for (const target of targets) {
+    if (!byPath.has(target.path)) byPath.set(target.path, target);
+  }
+  return [...byPath.values()];
 }
 
 function sameResumeTarget(
@@ -666,6 +687,38 @@ export function createAgentOrchestrator(
   }
 
   /**
+   * Land a pane for a continuation, turning either refusal into a throw.
+   *
+   * The continuations differ from `createPane` in the one way that matters
+   * here: by the time they land, they have already done work that cannot be
+   * taken back — a fork's export→rekey→import into the agent's own session
+   * store. `full` was thrown and `gone` was not, so a workspace closed inside
+   * that await resolved the promise as if it had worked, leaving a cloned
+   * session in the store with no pane, no error and a dialog that closed on
+   * success. An exhaustive switch, so a fourth outcome cannot be added
+   * silently.
+   */
+  function landOrThrow(landed: CreatePaneOutcome): void {
+    switch (landed.kind) {
+      case "created":
+        return;
+      case "full":
+        throw new Error(WORKSPACE_FULL_MESSAGE);
+      case "gone":
+        throw new Error(WORKSPACE_GONE_MESSAGE);
+      default: {
+        // A switch alone would NOT catch a new outcome here — this function
+        // returns void, so an unmatched value falls off the end and compiles
+        // clean. The `never` is what turns "someone added a refusal and
+        // forgot this file" into a type error instead of a fork whose
+        // irreversible surgery is reported as success.
+        const unhandled: never = landed;
+        throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);
+      }
+    }
+  }
+
+  /**
    * Sessions with a continuation already under way, by recorded session id —
    * a double-click guard. Resuming the same session twice is one gesture
    * repeated; forking it twice is two legitimate forks racing.
@@ -743,7 +796,9 @@ export function createAgentOrchestrator(
 
   async function restartFresh(target: RestartTarget): Promise<RestartOutcome> {
     // Invalidate the old bridge token before anything can report late from
-    // the retired process. The next plan build is triggered by the epoch.
+    // the retired process. Dropping the spec is also what schedules the
+    // rebuild — the cache notifies its subscribers, and the orchestrator's
+    // listener runs another pass. (The epoch only remounts the view.)
     dropPaneSpawnSpec(target.paneId);
     clearPaneUsage(target.paneId);
     await sessions.close(target.paneId);
@@ -764,13 +819,22 @@ export function createAgentOrchestrator(
     if (!ctx) throw new Error("Agent spawn context is unavailable");
     if (!target.sessionId) return restartFresh(target);
 
-    // Remove the old token immediately, then prepare a plan that explicitly
-    // stays exited if the CLI rejects its id — manual means no fallback.
+    // Revoke the old token BEFORE building, exactly as `restartFresh`,
+    // `suspend` and `close` do. A restart is only ever offered on a pane whose
+    // process has already ended (the exit card is its one entry point), so the
+    // credential being dropped belongs to a dead process — and the plan built
+    // next must NOT inherit it, or the replacement spawns carrying a secret
+    // that a late bridge envelope, or a child that outlived the PTY, can still
+    // echo to bind this pane. That is the invariant the token's own note in
+    // spawnSpecs states.
     dropPaneSpawnSpec(target.paneId);
     const ws = findWorkspaceByRef(
       deck.getSnapshot().workspaces,
       target.workspace,
     );
+    // A throwing `resume.plan` propagates as-is: the pane's process is already
+    // gone, so the plan-failed flag the cache records has no live terminal to
+    // paint over, and the card reports the failed restart either way.
     const planBuilt = await buildResumeSpec(
       plugins,
       target.agentType,
@@ -792,6 +856,12 @@ export function createAgentOrchestrator(
       dropPaneSpawnSpec(target.paneId);
       return "gone";
     }
+    // Asked BEFORE the plan is judged: a suspend landing inside the build
+    // invalidates it by design (it drops the spec, which retires this build's
+    // generation), so reading that as "the agent could not prepare a plan"
+    // blamed the agent for the user's own gesture — and said so on the card of
+    // a pane that had just been parked on purpose.
+    if (stoppedNow(target)) return "stopped";
     if (!sameResumeTarget(current, target)) {
       dropPaneSpawnSpec(target.paneId);
       throw new Error("Agent changed while its restart was being prepared");
@@ -811,11 +881,30 @@ export function createAgentOrchestrator(
     clearPaneUsage(target.paneId);
     await sessions.close(target.paneId);
     const afterClose = restartTargetOf(target.workspace, target.paneId);
-    if (!afterClose || !sameResumeTarget(afterClose, target)) {
+    if (!afterClose) {
       dropPaneSpawnSpec(target.paneId);
-      return afterClose ? "changed" : "gone";
+      return "gone";
     }
-    if (stoppedNow(target)) return "stopped";
+    if (stoppedNow(target)) {
+      // Idle now, so the sweep holds it — and a manual resume plan left in the
+      // cache would mislead whatever wakes it next.
+      dropPaneSpawnSpec(target.paneId);
+      return "stopped";
+    }
+    // For a pane that is still here and NOT stopped, standing down is no
+    // longer on offer: the process is already retired, so the sweep sees a
+    // pane that should run with none — and with the plan dropped it would
+    // build a FRESH one, turning the resume the user named into a brand-new
+    // conversation whose reporter then overwrites the binding. (The two
+    // branches above are the exceptions that can still stand down, and both
+    // leave the pane in a state the sweep holds.)
+    //
+    // There is deliberately no second `sameResumeTarget` check here. Nothing
+    // can move those four fields inside the reap: `agentType` has no writer at
+    // all, `cwd`/`branch` move only through `resetPaneLocation`, which needs an
+    // idle pane the check above already caught, and `sessionId` moves only on
+    // a postback — which the token revoked at the top of this function can no
+    // longer authenticate. A branch for it would be one nothing can reach.
     bumpEpoch(target.paneId);
     return "restarted";
   }
@@ -941,6 +1030,15 @@ export function createAgentOrchestrator(
         // nobody has opened — and the reason it gives is the reason the card
         // shows.
         const agentType = paneAgentType(pane);
+        // A restart owns this pane until it is finished, and that covers BOTH
+        // halves of the sweep. Guarding only the spawn half left the wake half
+        // open: a suspend during a restart's awaits marks the pane idle, a
+        // resume then marks it waking, and this pass would build and cache a
+        // plan into the same slot the restart is still using — which the
+        // restart's own continuation then reads as its own failed build,
+        // drops, and replaces with a fresh conversation. The restart schedules
+        // another pass when it is done.
+        if (restarting.has(pane.id)) continue;
         const intent = paneRunIntent(pane, {
           agentAvailable: commands.has(agentType),
           missingDir: blocked.get(pane.id) ?? null,
@@ -951,16 +1049,10 @@ export function createAgentOrchestrator(
         if (intent.kind === "run" && !pane.idle) {
           // A pane with no marker: it should run, and the only question left
           // is whether it already does and whether there is anything to run.
-          // Never a reason to END one — this pass starts processes only.
-          //
-          // Unless a restart owns it. A restart retires the process and starts
-          // it again, and the retiring half empties the slot — which looks
-          // exactly like a pane that should be started. Spawning here would
-          // race the restart's own continuation: it would then finish against
-          // a process it did not start, and its stand-down path would revoke a
-          // LIVE process's bridge token, silencing that agent's reports for
-          // good. The restart schedules another pass when it is done.
-          if (restarting.has(pane.id)) continue;
+          // Never a reason to END one — this pass starts processes only. (A
+          // restart owning the pane was already skipped above: its retiring
+          // half empties the slot, which looks exactly like a pane that should
+          // be started.)
           if (sessions.state(pane.id).kind !== "none") {
             // It has one: the debt is paid.
             startOwed.delete(pane.id);
@@ -1154,6 +1246,31 @@ export function createAgentOrchestrator(
         // it) — there is no Retry coming now.
         clearPostProvision(paneId);
       }
+      // Every create this close covers is consumed either way, so nothing is
+      // left holding a published entry. Each settles as soon as its
+      // `git worktree add` returned — the rest of the create, including a
+      // setup command in the slot about to be reaped, is not in front of it.
+      const made = (await Promise.all(paneIds.map(takeCreatedWorktree))).filter(
+        (worktree) => worktree !== null,
+      );
+      // What to delete is finished HERE, against the deck as it stands now.
+      // The dialog's list was frozen when it opened, and a create can land
+      // while the user reads it — turning a pane the dialog listed as "still
+      // being created" into one that owns a worktree, which that list will
+      // never mention. `request.worktrees` still leads because it carries the
+      // observed branch a bare pane read cannot.
+      const worktrees = request.deleteWorktrees
+        ? dedupeByPath([
+            ...request.worktrees,
+            ...(ws
+              ? worktreeTargets(
+                  ws,
+                  request.kind === "agent" ? request.paneId : undefined,
+                )
+              : []),
+            ...made,
+          ])
+        : [];
       if (request.kind === "agent") {
         actions.closeAgent(request.wsId, request.paneId);
       } else {
@@ -1161,9 +1278,10 @@ export function createAgentOrchestrator(
       }
       await Promise.allSettled(paneIds.map((id) => sessions.close(id)));
       // Only AFTER the processes are reaped: a worktree that is still some
-      // agent's cwd cannot be removed.
-      if (request.worktrees.length === 0) return [];
-      return discardWorktrees(request.worktrees);
+      // agent's cwd cannot be removed — including one whose setup command was
+      // running in the slot the reap above just emptied.
+      if (worktrees.length === 0) return [];
+      return discardWorktrees(worktrees);
     },
     async restart(wsId, paneId, mode) {
       if (restarting.has(paneId)) return "in-flight";
@@ -1318,7 +1436,7 @@ export function createAgentOrchestrator(
             },
           },
         });
-        if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+        landOrThrow(landed);
       } catch (error) {
         log.warn(
           "web:orchestrator",
@@ -1388,7 +1506,7 @@ export function createAgentOrchestrator(
               ...(name && { name }),
             },
           });
-          if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+          landOrThrow(landed);
           return;
         }
 
@@ -1423,7 +1541,7 @@ export function createAgentOrchestrator(
             },
           },
         });
-        if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+        landOrThrow(landed);
       } catch (error) {
         log.warn(
           "web:orchestrator",

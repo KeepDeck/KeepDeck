@@ -21,6 +21,7 @@ import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useAgentRunView } from "./app/useAgentRunView";
+import { askForPaneBack } from "./app/resumeOutcome";
 import { suspendRefusalText } from "./app/suspendOutcome";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useUsageChannel } from "./app/useUsageChannel";
@@ -70,6 +71,7 @@ import {
   MAX_PANES,
   maximizeHotkeyTarget,
   paneAgentType,
+  paneHasProcess,
   paneHotkeyTarget,
   paneOnScreen,
   pathOccupancy,
@@ -166,9 +168,9 @@ function App() {
       for (const pane of ws.panes) {
         // Dormant/provisioning panes have no running process — counting
         // them gave background workspaces eternal "waiting" chips (revive
-        // only wakes the active workspace). Same filter as the tail and
-        // polling lanes.
-        if (pane.idle || pane.provisioning) continue;
+        // only wakes the active workspace). The same predicate the tail and
+        // polling lanes ask, so they cannot answer differently.
+        if (!paneHasProcess(pane)) continue;
         ids.add(paneAgentType(pane));
       }
     }
@@ -240,6 +242,33 @@ function App() {
     suspendAgent: orchestrator.suspend,
     closeAgents: orchestrator.close,
   });
+  // Transactional dialogs — while one is up, nothing else may open over it.
+  // One list, one rule: a new dialog joins by being added here.
+  const transactions = [
+    agentFlow.dialog,
+    closeFlow.closing,
+    forkDialog,
+    error,
+    frozen && !frozenAck ? frozen : null,
+  ];
+  const dialogOpen = transactions.some((t) => t !== null);
+  // The single "may another dialog open over what is up?" rule. Every surface
+  // that can raise one asks THIS — buttons, hotkeys, notification navigation,
+  // the update chip, and the command registry — because the question was
+  // spelled four different ways across eleven sites and three of them omitted
+  // `skillsOpen`. Stacking matters beyond looks: `useEscape` handlers are
+  // window-level and stack, so one Escape peels both layers, and over an alert
+  // that resolves to its confirm — dismissing a notice nobody read.
+  //
+  // Declared ABOVE the command registry that reads it: the closures below
+  // would capture it either way, but ordering that only works because nothing
+  // calls them mid-render is a trap for the next edit.
+  //
+  // `showForm` is deliberately absent: the create form is a passive surface,
+  // and on first run it is the only screen there is, so blocking here would
+  // make Settings unreachable.
+  const canOpenDialog =
+    !dialogOpen && !settingsOpen && !statsOpen && !skillsOpen;
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
   // through the same confirm flow as ⌘W.
@@ -250,11 +279,20 @@ function App() {
     suspendAgent: orchestrator.suspend,
     resumeAgent: orchestrator.resume,
     createPane: orchestrator.createPane,
+    // A command reaches these from voice/MCP/a plugin, where no button was
+    // disabled to stop it — so they ask the same gate the UI does and answer
+    // whether they actually opened.
     openSettings: (sectionId) => {
+      if (!canOpenDialog) return false;
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
+      return true;
     },
-    openUsage: () => setStatsOpen(true),
+    openUsage: () => {
+      if (!canOpenDialog) return false;
+      setStatsOpen(true);
+      return true;
+    },
   });
   // The plugin system: the bridge wires deck accessors + deck events; the
   // built-ins boot once (bootstrapPlugins waits for settings itself — enabled
@@ -352,15 +390,6 @@ function App() {
   ];
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
-  // Transactional dialogs — while one is up, nothing else may open over it.
-  // One list, one rule: a new dialog joins by being added here.
-  const transactions = [
-    agentFlow.dialog,
-    closeFlow.closing,
-    error,
-    frozen && !frozenAck ? frozen : null,
-  ];
-  const dialogOpen = transactions.some((t) => t !== null);
   const modalOpen =
     showForm || dialogOpen || settingsOpen || statsOpen || skillsOpen;
   // The single "can add an agent" rule — a workspace is active, room under the
@@ -477,7 +506,7 @@ function App() {
       // blocking would make settings unreachable). Its Esc yields while the
       // settings dialog is on top. The Stats and Skills dialogs DO block:
       // stacking Settings over either would give one Escape two layers to peel.
-      if (dialogOpen || settingsOpen || statsOpen || skillsOpen) return;
+      if (!canOpenDialog) return;
       setSettingsSection(undefined);
       setSettingsOpen(true);
     },
@@ -543,7 +572,7 @@ function App() {
           n.source,
           preciseTargetResolved,
         );
-        if (section !== null && !dialogOpen && !settingsOpen && !statsOpen) {
+        if (section !== null && canOpenDialog) {
           setSettingsSection(section);
           setSettingsOpen(true);
         }
@@ -553,7 +582,7 @@ function App() {
         // Same guard as the top bar's update chip: the dialog reads its
         // section only at open, so setting it over an open dialog would
         // silently not navigate.
-        if (!dialogOpen && !settingsOpen && !statsOpen) {
+        if (canOpenDialog) {
           setSettingsSection(
             settingsSectionForNotification(n.source) ?? undefined,
           );
@@ -634,7 +663,7 @@ function App() {
               onClick={() => {
                 if (updateState.phase === "ready") {
                   void restartToUpdate();
-                } else if (!dialogOpen && !settingsOpen && !statsOpen) {
+                } else if (canOpenDialog) {
                   setSettingsSection("updates");
                   setSettingsOpen(true);
                 }
@@ -662,7 +691,10 @@ function App() {
           <UsageChips
             agents={agents}
             liveAgents={usageLiveAgents}
-            onOpenStats={() => setStatsOpen(true)}
+            // Asks the same gate as the stats button beside it. The backdrop
+            // blocks the pointer while a dialog is up, but not the Tab key —
+            // and unlike its neighbours this control is never disabled.
+            onOpenStats={() => canOpenDialog && setStatsOpen(true)}
           />
           <button
             type="button"
@@ -710,7 +742,7 @@ function App() {
             type="button"
             className="bar__icon"
             onClick={() => setStatsOpen(true)}
-            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
+            disabled={!canOpenDialog}
             title="Usage statistics"
             aria-label="Open usage statistics"
           >
@@ -722,7 +754,7 @@ function App() {
             className="bar__icon"
             onClick={() => setSkillsOpen(true)}
             // Same modal etiquette as the gear: one dialog at a time.
-            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
+            disabled={!canOpenDialog}
             title="Skills"
             aria-label="Open skills"
           >
@@ -738,7 +770,7 @@ function App() {
             // Mirrors the ⌘, guard. The create form does NOT disable this:
             // on first run it's the only screen, and settings must stay
             // reachable over it (e.g. to pick the default agent first).
-            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
+            disabled={!canOpenDialog}
             title="Settings"
             aria-label="Open settings"
           >
@@ -794,7 +826,19 @@ function App() {
             specByPane={specByPane}
             failedPanes={failedPanes}
             onStartFresh={orchestrator.startFresh}
-            onResumeAgent={orchestrator.resume}
+            onResumeAgent={(wsId, paneId) => {
+              // The card's Resume / "Look again" is the ONLY way a suspended
+              // pane comes back, so a refusal that says nothing is
+              // indistinguishable from a broken button.
+              const refused = askForPaneBack(
+                orchestrator.resume,
+                deck.workspaces,
+                agents,
+                wsId,
+                paneId,
+              );
+              if (refused) pushAlert("Can't resume this agent", refused);
+            }}
             onRetryProvision={orchestrator.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {
               // The one-shot boot-resume recovery respawns by itself — that
@@ -827,7 +871,7 @@ function App() {
                   // dialog is above this form, the form's own Esc yields
                   // (an undefined onCancel also hides the covered button).
                   onCancel={
-                    settingsOpen || statsOpen || skillsOpen
+                    !canOpenDialog
                       ? undefined
                       : () => setCreating(false)
                   }
@@ -983,7 +1027,7 @@ function App() {
               onConfirm={closeFlow.confirmClose}
               onCancel={closeFlow.cancelClose}
             >
-              {closeFlow.closing.targets.length > 0 && (
+              {closeFlow.worktreeCount > 0 && (
                 <label className="confirm__option">
                   <input
                     type="checkbox"
@@ -993,9 +1037,12 @@ function App() {
                     }
                   />
                   <span className="confirm__option-text">
-                    {closeFlow.closing.targets.length === 1
+                    {/* Counts the creates still in flight too: they have no
+                        directory to name yet, but one is coming, and without
+                        the offer it would be left with no owner. */}
+                    {closeFlow.worktreeCount === 1
                       ? "Also delete the worktree and its branches"
-                      : `Also delete all ${closeFlow.closing.targets.length} worktrees and their branches`}
+                      : `Also delete all ${closeFlow.worktreeCount} worktrees and their branches`}
                     <span className="confirm__option-note">
                       Discards any uncommitted work.
                     </span>

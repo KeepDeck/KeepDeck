@@ -571,12 +571,16 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       const { wsId, paneId, session } = action;
       const ws = findWorkspace(state.workspaces, wsId);
       const pane = ws && findPane(state.workspaces, wsId, paneId);
-      // Same-id rebinds return the same ref — binding refreshes are no-ops,
-      // for the journal too.
+      // A same-id rebind leaves the PANE untouched — there is nothing to
+      // change about it — but it is not a no-op for the JOURNAL. Boot demotes
+      // every loaded `live` record to `closed`, and a restored pane resuming
+      // its recorded session re-reports the SAME id; that re-report is the
+      // only signal that the record is live again. Returning here on the
+      // unchanged array skipped the `bound` below, so a running agent's row
+      // stayed "Closed", dated at the boot instant, for the pane's whole life
+      // — and `hydrateJournalSlice` documents the flip that never happened.
       const workspaces = setPaneSession(state.workspaces, wsId, paneId, session);
-      if (workspaces === state.workspaces || !ws || !pane) {
-        return withWorkspaces(state, workspaces);
-      }
+      if (!ws || !pane) return withWorkspaces(state, workspaces);
       let journal = state.journal;
       const prev = pane.session;
       if (prev && prev.id !== session?.id) {
@@ -596,6 +600,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           journal,
           boundEventFor(ws, pane, session, action.transcriptPath),
         );
+      }
+      // Identity is still preserved for a genuine no-op — clearing a pane that
+      // is already clear touches neither side.
+      if (workspaces === state.workspaces && journal === state.journal) {
+        return state;
       }
       return { ...state, workspaces, journal };
     }

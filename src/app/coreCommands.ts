@@ -15,6 +15,7 @@ import {
   paneDisplayTitle,
   paneId,
   WORKSPACE_FULL_MESSAGE,
+  WORKSPACE_GONE_MESSAGE,
   type Pane,
   type Workspace,
 } from "../domain/deck";
@@ -29,6 +30,7 @@ import type {
   CreatePaneRequest,
   ResumeRequest,
 } from "./agentOrchestrator";
+import { resumeRefusalText } from "./resumeOutcome";
 import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
 import type { Deck } from "./useDeck";
 
@@ -56,11 +58,21 @@ export interface CoreCommandDeps {
    * through the same sequence as one asked for by hand. */
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
   /** Open the settings dialog; `sectionId` lands it on a specific section
-   * (a plugin's `plugin:<id>`), null on the first. */
-  openSettings(sectionId: string | null): void;
-  /** Open the global usage-statistics surface. */
-  openUsage(): void;
+   * (a plugin's `plugin:<id>`), null on the first. Answers whether it opened:
+   * a command arrives with no button to have been disabled, so it asks the
+   * same "may another dialog open?" gate the UI does, and a refusal that
+   * reported success would leave the caller believing a surface is up. */
+  openSettings(sectionId: string | null): boolean;
+  /** Open the global usage-statistics surface. Same refusal contract as
+   * [`openSettings`]. */
+  openUsage(): boolean;
 }
+
+/** The refusal when a command asks for a surface that would stack over one
+ * already up. One sentence for both openers, because to the caller they are
+ * the same refusal for the same reason. */
+const DIALOG_BUSY_MESSAGE =
+  "Another dialog is open — close it before opening this one";
 
 /** How long task delivery waits for the pane's PTY writer to appear (a
  * worktree create + CLI start can take a while), then for the CLI to start
@@ -214,7 +226,7 @@ export function registerCoreCommands(
             workspace,
           );
           if (!currentWorkspace) {
-            throw new Error("workspace was closed while spawning the agent");
+            throw new Error(WORKSPACE_GONE_MESSAGE);
           }
           return { deck: currentDeck, workspace: currentWorkspace };
         };
@@ -263,12 +275,26 @@ export function registerCoreCommands(
           }
         }
 
-        const landed = deps.createPane({ workspace, pane });
         // A full workspace used to swallow the add and then report a paneId
-        // that was never in the deck — with the worktree already created.
-        if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
-        if (landed.kind === "gone")
-          throw new Error("workspace was closed while spawning the agent");
+        // that was never in the deck — with the worktree already created. The
+        // `never` is what makes a new refusal a compile error here: a bare
+        // switch would let an unmatched outcome fall straight through to the
+        // success report below.
+        const landed = deps.createPane({ workspace, pane });
+        switch (landed.kind) {
+          case "created":
+            break;
+          case "full":
+            throw new Error(WORKSPACE_FULL_MESSAGE);
+          case "gone":
+            throw new Error(WORKSPACE_GONE_MESSAGE);
+          default: {
+            const unhandled: never = landed;
+            throw new Error(
+              `unhandled create outcome: ${JSON.stringify(unhandled)}`,
+            );
+          }
+        }
         current = currentTarget();
         current.deck.selectWorkspace(workspace.id);
         current.deck.selectPane(workspace.id, id);
@@ -403,18 +429,8 @@ export function registerCoreCommands(
         // A switch rather than a chain of ifs, so a new outcome is a compile
         // error here instead of silently reporting success for it.
         const outcome = deps.resumeAgent(ws.id, pane.id);
-        switch (outcome) {
-          case "resuming":
-            return { workspaceId: ws.id, paneId: pane.id };
-          case "running":
-            throw new Error(`${label} is already running.`);
-          case "provisioning":
-            throw new Error(`${label} is still creating its worktree.`);
-          case "unavailable":
-            throw new Error(`No installed agent can start ${label}.`);
-          case "gone":
-            throw new Error(`${label} is no longer open.`);
-        }
+        if (outcome === "resuming") return { workspaceId: ws.id, paneId: pane.id };
+        throw new Error(resumeRefusalText(outcome, label));
       },
     }),
 
@@ -495,9 +511,10 @@ export function registerCoreCommands(
       run: (_args, source) => {
         // A plugin lands on its OWN section; anyone else on the first. The
         // section id mirrors what SettingsDialog builds per plugin.
-        deps.openSettings(
+        const opened = deps.openSettings(
           source.kind === "plugin" ? `plugin:${source.pluginId}` : null,
         );
+        if (!opened) throw new Error(DIALOG_BUSY_MESSAGE);
         return { opened: true };
       },
     }),
@@ -507,7 +524,7 @@ export function registerCoreCommands(
       title: "Open usage statistics",
       args: [],
       run: () => {
-        deps.openUsage();
+        if (!deps.openUsage()) throw new Error(DIALOG_BUSY_MESSAGE);
         return { opened: true };
       },
     }),
@@ -530,8 +547,8 @@ export function useCoreCommands(deps: {
    * reporting what it did. */
   resumeAgent(wsId: string, paneId: string): ResumeRequest;
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
-  openSettings(sectionId: string | null): void;
-  openUsage(): void;
+  openSettings(sectionId: string | null): boolean;
+  openUsage(): boolean;
 }): void {
   const ref = useRef(deps);
   ref.current = deps;

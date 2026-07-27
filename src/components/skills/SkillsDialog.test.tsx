@@ -167,6 +167,9 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ name: "deep-review" }),
+      // Not a create: the rename above already moved the directory, so what
+      // lands is an overwrite of a skill that exists.
+      false,
     );
   });
 
@@ -189,6 +192,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenLastCalledWith(
       { kind: "global" },
       expect.objectContaining({ name: "deep-review" }),
+      false,
     );
   });
 
@@ -274,6 +278,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ description: "reviews diffs with subagents read-only" }),
+      false,
     );
   });
 
@@ -340,6 +345,7 @@ describe("SkillsDialog", () => {
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
       expect.objectContaining({ description: "first edit" }),
+      false,
     );
   });
 
@@ -401,6 +407,37 @@ describe("SkillsDialog", () => {
         body: "Steps",
         extraFrontmatter: [],
       },
+      // A create says so, so the backend refuses a name already on disk even
+      // if the dialog's own collision check was working from a library it
+      // could not read.
+      true,
+    );
+  });
+
+  it("still offers Create when the library could not be read, and says so", async () => {
+    // A failed read arrives as an empty list plus an error. Disabling Create
+    // here would leave a dead button on a dialog that shows no rows to open
+    // either — nothing left to do and nothing saying why. The backend refuses
+    // a real collision, so the offer is safe to keep.
+    lib.skills = [];
+    lib.error = "Could not read the skills library: boom";
+    await mount();
+
+    expect(document.body.textContent).toContain("Could not read");
+
+    act(() => buttonByTitle("New global skill")!.click());
+    type(input("skill-name"), "review");
+    type(input("skill-description"), "Reviews diffs");
+    type(textarea(), "Steps");
+
+    expect(button("Create")!.disabled).toBe(false);
+    await act(async () => button("Create")!.click());
+    expect(lib.save).toHaveBeenCalledWith(
+      { kind: "global" },
+      expect.objectContaining({ name: "review" }),
+      // Marked a create, so the backend can refuse the name this empty list
+      // could not tell us was taken.
+      true,
     );
   });
 

@@ -32,6 +32,7 @@ import {
   createAgentOrchestrator,
   type AgentOrchestrator,
   type AgentRunView,
+  type RestartOutcome,
   type ResumeRequest,
 } from "./agentOrchestrator";
 import { useAgentRunView } from "./useAgentRunView";
@@ -181,10 +182,23 @@ vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
 const usage = vi.hoisted(() => ({ clearPaneUsage: vi.fn() }));
 vi.mock("./usageManager", () => usage);
 
+/** What each pane's create has put on disk, as `provisioning` publishes it the
+ *  moment `git worktree add` returns. */
+const published = vi.hoisted(
+  () =>
+    new Map<string, Promise<{ repo: string; path: string; branch: string } | null>>(),
+);
+
 vi.mock("./provisioning", async (importOriginal) => {
   const real = await importOriginal<typeof import("./provisioning")>();
   return {
     ...real,
+    takeCreatedWorktree: (paneId: string) => {
+      const made = published.get(paneId);
+      if (!made) return Promise.resolve(null);
+      published.delete(paneId);
+      return made;
+    },
     registerPostProvision: (
       paneId: string,
       step: (worktree: { cwd: string; branch: string }) => Promise<void>,
@@ -2265,6 +2279,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    published.clear();
   });
 
   const target = { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" };
@@ -2275,6 +2290,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-1",
+        deleteWorktrees: false,
         worktrees: [],
       }),
     );
@@ -2289,7 +2305,12 @@ describe("agent orchestrator —closing panes and workspaces", () => {
 
   it("closing a workspace ends every pane it held", async () => {
     await act(async () =>
-      agentRun.close({ kind: "workspace", wsId: "ws-1", worktrees: [] }),
+      agentRun.close({
+        kind: "workspace",
+        wsId: "ws-1",
+        deleteWorktrees: false,
+        worktrees: [],
+      }),
     );
     expect(deck.workspaces).toHaveLength(0);
     expect(pty.closed).toEqual(["pane-1", "pane-2"]);
@@ -2311,6 +2332,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-1",
+        deleteWorktrees: false,
         worktrees: [],
       }),
     );
@@ -2328,6 +2350,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
       closing = agentRun.close({
         kind: "workspace",
         wsId: "ws-1",
+        deleteWorktrees: true,
         worktrees: [target],
       });
     });
@@ -2346,6 +2369,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-2",
+        deleteWorktrees: true,
         worktrees: [target],
       }),
     );
@@ -2358,6 +2382,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-2",
+        deleteWorktrees: false,
         worktrees: [],
       }),
     );
@@ -2365,12 +2390,122 @@ describe("agent orchestrator —closing panes and workspaces", () => {
     expect(discards).toEqual([]);
   });
 
+  it("deletes what a still-running create put on disk, without waiting for the rest of it", async () => {
+    // A pane mid-create has no cwd, so it contributes no ordinary target. The
+    // create publishes the directory the moment `git worktree add` returns,
+    // which is what lets this close name it — and lets it settle even though
+    // the create's setup step is stuck in the session slot about to be reaped.
+    const made = { repo: "/repo", path: "/wt/9", branch: "kd/ws/9" };
+    published.set("pane-1", Promise.resolve(made));
+
+    const failures = await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        deleteWorktrees: true,
+        worktrees: [],
+      }),
+    );
+
+    expect(failures).toEqual([]);
+    expect(discards).toEqual([[made]]);
+  });
+
+  it("removes what a create landed while the dialog was still open", async () => {
+    // The dialog's list is frozen when it opens. A create finishing while the
+    // user reads it turns a pane the dialog called "still being created" into
+    // one that owns a worktree — which that frozen list will never mention.
+    // Deciding from the live deck is what covers it.
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "two",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        panes: [
+          {
+            id: "pane-9",
+            agentType: "claude",
+            provisioning: { repo: "/repo", workspace: "two", index: 1 },
+          },
+        ],
+      }),
+    );
+    // …the create lands while the confirm dialog is up.
+    act(() =>
+      deck.resolvePaneProvisioning("ws-2", "pane-9", {
+        cwd: "/wt/late",
+        branch: "kd/ws/late",
+      }),
+    );
+    expect(deck.workspaces[1].panes[0].cwd).toBe("/wt/late");
+
+    await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-2",
+        paneId: "pane-9",
+        deleteWorktrees: true,
+        // Exactly what the dialog offered when it opened: nothing.
+        worktrees: [],
+      }),
+    );
+
+    expect(discards).toEqual([
+      [{ repo: "/repo", path: "/wt/late", branch: "kd/ws/late" }],
+    ]);
+  });
+
+  it("deletes nothing when the box was left unticked", async () => {
+    published.set(
+      "pane-1",
+      Promise.resolve({ repo: "/repo", path: "/wt/9", branch: "kd/ws/9" }),
+    );
+    await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        deleteWorktrees: false,
+        worktrees: [],
+      }),
+    );
+    expect(discards).toEqual([]);
+    // Consumed all the same, so no published entry is left behind.
+    expect(published.has("pane-1")).toBe(false);
+  });
+
+  it("names one worktree once, however many sources mention it", async () => {
+    const target = { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" };
+    published.set("pane-2", Promise.resolve(target));
+
+    await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        deleteWorktrees: true,
+        // pane-2 already owns /wt/2, so the deck names it too.
+        worktrees: [target],
+      }),
+    );
+
+    expect(discards).toEqual([[target]]);
+  });
+
   it("still reaps a pane whose reap REJECTS, and the rest with it", async () => {
     // One process refusing to die must not strand the others, nor leave the
     // worktree removal waiting on a promise that never settles.
     pty.hold = Promise.reject(new Error("pty gone"));
     const failures = await act(async () =>
-      agentRun.close({ kind: "workspace", wsId: "ws-1", worktrees: [target] }),
+      agentRun.close({
+        kind: "workspace",
+        wsId: "ws-1",
+        deleteWorktrees: true,
+        worktrees: [target],
+      }),
     );
     expect(failures).toEqual([]);
     expect(discards).toEqual([[target]]);
@@ -2621,6 +2756,138 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(pty.closed).toEqual([]);
     expect(epoch()).toBeUndefined();
     expect(pane().session?.id).toBe("session-old");
+  });
+
+  it("revokes the retired process's token BEFORE building the replacement's plan", async () => {
+    // A restart is only ever offered on a pane whose process has already ended
+    // — the exit card is its one entry point — so the credential being dropped
+    // belongs to a dead process. Building first would let the new plan inherit
+    // it (the cache mints a fresh token only when no spec is present), and a
+    // late bridge envelope, or a child that outlived the PTY, could then still
+    // echo it and rebind this pane.
+    seed();
+    await settle();
+    vi.mocked(dropPaneSpawnSpec).mockClear();
+    vi.mocked(buildResumeSpec).mockClear();
+
+    await act(async () => agentRun.restart("ws-1", "pane-1", "resume"));
+
+    const dropped = vi.mocked(dropPaneSpawnSpec).mock.invocationCallOrder[0];
+    const built = vi.mocked(buildResumeSpec).mock.invocationCallOrder[0];
+    expect(dropped).toBeLessThan(built);
+    expect(epoch()).toBe(1);
+  });
+
+  it("blames the suspend, not the agent, when one lands inside the build", async () => {
+    // A real suspend drops the pane's spec, which retires this build's
+    // generation by design, so the plan comes back unbuilt. Reading that as
+    // "the agent could not prepare a plan" put a failure on the card of a pane
+    // the user had just parked on purpose.
+    seed();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // What the real cache does when a suspend drops the spec mid-build: the
+    // build loses its generation and reports that it cached nothing.
+    vi.mocked(buildResumeSpec).mockImplementationOnce(async () => {
+      await held;
+      return false;
+    });
+
+    let pending!: Promise<RestartOutcome>;
+    act(() => {
+      pending = agentRun.restart("ws-1", "pane-1", "resume");
+    });
+    act(() => {
+      void agentRun.suspend("ws-1", "pane-1");
+    });
+    await act(async () => {
+      release();
+      await expect(pending).resolves.toBe("stopped");
+    });
+
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+    expect(epoch()).toBeUndefined();
+  });
+
+  it("keeps the sweep off a pane a restart owns, even once it goes idle", async () => {
+    // The guard used to sit inside the "should run and has no marker" branch,
+    // so a suspend during the restart's awaits — which marks the pane idle —
+    // dropped the pane straight through to the WAKE half. That half would
+    // build a plan into the slot the restart is still using, and the restart's
+    // continuation then reads it as its own failed build.
+    seed();
+    await settle();
+    let release!: () => void;
+    gate.build = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let pending!: Promise<RestartOutcome>;
+    act(() => {
+      pending = agentRun.restart("ws-1", "pane-1", "resume");
+    });
+    // Suspended, then asked for back — the pane is now `waking`, which is the
+    // wake half's entry condition.
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    vi.mocked(buildResumeSpec).mockClear();
+    await settle();
+
+    // The sweep did NOT start a second build for the pane mid-restart.
+    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+
+    await act(async () => {
+      release();
+      await pending;
+    });
+  });
+
+  it("mounts the prepared plan even if the pane moves under the reap, never a fresh one", async () => {
+    // Past the reap the process is already gone, so standing down is not on
+    // offer: the sweep sees a pane that should run with no process and would
+    // build a FRESH plan for it — turning the resume the user named by hand
+    // into a brand-new conversation whose reporter then overwrites the
+    // binding. The prepared plan is mounted instead.
+    //
+    // The session change is forced here through the deck directly; production
+    // can no longer produce it, because the token this restart revoked before
+    // building is the one a late postback would have to echo. The test keeps
+    // it as the belt to that braces.
+    seed();
+    await settle();
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let pending!: Promise<RestartOutcome>;
+    act(() => {
+      pending = agentRun.restart("ws-1", "pane-1", "resume");
+    });
+    // The plan is built before the reap, so let it settle first — this has to
+    // land inside `sessions.close`, which is the window the pre-reap checks
+    // cannot cover.
+    await act(async () => {});
+    act(() =>
+      deck.setPaneSession("ws-1", "pane-1", {
+        id: "session-new",
+        boundAt: "2026-07-12T00:00:00Z",
+      }),
+    );
+    await act(async () => {
+      release();
+      await expect(pending).resolves.toBe("restarted");
+    });
+
+    // The remount happened, and the plan behind it is still the manual resume
+    // of the session that was asked for — not a fresh spawn.
+    expect(epoch()).toBe(1);
+    expect(peekPaneSpawnSpec("pane-1")).toMatchObject({
+      resumeOrigin: "manual",
+      resumeOf: "session-old",
+    });
   });
 
   it("does not let the SWEEP spawn the process it is retiring", async () => {
@@ -2995,7 +3262,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-claimer"]);
   });
 
-  it("drops the built plan when the workspace died during the build", async () => {
+  it("drops the built plan — and SAYS so — when the workspace died during the build", async () => {
     let release!: () => void;
     gate.build = new Promise<void>((resolve) => {
       release = resolve;
@@ -3007,7 +3274,9 @@ describe("agent orchestrator —continuing a recorded session", () => {
     act(() => deck.closeWorkspace("ws-1"));
     await act(async () => {
       release();
-      await pending;
+      // Resolving here would tell the row's Resume it worked: no pane
+      // appears, no alert fires, and the button reads as dead.
+      await expect(pending).rejects.toThrow("closed");
     });
 
     expect(deck.workspaces).toHaveLength(0);
@@ -3199,6 +3468,36 @@ describe("agent orchestrator —forking a recorded session", () => {
     ).rejects.toThrow("full");
     // export→rekey→import never runs, so there is no orphan clone.
     expect(vi.mocked(buildForkSpec)).not.toHaveBeenCalled();
+  });
+
+  it("reports the closed workspace instead of orphaning the clone it just made", async () => {
+    // The surgery is irreversible — export→rekey→import into the agent's own
+    // store — and it has already run by the time the pane lands. A workspace
+    // closing inside that await used to resolve the promise as if the fork
+    // had worked: a cloned session left in the store forever, no pane, no
+    // error, and a dialog that closed on success.
+    let release!: () => void;
+    vi.mocked(buildForkSpec).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(true);
+        }),
+    );
+    let pending!: Promise<void>;
+    act(() => {
+      pending = agentRun.forkSession("ws-1", forked(), {
+        kind: "dir",
+        cwd: "/elsewhere",
+      });
+    });
+    act(() => deck.closeWorkspace("ws-1"));
+    await act(async () => {
+      release();
+      await expect(pending).rejects.toThrow("closed");
+    });
+
+    expect(vi.mocked(buildForkSpec)).toHaveBeenCalledOnce();
+    expect(deck.workspaces).toHaveLength(0);
   });
 
   it("a throwing surgery carries its precise diagnostic to the caller", async () => {

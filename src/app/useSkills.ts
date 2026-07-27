@@ -10,7 +10,6 @@ import { composeSkillFile, type SkillDraft, type SkillScope } from "../domain/sk
 import {
   deleteSkill,
   fetchSkills,
-  listSkills,
   renameSkill,
   saveSkill,
   type StoredSkill,
@@ -25,7 +24,9 @@ export interface SkillsLibrary {
    * or by `clearError` (navigation away from the failed skill). */
   error: string | null;
   clearError(): void;
-  save(scope: SkillScope, draft: SkillDraft): Promise<boolean>;
+  /** `expectNew` marks a CREATE, which the backend refuses if the name is
+   * already taken — the guard that survives an unreadable library. */
+  save(scope: SkillScope, draft: SkillDraft, expectNew: boolean): Promise<boolean>;
   /** Move the skill's directory. Deliberately does NOT reload the list —
    * a rename is always followed by a save (whose refresh covers both), so
    * one user action costs one reload, not two. */
@@ -40,9 +41,26 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    void listSkills().then((all) => {
-      if (alive) setSkills(all);
-    });
+    // Reading the raw form and handling the failure here, rather than taking
+    // a wrapper's empty-list fallback: an empty library and one that could not
+    // be read must not arrive as the same value.
+    void fetchSkills().then(
+      (all) => {
+        if (!alive) return;
+        setSkills(all);
+      },
+      (e: unknown) => {
+        if (!alive) return;
+        log.warn("web:skills", `skills_list failed: ${describeError(e)}`);
+        // An empty list is what the editor can render, but it must not read as
+        // "you have no skills": the error is the difference, and it is the
+        // only thing on screen that says the library is unknown rather than
+        // empty. The name-collision guard that matters lives in the backend,
+        // which refuses a create over an existing skill whatever this list says.
+        setSkills([]);
+        setError(`Could not read the skills library: ${describeError(e)}`);
+      },
+    );
     return () => {
       alive = false;
     };
@@ -52,19 +70,23 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     invalidateSkillsStaging();
     try {
       setSkills(await fetchSkills());
+      // Cleared only on a read that WORKED. Clearing regardless wiped the
+      // "could not read the library" notice on the first successful save,
+      // putting back the empty-looking library with nothing saying why —
+      // which is the whole thing that notice exists to prevent.
+      setError(null);
     } catch (e) {
       // The operation itself succeeded; only the re-read failed. Keep the
       // stale list — blanking it right after a successful write reads as
       // data loss (the same rule the failed-save path follows).
       log.warn("web:skills", `library reload failed; keeping the stale list: ${describeError(e)}`);
     }
-    setError(null);
   }, []);
 
   const save = useCallback(
-    async (scope: SkillScope, draft: SkillDraft) => {
+    async (scope: SkillScope, draft: SkillDraft, expectNew: boolean) => {
       try {
-        await saveSkill(scope, draft.name, composeSkillFile(draft));
+        await saveSkill(scope, draft.name, composeSkillFile(draft), expectNew);
         await refresh();
         return true;
       } catch (e) {

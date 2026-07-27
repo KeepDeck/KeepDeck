@@ -23,6 +23,13 @@ export interface ProvisionCallbacks {
   onFailed(paneId: string, error: string): void;
   /** The worktree exists; the workspace's setup command started in it. */
   onSetup?(paneId: string): void;
+  /**
+   * Has the pane left the deck? A no-op sink is not enough to answer this:
+   * `onResolved` silently doing nothing looks exactly like success from here,
+   * and the create needs to KNOW, because everything it does after the
+   * directory exists is done on that pane's behalf.
+   */
+  abandoned(paneId: string): boolean;
 }
 
 /** The runner's usual sinks: the deck's provisioning actions for `wsId`.
@@ -40,6 +47,9 @@ export function provisionInto(
       error: string | null,
     ): void;
     setPaneProvisioningPhase(wsId: string, paneId: string, phase: "setup"): void;
+    /** Is this pane still in the deck? Read live — the create outlives the
+     * render that started it. */
+    hasPane(wsId: string, paneId: string): boolean;
   },
   wsId: string,
 ): ProvisionCallbacks {
@@ -49,6 +59,7 @@ export function provisionInto(
     onFailed: (paneId, error) =>
       deck.setPaneProvisioningError(wsId, paneId, error),
     onSetup: (paneId) => deck.setPaneProvisioningPhase(wsId, paneId, "setup"),
+    abandoned: (paneId) => !deck.hasPane(wsId, paneId),
   };
 }
 
@@ -73,6 +84,51 @@ const postProvisionSteps = new Map<
   string,
   (worktree: { cwd: string; branch: string }) => Promise<void>
 >();
+
+/**
+ * What each pane's worktree create has put on disk, published the moment
+ * `git worktree add` returns and BEFORE anything else the create does.
+ *
+ * Published early on purpose. The close needs two things a create cannot give
+ * it at the same moment: the path, and permission to delete only after the
+ * pane's process is reaped. Waiting for the whole create supplies neither —
+ * the setup step runs in the session slot the close just reaped, so waiting
+ * there is a deadlock — and letting the CREATE delete supplies the path but
+ * loses the ordering, removing a directory a still-live setup command is
+ * writing into.
+ *
+ * Publishing at the git call splits those apart: this promise always settles
+ * promptly (nothing but the git call is in front of it), so the close can await
+ * it, then reap, then delete — in that order, with `discardWorktrees` doing the
+ * removal and reporting its failures like any other.
+ *
+ * Kept until READ, then dropped. The pane also drops its own entry once it
+ * takes ownership (`onResolved`), because from then on it has a `cwd` and the
+ * close can name the worktree without help.
+ */
+const created = new Map<string, Promise<CreatedWorktree | null>>();
+
+/** A worktree a create put on disk: enough for [`discardWorktrees`]. */
+export interface CreatedWorktree {
+  repo: string;
+  path: string;
+  branch: string;
+}
+
+/**
+ * What `paneId`'s create made, waiting for the `git worktree add` to return if
+ * it has not yet. Null when there is nothing outstanding — the pane already
+ * owns its worktree (so it has a `cwd` to be named by), or its create failed
+ * and rolled back, or it never had one.
+ */
+export function takeCreatedWorktree(
+  paneId: string,
+): Promise<CreatedWorktree | null> {
+  const pending = created.get(paneId);
+  if (!pending) return Promise.resolve(null);
+  created.delete(paneId);
+  return pending;
+}
 
 /** Register a step to run after `paneId`'s worktree lands (see the map doc). */
 export function registerPostProvision(
@@ -166,7 +222,14 @@ export async function runProvisioning(
   );
 }
 
-/** One pane's create (+ optional setup) → its card resolves or fails. */
+/**
+ * One pane's create (+ optional setup) → its card resolves or fails.
+ *
+ * What it puts on disk is published the instant `git worktree add` returns
+ * (see [`created`]), so a close can name the directory without waiting for the
+ * rest of this. Nothing here deletes on a close's behalf: this function only
+ * stops early, and the close does the removing in the order it needs.
+ */
 async function provisionPane(
   paneId: string,
   intent: PaneProvisioning,
@@ -174,6 +237,31 @@ async function provisionPane(
   cb: ProvisionCallbacks,
   setup?: SetupStep,
 ): Promise<void> {
+  /**
+   * The pane left while we were working. Asked after every await that could
+   * outlive it, because everything past the create is done ON ITS BEHALF: a
+   * setup command would spawn into a session slot the close already reaped,
+   * and `onResolved` would hand a worktree to a pane that cannot take it.
+   * Whether that worktree then goes is the close's decision, not ours — it is
+   * the only party that knows what the user ticked and when the process died.
+   */
+  const abandoned = (): boolean => {
+    if (!cb.abandoned(paneId)) return false;
+    log.info(
+      "web:provisioning",
+      `${paneId} left while its worktree was being created — stopping here`,
+    );
+    return true;
+  };
+
+  let publish!: (made: CreatedWorktree | null) => void;
+  created.set(
+    paneId,
+    new Promise<CreatedWorktree | null>((resolve) => {
+      publish = resolve;
+    }),
+  );
+
   let rec: { path: string; branch: string };
   try {
     rec = await createWorktree({
@@ -192,19 +280,36 @@ async function provisionPane(
       "web:provisioning",
       `worktree create failed for ${paneId}: ${describeError(e)}`,
     );
+    // Nothing landed, so a close has nothing to remove.
+    publish(null);
+    created.delete(paneId);
     cb.onFailed(paneId, describeError(e));
     return;
   }
+  // The directory exists: say so before anything else can delay it. A close
+  // racing this is the case the early publish is for.
+  publish({ repo: intent.repo, path: rec.path, branch: rec.branch });
+  // Before the setup command, not only after: it runs in the pane's session
+  // slot, and spawning there once the pane is gone leaves a process with
+  // nothing to reap it.
+  if (abandoned()) return;
 
   if (setup) {
     cb.onSetup?.(paneId);
     const result = await setup(paneId, { cwd: rec.path, branch: rec.branch });
+    // Asked BEFORE the result is judged. A pane closed mid-setup ends the
+    // command, so it comes back not-ok — but that is the close, not a broken
+    // setup, and the failure branch below would roll back a worktree whose
+    // fate is the close's to decide.
+    if (abandoned()) return;
     if (!result.ok) {
       log.error(
         "web:provisioning",
         `setup failed for ${paneId} in ${rec.path}: ${result.tail}`,
       );
       await rollbackWorktree(intent.repo, rec);
+      // Rolled back, so there is nothing left for a close to remove.
+      created.delete(paneId);
       cb.onFailed(paneId, `Setup failed: ${result.tail}`);
       return;
     }
@@ -224,9 +329,15 @@ async function provisionPane(
       `post-provision step failed for ${paneId} in ${rec.path}: ${stepError}`,
     );
     await rollbackWorktree(intent.repo, rec);
+    created.delete(paneId);
     cb.onFailed(paneId, stepError);
     return;
   }
+  // The last gate, with no await between it and the handover: past here the
+  // pane owns the worktree and an ordinary close can name it by its `cwd`, so
+  // the published entry is no longer anyone's only handle on it.
+  if (abandoned()) return;
+  created.delete(paneId);
 
   cb.onResolved(paneId, { cwd: rec.path, branch: rec.branch });
 }

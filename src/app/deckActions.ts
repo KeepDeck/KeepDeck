@@ -1,4 +1,10 @@
-import type { DeckState, Pane, PaneSession, Workspace } from "../domain/deck";
+import {
+  findPane,
+  type DeckState,
+  type Pane,
+  type PaneSession,
+  type Workspace,
+} from "../domain/deck";
 import type { JournalRecords } from "../domain/journal";
 import type { DeckStore } from "./deckStore";
 import { mintWorkspaceSeq } from "./ids";
@@ -40,6 +46,12 @@ export function createDeckActions(store: DeckStore): DeckActions {
 function buildDeckActions(store: DeckStore) {
   const dispatch = store.dispatch;
   return {
+    /** Is this pane still in the deck? A read, not a transition — background
+     * work that outlives the render which started it needs to know whether the
+     * pane it is working for is still there, and a no-op dispatch cannot say
+     * so. Live against the store, like every action here. */
+    hasPane: (wsId: string, paneId: string): boolean =>
+      !!findPane(store.getSnapshot().workspaces, wsId, paneId),
     selectWorkspace: (id: string) => dispatch({ type: "selectWorkspace", id }),
     createWorkspace: (workspace: Workspace) =>
       dispatch({ type: "createWorkspace", workspace, at: nowIso() }),

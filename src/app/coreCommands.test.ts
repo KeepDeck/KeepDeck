@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentInfo } from "../domain/agents";
 import { createCommandRegistry } from "../domain/commands";
-import type { Workspace } from "../domain/deck";
+import {
+  WORKSPACE_FULL_MESSAGE,
+  WORKSPACE_GONE_MESSAGE,
+  type Workspace,
+} from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
@@ -102,8 +106,10 @@ function setup(workspaces: Workspace[]) {
       return { kind: "created" };
     },
   );
-  const openSettings = vi.fn();
-  const openUsage = vi.fn();
+  // Both answer whether they opened; the default is a free screen, and the
+  // refusal tests below override with `mockReturnValue(false)`.
+  const openSettings = vi.fn(() => true);
+  const openUsage = vi.fn(() => true);
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
@@ -217,6 +223,23 @@ describe("agent.spawn", () => {
     expect(pane.provisioning?.path?.endsWith("kd-web-2")).toBe(true);
   });
 
+  it("reports a refusal instead of a paneId that was never added", async () => {
+    // The landing's own refusals, which this command translates. Reporting a
+    // paneId for a pane that is not in the deck is the failure the switch
+    // exists to prevent — and the worktree is already on disk by then.
+    const { registry, createPane } = setup([workspace({})]);
+
+    createPane.mockReturnValueOnce({ kind: "full" });
+    const full = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
+    expect(full.ok).toBe(false);
+    if (!full.ok) expect(full.error.message).toBe(WORKSPACE_FULL_MESSAGE);
+
+    createPane.mockReturnValueOnce({ kind: "gone" });
+    const gone = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
+    expect(gone.ok).toBe(false);
+    if (!gone.ok) expect(gone.error.message).toBe(WORKSPACE_GONE_MESSAGE);
+  });
+
   it("honors the global YOLO default, gated on the agent's support", async () => {
     settingsState.current = { defaultYolo: true };
     const { registry, deck } = setup([workspace({})]);
@@ -277,7 +300,7 @@ describe("agent.spawn", () => {
       ok: false,
       error: {
         code: "failed",
-        message: "workspace was closed while spawning the agent",
+        message: WORKSPACE_GONE_MESSAGE,
       },
     });
     expect(replacement.panes).toEqual([]);
@@ -535,6 +558,20 @@ describe("settings.open", () => {
     await registry.execute("settings.open", {}, HOST);
     expect(openSettings).toHaveBeenLastCalledWith(null);
   });
+
+  it("reports a refusal instead of claiming it opened over another dialog", async () => {
+    // A command arrives with no button to have been disabled, so the host
+    // gate is the only thing standing between it and a stacked dialog. When
+    // it refuses, saying `{opened: true}` would tell a plugin a surface is up
+    // that is not — and stacking is what gives one Escape two layers to peel.
+    const { registry, openSettings } = setup([workspace({})]);
+    openSettings.mockReturnValue(false);
+
+    const result = await registry.execute("settings.open", {}, HOST);
+
+    expect(result.ok).toBe(false);
+    expect(openSettings).toHaveBeenCalledOnce();
+  });
 });
 
 describe("usage.open", () => {
@@ -544,6 +581,15 @@ describe("usage.open", () => {
 
     expect(result).toEqual({ ok: true, value: { opened: true } });
     expect(openUsage).toHaveBeenCalledOnce();
+  });
+
+  it("reports a refusal instead of claiming it opened over another dialog", async () => {
+    const { registry, openUsage } = setup([workspace({})]);
+    openUsage.mockReturnValue(false);
+
+    const result = await registry.execute("usage.open", {}, HOST);
+
+    expect(result.ok).toBe(false);
   });
 });
 

@@ -56,7 +56,8 @@ const scopeOf = (skill: StoredSkill): SkillScope =>
  * rule.
  */
 export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
-  const { skills, error, clearError, save, rename, remove } = useSkillsLibrary(true);
+  const { skills, error, clearError, save, rename, remove } =
+    useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<SkillFormState>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);
@@ -167,6 +168,12 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   // so saving one would "work" and then never reach the agent.
   const descriptionOk =
     form.description.trim() !== "" && isValidSkillDescription(form.description);
+  // `nameTaken` is a courtesy — it catches the collision before the round
+  // trip and can name the skill. It is NOT the guard: it is derived from the
+  // listed library, which is empty whenever the read failed, and the backend
+  // refuses a create over an existing skill regardless. Disabling Create on a
+  // library we could not read would trade a silent overwrite for a silently
+  // dead button.
   const canSave =
     selection !== null && dirty && nameOk && !nameTaken && descriptionOk;
 
@@ -204,7 +211,10 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
       }
     }
     const draft: SkillDraft = { ...form };
-    if (await save(scope, draft)) {
+    // A rename above has already moved the directory, so what lands now is an
+    // overwrite of a skill that exists — only an untouched create is new.
+    const expectNew = selection.mode === "create";
+    if (await save(scope, draft, expectNew)) {
       if (navEpoch.current === nav) {
         setSelection({ mode: "edit", scope, name: draft.name });
         // Keystrokes typed DURING the save are on screen but not on disk —
@@ -255,6 +265,14 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
               <div className="skills__placeholder">
                 {skills === null ? (
                   "Loading…"
+                ) : error !== null ? (
+                  // A library that could not be READ renders as an empty one,
+                  // and with nothing selected the editor — the only other
+                  // place an error appears — is not mounted. Without this the
+                  // dialog claims you simply have no skills.
+                  <span className="skills__placeholder-title" role="alert">
+                    {error}
+                  </span>
                 ) : (
                   <>
                     <span className="skills__placeholder-title">

@@ -136,6 +136,35 @@ describe("withJournalEvent", () => {
     });
     expect(noop).toBe(one);
   });
+
+  it("queues nothing for a bind that repeats one already recorded", () => {
+    // The agents' SessionStart hooks fire again on every resume, /clear and
+    // compaction. An identical re-report must cost nothing — otherwise each
+    // one appends a line to journal.jsonl, fsyncs it, and re-renders the deck.
+    // What makes them identical is the binding keeping its ORIGINAL stamp;
+    // this is the half that turns that into no work.
+    const one = withJournalEvent(emptyJournal, bound("ws-1", "s-1"));
+    const again = withJournalEvent(one, bound("ws-1", "s-1"));
+
+    expect(again).toBe(one);
+    expect(again.tail).toHaveLength(1);
+  });
+
+  it("DOES queue a re-bind that carries something new", () => {
+    // The counterpart: a record that genuinely differs — here a session
+    // demoted to `closed` at boot and re-bound live by a resumed pane — has
+    // to reach disk, which is the whole reason the same-id rebind stopped
+    // being skipped.
+    const closed = applyJournalEvent({}, bound("ws-1", "s-1"));
+    const sealed = withJournalEvent(
+      { records: closed, tail: [] },
+      { e: "sealed", v: 1, wsId: "ws-1", sessionId: "s-1", at: T1 },
+    );
+    const relive = withJournalEvent(sealed, bound("ws-1", "s-1"));
+
+    expect(relive).not.toBe(sealed);
+    expect(relive.records["ws-1"][0].state).toBe("live");
+  });
 });
 
 describe("foldJournal / flushJournalTail", () => {

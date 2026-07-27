@@ -281,6 +281,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* The exit veil's detail line only. It used to hold nothing but
+   "exit code 137"; a failed spawn puts the backend's message there — a Rust
+   error carrying a full worktree path — which a quarter-screen tile cannot
+   take. Deliberately NOT on `.pane__exit-sub`: that class dresses eight other
+   lines, and two of them (`.pane__wake-error`, the plan-failed sentence) are
+   prose meant to WRAP inside their card, on an opaque surface with no
+   terminal underneath to recover a clipped tail from. */
+.pane__exit-detail {
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The exit veil stays click-through so terminal scrollback can still be
    selected. Only this compact action island participates in pointer input. */
 .pane__exit-actions {

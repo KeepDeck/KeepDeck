@@ -26,7 +26,11 @@ export interface SessionRecordBase {
   title?: string;
   /** The session's transcript/rollout file when the reporter delivered it. */
   transcriptPath?: string;
-  /** ISO instant of the (latest) binding. */
+  /** ISO instant the session was FIRST bound to a pane. A re-report of the
+   * same id keeps it — the agents' hooks fire again on every resume, `/clear`
+   * and compaction, and re-stamping made each one a record that differed from
+   * itself, so nothing deduped and every one reached disk. The moment a
+   * session was bound does not change because its agent compacted. */
   boundAt: string;
 }
 
@@ -284,7 +288,9 @@ export function snapshotJournal(records: JournalRecords): JournalEvent[] {
   );
 }
 
-/** A workspace's records, newest binding first — the history list's order. */
+/** A workspace's records, newest binding first — the history list's order.
+ * "Newest" is when each session was FIRST bound (see `boundAt`), not when it
+ * was last heard from: a long-lived session sorts by where it started. */
 export function journalRows(
   records: JournalRecords,
   wsId: string,

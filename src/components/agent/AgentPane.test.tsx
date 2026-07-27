@@ -13,11 +13,14 @@ vi.mock("../terminal/TerminalPane", () => ({
 // The pane READS its process state; it does not own it. Stand in for the
 // session registry so a test can put a pane's process where it wants it.
 const sessions = vi.hoisted(() => {
-  let state: { kind: string; code?: number | null } = { kind: "none" };
+  // `message` carries a failed spawn's reason — the pane's only clue about a
+  // program that never launched, so the stand-in has to be able to hold it.
+  type State = { kind: string; code?: number | null; message?: string };
+  let state: State = { kind: "none" };
   const listeners = new Set<() => void>();
   return {
     read: () => state,
-    put(next: { kind: string; code?: number | null }) {
+    put(next: State) {
       state = next;
       for (const listener of [...listeners]) listener();
     },
@@ -670,6 +673,27 @@ describe("AgentPane — manual restart after exit", () => {
     Array.from(
       document.querySelectorAll<HTMLButtonElement>(".pane__exit-action"),
     );
+
+  it("offers a way back from a spawn that FAILED, not just one that exited", () => {
+    // A failed spawn leaves no process either, and the run sweep will not
+    // re-acquire while the registry holds any state for the pane — so a card
+    // that only knows "exited" left a pane whose program could not be launched
+    // with no message and no Restart, recoverable only by closing it.
+    mount({ onRestart: vi.fn() });
+    act(() =>
+      sessions.put({ kind: "failed", message: "spawn codex: ENOENT" }),
+    );
+
+    const card = document.querySelector(".pane__exit");
+    expect(card).not.toBeNull();
+    // Its own wording: nothing ran, so "exited" would be false.
+    expect(card?.textContent).toContain("didn't start");
+    // And the reason, which is the only clue the user gets.
+    expect(card?.textContent).toContain("ENOENT");
+    expect(actionButtons().map((b) => b.textContent)).toContain(
+      "Restart agent",
+    );
+  });
 
   it("forgets the exit when the pane stops — a resume must not come back veiled", () => {
     // Suspending is allowed on an exited pane, and neither suspend nor resume

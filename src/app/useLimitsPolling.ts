@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { AgentUsage, UsageLimitsSource } from "@keepdeck/plugin-api";
-import { paneAgentType } from "../domain/deck";
+import { paneAgentType, paneHasProcess } from "../domain/deck";
 import { log } from "../ipc/log";
 import { fetchCodexRateLimits, fetchKimiUsages } from "../ipc/usage";
 import { setAccountUsage } from "./usageManager";
@@ -86,7 +86,7 @@ export function useLimitsPolling(
   const polledAgents = declaredAgents
     .filter((id) =>
       deck.workspaces.some((ws) =>
-        ws.panes.some((p) => paneAgentType(p) === id && !p.idle),
+        ws.panes.some((p) => paneAgentType(p) === id && paneHasProcess(p)),
       ),
     )
     .join("\n");

@@ -120,6 +120,24 @@ describe("useSessionBinding", () => {
     act(() => root.unmount());
   });
 
+  it("re-reports the SAME session with the stamp it was first bound at", async () => {
+    // These hooks fire again for every resume, /clear and compaction. A fresh
+    // timestamp each time makes the journal record differ from itself, so the
+    // dedupe misses and every one of them appends and fsyncs a `bound` event
+    // and re-renders the deck. Nothing about the binding has changed.
+    const { root, setPaneSession } = await mount("session-old");
+
+    act(() => emit({ paneId: "pane-1", sessionId: "session-old", token: "tok" }));
+
+    expect(setPaneSession).toHaveBeenCalledWith(
+      "ws-1",
+      "pane-1",
+      { id: "session-old", boundAt: "2026-07-22T00:00:00Z" },
+      undefined,
+    );
+    act(() => root.unmount());
+  });
+
   it("keeps telemetry on the initial and same-session bindings", async () => {
     let mounted = await mount();
     act(() => emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" }));
