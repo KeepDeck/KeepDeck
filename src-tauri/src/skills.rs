@@ -292,10 +292,15 @@ fn save(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {
 ///
 /// Its own operation rather than a flag on [`save`], because the two differ in
 /// what they are allowed to destroy. The webview checks a new name against the
-/// library it listed, but that list degrades to empty whenever the backend read
-/// fails — and then every name looks free, so the write would silently destroy
-/// the skill it collided with. [`rename`] has always refused this collision; a
-/// create is the same one at the same cost.
+/// library it listed, but that list is empty whenever the backend read failed —
+/// and then every name looks free, so the write would silently destroy the
+/// skill it collided with.
+///
+/// "Taken" means a readable skill is there: the SKILL.md, matching what
+/// [`scope_skills`] counts as a skill. [`rename`] refuses on the DIRECTORY
+/// instead, so a leftover directory with no SKILL.md blocks a rename and
+/// accepts a create — deliberate, since a create can fill it in and a rename
+/// would bury whatever else it holds.
 fn create(scope_dir: &Path, name: &str, content: &str) -> io::Result<()> {
     require_safe(name, "skill name").map_err(io::Error::other)?;
     if scope_dir.join(name).join(SKILL_FILE).exists() {

@@ -275,12 +275,18 @@ export function registerCoreCommands(
           }
         }
 
-        const landed = deps.createPane({ workspace, pane });
         // A full workspace used to swallow the add and then report a paneId
-        // that was never in the deck — with the worktree already created.
-        if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
-        if (landed.kind === "gone")
-          throw new Error(WORKSPACE_GONE_MESSAGE);
+        // that was never in the deck — with the worktree already created. A
+        // switch rather than two ifs, so a new refusal is a compile error here
+        // instead of falling through to the success report below.
+        switch (deps.createPane({ workspace, pane }).kind) {
+          case "created":
+            break;
+          case "full":
+            throw new Error(WORKSPACE_FULL_MESSAGE);
+          case "gone":
+            throw new Error(WORKSPACE_GONE_MESSAGE);
+        }
         current = currentTarget();
         current.deck.selectWorkspace(workspace.id);
         current.deck.selectPane(workspace.id, id);

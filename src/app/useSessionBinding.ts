@@ -66,12 +66,17 @@ export function useSessionBinding(deck: Deck): void {
         if (previousSessionId && previousSessionId !== sessionId) {
           beginPaneUsageSession(paneId, sessionId);
         }
-        d.setPaneSession(
-          ws.id,
-          paneId,
-          { id: sessionId, boundAt: new Date().toISOString() },
-          transcriptPath,
-        );
+        // The SAME session keeps the stamp it was first bound at. These hooks
+        // fire again for every resume, `/clear` and compaction, and a fresh
+        // timestamp each time makes the journal record differ from itself —
+        // so the dedupe misses, a `bound` event is appended and fsynced, and
+        // the whole deck re-renders. The moment a session was bound does not
+        // change because its agent compacted its context.
+        const boundAt =
+          previousSessionId === sessionId
+            ? (pane?.session?.boundAt ?? new Date().toISOString())
+            : new Date().toISOString();
+        d.setPaneSession(ws.id, paneId, { id: sessionId, boundAt }, transcriptPath);
       }
     }).then((u) => {
       if (disposed) u();

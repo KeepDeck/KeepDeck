@@ -279,6 +279,14 @@
   font-size: 12px;
   color: #6b7280;
   font-variant-numeric: tabular-nums;
+  /* Clamped like every other card detail line: this used to hold only
+     "exit code 137", but a failed spawn puts the backend's message here —
+     a Rust error carrying a full worktree path — and a quarter-screen tile
+     cannot take it. The terminal beneath keeps the untruncated text. */
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The exit veil stays click-through so terminal scrollback can still be

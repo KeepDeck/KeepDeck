@@ -242,6 +242,33 @@ function App() {
     suspendAgent: orchestrator.suspend,
     closeAgents: orchestrator.close,
   });
+  // Transactional dialogs — while one is up, nothing else may open over it.
+  // One list, one rule: a new dialog joins by being added here.
+  const transactions = [
+    agentFlow.dialog,
+    closeFlow.closing,
+    forkDialog,
+    error,
+    frozen && !frozenAck ? frozen : null,
+  ];
+  const dialogOpen = transactions.some((t) => t !== null);
+  // The single "may another dialog open over what is up?" rule. Every surface
+  // that can raise one asks THIS — buttons, hotkeys, notification navigation,
+  // the update chip, and the command registry — because the question was
+  // spelled four different ways across eleven sites and three of them omitted
+  // `skillsOpen`. Stacking matters beyond looks: `useEscape` handlers are
+  // window-level and stack, so one Escape peels both layers, and over an alert
+  // that resolves to its confirm — dismissing a notice nobody read.
+  //
+  // Declared ABOVE the command registry that reads it: the closures below
+  // would capture it either way, but ordering that only works because nothing
+  // calls them mid-render is a trap for the next edit.
+  //
+  // `showForm` is deliberately absent: the create form is a passive surface,
+  // and on first run it is the only screen there is, so blocking here would
+  // make Settings unreachable.
+  const canOpenDialog =
+    !dialogOpen && !settingsOpen && !statsOpen && !skillsOpen;
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
   // through the same confirm flow as ⌘W.
@@ -254,9 +281,7 @@ function App() {
     createPane: orchestrator.createPane,
     // A command reaches these from voice/MCP/a plugin, where no button was
     // disabled to stop it — so they ask the same gate the UI does and answer
-    // whether they actually opened. Reading `canOpenDialog` from the enclosing
-    // render is sound: the hook re-reads its deps every render, so the closure
-    // that runs is always the current one.
+    // whether they actually opened.
     openSettings: (sectionId) => {
       if (!canOpenDialog) return false;
       setSettingsSection(sectionId ?? undefined);
@@ -365,31 +390,8 @@ function App() {
   ];
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
-  // Transactional dialogs — while one is up, nothing else may open over it.
-  // One list, one rule: a new dialog joins by being added here.
-  const transactions = [
-    agentFlow.dialog,
-    closeFlow.closing,
-    forkDialog,
-    error,
-    frozen && !frozenAck ? frozen : null,
-  ];
-  const dialogOpen = transactions.some((t) => t !== null);
   const modalOpen =
     showForm || dialogOpen || settingsOpen || statsOpen || skillsOpen;
-  // The single "may another dialog open over what is up?" rule. Every surface
-  // that can raise one asks THIS — buttons, hotkeys, notification navigation,
-  // the update chip, and the command registry — because the question was
-  // spelled four different ways across eleven sites and three of them omitted
-  // `skillsOpen`. Stacking matters beyond looks: `useEscape` handlers are
-  // window-level and stack, so one Escape peels both layers, and over an alert
-  // that resolves to its confirm — dismissing a notice nobody read.
-  //
-  // `showForm` is deliberately absent: the create form is a passive surface,
-  // and on first run it is the only screen there is, so blocking here would
-  // make Settings unreachable.
-  const canOpenDialog =
-    !dialogOpen && !settingsOpen && !statsOpen && !skillsOpen;
   // The single "can add an agent" rule — a workspace is active, room under the
   // cap, and nothing modal is up. Both the ⌘T hotkey and the + Agent button
   // gate on this so they can't diverge (the button used to ignore modals).
