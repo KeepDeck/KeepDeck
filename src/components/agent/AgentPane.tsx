@@ -197,7 +197,13 @@ export function AgentPane({
   // exited, was suspended and then resumed kept a local copy alive and painted
   // this card, with a working Restart button, over its fresh terminal.
   const session = usePaneSessionState(paneId);
-  const exit = session.kind === "exited" ? session : null;
+  // Both terminal states, not just the clean one. A spawn that FAILED leaves
+  // no process either, and the sweep will not re-acquire while the registry
+  // holds any state for the pane — so with only `exited` handled, a pane whose
+  // program could not be launched at all had no card, no Restart and no way
+  // back short of closing it.
+  const ended =
+    session.kind === "exited" || session.kind === "failed" ? session : null;
   // A successful restart remounts the whole pane via its epoch. Until then,
   // keep both choices inert; only a rejected plan lets the user try again.
   const restartInFlight = useRef(false);
@@ -271,7 +277,7 @@ export function AgentPane({
   // (its last usage report lingers in the store until the pane leaves the deck).
   // The domain's answer, not a second derivation of it: a frozen ctx% on an
   // exited / idle / unavailable / provisioning pane would read as live.
-  const paneLive = !exit && body === "terminal";
+  const paneLive = !ended && body === "terminal";
   return (
     <section
       data-pane-id={paneId}
@@ -604,11 +610,17 @@ export function AgentPane({
           // pane that must not have one.
           unreachableBody(body)
         )}
-        {exit && !idle && !unavailableAgent && (
+        {ended && !idle && !unavailableAgent && (
           <div className="pane__exit" role="status">
-            <span className="pane__exit-title">Agent exited</span>
+            <span className="pane__exit-title">
+              {ended.kind === "failed" ? "Agent didn't start" : "Agent exited"}
+            </span>
             <span className="pane__exit-sub">
-              {exit.code !== null ? `exit code ${exit.code}` : "terminated"}
+              {ended.kind === "failed"
+                ? ended.message
+                : ended.code !== null
+                  ? `exit code ${ended.code}`
+                  : "terminated"}
             </span>
             {onRestart && (
               <div className="pane__exit-actions">
