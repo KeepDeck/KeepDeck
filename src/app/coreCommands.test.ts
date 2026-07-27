@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentInfo } from "../domain/agents";
 import { createCommandRegistry } from "../domain/commands";
-import { WORKSPACE_GONE_MESSAGE, type Workspace } from "../domain/deck";
+import {
+  WORKSPACE_FULL_MESSAGE,
+  WORKSPACE_GONE_MESSAGE,
+  type Workspace,
+} from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
@@ -217,6 +221,23 @@ describe("agent.spawn", () => {
       index: 2,
     });
     expect(pane.provisioning?.path?.endsWith("kd-web-2")).toBe(true);
+  });
+
+  it("reports a refusal instead of a paneId that was never added", async () => {
+    // The landing's own refusals, which this command translates. Reporting a
+    // paneId for a pane that is not in the deck is the failure the switch
+    // exists to prevent — and the worktree is already on disk by then.
+    const { registry, createPane } = setup([workspace({})]);
+
+    createPane.mockReturnValueOnce({ kind: "full" });
+    const full = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
+    expect(full.ok).toBe(false);
+    if (!full.ok) expect(full.error.message).toBe(WORKSPACE_FULL_MESSAGE);
+
+    createPane.mockReturnValueOnce({ kind: "gone" });
+    const gone = await registry.execute("agent.spawn", { workspace: "web" }, HOST);
+    expect(gone.ok).toBe(false);
+    if (!gone.ok) expect(gone.error.message).toBe(WORKSPACE_GONE_MESSAGE);
   });
 
   it("honors the global YOLO default, gated on the agent's support", async () => {

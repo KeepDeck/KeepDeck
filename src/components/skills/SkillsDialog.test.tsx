@@ -11,8 +11,6 @@ import { SkillsDialog } from "./SkillsDialog";
 
 const lib = vi.hoisted(() => ({
   skills: [] as StoredSkill[] | null,
-  /** The library could not be READ — distinct from being empty. */
-  unreadable: false,
   error: null as string | null,
   clearError: vi.fn(),
   save: vi.fn(async () => true),
@@ -22,7 +20,6 @@ const lib = vi.hoisted(() => ({
 vi.mock("../../app/useSkills", () => ({
   useSkillsLibrary: () => ({
     skills: lib.skills,
-    unreadable: lib.unreadable,
     error: lib.error,
     clearError: lib.clearError,
     save: lib.save,
@@ -76,7 +73,6 @@ describe("SkillsDialog", () => {
 
   beforeEach(() => {
     lib.skills = [];
-    lib.unreadable = false;
     lib.error = null;
     lib.clearError.mockClear();
     lib.save.mockClear();

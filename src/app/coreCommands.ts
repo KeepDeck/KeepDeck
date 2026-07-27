@@ -68,16 +68,16 @@ export interface CoreCommandDeps {
   openUsage(): boolean;
 }
 
-/** How long task delivery waits for the pane's PTY writer to appear (a
- * worktree create + CLI start can take a while), then for the CLI to start
- * accepting input. Readiness = "the input writer exists" is an MVP heuristic
- * — replaced by a real CLI-ready signal when one exists. */
 /** The refusal when a command asks for a surface that would stack over one
  * already up. One sentence for both openers, because to the caller they are
  * the same refusal for the same reason. */
 const DIALOG_BUSY_MESSAGE =
   "Another dialog is open — close it before opening this one";
 
+/** How long task delivery waits for the pane's PTY writer to appear (a
+ * worktree create + CLI start can take a while), then for the CLI to start
+ * accepting input. Readiness = "the input writer exists" is an MVP heuristic
+ * — replaced by a real CLI-ready signal when one exists. */
 const TASK_POLL_MS = 200;
 const TASK_POLL_TRIES = 300;
 const TASK_SETTLE_MS = 1500;

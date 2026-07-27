@@ -691,7 +691,10 @@ function App() {
           <UsageChips
             agents={agents}
             liveAgents={usageLiveAgents}
-            onOpenStats={() => setStatsOpen(true)}
+            // Asks the same gate as the stats button beside it. The backdrop
+            // blocks the pointer while a dialog is up, but not the Tab key —
+            // and unlike its neighbours this control is never disabled.
+            onOpenStats={() => canOpenDialog && setStatsOpen(true)}
           />
           <button
             type="button"

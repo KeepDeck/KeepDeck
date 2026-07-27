@@ -2811,6 +2811,39 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(epoch()).toBeUndefined();
   });
 
+  it("keeps the sweep off a pane a restart owns, even once it goes idle", async () => {
+    // The guard used to sit inside the "should run and has no marker" branch,
+    // so a suspend during the restart's awaits — which marks the pane idle —
+    // dropped the pane straight through to the WAKE half. That half would
+    // build a plan into the slot the restart is still using, and the restart's
+    // continuation then reads it as its own failed build.
+    seed();
+    await settle();
+    let release!: () => void;
+    gate.build = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let pending!: Promise<RestartOutcome>;
+    act(() => {
+      pending = agentRun.restart("ws-1", "pane-1", "resume");
+    });
+    // Suspended, then asked for back — the pane is now `waking`, which is the
+    // wake half's entry condition.
+    act(() => deck.suspendPane("ws-1", "pane-1"));
+    act(() => deck.requestPaneWake("ws-1", "pane-1"));
+    vi.mocked(buildResumeSpec).mockClear();
+    await settle();
+
+    // The sweep did NOT start a second build for the pane mid-restart.
+    expect(vi.mocked(buildResumeSpec)).not.toHaveBeenCalled();
+
+    await act(async () => {
+      release();
+      await pending;
+    });
+  });
+
   it("mounts the prepared plan even if the pane moves under the reap, never a fresh one", async () => {
     // Past the reap the process is already gone, so standing down is not on
     // offer: the sweep sees a pane that should run with no process and would

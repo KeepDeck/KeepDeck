@@ -15,7 +15,8 @@ import type { WorkspaceView } from "./reducer";
 export interface PaneSession {
   /** The agent's own session id (claude uuid / codex uuid / opencode id). */
   id: string;
-  /** ISO instant the binding was made (diagnostics; newer binding wins). */
+  /** ISO instant this session was first bound to the pane (diagnostics). A
+   * re-report of the SAME id keeps the original; only a different id restamps. */
   boundAt: string;
 }
 

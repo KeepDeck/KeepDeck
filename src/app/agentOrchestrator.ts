@@ -148,9 +148,10 @@ export interface AgentOrchestrator {
    * falling back: the user asked for that conversation by name, and quietly
    * starting a different one is the substitution this whole path guards.
    *
-   * Answers what it did, like every other refusable gesture here. Four things
-   * can stop a restart short of failing, and a caller that reads "resolved"
-   * as "restarted" leaves its card promising a restart that is not coming.
+   * Answers what it did, like every other refusable gesture here. Three
+   * things can stop a restart short of failing, and a caller that reads
+   * "resolved" as "restarted" leaves its card promising a restart that is not
+   * coming.
    */
   restart(
     wsId: string,
@@ -795,7 +796,9 @@ export function createAgentOrchestrator(
 
   async function restartFresh(target: RestartTarget): Promise<RestartOutcome> {
     // Invalidate the old bridge token before anything can report late from
-    // the retired process. The next plan build is triggered by the epoch.
+    // the retired process. Dropping the spec is also what schedules the
+    // rebuild — the cache notifies its subscribers, and the orchestrator's
+    // listener runs another pass. (The epoch only remounts the view.)
     dropPaneSpawnSpec(target.paneId);
     clearPaneUsage(target.paneId);
     await sessions.close(target.paneId);
@@ -1027,6 +1030,15 @@ export function createAgentOrchestrator(
         // nobody has opened — and the reason it gives is the reason the card
         // shows.
         const agentType = paneAgentType(pane);
+        // A restart owns this pane until it is finished, and that covers BOTH
+        // halves of the sweep. Guarding only the spawn half left the wake half
+        // open: a suspend during a restart's awaits marks the pane idle, a
+        // resume then marks it waking, and this pass would build and cache a
+        // plan into the same slot the restart is still using — which the
+        // restart's own continuation then reads as its own failed build,
+        // drops, and replaces with a fresh conversation. The restart schedules
+        // another pass when it is done.
+        if (restarting.has(pane.id)) continue;
         const intent = paneRunIntent(pane, {
           agentAvailable: commands.has(agentType),
           missingDir: blocked.get(pane.id) ?? null,
@@ -1037,16 +1049,10 @@ export function createAgentOrchestrator(
         if (intent.kind === "run" && !pane.idle) {
           // A pane with no marker: it should run, and the only question left
           // is whether it already does and whether there is anything to run.
-          // Never a reason to END one — this pass starts processes only.
-          //
-          // Unless a restart owns it. A restart retires the process and starts
-          // it again, and the retiring half empties the slot — which looks
-          // exactly like a pane that should be started. Spawning here would
-          // race the restart's own continuation: it would then finish against
-          // a process it did not start, and its stand-down path would revoke a
-          // LIVE process's bridge token, silencing that agent's reports for
-          // good. The restart schedules another pass when it is done.
-          if (restarting.has(pane.id)) continue;
+          // Never a reason to END one — this pass starts processes only. (A
+          // restart owning the pane was already skipped above: its retiring
+          // half empties the slot, which looks exactly like a pane that should
+          // be started.)
           if (sessions.state(pane.id).kind !== "none") {
             // It has one: the debt is paid.
             startOwed.delete(pane.id);
