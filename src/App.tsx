@@ -21,7 +21,7 @@ import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
 import { useAgentRunView } from "./app/useAgentRunView";
-import { resumeRefusalText } from "./app/resumeOutcome";
+import { askForPaneBack } from "./app/resumeOutcome";
 import { suspendRefusalText } from "./app/suspendOutcome";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useUsageChannel } from "./app/useUsageChannel";
@@ -71,7 +71,6 @@ import {
   MAX_PANES,
   maximizeHotkeyTarget,
   paneAgentType,
-  paneDisplayTitle,
   paneHasProcess,
   paneHotkeyTarget,
   paneOnScreen,
@@ -825,23 +824,15 @@ function App() {
             onResumeAgent={(wsId, paneId) => {
               // The card's Resume / "Look again" is the ONLY way a suspended
               // pane comes back, so a refusal that says nothing is
-              // indistinguishable from a broken button. Most reachable during
-              // boot: the first paint does not wait for the agent catalog, so
-              // the button is live while the catalog is still empty and the
-              // orchestrator answers "unavailable" without touching the deck.
-              const outcome = orchestrator.resume(wsId, paneId);
-              if (outcome === "resuming") return;
-              const ws = findWorkspace(deck.workspaces, wsId);
-              const index = ws?.panes.findIndex((p) => p.id === paneId) ?? -1;
-              pushAlert(
-                "Can't resume this agent",
-                resumeRefusalText(
-                  outcome,
-                  ws && index >= 0
-                    ? paneDisplayTitle(ws.panes[index], index, agents)
-                    : "That agent",
-                ),
+              // indistinguishable from a broken button.
+              const refused = askForPaneBack(
+                orchestrator.resume,
+                deck.workspaces,
+                agents,
+                wsId,
+                paneId,
               );
+              if (refused) pushAlert("Can't resume this agent", refused);
             }}
             onRetryProvision={orchestrator.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {
