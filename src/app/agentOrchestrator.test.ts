@@ -32,6 +32,7 @@ import {
   createAgentOrchestrator,
   type AgentOrchestrator,
   type AgentRunView,
+  type RestartOutcome,
   type ResumeRequest,
 } from "./agentOrchestrator";
 import { useAgentRunView } from "./useAgentRunView";
@@ -2621,6 +2622,124 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(pty.closed).toEqual([]);
     expect(epoch()).toBeUndefined();
     expect(pane().session?.id).toBe("session-old");
+  });
+
+  it("leaves a LIVE process's plan — and its token — alone when the build fails", async () => {
+    // Every stand-down before the reap leaves the process running. Dropping
+    // its spec revokes the token its reporters echo, and the next plan mints a
+    // fresh one, so from then on every postback that process sends fails
+    // verification — silently, for the rest of its life.
+    seed();
+    await settle();
+    const before = peekPaneSpawnSpec("pane-1");
+    expect(before).toBeDefined();
+    vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
+
+    await expect(
+      act(async () => agentRun.restart("ws-1", "pane-1", "resume")),
+    ).rejects.toThrow("could not prepare a resume plan");
+
+    expect(pty.closed).toEqual([]);
+    expect(peekPaneSpawnSpec("pane-1")).toBe(before);
+  });
+
+  it("does not paint a plan-error tile over an agent that is still running", async () => {
+    // A throwing resume.plan hook marks the pane plan-failed in the cache. The
+    // process never stopped, so that flag would replace a live terminal with
+    // an error tile and a Retry button.
+    seed();
+    await settle();
+    // The real buildAndCache marks the pane plan-failed on its way out of a
+    // throwing hook; the fake has to do the same or there is nothing to clear.
+    vi.mocked(buildResumeSpec).mockImplementationOnce(async () => {
+      plans.failed.add("pane-1");
+      plans.notify();
+      throw new Error("codex resume: unexpected store layout");
+    });
+
+    await expect(
+      act(async () => agentRun.restart("ws-1", "pane-1", "resume")),
+    ).rejects.toThrow("unexpected store layout");
+
+    expect(pty.closed).toEqual([]);
+    // The cache directly, not the published view: this is about what the
+    // error tile is rendered FROM.
+    expect(plans.failed.has("pane-1")).toBe(false);
+  });
+
+  it("blames the suspend, not the agent, when one lands inside the build", async () => {
+    // A real suspend drops the pane's spec, which retires this build's
+    // generation by design, so the plan comes back unbuilt. Reading that as
+    // "the agent could not prepare a plan" put a failure on the card of a pane
+    // the user had just parked on purpose.
+    seed();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // What the real cache does when a suspend drops the spec mid-build: the
+    // build loses its generation and reports that it cached nothing.
+    vi.mocked(buildResumeSpec).mockImplementationOnce(async () => {
+      await held;
+      return false;
+    });
+
+    let pending!: Promise<RestartOutcome>;
+    act(() => {
+      pending = agentRun.restart("ws-1", "pane-1", "resume");
+    });
+    act(() => {
+      void agentRun.suspend("ws-1", "pane-1");
+    });
+    await act(async () => {
+      release();
+      await expect(pending).resolves.toBe("stopped");
+    });
+
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+    expect(epoch()).toBeUndefined();
+  });
+
+  it("mounts the prepared plan when the pane moves under the reap, never a fresh one", async () => {
+    // Past the reap the process is already gone, so standing down is not on
+    // offer: the sweep sees a pane that should run with no process and would
+    // build a FRESH plan for it — turning the resume the user named by hand
+    // into a brand-new conversation whose reporter then overwrites the
+    // binding. The prepared plan is mounted instead.
+    seed();
+    await settle();
+    let release!: () => void;
+    pty.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    let pending!: Promise<RestartOutcome>;
+    act(() => {
+      pending = agentRun.restart("ws-1", "pane-1", "resume");
+    });
+    // The plan is built before the reap, so let it settle first — this has to
+    // land inside `sessions.close`, which is the window the pre-reap checks
+    // cannot cover.
+    await act(async () => {});
+    // A late postback binds a different session while the reap is out.
+    act(() =>
+      deck.setPaneSession("ws-1", "pane-1", {
+        id: "session-new",
+        boundAt: "2026-07-12T00:00:00Z",
+      }),
+    );
+    await act(async () => {
+      release();
+      await expect(pending).resolves.toBe("changed");
+    });
+
+    // The remount happened, and the plan behind it is still the manual resume
+    // of the session that was asked for — not a fresh spawn.
+    expect(epoch()).toBe(1);
+    expect(peekPaneSpawnSpec("pane-1")).toMatchObject({
+      resumeOrigin: "manual",
+      resumeOf: "session-old",
+    });
   });
 
   it("does not let the SWEEP spawn the process it is retiring", async () => {
