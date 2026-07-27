@@ -1,5 +1,8 @@
 // @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
+import { DockPanel } from "../components/dock/DockPanel";
 import {
   collectDropSurface,
   collectPaneRects,
@@ -7,6 +10,11 @@ import {
   deliverPathToPoint,
 } from "./dragDrop";
 import { registerPaneInput } from "./paneInput";
+
+// React 19 requires this flag for act() outside a test-framework integration.
+(
+  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("collectPaneRects (real DOM)", () => {
   // Fixtures mirror DeckStage's real structure: a .deck__workspace layer per
@@ -40,29 +48,50 @@ describe("collectPaneRects (real DOM)", () => {
 });
 
 describe("collectDropSurface (real DOM)", () => {
-  // Only the selectors are testable here: happy-dom reports every rect as
-  // zero-sized, so the geometry these feed is covered by paneAtPoint's own
-  // tests instead. What can go silently wrong HERE is a renamed class.
-  const deckWith = (dockClass: string) => `
+  // happy-dom lays nothing out, so every rect here is zero — the geometry
+  // these feed is paneDnd's to test. What IS testable here is the contract
+  // between a surface that declares itself a blocker and the query that finds
+  // it. So the dock below is the REAL component: a hand-written fixture would
+  // carry whatever marker this module happens to look for, and prove only that
+  // a string equals itself — which is exactly how a half-finished rename would
+  // ship a dock that still looks floating and no longer blocks anything.
+  const DECK = `
       <main class="deck__workspace">
         <div class="deck__gridwrap"><div class="deck__grid">
           <section data-pane-id="pane-1"></section>
         </div></div>
-      </main>
-      <aside class="${dockClass}"></aside>`;
+      </main>`;
+
+  const mountDock = (floating: boolean): Root => {
+    document.body.innerHTML = `${DECK}<div id="dock-host"></div>`;
+    const root = createRoot(document.getElementById("dock-host")!);
+    act(() =>
+      root.render(
+        createElement(DockPanel, {
+          tabs: [{ id: "p:one", label: "One", element: "body" }],
+          activeTab: null,
+          onSelectTab: () => {},
+          floating,
+        }),
+      ),
+    );
+    return root;
+  };
 
   it("reports no blocker while the dock is docked — it covers nothing", () => {
-    document.body.innerHTML = deckWith("dock");
+    const root = mountDock(false);
     const surface = collectDropSurface();
     expect(surface.panes.map((p) => p.id)).toEqual(["pane-1"]);
     expect(surface.blockers).toEqual([]);
+    act(() => root.unmount());
   });
 
-  it("reports a floating dock as a blocker, alongside the same panes", () => {
-    document.body.innerHTML = deckWith("dock dock--floating");
+  it("finds the floating dock the dock itself marked, alongside the panes", () => {
+    const root = mountDock(true);
     const surface = collectDropSurface();
     expect(surface.panes.map((p) => p.id)).toEqual(["pane-1"]);
     expect(surface.blockers).toHaveLength(1);
+    act(() => root.unmount());
   });
 });
 

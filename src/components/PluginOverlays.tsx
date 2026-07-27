@@ -3,6 +3,7 @@ import {
   overlayVisibility,
   subscribeOverlayVisibility,
 } from "../app/overlayVisibility";
+import { DROP_BLOCKER_ATTR } from "../app/dragDrop";
 import { reportPluginCrash } from "../app/pluginHealth";
 import { useAppRuntime } from "../app/runtimeContext";
 import { describeError, log } from "../ipc/log";
@@ -65,6 +66,11 @@ export function PluginOverlays() {
                 sandbox="allow-scripts allow-same-origin"
                 src={externalPluginUrl(c.pluginId, c.entry.iframe)}
                 hidden={!visible}
+                // It covers the whole window while visible, so a file dropped
+                // on it belongs to the plugin, not to the pane underneath.
+                // Hidden it is unlaid-out, and a zero rect blocks nothing —
+                // no need to condition the marker on visibility.
+                {...{ [DROP_BLOCKER_ATTR]: "" }}
               />
             )}
           </ErrorBoundary>

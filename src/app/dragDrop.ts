@@ -8,6 +8,24 @@ import { formatDroppedPaths } from "../domain/terminal";
 import { writeRawToPane } from "./paneInput";
 
 /**
+ * The marker a surface carries to say "a drop released on me is mine, not the
+ * pane's". An ATTRIBUTE rather than a class name, and exported rather than
+ * spelled twice: a class is presentation, and a rename would leave the writer
+ * and this reader agreeing with their own tests and with nothing else — the
+ * dock would keep looking floating and quietly stop blocking drops.
+ *
+ * Carry it on anything opaque that covers the deck while it is interactive.
+ * Modal surfaces do not need it: they take the pointer outright.
+ */
+export const DROP_BLOCKER_ATTR = "data-kd-drop-blocker";
+
+/** Narrow a live element's box to the plain rect the hit-test works in. */
+function rectOf(el: Element): Rect {
+  const r = el.getBoundingClientRect();
+  return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+}
+
+/**
  * Snapshot the live viewport rects of the panes in the ACTIVE workspace.
  * Scoped to the non-hidden workspace layer (`.deck__workspace`) so a drop
  * can't resolve to a pane in an inactive workspace stacked at the same
@@ -21,32 +39,24 @@ export function collectPaneRects(doc: Document = document): PaneRect[] {
     doc.querySelectorAll<HTMLElement>(
       ".deck__workspace:not(.deck__workspace--hidden) [data-pane-id]",
     ),
-  ).map((el) => {
-    const r = el.getBoundingClientRect();
-    return {
-      id: el.dataset.paneId ?? "",
-      rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
-    };
-  });
+  ).map((el) => ({ id: el.dataset.paneId ?? "", rect: rectOf(el) }));
 }
 
 /**
- * Snapshot everything at the drop point, panes and the chrome over them, in one
- * pass over the live layout — the two halves must describe the SAME moment, or
- * a point could clear a blocker that has since moved across it.
+ * Snapshot everything a drop point can land on — the panes, and the surfaces
+ * covering them. Both halves are read synchronously here, so they describe the
+ * same layout: a point must not clear a blocker that has since moved across it.
  *
- * The only blocker today is a floating dock (`.dock--floating`): docked, it is
- * a flex sibling that never overlaps a pane and the selector finds nothing.
- * Modal surfaces are deliberately absent — they take the pointer outright, and
- * an OS drop landing under one behaves as it always has.
+ * Who blocks is declared by the surfaces themselves ([`DROP_BLOCKER_ATTR`]),
+ * not enumerated here, so a new one arrives with the code that renders it
+ * rather than by someone remembering this function exists. A surface that is
+ * present but not laid out (a hidden overlay) reports a zero rect, which
+ * contains no point — so absence needs no special case.
  */
 export function collectDropSurface(doc: Document = document): DropSurface {
   const blockers = Array.from(
-    doc.querySelectorAll<HTMLElement>(".dock--floating"),
-  ).map((el): Rect => {
-    const r = el.getBoundingClientRect();
-    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
-  });
+    doc.querySelectorAll(`[${DROP_BLOCKER_ATTR}]`),
+  ).map(rectOf);
   return { panes: collectPaneRects(doc), blockers };
 }
 
@@ -65,7 +75,7 @@ export function deliverDrop(
 
 /**
  * Deliver a dragged file `path` released at `point`: hit-test the pane under the
- * point against `rects`, decide image-vs-text, and write the path into that
+ * point against `surface`, decide image-vs-text, and write the path into that
  * pane's PTY. Returns the target pane id on delivery, else null. The SAME core
  * as the OS file drop (`paneAtPoint` + `deliverDrop`), reached from the plugin
  * tree's POINTER drag (see `usePaneDrag`) — a Finder drop and a dragged tree

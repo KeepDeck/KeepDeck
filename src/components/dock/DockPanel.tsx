@@ -1,4 +1,5 @@
 import { type ReactNode } from "react";
+import { DROP_BLOCKER_ATTR } from "../../app/dragDrop";
 
 /** One dock tab as the panel renders it: identity, the strip label, and the
  * already-wired panel content (the composition root decides what props each
@@ -48,7 +49,13 @@ export function DockPanel({
   const activeId = tabs.some((t) => t.id === activeTab) ? activeTab : tabs[0]?.id;
 
   return (
-    <aside className={`dock${floating ? " dock--floating" : ""}`}>
+    <aside
+      className={`dock${floating ? " dock--floating" : ""}`}
+      // Floating, the panel lies over panes, so a file released on it is the
+      // panel's business and must not fall through to whatever it covers.
+      // Docked it covers nothing, and the marker would be a lie.
+      {...(floating && { [DROP_BLOCKER_ATTR]: "" })}
+    >
       <div className="dock__tabs" role="tablist">
         {tabs.map((tab) => (
           <button
