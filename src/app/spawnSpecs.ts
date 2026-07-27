@@ -12,6 +12,7 @@ import {
 } from "../domain/agents";
 import {
   paneAgentType,
+  paneHasProcess,
   skillRootsOf,
   type Pane,
   type Workspace,
@@ -393,7 +394,7 @@ export async function buildLivePaneSpec(
   pane: Pane,
   ctx: SpawnPlanContext,
 ): Promise<boolean> {
-  if (pane.idle || pane.provisioning) return false;
+  if (!paneHasProcess(pane)) return false;
   if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id)) {
     return false;
   }

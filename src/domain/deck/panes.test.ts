@@ -10,6 +10,7 @@ import {
   paneCanSuspend,
   paneFromAgentRequest,
   paneDisplayTitle,
+  paneHasProcess,
   paneIdleIsDurable,
   paneIsRemoteFresh,
   idleReadsAsStopped,
@@ -37,6 +38,33 @@ describe("paneIsRemoteFresh", () => {
     // case (hand-edit only — the dialog never sets "") so lifecycle + plan
     // builder agree it's local.
     expect(paneIsRemoteFresh({ id: "p", remoteEndpoint: "" })).toBe(false);
+  });
+});
+
+describe("paneHasProcess", () => {
+  it("false for every reason a pane has none, true only for a plain pane", () => {
+    expect(paneHasProcess({ id: "p" })).toBe(true);
+    // Exited is still "has a process" to the model: the marker is runtime
+    // state the durable shape deliberately doesn't carry.
+    expect(paneHasProcess({ id: "p", session: { id: "s", boundAt: "t" } })).toBe(
+      true,
+    );
+    // Every idle reason, including the one on its way UP — a rising pane has
+    // no session YET, which is what the telemetry lanes need to know.
+    expect(paneHasProcess({ id: "p", idle: { reason: "parked" } })).toBe(false);
+    expect(
+      paneHasProcess({ id: "p", idle: { reason: "suspended", at: "t" } }),
+    ).toBe(false);
+    expect(
+      paneHasProcess({ id: "p", idle: { reason: "waking", origin: "manual" } }),
+    ).toBe(false);
+    // The half the limits poller used to drop: mid-create, never ran.
+    expect(
+      paneHasProcess({
+        id: "p",
+        provisioning: { repo: "/repo", workspace: "ws", index: 1 },
+      }),
+    ).toBe(false);
   });
 });
 

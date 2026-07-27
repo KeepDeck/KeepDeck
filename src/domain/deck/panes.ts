@@ -164,6 +164,22 @@ export function paneIsRemoteFresh(pane: Pane): boolean {
   return !!pane.remoteEndpoint;
 }
 
+/** Whether this pane is one that HAS a process — the durable half of the
+ *  question, which is all the model can answer: whether the process is
+ *  currently alive is the session registry's half.
+ *
+ *  A pane with an idle marker has none (stopped, parked, or still on its way
+ *  up), and one whose worktree create is in flight has never had one. Five
+ *  surfaces ask this to decide who gets telemetry: the usage roster, the two
+ *  usage-tail lanes, the limits poller and the close dialog's session count.
+ *  They spelled it out by hand and one of them — the limits poller — dropped
+ *  the `provisioning` half, so it fired real provider requests for panes the
+ *  top bar was deliberately withholding a chip from. One predicate, so the
+ *  next reason a pane has no process reaches all five at once. */
+export function paneHasProcess(pane: Pane): boolean {
+  return !pane.idle && !pane.provisioning;
+}
+
 /** Whether this pane can be suspended right now — the boolean form of
  *  [`paneSuspendBlock`], which is what every UI surface calls, because each
  *  of them has to SAY why it refuses. This form is for the caller that only

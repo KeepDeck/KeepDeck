@@ -3,6 +3,7 @@ import {
   findPane,
   findWorkspace,
   idleReadsAsStopped,
+  paneHasProcess,
   paneSuspendBlock,
   paneWakesAutomatically,
   worktreeTargets,
@@ -294,9 +295,7 @@ export function useCloseFlow(
     // "does it read as stopped" instead counted every rising pane as holding
     // a session it has not opened yet, which is what a just-launched
     // workspace is entirely made of.
-    return (ws?.panes ?? []).filter(
-      (pane) => !pane.idle && !pane.provisioning,
-    ).length;
+    return (ws?.panes ?? []).filter(paneHasProcess).length;
   };
 
   const closeMessage = closeMessageFor(closing, runningAgentsOf(closing));

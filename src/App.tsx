@@ -70,6 +70,7 @@ import {
   MAX_PANES,
   maximizeHotkeyTarget,
   paneAgentType,
+  paneHasProcess,
   paneHotkeyTarget,
   paneOnScreen,
   pathOccupancy,
@@ -166,9 +167,9 @@ function App() {
       for (const pane of ws.panes) {
         // Dormant/provisioning panes have no running process — counting
         // them gave background workspaces eternal "waiting" chips (revive
-        // only wakes the active workspace). Same filter as the tail and
-        // polling lanes.
-        if (pane.idle || pane.provisioning) continue;
+        // only wakes the active workspace). The same predicate the tail and
+        // polling lanes ask, so they cannot answer differently.
+        if (!paneHasProcess(pane)) continue;
         ids.add(paneAgentType(pane));
       }
     }

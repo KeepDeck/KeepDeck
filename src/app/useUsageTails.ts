@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 import type { AgentUsage } from "@keepdeck/plugin-api";
-import { findWorkspaceOfPane, paneAgentType } from "../domain/deck";
+import {
+  findWorkspaceOfPane,
+  paneAgentType,
+  paneHasProcess,
+} from "../domain/deck";
 import { log } from "../ipc/log";
 import { onSessionBound } from "../ipc/sessions";
 import { findCodexRollout, unwatchSessionFile, watchSessionFile } from "../ipc/usage";
@@ -90,7 +94,7 @@ export function useUsageTails(
         // A pane with no process is never armed here — it has no spawn token
         // to authenticate one with. The sweep below releases the tail it
         // already had; re-arming happens when it comes back.
-        if (pane.idle || pane.provisioning) continue;
+        if (!paneHasProcess(pane)) continue;
         const sessionId = pane.session?.id;
         if (!sessionId || tailedRef.current.has(pane.id)) continue;
         if (usageByAgentRef.current.get(paneAgentType(pane))?.tail !== "codex") {
@@ -137,7 +141,7 @@ export function useUsageTails(
   // rather than over them.
   const tailable = deck.workspaces
     .flatMap((ws) => ws.panes)
-    .filter((pane) => !pane.idle && !pane.provisioning)
+    .filter(paneHasProcess)
     .map((pane) => pane.id)
     .sort()
     .join("\n");
