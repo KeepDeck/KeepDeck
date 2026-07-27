@@ -312,8 +312,12 @@ function App() {
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
   // ([F4]). Two sources, one delivery: an OS file drop from Finder, and an
   // in-app pointer drag of a Files-plugin tree row.
-  useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
-  usePaneDrag((paneId) => deck.selectPane(deck.activeId, paneId));
+  // Written once: a delivered drop selects its pane, and the two sources have
+  // no business differing about that.
+  const focusDroppedPane = (paneId: string) =>
+    deck.selectPane(deck.activeId, paneId);
+  useDragDrop(focusDroppedPane);
+  usePaneDrag(focusDroppedPane);
 
   const active = findWorkspace(deck.workspaces, deck.activeId) ?? null;
   // The active workspace's view — dock open/tab and pane selection all live in

@@ -47,7 +47,7 @@ function collectPaneRects(doc: Document = document): PaneRect[] {
  * (a hidden overlay) reports a zero rect, which contains no point — so absence
  * needs no special case.
  */
-export function collectDropSurface(doc: Document = document): DropSurface {
+function collectDropSurface(doc: Document = document): DropSurface {
   const blockers = Array.from(
     doc.querySelectorAll(`[${DROP_BLOCKER_ATTR}]`),
   ).map(rectOf);
@@ -82,9 +82,13 @@ function deliverDrop(
  * ([`usePaneDrag`]). Each used to assemble these steps for itself, which is
  * how they came to disagree about a failed image sniff: one traced it, the
  * other swallowed it, so the same backend failure was diagnosable through one
- * entry point and invisible through the other. Only the surface snapshot stays
- * with the callers — it is a live DOM read, and injecting it is what keeps
- * this testable.
+ * entry point and invisible through the other.
+ *
+ * The surface is read HERE rather than taken as an argument. A caller holding
+ * a `DropSurface` can hand over one with no blockers — a plausible line that
+ * silently restores the bug the blockers exist to stop — and neither call site
+ * has anything to gain from owning that read. `doc` is the only seam, so a
+ * test drives the real reader over a document it controls.
  *
  * Pointer-based, not HTML5 drag-and-drop: Tauri's native OS drag-drop (needed
  * for Finder file drops) disables HTML5 DnD inside the webview. `isImageOf` is
@@ -93,12 +97,12 @@ function deliverDrop(
 export async function deliverPathsToPoint(
   paths: string[],
   point: { x: number; y: number },
-  surface: DropSurface,
   isImageOf: (paths: string[]) => Promise<boolean[]>,
+  doc: Document = document,
 ): Promise<string | null> {
   const dropped = paths.filter((path) => path !== "");
   if (dropped.length === 0) return null;
-  const id = paneAtPoint(point.x, point.y, surface);
+  const id = paneAtPoint(point.x, point.y, collectDropSurface(doc));
   if (!id) return null;
   // A sniff that fails is not a drop that fails — the paths still go in, as
   // text. Traced, because a silently degraded drop looks like a working one.

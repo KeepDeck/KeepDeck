@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { pathsAreImages } from "../ipc/app";
 import { describeError, log } from "../ipc/log";
 import { onFileDrop } from "../ipc/webview";
-import { collectDropSurface, deliverPathsToPoint } from "./dragDrop";
+import { deliverPathsToPoint } from "./dragDrop";
 
 /**
  * Deliver OS file drops to the pane under the cursor ([F4]): hit-test the drop
@@ -36,12 +36,7 @@ export function useDragDrop(onDropped: (paneId: string) => void) {
     let cancelled = false;
 
     onFileDrop(async ({ x, y, paths }) => {
-      const id = await deliverPathsToPoint(
-        paths,
-        { x, y },
-        collectDropSurface(),
-        pathsAreImages,
-      );
+      const id = await deliverPathsToPoint(paths, { x, y }, pathsAreImages);
       if (id) droppedRef.current(id);
     })
       .then((fn) => {
