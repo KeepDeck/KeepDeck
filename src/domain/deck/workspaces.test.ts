@@ -20,6 +20,7 @@ import {
   pathOccupancy,
   clearPaneIdle,
   failPaneWake,
+  parkPane,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
   setWorkspacePluginSlot,
@@ -877,6 +878,49 @@ describe("requestPaneWake", () => {
     expect(requestPaneWake(asked, "a", "a-p1")).toBe(asked);
     expect(requestPaneWake(asked, "a", "nope")).toBe(asked);
     expect(requestPaneWake(asked, "nope", "a-p1")).toBe(asked);
+  });
+});
+
+describe("parkPane", () => {
+  const AT = "2026-07-25T09:00:00.000Z";
+  const withPane = (pane: Pane): Workspace[] => [{ ...ws("a", []), panes: [pane] }];
+
+  it("stops a rising pane so its card says stopped instead of starting", () => {
+    const before = withPane({
+      id: "pane-1",
+      idle: { reason: "waking", origin: "restore" },
+    });
+    expect(parkPane(before, "a", "pane-1")[0].panes[0].idle).toEqual({
+      reason: "parked",
+    });
+  });
+
+  it("does not touch a wake the user asked for by name", () => {
+    // The policy governs what starts on its own, not what someone just asked
+    // for — taking that request away would be answering a different question.
+    const before = withPane({
+      id: "pane-1",
+      idle: { reason: "waking", origin: "manual" },
+    });
+    expect(parkPane(before, "a", "pane-1")).toBe(before);
+  });
+
+  it("does not touch a RUNNING pane — a preference must not kill a live agent", () => {
+    const before = withPane({ id: "pane-1" });
+    expect(parkPane(before, "a", "pane-1")).toBe(before);
+  });
+
+  it("leaves a suspend stamp alone rather than overwriting it", () => {
+    const before = withPane({
+      id: "pane-1",
+      idle: { reason: "suspended", at: AT },
+    });
+    expect(parkPane(before, "a", "pane-1")).toBe(before);
+  });
+
+  it("returns the same array for an unknown pane", () => {
+    const before = withPane({ id: "pane-1" });
+    expect(parkPane(before, "a", "pane-9")).toBe(before);
   });
 });
 

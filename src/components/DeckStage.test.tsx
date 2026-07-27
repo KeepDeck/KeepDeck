@@ -8,6 +8,38 @@ vi.mock("./terminal/TerminalPane", () => ({
   TerminalPane: vi.fn(() => null),
 }));
 
+// A pane READS its process state from the session registry; stand in for it so
+// a test can kill one pane's process without spawning anything.
+const sessions = vi.hoisted(() => {
+  const NONE = { kind: "none" };
+  const states = new Map<string, { kind: string; code?: number | null }>();
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of [...listeners]) listener();
+  };
+  return {
+    read: (paneId: string) => states.get(paneId) ?? NONE,
+    exit(paneId: string, code: number | null) {
+      states.set(paneId, { kind: "exited", code });
+      notify();
+    },
+    reset() {
+      states.clear();
+      notify();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+});
+vi.mock("../app/ptyManager", () => ({
+  paneSessionState: (paneId: string) => sessions.read(paneId),
+  subscribeSessions: sessions.subscribe,
+}));
+
 import { TerminalPane } from "./terminal/TerminalPane";
 import { DeckStage } from "./DeckStage";
 
@@ -63,7 +95,7 @@ const callbacks = {
   onRetryPlanBuild: vi.fn(),
   onAgentExited: vi.fn(),
   onAgentSpawnFailed: vi.fn(),
-  onRestartAgent: vi.fn(() => Promise.resolve()),
+  onRestartAgent: vi.fn(() => Promise.resolve("restarted" as const)),
 };
 
 const browser = {
@@ -109,7 +141,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
     "pane-2": { command: "codex", args: [], env: [] },
   },
   failedPanes: new Set<string>(),
-  restartEpochs: new Map<string, number>(),
+  restartEpochs: {} as Record<string, number>,
   ...callbacks,
   ...overrides,
 });
@@ -121,6 +153,9 @@ function terminalProps(paneId: string) {
   if (!call) throw new Error(`Terminal ${paneId} was not rendered`);
   return call[0];
 }
+
+// A death recorded by one test is not a fact about the next one.
+afterEach(() => sessions.reset());
 
 describe("DeckStage — exited agents across layouts", () => {
   let root: Root;
@@ -144,7 +179,10 @@ describe("DeckStage — exited agents across layouts", () => {
     const hidden = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
     expect(hidden.classList.contains("pane--hidden")).toBe(true);
 
-    act(() => terminalProps("pane-1").onExit?.(0, false));
+    act(() => {
+      sessions.exit("pane-1", 0);
+      terminalProps("pane-1").onExit?.(0, false);
+    });
     render({ viewByWs: { "ws-1": {} } });
     const revealed = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
     expect(revealed.classList.contains("pane--hidden")).toBe(false);
@@ -160,9 +198,13 @@ describe("DeckStage — exited agents across layouts", () => {
       "resume",
     );
 
+    // The restart ends the old session before remounting the pane by epoch.
+    // With the process gone the registry has no exit left to report, so the
+    // card cannot come back over the terminal the restart just started.
+    act(() => sessions.reset());
     render({
       viewByWs: { "ws-1": {} },
-      restartEpochs: new Map([["pane-1", 1]]),
+      restartEpochs: { "pane-1": 1 },
     });
     expect(
       document.querySelector("[data-pane-id='pane-1'] .pane__exit"),
@@ -173,7 +215,10 @@ describe("DeckStage — exited agents across layouts", () => {
     render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-2" } } });
     const folded = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;
     expect(folded.classList.contains("pane--folded")).toBe(true);
-    act(() => terminalProps("pane-1").onExit?.(1, false));
+    act(() => {
+      sessions.exit("pane-1", 1);
+      terminalProps("pane-1").onExit?.(1, false);
+    });
 
     render({ deckLayout: "list", viewByWs: { "ws-1": { select: "pane-1" } } });
     const expanded = document.querySelector<HTMLElement>("[data-pane-id='pane-1']")!;

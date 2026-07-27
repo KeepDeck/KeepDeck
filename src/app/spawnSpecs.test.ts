@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -13,7 +13,6 @@ import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createContributionRegistries } from "../plugins/registries/contributions";
 import type { AppRuntime } from "./runtime";
-import { AppRuntimeProvider } from "./runtimeContext";
 import { invalidateSkillsStaging } from "./skillsStaging";
 import {
   bindPaneSpawnSpecSession,
@@ -28,7 +27,8 @@ import {
   resumeDiedSilently,
   spawnPlanNeedsUsageBaseline,
   type SpawnPluginAccess,
-  usePaneSpawnSpecs,
+  buildLivePaneSpec,
+  subscribeSpawnSpecs,
 } from "./spawnSpecs";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -83,10 +83,6 @@ const ws = (panes: Workspace["panes"]): Workspace[] => [
 ];
 
 let seen: Record<string, SpawnPlan>;
-function Probe({ workspaces }: { workspaces: Workspace[] }) {
-  seen = usePaneSpawnSpecs(workspaces, ctx, true).specs;
-  return null;
-}
 
 /** Let the build→cache→tick chain settle. */
 const settle = async () => {
@@ -116,16 +112,23 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     registered = [];
   });
 
-  const mount = (workspaces: Workspace[]) =>
-    act(async () =>
-      root.render(
-        createElement(
-          AppRuntimeProvider,
-          { runtime },
-          createElement(Probe, { workspaces }),
-        ),
-      ),
-    );
+  /** Build every live pane's plan, the way the orchestrator's reconcile does,
+   *  and collect what landed in the cache. No render: deciding what a pane
+   *  runs stopped needing one. */
+  const mount = async (workspaces: Workspace[]) => {
+    for (const workspace of workspaces) {
+      for (const pane of workspace.panes) {
+        await buildLivePaneSpec(runtime.plugins, workspace, pane, ctx);
+      }
+    }
+    seen = {};
+    for (const workspace of workspaces) {
+      for (const pane of workspace.panes) {
+        const spec = peekPaneSpawnSpec(pane.id);
+        if (spec) seen[pane.id] = spec;
+      }
+    }
+  };
 
   it("builds through the hook and arms the bridge on top", async () => {
     register(adopting);
@@ -332,12 +335,11 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     expect(peekPanePlanError("pane-1")).toBe(false);
   });
 
-  it("a failed build re-renders consumers (bumps the snapshot tick)", async () => {
-    // The .catch must bump the snapshot tick, else the memo never refreshes
-    // and DeckStage never re-reads peekPanePlanError — the pane would hang on
-    // "Waking up…" until some unrelated re-render (the bug r3 caught). A
-    // render-counting probe observes the re-render directly: with the fix the
-    // failed build triggers a second render; without it, renders stays at 1.
+  it("reports a failed build as a CHANGE, so the error tile can replace the spinner", async () => {
+    // The failure has to count as a cache change: its consumer decides
+    // between the error tile and "Waking up…" from what the cache says, and a
+    // build that failed silently would leave the pane on the spinner until
+    // some unrelated event happened along.
     register({
       ...adopting,
       hooks: {
@@ -346,26 +348,20 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
         },
       },
     });
-    let renders = 0;
-    const CountProbe = ({ workspaces }: { workspaces: Workspace[] }) => {
-      usePaneSpawnSpecs(workspaces, ctx, true);
-      renders++;
-      return null;
-    };    await act(async () =>
-      root.render(
-        createElement(
-          AppRuntimeProvider,
-          { runtime },
-          createElement(CountProbe, {
-            workspaces: ws([
-              { id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
-            ]),
-          }),
-        ),
-      ),
+    const workspaces = ws([
+      { id: "pane-1", agentType: "claude", remoteEndpoint: "ws://vps:4500" },
+    ]);
+    const changed = await buildLivePaneSpec(
+      runtime.plugins,
+      workspaces[0],
+      workspaces[0].panes[0],
+      ctx,
     );
-    await settle();
-    expect(renders).toBeGreaterThan(1);
+
+    // A failure is a CHANGE, and saying so is what gets the error tile drawn:
+    // reported as "nothing happened", the pane would sit on "Waking up…" until
+    // something unrelated redrew the deck.
+    expect(changed).toBe(true);
     expect(peekPanePlanError("pane-1")).toBe(true);
   });
 
@@ -625,5 +621,152 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     dropPaneSpawnSpec("pane-1");
     markPaneResumeOrigin("pane-1", "manual");
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
+  });
+});
+
+describe("subscribeSpawnSpecs — the cache tells its readers", () => {
+  // Tested against the REAL module deliberately. The orchestrator's own suite
+  // replaces this module with a fake, so nothing there can prove a writer
+  // notifies — and the writers reached through an await are exactly the ones
+  // that silently did not, leaving a resumed pane with a live process and a
+  // view that never learned its plan existed.
+  let registered: Disposable[] = [];
+  let heard: number;
+  let stop: () => void;
+
+  beforeEach(() => {
+    resetPaneSpawnSpecs();
+    hostState.installed = [];
+    invalidateSkillsStaging();
+    registered.push(pluginRegistries.agents.add("test-plugin", adopting));
+    heard = 0;
+    stop = subscribeSpawnSpecs(() => {
+      heard += 1;
+    });
+  });
+
+  afterEach(() => {
+    stop();
+    for (const entry of registered) entry.dispose();
+    registered = [];
+  });
+
+  const facts = { paneId: "pane-1", workspace: W1, cwd: "/repo" };
+
+  it("announces a plan built by the ordinary sweep", async () => {
+    await buildLivePaneSpec(plugins, ws([{ id: "pane-1", agentType: "claude" }])[0], { id: "pane-1", agentType: "claude" }, ctx);
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  it("announces a RESUME plan — the path that regressed", async () => {
+    // A resume fills the cache directly, so the sweep's own rebuild
+    // short-circuits and cannot be the thing that publishes.
+    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  it("announces a FORK plan", async () => {
+    registered.push(
+      pluginRegistries.agents.add("test-plugin", {
+        id: "forker",
+        label: "Forker",
+        detect: { bin: "forker" },
+        hooks: {
+          "fork.plan": (input, output) => {
+            output.args = ["--fork", input.sessionId];
+          },
+        },
+      }),
+    );
+    await buildForkSpec(plugins, "forker", facts, ctx, {
+      sessionId: "s-1",
+      sourceCwd: "/old",
+    });
+    expect(peekPaneSpawnSpec("pane-1")).toBeDefined();
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  it("stays SILENT when a plan could not be prepared at all", async () => {
+    // No fork hook: nothing is cached, so there is nothing to announce and a
+    // listener must not be woken to find the cache unchanged.
+    expect(
+      await buildForkSpec(plugins, "claude", facts, ctx, {
+        sessionId: "s-1",
+        sourceCwd: "/old",
+      }),
+    ).toBe(false);
+    expect(heard).toBe(0);
+  });
+
+  it("announces a plan being dropped", async () => {
+    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
+    heard = 0;
+    dropPaneSpawnSpec("pane-1");
+    expect(heard).toBe(1);
+  });
+
+  it("announces a build FAILURE, so the error tile can replace the placeholder", async () => {
+    registered.push(
+      pluginRegistries.agents.add("test-plugin", {
+        id: "throws",
+        label: "Throws",
+        detect: { bin: "throws" },
+        hooks: {
+          "resume.plan": () => {
+            throw new Error("hook exploded");
+          },
+        },
+      }),
+    );
+    await expect(
+      buildResumeSpec(plugins, "throws", { ...facts, paneId: "pane-2" }, ctx, "s-2", "manual"),
+    ).rejects.toThrow("hook exploded");
+    expect(peekPanePlanError("pane-2")).toBe(true);
+    expect(heard).toBeGreaterThan(0);
+  });
+
+  it("announces a failure being cleared, so a retry can rebuild", async () => {
+    registered.push(
+      pluginRegistries.agents.add("test-plugin", {
+        id: "throws2",
+        label: "Throws",
+        detect: { bin: "throws2" },
+        hooks: {
+          "resume.plan": () => {
+            throw new Error("boom");
+          },
+        },
+      }),
+    );
+    await expect(
+      buildResumeSpec(plugins, "throws2", { ...facts, paneId: "pane-3" }, ctx, "s-3", "manual"),
+    ).rejects.toThrow();
+    heard = 0;
+    clearPanePlanError("pane-3");
+    expect(heard).toBe(1);
+  });
+
+  it("announces a re-stamped resume origin", async () => {
+    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "restore");
+    heard = 0;
+    markPaneResumeOrigin("pane-1", "manual");
+    expect(heard).toBe(1);
+  });
+
+  it("lets a listener go, and forgets every listener on reset", async () => {
+    stop();
+    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
+    expect(heard).toBe(0);
+
+    let after = 0;
+    const again = subscribeSpawnSpecs(() => {
+      after += 1;
+    });
+    // Reset drops listeners with the rest of the state: a subscriber that
+    // outlived the cache would keep reacting to a later test's writes.
+    resetPaneSpawnSpecs();
+    dropPaneSpawnSpec("pane-1");
+    expect(after).toBe(0);
+    again();
   });
 });

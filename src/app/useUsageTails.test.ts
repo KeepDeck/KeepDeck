@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentUsage } from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
+import { createDeckStore } from "./deckStore";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -46,7 +47,9 @@ const usageByAgent = new Map<string, AgentUsage>([
 let deck: Deck;
 
 function Probe() {
-  deck = useDeck();
+  // Fresh per mount (a bare call would rebuild it on every render).
+  const [store] = useState(createDeckStore);
+  deck = useDeck(store);
   useUsageTails(deck, usageByAgent);
   return null;
 }

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeJournalEvent } from "../domain/journal/persist";
@@ -7,6 +7,7 @@ import type { JournalEvent } from "../domain/journal";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
+import { createDeckStore } from "./deckStore";
 import { useJournalPersistence } from "./useJournalPersistence";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
@@ -38,7 +39,9 @@ const storedLine = (wsId: string, sessionId: string): string =>
 let deck: Deck;
 
 function Probe({ restoring, frozen }: { restoring: boolean; frozen: boolean }) {
-  deck = useDeck();
+  // Fresh per mount (a bare call would rebuild it on every render).
+  const [store] = useState(createDeckStore);
+  deck = useDeck(store);
   useJournalPersistence(deck, restoring, frozen);
   return null;
 }

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentRestartMode } from "../../domain/agents";
+import type { RestartOutcome } from "../../app/agentOrchestrator";
 import {
   idleReadsAsStopped,
+  type PaneBody,
   type PaneIdle,
   type PaneProvisioning,
 } from "../../domain/deck";
@@ -10,6 +12,7 @@ import {
 // popover uses, rather than growing a second one.
 import { contextLevel, formatAge } from "../../domain/usage";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
+import { usePaneSessionState } from "../../app/usePaneSessionState";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 import {
@@ -35,7 +38,7 @@ export type UnavailableAgent =
    * installed on this machine; `reason` is the gate's sentence. */
   | { kind: "bin-missing"; agent: string; reason: string };
 
-interface AgentPaneProps {
+export interface AgentPaneProps {
   /** Pane id — used for drag-and-drop hit-testing ([F4], `data-pane-id`). */
   paneId: string;
   title: string;
@@ -101,10 +104,7 @@ interface AgentPaneProps {
   /** The pane's spawn plan is still being built (async plugin hooks) —
    * render the quiet tile instead of a terminal; mounting would spawn
    * without the plan's identity args. */
-  planPending?: boolean;
-  /** The pane's spawn plan FAILED to build (e.g. a remote spawn.plan threw) —
-   *  render an error tile with a retry instead of "Waking up…" forever. */
-  planError?: boolean;
+  body: PaneBody;
   /** Retry building the pane's spawn plan (the error tile's "Try again"). */
   onRetryPlan?(): void;
   /** Re-issue the failed create from its stored intent. */
@@ -132,7 +132,10 @@ interface AgentPaneProps {
    * a second source for the same fact. */
   resumeSessionId?: string | null;
   /** Manually restart an exited agent, either from its binding or fresh. */
-  onRestart?(mode: AgentRestartMode): Promise<void> | void;
+  /** Answers what it did. NOT optional-returning: a caller that resolved with
+   * nothing would leave the card promising a restart that stood down, which is
+   * the bug the outcome exists to prevent. */
+  onRestart?(mode: AgentRestartMode): Promise<RestartOutcome>;
 }
 
 /**
@@ -163,8 +166,7 @@ export function AgentPane({
   blockedDir,
   provisioning,
   unavailableAgent,
-  planPending,
-  planError,
+  body,
   onRetryPlan,
   colSpan,
   onSelect,
@@ -191,7 +193,11 @@ export function AgentPane({
   // pane for the tray's marker, and the two must not be able to disagree.
   const stopped = idleReadsAsStopped(idle, !!blockedDir);
   // The PTY process has exited (terminal end-state); shows the [U4] placeholder.
-  const [exit, setExit] = useState<{ code: number | null } | null>(null);
+  // Read from the session registry rather than remembered here: a pane that
+  // exited, was suspended and then resumed kept a local copy alive and painted
+  // this card, with a working Restart button, over its fresh terminal.
+  const session = usePaneSessionState(paneId);
+  const exit = session.kind === "exited" ? session : null;
   // A successful restart remounts the whole pane via its epoch. Until then,
   // keep both choices inert; only a rejected plan lets the user try again.
   const restartInFlight = useRef(false);
@@ -208,8 +214,17 @@ export function AgentPane({
       setRestarting(false);
       setRestartFailed(true);
     };
+    // A restart that STOOD DOWN — the pane was stopped, closed, or changed
+    // under it — resolves without a remount, so treating "resolved" as
+    // "restarted" left the card promising a restart that was not coming.
+    // Only "restarted" keeps the spinner: the epoch remount clears it.
+    const settle = (outcome: RestartOutcome) => {
+      if (outcome === "restarted") return;
+      restartInFlight.current = false;
+      setRestarting(false);
+    };
     try {
-      void Promise.resolve(onRestart(mode)).catch(recover);
+      void Promise.resolve(onRestart(mode)).then(settle, recover);
     } catch {
       recover();
     }
@@ -239,7 +254,6 @@ export function AgentPane({
   useEffect(() => {
     if (!idle) return;
     restartInFlight.current = false;
-    setExit(null);
     setRestarting(false);
     setRestartFailed(false);
   }, [idle]);
@@ -253,8 +267,9 @@ export function AgentPane({
   // The context meter belongs on a LIVE pane only — a frozen, undimmed ctx% on
   // an exited / idle / unavailable / provisioning pane would read as live
   // (its last usage report lingers in the store until the pane leaves the deck).
-  const paneLive =
-    !exit && !idle && !provisioning && !unavailableAgent && !planPending;
+  // The domain's answer, not a second derivation of it: a frozen ctx% on an
+  // exited / idle / unavailable / provisioning pane would read as live.
+  const paneLive = !exit && body === "terminal";
   return (
     <section
       data-pane-id={paneId}
@@ -387,7 +402,7 @@ export function AgentPane({
         </div>
       </header>
       <div className="pane__body">
-        {provisioning ? (
+        {body === "provisioning" && provisioning ? (
           // The worktree behind this pane is still being created (or failed):
           // a status card instead of a terminal — mounting one now would
           // spawn the agent into somebody else's directory.
@@ -421,7 +436,7 @@ export function AgentPane({
               <ProvisionLocation provisioning={provisioning} />
             </div>
           )
-        ) : unavailableAgent ? (
+        ) : body === "agent-unavailable" && unavailableAgent ? (
           // The pane keeps its identity and session binding; the revive
           // effect skips it, and fixing the cause brings it back live.
           <div className="pane__card" role="alert">
@@ -435,7 +450,7 @@ export function AgentPane({
                 : `No plugin provides “${unavailableAgent.agent}” — enable it in Settings → Plugins`}
             </span>
           </div>
-        ) : idle ? (
+        ) : body === "stopped" && idle ? (
           // No PTY behind it ([F7]). A rising pane is normally transient
           // (the revive sweep wakes active-workspace panes) and persists only
           // when its directory is gone; the other reasons wait for the user.
@@ -522,7 +537,7 @@ export function AgentPane({
               </>
             )}
           </div>
-        ) : planError ? (
+        ) : body === "plan-failed" ? (
           // The spawn plan FAILED to build (e.g. a remote spawn.plan threw).
           // The pane would otherwise hang on "Waking up…" forever — surface
           // the failure and offer a retry (drops it + re-runs the build).
@@ -541,13 +556,13 @@ export function AgentPane({
               </button>
             )}
           </div>
-        ) : planPending ? (
+        ) : body === "waiting" ? (
           // The spawn plan is a beat away (async plugin hooks) — same quiet
           // tile as a waking pane; it resolves within milliseconds.
           <div className="pane__card" role="status">
             <span className="pane__exit-title">Waking up…</span>
           </div>
-        ) : (
+        ) : body === "terminal" ? (
           <TerminalPane
             paneId={paneId}
             command={command}
@@ -558,7 +573,6 @@ export function AgentPane({
             visible={visible}
             selected={selected}
             onExit={(code, replayed) => {
-              setExit({ code });
               // A replay is attachPane re-announcing an old death to a
               // remounted view (plugin toggled off/on over a crashed pane) —
               // the card must return, but upstream once-per-death reactions
@@ -572,6 +586,21 @@ export function AgentPane({
             }}
             onTitle={onTitle}
           />
+        ) : body === "provisioning" ||
+          body === "agent-unavailable" ||
+          body === "stopped" ? (
+          // Those three rungs also need the prop that carries their detail,
+          // and it is the deck that pairs the two. A body without its detail
+          // describes nothing, so render nothing — never the terminal the old
+          // fall-through reached for.
+          null
+        ) : (
+          // Every member of the union is answered above, so a NEW one is a
+          // type error HERE. That is the whole point of the body being a
+          // closed set, and it is what the old hand-written ladder could not
+          // give: an unhandled state fell through to a terminal, mounted for a
+          // pane that must not have one.
+          unreachableBody(body)
         )}
         {exit && !idle && !unavailableAgent && (
           <div className="pane__exit" role="status">
@@ -611,6 +640,19 @@ export function AgentPane({
       </div>
     </section>
   );
+}
+
+/**
+ * The body ladder answers every [`PaneBody`] there is, so this is dead at
+ * runtime — it exists to make a NEW member a type error here rather than a
+ * silent fall-through. It renders nothing if a mismatched prop pair ever
+ * reaches it: a blank body is the honest answer to a state nobody described,
+ * and strictly better than the terminal the old ladder would have mounted for
+ * a pane that must not have one.
+ */
+function unreachableBody(body: never): null {
+  void body;
+  return null;
 }
 
 /** The creating card's location line: "branch · path" from what the intent

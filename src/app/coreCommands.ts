@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import {
   agentSupportsYolo,
-  defaultAgentType,
   type AgentInfo,
 } from "../domain/agents";
 import {
@@ -12,21 +11,25 @@ import {
 } from "../domain/commands";
 import {
   findWorkspaceByRef,
-  firstFreeWorktree,
   paneAgentType,
   paneDisplayTitle,
   paneId,
+  WORKSPACE_FULL_MESSAGE,
   type Pane,
   type Workspace,
 } from "../domain/deck";
-import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
+import { inspectRepo } from "../ipc/worktree";
+import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "./newAgentDefaults";
 import { commands } from "./commandRegistry";
 import { mintAgentSeq } from "./ids";
 import { paneInputReady, pasteToPane, writeRawToPane } from "./paneInput";
-import { provisionInto, runProvisioning } from "./provisioning";
 import { getSettings } from "./settingsManager";
-import type { ResumeRequest } from "./useRevive";
-import { suspendRefusalText, type SuspendOutcome } from "./useSuspend";
+import type {
+  CreatePaneOutcome,
+  CreatePaneRequest,
+  ResumeRequest,
+} from "./agentOrchestrator";
+import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
 import type { Deck } from "./useDeck";
 
 /**
@@ -48,6 +51,10 @@ export interface CoreCommandDeps {
   /** Ask for a stopped agent back — the same gesture as its card's Resume,
    * reporting what it did. */
   resumeAgent(wsId: string, paneId: string): ResumeRequest;
+  /** Land a new agent pane, worktree create and all — the same entry point
+   * the "+ Agent" dialog uses, so a spawn asked for by voice or MCP goes
+   * through the same sequence as one asked for by hand. */
+  createPane(request: CreatePaneRequest): CreatePaneOutcome;
   /** Open the settings dialog; `sectionId` lands it on a specific section
    * (a plugin's `plugin:<id>`), null on the first. */
   openSettings(sectionId: string | null): void;
@@ -214,16 +221,9 @@ export function registerCoreCommands(
         const requested = str(args, "agentType");
         if (requested && !agents.some((a) => a.id === requested))
           throw new Error(`unknown agent type "${requested}"`);
-        const agentType =
-          requested ??
-          defaultAgentType(
-            agents,
-            ws.panes[ws.panes.length - 1]?.agentType ??
-              getSettings()?.defaultAgent ??
-              "claude",
-          );
+        const agentType = requested ?? nextAgentType(agents, ws);
         const id = paneId(mintAgentSeq());
-        const index = ws.panes.length + 1;
+        const index = nextAgentIndex(ws);
 
         // The global YOLO default reaches this surface too, gated on the
         // resolved agent's support like every other creation path.
@@ -242,13 +242,11 @@ export function registerCoreCommands(
         };
         const info = await inspectRepo(ws.cwd).catch(() => null);
         let current = currentTarget();
-        if (info?.isRepo && current.workspace.worktreeBaseDir) {
-          const free = await firstFreeWorktree(
+        if (info?.isRepo) {
+          const free = await firstFreeAgentWorktree(
             current.deck.workspaces,
-            current.workspace.worktreeBaseDir,
-            (i) => suggestWorktree(current.workspace.name, i).catch(() => null),
+            current.workspace,
             index,
-            (path) => probeWorktree(path).catch(() => null),
           );
           current = currentTarget();
           if (free) {
@@ -265,13 +263,13 @@ export function registerCoreCommands(
           }
         }
 
+        const landed = deps.createPane({ workspace, pane });
+        // A full workspace used to swallow the add and then report a paneId
+        // that was never in the deck — with the worktree already created.
+        if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+        if (landed.kind === "gone")
+          throw new Error("workspace was closed while spawning the agent");
         current = currentTarget();
-        current.deck.addAgentPane(workspace.id, pane);
-        if (pane.provisioning)
-          void runProvisioning(
-            [pane],
-            provisionInto(current.deck, workspace.id),
-          );
         current.deck.selectWorkspace(workspace.id);
         current.deck.selectPane(workspace.id, id);
 
@@ -531,6 +529,7 @@ export function useCoreCommands(deps: {
   /** Ask for a stopped agent back — the same gesture as its card's Resume,
    * reporting what it did. */
   resumeAgent(wsId: string, paneId: string): ResumeRequest;
+  createPane(request: CreatePaneRequest): CreatePaneOutcome;
   openSettings(sectionId: string | null): void;
   openUsage(): void;
 }): void {
@@ -547,6 +546,7 @@ export function useCoreCommands(deps: {
           ref.current.suspendAgent(wsId, paneIdToSuspend),
         resumeAgent: (wsId, paneIdToResume) =>
           ref.current.resumeAgent(wsId, paneIdToResume),
+        createPane: (request) => ref.current.createPane(request),
         openSettings: (sectionId) => ref.current.openSettings(sectionId),
         openUsage: () => ref.current.openUsage(),
       }),

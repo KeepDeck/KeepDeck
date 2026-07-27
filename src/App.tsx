@@ -16,14 +16,12 @@ import { useAgents } from "./app/useAgents";
 import { useDeck } from "./app/useDeck";
 import { usePersistence } from "./app/usePersistence";
 import { useJournalPersistence } from "./app/useJournalPersistence";
-import { useJournalResume } from "./app/useJournalResume";
-import { useJournalFork } from "./app/useJournalFork";
 import { useSessionsBrowser } from "./app/useSessionsBrowser";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
 import { useSkillsPrune } from "./app/useSkillsPrune";
-import { useRevive } from "./app/useRevive";
-import { suspendRefusalText, useSuspend } from "./app/useSuspend";
+import { useAgentRunView } from "./app/useAgentRunView";
+import { suspendRefusalText } from "./app/suspendOutcome";
 import { useSessionBinding } from "./app/useSessionBinding";
 import { useUsageChannel } from "./app/useUsageChannel";
 import { useSettings } from "./app/useSettings";
@@ -31,8 +29,6 @@ import { useMinimizeMode } from "./app/useMinimizeMode";
 import { DEFAULT_SETTINGS } from "./domain/settings";
 import { useSpawnContext } from "./app/useSpawnContext";
 import { useGitHead } from "./app/useGitHead";
-import { usePaneSpawnSpecs } from "./app/spawnSpecs";
-import { useAgentRestart } from "./app/useAgentRestart";
 import { setSourceVisibilityProbe } from "./app/notificationCenter";
 import {
   notifyAgentCrashed,
@@ -47,7 +43,6 @@ import {
   shouldRevealPluginDock,
   workspaceForNotification,
 } from "./app/notificationNavigation";
-import { useProvisioning } from "./app/useProvisioning";
 import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useCoreCommands } from "./app/coreCommands";
@@ -91,8 +86,9 @@ import "./styles/index.css";
  * and file drops — to the components that render them.
  */
 function App() {
+  const runtime = useAppRuntime();
   const { bootstrapPlugins, pluginRegistries, revealPluginDockTab, pluginHost } =
-    useAppRuntime().plugins;
+    runtime.plugins;
   const [info, setInfo] = useState<AppInfo | null>(null);
   const updateState = useUpdate();
 
@@ -108,7 +104,7 @@ function App() {
   // The deck's workspaces + active id + per-workspace maximize/selection, in one
   // reducer so close transitions clean focus + selection atomically ([S1], [B2],
   // [L6]).
-  const deck = useDeck();
+  const deck = useDeck(runtime.deckStore);
   // The agent catalog: cli plugins' contributions + install detection.
   const { agents, loading: agentsLoading } = useAgents();
   // Agents whose plugin is enabled but unavailable (CLI not installed) —
@@ -140,34 +136,22 @@ function App() {
   const [frozenAck, setFrozenAck] = useState(false);
   // Per-install spawn-plan constants (bridge inbox, reporter activation) — the
   // deck's first paint waits for it ([F7]/[F8] session identity v2).
-  const spawnCtx = useSpawnContext();
+  const spawnCtx = useSpawnContext(runtime.spawnContext);
   // Wake restored panes lazily per workspace — resuming recorded sessions —
   // and report gone directories ([F7]/[F8]).
-  const revive = useRevive(deck, agents, spawnCtx, !agentsLoading);
-  const suspendFlow = useSuspend(deck, revive.blocked);
-  // Manual exited-card restart plus the separate, one-shot recovery for a
-  // rejected boot resume. Both replace only runtime PTY/spec state; the pane
-  // keeps its identity and layout position.
-  const agentRestart = useAgentRestart(deck, spawnCtx);
-  const journalResume = useJournalResume(deck, spawnCtx, revive.blocked);
-  const journalFork = useJournalFork(deck, spawnCtx);
+  const orchestrator = runtime.orchestrator;
+  const runView = useAgentRunView(orchestrator);
   const sessionsBrowser = useSessionsBrowser();
   // The fork-target dialog's subject, when one is open.
   const [forkDialog, setForkDialog] = useState<{
     wsId: string;
     record: SessionHandle;
   } | null>(null);
-  // Every live pane's spawn plan, built through its agent plugin's hooks
-  // (async — the pane's terminal waits for its plan; mounting is what
-  // spawns). Dormant panes get theirs at revive time.
-  // Restart epochs force a full remount only after an explicit manual restart
-  // (or the accepted boot-recovery exception) has retired the old PTY entry.
-  const { specs: specByPane, failed: failedPanes } = usePaneSpawnSpecs(
-    deck.workspaces,
-    spawnCtx,
-    !agentsLoading,
-    agentRestart.epochs,
-  );
+  // Every live pane's spawn plan comes from the orchestrator, which builds it
+  // through the agent plugin's hooks as part of the same reconciliation that
+  // decides the pane should run at all.
+  const specByPane = runView.specs;
+  const failedPanes = runView.planFailed;
   // Record session bindings: assigned ids at spawn, reporter postbacks after.
   useSessionBinding(deck);
   // Wire bridge usage reports into the usage store (single mount) and prune
@@ -234,25 +218,16 @@ function App() {
   // top bar's update chip jumps to Updates, and a plugin's `settings.open`
   // command jumps to that plugin's page.
   const [settingsSection, setSettingsSection] = useState<string | undefined>();
-  const provisioning = useProvisioning(deck);
   // "+ Agent" dialog — always shown, to pick the agent type (+ name, and the
   // per-agent worktree location, [F2]).
   const agentFlow = useAgentDialog(deck, agents, {
-    // The dialog's "Start from" continuations, with the same visible-failure
-    // contract as the journal rows' Resume/Fork below.
-    resume: (wsId, handle, opts) =>
-      void journalResume
-        .resume(wsId, handle, opts)
-        .catch((e: unknown) =>
-          pushAlert("Could not resume the session", describeError(e)),
-        ),
-    fork: (wsId, handle, target, opts) =>
-      void journalFork
-        .fork(wsId, handle, target, opts)
-        .catch((e: unknown) =>
-          pushAlert("Could not fork the session", describeError(e)),
-        ),
-  }, revive.blocked);
+    // The dialog's "Start from" continuations fail the same VISIBLE way the
+    // journal rows' Resume/Fork do below.
+    onResumeFailed: (message) =>
+      pushAlert("Could not resume the session", message),
+    onForkFailed: (message) => pushAlert("Could not fork the session", message),
+    onCreateFailed: (message) => pushAlert("Could not add the agent", message),
+  }, runView.blocked);
   // A close (agent or workspace) awaiting confirmation ([U6]).
   const closeFlow = useCloseFlow(deck, {
     onError: (message) => pushAlert("Worktree error", message),
@@ -261,8 +236,9 @@ function App() {
     onSuspendRefused: (message) =>
       pushAlert("Can't suspend this agent", message),
     gitPositions: gitHeads,
-    blockedPanes: revive.blocked,
-    suspendAgent: suspendFlow.suspend,
+    blockedPanes: runView.blocked,
+    suspendAgent: orchestrator.suspend,
+    closeAgents: orchestrator.close,
   });
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
@@ -271,8 +247,9 @@ function App() {
     deck,
     agents,
     requestCloseAgent: closeFlow.requestCloseAgent,
-    suspendAgent: suspendFlow.suspend,
-    resumeAgent: revive.resume,
+    suspendAgent: orchestrator.suspend,
+    resumeAgent: orchestrator.resume,
+    createPane: orchestrator.createPane,
     openSettings: (sectionId) => {
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
@@ -473,7 +450,7 @@ function App() {
       // parked agent would make the cheap gesture expensive. A REFUSAL does
       // get a word, though — a blind chord that silently does nothing is
       // indistinguishable from one that didn't reach the app at all.
-      void suspendFlow.suspend(target.wsId, target.paneId).then((outcome) => {
+      void orchestrator.suspend(target.wsId, target.paneId).then((outcome) => {
         if (outcome === "suspended") return;
         pushAlert(
           "Can't suspend this agent",
@@ -595,7 +572,7 @@ function App() {
 
   const handleCreateWorkspace = (config: SpawnConfig) => {
     // Optimistic: the workspace (and its provisioning cards) land at once.
-    const result = provisioning.createWorkspace(config);
+    const result = orchestrator.createWorkspace(config);
     if (!result.ok) {
       pushAlert(
         "Workspace creation failed",
@@ -796,7 +773,7 @@ function App() {
             journal={deck.journal.records}
             onDeleteJournalRecord={deck.deleteJournalRecord}
             onResumeSession={(wsId, record) =>
-              void journalResume.resume(wsId, record).catch((e: unknown) =>
+              void orchestrator.resumeSession(wsId, record).catch((e: unknown) =>
                 // A user-requested continuation must fail VISIBLY — the row
                 // staying put with no signal reads as a dead button. Queued
                 // behind whatever is up: a slow earlier failure must not be
@@ -812,18 +789,18 @@ function App() {
             onCloseAgent={closeFlow.requestCloseAgent}
             onRenamePane={deck.renamePane}
             onPaneTitle={deck.setPaneAutoTitle}
-            idleBlocked={revive.blocked}
-            wakeFailed={revive.wakeFailed}
+            idleBlocked={runView.blocked}
+            wakeFailed={runView.wakeFailed}
             specByPane={specByPane}
             failedPanes={failedPanes}
-            onStartFresh={revive.startFresh}
-            onResumeAgent={revive.resume}
-            onRetryProvision={provisioning.retryPane}
+            onStartFresh={orchestrator.startFresh}
+            onResumeAgent={orchestrator.resume}
+            onRetryProvision={orchestrator.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {
               // The one-shot boot-resume recovery respawns by itself — that
               // exit is not a crash. A clean exit (code 0) is the user's own
               // doing inside the pane; only abnormal ends notify.
-              const recovering = agentRestart.recoverRejectedResume(
+              const recovering = orchestrator.recoverRejectedResume(
                 wsId,
                 paneId,
                 code,
@@ -835,9 +812,9 @@ function App() {
             onAgentSpawnFailed={(wsId, paneId, message) =>
               notifyAgentSpawnFailed(deck.workspaces, wsId, paneId, message, agents)
             }
-            onRestartAgent={agentRestart.restart}
-            restartEpochs={agentRestart.epochs}
-            onRetryPlanBuild={agentRestart.retryPlanBuild}
+            onRestartAgent={orchestrator.restart}
+            restartEpochs={runView.epochs}
+            onRetryPlanBuild={orchestrator.retryPlanBuild}
           />
 
           {showForm &&
@@ -905,7 +882,7 @@ function App() {
               onConfirm={({ target, yolo }) => {
                 const { wsId, record } = forkDialog;
                 setForkDialog(null);
-                void journalFork.fork(wsId, record, target, { yolo }).catch((e: unknown) =>
+                void orchestrator.forkSession(wsId, record, target, { yolo }).catch((e: unknown) =>
                   // Surgery failures carry precise store diagnostics — show
                   // them; a silently closing dialog reads as success.
                   pushAlert("Could not fork the session", describeError(e)),

@@ -3,6 +3,7 @@ import {
   canCreateAgent,
   canStartFromSession,
   classifyLocation,
+  forkTargetFor,
   isKnownBaseBranch,
   type PathProbe,
 } from "./agentLocation";
@@ -156,5 +157,52 @@ describe("canStartFromSession", () => {
     // The exact sessions resume refuses are the ones fork exists for.
     expect(canStartFromSession("fork", true, "dir-gone")).toBe(true);
     expect(canStartFromSession("fork", true, "claimed")).toBe(true);
+  });
+});
+
+describe("forkTargetFor", () => {
+  it("provisions a new worktree at the chosen path and branch", () => {
+    expect(
+      forkTargetFor({ kind: "new", path: "/wt/a", branch: "fork/a" }, "/repo"),
+    ).toEqual({ kind: "worktree", path: "/wt/a", branch: "fork/a" });
+  });
+
+  it("carries the picked base branch — losing it forks from a moving HEAD", () => {
+    // The two dialogs had their own copy of this mapping and only one of them
+    // passed the base, so the same gesture cut from a different commit
+    // depending on which surface the user reached it from.
+    expect(
+      forkTargetFor(
+        { kind: "new", path: "/wt/a", branch: "fork/a", baseBranch: "release" },
+        "/repo",
+      ),
+    ).toEqual({
+      kind: "worktree",
+      path: "/wt/a",
+      branch: "fork/a",
+      base: "release",
+    });
+  });
+
+  it("keeps an empty base off the target rather than passing a blank", () => {
+    expect(
+      forkTargetFor(
+        { kind: "new", path: "/wt/a", branch: "fork/a", baseBranch: "" },
+        "/repo",
+      ),
+    ).toEqual({ kind: "worktree", path: "/wt/a", branch: "fork/a" });
+  });
+
+  it("lands in an existing folder as-is, with no git mutation", () => {
+    expect(
+      forkTargetFor({ kind: "existing", path: "/wt/b", branch: "kd/b" }, "/repo"),
+    ).toEqual({ kind: "dir", cwd: "/wt/b" });
+  });
+
+  it("reads the main choice as the workspace's own folder", () => {
+    expect(forkTargetFor({ kind: "main" }, "/repo")).toEqual({
+      kind: "dir",
+      cwd: "/repo",
+    });
   });
 });

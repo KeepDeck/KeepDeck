@@ -15,9 +15,9 @@ import { describeError, log } from "../ipc/log";
  * assumptions about React internals.
  *
  * One global manager, not one per workspace: pane ids are unique across the
- * deck (a single mint sequence), the Rust `SessionRegistry` behind the IPC is
- * already app-global, and a workspace close is just a bulk [`closePanes`] over
- * its pane ids. If remote hosts ever arrive, the key grows a host part here.
+ * deck (a single mint sequence), and the Rust `SessionRegistry` behind the IPC
+ * is already app-global. If remote hosts ever arrive, the key grows a host
+ * part here.
  *
  * Output is mirrored into a bounded per-pane ring buffer at all times, so a
  * re-attaching view (remount) replays recent history into its fresh xterm
@@ -72,7 +72,6 @@ interface Entry {
    * (resume ids go stale the moment the session runs), so they don't key. */
   key: string;
   session: Session | null;
-  sink: PaneSink | null;
   chunks: Uint8Array[];
   buffered: number;
   exited: { code: number | null } | null;
@@ -93,7 +92,67 @@ interface Entry {
   launched: boolean;
 }
 
+/**
+ * What the app knows about a pane's process, for everything that is NOT the
+ * terminal view: the card that has to say "exited", and the reconciler that
+ * compares what should be running against what is.
+ *
+ * Read, never copied. An exit kept as component state outlived the process it
+ * described — a pane that exited, was suspended and then resumed painted a
+ * dead "Agent exited" veil, with a live Restart button, over a fresh terminal.
+ * Derived from the session registry, the answer cannot outlive its subject:
+ * [`closePane`] drops the entry, and the veil goes with it.
+ */
+export type PaneSessionState =
+  /** No session — never started, or ended by an explicit close. */
+  | { kind: "none" }
+  /** The spawn is in flight; the process does not exist yet. */
+  | { kind: "starting" }
+  | { kind: "live" }
+  /** The process ended. Stays inspectable until [`closePane`]. */
+  | { kind: "exited"; code: number | null }
+  /** The spawn itself failed — there was never a process. */
+  | { kind: "failed"; message: string };
+
 const entries = new Map<string, Entry>();
+
+/**
+ * The views listening to each pane, kept OUTSIDE the session entry.
+ *
+ * A view used to be reachable only through the entry, which made the order of
+ * `acquirePane` and `attachPane` load-bearing: a terminal that attached first
+ * found no entry, got a no-op detach, and sat empty forever. That was safe
+ * only while the same effect did both. With the spawn owned by the
+ * orchestrator the two happen independently, so the listener has to be able to
+ * arrive first — and, having arrived, to survive the session being replaced
+ * under it (a restart hands the same view a new process).
+ */
+const sinks = new Map<string, PaneSink>();
+
+/** Shared so an absent pane always answers with the SAME object: consumers
+ * subscribe through `useSyncExternalStore`, which re-renders forever on a
+ * snapshot rebuilt at every read. */
+const NO_SESSION: PaneSessionState = { kind: "none" };
+const states = new Map<string, PaneSessionState>();
+const stateListeners = new Set<() => void>();
+
+function setSessionState(paneId: string, next: PaneSessionState): void {
+  states.set(paneId, next);
+  for (const listener of [...stateListeners]) listener();
+}
+
+/** This pane's process state. Stable between changes. */
+export function paneSessionState(paneId: string): PaneSessionState {
+  return states.get(paneId) ?? NO_SESSION;
+}
+
+/** Notify on every process-state change, for any pane. */
+export function subscribeSessions(listener: () => void): () => void {
+  stateListeners.add(listener);
+  return () => {
+    stateListeners.delete(listener);
+  };
+}
 
 function identity(spec: PaneSpawnSpec): string {
   return `${spec.command ?? ""}\u0000${spec.cwd ?? ""}`;
@@ -117,7 +176,6 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     paneId,
     key: identity(spec),
     session: null,
-    sink: null,
     chunks: [],
     buffered: 0,
     exited: null,
@@ -128,6 +186,7 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
     launched: false,
   };
   entries.set(paneId, entry);
+  setSessionState(paneId, { kind: "starting" });
   log.info("web:pty", `${paneId}: spawn ${spec.command ?? "(shell)"} in ${spec.cwd ?? "(app cwd)"}`);
 
   spawnSession(
@@ -144,21 +203,23 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
       if (entry.closed) return;
       if (event.type === "output") {
         const bytes = new Uint8Array(event.bytes);
-        entry.sink?.onOutput(bytes);
+        sinks.get(paneId)?.onOutput(bytes);
         if (!entry.launched) {
           // First byte from the process: the CLI has painted — announce the
           // launch once, then never again for this session.
           entry.launched = true;
-          entry.sink?.onLaunched();
+          sinks.get(paneId)?.onLaunched();
         }
         remember(entry, bytes);
       } else {
         entry.exited = { code: event.code };
         entry.session = null;
+        setSessionState(paneId, { kind: "exited", code: event.code });
         log.info("web:pty", `${paneId}: exited (code ${event.code ?? "?"})`);
-        if (entry.sink) {
+        const sink = sinks.get(paneId);
+        if (sink) {
           entry.exitAnnounced = true;
-          entry.sink.onExit(event.code, false);
+          sink.onExit(event.code, false);
         }
       }
     },
@@ -171,15 +232,20 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
         return;
       }
       entry.session = session;
-      entry.sink?.onReady();
+      // An exit can land before the spawn promise settles (a process that dies
+      // immediately) — the death is the later truth, so it must not be undone.
+      if (!entry.exited) setSessionState(paneId, { kind: "live" });
+      sinks.get(paneId)?.onReady();
     })
     .catch((err: unknown) => {
       if (entry.closed) return;
       entry.failed = describeError(err);
+      setSessionState(paneId, { kind: "failed", message: entry.failed });
       log.error("web:pty", `${paneId}: spawn failed: ${entry.failed}`);
-      if (entry.sink) {
+      const sink = sinks.get(paneId);
+      if (sink) {
         entry.failedAnnounced = true;
-        entry.sink.onSpawnError(entry.failed, false);
+        sink.onSpawnError(entry.failed, false);
       }
     });
 }
@@ -188,11 +254,21 @@ export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
  * Point the pane's view at its session: recent output replays first, then the
  * session's current state (ready / exited / failed) is announced. Returns the
  * detach fn for the view's cleanup — detaching leaves the session running.
+ *
+ * Attaching BEFORE there is a session is fine and expected: the view mounts
+ * when the deck renders it, the process starts when the orchestrator decides
+ * it should, and neither waits for the other. The listener is simply recorded
+ * and hears the session from its first event.
  */
 export function attachPane(paneId: string, sink: PaneSink): () => void {
+  sinks.set(paneId, sink);
+  const detach = () => {
+    // Only detach if this sink is still the current one — a re-mount may have
+    // already attached its own before the old cleanup ran.
+    if (sinks.get(paneId) === sink) sinks.delete(paneId);
+  };
   const entry = entries.get(paneId);
-  if (!entry) return () => {};
-  entry.sink = sink;
+  if (!entry) return detach;
   for (const chunk of entry.chunks) sink.onOutput(chunk);
   if (entry.failed !== null) {
     // Same once-per-failure contract as exits below: a failure nobody heard
@@ -211,11 +287,7 @@ export function attachPane(paneId: string, sink: PaneSink): () => void {
   // Already-launched session (re-attach): tell the view now, after the replay,
   // so it opens without the launch overlay instead of flashing it again.
   if (entry.launched) sink.onLaunched();
-  return () => {
-    // Only detach if this sink is still the current one — a re-mount may have
-    // already attached its own before the old cleanup ran.
-    if (entries.get(paneId) === entry && entry.sink === sink) entry.sink = null;
-  };
+  return detach;
 }
 
 /**
@@ -248,8 +320,13 @@ export function closePane(paneId: string): Promise<void> {
   const entry = entries.get(paneId);
   if (!entry) return Promise.resolve();
   entries.delete(paneId);
+  // The state goes with the entry: a close is what makes an exit stop being
+  // the pane's current truth, and anything still showing it must stop.
+  states.delete(paneId);
+  for (const listener of [...stateListeners]) listener();
   entry.closed = true;
-  entry.sink = null;
+  // The listener is NOT dropped: the view outlives the session it was showing,
+  // and a restart hands the same terminal the next process.
   entry.chunks = [];
   entry.buffered = 0;
   const session = entry.session;
@@ -262,14 +339,82 @@ export function closePane(paneId: string): Promise<void> {
   });
 }
 
-/** Close a batch (a workspace teardown). Settles when every close has. */
-export function closePanes(paneIds: string[]): Promise<void> {
-  return Promise.allSettled(paneIds.map(closePane)).then(() => undefined);
+
+/** Output kept for a one-off command's caller — enough to see the error. */
+const ONCE_TAIL_CHARS = 600;
+
+/** ANSI escapes and control bytes have no place on a status card. */
+function plainText(raw: string): string {
+  // eslint-disable-next-line no-control-regex
+  return raw
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/[\x00-\x09\x0b-\x1f]/g, "");
+}
+
+/**
+ * Run a command to completion in a pane's slot, resolving to whether it
+ * succeeded and the tail of what it printed.
+ *
+ * Here rather than in whatever needs it, because every line of it is registry
+ * choreography over one pane's slot, and that slot has one owner. A caller
+ * reaching for acquire/attach/close on its own would be a second answer to
+ * "what process is behind this pane".
+ *
+ * The pane's own slot is the point: sessions are keyed by pane id, so closing
+ * the pane mid-run kills this command's whole process group like any other
+ * session — nothing to leak. The entry is released on completion, and the
+ * pane's terminal (a different spawn identity) then takes the slot over
+ * cleanly. If the pane IS closed mid-run the promise never settles, which is
+ * exactly right: there is nobody left to report to.
+ */
+export function runPaneOnce(
+  paneId: string,
+  spec: PaneSpawnSpec,
+): Promise<{ ok: boolean; tail: string }> {
+  return new Promise((resolve) => {
+    let tail = "";
+    // Assigned below; the default covers a sink that settles before
+    // `attachPane` returns (a replayed exit).
+    let detach: () => void = () => {};
+    const decoder = new TextDecoder();
+    const settle = (ok: boolean, note: string) => {
+      detach();
+      unwatch();
+      void closePane(paneId);
+      resolve({ ok, tail: plainText(note).trim().slice(-ONCE_TAIL_CHARS) });
+    };
+    acquirePane(paneId, spec);
+    // The slot emptying without an exit means the pane was closed under us.
+    const unwatch = subscribeSessions(() => {
+      if (paneSessionState(paneId).kind !== "none") return;
+      detach();
+      unwatch();
+    });
+    detach = attachPane(paneId, {
+      onOutput: (bytes) => {
+        tail = (tail + decoder.decode(bytes, { stream: true })).slice(
+          -ONCE_TAIL_CHARS * 4,
+        );
+      },
+      onExit: (code) =>
+        code === 0
+          ? settle(true, "")
+          : settle(false, tail || `exit code ${code ?? "?"}`),
+      onSpawnError: (message) => settle(false, message),
+      onReady: () => {},
+      // A one-off command runs behind a status card, not a terminal — its
+      // first output drives no launch overlay.
+      onLaunched: () => {},
+    });
+  });
 }
 
 /** Test hook: drop every entry, closing what's live. */
 export function resetPtyManager(): void {
   for (const id of [...entries.keys()]) void closePane(id);
+  // Listeners outlive the sessions they watch — deliberately, so a restart
+  // keeps the same terminal attached — so nothing else drops them.
+  sinks.clear();
 }
 
 function remember(entry: Entry, bytes: Uint8Array): void {

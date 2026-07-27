@@ -4,7 +4,6 @@ import { FitAddon } from "@xterm/addon-fit";
 import { CanvasAddon } from "@xterm/addon-canvas";
 import "@xterm/xterm/css/xterm.css";
 import {
-  acquirePane,
   attachPane,
   isPaneLaunched,
   resizePane,
@@ -74,10 +73,12 @@ function hasSize(host: HTMLElement): boolean {
 
 /**
  * A single terminal pane — a VIEW over a PTY session the `ptyManager` owns.
- * On mount it acquires the pane's session (idempotent — an existing one is
- * reused, with recent output replayed) and attaches xterm to it; keystrokes
- * flow back through the manager. On unmount it only detaches: the process
- * keeps running, and dies solely through the deck's explicit close actions.
+ * On mount it attaches xterm to the pane's session (recent output replays
+ * first) and syncs the real grid size; keystrokes flow back through the
+ * manager. It never starts or ends a process: whether one belongs behind this
+ * pane is the orchestrator's answer, and attaching before there is a session
+ * is expected — the view mounts when the deck renders it. On unmount it only
+ * detaches, and the process keeps running.
  *
  * Renderer: xterm's default (canvas/DOM), NOT WebGL. A WebGL context per pane
  * was measured to behave worse across a grid of panes (the browser's ~16
@@ -271,15 +272,11 @@ export function TerminalPane({
       fileOpen,
     );
 
-    acquirePane(paneId, {
-      command,
-      args: argsRef.current,
-      env: envRef.current,
-      envDefaults: envDefaultsRef.current,
-      cwd,
-      cols: term.cols,
-      rows: term.rows,
-    });
+    // Whether this pane should have a process, and what it runs, is settled
+    // before anything is rendered — see the agent orchestrator. This view only
+    // listens: it attaches whenever the deck shows it, and the session it
+    // finds may be older than the terminal or arrive after it.
+    //
     // A fresh spawn (mount, or a cwd/command change that re-ran this effect)
     // hasn't launched yet — re-arm the overlay; an already-live re-attach keeps
     // it down (the sink's onLaunched below fires again through the replay).

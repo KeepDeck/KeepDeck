@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ForkTargetDialog } from "./ForkTargetDialog";
 import type { AgentInfo, Occupancy, PathProbe } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
-import type { ForkTarget, ForkTargetDialogResult } from "../../app/useJournalFork";
+import type { ForkTarget, ForkTargetDialogResult } from "../../domain/agents";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =

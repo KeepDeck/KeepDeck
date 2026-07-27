@@ -1,34 +1,19 @@
-import { useEffect, useState } from "react";
-import {
-  EMPTY_SPAWN_CONTEXT,
-  type SpawnPlanContext,
-} from "../domain/agents";
-import { describeError, log } from "../ipc/log";
-import { spawnContext } from "../ipc/sessions";
+import { useSyncExternalStore } from "react";
+import type { SpawnPlanContext } from "../domain/agents";
+import type { SpawnContextSource } from "./spawnContextSource";
 
 /**
- * The per-install spawn-plan context ([F7]/[F8] v2), loaded once at boot.
- * `null` while loading — the deck gates its first paint on it (a pane spawned
- * without its plan would miss its session identity). A failed load degrades
- * to [`EMPTY_SPAWN_CONTEXT`]: agents still spawn, identity mechanisms are off.
+ * Read the app's spawn-plan context in React. `null` while the boot load is
+ * still out — the deck gates its first paint on it, since a pane spawned
+ * without its plan would miss its session identity.
+ *
+ * A subscription rather than a load of its own: the context belongs to the
+ * runtime, because the plans built from it outlive any component. The failed-
+ * load degradation (agents still spawn, identity mechanisms off) lives with
+ * the source, in [`createSpawnContextSource`].
  */
-export function useSpawnContext(): SpawnPlanContext | null {
-  const [ctx, setCtx] = useState<SpawnPlanContext | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void spawnContext()
-      .catch((e) => {
-        // Identity mechanisms silently off is exactly the state that burned
-        // an hour once — make the degradation visible.
-        log.warn("web:spawn-context", `load failed, identity off: ${describeError(e)}`);
-        return EMPTY_SPAWN_CONTEXT;
-      })
-      .then((loaded) => {
-        if (!cancelled) setCtx(loaded);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return ctx;
+export function useSpawnContext(
+  source: SpawnContextSource,
+): SpawnPlanContext | null {
+  return useSyncExternalStore(source.subscribe, source.get, source.get);
 }

@@ -1,7 +1,7 @@
 import { emptyJournal } from "../journal";
 import type { DeckState, WorkspaceView } from "./reducer";
 import type { Pane, PaneIdle, PaneProvisioning } from "./panes";
-import { paneIdleIsDurable, paneWakeOrigin, resolveFocus } from "./panes";
+import { paneIdleIsDurable, resolveFocus } from "./panes";
 import type { Workspace } from "./workspaces";
 import { resolveActiveId, workspaceIdsAreUnique } from "./workspaces";
 import { nextIdSequence } from "../idSequence";
@@ -226,33 +226,6 @@ export function hydrateDeck(json: string): HydrateDeckResult {
       nextAgentSeq,
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
     },
-  };
-}
-
-/**
- * Apply the launch policy to a freshly hydrated deck: every pane the restore
- * left rising becomes `parked`, so the revive sweep leaves it alone and
- * each one starts from its own card instead of six CLIs launching at once.
- *
- * Kept out of [`hydrateDeck`] on purpose — hydration answers "what does this
- * document say", the setting answers "what should this launch do", and only
- * the second one changes when the user flips a checkbox. Panes the user
- * SUSPENDED are untouched: they are already stopped, and overwriting the
- * reason would lose the stamp their card is dated by.
- */
-export function parkRestoredPanes(state: DeckState): DeckState {
-  return {
-    ...state,
-    workspaces: state.workspaces.map((ws) => ({
-      ...ws,
-      panes: ws.panes.map((pane) =>
-        // Hydration's own marker only — a pane the user suspended keeps its
-        // stamp, and no other reason can exist this early.
-        paneWakeOrigin(pane) === "restore"
-          ? { ...pane, idle: { reason: "parked" as const } }
-          : pane,
-      ),
-    })),
   };
 }
 

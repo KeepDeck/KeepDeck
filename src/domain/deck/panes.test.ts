@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
+import type { AgentDialogResult } from "../agents";
 import { MAX_PANES } from "./layout";
 import {
   appendPane,
   makePanes,
   makeProvisioningPanes,
+  paneBlock,
+  paneCanPark,
   paneCanSuspend,
+  paneFromAgentRequest,
   paneDisplayTitle,
   paneIdleIsDurable,
   paneIsRemoteFresh,
@@ -17,6 +21,7 @@ import {
   partitionPanes,
   removePane,
   resolveFocus,
+  sessionClaimant,
   type Pane,
 } from "./panes";
 
@@ -304,6 +309,270 @@ describe("makeProvisioningPanes", () => {
         name: "ws",
       }),
     ).toHaveLength(MAX_PANES);
+  });
+});
+
+describe("paneBlock — the head both ladders share", () => {
+  it("answers nothing for an ordinary pane", () => {
+    expect(paneBlock({ id: "p1", agentType: "claude" }, true)).toBeNull();
+  });
+
+  it("puts provisioning first — nothing else can be acted on", () => {
+    expect(
+      paneBlock(
+        {
+          id: "p1",
+          idle: { reason: "parked" },
+          provisioning: { repo: "/r", workspace: "w", index: 1 },
+        },
+        false,
+      ),
+    ).toEqual({ kind: "provisioning" });
+  });
+
+  it("names an absent agent over a stopped marker", () => {
+    expect(
+      paneBlock({ id: "p1", agentType: "codex", idle: { reason: "parked" } }, false),
+    ).toEqual({ kind: "agent-unavailable", agent: "codex" });
+  });
+
+  it("carries the idle marker WHOLE, so a caller can put it back", () => {
+    const idle = { reason: "suspended", at: "2026-07-27T10:00:00.000Z" } as const;
+    expect(paneBlock({ id: "p1", idle }, true)).toEqual({
+      kind: "stopped",
+      by: idle,
+    });
+  });
+});
+
+describe("sessionClaimant", () => {
+  const decks = (panes: Pane[]) => [{ panes }];
+  const free = () => false;
+
+  it("says nothing when no pane holds the session", () => {
+    expect(sessionClaimant(decks([{ id: "p1" }]), "s-1", free)).toBeNull();
+  });
+
+  it("finds the holder across workspaces and calls a live one running", () => {
+    const holder: Pane = { id: "p2", session: { id: "s-1", boundAt: "t" } };
+    expect(
+      sessionClaimant([{ panes: [{ id: "p1" }] }, { panes: [holder] }], "s-1", free),
+    ).toEqual({ pane: holder, reads: "running" });
+  });
+
+  it("calls a suspended holder stopped — that pane has the button", () => {
+    expect(
+      sessionClaimant(
+        decks([
+          {
+            id: "p1",
+            idle: { reason: "suspended", at: "t" },
+            session: { id: "s-1", boundAt: "t" },
+          },
+        ]),
+        "s-1",
+        free,
+      )?.reads,
+    ).toBe("stopped");
+  });
+
+  it("calls a RISING holder running — it will be, in a moment", () => {
+    // Sending the user to resume a pane that is already coming up points at a
+    // card with no button on it.
+    expect(
+      sessionClaimant(
+        decks([
+          {
+            id: "p1",
+            idle: { reason: "waking", origin: "restore" },
+            session: { id: "s-1", boundAt: "t" },
+          },
+        ]),
+        "s-1",
+        free,
+      )?.reads,
+    ).toBe("running");
+  });
+
+  it("calls a rising holder STOPPED once the sweep says its folder is gone", () => {
+    // Its own marker still says it is rising; only the runtime verdict knows
+    // it never will.
+    expect(
+      sessionClaimant(
+        decks([
+          {
+            id: "p1",
+            idle: { reason: "waking", origin: "restore" },
+            session: { id: "s-1", boundAt: "t" },
+          },
+        ]),
+        "s-1",
+        (paneId) => paneId === "p1",
+      )?.reads,
+    ).toBe("stopped");
+  });
+});
+
+describe("paneCanPark", () => {
+  it("parks a pane still rising by the sweep's own reasons", () => {
+    expect(
+      paneCanPark({ id: "p1", idle: { reason: "waking", origin: "restore" } }),
+    ).toBe(true);
+  });
+
+  it("never parks one a user just asked for", () => {
+    expect(
+      paneCanPark({ id: "p1", idle: { reason: "waking", origin: "manual" } }),
+    ).toBe(false);
+  });
+
+  it("never parks a running pane — a preference must not stop a live agent", () => {
+    expect(paneCanPark({ id: "p1" })).toBe(false);
+  });
+
+  it("never re-parks one that is already down", () => {
+    expect(paneCanPark({ id: "p1", idle: { reason: "parked" } })).toBe(false);
+    expect(
+      paneCanPark({ id: "p1", idle: { reason: "suspended", at: "t" } }),
+    ).toBe(false);
+  });
+
+  it("says no for a pane that is not there", () => {
+    expect(paneCanPark(undefined)).toBe(false);
+  });
+});
+
+describe("paneFromAgentRequest", () => {
+  const ws = { cwd: "/repo", name: "deck" };
+  const request = (over: Partial<AgentDialogResult> = {}): AgentDialogResult => ({
+    agentType: "claude",
+    name: "",
+    location: { kind: "main" },
+    yolo: false,
+    ...over,
+  });
+
+  it("shapes a bare pane for the main repo", () => {
+    expect(paneFromAgentRequest("pane-1", request(), ws, 1)).toEqual({
+      id: "pane-1",
+      agentType: "claude",
+    });
+  });
+
+  it("carries the endpoint and NOTHING local for a remote agent", () => {
+    // The location field still holds whatever the dialog last showed; a
+    // remote pane must not pick up a cwd on this machine from it.
+    expect(
+      paneFromAgentRequest(
+        "pane-1",
+        request({
+          location: { kind: "existing", path: "/wt/a", branch: "kd/a" },
+          remoteEndpoint: "wss://vps",
+        }),
+        ws,
+        1,
+      ),
+    ).toEqual({
+      id: "pane-1",
+      agentType: "claude",
+      remoteEndpoint: "wss://vps",
+    });
+  });
+
+  it("pins an existing worktree by cwd and branch", () => {
+    expect(
+      paneFromAgentRequest(
+        "pane-2",
+        request({ location: { kind: "existing", path: "/wt/a", branch: "kd/a" } }),
+        ws,
+        3,
+      ),
+    ).toEqual({
+      id: "pane-2",
+      agentType: "claude",
+      cwd: "/wt/a",
+      branch: "kd/a",
+    });
+  });
+
+  it("carries the create intent for a worktree that does not exist yet", () => {
+    expect(
+      paneFromAgentRequest(
+        "pane-3",
+        request({
+          location: {
+            kind: "new",
+            path: "/wt/kd-deck-3",
+            branch: "kd/deck/3",
+            baseBranch: "release",
+          },
+        }),
+        ws,
+        3,
+      ),
+    ).toEqual({
+      id: "pane-3",
+      agentType: "claude",
+      provisioning: {
+        repo: "/repo",
+        path: "/wt/kd-deck-3",
+        branch: "kd/deck/3",
+        base: "release",
+        workspace: "deck",
+        index: 3,
+      },
+    });
+  });
+
+  it("never stamps runsSetup — a pane added later is not part of the batch", () => {
+    // The workspace's one-time setup command belongs to the create form's
+    // batch. Stamping it here would make "+ Agent" re-run it per pane.
+    const pane = paneFromAgentRequest(
+      "pane-3",
+      request({
+        location: { kind: "new", path: "/wt/a", branch: "kd/a" },
+      }),
+      ws,
+      1,
+    );
+    expect(pane.provisioning?.runsSetup).toBeUndefined();
+  });
+
+  it("keeps unset fields OFF the pane rather than present-and-undefined", () => {
+    // Persistence and the deck's equality checks both read presence, so a
+    // blank name or branch must not land as a key at all.
+    const pane = paneFromAgentRequest(
+      "pane-4",
+      request({
+        name: "   ",
+        location: { kind: "new", path: "/wt/a", branch: "", baseBranch: "" },
+      }),
+      ws,
+      1,
+    );
+    expect(Object.keys(pane).sort()).toEqual(["agentType", "id", "provisioning"]);
+    expect(Object.keys(pane.provisioning!).sort()).toEqual([
+      "index",
+      "path",
+      "repo",
+      "workspace",
+    ]);
+  });
+
+  it("trims the name and arms yolo only when asked", () => {
+    expect(
+      paneFromAgentRequest(
+        "pane-5",
+        request({ name: "  planner  ", yolo: true }),
+        ws,
+        1,
+      ),
+    ).toEqual({
+      id: "pane-5",
+      name: "planner",
+      agentType: "claude",
+      yolo: true,
+    });
   });
 });
 

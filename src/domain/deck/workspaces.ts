@@ -10,6 +10,7 @@ import type {
 } from "../workspaceInstance";
 import {
   appendPane,
+  paneCanPark,
   paneCanSuspend,
   removePane,
   type Pane,
@@ -376,6 +377,35 @@ export function failPaneWake(
   );
 }
 
+/**
+ * Park a pane the launch policy says must not start: it stops rising and gets
+ * the card its state deserves, instead of waiting behind a "starting" one for
+ * a start that is never coming.
+ *
+ * Only a pane still on its way up by the SWEEP's own reasons. A pane asked for
+ * by name is exempt — the policy governs what starts on its own, not what a
+ * user just asked for — and a pane that is already running is never touched:
+ * the setting decides how agents come back, and killing a live agent because
+ * a preference changed would be a destruction nobody asked for.
+ *
+ * `parked` is runtime-only, so turning the policy off brings these panes back
+ * on the next launch. Returns the SAME array when the pane is not eligible.
+ */
+export function parkPane(
+  workspaces: Workspace[],
+  workspaceId: string,
+  paneId: string,
+): Workspace[] {
+  if (!paneCanPark(findPane(workspaces, workspaceId, paneId))) {
+    return workspaces;
+  }
+  return mapWorkspace(workspaces, workspaceId, (panes) =>
+    panes.map((p) =>
+      p.id === paneId ? { ...p, idle: { reason: "parked" as const } } : p,
+    ),
+  );
+}
+
 /** Suspend a pane: mark it idle by the user's own decision, so nothing wakes
  * it but an explicit resume. The PTY teardown is the app layer's half — this
  * records the intent that outlives it (and the save).
@@ -387,7 +417,7 @@ export function failPaneWake(
  *
  * `blocked` is false here because the domain has no sweep verdict to consult
  * — that lives in the app layer, which refuses such a pane before dispatching
- * (`useSuspend`). This guard is the backstop for the rules the MODEL can see,
+ * (the orchestrator's). This guard is the backstop for the rules the MODEL can see,
  * and the argument is spelled out rather than defaulted so the omission is a
  * decision on the page instead of an invisible one. */
 export function suspendPane(

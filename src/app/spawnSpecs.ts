@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import type {
   AgentContribution,
   ForkPlanInput,
@@ -11,30 +10,23 @@ import {
   type SpawnPlan,
   type SpawnPlanContext,
 } from "../domain/agents";
-import { paneAgentType, skillRootsOf, type Workspace } from "../domain/deck";
+import {
+  paneAgentType,
+  skillRootsOf,
+  type Pane,
+  type Workspace,
+} from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { mintBridgeToken } from "./ids";
 import { postbackCount } from "./postbacks";
 import { stagedSkillsFor } from "./skillsStaging";
 import type { PluginManager } from "./pluginManager";
-import { useAppRuntime } from "./runtimeContext";
 import { execCovers } from "../plugins/capabilities/execCovers";
-import { useContributions } from "../plugins/react";
 
 export type SpawnPluginAccess = Pick<
   PluginManager,
   "pluginHost" | "pluginRegistries"
 >;
-
-/** What `usePaneSpawnSpecs` hands back each render: every live pane's plan,
- *  plus the panes whose last build FAILED (so the deck can show an error tile
- *  with a retry). `failed` rides the same snapshot identity as `specs`, so a
- *  failure re-renders consumers with the new set in hand — no render-time
- *  side-channel into the module-level `failed` Set. */
-export interface SpawnSpecs {
-  specs: Record<string, SpawnPlan>;
-  failed: ReadonlySet<string>;
-}
 
 /**
  * Spawn plans, built through the cli plugins' hooks ([F7]/[F8] v2).
@@ -71,6 +63,33 @@ const failed = new Set<string>();
  * result after a newer manual/fresh decision. */
 const buildGenerations = new Map<string, number>();
 
+/**
+ * Who to tell when the answer to "what does this pane run" changes.
+ *
+ * This cache has several writers — the ordinary sweep, a manual resume, a
+ * fork's surgery, a retry — and one of them landing is exactly what a pane
+ * waiting to start, or a card waiting to stop saying "Waking up…", is waiting
+ * FOR. Without a notification each writer had to remember to poke whoever
+ * cared, and the ones reached through an await did not: a resumed pane got a
+ * real process and a view that never learned its plan existed.
+ *
+ * The registry beside it ([`subscribeSessions`]) already worked this way. A
+ * module-level store that mutates behind an await needs a way to say so.
+ */
+const specListeners = new Set<() => void>();
+
+/** Tell me when any pane's plan, or its build failure, changes. */
+export function subscribeSpawnSpecs(listener: () => void): () => void {
+  specListeners.add(listener);
+  return () => {
+    specListeners.delete(listener);
+  };
+}
+
+function notifySpecs(): void {
+  for (const listener of [...specListeners]) listener();
+}
+
 function reserveBuild(paneId: string): number {
   const generation = (buildGenerations.get(paneId) ?? 0) + 1;
   buildGenerations.set(paneId, generation);
@@ -89,6 +108,7 @@ async function buildAndCache(
     pending.delete(paneId);
     specs.set(paneId, plan);
     failed.delete(paneId);
+    notifySpecs();
     return true;
   } catch (error) {
     if (buildGenerations.get(paneId) === generation) {
@@ -97,6 +117,7 @@ async function buildAndCache(
       // hanging on "Waking up…" — a remote spawn that can't build its plan
       // must not silently become a local one (the reason buildPlan rethrows).
       failed.add(paneId);
+      notifySpecs();
     }
     throw error;
   }
@@ -281,6 +302,12 @@ export function dropPaneSpawnSpec(paneId: string): void {
   pending.delete(paneId);
   failed.delete(paneId);
   buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
+  // Last, for the same reason as its sibling below: a listener that reacts by
+  // starting a build must see the invalidation it is reacting to. Notifying
+  // first would let that build reserve a generation this line then bumps past,
+  // and a build that loses its generation never leaves `pending` — the pane
+  // would be skipped by every later sweep.
+  notifySpecs();
 }
 
 /** Build and cache an exclusive RESUME plan for an idle pane about to wake
@@ -342,95 +369,68 @@ export async function buildForkSpec(
 }
 
 /**
- * The live panes' spawn plans, built lazily through the plugin hooks.
- * Dormant panes get theirs at revive time; a provisioning pane has no
- * working directory yet, so building would plan a spawn into the workspace
- * cwd — exactly the fallback the provisioning cards replaced.
+ * Build and cache the ordinary spawn plan for ONE pane, if it still needs one.
+ * Resolves to whether the cache changed, so a caller that publishes a snapshot
+ * knows when to republish — a FAILED build counts, or the error tile never
+ * renders and the pane hangs on "Waking up…" until some unrelated change.
+ *
+ * Which panes qualify is decided here, once: a dormant one gets its plan at
+ * wake time instead (an exclusive resume plan, not this), a provisioning one
+ * has no working directory yet — building would plan a spawn into the
+ * workspace cwd, exactly the fallback the provisioning cards replaced — and an
+ * agent no plugin provides is blocked by its own card. A pane already holding
+ * a plan, mid-build, or with a failed build is left alone: the reservation is
+ * what keeps a StrictMode re-run, or a sweep racing a manual resume, from
+ * building twice.
+ *
+ * Separated from the sweep because the two answer different questions — what
+ * this pane needs, and when to look — and only the second one belongs to
+ * whoever is driving.
  */
-export function usePaneSpawnSpecs(
-  workspaces: Workspace[],
-  ctx: SpawnPlanContext | null,
-  agentsReady: boolean,
-  /** Any value whose change must re-run the build sweep — the respawn
-   * path drops a plan from the module cache, which no other dep observes. */
-  rebuildKey?: unknown,
-): SpawnSpecs {
-  const { plugins } = useAppRuntime();
-  const contributions = useContributions(plugins.pluginRegistries.agents);
-  // The cache version: bumped when a build lands, so the snapshot below
-  // refreshes. (Resume plans land via `buildResumeSpec` before `clearPaneIdle`
-  // flips deck state — that state change refreshes the snapshot instead.)
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    if (!ctx || !agentsReady) return;
-    let alive = true;
-    for (const ws of workspaces) {
-      const wsSkillRoots = skillRootsOf(ws);
-      for (const pane of ws.panes) {
-        if (pane.idle || pane.provisioning) continue;
-        if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id))
-          continue;
-        const agent = findAgent(plugins, paneAgentType(pane));
-        if (!agent) continue; // the unavailable card blocks the terminal
-        void buildAndCache(pane.id, () =>
-          buildPlan(
-            plugins,
-            agent,
-            {
-              paneId: pane.id,
-              workspace: { id: ws.id, instance: ws.instance },
-              cwd: pane.cwd ?? ws.cwd,
-              branch: pane.branch,
-              yolo: pane.yolo,
-              wsSkillRoots,
-              ...(pane.remoteEndpoint
-                ? {
-                    target: {
-                      kind: "nativeServer" as const,
-                      endpoint: pane.remoteEndpoint,
-                    },
-                  }
-                : {}),
-            },
-            ctx,
-          ),
-        )
-          .then((committed) => {
-            if (committed && alive) setTick((t) => t + 1);
-          })
-          .catch((error: unknown) => {
-            log.error(
-              "web:agents",
-              `${pane.id} plan build failed: ${describeError(error)}`,
-            );
-            // A failed build recorded the pane in `failed`; bump the tick so
-            // the snapshot refreshes and DeckStage re-reads peekPanePlanError
-            // — without this the error tile never renders and the pane hangs
-            // on "Waking up…" until some unrelated re-render happens.
-            if (alive) setTick((t) => t + 1);
-          });
-      }
-    }
-    return () => {
-      alive = false;
-    };
-  }, [workspaces, ctx, agentsReady, contributions, rebuildKey, plugins]);
-
-  // A fresh snapshot object per cache change — cheap (small maps), and lets
-  // consumers stay referentially honest. `failed` rides the SAME snapshot so a
-  // failure re-renders consumers with the new set in hand (no render-time
-  // side-channel into the module-level `failed` Set).
-  return useMemo(() => {
-    const snapshot: Record<string, SpawnPlan> = {};
-    for (const ws of workspaces) {
-      for (const pane of ws.panes) {
-        const spec = specs.get(pane.id);
-        if (spec) snapshot[pane.id] = spec;
-      }
-    }
-    return { specs: snapshot, failed: new Set(failed) };
-  }, [workspaces, tick, rebuildKey]);
+export async function buildLivePaneSpec(
+  plugins: SpawnPluginAccess,
+  ws: Workspace,
+  pane: Pane,
+  ctx: SpawnPlanContext,
+): Promise<boolean> {
+  if (pane.idle || pane.provisioning) return false;
+  if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id)) {
+    return false;
+  }
+  const agent = findAgent(plugins, paneAgentType(pane));
+  if (!agent) return false;
+  try {
+    return await buildAndCache(pane.id, () =>
+      buildPlan(
+        plugins,
+        agent,
+        {
+          paneId: pane.id,
+          workspace: { id: ws.id, instance: ws.instance },
+          cwd: pane.cwd ?? ws.cwd,
+          branch: pane.branch,
+          yolo: pane.yolo,
+          wsSkillRoots: skillRootsOf(ws),
+          ...(pane.remoteEndpoint
+            ? {
+                target: {
+                  kind: "nativeServer" as const,
+                  endpoint: pane.remoteEndpoint,
+                },
+              }
+            : {}),
+        },
+        ctx,
+      ),
+    );
+  } catch (error) {
+    log.error(
+      "web:agents",
+      `${pane.id} plan build failed: ${describeError(error)}`,
+    );
+    // `buildAndCache` recorded the pane in `failed`; the cache DID change.
+    return true;
+  }
 }
 
 /** The cached plan, if any (no building) — for the binding effect. */
@@ -447,6 +447,7 @@ export function bindPaneSpawnSpecSession(
   const spec = specs.get(paneId);
   if (!spec?.forkOf || spec.forkSessionId) return;
   specs.set(paneId, { ...spec, forkSessionId: sessionId });
+  notifySpecs();
 }
 
 /** Re-stamp WHO asked for a cached resume plan. The origin is a field of the
@@ -459,6 +460,7 @@ export function markPaneResumeOrigin(paneId: string, origin: ResumeOrigin): void
   const spec = specs.get(paneId);
   if (!spec?.resumeOf) return;
   specs.set(paneId, { ...spec, resumeOrigin: origin });
+  notifySpecs();
 }
 
 /** Whether this exact provider session began with inherited counters. */
@@ -482,14 +484,20 @@ export function clearPanePlanError(paneId: string): void {
   failed.delete(paneId);
   pending.delete(paneId);
   buildGenerations.set(paneId, (buildGenerations.get(paneId) ?? 0) + 1);
+  // Last, so a listener that reacts by rebuilding sees the invalidation it
+  // is reacting to rather than the generation it is about to replace.
+  notifySpecs();
 }
 
-/** Test isolation. */
+/** Test isolation. Listeners go with the rest of the state: a subscriber
+ * outliving the cache it watches would keep reacting to a later test's
+ * writes. */
 export function resetPaneSpawnSpecs(): void {
   specs.clear();
   pending.clear();
   failed.clear();
   buildGenerations.clear();
+  specListeners.clear();
 }
 
 function findAgent(

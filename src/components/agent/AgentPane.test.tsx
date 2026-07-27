@@ -10,6 +10,30 @@ vi.mock("../terminal/TerminalPane", () => ({
   TerminalPane: vi.fn(() => null),
 }));
 
+// The pane READS its process state; it does not own it. Stand in for the
+// session registry so a test can put a pane's process where it wants it.
+const sessions = vi.hoisted(() => {
+  let state: { kind: string; code?: number | null } = { kind: "none" };
+  const listeners = new Set<() => void>();
+  return {
+    read: () => state,
+    put(next: { kind: string; code?: number | null }) {
+      state = next;
+      for (const listener of [...listeners]) listener();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+});
+vi.mock("../../app/ptyManager", () => ({
+  paneSessionState: () => sessions.read(),
+  subscribeSessions: sessions.subscribe,
+}));
+
 import type { NormalizedUsage } from "@keepdeck/plugin-api";
 import type { PaneIdle } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
@@ -18,7 +42,8 @@ import {
   reportUsage,
   resetUsageManager,
 } from "../../app/usageManager";
-import { AgentPane } from "./AgentPane";
+import { AgentPane, type AgentPaneProps } from "./AgentPane";
+import { paneBody, type PaneBody } from "../../domain/deck";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -42,6 +67,40 @@ const baseProps = {
   onRename: () => {},
   onTitle: () => {},
 };
+
+/**
+ * The pane as the DECK mounts it: `body` derived from the same facts the deck
+ * derives it from, unless a case pins one deliberately.
+ *
+ * The component takes the answer rather than re-deriving it, so a test that
+ * passed `provisioning` with a stale `body` would describe a state nobody
+ * produces — and get the blank body the component renders for one. Deriving
+ * here keeps every case honest without repeating the deck's rule.
+ */
+function PaneUnderTest(
+  props: Omit<AgentPaneProps, "body"> & { body?: PaneBody },
+) {
+  return createElement(AgentPane, {
+    ...props,
+    body:
+      props.body ??
+      paneBody(
+        {
+          id: props.paneId,
+          ...(props.provisioning ? { provisioning: props.provisioning } : {}),
+          ...(props.idle ? { idle: props.idle } : {}),
+        },
+        {
+          agentAvailable: !props.unavailableAgent,
+          hasPlan: true,
+          planFailed: false,
+        },
+      ),
+  });
+}
+
+// A death recorded by one test is not a fact about the next one.
+afterEach(() => sessions.put({ kind: "none" }));
 
 describe("AgentPane — header badges", () => {
   let host: HTMLElement;
@@ -72,7 +131,7 @@ describe("AgentPane — header badges", () => {
         pane: { agent: "claude", context: { usedPct: 82 }, reportedAt: 0 },
       },
     });
-    act(() => root.render(createElement(AgentPane, baseProps)));
+    act(() => root.render(createElement(PaneUnderTest,baseProps)));
 
     const ctx = document.querySelector<HTMLElement>(".pane__ctx");
     expect(ctx).not.toBeNull();
@@ -82,7 +141,7 @@ describe("AgentPane — header badges", () => {
   });
 
   it("shows no context meter when the pane reports no usage", () => {
-    act(() => root.render(createElement(AgentPane, baseProps)));
+    act(() => root.render(createElement(PaneUnderTest,baseProps)));
     expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
@@ -98,7 +157,7 @@ describe("AgentPane — header badges", () => {
         pane: { agent: "claude", context: { usedPct: 40 }, reportedAt: 0 },
       },
     });
-    act(() => root.render(createElement(AgentPane, baseProps)));
+    act(() => root.render(createElement(PaneUnderTest,baseProps)));
     const ctx = document.querySelector<HTMLElement>(".pane__ctx");
     expect(ctx?.textContent).toBe("ctx 40%");
     // Calm (< 75%) → no usage-level--* suffix appended.
@@ -119,8 +178,9 @@ describe("AgentPane — header badges", () => {
     });
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
+          body: "stopped" as PaneBody,
           idle: { reason: "waking", origin: "restore" } as const,
         }),
       ),
@@ -132,10 +192,19 @@ describe("AgentPane — header badges", () => {
   it.each([
     [
       "provisioning",
-      { provisioning: { repo: "/r", baseDir: "/w", branch: "b", workspace: "w", index: 1 } },
+      {
+        body: "provisioning" as PaneBody,
+        provisioning: { repo: "/r", baseDir: "/w", branch: "b", workspace: "w", index: 1 },
+      },
     ],
-    ["unavailable", { unavailableAgent: { kind: "no-plugin" as const, agent: "gemini" } }],
-    ["plan-pending", { planPending: true }],
+    [
+      "unavailable",
+      {
+        body: "agent-unavailable" as PaneBody,
+        unavailableAgent: { kind: "no-plugin" as const, agent: "gemini" },
+      },
+    ],
+    ["plan-pending", { body: "waiting" as PaneBody }],
   ] as const)(
     "hides the context meter on a %s pane despite usage",
     (_label, override) => {
@@ -151,7 +220,7 @@ describe("AgentPane — header badges", () => {
         },
       });
       act(() =>
-        root.render(createElement(AgentPane, { ...baseProps, ...override })),
+        root.render(createElement(PaneUnderTest,{ ...baseProps, ...override })),
       );
       expect(document.querySelector(".pane__ctx")).toBeNull();
     },
@@ -170,19 +239,17 @@ describe("AgentPane — header badges", () => {
       },
     });
     vi.mocked(TerminalPane).mockClear();
-    act(() => root.render(createElement(AgentPane, baseProps)));
+    act(() => root.render(createElement(PaneUnderTest,baseProps)));
     expect(document.querySelector(".pane__ctx")).not.toBeNull(); // live → shown
     // The PTY exits → the now-frozen ctx% must go.
-    const calls = vi.mocked(TerminalPane).mock.calls;
-    const terminalProps = calls[calls.length - 1]?.[0];
-    act(() => terminalProps?.onExit?.(0, false));
+    act(() => sessions.put({ kind: "exited", code: 0 }));
     expect(document.querySelector(".pane__ctx")).toBeNull();
   });
 
   it("renders a runtime git badge when provided", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           gitBadge: { label: "main", title: "main" },
         }),
@@ -198,7 +265,7 @@ describe("AgentPane — header badges", () => {
   it("leads the actions cluster with the git branch badge", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           gitBadge: { label: "main", title: "main" },
         }),
@@ -210,7 +277,7 @@ describe("AgentPane — header badges", () => {
   });
 
   it("can receive restored focus without entering the tab order", () => {
-    act(() => root.render(createElement(AgentPane, baseProps)));
+    act(() => root.render(createElement(PaneUnderTest,baseProps)));
 
     const pane = document.querySelector<HTMLElement>("[data-pane-id='ws:1']")!;
     expect(pane.tabIndex).toBe(-1);
@@ -246,7 +313,7 @@ describe("AgentPane — provisioning cards", () => {
   it("renders the creating card — location line, animation, and NO terminal", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, { ...baseProps, provisioning: intent }),
+        createElement(PaneUnderTest,{ ...baseProps, provisioning: intent }),
       ),
     );
 
@@ -263,7 +330,7 @@ describe("AgentPane — provisioning cards", () => {
     const onRetryProvision = vi.fn();
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           provisioning: { ...intent, error: "fatal: boom" },
           onRetryProvision,
@@ -308,16 +375,16 @@ describe("AgentPane — plan-error tile", () => {
     const onRetryPlan = vi.fn();
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
-          planError: true,
+          body: "plan-failed" as PaneBody,
           onRetryPlan,
         }),
       ),
     );
 
     expect(document.body.textContent).toContain("Couldn't start this agent");
-    // Not the planPending tile, and no terminal mounted.
+    // Not the waiting tile, and no terminal mounted.
     expect(document.body.textContent).not.toContain("Waking up");
     expect(TerminalPane).not.toHaveBeenCalled();
 
@@ -329,9 +396,11 @@ describe("AgentPane — plan-error tile", () => {
     expect(onRetryPlan).toHaveBeenCalledTimes(1);
   });
 
-  it("does not render the error tile when planError is false (planPending path)", () => {
+  it("shows the waiting card, not the error tile, when no build has failed", () => {
     act(() =>
-      root.render(createElement(AgentPane, { ...baseProps, planPending: true })),
+      root.render(
+        createElement(PaneUnderTest,{ ...baseProps, body: "waiting" as PaneBody }),
+      ),
     );
     expect(document.body.textContent).not.toContain("Couldn't start this agent");
     expect(document.body.textContent).toContain("Waking up");
@@ -357,7 +426,7 @@ describe("AgentPane — the unavailable-agent card", () => {
   it("blocks the terminal (the spawn) and names the missing agent", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           unavailableAgent: { kind: "no-plugin", agent: "gemini" },
         }),
@@ -374,7 +443,7 @@ describe("AgentPane — the unavailable-agent card", () => {
   it("names the missing CLI and the recovery gesture when the plugin is enabled but unavailable", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           unavailableAgent: {
             kind: "bin-missing",
@@ -397,7 +466,7 @@ describe("AgentPane — the unavailable-agent card", () => {
   it("wins over the idle tile — the card explains WHY nothing wakes", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           unavailableAgent: { kind: "no-plugin", agent: "gemini" },
           idle: { reason: "waking", origin: "restore" } as const,
@@ -429,11 +498,11 @@ describe("AgentPane — minimize control", () => {
     document.querySelector<HTMLButtonElement>('[aria-label="Minimize Claude 1"]');
 
   it("shows the button only when onMinimize is provided, and fires it on click", () => {
-    act(() => root.render(createElement(AgentPane, { ...baseProps })));
+    act(() => root.render(createElement(PaneUnderTest,{ ...baseProps })));
     expect(minimizeBtn()).toBeNull();
 
     const onMinimize = vi.fn();
-    act(() => root.render(createElement(AgentPane, { ...baseProps, onMinimize })));
+    act(() => root.render(createElement(PaneUnderTest,{ ...baseProps, onMinimize })));
     const btn = minimizeBtn();
     expect(btn).not.toBeNull();
     act(() => btn!.click());
@@ -443,7 +512,7 @@ describe("AgentPane — minimize control", () => {
   it("hides the button while the pane is maximized (restore first)", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, { ...baseProps, onMinimize: vi.fn(), focused: true }),
+        createElement(PaneUnderTest,{ ...baseProps, onMinimize: vi.fn(), focused: true }),
       ),
     );
     expect(minimizeBtn()).toBeNull();
@@ -452,7 +521,7 @@ describe("AgentPane — minimize control", () => {
   it("a folded (list) pane shows a chevron and neither minimize nor maximize", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, { ...baseProps, folded: true, onMinimize: vi.fn() }),
+        createElement(PaneUnderTest,{ ...baseProps, folded: true, onMinimize: vi.fn() }),
       ),
     );
     expect(document.querySelector(".pane--folded")).not.toBeNull();
@@ -484,7 +553,7 @@ describe("AgentPane — folded-row interactions", () => {
     const onClose = vi.fn();
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           folded: true,
           onSelect,
@@ -553,7 +622,7 @@ describe("AgentPane — folded-row interactions", () => {
   it("a NON-folded pane still selects on mousedown (grid behavior unchanged)", () => {
     const onSelect = vi.fn();
     act(() =>
-      root.render(createElement(AgentPane, { ...baseProps, onSelect })),
+      root.render(createElement(PaneUnderTest,{ ...baseProps, onSelect })),
     );
     act(() =>
       document
@@ -582,14 +651,19 @@ describe("AgentPane — manual restart after exit", () => {
 
   const mount = (overrides: Record<string, unknown> = {}) => {
     act(() =>
-      root.render(createElement(AgentPane, { ...baseProps, ...overrides })),
+      root.render(createElement(PaneUnderTest,{ ...baseProps, ...overrides })),
     );
   };
 
+  /** The process dies: the registry records it, and the terminal announces it
+   *  so the once-per-death reactions still get their say. */
   const reportExit = (code: number | null, replayed = false) => {
     const calls = vi.mocked(TerminalPane).mock.calls;
     const terminalProps = calls[calls.length - 1][0];
-    act(() => terminalProps.onExit?.(code, replayed));
+    act(() => {
+      sessions.put({ kind: "exited", code });
+      terminalProps.onExit?.(code, replayed);
+    });
   };
 
   const actionButtons = () =>
@@ -599,14 +673,17 @@ describe("AgentPane — manual restart after exit", () => {
 
   it("forgets the exit when the pane stops — a resume must not come back veiled", () => {
     // Suspending is allowed on an exited pane, and neither suspend nor resume
-    // remounts the component (no epoch bump, unlike a restart), so without an
-    // explicit reset the exit card would paint over the terminal the resume
-    // just brought back — with a Restart button that kills it again.
+    // remounts the component (no epoch bump, unlike a restart), so an exit the
+    // pane remembered itself would paint over the terminal the resume just
+    // brought back — with a Restart button that kills it again. It cannot: the
+    // exit is the session registry's to report, and the suspend closes the
+    // session, so there is nothing left to report.
     mount({ onRestart: vi.fn() });
     reportExit(0);
     expect(document.querySelector(".pane__exit")).not.toBeNull();
 
-    // Suspended: the card is replaced by the stopped one…
+    // Suspended: the suspend's own teardown closes the PTY…
+    act(() => sessions.put({ kind: "none" }));
     mount({
       onRestart: vi.fn(),
       idle: { reason: "suspended", at: new Date().toISOString() },
@@ -775,7 +852,7 @@ describe("AgentPane — suspended / parked card", () => {
     const at = new Date(Date.now() - 2 * 3600_000).toISOString();
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "suspended", at } as const,
           resumeSessionId: "sess-abc",
@@ -799,7 +876,7 @@ describe("AgentPane — suspended / parked card", () => {
     const id = "0198e2f3-4a1b-7c9d-8e2f-1a2b3c4d5e6f";
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
           resumeSessionId: id,
@@ -822,7 +899,7 @@ describe("AgentPane — suspended / parked card", () => {
   it("shows the session id on a parked pane too — same promise, same evidence", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "parked" } as const,
           resumeSessionId: "sess-abc",
@@ -838,7 +915,7 @@ describe("AgentPane — suspended / parked card", () => {
   it("promises a FRESH session when the pane carries no binding", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
           resumeSessionId: null,
@@ -855,7 +932,7 @@ describe("AgentPane — suspended / parked card", () => {
   it("reads as never-started (not stale-dated) for a pane parked at launch", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "parked" } as const,
           onResume: vi.fn(),
@@ -875,7 +952,7 @@ describe("AgentPane — suspended / parked card", () => {
   it("keeps the transient restored tile free of a resume gesture", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "waking", origin: "restore" } as const,
           onResume: vi.fn(),
@@ -894,7 +971,7 @@ describe("AgentPane — suspended / parked card", () => {
     const onResume = vi.fn();
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "parked" } as const,
           resumeSessionId: "sess-abc",
@@ -912,7 +989,7 @@ describe("AgentPane — suspended / parked card", () => {
     const mountIdle = (idle: PaneIdle, blockedDir?: string) =>
       act(() =>
         root.render(
-          createElement(AgentPane, { ...baseProps, idle, blockedDir }),
+          createElement(PaneUnderTest,{ ...baseProps, idle, blockedDir }),
         ),
       );
 
@@ -933,7 +1010,7 @@ describe("AgentPane — suspended / parked card", () => {
   it("a gone folder still wins the card — that pane needs relocating, not resuming", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
           blockedDir: "/gone/worktree",
@@ -967,7 +1044,7 @@ describe("AgentPane — a refused resume explains itself", () => {
   it("says why on the card, beside the button that will be pressed again", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
           wakeError: "This agent can't prepare a resume plan.",
@@ -993,7 +1070,7 @@ describe("AgentPane — a refused resume explains itself", () => {
   it("says nothing when there is nothing to explain", () => {
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "parked" } as const,
           onResume: vi.fn(),
@@ -1011,7 +1088,7 @@ describe("AgentPane — a refused resume explains itself", () => {
     const onStartFresh = vi.fn();
     act(() =>
       root.render(
-        createElement(AgentPane, {
+        createElement(PaneUnderTest,{
           ...baseProps,
           idle: { reason: "suspended", at: new Date().toISOString() } as const,
           blockedDir: "/gone/worktree",

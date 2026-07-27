@@ -3,10 +3,16 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentDialogResult } from "../domain/agents";
-import type { Workspace } from "../domain/deck";
+import { WORKSPACE_FULL_MESSAGE, type Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { inspectRepo } from "../ipc/worktree";
 import { useAgentDialog } from "./useAgentDialog";
+import { AppRuntimeProvider } from "./runtimeContext";
+import type { AppRuntime } from "./runtime";
+import type {
+  CreatePaneOutcome,
+  CreatePaneRequest,
+} from "./agentOrchestrator";
 import type { Deck } from "./useDeck";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -52,6 +58,38 @@ const workspace = (over: Partial<Workspace>): Workspace => ({
   ...over,
 });
 
+/** The one owner of what a new pane's arrival entails, as this hook sees it.
+ * Requests are recorded, not landed: what the dialog OFFERS is this file's
+ * subject; what the orchestrator then does with it is its own. */
+const createPane = vi.fn<(request: CreatePaneRequest) => CreatePaneOutcome>(
+  () => ({ kind: "created" }),
+);
+/** The continuations the dialog's "Start from" routes into. Recorded here
+ * too: this file's subject is the ROUTING — which continuation, with which
+ * target — and what each one then does is the orchestrator's own test. */
+const resumeSession = vi.fn(() => Promise.resolve());
+const forkSession = vi.fn(() => Promise.resolve());
+const runtime = {
+  orchestrator: { createPane, resumeSession, forkSession },
+} as unknown as AppRuntime;
+/** Where a failed continuation reports. A dialog that just closes on a failed
+ * fork reads as success, so the wiring is worth asserting. */
+const notices = {
+  onResumeFailed: vi.fn(),
+  onForkFailed: vi.fn(),
+  onCreateFailed: vi.fn(),
+};
+/** What the dialog asked for on its `n`th confirm. */
+const offered = (n = 0) => createPane.mock.calls[n][0];
+const mountHost = (
+  root: Root,
+  Host: (props: { deck: Deck }) => null,
+  deck: Deck,
+) =>
+  root.render(
+    createElement(AppRuntimeProvider, { runtime }, createElement(Host, { deck })),
+  );
+
 describe("useAgentDialog suggestions", () => {
   let host: HTMLElement;
   let root: Root;
@@ -61,7 +99,7 @@ describe("useAgentDialog suggestions", () => {
     // No settings store seeded here: the default-agent preference falls back
     // to "claude" — these tests cover suggestions, not the type picker.
     // No journal routing and no blocked panes: these tests cover suggestions.
-    flow = useAgentDialog(deck, [], undefined, {});
+    flow = useAgentDialog(deck, [], notices, {});
     return null;
   }
 
@@ -70,6 +108,8 @@ describe("useAgentDialog suggestions", () => {
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     blockedDirs.clear();
+    createPane.mockClear();
+    notices.onCreateFailed.mockClear();
     vi.mocked(inspectRepo).mockReset().mockResolvedValue({
       isRepo: true,
       head: "abc",
@@ -80,7 +120,7 @@ describe("useAgentDialog suggestions", () => {
 
   const mount = async (ws: Workspace) => {
     const deck = { workspaces: [ws], addAgentPane: vi.fn() } as unknown as Deck;
-    await act(async () => root.render(createElement(Host, { deck })));
+    await act(async () => mountHost(root, Host, deck));
     return deck;
   };
 
@@ -159,17 +199,8 @@ describe("useAgentDialog suggestions", () => {
 
   it("a picked base branch rides the pane's provisioning intent", async () => {
     const ws = workspace({});
-    // The full provisioning sink: confirm fires runProvisioning in the
-    // background, and its (here-failing, createWorktree is pinned to throw)
-    // result must land in a real callback, not crash the test.
-    const deck = {
-      workspaces: [ws],
-      addAgentPane: vi.fn(),
-      resolvePaneProvisioning: vi.fn(),
-      setPaneProvisioningError: vi.fn(),
-      setPaneProvisioningPhase: vi.fn(),
-    } as unknown as Deck;
-    await act(async () => root.render(createElement(Host, { deck })));
+    const deck = { workspaces: [ws] } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws));
 
     await act(async () => {
@@ -186,9 +217,8 @@ describe("useAgentDialog suggestions", () => {
       });
     });
 
-    const addAgentPane = deck.addAgentPane as ReturnType<typeof vi.fn>;
-    expect(addAgentPane).toHaveBeenCalledTimes(1);
-    expect(addAgentPane.mock.calls[0][1].provisioning).toMatchObject({
+    expect(createPane).toHaveBeenCalledTimes(1);
+    expect(offered().pane.provisioning).toMatchObject({
       path: "/base/kd-KeepDeck-1",
       branch: "kd/KeepDeck/1",
       base: "develop",
@@ -197,9 +227,8 @@ describe("useAgentDialog suggestions", () => {
 
   it("the YOLO choice lands on the pane — sparsely, only when armed", async () => {
     const ws = workspace({});
-    const addAgentPane = vi.fn();
-    const deck = { workspaces: [ws], addAgentPane } as unknown as Deck;
-    await act(async () => root.render(createElement(Host, { deck })));
+    const deck = { workspaces: [ws] } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
 
     const confirmMain = async (yolo: boolean) => {
       await act(async () => flow.openFor(ws));
@@ -214,18 +243,17 @@ describe("useAgentDialog suggestions", () => {
     };
 
     await confirmMain(true);
-    expect(addAgentPane.mock.calls[0][1].yolo).toBe(true);
+    expect(offered(0).pane.yolo).toBe(true);
 
     await confirmMain(false);
     // Off never lands as an explicit false — the pane stays sparse.
-    expect("yolo" in addAgentPane.mock.calls[1][1]).toBe(false);
+    expect("yolo" in offered(1).pane).toBe(false);
   });
 
   it("a remote result creates a bare pane carrying the endpoint (no cwd/location)", async () => {
     const ws = workspace({});
-    const addAgentPane = vi.fn();
-    const deck = { workspaces: [ws], addAgentPane } as unknown as Deck;
-    await act(async () => root.render(createElement(Host, { deck })));
+    const deck = { workspaces: [ws] } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
 
     await act(async () => flow.openFor(ws));
     await act(async () => {
@@ -238,8 +266,8 @@ describe("useAgentDialog suggestions", () => {
       });
     });
 
-    expect(addAgentPane).toHaveBeenCalledTimes(1);
-    const pane = addAgentPane.mock.calls[0][1];
+    expect(createPane).toHaveBeenCalledTimes(1);
+    const pane = offered().pane;
     expect(pane).toMatchObject({ agentType: "codex", remoteEndpoint: "ws://vps:4500" });
     // Bare pane — no local cwd/provisioning (the agent's cwd is on the box).
     expect(pane.cwd).toBeUndefined();
@@ -266,12 +294,9 @@ describe("useAgentDialog suggestions", () => {
       await Promise.resolve();
     });
     const replacement = workspace({ id: old.id });
-    const replacementDeck = {
-      workspaces: [replacement],
-      addAgentPane: vi.fn(),
-    } as unknown as Deck;
+    const replacementDeck = { workspaces: [replacement] } as unknown as Deck;
     await act(async () =>
-      root.render(createElement(Host, { deck: replacementDeck })),
+      mountHost(root, Host, replacementDeck),
     );
     await act(async () => {
       finishInspection({ isRepo: true, head: "new", branch: "main" });
@@ -281,24 +306,38 @@ describe("useAgentDialog suggestions", () => {
     expect(flow.dialog).toBeNull();
   });
 
+  it("says so when the workspace refuses the pane", async () => {
+    // The dialog has already closed by the time the answer comes back, so a
+    // dropped refusal is an agent the user asked for that never appears.
+    const ws = workspace({});
+    const deck = { workspaces: [ws] } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
+    await act(async () => flow.openFor(ws));
+    createPane.mockReturnValueOnce({ kind: "full" });
+
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: false,
+      }),
+    );
+    expect(notices.onCreateFailed).toHaveBeenCalledWith(
+      WORKSPACE_FULL_MESSAGE,
+    );
+  });
+
   it("does not confirm into a replacement with the same public id", async () => {
     const old = workspace({});
-    const oldAdd = vi.fn();
-    const oldDeck = {
-      workspaces: [old],
-      addAgentPane: oldAdd,
-    } as unknown as Deck;
-    await act(async () => root.render(createElement(Host, { deck: oldDeck })));
+    const oldDeck = { workspaces: [old] } as unknown as Deck;
+    await act(async () => mountHost(root, Host, oldDeck));
     await act(async () => flow.openFor(old));
 
     const replacement = workspace({ id: old.id });
-    const replacementAdd = vi.fn();
-    const replacementDeck = {
-      workspaces: [replacement],
-      addAgentPane: replacementAdd,
-    } as unknown as Deck;
+    const replacementDeck = { workspaces: [replacement] } as unknown as Deck;
     await act(async () =>
-      root.render(createElement(Host, { deck: replacementDeck })),
+      mountHost(root, Host, replacementDeck),
     );
     await act(async () =>
       flow.confirm({
@@ -309,8 +348,9 @@ describe("useAgentDialog suggestions", () => {
       }),
     );
 
-    expect(oldAdd).not.toHaveBeenCalled();
-    expect(replacementAdd).not.toHaveBeenCalled();
+    // The dialog never even offers the pane: the workspace it opened for is
+    // gone, and the one holding its id now is a different workspace.
+    expect(createPane).not.toHaveBeenCalled();
   });
 });
 
@@ -319,7 +359,7 @@ describe("useAgentDialog start-from routing", () => {
   let root: Root;
   let flow: ReturnType<typeof useAgentDialog>;
 
-  const journal = { resume: vi.fn(), fork: vi.fn() };
+
   const handle = {
     agent: "claude",
     sessionId: "s-1",
@@ -331,7 +371,7 @@ describe("useAgentDialog start-from routing", () => {
   let blockedPanes: Record<string, string> = {};
 
   function Host({ deck }: { deck: Deck }) {
-    flow = useAgentDialog(deck, [], journal, blockedPanes);
+    flow = useAgentDialog(deck, [], notices, blockedPanes);
     return null;
   }
 
@@ -340,21 +380,24 @@ describe("useAgentDialog start-from routing", () => {
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     blockedPanes = {};
-    journal.resume.mockClear();
-    journal.fork.mockClear();
+    createPane.mockClear();
+    resumeSession.mockClear();
+    forkSession.mockClear();
+    notices.onResumeFailed.mockClear();
+    notices.onForkFailed.mockClear();
+    notices.onCreateFailed.mockClear();
   });
   afterEach(() => act(() => root.unmount()));
 
-  const mountAndOpen = async (ws: Workspace, addAgentPane = vi.fn()) => {
-    const deck = { workspaces: [ws], addAgentPane } as unknown as Deck;
-    await act(async () => root.render(createElement(Host, { deck })));
+  const mountAndOpen = async (ws: Workspace) => {
+    const deck = { workspaces: [ws] } as unknown as Deck;
+    await act(async () => mountHost(root, Host, deck));
     await act(async () => flow.openFor(ws));
-    return addAgentPane;
   };
 
   it("resume routes to the journal flow with the pane name — the location is not consulted", async () => {
     const ws = workspace({});
-    const addAgentPane = await mountAndOpen(ws);
+    await mountAndOpen(ws);
     await act(async () =>
       flow.confirm({
         agentType: "claude",
@@ -365,12 +408,12 @@ describe("useAgentDialog start-from routing", () => {
         session: { mode: "resume", handle },
       }),
     );
-    expect(journal.resume).toHaveBeenCalledExactlyOnceWith("ws-1", handle, {
+    expect(resumeSession).toHaveBeenCalledExactlyOnceWith("ws-1", handle, {
       name: "api",
       yolo: false,
     });
-    expect(journal.fork).not.toHaveBeenCalled();
-    expect(addAgentPane).not.toHaveBeenCalled(); // the flow owns the pane
+    expect(forkSession).not.toHaveBeenCalled();
+    expect(createPane).not.toHaveBeenCalled(); // the journal flow owns the pane
   });
 
   it("resume routes the YOLO choice to the journal flow", async () => {
@@ -388,10 +431,48 @@ describe("useAgentDialog start-from routing", () => {
     );
     // The dialog already gates yolo on supportsYolo; confirm forwards the
     // resolved boolean verbatim — no re-gating in the handoff.
-    expect(journal.resume).toHaveBeenLastCalledWith("ws-1", handle, {
+    expect(resumeSession).toHaveBeenLastCalledWith("ws-1", handle, {
       name: undefined,
       yolo: true,
     });
+  });
+
+  it("reports a failed resume — a dialog that just closes reads as success", async () => {
+    const ws = workspace({});
+    await mountAndOpen(ws);
+    resumeSession.mockRejectedValueOnce(new Error("Agent could not prepare a resume plan"));
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: false,
+        session: { mode: "resume", handle },
+      }),
+    );
+    expect(notices.onResumeFailed).toHaveBeenCalledWith(
+      expect.stringContaining("could not prepare a resume plan"),
+    );
+    expect(notices.onForkFailed).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed fork through its OWN notice, not the resume one", async () => {
+    const ws = workspace({});
+    await mountAndOpen(ws);
+    forkSession.mockRejectedValueOnce(new Error("opencode fork: unexpected id layout"));
+    await act(async () =>
+      flow.confirm({
+        agentType: "claude",
+        name: "",
+        location: { kind: "main" },
+        yolo: false,
+        session: { mode: "fork", handle },
+      }),
+    );
+    expect(notices.onForkFailed).toHaveBeenCalledWith(
+      expect.stringContaining("unexpected id layout"),
+    );
+    expect(notices.onResumeFailed).not.toHaveBeenCalled();
   });
 
   it("fork maps every location kind onto its ForkTarget", async () => {
@@ -413,7 +494,7 @@ describe("useAgentDialog start-from routing", () => {
     await mountAndOpen(ws);
 
     await confirmFork({ kind: "main" });
-    expect(journal.fork).toHaveBeenLastCalledWith(
+    expect(forkSession).toHaveBeenLastCalledWith(
       "ws-1",
       handle,
       { kind: "dir", cwd: "/repo" },
@@ -421,7 +502,7 @@ describe("useAgentDialog start-from routing", () => {
     );
 
     await confirmFork({ kind: "existing", path: "/wt/x", branch: "kd/x" });
-    expect(journal.fork).toHaveBeenLastCalledWith(
+    expect(forkSession).toHaveBeenLastCalledWith(
       "ws-1",
       handle,
       { kind: "dir", cwd: "/wt/x" },
@@ -435,7 +516,7 @@ describe("useAgentDialog start-from routing", () => {
       branch: "kd/KeepDeck/1",
       baseBranch: "develop",
     });
-    expect(journal.fork).toHaveBeenLastCalledWith(
+    expect(forkSession).toHaveBeenLastCalledWith(
       "ws-1",
       handle,
       {
@@ -462,7 +543,7 @@ describe("useAgentDialog start-from routing", () => {
     );
     // The dialog already gates yolo on supportsYolo; confirm forwards the
     // resolved boolean verbatim — no re-gating in the handoff.
-    expect(journal.fork).toHaveBeenLastCalledWith(
+    expect(forkSession).toHaveBeenLastCalledWith(
       "ws-1",
       handle,
       { kind: "dir", cwd: "/repo" },

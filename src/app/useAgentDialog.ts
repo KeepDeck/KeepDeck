@@ -1,43 +1,49 @@
 import { useRef, useState } from "react";
 import {
-  defaultAgentType,
   type AgentDialogResult,
   type AgentInfo,
   type AgentType,
+  forkTargetFor,
   type SessionPickRow,
 } from "../domain/agents";
 import {
   baseName,
   findWorkspaceByRef,
   firstFreeWorktree,
+  paneFromAgentRequest,
   paneId,
-  idleReadsAsStopped,
   parentDir,
-  type Pane,
+  sessionClaimant,
+  WORKSPACE_FULL_MESSAGE,
   type Workspace,
 } from "../domain/deck";
-import { handleFromHit, type SessionHandle } from "../domain/journal";
+import { handleFromHit } from "../domain/journal";
+import { describeError } from "../ipc/log";
 import { indexSearch } from "../ipc/history";
 import type { Page } from "./usePagedSessionSearch";
 import { inspectRepo, probeWorktree, suggestWorktree } from "../ipc/worktree";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
 import { mintAgentSeq } from "./ids";
 import { getSettings } from "./settingsManager";
-import { provisionInto, runProvisioning } from "./provisioning";
+import {
+  firstFreeAgentWorktree,
+  nextAgentIndex,
+  nextAgentType,
+} from "./newAgentDefaults";
+import { useAppRuntime } from "./runtimeContext";
 import type { Deck } from "./useDeck";
-import type { ForkTarget } from "./useJournalFork";
 
-/** The continuation flows the dialog's "Start from" choice routes into —
- * injected by App with its error surfacing already attached, so confirm
- * stays synchronous here. */
-export interface AgentDialogJournalRouting {
-  resume(wsId: string, handle: SessionHandle, opts: { name?: string; yolo?: boolean }): void;
-  fork(
-    wsId: string,
-    handle: SessionHandle,
-    target: ForkTarget,
-    opts: { name?: string; branch?: string; yolo?: boolean },
-  ): void;
+/** Where a "Start from" continuation reports its failure. A continuation the
+ * user asked for must fail VISIBLY — a dialog that just closes reads as
+ * success — and confirm is synchronous, so the notice is a callback rather
+ * than a rejected promise the caller would have to remember to catch. */
+export interface AgentDialogNotices {
+  onResumeFailed(message: string): void;
+  onForkFailed(message: string): void;
+  /** The workspace refused the pane — it filled up, or it is gone. The
+   * dialog has already closed by then, so without this the agent the user
+   * asked for simply never appears. */
+  onCreateFailed(message: string): void;
 }
 
 /** Everything the "+ Agent" dialog needs to render, captured at open time. */
@@ -71,10 +77,10 @@ export interface AgentDialogSpec {
 export function useAgentDialog(
   deck: Deck,
   agents: AgentInfo[],
-  /** Where "Start from" hands a picked session. Explicit rather than
-   * optional: an optional here is what forced the argument below to carry a
-   * default, and that default is the bug it exists to prevent. */
-  journal: AgentDialogJournalRouting | undefined,
+  /** Where a "Start from" continuation reports its failure. Explicit rather
+   * than optional: an optional here is what forced the argument below to
+   * carry a default, and that default is the bug it exists to prevent. */
+  notices: AgentDialogNotices,
   /** paneId → the missing directory, from the revive sweep. A pane stuck on a
    * gone folder is going nowhere, so the picker must call its session stopped
    * like the tile and the tray already do — the model alone still reads that
@@ -84,6 +90,7 @@ export function useAgentDialog(
    * omits it, compiles, and tells the user a dead pane is running again. */
   blockedPanes: Record<string, string>,
 ) {
+  const { orchestrator } = useAppRuntime();
   const [dialog, setDialog] = useState<AgentDialogSpec | null>(null);
   const deckRef = useRef(deck);
   deckRef.current = deck;
@@ -99,17 +106,8 @@ export function useAgentDialog(
   const openFor = async (ws: Workspace) => {
     const workspace = { id: ws.id, instance: ws.instance };
     const seq = mintAgentSeq();
-    const index = ws.panes.length + 1;
-    // Default the type to the last pane's if it's still selectable — the
-    // workspace's own momentum beats the global preference ([F6]) — else the
-    // preference (a snapshot read is right: the value matters at open time),
-    // else the first installed agent ([F1]).
-    const defaultType = defaultAgentType(
-      agents,
-      ws.panes[ws.panes.length - 1]?.agentType ??
-        getSettings()?.defaultAgent ??
-        "claude",
-    );
+    const index = nextAgentIndex(ws);
+    const defaultType = nextAgentType(agents, ws);
     // Offer the worktree location only when the workspace cwd is a git repo.
     const info = await inspectRepo(ws.cwd).catch(() => null);
     const repo = info?.isRepo ? { cwd: ws.cwd, branch: info.branch } : null;
@@ -117,16 +115,13 @@ export function useAgentDialog(
     let suggestedBranch = "";
     if (repo) {
       if (ws.worktreeBaseDir) {
-        // [F2]: prefill a path ONLY when the workspace has a base folder —
-        // and never a dir an open pane already runs in, nor one blocked on
-        // disk: jump straight to the first usable suggestion instead of
-        // opening onto an occupied- or blocked-path error.
-        const free = await firstFreeWorktree(
+        // [F2]: prefill a path ONLY when the workspace has a base folder, so
+        // the dialog opens on the first usable suggestion rather than onto an
+        // occupied- or blocked-path error.
+        const free = await firstFreeAgentWorktree(
           deckRef.current.workspaces,
-          ws.worktreeBaseDir,
-          suggestFor(ws),
+          ws,
           index,
-          probeFor,
         );
         if (free) {
           suggestedPath = free.path;
@@ -156,113 +151,61 @@ export function useAgentDialog(
     });
   };
 
-  const confirm = ({
-    agentType,
-    name,
-    location,
-    yolo,
-    remoteEndpoint,
-    session,
-  }: AgentDialogResult) => {
+  const confirm = (result: AgentDialogResult) => {
+    const { name, location, yolo, session } = result;
     const dlg = dialog;
     if (!dlg) return;
     setDialog(null);
     const currentDeck = deckRef.current;
     const ws = findWorkspaceByRef(currentDeck.workspaces, dlg.workspace);
-    if (!ws) return;
+    if (!ws) {
+      // The workspace this dialog opened for is gone. Say so here rather than
+      // returning quietly: the dialog has already closed, so silence is an
+      // agent the user asked for that simply never appears. The landing would
+      // refuse it too, but this path never reaches the landing.
+      notices.onCreateFailed("That workspace was closed.");
+      return;
+    }
     const paneName = name.trim() || undefined;
-    // "Start from" a picked session: hand off to the journal flows — they
-    // own plan-building, claim re-checks and (for a new worktree)
-    // provisioning. Resume ignores the location by design: the session runs
-    // where it was recorded.
-    if (session && journal) {
+    // "Start from" a picked session: a continuation, not a fresh pane. The
+    // orchestrator owns plan-building, the claim re-check and (for a new
+    // worktree) the provisioning. Resume ignores the location by design: the
+    // session runs where it was recorded.
+    if (session) {
       if (session.mode === "resume") {
-        journal.resume(dlg.workspace.id, session.handle, {
-          name: paneName,
-          yolo,
-        });
+        void orchestrator
+          .resumeSession(dlg.workspace.id, session.handle, {
+            name: paneName,
+            yolo,
+          })
+          .catch((e: unknown) => notices.onResumeFailed(describeError(e)));
         return;
       }
-      const target: ForkTarget =
-        location.kind === "new"
-          ? {
-              kind: "worktree",
-              path: location.path,
-              branch: location.branch,
-              ...(location.baseBranch && { base: location.baseBranch }),
-            }
-          : location.kind === "existing"
-            ? { kind: "dir", cwd: location.path }
-            : { kind: "dir", cwd: ws.cwd };
-      journal.fork(dlg.workspace.id, session.handle, target, {
-        name: paneName,
-        yolo,
-        ...(location.kind === "existing" &&
-          location.branch && { branch: location.branch }),
-      });
+      void orchestrator
+        .forkSession(dlg.workspace.id, session.handle, forkTargetFor(location, ws.cwd), {
+          name: paneName,
+          yolo,
+          ...(location.kind === "existing" &&
+            location.branch && { branch: location.branch }),
+        })
+        .catch((e: unknown) => notices.onForkFailed(describeError(e)));
       return;
     }
-    // Sparse like persistence: only the armed mode lands on the pane.
-    const paneYolo = yolo ? { yolo: true as const } : {};
-    // Remote: a bare pane carrying the endpoint. The agent's cwd lives on the
-    // box the server runs on, so the local worktree/location is moot — the
-    // pane's terminal runs the local thin-client attached to the endpoint.
-    // (Remote is fresh-session only for now: the dialog forces "new" and
-    // hides Start-from, so `session` is never set alongside this.)
-    if (remoteEndpoint) {
-      currentDeck.addAgentPane(dlg.workspace.id, {
-        id: dlg.agentId,
-        name: paneName,
-        agentType,
-        ...paneYolo,
-        remoteEndpoint,
-      });
-      return;
+    // A fresh conversation: the pane the request describes, handed to the one
+    // owner of what arriving in a workspace entails. Whether it lands as a
+    // terminal or as a provisioning card is the pane's shape to say, not this
+    // surface's to arrange.
+    const landed = orchestrator.createPane({
+      workspace: dlg.workspace,
+      pane: paneFromAgentRequest(dlg.agentId, result, ws, dlg.index),
+    });
+    // `gone` is reachable here too: the guard above reads this render's deck,
+    // the landing re-resolves against the live store, and a workspace can
+    // close in between.
+    if (landed.kind === "full") notices.onCreateFailed(WORKSPACE_FULL_MESSAGE);
+    else if (landed.kind === "gone") {
+      notices.onCreateFailed("That workspace was closed.");
     }
-    // Main repo: a bare pane that runs in the workspace cwd.
-    if (location.kind === "main") {
-      currentDeck.addAgentPane(dlg.workspace.id, {
-        id: dlg.agentId,
-        name: paneName,
-        agentType,
-        ...paneYolo,
-      });
-      return;
-    }
-    // Existing worktree: attach in place, no git mutation ([F12]-lite).
-    if (location.kind === "existing") {
-      currentDeck.addAgentPane(dlg.workspace.id, {
-        id: dlg.agentId,
-        cwd: location.path,
-        branch: location.branch || undefined,
-        name: paneName,
-        agentType,
-        ...paneYolo,
-      });
-      return;
-    }
-    // New worktree AT the chosen path (created verbatim, no suffix): the pane
-    // joins the grid as a provisioning card right away; the background create
-    // resolves it — or flips it to the failed card with Retry.
-    const pane: Pane = {
-      id: dlg.agentId,
-      name: paneName,
-      agentType,
-      ...paneYolo,
-      provisioning: {
-        repo: ws.cwd,
-        path: location.path,
-        branch: location.branch || undefined,
-        base: location.baseBranch,
-        workspace: ws.name,
-        index: dlg.index,
-      },
-    };
-    currentDeck.addAgentPane(dlg.workspace.id, pane);
-    void runProvisioning(
-      [pane],
-      provisionInto(currentDeck, dlg.workspace.id),
-    );
   };
 
   /**
@@ -344,22 +287,12 @@ export function useAgentDialog(
   /** How a session is already held by a pane: running behind a live PTY,
    * stopped (idle — restored, parked or suspended), or not at all — the picker
    * dims claimed rows for resume with the honest wording. */
-  const sessionClaim = (sessionId: string): "running" | "stopped" | null => {
-    for (const w of deckRef.current.workspaces) {
-      for (const p of w.panes) {
-        if (p.session?.id === sessionId) {
-          // "Stopped" only for a pane staying down: one on its way up will be
-          // running in a moment, and telling the user to go resume it there
-          // points at a card with no button. A blocked pane IS staying down,
-          // whatever its marker says.
-          return idleReadsAsStopped(p.idle, p.id in blockedPanes)
-            ? "stopped"
-            : "running";
-        }
-      }
-    }
-    return null;
-  };
+  const sessionClaim = (sessionId: string): "running" | "stopped" | null =>
+    sessionClaimant(
+      deckRef.current.workspaces,
+      sessionId,
+      (paneId) => paneId in blockedPanes,
+    )?.reads ?? null;
 
   const cancel = () => setDialog(null);
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo } from "../../domain/agents";
 import {
+  forkTargetFor,
   agentSupportsYolo,
   canCreateAgent,
   classifyLocation,
@@ -10,13 +11,13 @@ import {
 } from "../../domain/agents";
 import type { SessionHandle } from "../../domain/journal";
 import { baseName } from "../../domain/deck";
-import type { ForkTarget, ForkTargetDialogResult } from "../../app/useJournalFork";
+import type { ForkTarget, ForkTargetDialogResult } from "../../domain/agents";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { SuggestedInput } from "../../ui/SuggestedInput";
 import { YoloField } from "../../ui/YoloField";
 import { noAutoCorrect } from "../../ui/inputProps";
 
-export type { ForkTargetDialogResult } from "../../app/useJournalFork";
+export type { ForkTargetDialogResult } from "../../domain/agents";
 
 interface ForkTargetDialogProps {
   record: SessionHandle;
@@ -110,13 +111,15 @@ export function ForkTargetDialog({
     }
   }, [kind, workspaceCwd]);
 
-  const buildTarget = (): ForkTarget => {
-    if (kind === "new") {
-      return { kind: "worktree", path: trimmed, branch: branch.trim() };
-    }
-    if (kind === "existing") return { kind: "dir", cwd: trimmed };
-    return { kind: "dir", cwd: workspaceCwd };
-  };
+  const buildTarget = (): ForkTarget =>
+    forkTargetFor(
+      kind === "new"
+        ? { kind: "new", path: trimmed, branch: branch.trim() }
+        : kind === "existing"
+          ? { kind: "existing", path: trimmed, branch: "" }
+          : { kind: "main" },
+      workspaceCwd,
+    );
 
   const choosePath = async () => {
     const dir = await pickFolder("Choose the fork's folder");

@@ -19,6 +19,7 @@ import {
   type Pane,
   type Workspace,
   type WorkspaceView,
+  paneBody,
 } from "../domain/deck";
 import type { MinimizeStyle, DeckLayout } from "../domain/settings";
 import { gitBadge } from "../ui/gitBadge";
@@ -32,6 +33,7 @@ import {
 } from "../domain/journal";
 import { SessionsBrowser } from "./history/SessionsBrowser";
 import type { SessionsBrowserApi } from "../app/useSessionsBrowser";
+import type { RestartOutcome } from "../app/agentOrchestrator";
 
 /** The per-pane positioning the two layouts resolve to; the rest of a pane's
  * props (command, spec, cwd, badge) are the same everywhere. */
@@ -120,9 +122,9 @@ interface DeckStageProps {
     wsId: string,
     paneId: string,
     mode: AgentRestartMode,
-  ): Promise<void>;
+  ): Promise<RestartOutcome>;
   /** Bumped after the old PTY entry is retired to remount the same pane. */
-  restartEpochs: ReadonlyMap<string, number>;
+  restartEpochs: Record<string, number>;
   /** Retry a pane whose spawn plan failed to build (no PTY was spawned) —
    *  drops the failure and re-runs the build. */
   onRetryPlanBuild(paneId: string): void;
@@ -358,24 +360,19 @@ export function DeckStage({
                     : { kind: "no-plugin", agent: agentType };
                 })()
               : null;
-          const planError =
-            !spec &&
-            !pane.idle &&
-            !pane.provisioning &&
-            !unavailableAgent &&
-            failedPanes.has(pane.id);
-          const planPending =
-            !spec &&
-            !pane.idle &&
-            !pane.provisioning &&
-            !unavailableAgent &&
-            !planError;
+          // One question, one answer — the conjunction used to be spelled
+          // out here and again inside the pane.
+          const body = paneBody(pane, {
+            agentAvailable: !unavailableAgent,
+            hasPlan: !!spec,
+            planFailed: failedPanes.has(pane.id),
+          });
           const displayTitle = titleOf(pane);
           const executionCwd = paneExecutionCwd(ws, pane);
           const badge = badgeOf(pane);
           return (
             <AgentPane
-              key={`${pane.id}#${restartEpochs.get(pane.id) ?? 0}`}
+              key={`${pane.id}#${restartEpochs[pane.id] ?? 0}`}
               paneId={pane.id}
               title={displayTitle}
               agentIcon={agentInfo?.icon ?? null}
@@ -384,8 +381,7 @@ export function DeckStage({
               args={spec?.args}
               env={spec?.env}
               envDefaults={spec?.envDefaults}
-              planPending={planPending}
-              planError={planError}
+              body={body}
               onRetryPlan={() => onRetryPlanBuild(pane.id)}
               cwd={executionCwd}
               gitBadge={badge}

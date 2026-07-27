@@ -105,6 +105,51 @@ export type AgentLocation =
     }
   | { kind: "existing"; path: string; branch: string };
 
+/** Where a FORK lands: a directory that already exists (the workspace folder,
+ * or an attached worktree), or a NEW worktree the fork provisions first. The
+ * resolved answer, after the "+ Agent" dialog's [`AgentLocation`] or the fork
+ * dialog's own picker has been read. */
+export type ForkTarget =
+  | { kind: "dir"; cwd: string }
+  | { kind: "worktree"; path: string; branch: string; base?: string };
+
+/**
+ * Where a fork of a session lands, given the location its surface resolved.
+ *
+ * The mapping is the product's, not either dialog's: the "+ Agent" dialog and
+ * the fork dialog both offer the same three choices and both had spelled the
+ * translation out, which is how one of them came to carry the picked base
+ * branch into a new worktree and the other to fork silently from HEAD.
+ *
+ * `main` means the workspace's own folder — the fork runs beside the agents
+ * already there rather than in a worktree of its own.
+ */
+export function forkTargetFor(
+  location: AgentLocation,
+  workspaceCwd: string,
+): ForkTarget {
+  if (location.kind === "new") {
+    return {
+      kind: "worktree",
+      path: location.path,
+      branch: location.branch,
+      // The base the user picked, when they picked one. Losing it here forks
+      // from whatever HEAD happens to be, which is not what they chose.
+      ...(location.baseBranch && { base: location.baseBranch }),
+    };
+  }
+  if (location.kind === "existing") return { kind: "dir", cwd: location.path };
+  return { kind: "dir", cwd: workspaceCwd };
+}
+
+/** The fork dialog's confirm payload — the chosen landing target plus the
+ * resolved YOLO choice. Named so that dialog's output contract has one home,
+ * mirroring [`AgentDialogResult`]. */
+export interface ForkTargetDialogResult {
+  target: ForkTarget;
+  yolo: boolean;
+}
+
 /** The dialog's "Start from" choice: a fresh conversation, or an existing
  * session of the SELECTED agent continued in place (resume) or copied into
  * a new one (fork) ([F8] spawn-time continuation). */

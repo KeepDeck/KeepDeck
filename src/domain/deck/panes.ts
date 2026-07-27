@@ -1,4 +1,9 @@
-import type { AgentInfo, AgentType, ResumeOrigin } from "../agents";
+import type {
+  AgentDialogResult,
+  AgentInfo,
+  AgentType,
+  ResumeOrigin,
+} from "../agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
 // Type-only, so the module graph stays acyclic at runtime (reducer's chain
 // imports this module; the types are erased).
@@ -209,6 +214,88 @@ export function paneSuspendBlock(
   return null;
 }
 
+/**
+ * What is true of a pane BEFORE anything situational is asked about it, or
+ * null when nothing is.
+ *
+ * The three answers every surface has to reach the same way and in the same
+ * order: a pane with no directory yet cannot be acted on at all, a pane whose
+ * agent no plugin provides explains itself whatever else is true, and a pane
+ * carrying an idle marker is down by a decision someone made.
+ *
+ * Shared because both ladders that consume it — [`paneRunIntent`] and
+ * [`paneBody`] — had this prefix written out separately, each restating the
+ * order and the reasons in a comment. They diverge legitimately AFTER it (one
+ * asks whether a process belongs, the other what the user sees, and a running
+ * background pane needs opposite answers), so only the head is shared.
+ */
+export type PaneBlock =
+  | { kind: "provisioning" }
+  | { kind: "agent-unavailable"; agent: AgentType }
+  | { kind: "stopped"; by: PaneIdle };
+
+export function paneBlock(pane: Pane, agentAvailable: boolean): PaneBlock | null {
+  if (pane.provisioning) return { kind: "provisioning" };
+  if (!agentAvailable) {
+    return { kind: "agent-unavailable", agent: paneAgentType(pane) };
+  }
+  return pane.idle ? { kind: "stopped", by: pane.idle } : null;
+}
+
+/**
+ * Which pane holds a recorded session, and whether it reads as running or
+ * stopped — or null when no pane holds it.
+ *
+ * A session runs in at most one pane, ever, and three surfaces need to say so
+ * in agreement: the picker dims a claimed row, a resume refuses with a
+ * sentence naming where to go instead, and the flow re-checks after its
+ * build. All three matched on `session?.id` by hand and composed the stopped
+ * reading themselves, from two different blocked-map channels — so a fourth
+ * reason to read as stopped would have made the row say "running" while the
+ * error said "stopped pane", pointing the user at a card with no button.
+ *
+ * `blocked` is the sweep's gone-directory verdict, for the reason
+ * [`idleReadsAsStopped`] takes it: such a pane is staying down whatever its
+ * own marker says.
+ */
+export function sessionClaimant(
+  workspaces: { panes: Pane[] }[],
+  sessionId: string,
+  blocked: (paneId: string) => boolean,
+): { pane: Pane; reads: "running" | "stopped" } | null {
+  for (const ws of workspaces) {
+    for (const pane of ws.panes) {
+      if (pane.session?.id !== sessionId) continue;
+      // "Stopped" only for a pane STAYING down: one on its way up will be
+      // running in a moment, and sending the user to resume it there points at
+      // a card with no button.
+      return {
+        pane,
+        reads: idleReadsAsStopped(pane.idle, blocked(pane.id))
+          ? "stopped"
+          : "running",
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether the launch policy may park this pane: still on its way up by the
+ * sweep's OWN reasons, never one a user just asked for.
+ *
+ * A predicate rather than a condition restated at the store boundary, for the
+ * reason its sibling [`paneCanSuspend`] is: the decision and the guard that
+ * enforces it must not be able to drift, and a fourth `ResumeOrigin` exempt
+ * from parking would otherwise have to be remembered in two files. Getting
+ * that wrong is silent — the sweep decides `parked` on every pass while the
+ * store refuses, and the pane waits on "Waking up…" for a start that is not
+ * coming.
+ */
+export function paneCanPark(pane: Pane | undefined): boolean {
+  return pane?.idle?.reason === "waking" && pane.idle.origin !== "manual";
+}
+
 /** Whether an idle marker is one the revive sweep acts on by itself: a pane
  *  on its way up, whoever asked. A `suspended` or `parked` one is staying
  *  down until someone says otherwise. Module-private: every consumer asks one
@@ -408,6 +495,64 @@ export function makePanes(
     agentType,
     ...(yolo && { yolo: true }),
   }));
+}
+
+/**
+ * The pane one "+ Agent" request describes — all four shapes the dialog
+ * offers, in one place: a remote pane carrying its endpoint, a bare pane
+ * running in the workspace cwd, a pane attached to an existing worktree, and
+ * one whose worktree does not exist yet (it lands as a provisioning card and
+ * the create runs behind it). They were four near-identical branches in the
+ * dialog, which is how the sparse-field convention came to be applied three
+ * different ways across them.
+ *
+ * FRESH conversations only. A request that names a session is a resume or a
+ * fork; those build their pane around the recorded session instead, and the
+ * caller routes them there before reaching this.
+ */
+export function paneFromAgentRequest(
+  id: string,
+  request: AgentDialogResult,
+  ws: { cwd: string; name: string },
+  /** The pane's position for the auto branch name — captured when the dialog
+   * opened, not recomputed here: the workspace may have gained panes since. */
+  index: number,
+): Pane {
+  const { agentType, location, remoteEndpoint } = request;
+  const name = request.name.trim();
+  // Sparse like persistence: only what is set lands on the pane.
+  const base: Pane = {
+    id,
+    ...(name && { name }),
+    agentType,
+    ...(request.yolo && { yolo: true }),
+  };
+  // Remote: a bare pane carrying the endpoint. The agent's cwd lives on the
+  // box the server runs on, so the local location is moot — the pane's
+  // terminal runs the local thin-client attached to the endpoint.
+  if (remoteEndpoint) return { ...base, remoteEndpoint };
+  // Main repo: a bare pane that runs in the workspace cwd.
+  if (location.kind === "main") return base;
+  // Existing worktree: attach in place, no git mutation ([F12]-lite).
+  if (location.kind === "existing") {
+    return {
+      ...base,
+      cwd: location.path,
+      ...(location.branch && { branch: location.branch }),
+    };
+  }
+  // New worktree AT the chosen path, created verbatim with no suffix.
+  return {
+    ...base,
+    provisioning: {
+      repo: ws.cwd,
+      path: location.path,
+      ...(location.branch && { branch: location.branch }),
+      ...(location.baseBranch && { base: location.baseBranch }),
+      workspace: ws.name,
+      index,
+    },
+  };
 }
 
 /** Build `count` panes numbered from `startSeq` that are still WAITING for

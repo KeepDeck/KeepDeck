@@ -5,8 +5,48 @@ import {
 } from "./downloadManager";
 import { createPluginManager } from "./pluginManager";
 import { createFileOpenManager } from "./fileOpenManager";
+import { createDeckStore } from "./deckStore";
+import { createSpawnContextSource } from "./spawnContextSource";
+import {
+  createAgentOrchestrator,
+  type AgentCatalogPort,
+} from "./agentOrchestrator";
+import { getSettings, subscribeSettings } from "./settingsManager";
+import {
+  acquirePane,
+  closePane,
+  runPaneOnce,
+  paneSessionState,
+  subscribeSessions,
+} from "./ptyManager";
+import { discardWorktrees, runProvisioning } from "./provisioning";
 import { openPath } from "../ipc/app";
+import { probeWorktree } from "../ipc/worktree";
 import { log } from "../ipc/log";
+
+/** The agent catalog as the orchestrator needs it: the ids cli plugins
+ * currently contribute, live. Only the ids — whether the binary is installed
+ * is the dialog's concern, not the wake decision's (a pane whose agent is
+ * contributed but missing fails visibly in its terminal, which is the honest
+ * place for it). */
+function agentCatalogPort(
+  plugins: ReturnType<typeof createPluginManager>,
+): AgentCatalogPort {
+  const registry = plugins.pluginRegistries.agents;
+  return {
+    commands: () =>
+      new Map(registry.list().map((c) => [c.entry.id, c.entry.detect.bin])),
+    // No settings gate here: the bootstrap holds its own, and holds it in the
+    // better place. This branch had added one around the call because a
+    // bootstrap that beats the settings load reads every enabled flag as
+    // unset — but gating the whole call also puts the settings latency in
+    // front of plugin DISCOVERY, which needs nothing from settings. The
+    // bootstrap now runs discovery alongside the load and waits only to
+    // install, so this call site has nothing left to arrange.
+    ready: () => plugins.bootstrapPlugins(),
+    subscribe: registry.subscribe,
+  };
+}
 
 /**
  * App composition root. The manager itself is an ordinary constructible class;
@@ -18,9 +58,42 @@ export function createAppRuntime(
 ) {
   const downloads = new DownloadManager(downloadBackend);
   const plugins = createPluginManager(downloads);
+  // The deck's state owner. It lives HERE, not in `useDeck`, because code
+  // outside React has to read and dispatch against the same state — the agent
+  // orchestrator drives pane lifecycles whether or not any component is
+  // mounted, and a store created inside a component would tie the deck's
+  // lifetime (and the processes it describes) to a render tree.
+  const deckStore = createDeckStore();
+  // Loads on construction, for the same reason the deck store lives here: the
+  // resume plans built from it are prepared before any terminal mounts.
+  const spawnContext = createSpawnContextSource();
   return {
     downloads,
     plugins,
+    deckStore,
+    spawnContext,
+    /** One per app: pane ids are minted app-wide, sessions are keyed by them,
+     * and a request can name a pane in a workspace that is not on screen. */
+    orchestrator: createAgentOrchestrator({
+      deck: deckStore,
+      spawnContext,
+      agents: agentCatalogPort(plugins),
+      launchPolicy: {
+        parkOnLaunch: () => getSettings()?.parkAgentsOnLaunch ?? false,
+        subscribe: subscribeSettings,
+      },
+      sessions: {
+        subscribe: subscribeSessions,
+        state: paneSessionState,
+        acquire: acquirePane,
+        close: closePane,
+        runOnce: runPaneOnce,
+      },
+      plugins,
+      probe: probeWorktree,
+      provision: runProvisioning,
+      discardWorktrees,
+    }),
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),
       openPath,

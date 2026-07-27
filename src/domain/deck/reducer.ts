@@ -29,6 +29,7 @@ import {
   resolvePaneProvisioning,
   clearPaneIdle,
   failPaneWake,
+  parkPane,
   setPaneAutoTitle,
   setPaneProvisioningError,
   setPaneProvisioningPhase,
@@ -134,6 +135,9 @@ export type DeckAction =
   /** That wake could not be prepared — put the pane back down where it was,
    * rather than let it come up as a different conversation. */
   | { type: "failPaneWake"; wsId: string; paneId: string }
+  /** The launch policy says this pane must not start on its own — stop it
+   * rising and give it the stopped card. */
+  | { type: "parkPane"; wsId: string; paneId: string }
   /** Detach a pane from a gone worktree (drops cwd/branch/session) so it can
    * start fresh in the workspace cwd ([F7] restore reconcile). */
   | { type: "resetPaneLocation"; wsId: string; paneId: string }
@@ -552,6 +556,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return withWorkspaces(
         state,
         failPaneWake(state.workspaces, action.wsId, action.paneId),
+      );
+    case "parkPane":
+      return withWorkspaces(
+        state,
+        parkPane(state.workspaces, action.wsId, action.paneId),
       );
     case "resetPaneLocation":
       return withWorkspaces(

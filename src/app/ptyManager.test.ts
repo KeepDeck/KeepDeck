@@ -42,7 +42,9 @@ import {
   attachPane,
   closePane,
   isPaneLaunched,
+  paneSessionState,
   resetPtyManager,
+  runPaneOnce,
   writePane,
 } from "./ptyManager";
 
@@ -148,6 +150,39 @@ describe("attachPane", () => {
     const late = makeSink();
     attachPane("pane-1", late);
     expect(late.onReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes a listener that arrives BEFORE the session and feeds it from the first event", async () => {
+    // The view mounts when the deck renders it; the process starts when the
+    // orchestrator decides it should. Neither waits for the other, so a
+    // listener that arrives first used to attach to nothing and sit empty.
+    const sink = makeSink();
+    attachPane("pane-1", sink);
+
+    acquirePane("pane-1", SPEC);
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+    expect(sink.onReady).toHaveBeenCalled();
+
+    output(0, 7);
+    expect(sink.onOutput).toHaveBeenCalledWith(new Uint8Array([7]));
+    expect(sink.onLaunched).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the listener across a session being replaced under it", async () => {
+    // A restart closes the process and spawns another into the same pane. The
+    // terminal is not remounted for that, so dropping its listener on close
+    // would leave it showing a session nobody is feeding.
+    const sink = makeSink();
+    acquirePane("pane-1", SPEC);
+    attachPane("pane-1", sink);
+    await closePane("pane-1");
+
+    acquirePane("pane-1", SPEC);
+    harness.spawns[1].resolve(harness.makeSession());
+    await settle();
+    output(1, 5);
+    expect(sink.onOutput).toHaveBeenCalledWith(new Uint8Array([5]));
   });
 
   it("a death nobody heard reaches its FIRST listener as live; later attaches replay", async () => {
@@ -361,5 +396,65 @@ describe("writePane", () => {
     expect(() => writePane("pane-none", "x")).not.toThrow();
     acquirePane("pane-1", SPEC);
     expect(() => writePane("pane-1", "x")).not.toThrow();
+  });
+});
+
+describe("runPaneOnce", () => {
+  /** Spawn, let the acquire chain settle, and hand back the event channel. */
+  const started = async () => {
+    await settle();
+    harness.spawns[0].resolve(harness.makeSession());
+    await settle();
+  };
+
+  it("resolves ok on a clean exit and releases the slot for the pane's terminal", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "pnpm i"] });
+    await started();
+    harness.spawns[0].onEvent({ type: "exit", code: 0 });
+
+    await expect(run).resolves.toEqual({ ok: true, tail: "" });
+    // The slot must read as free: the pane's real terminal takes it over
+    // next, and an entry left behind would leave the pane showing this
+    // command's exit instead of mounting a terminal.
+    expect(paneSessionState("pane-1")).toEqual({ kind: "none" });
+  });
+
+  it("carries the output tail back on a nonzero exit, as plain text", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "x"] });
+    await started();
+    output(0, ...new TextEncoder().encode("\x1b[31mnpm ERR! boom\x1b[0m\n"));
+    harness.spawns[0].onEvent({ type: "exit", code: 1 });
+
+    // ANSI colour from the tool has no place on a status card.
+    await expect(run).resolves.toEqual({ ok: false, tail: "npm ERR! boom" });
+  });
+
+  it("says the exit code when the command printed nothing", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "x"] });
+    await started();
+    harness.spawns[0].onEvent({ type: "exit", code: 127 });
+
+    await expect(run).resolves.toEqual({ ok: false, tail: "exit code 127" });
+  });
+
+  it("fails the same way when the shell never starts", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "x"] });
+    await settle();
+    harness.spawns[0].reject(new Error("no shell"));
+
+    await expect(run).resolves.toMatchObject({ ok: false });
+  });
+
+  it("never settles when the pane is closed mid-run — there is nobody to report to", async () => {
+    const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "x"] });
+    await started();
+    let settled = false;
+    void run.then(() => {
+      settled = true;
+    });
+
+    await closePane("pane-1");
+    await settle();
+    expect(settled).toBe(false);
   });
 });
