@@ -15,9 +15,8 @@ export {
   BranchBadge,
   StoppedMarker,
   YoloBadge,
-  STOPPED_MARKER_TITLE,
-  YOLO_BADGE_TITLE,
   type BranchBadgeProps,
+  type StoppedMarkerProps,
   type YoloBadgeProps,
 } from "./badges.tsx";
 export { Chip, type ChipProps } from "./Chip.tsx";
