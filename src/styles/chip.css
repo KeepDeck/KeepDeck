@@ -9,9 +9,13 @@
 /* Optical centering: flex centers a text LINE BOX, and system-ui's large
    ascent (~0.95em) leaves the x-height band ~2px below the geometric center
    (measured on the branch badge, 11px in a 20px pill), while icons — bare
-   boxes — center exactly. ONE nudge value for every text slot that sits
-   beside centered pills/glyphs: chip labels and the bare pane/stand-in
-   titles (.pane__title, .minimized__title consume it from their sheets). */
+   boxes — center exactly. ONE nudge value for every MIXED-CASE text slot
+   that sits beside centered pills/glyphs: chip labels and the bare
+   pane/stand-in titles (.pane__title, .minimized__title consume it from
+   their sheets). Two kinds of neighbors stay un-nudged ON PURPOSE:
+   uppercase-only labels (.deck__tray-label — cap height has no x-height
+   droop to compensate) and boxed controls (.pane__rename — its text must
+   stay centered inside its own symmetric border, not the row's). */
 :root {
   --text-optical-nudge: -1px;
 }
