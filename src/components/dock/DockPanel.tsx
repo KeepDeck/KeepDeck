@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
+import type { DockMode } from "../../domain/settings";
 
 /** One dock tab as the panel renders it: identity, the strip label, and the
  * already-wired panel content (the composition root decides what props each
@@ -34,16 +35,19 @@ export function DockPanel({
   tabs,
   activeTab,
   onSelectTab,
-  floating,
+  mode,
 }: {
   tabs: DockTabItem[];
   /** The caller's picked tab id. `null` (never chosen) or an id no longer in
    * `tabs` (its plugin was disabled) falls back to the first tab. */
   activeTab: string | null;
   onSelectTab: (id: string) => void;
-  /** Lie over the deck rather than take a column of its own. */
-  floating: boolean;
+  /** The geometry the user picked ([F6]). The setting travels down whole and
+   * the mapping to a class lives here — a third geometry then costs one line
+   * in this file rather than a new prop shape at every call and test site. */
+  mode: DockMode;
 }) {
+  const floating = mode === "floating";
   // The picked tab can be absent or disappear — fall back to the first tab
   // instead of rendering an empty dock.
   const activeId = tabs.some((t) => t.id === activeTab) ? activeTab : tabs[0]?.id;

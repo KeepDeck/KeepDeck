@@ -125,6 +125,9 @@ function App() {
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
   // Whether the dock takes a column beside the deck or lies over it ([F6]).
+  // Unlike its two neighbours the fallback never applies: nothing reads this
+  // before the boot gate below, which does not render the deck until settings
+  // have loaded. It is the type's floor, not a pre-hydration default.
   const dockMode = settings?.dockMode ?? DEFAULT_SETTINGS.dockMode;
   const minimizeOn = useMinimizeMode(deckLayout, minimizeStyle, deck);
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
@@ -394,6 +397,8 @@ function App() {
         })
       : []),
   ];
+  // A dock is on screen AND lying over the deck, rather than beside it.
+  const dockCovers = dockMode === "floating" && dockTabs.length > 0 && !!active;
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
   const modalOpen =
@@ -408,6 +413,14 @@ function App() {
   // the module store). A pane is on screen when nothing modal covers the deck,
   // its workspace is active, and the layout actually shows its body
   // (`paneOnScreen` — the same visibility semantics DeckStage renders).
+  //
+  // A floating dock is a third way to be hidden, and the only one the layout
+  // cannot answer: it lies OVER the grid, so which panes it covers is a matter
+  // of pixels, not of tiles. Rather than guess, the probe stops claiming
+  // anything while one is up. The costs are not symmetric — `paneOnScreen`'s
+  // own docstring says a wrong `true` swallows a banner the user needed, while
+  // a wrong `false` only shows one they might not have — so this errs toward
+  // telling them.
   const visibilityRef = useRef({
     activeId: deck.activeId,
     workspaces: deck.workspaces,
@@ -415,6 +428,7 @@ function App() {
     deckLayout,
     minimizeOn,
     modalOpen,
+    dockCovers,
   });
   visibilityRef.current = {
     activeId: deck.activeId,
@@ -423,12 +437,15 @@ function App() {
     deckLayout,
     minimizeOn,
     modalOpen,
+    dockCovers,
   };
   useEffect(() => {
     setSourceVisibilityProbe((source) => {
       if (source.type !== "pane") return false;
       const now = visibilityRef.current;
-      if (now.modalOpen || source.workspace.id !== now.activeId) return false;
+      if (now.modalOpen || now.dockCovers || source.workspace.id !== now.activeId) {
+        return false;
+      }
       const ws = workspaceForNotification(now.workspaces, source.workspace);
       if (!ws) return false;
       return paneOnScreen(
@@ -1069,7 +1086,7 @@ function App() {
             tabs={dockTabs}
             activeTab={activeView.dockTab ?? null}
             onSelectTab={(id) => deck.setDockTab(active.id, id)}
-            floating={dockMode === "floating"}
+            mode={dockMode}
           />
         )}
       </div>

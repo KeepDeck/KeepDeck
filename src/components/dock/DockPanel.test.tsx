@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DROP_BLOCKER_ATTR } from "@keepdeck/ui-kit/dropBlocker";
+import type { DockMode } from "../../domain/settings";
 import { DockPanel, type DockTabItem } from "./DockPanel";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -32,10 +33,8 @@ describe("DockPanel (controlled tab)", () => {
   // Docked unless a test says otherwise — the geometry is orthogonal to
   // everything the tab-switching tests below are about.
   const render = (
-    props: Omit<Parameters<typeof DockPanel>[0], "floating"> & {
-      floating?: boolean;
-    },
-  ) => act(() => root.render(createElement(DockPanel, { floating: false, ...props })));
+    props: Omit<Parameters<typeof DockPanel>[0], "mode"> & { mode?: DockMode },
+  ) => act(() => root.render(createElement(DockPanel, { mode: "docked", ...props })));
 
   const activeLabel = () =>
     host.querySelector(".dock__tab--active")?.textContent ?? null;
@@ -86,7 +85,7 @@ describe("DockPanel (controlled tab)", () => {
       tabs: TABS,
       activeTab: "p:one",
       onSelectTab: () => {},
-      floating: true,
+      mode: "floating",
     });
     expect(host.querySelector(".dock")?.className).toBe("dock dock--floating");
   });
@@ -102,7 +101,7 @@ describe("DockPanel (controlled tab)", () => {
       tabs: TABS,
       activeTab: "p:one",
       onSelectTab: () => {},
-      floating: true,
+      mode: "floating",
     });
     expect(host.querySelector(`.dock[${DROP_BLOCKER_ATTR}]`)).not.toBeNull();
   });
@@ -116,7 +115,7 @@ describe("DockPanel (controlled tab)", () => {
       tabs: TABS,
       activeTab: "p:two",
       onSelectTab: () => {},
-      floating: true,
+      mode: "floating",
     });
 
     // Identity, not equality. A tab body holds a plugin's iframe or an xterm,
