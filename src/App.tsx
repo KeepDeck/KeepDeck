@@ -390,11 +390,6 @@ function App() {
         })
       : []),
   ];
-  // The dock is over the deck RIGHT NOW: the mode says so and there is a dock
-  // to show. Derived once — the panel takes it as a prop, and the deck body
-  // wears it so the minimized tray can keep its overflow trigger out from
-  // under the panel (minimize.css).
-  const dockFloating = dockMode === "floating" && dockTabs.length > 0 && !!active;
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
   const modalOpen =
@@ -785,9 +780,7 @@ function App() {
           </button>
         </div>
       </header>
-      <div
-        className={`deck__body${dockFloating ? " deck__body--dock-float" : ""}`}
-      >
+      <div className="deck__body">
         {!railCollapsed && (
           <WorkspacesRail
             workspaces={railWorkspaces}
@@ -1072,7 +1065,7 @@ function App() {
             tabs={dockTabs}
             activeTab={activeView.dockTab ?? null}
             onSelectTab={(id) => deck.setDockTab(active.id, id)}
-            floating={dockFloating}
+            floating={dockMode === "floating"}
           />
         )}
       </div>
