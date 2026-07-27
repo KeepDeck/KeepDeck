@@ -208,13 +208,13 @@ describe("FileViewer", () => {
       "/repo/b.ts": fsFile("/repo/b.ts", TS_TEXT),
     };
     await mount("/repo/a.ts", files);
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    const body = document.querySelector<HTMLElement>(".peek__body")!;
     body.scrollTop = 720;
     body.scrollLeft = 90;
 
     await mount("/repo/b.ts", files);
 
-    expect(host.querySelector(".peek__body")).toBe(body);
+    expect(document.querySelector(".peek__body")).toBe(body);
     expect(body.scrollTop).toBe(0);
     expect(body.scrollLeft).toBe(0);
   });
@@ -222,11 +222,11 @@ describe("FileViewer", () => {
   it("the Markdown source is its own thing to read, from its own top", async () => {
     const path = "/repo/README.md";
     await mount(path, { [path]: fsFile(path, "# Title\n\nsome prose\n") });
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
+    const body = document.querySelector<HTMLElement>(".peek__body")!;
     body.scrollTop = 500;
 
     await act(async () =>
-      host
+      document
         .querySelector<HTMLElement>('[aria-label="Toggle Markdown source view"]')!
         .click(),
     );
@@ -234,8 +234,8 @@ describe("FileViewer", () => {
     // A document and its source share a path but not a single line, and the
     // rendered view is the shorter of the two — carrying the offset over
     // would have clamped it away and lost the place in both.
-    expect(host.querySelector(".files__code")).not.toBeNull();
-    expect(host.querySelector(".peek__body")).toBe(body);
+    expect(document.querySelector(".files__code")).not.toBeNull();
+    expect(document.querySelector(".peek__body")).toBe(body);
     expect(body.scrollTop).toBe(0);
   });
 
@@ -243,8 +243,8 @@ describe("FileViewer", () => {
     const path = "/repo/wide.ts";
     const text = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
     await mount(path, { [path]: fsFile(path, text) });
-    const body = host.querySelector<HTMLElement>(".peek__body")!;
-    const code = host.querySelector<HTMLElement>(".files__code")!;
+    const body = document.querySelector<HTMLElement>(".peek__body")!;
+    const code = document.querySelector<HTMLElement>(".files__code")!;
 
     // happy-dom lays nothing out, so stand in for a layout: the viewport
     // starts at 100 and rows are 20 tall, which puts row 5 as the first one
@@ -264,7 +264,7 @@ describe("FileViewer", () => {
     body.scrollTop = 100;
 
     await act(async () =>
-      host.querySelector<HTMLElement>('[aria-label="Toggle line wrapping"]')!.click(),
+      document.querySelector<HTMLElement>('[aria-label="Toggle line wrapping"]')!.click(),
     );
 
     // Exactly the line they were reading is put back at the top. Wrapping

@@ -1,12 +1,21 @@
 import { useLayoutEffect, useRef, type ReactNode, type Ref } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * The wide "peek" overlay — a dock plugin's detail surface. A 340px rail can't
  * read code or a diff, so opening a detail lifts it OUT of the panel into a
- * centered surface over the whole window (a `position: fixed` backdrop — no
- * ancestor establishes a transform/stacking trap, so it reaches the viewport
- * without a portal; matches the host's own `.modal-overlay`). Dismiss with
- * Esc, the back button, or a click on the dimmed backdrop.
+ * centered surface over the whole window (a `position: fixed` backdrop,
+ * PORTALED to the document body — matches the host's own `.modal-overlay`).
+ * Dismiss with Esc, the back button, or a click on the dimmed backdrop.
+ *
+ * The portal is not cosmetic. A peek is rendered from INSIDE a dock tab, and
+ * `position: fixed` alone only wins while no ancestor opens a stacking
+ * context — which the dock does the moment it floats over the deck and needs a
+ * `z-index` to clear the pane chrome. Left in place, the peek's own z-index
+ * would be confined to the dock's, and window-level chrome (a voice pill, a
+ * dropdown layer) would paint over a surface that covers the screen. Rendering
+ * at the body makes the peek's level mean what it says, whatever the panel it
+ * was opened from is doing.
  *
  * This is the SHELL only — backdrop, panel, header, the focusable scroll body.
  * What fills it (a file preview, a diff) is the consumer's, as are any header
@@ -105,7 +114,7 @@ export function Peek({
     if (!inHeader(document.activeElement)) body.focus({ preventScroll: true });
   }, [scrollKey]);
 
-  return (
+  return createPortal(
     <div
       className="peek"
       onClick={onClose}
@@ -175,6 +184,7 @@ export function Peek({
           {aside != null && <aside className="peek__aside">{aside}</aside>}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
