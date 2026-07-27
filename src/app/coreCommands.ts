@@ -29,6 +29,7 @@ import type {
   CreatePaneRequest,
   ResumeRequest,
 } from "./agentOrchestrator";
+import { resumeRefusalText } from "./resumeOutcome";
 import { suspendRefusalText, type SuspendOutcome } from "./suspendOutcome";
 import type { Deck } from "./useDeck";
 
@@ -413,18 +414,8 @@ export function registerCoreCommands(
         // A switch rather than a chain of ifs, so a new outcome is a compile
         // error here instead of silently reporting success for it.
         const outcome = deps.resumeAgent(ws.id, pane.id);
-        switch (outcome) {
-          case "resuming":
-            return { workspaceId: ws.id, paneId: pane.id };
-          case "running":
-            throw new Error(`${label} is already running.`);
-          case "provisioning":
-            throw new Error(`${label} is still creating its worktree.`);
-          case "unavailable":
-            throw new Error(`No installed agent can start ${label}.`);
-          case "gone":
-            throw new Error(`${label} is no longer open.`);
-        }
+        if (outcome === "resuming") return { workspaceId: ws.id, paneId: pane.id };
+        throw new Error(resumeRefusalText(outcome, label));
       },
     }),
 
