@@ -153,13 +153,10 @@
   max-width: 96px;
 }
 
-/* The header's YOLO warning survives minimizing as a bare bolt — tiny, but the
-   disabled-prompts state stays visible wherever the pane's stand-in lives. */
+/* The header's YOLO warning survives minimizing as the same warn dot, sm-sized
+   (shared ui-kit YoloBadge); this hook keeps only its flex place. */
 .minimized__yolo {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  color: #e0b568;
 }
 
 /* Stopped marker: muted, not a warning — a suspended agent is a normal

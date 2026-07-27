@@ -52,6 +52,19 @@ button.chip {
   border-color: #5a2e2e;
 }
 
+/* The icon-only YOLO dot (ui-kit YoloBadge): a rounded square at either size,
+   squared here so the pane header (md) and the minimized stand-in (sm) draw
+   the same badge. Site hooks keep only flex place and cascade hiding. */
+.yolo-badge {
+  width: 22px;
+  padding: 0;
+  justify-content: center;
+}
+
+.chip--sm.yolo-badge {
+  width: 20px;
+}
+
 .chip__icon {
   flex: none;
   display: inline-flex;
