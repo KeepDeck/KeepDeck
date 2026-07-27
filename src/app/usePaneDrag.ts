@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { pathsAreImages } from "../ipc/app";
-import { collectPaneRects, deliverPathToPoint } from "./dragDrop";
+import { collectDropSurface, deliverPathToPoint } from "./dragDrop";
 
 /**
  * Deliver an in-app POINTER drag of a file path onto the pane under the cursor.
@@ -82,7 +82,7 @@ export function usePaneDrag(onDropped: (paneId: string) => void) {
       void deliverPathToPoint(
         droppedPath,
         point,
-        collectPaneRects(),
+        collectDropSurface(),
         pathsAreImages,
       ).then((id) => {
         if (id) droppedRef.current(id);

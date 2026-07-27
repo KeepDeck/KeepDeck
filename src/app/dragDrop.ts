@@ -1,4 +1,9 @@
-import { paneAtPoint, type PaneRect } from "../domain/deck";
+import {
+  paneAtPoint,
+  type DropSurface,
+  type PaneRect,
+  type Rect,
+} from "../domain/deck";
 import { formatDroppedPaths } from "../domain/terminal";
 import { writeRawToPane } from "./paneInput";
 
@@ -23,6 +28,26 @@ export function collectPaneRects(doc: Document = document): PaneRect[] {
       rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
     };
   });
+}
+
+/**
+ * Snapshot everything at the drop point, panes and the chrome over them, in one
+ * pass over the live layout — the two halves must describe the SAME moment, or
+ * a point could clear a blocker that has since moved across it.
+ *
+ * The only blocker today is a floating dock (`.dock--floating`): docked, it is
+ * a flex sibling that never overlaps a pane and the selector finds nothing.
+ * Modal surfaces are deliberately absent — they take the pointer outright, and
+ * an OS drop landing under one behaves as it always has.
+ */
+export function collectDropSurface(doc: Document = document): DropSurface {
+  const blockers = Array.from(
+    doc.querySelectorAll<HTMLElement>(".dock--floating"),
+  ).map((el): Rect => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  });
+  return { panes: collectPaneRects(doc), blockers };
 }
 
 /**
@@ -52,11 +77,11 @@ export function deliverDrop(
 export async function deliverPathToPoint(
   path: string,
   point: { x: number; y: number },
-  rects: PaneRect[],
+  surface: DropSurface,
   isImageOf: (paths: string[]) => Promise<boolean[]>,
 ): Promise<string | null> {
   if (!path) return null;
-  const id = paneAtPoint(point.x, point.y, rects);
+  const id = paneAtPoint(point.x, point.y, surface);
   if (!id) return null;
   const isImage = await isImageOf([path]).catch(() => [false]);
   return deliverDrop(id, [path], isImage) ? id : null;

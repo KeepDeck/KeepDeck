@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import {
+  collectDropSurface,
   collectPaneRects,
   deliverDrop,
   deliverPathToPoint,
@@ -38,6 +39,33 @@ describe("collectPaneRects (real DOM)", () => {
   });
 });
 
+describe("collectDropSurface (real DOM)", () => {
+  // Only the selectors are testable here: happy-dom reports every rect as
+  // zero-sized, so the geometry these feed is covered by paneAtPoint's own
+  // tests instead. What can go silently wrong HERE is a renamed class.
+  const deckWith = (dockClass: string) => `
+      <main class="deck__workspace">
+        <div class="deck__gridwrap"><div class="deck__grid">
+          <section data-pane-id="pane-1"></section>
+        </div></div>
+      </main>
+      <aside class="${dockClass}"></aside>`;
+
+  it("reports no blocker while the dock is docked — it covers nothing", () => {
+    document.body.innerHTML = deckWith("dock");
+    const surface = collectDropSurface();
+    expect(surface.panes.map((p) => p.id)).toEqual(["pane-1"]);
+    expect(surface.blockers).toEqual([]);
+  });
+
+  it("reports a floating dock as a blocker, alongside the same panes", () => {
+    document.body.innerHTML = deckWith("dock dock--floating");
+    const surface = collectDropSurface();
+    expect(surface.panes.map((p) => p.id)).toEqual(["pane-1"]);
+    expect(surface.blockers).toHaveLength(1);
+  });
+});
+
 describe("deliverDrop", () => {
   it("writes the formatted paths (image bracketed) into the target pane", () => {
     const write = vi.fn();
@@ -56,7 +84,10 @@ describe("deliverDrop", () => {
 });
 
 describe("deliverPathToPoint (in-app pointer path drag)", () => {
-  const rects = [{ id: "pane-1", rect: { left: 0, top: 0, right: 100, bottom: 100 } }];
+  const surface = {
+    panes: [{ id: "pane-1", rect: { left: 0, top: 0, right: 100, bottom: 100 } }],
+    blockers: [],
+  };
 
   it("writes a dragged path into the pane under the drop point, returning its id", async () => {
     const write = vi.fn();
@@ -64,7 +95,7 @@ describe("deliverPathToPoint (in-app pointer path drag)", () => {
     const id = await deliverPathToPoint(
       "/repo/main.ts",
       { x: 50, y: 50 },
-      rects,
+      surface,
       async () => [false],
     );
     expect(id).toBe("pane-1");
@@ -75,19 +106,19 @@ describe("deliverPathToPoint (in-app pointer path drag)", () => {
   it("bracket-pastes an image path so the agent attaches it", async () => {
     const write = vi.fn();
     const off = registerPaneInput("pane-1", { write });
-    await deliverPathToPoint("/repo/logo.png", { x: 10, y: 10 }, rects, async () => [true]);
+    await deliverPathToPoint("/repo/logo.png", { x: 10, y: 10 }, surface, async () => [true]);
     expect(write).toHaveBeenCalledWith("\x1b[200~/repo/logo.png\x1b[201~");
     off();
   });
 
   it("ignores an empty path", async () => {
-    const result = await deliverPathToPoint("", { x: 50, y: 50 }, rects, async () => []);
+    const result = await deliverPathToPoint("", { x: 50, y: 50 }, surface, async () => []);
     expect(result).toBeNull();
   });
 
   it("ignores a drop that misses every pane", async () => {
     const off = registerPaneInput("pane-1", { write: vi.fn() });
-    const result = await deliverPathToPoint("/a", { x: 500, y: 500 }, rects, async () => [false]);
+    const result = await deliverPathToPoint("/a", { x: 500, y: 500 }, surface, async () => [false]);
     expect(result).toBeNull();
     off();
   });
@@ -95,7 +126,7 @@ describe("deliverPathToPoint (in-app pointer path drag)", () => {
   it("treats an image-sniff failure as plain text, not a dropped file", async () => {
     const write = vi.fn();
     const off = registerPaneInput("pane-1", { write });
-    await deliverPathToPoint("/a/f", { x: 1, y: 1 }, rects, async () => {
+    await deliverPathToPoint("/a/f", { x: 1, y: 1 }, surface, async () => {
       throw new Error("sniff failed");
     });
     expect(write).toHaveBeenCalledWith("/a/f");
