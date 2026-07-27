@@ -124,6 +124,8 @@ function App() {
   // the screen on what's visible.
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
+  // Whether the dock takes a column beside the deck or lies over it ([F6]).
+  const dockMode = settings?.dockMode ?? DEFAULT_SETTINGS.dockMode;
   const minimizeOn = useMinimizeMode(deckLayout, minimizeStyle, deck);
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
@@ -1063,6 +1065,7 @@ function App() {
             tabs={dockTabs}
             activeTab={activeView.dockTab ?? null}
             onSelectTab={(id) => deck.setDockTab(active.id, id)}
+            floating={dockMode === "floating"}
           />
         )}
       </div>

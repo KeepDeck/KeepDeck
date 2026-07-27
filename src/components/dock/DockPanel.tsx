@@ -22,24 +22,33 @@ export interface DockTabItem {
  * switching workspaces and back returns to the tab that workspace last looked
  * at. Hidden tabs stay MOUNTED, like the settings dialog's sections: the run
  * log's terminal must not re-mount (and replay) on every tab switch.
+ *
+ * `floating` is the same panel over the deck instead of beside it, and it is a
+ * CLASS, not a branch: both geometries render the identical element in the
+ * identical place, so switching between them moves nothing in the tree. That
+ * is load-bearing — a tab's content is a plugin's own iframe or an xterm, and
+ * either one re-mounted is a document reloaded and a scrollback lost.
  */
 export function DockPanel({
   tabs,
   activeTab,
   onSelectTab,
+  floating,
 }: {
   tabs: DockTabItem[];
   /** The caller's picked tab id. `null` (never chosen) or an id no longer in
    * `tabs` (its plugin was disabled) falls back to the first tab. */
   activeTab: string | null;
   onSelectTab: (id: string) => void;
+  /** Lie over the deck rather than take a column of its own. */
+  floating: boolean;
 }) {
   // The picked tab can be absent or disappear — fall back to the first tab
   // instead of rendering an empty dock.
   const activeId = tabs.some((t) => t.id === activeTab) ? activeTab : tabs[0]?.id;
 
   return (
-    <aside className="dock">
+    <aside className={`dock${floating ? " dock--floating" : ""}`}>
       <div className="dock__tabs" role="tablist">
         {tabs.map((tab) => (
           <button

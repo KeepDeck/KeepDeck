@@ -28,8 +28,13 @@ describe("DockPanel (controlled tab)", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
-  const render = (props: Parameters<typeof DockPanel>[0]) =>
-    act(() => root.render(createElement(DockPanel, props)));
+  // Docked unless a test says otherwise — the geometry is orthogonal to
+  // everything the tab-switching tests below are about.
+  const render = (
+    props: Omit<Parameters<typeof DockPanel>[0], "floating"> & {
+      floating?: boolean;
+    },
+  ) => act(() => root.render(createElement(DockPanel, { floating: false, ...props })));
 
   const activeLabel = () =>
     host.querySelector(".dock__tab--active")?.textContent ?? null;
@@ -70,6 +75,40 @@ describe("DockPanel (controlled tab)", () => {
     expect(shown[0].querySelector("[data-body]")?.getAttribute("data-body")).toBe(
       "p:two",
     );
+  });
+
+  it("carries the floating geometry as a modifier on the panel itself", () => {
+    render({ tabs: TABS, activeTab: "p:one", onSelectTab: () => {} });
+    expect(host.querySelector(".dock")?.className).toBe("dock");
+
+    render({
+      tabs: TABS,
+      activeTab: "p:one",
+      onSelectTab: () => {},
+      floating: true,
+    });
+    expect(host.querySelector(".dock")?.className).toBe("dock dock--floating");
+  });
+
+  it("changes geometry without re-mounting anything", () => {
+    render({ tabs: TABS, activeTab: "p:two", onSelectTab: () => {} });
+    const panel = host.querySelector(".dock");
+    const body = host.querySelector('[data-body="p:two"]');
+
+    render({
+      tabs: TABS,
+      activeTab: "p:two",
+      onSelectTab: () => {},
+      floating: true,
+    });
+
+    // Identity, not equality. A tab body holds a plugin's iframe or an xterm,
+    // and neither has any state a test can inspect — the DOM node surviving IS
+    // the document staying loaded and the scrollback staying put. Branching on
+    // `floating` anywhere above these nodes, or moving them into a portal,
+    // fails here.
+    expect(host.querySelector(".dock")).toBe(panel);
+    expect(host.querySelector('[data-body="p:two"]')).toBe(body);
   });
 
   it("shows the alert badge exactly on tabs that carry one", () => {

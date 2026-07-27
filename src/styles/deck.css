@@ -117,6 +117,10 @@
   flex: 1;
   display: flex;
   min-height: 0;
+  /* The containing block a floating dock (dock.css) positions against, so it
+     spans the body's height and stops at the top bar rather than the viewport.
+     Inert for the flex children — the rail and the stage are static. */
+  position: relative;
 }
 
 /* Agent grid (always square). Workspaces stack in place; only the active grid

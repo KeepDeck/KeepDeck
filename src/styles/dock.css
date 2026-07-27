@@ -12,6 +12,30 @@
   user-select: none;
 }
 
+/* The floating mode (settings → Dock): the same panel at the same edge and the
+   same width, but OUT OF FLOW, so the grid keeps its full width and no longer
+   re-tiles — with sixteen terminals on screen, opening the dock stopped being
+   a resize of every one of them.
+
+   A modifier on the element the docked mode already renders, never a second
+   element or a portal: the tab bodies hold plugin iframes and xterm, and both
+   are destroyed by a re-parent. Absolute against `.deck__body`.
+
+   The z-index cannot be left to paint order. `.deck__stage` is
+   `position: relative` at `z-index: auto`, so it opens no stacking context and
+   the pane chrome inside it (pane.css, z-index 11) paints in the ROOT context —
+   over a later sibling that has none. 20 clears that, and stays below every
+   popover (60/92/94), the modal overlay (100) and the rail flyout (200), which
+   must all still come out on top. */
+.dock--floating {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 20;
+  /* Depth the docked mode gets from the layout itself: with the grid running
+     on underneath, only the shadow says which surface is in front. */
+  box-shadow: -14px 0 28px rgb(0 0 0 / 45%);
+}
+
 .dock__tabs {
   display: flex;
   gap: 2px;
