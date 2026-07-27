@@ -48,19 +48,12 @@ import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useCoreCommands } from "./app/coreCommands";
 import { useAppRuntime } from "./app/runtimeContext";
-import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
 import { unavailableAgentReasons, useContributions, useInstalledPlugins } from "./plugins";
-import { ErrorBoundary } from "./ui/ErrorBoundary";
-import { externalPluginUrl } from "./plugins/external/url";
-import { DockPanel, type DockTabItem } from "./components/dock/DockPanel";
-import { PluginFailurePanel } from "./components/dock/PluginFailurePanel";
+import { DockPanel } from "./components/dock/DockPanel";
+import { buildDockTabs } from "./components/dock/useDockTabs";
 import { PluginOverlays } from "./components/PluginOverlays";
-import {
-  pluginCrashes,
-  reportPluginCrash,
-  subscribePluginCrashes,
-} from "./app/pluginHealth";
+import { pluginCrashes, subscribePluginCrashes } from "./app/pluginHealth";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import { usePaneDrag } from "./app/usePaneDrag";
@@ -332,71 +325,15 @@ function App() {
   const dockOpen = activeView.dock ?? false;
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId = activeView.select ?? null;
-  // The dock's tab list: every tab is a plugin contribution, rendered from
-  // SNAPSHOTS inside its own error boundary (a crashing plugin tab must not
-  // take the deck down). The dock itself is contribution-driven chrome: it
-  // exists only while this list is non-empty.
-  const dockTabs: DockTabItem[] = [
-    ...(dockOpen && active
-      ? pluginDockTabs.map((c) => {
-          // Any crash badges every tab of the plugin, but the failure panel
-          // REPLACES content only where the crash lives: this tab's own
-          // crash, or an overlay's (shared, tab-less infrastructure — the
-          // plugin's tabs are the only place its panel can live). A SIBLING
-          // tab's crash leaves this tab's healthy content alone.
-          const pluginCrashList = crashes.filter(
-            (crash) => crash.pluginId === c.pluginId,
-          );
-          const panelCrashes = pluginCrashList.filter(
-            (crash) =>
-              crash.surfaceKind === "overlay" ||
-              (crash.surfaceKind === "tab" && crash.surfaceId === c.entry.id),
-          );
-          return {
-            id: `${c.pluginId}:${c.entry.id}`,
-            label: c.entry.label,
-            alert: pluginCrashList.length > 0,
-            element:
-              panelCrashes.length > 0 ? (
-                <PluginFailurePanel
-                  pluginId={c.pluginId}
-                  label={c.entry.label}
-                  crashes={panelCrashes}
-                />
-              ) : "Component" in c.entry ? (
-                // Built-in tier: a trusted React component in the host tree.
-                <ErrorBoundary
-                  label={c.entry.label}
-                  onError={(e) => {
-                    log.error(
-                      `web:plugin:${c.pluginId}`,
-                      `dock tab "${c.entry.id}" crashed: ${describeError(e)}`,
-                    );
-                    reportPluginCrash(c.pluginId, "tab", c.entry.id, e);
-                  }}
-                >
-                  <c.entry.Component
-                    workspace={toWorkspaceSnapshot(active)}
-                    selectedPaneId={selectedPaneId}
-                  />
-                </ErrorBoundary>
-              ) : (
-                // External tier: the plugin's own document at its own
-                // kdplugin://<id> origin. allow-same-origin lets it load its own
-                // scripts/assets under that origin (per-plugin CSP still bounds
-                // its network); the origin — cross-origin to the host — is the
-                // isolation boundary, so it can't reach the host or other plugins.
-                <iframe
-                  className="dock__plugin-frame"
-                  title={c.entry.label}
-                  sandbox="allow-scripts allow-same-origin"
-                  src={externalPluginUrl(c.pluginId, c.entry.iframe)}
-                />
-              ),
-          };
-        })
-      : []),
-  ];
+  // The dock's tab list — what a tab holds, and what a crashed plugin does to
+  // it, is the dock's own policy (components/dock/useDockTabs).
+  const dockTabs = buildDockTabs({
+    contributions: pluginDockTabs,
+    crashes,
+    workspace: active,
+    selectedPaneId,
+    open: dockOpen,
+  });
   // A dock is on screen AND lying over the deck, rather than beside it.
   const dockCovers = dockMode === "floating" && dockTabs.length > 0 && !!active;
   const activeCount = active?.panes.length ?? 0;
