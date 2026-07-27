@@ -142,6 +142,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  /* The shared optical nudge (--text-optical-nudge, chip.css): the bare title
+     sits beside centered pills and glyphs, same line-box physics as a chip
+     label. */
+  transform: translateY(var(--text-optical-nudge));
 }
 /* On a bar the title takes the slack so the branch + action sit to the right,
    exactly like a pane header; on a chip everything hugs the content. */
@@ -153,13 +157,10 @@
   max-width: 96px;
 }
 
-/* The header's YOLO warning survives minimizing as a bare bolt — tiny, but the
-   disabled-prompts state stays visible wherever the pane's stand-in lives. */
+/* The header's YOLO warning survives minimizing as the same warn dot, sm-sized
+   (shared ui-kit YoloBadge); this hook keeps only its flex place. */
 .minimized__yolo {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  color: #e0b568;
 }
 
 /* Stopped marker: muted, not a warning — a suspended agent is a normal

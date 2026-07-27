@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { BoltIcon, GitBranchIcon, PowerIcon, RestoreUpIcon } from "../../ui/icons";
-import { Chip } from "../../ui/Chip";
+import { RestoreUpIcon } from "../../ui/icons";
+import { BranchBadge, StoppedMarker, YoloBadge } from "../../ui/badges";
 import type { GitBadge } from "../../ui/gitBadge";
 import { AgentGlyph, type AgentGlyphIcon } from "../../ui/AgentGlyph";
 import { MinimizedDetailsTooltip } from "./MinimizedDetailsTooltip";
@@ -51,27 +51,19 @@ export function MinimizedItemContent({
       <span className="minimized__agent" aria-hidden>
         <AgentGlyph icon={icon} />
       </span>
-      {stopped && (
-        <span className="minimized__stopped" title="Stopped — resume to run it">
-          <PowerIcon />
-        </span>
-      )}
       <span className="minimized__title">{title}</span>
+      {/* State markers ride right of the title, in the same order the pane
+          header carries them beside its own title. */}
+      {stopped && <StoppedMarker className="minimized__stopped" />}
       {yolo && (
-        <span
-          className="minimized__yolo"
-          title="YOLO mode — runs without permission prompts"
-        >
-          <BoltIcon />
-        </span>
+        <YoloBadge size="sm" decorative className="minimized__yolo" />
       )}
       {gitBadge && (
-        <Chip
+        <BranchBadge
           size="sm"
+          decorative
           className="minimized__branch"
-          icon={<GitBranchIcon />}
           label={gitBadge.label}
-          aria-hidden
         />
       )}
       <span className="minimized__restore" aria-hidden>

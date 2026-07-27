@@ -16,13 +16,12 @@ import { usePaneSessionState } from "../../app/usePaneSessionState";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
 import {
-  BoltIcon,
   ChevronDownIcon,
-  GitBranchIcon,
   MaximizeIcon,
   MinimizeIcon,
   RestoreIcon,
 } from "../../ui/icons";
+import { BranchBadge, YoloBadge } from "../../ui/badges";
 import { CloseButton } from "../../ui/CloseButton";
 import { Chip } from "../../ui/Chip";
 import type { GitBadge } from "../../ui/gitBadge";
@@ -356,20 +355,10 @@ export function AgentPane({
               label={`ctx ${Math.ceil(ctxPct)}%`}
             />
           )}
-          {yolo && (
-            <Chip
-              tone="warn"
-              className="pane__yolo"
-              icon={<BoltIcon />}
-              role="img"
-              aria-label="YOLO mode"
-              title="YOLO mode — runs without permission prompts"
-            />
-          )}
+          {yolo && <YoloBadge className="pane__yolo" />}
           {gitBadge && (
-            <Chip
+            <BranchBadge
               className="pane__branch"
-              icon={<GitBranchIcon />}
               title={gitBadge.title}
               label={gitBadge.label}
             />

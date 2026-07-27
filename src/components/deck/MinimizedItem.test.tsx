@@ -41,6 +41,31 @@ describe("MinimizedItem", () => {
     vi.useRealTimers();
   });
 
+  it("places the stopped marker right of the title, before the badges", () => {
+    act(() => {
+      root.render(
+        createElement(MinimizedItem, {
+          variant: "bar",
+          title: "Claude 1",
+          label: "Restore Claude 1",
+          stopped: true,
+          yolo: true,
+          active: true,
+          onClick,
+        }),
+      );
+    });
+    const title = document.querySelector(".minimized__title")!;
+    const marker = document.querySelector(".minimized__stopped")!;
+    const yolo = document.querySelector(".minimized__yolo")!;
+    expect(
+      title.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      marker.compareDocumentPosition(yolo) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("a YOLO pane keeps its warning marker in the stand-in; a plain one doesn't", () => {
     // The beforeEach mount carries no yolo — the marker must be absent.
     expect(document.querySelector(".minimized__yolo")).toBeNull();

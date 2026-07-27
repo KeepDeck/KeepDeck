@@ -122,6 +122,9 @@
   white-space: nowrap;
   flex: 1 1 auto;
   min-width: 0;
+  /* The shared optical nudge (--text-optical-nudge, chip.css) — the title
+     rides beside the header's centered chips, same as the stand-in's. */
+  transform: translateY(var(--text-optical-nudge));
 }
 
 /* Inline rename of the pane title ([F11]). */
@@ -140,16 +143,12 @@
   -webkit-user-select: text;
 }
 
-/* Standing YOLO warning chip: a warn-toned bolt dot — the pane's
-   disabled-prompts state must stay visible, not just at creation. Icon-only
-   by design (the label was noise); the title tooltip names the mode. It's the
-   last chip to yield in the narrow-header cascade below (gone at ≤150px so
-   maximize/close keep their never-hide guarantee). */
+/* Standing YOLO warning dot: the shared ui-kit YoloBadge (squared in
+   chip.css); this hook owns only its flex place and its spot in the
+   narrow-header cascade below (gone at ≤150px so maximize/close keep their
+   never-hide guarantee). */
 .pane__yolo {
   flex: none;
-  width: 22px;
-  padding: 0;
-  justify-content: center;
 }
 
 .pane__branch {
