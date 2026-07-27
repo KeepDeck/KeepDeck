@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentInfo } from "../domain/agents";
 import { createCommandRegistry } from "../domain/commands";
-import type { Workspace } from "../domain/deck";
+import { WORKSPACE_GONE_MESSAGE, type Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { registerPaneInput } from "./paneInput";
 import { deliverTask, registerCoreCommands } from "./coreCommands";
@@ -279,7 +279,7 @@ describe("agent.spawn", () => {
       ok: false,
       error: {
         code: "failed",
-        message: "workspace was closed while spawning the agent",
+        message: WORKSPACE_GONE_MESSAGE,
       },
     });
     expect(replacement.panes).toEqual([]);

@@ -15,6 +15,7 @@ import {
   parentDir,
   sessionClaimant,
   WORKSPACE_FULL_MESSAGE,
+  WORKSPACE_GONE_MESSAGE,
   type Workspace,
 } from "../domain/deck";
 import { handleFromHit } from "../domain/journal";
@@ -163,7 +164,7 @@ export function useAgentDialog(
       // returning quietly: the dialog has already closed, so silence is an
       // agent the user asked for that simply never appears. The landing would
       // refuse it too, but this path never reaches the landing.
-      notices.onCreateFailed("That workspace was closed.");
+      notices.onCreateFailed(WORKSPACE_GONE_MESSAGE);
       return;
     }
     const paneName = name.trim() || undefined;
@@ -204,7 +205,7 @@ export function useAgentDialog(
     // close in between.
     if (landed.kind === "full") notices.onCreateFailed(WORKSPACE_FULL_MESSAGE);
     else if (landed.kind === "gone") {
-      notices.onCreateFailed("That workspace was closed.");
+      notices.onCreateFailed(WORKSPACE_GONE_MESSAGE);
     }
   };
 

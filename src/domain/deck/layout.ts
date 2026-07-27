@@ -6,6 +6,12 @@ export const MAX_PANES = 16;
 export const WORKSPACE_FULL_MESSAGE =
   "The workspace is full — close a pane first";
 
+/** The error when the workspace a pane was headed for is no longer in the
+ * deck — every add re-resolves against the live store, and a close can land
+ * inside the awaits a worktree create or a fork's surgery needs. One string
+ * for the same reason the cap has one: it was already spelled two ways. */
+export const WORKSPACE_GONE_MESSAGE = "That workspace was closed.";
+
 /** Clamp a requested agent count to `[0, MAX_PANES]`. */
 export function clampPaneCount(count: number): number {
   return Math.max(0, Math.min(count, MAX_PANES));

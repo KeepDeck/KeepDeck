@@ -2995,7 +2995,7 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-claimer"]);
   });
 
-  it("drops the built plan when the workspace died during the build", async () => {
+  it("drops the built plan — and SAYS so — when the workspace died during the build", async () => {
     let release!: () => void;
     gate.build = new Promise<void>((resolve) => {
       release = resolve;
@@ -3007,7 +3007,9 @@ describe("agent orchestrator —continuing a recorded session", () => {
     act(() => deck.closeWorkspace("ws-1"));
     await act(async () => {
       release();
-      await pending;
+      // Resolving here would tell the row's Resume it worked: no pane
+      // appears, no alert fires, and the button reads as dead.
+      await expect(pending).rejects.toThrow("closed");
     });
 
     expect(deck.workspaces).toHaveLength(0);
@@ -3199,6 +3201,36 @@ describe("agent orchestrator —forking a recorded session", () => {
     ).rejects.toThrow("full");
     // export→rekey→import never runs, so there is no orphan clone.
     expect(vi.mocked(buildForkSpec)).not.toHaveBeenCalled();
+  });
+
+  it("reports the closed workspace instead of orphaning the clone it just made", async () => {
+    // The surgery is irreversible — export→rekey→import into the agent's own
+    // store — and it has already run by the time the pane lands. A workspace
+    // closing inside that await used to resolve the promise as if the fork
+    // had worked: a cloned session left in the store forever, no pane, no
+    // error, and a dialog that closed on success.
+    let release!: () => void;
+    vi.mocked(buildForkSpec).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(true);
+        }),
+    );
+    let pending!: Promise<void>;
+    act(() => {
+      pending = agentRun.forkSession("ws-1", forked(), {
+        kind: "dir",
+        cwd: "/elsewhere",
+      });
+    });
+    act(() => deck.closeWorkspace("ws-1"));
+    await act(async () => {
+      release();
+      await expect(pending).rejects.toThrow("closed");
+    });
+
+    expect(vi.mocked(buildForkSpec)).toHaveBeenCalledOnce();
+    expect(deck.workspaces).toHaveLength(0);
   });
 
   it("a throwing surgery carries its precise diagnostic to the caller", async () => {

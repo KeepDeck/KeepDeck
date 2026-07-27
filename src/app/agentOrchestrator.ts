@@ -15,6 +15,7 @@ import {
   sessionClaimant,
   skillRootsOf,
   WORKSPACE_FULL_MESSAGE,
+  WORKSPACE_GONE_MESSAGE,
   type Pane,
   type SpawnConfig,
   type Workspace,
@@ -663,6 +664,29 @@ export function createAgentOrchestrator(
     actions.addAgentPane(ws.id, pane);
     provisionPanes(ws, [pane]);
     return { kind: "created" };
+  }
+
+  /**
+   * Land a pane for a continuation, turning either refusal into a throw.
+   *
+   * The continuations differ from `createPane` in the one way that matters
+   * here: by the time they land, they have already done work that cannot be
+   * taken back — a fork's export→rekey→import into the agent's own session
+   * store. `full` was thrown and `gone` was not, so a workspace closed inside
+   * that await resolved the promise as if it had worked, leaving a cloned
+   * session in the store with no pane, no error and a dialog that closed on
+   * success. An exhaustive switch, so a fourth outcome cannot be added
+   * silently.
+   */
+  function landOrThrow(landed: CreatePaneOutcome): void {
+    switch (landed.kind) {
+      case "created":
+        return;
+      case "full":
+        throw new Error(WORKSPACE_FULL_MESSAGE);
+      case "gone":
+        throw new Error(WORKSPACE_GONE_MESSAGE);
+    }
   }
 
   /**
@@ -1318,7 +1342,7 @@ export function createAgentOrchestrator(
             },
           },
         });
-        if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+        landOrThrow(landed);
       } catch (error) {
         log.warn(
           "web:orchestrator",
@@ -1388,7 +1412,7 @@ export function createAgentOrchestrator(
               ...(name && { name }),
             },
           });
-          if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+          landOrThrow(landed);
           return;
         }
 
@@ -1423,7 +1447,7 @@ export function createAgentOrchestrator(
             },
           },
         });
-        if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
+        landOrThrow(landed);
       } catch (error) {
         log.warn(
           "web:orchestrator",

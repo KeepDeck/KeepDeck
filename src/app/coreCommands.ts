@@ -15,6 +15,7 @@ import {
   paneDisplayTitle,
   paneId,
   WORKSPACE_FULL_MESSAGE,
+  WORKSPACE_GONE_MESSAGE,
   type Pane,
   type Workspace,
 } from "../domain/deck";
@@ -225,7 +226,7 @@ export function registerCoreCommands(
             workspace,
           );
           if (!currentWorkspace) {
-            throw new Error("workspace was closed while spawning the agent");
+            throw new Error(WORKSPACE_GONE_MESSAGE);
           }
           return { deck: currentDeck, workspace: currentWorkspace };
         };
@@ -279,7 +280,7 @@ export function registerCoreCommands(
         // that was never in the deck — with the worktree already created.
         if (landed.kind === "full") throw new Error(WORKSPACE_FULL_MESSAGE);
         if (landed.kind === "gone")
-          throw new Error("workspace was closed while spawning the agent");
+          throw new Error(WORKSPACE_GONE_MESSAGE);
         current = currentTarget();
         current.deck.selectWorkspace(workspace.id);
         current.deck.selectPane(workspace.id, id);
