@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { DROP_BLOCKER_ATTR } from "@keepdeck/ui-kit/dropBlocker";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -40,6 +41,19 @@ describe("ModalOverlay", () => {
     expect(stage.contains(overlay)).toBe(false);
     expect(overlay!.parentElement).toBe(document.body);
     expect(overlay!.textContent).toBe("hi");
+  });
+
+  it("declares itself a drop blocker — eating clicks does not stop a file drop", () => {
+    act(() =>
+      root.render(createElement(ModalOverlay, null, createElement("p", null, "hi"))),
+    );
+    // The backdrop swallows pointer events, but an OS file drop never becomes
+    // one: it arrives from the window as raw coordinates and never consults
+    // the DOM, so without this marker a path dragged from Finder onto an open
+    // dialog is typed into a pane behind it.
+    expect(
+      document.querySelector(`.modal-overlay[${DROP_BLOCKER_ATTR}]`),
+    ).not.toBeNull();
   });
 
   it("removes the portaled backdrop from <body> on unmount", () => {

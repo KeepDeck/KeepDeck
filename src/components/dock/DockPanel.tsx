@@ -1,4 +1,6 @@
 import { type ReactNode } from "react";
+import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
+import type { DockMode } from "../../domain/settings";
 
 /** One dock tab as the panel renders it: identity, the strip label, and the
  * already-wired panel content (the composition root decides what props each
@@ -22,24 +24,42 @@ export interface DockTabItem {
  * switching workspaces and back returns to the tab that workspace last looked
  * at. Hidden tabs stay MOUNTED, like the settings dialog's sections: the run
  * log's terminal must not re-mount (and replay) on every tab switch.
+ *
+ * `floating` is the same panel over the deck instead of beside it, and it is a
+ * CLASS, not a branch: both geometries render the identical element in the
+ * identical place, so switching between them moves nothing in the tree. That
+ * is load-bearing — a tab's content is a plugin's own iframe or an xterm, and
+ * either one re-mounted is a document reloaded and a scrollback lost.
  */
 export function DockPanel({
   tabs,
   activeTab,
   onSelectTab,
+  mode,
 }: {
   tabs: DockTabItem[];
   /** The caller's picked tab id. `null` (never chosen) or an id no longer in
    * `tabs` (its plugin was disabled) falls back to the first tab. */
   activeTab: string | null;
   onSelectTab: (id: string) => void;
+  /** The geometry the user picked ([F6]). The setting travels down whole and
+   * the mapping to a class lives here — a third geometry then costs one line
+   * in this file rather than a new prop shape at every call and test site. */
+  mode: DockMode;
 }) {
+  const floating = mode === "floating";
   // The picked tab can be absent or disappear — fall back to the first tab
   // instead of rendering an empty dock.
   const activeId = tabs.some((t) => t.id === activeTab) ? activeTab : tabs[0]?.id;
 
   return (
-    <aside className="dock">
+    <aside
+      className={`dock${floating ? " dock--floating" : ""}`}
+      // Floating, the panel lies over panes, so a file released on it is the
+      // panel's business and must not fall through to whatever it covers.
+      // Docked it covers nothing, and the marker would be a lie.
+      {...(floating ? dropBlocker() : {})}
+    >
       <div className="dock__tabs" role="tablist">
         {tabs.map((tab) => (
           <button

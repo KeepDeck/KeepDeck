@@ -12,6 +12,30 @@
   user-select: none;
 }
 
+/* The floating mode (settings → Dock): the same panel at the same edge and the
+   same width, but OUT OF FLOW, so the grid keeps its full width and no longer
+   re-tiles — with sixteen terminals on screen, opening the dock stopped being
+   a resize of every one of them.
+
+   A modifier on the element the docked mode already renders, never a second
+   element or a portal: the tab bodies hold plugin iframes and xterm, and both
+   are destroyed by a re-parent. Absolute against `.deck__body`.
+
+   Deliberately NO z-index. It paints over the deck by document order alone —
+   it is the stage's later sibling — which works because `.deck__stage` isolates
+   its own stacking (deck.css), so the pane chrome inside it cannot outrank a
+   sibling that takes no z-index. Giving the dock one would make it a stacking
+   context, and a plugin's peek, opened from inside a tab and declaring the
+   window-level 100, would be trapped at the dock's level with the voice pill
+   and the dropdown layer painting over it. */
+.dock--floating {
+  position: absolute;
+  inset: 0 0 0 auto;
+  /* Depth the docked mode gets from the layout itself: with the grid running
+     on underneath, only the shadow says which surface is in front. */
+  box-shadow: -14px 0 28px rgb(0 0 0 / 45%);
+}
+
 .dock__tabs {
   display: flex;
   gap: 2px;

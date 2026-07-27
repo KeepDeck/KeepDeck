@@ -1,9 +1,8 @@
 import { useEffect, useRef } from "react";
-import { paneAtPoint } from "../domain/deck";
 import { pathsAreImages } from "../ipc/app";
 import { describeError, log } from "../ipc/log";
 import { onFileDrop } from "../ipc/webview";
-import { collectPaneRects, deliverDrop } from "./dragDrop";
+import { deliverPathsToPoint } from "./dragDrop";
 
 /**
  * Deliver OS file drops to the pane under the cursor ([F4]): hit-test the drop
@@ -37,13 +36,8 @@ export function useDragDrop(onDropped: (paneId: string) => void) {
     let cancelled = false;
 
     onFileDrop(async ({ x, y, paths }) => {
-      const id = paneAtPoint(x, y, collectPaneRects());
-      if (!id) return;
-      const isImage = await pathsAreImages(paths).catch((e) => {
-        log.debug("web:dnd", `image sniff failed, treating drop as text: ${describeError(e)}`);
-        return paths.map(() => false);
-      });
-      if (deliverDrop(id, paths, isImage)) droppedRef.current(id);
+      const id = await deliverPathsToPoint(paths, { x, y }, pathsAreImages);
+      if (id) droppedRef.current(id);
     })
       .then((fn) => {
         if (cancelled) fn();

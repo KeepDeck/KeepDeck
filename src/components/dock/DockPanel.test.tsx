@@ -2,6 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DROP_BLOCKER_ATTR } from "@keepdeck/ui-kit/dropBlocker";
+import type { DockMode } from "../../domain/settings";
 import { DockPanel, type DockTabItem } from "./DockPanel";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -28,8 +30,11 @@ describe("DockPanel (controlled tab)", () => {
   });
   afterEach(() => act(() => root.unmount()));
 
-  const render = (props: Parameters<typeof DockPanel>[0]) =>
-    act(() => root.render(createElement(DockPanel, props)));
+  // Docked unless a test says otherwise — the geometry is orthogonal to
+  // everything the tab-switching tests below are about.
+  const render = (
+    props: Omit<Parameters<typeof DockPanel>[0], "mode"> & { mode?: DockMode },
+  ) => act(() => root.render(createElement(DockPanel, { mode: "docked", ...props })));
 
   const activeLabel = () =>
     host.querySelector(".dock__tab--active")?.textContent ?? null;
@@ -70,6 +75,60 @@ describe("DockPanel (controlled tab)", () => {
     expect(shown[0].querySelector("[data-body]")?.getAttribute("data-body")).toBe(
       "p:two",
     );
+  });
+
+  it("carries the floating geometry as a modifier on the panel itself", () => {
+    render({ tabs: TABS, activeTab: "p:one", onSelectTab: () => {} });
+    expect(host.querySelector(".dock")?.className).toBe("dock");
+
+    render({
+      tabs: TABS,
+      activeTab: "p:one",
+      onSelectTab: () => {},
+      mode: "floating",
+    });
+    expect(host.querySelector(".dock")?.className).toBe("dock dock--floating");
+  });
+
+  it("declares itself a drop blocker only while it covers the deck", () => {
+    // Docked it takes a column and covers nothing, so the marker would be a
+    // lie; floating it lies over panes whose rects are still live, and a file
+    // released on it must not reach the terminal underneath.
+    render({ tabs: TABS, activeTab: "p:one", onSelectTab: () => {} });
+    expect(host.querySelector(`.dock[${DROP_BLOCKER_ATTR}]`)).toBeNull();
+
+    render({
+      tabs: TABS,
+      activeTab: "p:one",
+      onSelectTab: () => {},
+      mode: "floating",
+    });
+    expect(host.querySelector(`.dock[${DROP_BLOCKER_ATTR}]`)).not.toBeNull();
+  });
+
+  it("changes geometry without re-mounting anything", () => {
+    render({ tabs: TABS, activeTab: "p:two", onSelectTab: () => {} });
+    const panel = host.querySelector(".dock");
+    const body = host.querySelector('[data-body="p:two"]');
+
+    render({
+      tabs: TABS,
+      activeTab: "p:two",
+      onSelectTab: () => {},
+      mode: "floating",
+    });
+
+    // Identity, not equality. A tab body holds a plugin's iframe or an xterm,
+    // and neither has any state a test can inspect — the DOM node surviving IS
+    // the document staying loaded and the scrollback staying put.
+    //
+    // What this catches is a change of ELEMENT: a different tag, a wrapper, a
+    // key that varies with the mode, a portal. It does NOT catch a ternary
+    // returning the same `<aside>` from two branches — React reconciles by
+    // (type, position, key) and reuses the node either way — so it is not the
+    // guard for "a class, not a branch"; the component's docstring is.
+    expect(host.querySelector(".dock")).toBe(panel);
+    expect(host.querySelector('[data-body="p:two"]')).toBe(body);
   });
 
   it("shows the alert badge exactly on tabs that carry one", () => {

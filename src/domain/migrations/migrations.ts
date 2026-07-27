@@ -166,6 +166,8 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  *  11 — + remoteAgents: the Experimental toggle for the remote
  *       launch/connect surface (off by default).
  *  12 — + parkAgentsOnLaunch: restore agents stopped instead of waking them.
+ *  13 — + dockMode (docked|floating): whether the right-hand dock takes a
+ *       column beside the deck or floats over it.
  *
  * No ladder: the document is per-key tolerant (independent facts,
  * hand-editable), which IS its migration mechanism while changes stay
@@ -173,7 +175,7 @@ const DECK_MIGRATIONS: Record<number, Migration> = {
  * `migrateSettingsFromV*toV*` here, a ladder like the deck's, and a raised
  * floor.
  */
-export const SETTINGS_VERSION = 12;
+export const SETTINGS_VERSION = 13;
 export const SETTINGS_MIN_READER = 1;
 
 /** The file's effective compatibility floor: what it declares, else its own

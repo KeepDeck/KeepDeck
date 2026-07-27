@@ -35,6 +35,7 @@ describe("hydrateSettings", () => {
         scrollback: 50_000,
         deckLayout: "list",
         minimizeStyle: "strip",
+        dockMode: "floating",
         plugins: {
           enabled: { git: true },
           values: { git: { remote: "origin" } },
@@ -50,6 +51,7 @@ describe("hydrateSettings", () => {
       scrollback: 50_000,
       deckLayout: "list",
       minimizeStyle: "strip",
+      dockMode: "floating",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
       notifications: { enabled: false, mode: "system", mutedPlugins: [] },
       usageDisplay: "left",
@@ -160,6 +162,36 @@ describe("hydrateSettings", () => {
     const out = JSON.parse(serializeSettings(changed));
     expect(out.deckLayout).toBe("list");
     expect(out.minimizeStyle).toBe("strip");
+  });
+
+  it("accepts each known dockMode, and falls back to docked otherwise", () => {
+    for (const mode of ["docked", "floating"]) {
+      expect(hydrateSettings(JSON.stringify({ dockMode: mode }))?.settings.dockMode).toBe(
+        mode,
+      );
+    }
+    // Absent, misspelled, or the wrong type — each lands on the mode the dock
+    // had before the setting existed, without touching its neighbours.
+    for (const bad of [undefined, "float", "right", true, 1]) {
+      expect(hydrateSettings(JSON.stringify({ dockMode: bad }))?.settings.dockMode).toBe(
+        "docked",
+      );
+    }
+  });
+
+  it("serializes dockMode only when it differs from default (sparse)", () => {
+    const base = defaultSettingsDocument();
+    expect(serializeSettings(base)).not.toContain("dockMode");
+    const changed = {
+      ...base,
+      settings: { ...base.settings, dockMode: "floating" as const },
+    };
+    expect(JSON.parse(serializeSettings(changed)).dockMode).toBe("floating");
+    // And the write survives being read back: the allow-list and the sparse
+    // loop are separate mechanisms, and only a round trip covers the seam.
+    expect(hydrateSettings(serializeSettings(changed))?.settings).toEqual(
+      changed.settings,
+    );
   });
 
   it("v5 graduation: an explicit experimentRunPresets=false disables the Run plugin", () => {

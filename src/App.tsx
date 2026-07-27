@@ -48,19 +48,12 @@ import { useAgentDialog } from "./app/useAgentDialog";
 import { useCloseFlow } from "./app/useCloseFlow";
 import { useCoreCommands } from "./app/coreCommands";
 import { useAppRuntime } from "./app/runtimeContext";
-import { toWorkspaceSnapshot } from "./app/pluginSnapshots";
 import { usePluginDeckBridge } from "./app/usePluginDeckBridge";
 import { unavailableAgentReasons, useContributions, useInstalledPlugins } from "./plugins";
-import { ErrorBoundary } from "./ui/ErrorBoundary";
-import { externalPluginUrl } from "./plugins/external/url";
-import { DockPanel, type DockTabItem } from "./components/dock/DockPanel";
-import { PluginFailurePanel } from "./components/dock/PluginFailurePanel";
+import { DockPanel } from "./components/dock/DockPanel";
+import { buildDockTabs } from "./components/dock/useDockTabs";
 import { PluginOverlays } from "./components/PluginOverlays";
-import {
-  pluginCrashes,
-  reportPluginCrash,
-  subscribePluginCrashes,
-} from "./app/pluginHealth";
+import { pluginCrashes, subscribePluginCrashes } from "./app/pluginHealth";
 import { useMenuHotkeys } from "./app/useMenuHotkeys";
 import { useDragDrop } from "./app/useDragDrop";
 import { usePaneDrag } from "./app/usePaneDrag";
@@ -124,6 +117,11 @@ function App() {
   // the screen on what's visible.
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
+  // Whether the dock takes a column beside the deck or lies over it ([F6]).
+  // Unlike its two neighbours the fallback never applies: nothing reads this
+  // before the boot gate below, which does not render the deck until settings
+  // have loaded. It is the type's floor, not a pre-hydration default.
+  const dockMode = settings?.dockMode ?? DEFAULT_SETTINGS.dockMode;
   const minimizeOn = useMinimizeMode(deckLayout, minimizeStyle, deck);
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
@@ -310,8 +308,12 @@ function App() {
   // Drop a file onto a pane → paste its path into that pane's PTY and focus it
   // ([F4]). Two sources, one delivery: an OS file drop from Finder, and an
   // in-app pointer drag of a Files-plugin tree row.
-  useDragDrop((paneId) => deck.selectPane(deck.activeId, paneId));
-  usePaneDrag((paneId) => deck.selectPane(deck.activeId, paneId));
+  // Written once: a delivered drop selects its pane, and the two sources have
+  // no business differing about that.
+  const focusDroppedPane = (paneId: string) =>
+    deck.selectPane(deck.activeId, paneId);
+  useDragDrop(focusDroppedPane);
+  usePaneDrag(focusDroppedPane);
 
   const active = findWorkspace(deck.workspaces, deck.activeId) ?? null;
   // The active workspace's view — dock open/tab and pane selection all live in
@@ -323,71 +325,17 @@ function App() {
   const dockOpen = activeView.dock ?? false;
   const showForm = creating || deck.workspaces.length === 0;
   const selectedPaneId = activeView.select ?? null;
-  // The dock's tab list: every tab is a plugin contribution, rendered from
-  // SNAPSHOTS inside its own error boundary (a crashing plugin tab must not
-  // take the deck down). The dock itself is contribution-driven chrome: it
-  // exists only while this list is non-empty.
-  const dockTabs: DockTabItem[] = [
-    ...(dockOpen && active
-      ? pluginDockTabs.map((c) => {
-          // Any crash badges every tab of the plugin, but the failure panel
-          // REPLACES content only where the crash lives: this tab's own
-          // crash, or an overlay's (shared, tab-less infrastructure — the
-          // plugin's tabs are the only place its panel can live). A SIBLING
-          // tab's crash leaves this tab's healthy content alone.
-          const pluginCrashList = crashes.filter(
-            (crash) => crash.pluginId === c.pluginId,
-          );
-          const panelCrashes = pluginCrashList.filter(
-            (crash) =>
-              crash.surfaceKind === "overlay" ||
-              (crash.surfaceKind === "tab" && crash.surfaceId === c.entry.id),
-          );
-          return {
-            id: `${c.pluginId}:${c.entry.id}`,
-            label: c.entry.label,
-            alert: pluginCrashList.length > 0,
-            element:
-              panelCrashes.length > 0 ? (
-                <PluginFailurePanel
-                  pluginId={c.pluginId}
-                  label={c.entry.label}
-                  crashes={panelCrashes}
-                />
-              ) : "Component" in c.entry ? (
-                // Built-in tier: a trusted React component in the host tree.
-                <ErrorBoundary
-                  label={c.entry.label}
-                  onError={(e) => {
-                    log.error(
-                      `web:plugin:${c.pluginId}`,
-                      `dock tab "${c.entry.id}" crashed: ${describeError(e)}`,
-                    );
-                    reportPluginCrash(c.pluginId, "tab", c.entry.id, e);
-                  }}
-                >
-                  <c.entry.Component
-                    workspace={toWorkspaceSnapshot(active)}
-                    selectedPaneId={selectedPaneId}
-                  />
-                </ErrorBoundary>
-              ) : (
-                // External tier: the plugin's own document at its own
-                // kdplugin://<id> origin. allow-same-origin lets it load its own
-                // scripts/assets under that origin (per-plugin CSP still bounds
-                // its network); the origin — cross-origin to the host — is the
-                // isolation boundary, so it can't reach the host or other plugins.
-                <iframe
-                  className="dock__plugin-frame"
-                  title={c.entry.label}
-                  sandbox="allow-scripts allow-same-origin"
-                  src={externalPluginUrl(c.pluginId, c.entry.iframe)}
-                />
-              ),
-          };
-        })
-      : []),
-  ];
+  // The dock's tab list — what a tab holds, and what a crashed plugin does to
+  // it, is the dock's own policy (components/dock/useDockTabs).
+  const dockTabs = buildDockTabs({
+    contributions: pluginDockTabs,
+    crashes,
+    workspace: active,
+    selectedPaneId,
+    open: dockOpen,
+  });
+  // A dock is on screen AND lying over the deck, rather than beside it.
+  const dockCovers = dockMode === "floating" && dockTabs.length > 0 && !!active;
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
   const modalOpen =
@@ -402,6 +350,14 @@ function App() {
   // the module store). A pane is on screen when nothing modal covers the deck,
   // its workspace is active, and the layout actually shows its body
   // (`paneOnScreen` — the same visibility semantics DeckStage renders).
+  //
+  // A floating dock is a third way to be hidden, and the only one the layout
+  // cannot answer: it lies OVER the grid, so which panes it covers is a matter
+  // of pixels, not of tiles. Rather than guess, the probe stops claiming
+  // anything while one is up. The costs are not symmetric — `paneOnScreen`'s
+  // own docstring says a wrong `true` swallows a banner the user needed, while
+  // a wrong `false` only shows one they might not have — so this errs toward
+  // telling them.
   const visibilityRef = useRef({
     activeId: deck.activeId,
     workspaces: deck.workspaces,
@@ -409,6 +365,7 @@ function App() {
     deckLayout,
     minimizeOn,
     modalOpen,
+    dockCovers,
   });
   visibilityRef.current = {
     activeId: deck.activeId,
@@ -417,12 +374,15 @@ function App() {
     deckLayout,
     minimizeOn,
     modalOpen,
+    dockCovers,
   };
   useEffect(() => {
     setSourceVisibilityProbe((source) => {
       if (source.type !== "pane") return false;
       const now = visibilityRef.current;
-      if (now.modalOpen || source.workspace.id !== now.activeId) return false;
+      if (now.modalOpen || now.dockCovers || source.workspace.id !== now.activeId) {
+        return false;
+      }
       const ws = workspaceForNotification(now.workspaces, source.workspace);
       if (!ws) return false;
       return paneOnScreen(
@@ -1063,6 +1023,7 @@ function App() {
             tabs={dockTabs}
             activeTab={activeView.dockTab ?? null}
             onSelectTab={(id) => deck.setDockTab(active.id, id)}
+            mode={dockMode}
           />
         )}
       </div>

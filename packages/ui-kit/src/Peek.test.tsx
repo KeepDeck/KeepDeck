@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DROP_BLOCKER_ATTR } from "./dropBlocker";
 import { Peek, type PeekProps } from "./Peek";
 
 (
@@ -41,6 +42,14 @@ describe("Peek", () => {
     body().scrollTop = 640;
     body().scrollLeft = 120;
   };
+
+  it("declares itself a drop blocker — it covers panes that stay live", () => {
+    render();
+    // The deck under it is still laid out, and an OS file drop is routed by
+    // coordinates alone: without this marker a path dragged from Finder onto
+    // an open preview is typed into a terminal the reader cannot see.
+    expect(host.querySelector(`.peek[${DROP_BLOCKER_ATTR}]`)).not.toBeNull();
+  });
 
   it("a new content identity puts the body back at the top, both axes", () => {
     render();

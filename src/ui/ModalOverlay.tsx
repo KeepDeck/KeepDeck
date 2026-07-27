@@ -1,3 +1,4 @@
+import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
 import { type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -8,10 +9,17 @@ import { createPortal } from "react-dom";
  * what blocks interaction with everything behind the dialog (the backdrop eats
  * the clicks). Children are centered on the backdrop; styling lives in the
  * `.modal-overlay` rule.
+ *
+ * Eating clicks is not enough to stop a FILE drop: an OS drop arrives from the
+ * window as raw coordinates and never consults the DOM, so without the blocker
+ * marker a path dragged from Finder onto an open dialog would be typed into a
+ * pane behind the backdrop.
  */
 export function ModalOverlay({ children }: { children: ReactNode }) {
   return createPortal(
-    <div className="modal-overlay">{children}</div>,
+    <div className="modal-overlay" {...dropBlocker()}>
+      {children}
+    </div>,
     document.body,
   );
 }

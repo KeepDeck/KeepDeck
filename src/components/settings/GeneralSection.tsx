@@ -5,9 +5,11 @@ import { selectableAgents } from "../../domain/agents";
 import {
   MINIMIZE_STYLES,
   DECK_LAYOUTS,
+  DOCK_MODES,
   DEFAULT_SETTINGS,
   type MinimizeStyle,
   type DeckLayout,
+  type DockMode,
 } from "../../domain/settings";
 
 /** Label + one-line explanation for each deck layout, in picker order. */
@@ -38,10 +40,23 @@ const MINIMIZE_OPTIONS: Record<MinimizeStyle, { label: string; hint: string }> =
   },
 };
 
+/** Label + one-line explanation for each dock mode, in picker order. */
+const DOCK_OPTIONS: Record<DockMode, { label: string; hint: string }> = {
+  docked: {
+    label: "Docked",
+    hint: "The dock takes a column of its own — the agent grid shrinks to fit.",
+  },
+  floating: {
+    label: "Floating",
+    hint: "The dock lies over the deck — the agent grid keeps its full width.",
+  },
+};
+
 /**
  * General preferences: the default agent ([F6]/[F1]), the deck layout, how a
- * minimized agent is presented in the grid layout, and whether a restored deck
- * comes back running or stopped. Fetches the catalog
+ * minimized agent is presented in the grid layout, how the dock occupies the
+ * window, and whether a restored deck comes back running or stopped. Fetches
+ * the catalog
  * itself (per mount, like WorkspaceForm) — opening settings re-detects a
  * just-installed agent instead of showing the boot-time picture.
  */
@@ -51,6 +66,7 @@ export function GeneralSection() {
   const defaultYolo = settings?.defaultYolo ?? DEFAULT_SETTINGS.defaultYolo;
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
+  const dockMode = settings?.dockMode ?? DEFAULT_SETTINGS.dockMode;
   const parkAgentsOnLaunch =
     settings?.parkAgentsOnLaunch ?? DEFAULT_SETTINGS.parkAgentsOnLaunch;
   const { agents } = useAgents();
@@ -127,6 +143,21 @@ export function GeneralSection() {
           ? MINIMIZE_OPTIONS[minimizeStyle].hint
           : "Applies to the grid layout."}
       </span>
+
+      <span className="form__label">Dock</span>
+      <div className="form__types">
+        {DOCK_MODES.map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            className={`form__type${mode === dockMode ? " form__type--active" : ""}`}
+            onClick={() => updateSettings({ dockMode: mode })}
+          >
+            {DOCK_OPTIONS[mode].label}
+          </button>
+        ))}
+      </div>
+      <span className="settings__hint">{DOCK_OPTIONS[dockMode].hint}</span>
 
       <span className="form__label">On launch</span>
       <div className="form__types">
