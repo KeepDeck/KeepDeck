@@ -266,6 +266,11 @@ async function provisionPane(
   if (setup) {
     cb.onSetup?.(paneId);
     const result = await setup(paneId, { cwd: rec.path, branch: rec.branch });
+    // Asked BEFORE the result is judged. A pane closed mid-setup ends the
+    // command, so it comes back not-ok — but that is the close, not a broken
+    // setup, and the failure branch below would roll the worktree back even
+    // for a user who closed WITHOUT asking for it to go.
+    if (abandoned(rec)) return;
     if (!result.ok) {
       log.error(
         "web:provisioning",
@@ -276,7 +281,6 @@ async function provisionPane(
       discardOnArrival.delete(paneId);
       return;
     }
-    if (abandoned(rec)) return;
   }
 
   // The worktree is on disk — run any registered post-provision step (a journal

@@ -445,16 +445,16 @@ describe("runPaneOnce", () => {
     await expect(run).resolves.toMatchObject({ ok: false });
   });
 
-  it("never settles when the pane is closed mid-run — there is nobody to report to", async () => {
+  it("reports NOT-ok when the pane is closed mid-run, rather than hanging", async () => {
+    // It used to hang on purpose — nobody was left to report to. That stopped
+    // being true once the caller had cleanup of its own after the command:
+    // the workspace setup step's caller removes the worktree a closing user
+    // asked it to, and a promise that never settles is a step that never runs.
     const run = runPaneOnce("pane-1", { ...SPEC, command: null, args: ["-c", "x"] });
     await started();
-    let settled = false;
-    void run.then(() => {
-      settled = true;
-    });
 
     await closePane("pane-1");
-    await settle();
-    expect(settled).toBe(false);
+
+    await expect(run).resolves.toMatchObject({ ok: false });
   });
 });

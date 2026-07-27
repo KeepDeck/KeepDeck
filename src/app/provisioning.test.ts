@@ -248,6 +248,57 @@ describe("runProvisioning with a setup command", () => {
     });
   });
 
+  it("removes the worktree of a pane closed DURING its setup command", async () => {
+    // The window the create is most likely to be closed in, and the one that
+    // used to escape: the setup step ends when the pane's slot is reaped, and
+    // while that step could never settle, nothing after it ever ran — so the
+    // worktree the user asked to delete was simply left on disk.
+    worktree.removeWorktree.mockResolvedValue(undefined);
+    // The close lands WHILE the command runs, so the pre-setup check has
+    // already passed — this is the window that used to escape entirely.
+    let gone = false;
+    const step: SetupStep = async () => {
+      gone = true;
+      return { ok: false, tail: "the pane was closed" };
+    };
+    const onFailed = vi.fn();
+    discardWorktreeOnArrival("pane-1");
+
+    await runProvisioning(
+      oneCard(),
+      { onResolved: vi.fn(), onFailed, abandoned: () => gone },
+      step,
+    );
+
+    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
+      force: true,
+      branch: "kd/ws/1",
+    });
+    // The interrupted command is the close, not a broken setup: there is no
+    // card left to put that on.
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("KEEPS a mid-setup pane's worktree when the delete was not asked for", async () => {
+    // Same window, no request. The interrupted command comes back not-ok, and
+    // the ordinary setup-failure path would roll the worktree back — but this
+    // user closed WITHOUT ticking the box, which is a deliberate keep.
+    worktree.removeWorktree.mockResolvedValue(undefined);
+    let gone = false;
+    const step: SetupStep = async () => {
+      gone = true;
+      return { ok: false, tail: "the pane was closed" };
+    };
+
+    await runProvisioning(
+      oneCard(),
+      { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: () => gone },
+      step,
+    );
+
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
   it("KEEPS the worktree of a pane closed without asking for the delete", async () => {
     // Closing without ticking the box is a deliberate "keep it"; a create that
     // happened to still be running must not turn that into a delete.

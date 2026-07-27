@@ -364,8 +364,14 @@ function plainText(raw: string): string {
  * the pane mid-run kills this command's whole process group like any other
  * session — nothing to leak. The entry is released on completion, and the
  * pane's terminal (a different spawn identity) then takes the slot over
- * cleanly. If the pane IS closed mid-run the promise never settles, which is
- * exactly right: there is nobody left to report to.
+ * cleanly.
+ *
+ * A pane closed mid-run resolves NOT-ok rather than hanging. It used to hang
+ * deliberately — "there is nobody left to report to" — but that stopped being
+ * true: the caller that runs a workspace's setup command has cleanup of its
+ * own to do afterwards (removing the worktree the closing user asked it to),
+ * and a promise that never settles is a step that never runs. The command is
+ * gone either way; what the caller learns is that it did not finish.
  */
 export function runPaneOnce(
   paneId: string,
@@ -385,10 +391,13 @@ export function runPaneOnce(
     };
     acquirePane(paneId, spec);
     // The slot emptying without an exit means the pane was closed under us.
+    // `settle` would re-close a slot that is already gone, so this unwinds by
+    // hand and answers directly.
     const unwatch = subscribeSessions(() => {
       if (paneSessionState(paneId).kind !== "none") return;
       detach();
       unwatch();
+      resolve({ ok: false, tail: "the pane was closed" });
     });
     detach = attachPane(paneId, {
       onOutput: (bytes) => {
