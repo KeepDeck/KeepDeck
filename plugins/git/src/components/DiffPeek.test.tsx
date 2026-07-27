@@ -240,12 +240,12 @@ describe("DiffPeek", () => {
 
     // No file to diff; the header carries the commit label.
     expect(diffFile).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain("add feature");
+    expect(host.textContent).toContain("add feature");
     // The rail owns the note; the body is blank — never "Loading…".
-    expect(document.querySelector(".peek__aside")?.textContent).toContain(
+    expect(host.querySelector(".peek__aside")?.textContent).toContain(
       "Nothing changed here.",
     );
-    expect(document.querySelector(".peek__body")?.textContent).not.toContain(
+    expect(host.querySelector(".peek__body")?.textContent).not.toContain(
       "Loading…",
     );
   });
@@ -301,11 +301,11 @@ describe("DiffPeek", () => {
     setRuntime(makeCtx(TS_DIFF));
     const onSelect = vi.fn();
     await drawRow(RAIL_ROWS[0], 1, onSelect);
-    const body = document.querySelector<HTMLElement>(".peek__body")!;
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
     readerScrolledAway(body);
 
     const rowB = [
-      ...document.querySelectorAll<HTMLElement>(".peek__aside .git__row"),
+      ...host.querySelectorAll<HTMLElement>(".peek__aside .git__row"),
     ].find((node) => node.textContent?.includes("b.ts"))!;
     act(() => rowB.click());
     expect(onSelect).toHaveBeenCalledWith(RAIL_ROWS[1]);
@@ -313,7 +313,7 @@ describe("DiffPeek", () => {
 
     // Same scroll container throughout — the reset is what puts it back, not
     // a remount and not the loading placeholder happening to be short.
-    expect(document.querySelector(".peek__body")).toBe(body);
+    expect(host.querySelector(".peek__body")).toBe(body);
     expect(body.scrollTop).toBe(0);
     expect(body.scrollLeft).toBe(0);
   });
@@ -326,7 +326,7 @@ describe("DiffPeek", () => {
     } as unknown as PluginContext);
     const onSelect = vi.fn();
     await drawRow(RAIL_ROWS[0], 1, onSelect);
-    const body = document.querySelector<HTMLElement>(".peek__body")!;
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
     readerScrolledAway(body);
 
     await drawRow(RAIL_ROWS[0], 2, onSelect);
@@ -359,7 +359,7 @@ describe("DiffPeek", () => {
     } as unknown as PluginContext);
 
     await drawHistoryFile("src/main.ts", "aaa1111");
-    const body = document.querySelector<HTMLElement>(".peek__body")!;
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
     readerScrolledAway(body);
 
     await drawHistoryFile("src/main.ts", "bbb2222");
@@ -370,7 +370,7 @@ describe("DiffPeek", () => {
       { from: "aaa1111^", to: "aaa1111" },
       { from: "bbb2222^", to: "bbb2222" },
     ]);
-    expect(document.querySelector(".peek__body")).toBe(body);
+    expect(host.querySelector(".peek__body")).toBe(body);
     expect(body.scrollTop).toBe(0);
     expect(body.scrollLeft).toBe(0);
   });
@@ -408,7 +408,7 @@ describe("DiffPeek", () => {
       );
     });
     await act(async () => {});
-    const body = document.querySelector<HTMLElement>(".peek__body")!;
+    const body = host.querySelector<HTMLElement>(".peek__body")!;
     expect(diffFile).not.toHaveBeenCalled();
 
     await drawHistoryFile("src/main.ts", "aaa1111");
@@ -418,7 +418,7 @@ describe("DiffPeek", () => {
     expect(diffFile.mock.calls.map((call) => call[2])).toEqual([
       { from: "aaa1111^", to: "aaa1111" },
     ]);
-    expect(document.querySelector(".peek__body")).toBe(body);
+    expect(host.querySelector(".peek__body")).toBe(body);
     expect(document.activeElement).toBe(body);
   });
 

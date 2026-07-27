@@ -21,16 +21,16 @@
    element or a portal: the tab bodies hold plugin iframes and xterm, and both
    are destroyed by a re-parent. Absolute against `.deck__body`.
 
-   The z-index cannot be left to paint order. `.deck__stage` is
-   `position: relative` at `z-index: auto`, so it opens no stacking context and
-   the pane chrome inside it (pane.css, z-index 11) paints in the ROOT context —
-   over a later sibling that has none. 20 clears that, and stays below every
-   popover (60/92/94), the modal overlay (100) and the rail flyout (200), which
-   must all still come out on top. */
+   Deliberately NO z-index. It paints over the deck by document order alone —
+   it is the stage's later sibling — which works because `.deck__stage` isolates
+   its own stacking (deck.css), so the pane chrome inside it cannot outrank a
+   sibling that takes no z-index. Giving the dock one would make it a stacking
+   context, and a plugin's peek, opened from inside a tab and declaring the
+   window-level 100, would be trapped at the dock's level with the voice pill
+   and the dropdown layer painting over it. */
 .dock--floating {
   position: absolute;
   inset: 0 0 0 auto;
-  z-index: 20;
   /* Depth the docked mode gets from the layout itself: with the grid running
      on underneath, only the shadow says which surface is in front. */
   box-shadow: -14px 0 28px rgb(0 0 0 / 45%);

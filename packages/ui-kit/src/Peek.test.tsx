@@ -34,26 +34,13 @@ describe("Peek", () => {
     return act(() => root.render(createElement(Peek, full)));
   };
 
-  const body = () => document.querySelector<HTMLElement>(".peek__body")!;
+  const body = () => host.querySelector<HTMLElement>(".peek__body")!;
 
   /** The reader is deep into a long file, and off to the side of a wide one. */
   const scrollAway = () => {
     body().scrollTop = 640;
     body().scrollLeft = 120;
   };
-
-  it("renders at the document body, not where it was opened from", () => {
-    render();
-    const peek = document.querySelector(".peek")!;
-    // A peek is opened from inside a dock tab, and the dock takes a z-index
-    // the moment it floats over the deck. Rendered in place, the peek's own
-    // z-index would be confined to that panel's, and window-level chrome —
-    // a voice pill, a dropdown layer — would paint over a surface covering
-    // the whole screen. Being a child of <body> is what makes its level mean
-    // what it says; `position: fixed` alone does not.
-    expect(peek.parentElement).toBe(document.body);
-    expect(host.contains(peek)).toBe(false);
-  });
 
   it("a new content identity puts the body back at the top, both axes", () => {
     render();
@@ -74,9 +61,9 @@ describe("Peek", () => {
   });
 
   const railButton = () =>
-    document.querySelector<HTMLElement>(".peek__aside button")!;
+    host.querySelector<HTMLElement>(".peek__aside button")!;
   const headerButton = () =>
-    document.querySelector<HTMLElement>(".peek__head button:last-of-type")!;
+    host.querySelector<HTMLElement>(".peek__head button:last-of-type")!;
   const aside = () => createElement("button", { type: "button" }, "sibling");
   const actions = () => createElement("button", { type: "button" }, "wrap");
 

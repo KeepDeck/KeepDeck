@@ -119,10 +119,10 @@
   min-height: 0;
   /* The containing block a floating dock (dock.css) positions against, so it
      spans the body's height and stops at the top bar rather than the viewport.
-     It steals nothing from the other children: neither the rail nor the stage
-     has an absolutely-positioned descendant that resolved further up — every
-     one of them already resolves against `.deck__stage`, which is positioned
-     itself, seven lines below. */
+     It steals nothing: the rail has no absolutely-positioned descendant at all,
+     and every one under the stage already resolves against a nearer positioned
+     ancestor — `.deck__stage`, `.deck__workspace`, `.deck__gridwrap`,
+     `.deck__tray` or `.pane__body`. */
   position: relative;
 }
 
@@ -134,6 +134,16 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
+  /* Everything the stage stacks internally — pane chrome, the exit veil, the
+     terminal's own layers — is the DECK's business and must not compete with
+     app chrome outside it. Without this, those z-indexes land in the root
+     stacking context and a later sibling that takes none (the floating dock,
+     dock.css) paints UNDER them; the dock would need a z-index of its own to
+     clear them, and any z-index there would in turn trap a plugin's
+     full-window peek at the dock's level. One `isolate` here keeps both ends
+     honest: the deck's layering stays the deck's, and chrome opened from
+     inside the dock reaches the window at the level it declares. */
+  isolation: isolate;
 }
 
 /* One workspace's layer, stacked over the stage. Only the active one is
