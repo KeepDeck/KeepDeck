@@ -27,6 +27,9 @@ function rectOf(el: Element): Rect {
 
 /**
  * Snapshot the live viewport rects of the panes in the ACTIVE workspace.
+ * Module-private on purpose: panes alone are half an answer, and an export
+ * would let a future drop path hand them to `paneAtPoint` with no blockers —
+ * spelling, in one plausible line, exactly the bug the blockers exist to stop.
  * Scoped to the non-hidden workspace layer (`.deck__workspace`) so a drop
  * can't resolve to a pane in an inactive workspace stacked at the same
  * coordinates (inactive layers are visibility:hidden — their rects are real).
@@ -34,7 +37,7 @@ function rectOf(el: Element): Rect {
  * display:none (minimized, or hidden behind a maximize) yield zero-size rects
  * no drop point can hit.
  */
-export function collectPaneRects(doc: Document = document): PaneRect[] {
+function collectPaneRects(doc: Document = document): PaneRect[] {
   return Array.from(
     doc.querySelectorAll<HTMLElement>(
       ".deck__workspace:not(.deck__workspace--hidden) [data-pane-id]",

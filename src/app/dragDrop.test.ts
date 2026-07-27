@@ -3,12 +3,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import { DockPanel } from "../components/dock/DockPanel";
-import {
-  collectDropSurface,
-  collectPaneRects,
-  deliverDrop,
-  deliverPathToPoint,
-} from "./dragDrop";
+import { collectDropSurface, deliverDrop, deliverPathToPoint } from "./dragDrop";
 import { registerPaneInput } from "./paneInput";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -16,10 +11,10 @@ import { registerPaneInput } from "./paneInput";
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-describe("collectPaneRects (real DOM)", () => {
+describe("collectDropSurface (real DOM)", () => {
   // Fixtures mirror DeckStage's real structure: a .deck__workspace layer per
   // workspace, hidden ones carrying --hidden, panes inside the grid wrap.
-  it("extracts pane ids from the active workspace, skipping hidden ones (grid)", () => {
+  it("takes panes from the active workspace, skipping hidden ones (grid)", () => {
     document.body.innerHTML = `
       <main class="deck__workspace">
         <div class="deck__gridwrap"><div class="deck__grid">
@@ -32,7 +27,13 @@ describe("collectPaneRects (real DOM)", () => {
           <section data-pane-id="pane-99"></section>
         </div></div>
       </main>`;
-    expect(collectPaneRects().map((r) => r.id)).toEqual(["pane-7", "pane-8"]);
+    // An inactive layer keeps its real rects at the same coordinates, so a
+    // drop could otherwise resolve to a pane in a workspace nobody is looking
+    // at.
+    expect(collectDropSurface().panes.map((p) => p.id)).toEqual([
+      "pane-7",
+      "pane-8",
+    ]);
   });
 
   it("finds panes in the list layout too — drops must not go dead there", () => {
@@ -43,11 +44,12 @@ describe("collectPaneRects (real DOM)", () => {
           <section data-pane-id="pane-2"></section>
         </div></div>
       </main>`;
-    expect(collectPaneRects().map((r) => r.id)).toEqual(["pane-1", "pane-2"]);
+    expect(collectDropSurface().panes.map((p) => p.id)).toEqual([
+      "pane-1",
+      "pane-2",
+    ]);
   });
-});
 
-describe("collectDropSurface (real DOM)", () => {
   // happy-dom lays nothing out, so every rect here is zero — the geometry
   // these feed is paneDnd's to test. What IS testable here is the contract
   // between a surface that declares itself a blocker and the query that finds
