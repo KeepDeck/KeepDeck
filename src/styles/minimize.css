@@ -142,6 +142,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  /* Same optical nudge as .chip__label (see chip.css): system-ui's large
+     ascent leaves the x-height band below the flex-centered line box, so the
+     bare title reads ~1px low beside the centered pills and glyphs. */
+  transform: translateY(-1px);
 }
 /* On a bar the title takes the slack so the branch + action sit to the right,
    exactly like a pane header; on a chip everything hugs the content. */
