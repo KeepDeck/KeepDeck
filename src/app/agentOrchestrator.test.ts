@@ -182,21 +182,16 @@ vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
 const usage = vi.hoisted(() => ({ clearPaneUsage: vi.fn() }));
 vi.mock("./usageManager", () => usage);
 
-/** Worktree creates still out when a close runs, keyed by pane — what the real
- *  registry in `provisioning` publishes for exactly this question. */
-const pendingCreates = vi.hoisted(
-  () => new Map<string, Promise<{ repo: string; path: string; branch: string } | null>>(),
-);
+/** Panes the close asked the still-running create to clean up after. */
+const discardRequests = vi.hoisted(() => [] as string[]);
 
 vi.mock("./provisioning", async (importOriginal) => {
   const real = await importOriginal<typeof import("./provisioning")>();
   return {
     ...real,
-    awaitProvisionedWorktree: (paneId: string) => {
-      const made = pendingCreates.get(paneId);
-      if (!made) return Promise.resolve(null);
-      pendingCreates.delete(paneId);
-      return made;
+    discardWorktreeOnArrival: (paneId: string) => {
+      discardRequests.push(paneId);
+      real.discardWorktreeOnArrival(paneId);
     },
     registerPostProvision: (
       paneId: string,
@@ -2278,6 +2273,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    discardRequests.length = 0;
   });
 
   const target = { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" };
@@ -2388,45 +2384,30 @@ describe("agent orchestrator —closing panes and workspaces", () => {
     expect(discards).toEqual([]);
   });
 
-  it("waits for a create still in flight and deletes what it actually made", async () => {
-    // A pane mid-create has no cwd, so it contributes no target and the close
-    // used to finish without it — the create then landed a directory and
-    // branch that nothing would ever name again. A `git worktree add` cannot
-    // be cancelled, so waiting for it is the only way to know what to remove.
-    const made = { repo: "/repo", path: "/wt/9", branch: "kd/ws/9" };
-    let finishCreate!: () => void;
-    pendingCreates.set(
-      "pane-1",
-      new Promise((resolve) => {
-        finishCreate = () => resolve(made);
-      }),
-    );
-
-    let closing!: Promise<string[]>;
-    act(() => {
-      closing = agentRun.close({
+  it("leaves the cleanup to a create still in flight rather than waiting on it", async () => {
+    // A pane mid-create has no cwd, so it contributes no delete target. The
+    // close cannot wait for the create either — its setup step runs in the
+    // session slot this close just reaped, and that step's promise never
+    // settles once the slot is gone. So the intent is left behind and the
+    // create removes its own worktree when it lands.
+    const closing = await act(async () =>
+      agentRun.close({
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-1",
         worktrees: [],
         pendingPanes: ["pane-1"],
-      });
-    });
-    // Nothing removed while the create is still writing the directory.
-    expect(discards).toEqual([]);
+      }),
+    );
 
-    await act(async () => {
-      finishCreate();
-      await closing;
-    });
-    expect(discards).toEqual([[made]]);
+    // Resolved, not hanging — that is the whole point.
+    expect(closing).toEqual([]);
+    expect(discardRequests).toEqual(["pane-1"]);
+    // Nothing is removed from here: there is no path to name yet.
+    expect(discards).toEqual([]);
   });
 
-  it("leaves an in-flight create alone when its deletion was not asked for", async () => {
-    pendingCreates.set(
-      "pane-1",
-      Promise.resolve({ repo: "/repo", path: "/wt/9", branch: "kd/ws/9" }),
-    );
+  it("asks for no cleanup when the delete was not ticked", async () => {
     await act(async () =>
       agentRun.close({
         kind: "agent",
@@ -2436,9 +2417,37 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         pendingPanes: [],
       }),
     );
+    expect(discardRequests).toEqual([]);
     expect(discards).toEqual([]);
-    // Consumed all the same, so nothing is left holding a settled promise.
-    expect(pendingCreates.has("pane-1")).toBe(false);
+  });
+
+  it("registers the cleanup BEFORE the reducer drops the pane", async () => {
+    // The create's own "did my pane leave?" check is what triggers the
+    // removal. Registering after the removal would let a create that lands in
+    // between see a gone pane with no request and keep the worktree.
+    const order: string[] = [];
+    discardRequests.length = 0;
+    const seen = () =>
+      order.push(
+        `request:${discardRequests.length}:panes:${deck.workspaces[0]?.panes.length ?? 0}`,
+      );
+    vi.mocked(dropPaneSpawnSpec).mockImplementationOnce(() => seen());
+
+    await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        worktrees: [],
+        pendingPanes: ["pane-1"],
+      }),
+    );
+
+    // The spec drop runs before both; by the end the request is in and the
+    // pane is out.
+    expect(order).toEqual(["request:0:panes:2"]);
+    expect(discardRequests).toEqual(["pane-1"]);
+    expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
   });
 
   it("still reaps a pane whose reap REJECTS, and the rest with it", async () => {

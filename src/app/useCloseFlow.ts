@@ -9,7 +9,6 @@ import {
   worktreeTargets,
   type GitPosition,
   type Pane,
-  type Workspace,
   type WorktreeTarget,
 } from "../domain/deck";
 import { probeWorktree } from "../ipc/worktree";
@@ -233,17 +232,27 @@ export function useCloseFlow(
     });
   };
 
-  /** The closing panes whose worktree is still being created — no `cwd` yet,
-   * so `worktreeTargets` cannot see them, but a create that lands after the
-   * close still leaves one behind. */
-  const pendingOf = (ws: Workspace | undefined, paneId?: string): string[] =>
-    (ws?.panes ?? [])
-      .filter((pane) => (!paneId || pane.id === paneId) && pane.provisioning)
+  /**
+   * The closing panes whose worktree create is genuinely STILL OUT — no `cwd`
+   * yet, so `worktreeTargets` cannot see them, but one that lands after the
+   * close would leave a directory behind.
+   *
+   * `error` is what separates them from the two look-alikes that also keep a
+   * `provisioning` intent: a create that already failed (and rolled its own
+   * directory back), and one interrupted by a quit and restored as a failed
+   * card. Counting those made the checkbox promise to delete worktrees that do
+   * not exist.
+   */
+  const pendingCreates = (panes: readonly Pane[]): string[] =>
+    panes
+      .filter((pane) => pane.provisioning && !pane.provisioning.error)
       .map((pane) => pane.id);
 
   const requestCloseAgent = (wsId: string, paneId: string, label: string) => {
     const ws = findWorkspace(deck.workspaces, wsId);
-    const pendingPanes = pendingOf(ws, paneId);
+    const pendingPanes = pendingCreates(
+      ws?.panes.filter((pane) => pane.id === paneId) ?? [],
+    );
     // Read inside `make`, which `park` calls when the dialog actually OPENS —
     // one worktree probe later. Reading here would describe a pane the user
     // never saw a dialog for; the refs are what make "at open" true.
@@ -264,7 +273,7 @@ export function useCloseFlow(
   const requestCloseWorkspace = (id: string) => {
     const ws = findWorkspace(deck.workspaces, id);
     if (!ws) return;
-    const pendingPanes = pendingOf(ws);
+    const pendingPanes = pendingCreates(ws.panes);
     park(worktreeTargets(ws, undefined, gitPositions), (targets) => ({
       kind: "workspace",
       id,

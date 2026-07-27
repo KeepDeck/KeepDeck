@@ -23,6 +23,13 @@ export interface ProvisionCallbacks {
   onFailed(paneId: string, error: string): void;
   /** The worktree exists; the workspace's setup command started in it. */
   onSetup?(paneId: string): void;
+  /**
+   * Has the pane left the deck? A no-op sink is not enough to answer this:
+   * `onResolved` silently doing nothing looks exactly like success from here,
+   * and the create needs to KNOW, because everything it does after the
+   * directory exists is done on that pane's behalf.
+   */
+  abandoned(paneId: string): boolean;
 }
 
 /** The runner's usual sinks: the deck's provisioning actions for `wsId`.
@@ -40,6 +47,9 @@ export function provisionInto(
       error: string | null,
     ): void;
     setPaneProvisioningPhase(wsId: string, paneId: string, phase: "setup"): void;
+    /** Is this pane still in the deck? Read live — the create outlives the
+     * render that started it. */
+    hasPane(wsId: string, paneId: string): boolean;
   },
   wsId: string,
 ): ProvisionCallbacks {
@@ -49,6 +59,7 @@ export function provisionInto(
     onFailed: (paneId, error) =>
       deck.setPaneProvisioningError(wsId, paneId, error),
     onSetup: (paneId) => deck.setPaneProvisioningPhase(wsId, paneId, "setup"),
+    abandoned: (paneId) => !deck.hasPane(wsId, paneId),
   };
 }
 
@@ -75,43 +86,26 @@ const postProvisionSteps = new Map<
 >();
 
 /**
- * Worktree creates currently in flight, by pane id — what each one ENDED UP
- * making, or null if it made nothing.
+ * Panes whose worktree must be REMOVED if and when its create lands, because
+ * the pane was closed mid-create and the user asked for the directory to go
+ * with it.
  *
- * A close can land while a create is still out, and until then the pane has no
- * `cwd`, so it contributes no delete target and the close dialog cannot even
- * offer the checkbox. The create then finishes into a directory and branch no
- * surface will ever name again. Waiting on the create is the only way to know
- * what to remove — a `git worktree add` cannot be cancelled, and removing the
- * path while it is being written would race it.
- */
-const inFlightCreates = new Map<string, Promise<CreatedWorktree | null>>();
-
-/** What a create made: enough to hand straight to [`discardWorktrees`]. */
-export interface CreatedWorktree {
-  repo: string;
-  path: string;
-  branch: string;
-}
-
-/**
- * Wait for `paneId`'s worktree create to settle and answer what it made.
+ * An intent left for the create to honour, rather than a result the close
+ * waits for. The close cannot wait: `git worktree add` has no cancel, and the
+ * create's own setup step runs in the pane's session slot — which the close has
+ * just reaped, leaving that step's promise unsettleable by design (see
+ * `runPaneOnce`). Waiting there deadlocks the close and strands the very
+ * worktree it meant to delete.
  *
- * Null when nothing is in flight (the common case — the pane's worktree
- * already resolved onto it, or it never had one) and when the create failed,
- * which rolls its own directory back.
+ * Leaving the intent instead also closes the window a waiting close could not:
+ * the pane is registered the moment it is closed, not when the create happens
+ * to reach the point of announcing itself.
  */
-export function awaitProvisionedWorktree(
-  paneId: string,
-): Promise<CreatedWorktree | null> {
-  const pending = inFlightCreates.get(paneId);
-  if (!pending) return Promise.resolve(null);
-  // Consumed on read. Settled entries are kept until someone asks precisely
-  // because the asker is the close flow, which cannot know whether the create
-  // finished before or after it took its snapshot — dropping the answer the
-  // moment the create landed would put the orphan back for that interleaving.
-  inFlightCreates.delete(paneId);
-  return pending;
+const discardOnArrival = new Set<string>();
+
+/** Remove `paneId`'s worktree when its in-flight create lands. */
+export function discardWorktreeOnArrival(paneId: string): void {
+  discardOnArrival.add(paneId);
 }
 
 /** Register a step to run after `paneId`'s worktree lands (see the map doc). */
@@ -219,30 +213,27 @@ async function provisionPane(
   cb: ProvisionCallbacks,
   setup?: SetupStep,
 ): Promise<void> {
-  let publish!: (made: CreatedWorktree | null) => void;
-  inFlightCreates.set(
-    paneId,
-    new Promise<CreatedWorktree | null>((resolve) => {
-      publish = resolve;
-    }),
-  );
-  try {
-    publish(await createOnePane(paneId, intent, base, cb, setup));
-  } catch (e) {
-    // An unexpected throw must not leave a close waiting on a promise that
-    // never settles.
-    publish(null);
-    throw e;
-  }
-}
+  /**
+   * The pane left while we were working. Asked after every await that could
+   * outlive it, because everything below this point is done ON ITS BEHALF: a
+   * setup command would spawn into a session slot the close already reaped,
+   * and `onResolved` would hand a worktree to a pane that cannot take it,
+   * leaving a directory nothing will ever name again.
+   */
+  const abandoned = (rec: { path: string; branch: string }): boolean => {
+    if (!cb.abandoned(paneId)) return false;
+    log.info(
+      "web:provisioning",
+      `${paneId} left while its worktree was being created` +
+        (discardOnArrival.has(paneId) ? " — removing it" : " — keeping it"),
+    );
+    // Only if the user asked. Closing without ticking the box is a deliberate
+    // "keep the worktree", and a create that happened to be slow must not
+    // turn that into a delete.
+    if (discardOnArrival.delete(paneId)) void rollbackWorktree(intent.repo, rec);
+    return true;
+  };
 
-async function createOnePane(
-  paneId: string,
-  intent: PaneProvisioning,
-  base: string | undefined,
-  cb: ProvisionCallbacks,
-  setup?: SetupStep,
-): Promise<CreatedWorktree | null> {
   let rec: { path: string; branch: string };
   try {
     rec = await createWorktree({
@@ -262,8 +253,15 @@ async function createOnePane(
       `worktree create failed for ${paneId}: ${describeError(e)}`,
     );
     cb.onFailed(paneId, describeError(e));
-    return null;
+    // Nothing landed, so there is nothing to discard; drop any request so a
+    // Retry's create is judged on its own.
+    discardOnArrival.delete(paneId);
+    return;
   }
+  // Before the setup command, not only after: it runs in the pane's session
+  // slot, and spawning there once the pane is gone leaves a process with
+  // nothing to reap it.
+  if (abandoned(rec)) return;
 
   if (setup) {
     cb.onSetup?.(paneId);
@@ -275,8 +273,10 @@ async function createOnePane(
       );
       await rollbackWorktree(intent.repo, rec);
       cb.onFailed(paneId, `Setup failed: ${result.tail}`);
-      return null;
+      discardOnArrival.delete(paneId);
+      return;
     }
+    if (abandoned(rec)) return;
   }
 
   // The worktree is on disk — run any registered post-provision step (a journal
@@ -294,11 +294,14 @@ async function createOnePane(
     );
     await rollbackWorktree(intent.repo, rec);
     cb.onFailed(paneId, stepError);
-    return null;
+    discardOnArrival.delete(paneId);
+    return;
   }
+  // The last gate, with no await between it and the handover: past here the
+  // pane owns the worktree and an ordinary close can name it.
+  if (abandoned(rec)) return;
 
   cb.onResolved(paneId, { cwd: rec.path, branch: rec.branch });
-  return { repo: intent.repo, path: rec.path, branch: rec.branch };
 }
 
 /** Best-effort teardown of a half-prepared worktree so Retry re-creates cleanly

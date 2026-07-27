@@ -7,8 +7,13 @@ const worktree = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/worktree", () => worktree);
 
+/** The pane is still in the deck for the whole create — the ordinary case.
+ * The tests that close a pane mid-create override this. */
+const stays = () => false;
+
 import {
   clearPostProvision,
+  discardWorktreeOnArrival,
   discardWorktrees,
   planPanes,
   provisionInto,
@@ -91,7 +96,7 @@ describe("runProvisioning", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await runProvisioning(cards(), { onResolved, onFailed });
+    await runProvisioning(cards(), { onResolved, onFailed, abandoned: stays });
 
     expect(onResolved).toHaveBeenCalledWith("pane-1", {
       cwd: "/wt/pane-1",
@@ -124,7 +129,7 @@ describe("runProvisioning", () => {
     const panes = cards();
     panes[0].provisioning!.base = "develop";
 
-    await runProvisioning(panes, { onResolved: vi.fn(), onFailed: vi.fn() });
+    await runProvisioning(panes, { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays });
 
     expect(worktree.createWorktree.mock.calls.map((c: any[]) => c[0].base)).toEqual([
       "develop", // its intent's own fork point
@@ -140,7 +145,7 @@ describe("runProvisioning", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await runProvisioning(cards(), { onResolved, onFailed });
+    await runProvisioning(cards(), { onResolved, onFailed, abandoned: stays });
 
     expect(onResolved).toHaveBeenCalledTimes(1);
     expect(onResolved).toHaveBeenCalledWith("pane-1", {
@@ -156,6 +161,7 @@ describe("runProvisioning", () => {
     await runProvisioning([{ id: "pane-1", agentType: "claude" }], {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
+      abandoned: stays,
     });
     expect(worktree.inspectRepo).not.toHaveBeenCalled();
     expect(worktree.createWorktree).not.toHaveBeenCalled();
@@ -168,7 +174,7 @@ describe("runProvisioning", () => {
       branch: "b1",
     });
     const onResolved = vi.fn();
-    await runProvisioning(cards().slice(0, 1), { onResolved, onFailed: vi.fn() });
+    await runProvisioning(cards().slice(0, 1), { onResolved, onFailed: vi.fn(), abandoned: stays });
     expect(onResolved).toHaveBeenCalledWith("pane-1", {
       cwd: "/wt/pane-1",
       branch: "b1",
@@ -194,7 +200,7 @@ describe("runProvisioning with a setup command", () => {
     const onFailed = vi.fn();
     const onSetup = vi.fn();
 
-    await runProvisioning(oneCard(), { onResolved, onFailed, onSetup }, step);
+    await runProvisioning(oneCard(), { onResolved, onFailed, onSetup, abandoned: stays }, step);
 
     expect(onSetup).toHaveBeenCalledWith("pane-1");
     // The path the create actually returned — not the one that was asked for.
@@ -208,13 +214,61 @@ describe("runProvisioning with a setup command", () => {
     expect(onFailed).not.toHaveBeenCalled();
   });
 
+  it("skips the setup command once its pane is gone, and hands nothing over", async () => {
+    // The setup runs in the pane's own session slot. Spawning there after the
+    // close reaped it leaves a process with nothing to reap it — and the
+    // promise that step returns never settles, so anything waiting on this
+    // create would wait forever.
+    const { step, calls } = setupStep({ ok: true, tail: "" });
+    const onResolved = vi.fn();
+
+    await runProvisioning(
+      oneCard(),
+      { onResolved, onFailed: vi.fn(), abandoned: () => true },
+      step,
+    );
+
+    expect(calls).toEqual([]);
+    expect(onResolved).not.toHaveBeenCalled();
+  });
+
+  it("removes the worktree its closed pane asked it to, once the create lands", async () => {
+    worktree.removeWorktree.mockResolvedValue(undefined);
+    discardWorktreeOnArrival("pane-1");
+
+    await runProvisioning(oneCard(), {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(),
+      abandoned: () => true,
+    });
+
+    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
+      force: true,
+      branch: "kd/ws/1",
+    });
+  });
+
+  it("KEEPS the worktree of a pane closed without asking for the delete", async () => {
+    // Closing without ticking the box is a deliberate "keep it"; a create that
+    // happened to still be running must not turn that into a delete.
+    worktree.removeWorktree.mockResolvedValue(undefined);
+
+    await runProvisioning(oneCard(), {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(),
+      abandoned: () => true,
+    });
+
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+  });
+
   it("a failed setup rolls the worktree back and lands the tail on the card", async () => {
     const { step } = setupStep({ ok: false, tail: "npm ERR! boom" });
     worktree.removeWorktree.mockResolvedValue(undefined);
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await runProvisioning(oneCard(), { onResolved, onFailed }, step);
+    await runProvisioning(oneCard(), { onResolved, onFailed, abandoned: stays }, step);
 
     // Rollback, so Retry re-creates instead of hitting "already exists".
     expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
@@ -232,7 +286,7 @@ describe("runProvisioning with a setup command", () => {
     worktree.removeWorktree.mockResolvedValue(undefined);
     const onFailed = vi.fn();
 
-    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed }, step);
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed, abandoned: stays }, step);
 
     expect(onFailed).toHaveBeenCalledWith("pane-1", "Setup failed: spawn failed");
   });
@@ -289,7 +343,7 @@ describe("runProvisioning with a post-provision step", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await runProvisioning(oneCard(), { onResolved, onFailed });
+    await runProvisioning(oneCard(), { onResolved, onFailed, abandoned: stays });
 
     expect(step).toHaveBeenCalledWith({ cwd: "/wt/pane-1", branch: "kd/ws/1" });
     expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
@@ -304,7 +358,7 @@ describe("runProvisioning with a post-provision step", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await runProvisioning(oneCard(), { onResolved, onFailed });
+    await runProvisioning(oneCard(), { onResolved, onFailed, abandoned: stays });
 
     expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
       force: true,
@@ -325,11 +379,11 @@ describe("runProvisioning with a post-provision step", () => {
     const onResolved = vi.fn();
     const onFailed = vi.fn();
 
-    await runProvisioning(oneCard(), { onResolved, onFailed }); // create + fail
+    await runProvisioning(oneCard(), { onResolved, onFailed, abandoned: stays }); // create + fail
     expect(onFailed).toHaveBeenCalledTimes(1);
     expect(onResolved).not.toHaveBeenCalled();
 
-    await runProvisioning(oneCard(), { onResolved, onFailed }); // Retry re-provisions
+    await runProvisioning(oneCard(), { onResolved, onFailed, abandoned: stays }); // Retry re-provisions
     expect(step).toHaveBeenCalledTimes(2); // re-run, not skipped
     expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
   });
@@ -337,16 +391,16 @@ describe("runProvisioning with a post-provision step", () => {
   it("consumes (deletes) the step on success — a later re-provision won't re-run it", async () => {
     const step = vi.fn(async () => {});
     registerPostProvision("pane-1", step);
-    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed: vi.fn() });
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays });
     expect(step).toHaveBeenCalledTimes(1);
     // A second provision of the same pane finds NO step → plain resolve, not re-run.
-    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed: vi.fn() });
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays });
     expect(step).toHaveBeenCalledTimes(1); // consumed on success, not 2
   });
 
   it("a plain (non-fork) pane with no registered step resolves untouched", async () => {
     const onResolved = vi.fn();
-    await runProvisioning(oneCard(), { onResolved, onFailed: vi.fn() });
+    await runProvisioning(oneCard(), { onResolved, onFailed: vi.fn(), abandoned: stays });
     expect(onResolved).toHaveBeenCalledWith("pane-1", { cwd: "/wt/pane-1", branch: "kd/ws/1" });
     expect(worktree.removeWorktree).not.toHaveBeenCalled();
   });
@@ -357,7 +411,7 @@ describe("runProvisioning with a post-provision step", () => {
       throw new Error("surgery boom");
     });
     const onFailed = vi.fn();
-    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed });
+    await runProvisioning(oneCard(), { onResolved: vi.fn(), onFailed, abandoned: stays });
     expect(onFailed).toHaveBeenCalledWith("pane-1", "surgery boom");
   });
 });
@@ -368,6 +422,7 @@ describe("provisionInto", () => {
       resolvePaneProvisioning: vi.fn(),
       setPaneProvisioningError: vi.fn(),
       setPaneProvisioningPhase: vi.fn(),
+      hasPane: vi.fn(() => true),
     };
     const cb = provisionInto(deck, "ws-1");
     cb.onResolved("pane-1", { cwd: "/wt/1", branch: "b1" });
