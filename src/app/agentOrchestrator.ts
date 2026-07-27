@@ -799,43 +799,37 @@ export function createAgentOrchestrator(
     if (!ctx) throw new Error("Agent spawn context is unavailable");
     if (!target.sessionId) return restartFresh(target);
 
-    // The spec is deliberately NOT dropped before the build. Every stand-down
-    // between here and `sessions.close` leaves the pane's process RUNNING, and
-    // dropping revokes the token that process's reporters echo: the next plan
-    // mints a fresh one, so every postback it sends afterwards fails
-    // verification, silently, for the life of the process (see the token's own
-    // note in spawnSpecs). Building over the entry is safe instead — a
-    // successful build replaces it, and a failed one leaves it exactly as the
-    // running process needs it.
+    // Revoke the old token BEFORE building, exactly as `restartFresh`,
+    // `suspend` and `close` do. A restart is only ever offered on a pane whose
+    // process has already ended (the exit card is its one entry point), so the
+    // credential being dropped belongs to a dead process — and the plan built
+    // next must NOT inherit it, or the replacement spawns carrying a secret
+    // that a late bridge envelope, or a child that outlived the PTY, can still
+    // echo to bind this pane. That is the invariant the token's own note in
+    // spawnSpecs states.
+    dropPaneSpawnSpec(target.paneId);
     const ws = findWorkspaceByRef(
       deck.getSnapshot().workspaces,
       target.workspace,
     );
-    let planBuilt: boolean;
-    try {
-      planBuilt = await buildResumeSpec(
-        plugins,
-        target.agentType,
-        {
-          paneId: target.paneId,
-          workspace: target.workspace,
-          cwd: target.cwd,
-          branch: target.branch,
-          yolo: target.yolo,
-          ...(ws ? { wsSkillRoots: skillRootsOf(ws) } : {}),
-        },
-        ctx,
-        target.sessionId,
-        "manual",
-      );
-    } catch (error) {
-      // A `resume.plan` hook that THREW marked the pane plan-failed in the
-      // cache. Its process is still running, so leaving that flag set paints
-      // the error tile over a live terminal — the card must report a restart
-      // that failed, not replace the agent the user is still talking to.
-      clearPanePlanError(target.paneId);
-      throw error;
-    }
+    // A throwing `resume.plan` propagates as-is: the pane's process is already
+    // gone, so the plan-failed flag the cache records has no live terminal to
+    // paint over, and the card reports the failed restart either way.
+    const planBuilt = await buildResumeSpec(
+      plugins,
+      target.agentType,
+      {
+        paneId: target.paneId,
+        workspace: target.workspace,
+        cwd: target.cwd,
+        branch: target.branch,
+        yolo: target.yolo,
+        ...(ws ? { wsSkillRoots: skillRootsOf(ws) } : {}),
+      },
+      ctx,
+      target.sessionId,
+      "manual",
+    );
 
     const current = restartTargetOf(target.workspace, target.paneId);
     if (!current) {
@@ -849,6 +843,7 @@ export function createAgentOrchestrator(
     // a pane that had just been parked on purpose.
     if (stoppedNow(target)) return "stopped";
     if (!sameResumeTarget(current, target)) {
+      dropPaneSpawnSpec(target.paneId);
       throw new Error("Agent changed while its restart was being prepared");
     }
     const spec = peekPaneSpawnSpec(target.paneId);
@@ -859,6 +854,7 @@ export function createAgentOrchestrator(
     ) {
       // A missing agent or a failed resume hook must not silently degrade a
       // user-requested continuation into a fresh conversation.
+      dropPaneSpawnSpec(target.paneId);
       throw new Error("Agent could not prepare a resume plan");
     }
 
@@ -875,11 +871,13 @@ export function createAgentOrchestrator(
       dropPaneSpawnSpec(target.paneId);
       return "stopped";
     }
-    // Past the close, "stand down and do nothing" is no longer on offer: the
-    // process is already retired, so the sweep sees a pane that should run
-    // with none — and with the plan dropped it would build a FRESH one,
-    // turning the resume the user named into a brand-new conversation whose
-    // reporter then overwrites the binding. Mounting the plan that WAS
+    // For a pane that is still here and NOT stopped, standing down is no
+    // longer on offer: the process is already retired, so the sweep sees a
+    // pane that should run with none — and with the plan dropped it would
+    // build a FRESH one, turning the resume the user named into a brand-new
+    // conversation whose reporter then overwrites the binding. (The two
+    // branches above are the exceptions that can still stand down, and both
+    // leave the pane in a state the sweep holds.) Mounting the plan that WAS
     // prepared is the only honest option left, so the epoch is bumped either
     // way; the outcome only tells the caller what the pane looked like when
     // the close returned.

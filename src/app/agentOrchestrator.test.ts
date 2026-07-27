@@ -2713,47 +2713,24 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(pane().session?.id).toBe("session-old");
   });
 
-  it("leaves a LIVE process's plan — and its token — alone when the build fails", async () => {
-    // Every stand-down before the reap leaves the process running. Dropping
-    // its spec revokes the token its reporters echo, and the next plan mints a
-    // fresh one, so from then on every postback that process sends fails
-    // verification — silently, for the rest of its life.
+  it("revokes the retired process's token BEFORE building the replacement's plan", async () => {
+    // A restart is only ever offered on a pane whose process has already ended
+    // — the exit card is its one entry point — so the credential being dropped
+    // belongs to a dead process. Building first would let the new plan inherit
+    // it (the cache mints a fresh token only when no spec is present), and a
+    // late bridge envelope, or a child that outlived the PTY, could then still
+    // echo it and rebind this pane.
     seed();
     await settle();
-    const before = peekPaneSpawnSpec("pane-1");
-    expect(before).toBeDefined();
-    vi.mocked(buildResumeSpec).mockResolvedValueOnce(false);
+    vi.mocked(dropPaneSpawnSpec).mockClear();
+    vi.mocked(buildResumeSpec).mockClear();
 
-    await expect(
-      act(async () => agentRun.restart("ws-1", "pane-1", "resume")),
-    ).rejects.toThrow("could not prepare a resume plan");
+    await act(async () => agentRun.restart("ws-1", "pane-1", "resume"));
 
-    expect(pty.closed).toEqual([]);
-    expect(peekPaneSpawnSpec("pane-1")).toBe(before);
-  });
-
-  it("does not paint a plan-error tile over an agent that is still running", async () => {
-    // A throwing resume.plan hook marks the pane plan-failed in the cache. The
-    // process never stopped, so that flag would replace a live terminal with
-    // an error tile and a Retry button.
-    seed();
-    await settle();
-    // The real buildAndCache marks the pane plan-failed on its way out of a
-    // throwing hook; the fake has to do the same or there is nothing to clear.
-    vi.mocked(buildResumeSpec).mockImplementationOnce(async () => {
-      plans.failed.add("pane-1");
-      plans.notify();
-      throw new Error("codex resume: unexpected store layout");
-    });
-
-    await expect(
-      act(async () => agentRun.restart("ws-1", "pane-1", "resume")),
-    ).rejects.toThrow("unexpected store layout");
-
-    expect(pty.closed).toEqual([]);
-    // The cache directly, not the published view: this is about what the
-    // error tile is rendered FROM.
-    expect(plans.failed.has("pane-1")).toBe(false);
+    const dropped = vi.mocked(dropPaneSpawnSpec).mock.invocationCallOrder[0];
+    const built = vi.mocked(buildResumeSpec).mock.invocationCallOrder[0];
+    expect(dropped).toBeLessThan(built);
+    expect(epoch()).toBe(1);
   });
 
   it("blames the suspend, not the agent, when one lands inside the build", async () => {
