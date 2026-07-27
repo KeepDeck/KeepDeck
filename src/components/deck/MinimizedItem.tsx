@@ -51,8 +51,10 @@ export function MinimizedItemContent({
       <span className="minimized__agent" aria-hidden>
         <AgentGlyph icon={icon} />
       </span>
-      {stopped && <StoppedMarker className="minimized__stopped" />}
       <span className="minimized__title">{title}</span>
+      {/* State markers ride right of the title, in the same order the pane
+          header carries them beside its own title. */}
+      {stopped && <StoppedMarker className="minimized__stopped" />}
       {yolo && (
         <YoloBadge size="sm" decorative className="minimized__yolo" />
       )}
