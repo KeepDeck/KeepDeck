@@ -14,6 +14,7 @@ import {
   paneWakeOrigin,
   sessionClaimant,
   skillRootsOf,
+  worktreeTargets,
   WORKSPACE_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
   type Pane,
@@ -33,8 +34,8 @@ import { postbackCount } from "./postbacks";
 import type { SuspendOutcome } from "./suspendOutcome";
 import {
   clearPostProvision,
-  discardWorktreeOnArrival,
   planPanes,
+  takeCreatedWorktree,
   provisionInto,
   registerPostProvision,
   setupStepFor,
@@ -284,14 +285,15 @@ export type CreatePaneOutcome =
  * the user ticked the box that deletes them, is what the confirm dialog was
  * FOR — by the time it reaches this, the destructive choice is settled. */
 export type CloseRequest = {
-  /** Empty unless the user asked for the directories to go too. */
+  /** Did the user ask for the directories to go too? The DECISION, separate
+   * from the list below, because the list cannot be complete: a create that
+   * lands while the confirm dialog is open owns a worktree the dialog never
+   * saw. The close finishes the list against the live deck. */
+  deleteWorktrees: boolean;
+  /** The worktrees the dialog offered, probed for existence when it opened.
+   * Not the whole answer — see above — but it leads, because it carries each
+   * pane's OBSERVED current branch, which a bare pane read cannot. */
   worktrees: WorktreeTarget[];
-  /** Closing panes whose worktree create is still in flight, so they have no
-   * `cwd` yet and contributed no target above. Carried separately because
-   * what to delete is not known until the create settles — and a create
-   * cannot be cancelled, so waiting is the only way not to strand it. Ignored
-   * unless the user asked for the directories to go. */
-  pendingPanes: string[];
 } & (
   | { kind: "agent"; wsId: string; paneId: string }
   | { kind: "workspace"; wsId: string }
@@ -449,6 +451,19 @@ interface RestartTarget {
   branch: string | undefined;
   yolo: boolean | undefined;
   sessionId: string | null;
+}
+
+/** One entry per directory. The close builds its delete list from three
+ * overlapping sources — the dialog's probed offer, the live deck, and the
+ * creates it just consumed — and the same worktree can appear in more than
+ * one of them. The FIRST wins, which is why the probed offer leads: it is the
+ * one carrying the observed branch. */
+function dedupeByPath(targets: WorktreeTarget[]): WorktreeTarget[] {
+  const byPath = new Map<string, WorktreeTarget>();
+  for (const target of targets) {
+    if (!byPath.has(target.path)) byPath.set(target.path, target);
+  }
+  return [...byPath.values()];
 }
 
 function sameResumeTarget(
@@ -1219,14 +1234,31 @@ export function createAgentOrchestrator(
         // it) — there is no Retry coming now.
         clearPostProvision(paneId);
       }
-      // Leave the destructive intent for the creates that are still out, BEFORE
-      // the reducer drops the panes: a create cannot be cancelled, so the only
-      // way not to strand it is for it to find this when it lands. Registering
-      // ahead of the removal is what makes it race-free — the create's own
-      // "did my pane leave?" check cannot run before the pane has left.
-      for (const paneId of request.pendingPanes) {
-        discardWorktreeOnArrival(paneId);
-      }
+      // Every create this close covers is consumed either way, so nothing is
+      // left holding a published entry. Each settles as soon as its
+      // `git worktree add` returned — the rest of the create, including a
+      // setup command in the slot about to be reaped, is not in front of it.
+      const made = (await Promise.all(paneIds.map(takeCreatedWorktree))).filter(
+        (worktree) => worktree !== null,
+      );
+      // What to delete is finished HERE, against the deck as it stands now.
+      // The dialog's list was frozen when it opened, and a create can land
+      // while the user reads it — turning a pane the dialog listed as "still
+      // being created" into one that owns a worktree, which that list will
+      // never mention. `request.worktrees` still leads because it carries the
+      // observed branch a bare pane read cannot.
+      const worktrees = request.deleteWorktrees
+        ? dedupeByPath([
+            ...request.worktrees,
+            ...(ws
+              ? worktreeTargets(
+                  ws,
+                  request.kind === "agent" ? request.paneId : undefined,
+                )
+              : []),
+            ...made,
+          ])
+        : [];
       if (request.kind === "agent") {
         actions.closeAgent(request.wsId, request.paneId);
       } else {
@@ -1234,11 +1266,10 @@ export function createAgentOrchestrator(
       }
       await Promise.allSettled(paneIds.map((id) => sessions.close(id)));
       // Only AFTER the processes are reaped: a worktree that is still some
-      // agent's cwd cannot be removed. The creates still out are NOT waited
-      // on — they remove themselves through the intent left above, so a slow
-      // one cannot hold this close (or the failures it reports) open.
-      if (request.worktrees.length === 0) return [];
-      return discardWorktrees(request.worktrees);
+      // agent's cwd cannot be removed — including one whose setup command was
+      // running in the slot the reap above just emptied.
+      if (worktrees.length === 0) return [];
+      return discardWorktrees(worktrees);
     },
     async restart(wsId, paneId, mode) {
       if (restarting.has(paneId)) return "in-flight";

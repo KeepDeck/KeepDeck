@@ -288,10 +288,13 @@ export function useCloseFlow(
     if (!closing) return;
     // The destructive choice is settled here and nowhere later: what the
     // dialog offered, against the box the user actually ticked.
+    // The DECISION travels separately from the list. This list was frozen when
+    // the dialog opened and cannot be complete — a create landing while the
+    // user reads it owns a worktree nothing here has ever seen — so the close
+    // finishes it against the live deck. What this list still contributes is
+    // the observed branch per pane, which a bare pane read cannot give.
+    const deleteWorktrees = deleteWorktree;
     const worktrees = deleteWorktree ? closing.targets : [];
-    // A create still in flight is deleted on the same choice, once it settles
-    // and there is something to name.
-    const pendingPanes = deleteWorktree ? closing.pendingPanes : [];
     setClosing(null);
     setDeleteWorktree(false);
     void closeAgents(
@@ -300,10 +303,15 @@ export function useCloseFlow(
             kind: "agent",
             wsId: closing.wsId,
             paneId: closing.paneId,
+            deleteWorktrees,
             worktrees,
-            pendingPanes,
           }
-        : { kind: "workspace", wsId: closing.id, worktrees, pendingPanes },
+        : {
+            kind: "workspace",
+            wsId: closing.id,
+            deleteWorktrees,
+            worktrees,
+          },
     ).then((failures) => {
       if (failures.length > 0)
         onError(

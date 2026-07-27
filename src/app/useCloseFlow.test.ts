@@ -125,8 +125,8 @@ describe("useCloseFlow", () => {
       kind: "agent",
       wsId,
       paneId: "pane-1",
+      deleteWorktrees: false,
       worktrees: [],
-      pendingPanes: [],
     });
   });
 
@@ -158,10 +158,12 @@ describe("useCloseFlow", () => {
 
     act(() => flow.setDeleteWorktree(true));
     act(() => flow.confirmClose());
+    // The decision travels; the list does not have to be complete, because
+    // the close finishes it against the live deck.
     expect(requested()).toMatchObject({
       kind: "agent",
       paneId: "pane-9",
-      pendingPanes: ["pane-9"],
+      deleteWorktrees: true,
     });
   });
 
@@ -185,7 +187,7 @@ describe("useCloseFlow", () => {
     await act(async () => flow.requestCloseAgent("ws-2", "pane-9", "Agent 1"));
     act(() => flow.confirmClose());
 
-    expect(requested()).toMatchObject({ pendingPanes: [] });
+    expect(requested()).toMatchObject({ deleteWorktrees: false });
   });
 
   it("closing a workspace names the workspace, not its panes", async () => {
@@ -198,8 +200,8 @@ describe("useCloseFlow", () => {
     expect(requested()).toEqual({
       kind: "workspace",
       wsId,
+      deleteWorktrees: false,
       worktrees: [],
-      pendingPanes: [],
     });
   });
 

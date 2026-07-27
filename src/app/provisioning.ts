@@ -86,26 +86,48 @@ const postProvisionSteps = new Map<
 >();
 
 /**
- * Panes whose worktree must be REMOVED if and when its create lands, because
- * the pane was closed mid-create and the user asked for the directory to go
- * with it.
+ * What each pane's worktree create has put on disk, published the moment
+ * `git worktree add` returns and BEFORE anything else the create does.
  *
- * An intent left for the create to honour, rather than a result the close
- * waits for. The close cannot wait: `git worktree add` has no cancel, and the
- * create's own setup step runs in the pane's session slot — which the close has
- * just reaped, leaving that step's promise unsettleable by design (see
- * `runPaneOnce`). Waiting there deadlocks the close and strands the very
- * worktree it meant to delete.
+ * Published early on purpose. The close needs two things a create cannot give
+ * it at the same moment: the path, and permission to delete only after the
+ * pane's process is reaped. Waiting for the whole create supplies neither —
+ * the setup step runs in the session slot the close just reaped, so waiting
+ * there is a deadlock — and letting the CREATE delete supplies the path but
+ * loses the ordering, removing a directory a still-live setup command is
+ * writing into.
  *
- * Leaving the intent instead also closes the window a waiting close could not:
- * the pane is registered the moment it is closed, not when the create happens
- * to reach the point of announcing itself.
+ * Publishing at the git call splits those apart: this promise always settles
+ * promptly (nothing but the git call is in front of it), so the close can await
+ * it, then reap, then delete — in that order, with `discardWorktrees` doing the
+ * removal and reporting its failures like any other.
+ *
+ * Kept until READ, then dropped. The pane also drops its own entry once it
+ * takes ownership (`onResolved`), because from then on it has a `cwd` and the
+ * close can name the worktree without help.
  */
-const discardOnArrival = new Set<string>();
+const created = new Map<string, Promise<CreatedWorktree | null>>();
 
-/** Remove `paneId`'s worktree when its in-flight create lands. */
-export function discardWorktreeOnArrival(paneId: string): void {
-  discardOnArrival.add(paneId);
+/** A worktree a create put on disk: enough for [`discardWorktrees`]. */
+export interface CreatedWorktree {
+  repo: string;
+  path: string;
+  branch: string;
+}
+
+/**
+ * What `paneId`'s create made, waiting for the `git worktree add` to return if
+ * it has not yet. Null when there is nothing outstanding — the pane already
+ * owns its worktree (so it has a `cwd` to be named by), or its create failed
+ * and rolled back, or it never had one.
+ */
+export function takeCreatedWorktree(
+  paneId: string,
+): Promise<CreatedWorktree | null> {
+  const pending = created.get(paneId);
+  if (!pending) return Promise.resolve(null);
+  created.delete(paneId);
+  return pending;
 }
 
 /** Register a step to run after `paneId`'s worktree lands (see the map doc). */
@@ -201,10 +223,12 @@ export async function runProvisioning(
 }
 
 /**
- * One pane's create (+ optional setup) → its card resolves or fails, with the
- * worktree it made published for the duration so a close landing mid-create
- * can still find it. Only a create that leaves something ON DISK records a
- * result; every failure path here rolls its own directory back.
+ * One pane's create (+ optional setup) → its card resolves or fails.
+ *
+ * What it puts on disk is published the instant `git worktree add` returns
+ * (see [`created`]), so a close can name the directory without waiting for the
+ * rest of this. Nothing here deletes on a close's behalf: this function only
+ * stops early, and the close does the removing in the order it needs.
  */
 async function provisionPane(
   paneId: string,
@@ -215,24 +239,28 @@ async function provisionPane(
 ): Promise<void> {
   /**
    * The pane left while we were working. Asked after every await that could
-   * outlive it, because everything below this point is done ON ITS BEHALF: a
+   * outlive it, because everything past the create is done ON ITS BEHALF: a
    * setup command would spawn into a session slot the close already reaped,
-   * and `onResolved` would hand a worktree to a pane that cannot take it,
-   * leaving a directory nothing will ever name again.
+   * and `onResolved` would hand a worktree to a pane that cannot take it.
+   * Whether that worktree then goes is the close's decision, not ours — it is
+   * the only party that knows what the user ticked and when the process died.
    */
-  const abandoned = (rec: { path: string; branch: string }): boolean => {
+  const abandoned = (): boolean => {
     if (!cb.abandoned(paneId)) return false;
     log.info(
       "web:provisioning",
-      `${paneId} left while its worktree was being created` +
-        (discardOnArrival.has(paneId) ? " — removing it" : " — keeping it"),
+      `${paneId} left while its worktree was being created — stopping here`,
     );
-    // Only if the user asked. Closing without ticking the box is a deliberate
-    // "keep the worktree", and a create that happened to be slow must not
-    // turn that into a delete.
-    if (discardOnArrival.delete(paneId)) void rollbackWorktree(intent.repo, rec);
     return true;
   };
+
+  let publish!: (made: CreatedWorktree | null) => void;
+  created.set(
+    paneId,
+    new Promise<CreatedWorktree | null>((resolve) => {
+      publish = resolve;
+    }),
+  );
 
   let rec: { path: string; branch: string };
   try {
@@ -252,33 +280,37 @@ async function provisionPane(
       "web:provisioning",
       `worktree create failed for ${paneId}: ${describeError(e)}`,
     );
+    // Nothing landed, so a close has nothing to remove.
+    publish(null);
+    created.delete(paneId);
     cb.onFailed(paneId, describeError(e));
-    // Nothing landed, so there is nothing to discard; drop any request so a
-    // Retry's create is judged on its own.
-    discardOnArrival.delete(paneId);
     return;
   }
+  // The directory exists: say so before anything else can delay it. A close
+  // racing this is the case the early publish is for.
+  publish({ repo: intent.repo, path: rec.path, branch: rec.branch });
   // Before the setup command, not only after: it runs in the pane's session
   // slot, and spawning there once the pane is gone leaves a process with
   // nothing to reap it.
-  if (abandoned(rec)) return;
+  if (abandoned()) return;
 
   if (setup) {
     cb.onSetup?.(paneId);
     const result = await setup(paneId, { cwd: rec.path, branch: rec.branch });
     // Asked BEFORE the result is judged. A pane closed mid-setup ends the
     // command, so it comes back not-ok — but that is the close, not a broken
-    // setup, and the failure branch below would roll the worktree back even
-    // for a user who closed WITHOUT asking for it to go.
-    if (abandoned(rec)) return;
+    // setup, and the failure branch below would roll back a worktree whose
+    // fate is the close's to decide.
+    if (abandoned()) return;
     if (!result.ok) {
       log.error(
         "web:provisioning",
         `setup failed for ${paneId} in ${rec.path}: ${result.tail}`,
       );
       await rollbackWorktree(intent.repo, rec);
+      // Rolled back, so there is nothing left for a close to remove.
+      created.delete(paneId);
       cb.onFailed(paneId, `Setup failed: ${result.tail}`);
-      discardOnArrival.delete(paneId);
       return;
     }
   }
@@ -297,13 +329,15 @@ async function provisionPane(
       `post-provision step failed for ${paneId} in ${rec.path}: ${stepError}`,
     );
     await rollbackWorktree(intent.repo, rec);
+    created.delete(paneId);
     cb.onFailed(paneId, stepError);
-    discardOnArrival.delete(paneId);
     return;
   }
   // The last gate, with no await between it and the handover: past here the
-  // pane owns the worktree and an ordinary close can name it.
-  if (abandoned(rec)) return;
+  // pane owns the worktree and an ordinary close can name it by its `cwd`, so
+  // the published entry is no longer anyone's only handle on it.
+  if (abandoned()) return;
+  created.delete(paneId);
 
   cb.onResolved(paneId, { cwd: rec.path, branch: rec.branch });
 }

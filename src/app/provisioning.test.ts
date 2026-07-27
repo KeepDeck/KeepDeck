@@ -13,9 +13,9 @@ const stays = () => false;
 
 import {
   clearPostProvision,
-  discardWorktreeOnArrival,
   discardWorktrees,
   planPanes,
+  takeCreatedWorktree,
   provisionInto,
   registerPostProvision,
   runProvisioning,
@@ -232,37 +232,87 @@ describe("runProvisioning with a setup command", () => {
     expect(onResolved).not.toHaveBeenCalled();
   });
 
-  it("removes the worktree its closed pane asked it to, once the create lands", async () => {
-    worktree.removeWorktree.mockResolvedValue(undefined);
-    discardWorktreeOnArrival("pane-1");
+  it("publishes what it made BEFORE the setup command, so a close can name it", async () => {
+    // The whole point of publishing early: the close must be able to find the
+    // directory while the create is still busy — and it must not have to wait
+    // for a setup step that ends only when the pane's slot is reaped.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const step: SetupStep = async () => {
+      await held;
+      return { ok: true, tail: "" };
+    };
 
+    const running = runProvisioning(
+      oneCard(),
+      { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
+      step,
+    );
+    // Still inside the setup command, and the worktree is already nameable.
+    await expect(takeCreatedWorktree("pane-1")).resolves.toEqual({
+      repo: "/repo",
+      path: "/wt/pane-1",
+      branch: "kd/ws/1",
+    });
+
+    release();
+    await running;
+  });
+
+  it("publishes nothing when the create itself failed", async () => {
+    worktree.createWorktree.mockRejectedValueOnce(new Error("boom"));
+
+    await runProvisioning(oneCard(), {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(),
+      abandoned: stays,
+    });
+
+    // Nothing landed, so a close has nothing to remove.
+    await expect(takeCreatedWorktree("pane-1")).resolves.toBeNull();
+  });
+
+  it("hands the entry back once the pane owns its worktree", async () => {
+    // Past the handover the pane has a cwd, so the deck names the worktree and
+    // this entry would only be a second, staler handle on it.
+    await runProvisioning(oneCard(), {
+      onResolved: vi.fn(),
+      onFailed: vi.fn(),
+      abandoned: stays,
+    });
+
+    await expect(takeCreatedWorktree("pane-1")).resolves.toBeNull();
+  });
+
+  it("KEEPS the published entry when the pane left before the handover", async () => {
+    // The close is the only party that knows whether the user asked for the
+    // directory to go, so the create leaves it for the close to decide.
     await runProvisioning(oneCard(), {
       onResolved: vi.fn(),
       onFailed: vi.fn(),
       abandoned: () => true,
     });
 
-    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
-      force: true,
+    await expect(takeCreatedWorktree("pane-1")).resolves.toEqual({
+      repo: "/repo",
+      path: "/wt/pane-1",
       branch: "kd/ws/1",
     });
   });
 
-  it("removes the worktree of a pane closed DURING its setup command", async () => {
-    // The window the create is most likely to be closed in, and the one that
-    // used to escape: the setup step ends when the pane's slot is reaped, and
-    // while that step could never settle, nothing after it ever ran — so the
-    // worktree the user asked to delete was simply left on disk.
+  it("never deletes on a close's behalf — that ordering is the close's", async () => {
+    // A create that removed its own worktree would do it before the pane's
+    // process is reaped, pulling the directory out from under a setup command
+    // that is still writing into it.
     worktree.removeWorktree.mockResolvedValue(undefined);
-    // The close lands WHILE the command runs, so the pre-setup check has
-    // already passed — this is the window that used to escape entirely.
     let gone = false;
     const step: SetupStep = async () => {
       gone = true;
       return { ok: false, tail: "the pane was closed" };
     };
     const onFailed = vi.fn();
-    discardWorktreeOnArrival("pane-1");
 
     await runProvisioning(
       oneCard(),
@@ -270,47 +320,10 @@ describe("runProvisioning with a setup command", () => {
       step,
     );
 
-    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/pane-1", {
-      force: true,
-      branch: "kd/ws/1",
-    });
-    // The interrupted command is the close, not a broken setup: there is no
-    // card left to put that on.
+    expect(worktree.removeWorktree).not.toHaveBeenCalled();
+    // The interrupted command is the close, not a broken setup: no card is
+    // left to put that on.
     expect(onFailed).not.toHaveBeenCalled();
-  });
-
-  it("KEEPS a mid-setup pane's worktree when the delete was not asked for", async () => {
-    // Same window, no request. The interrupted command comes back not-ok, and
-    // the ordinary setup-failure path would roll the worktree back — but this
-    // user closed WITHOUT ticking the box, which is a deliberate keep.
-    worktree.removeWorktree.mockResolvedValue(undefined);
-    let gone = false;
-    const step: SetupStep = async () => {
-      gone = true;
-      return { ok: false, tail: "the pane was closed" };
-    };
-
-    await runProvisioning(
-      oneCard(),
-      { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: () => gone },
-      step,
-    );
-
-    expect(worktree.removeWorktree).not.toHaveBeenCalled();
-  });
-
-  it("KEEPS the worktree of a pane closed without asking for the delete", async () => {
-    // Closing without ticking the box is a deliberate "keep it"; a create that
-    // happened to still be running must not turn that into a delete.
-    worktree.removeWorktree.mockResolvedValue(undefined);
-
-    await runProvisioning(oneCard(), {
-      onResolved: vi.fn(),
-      onFailed: vi.fn(),
-      abandoned: () => true,
-    });
-
-    expect(worktree.removeWorktree).not.toHaveBeenCalled();
   });
 
   it("a failed setup rolls the worktree back and lands the tail on the card", async () => {

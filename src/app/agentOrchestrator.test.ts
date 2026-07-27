@@ -182,16 +182,22 @@ vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
 const usage = vi.hoisted(() => ({ clearPaneUsage: vi.fn() }));
 vi.mock("./usageManager", () => usage);
 
-/** Panes the close asked the still-running create to clean up after. */
-const discardRequests = vi.hoisted(() => [] as string[]);
+/** What each pane's create has put on disk, as `provisioning` publishes it the
+ *  moment `git worktree add` returns. */
+const published = vi.hoisted(
+  () =>
+    new Map<string, Promise<{ repo: string; path: string; branch: string } | null>>(),
+);
 
 vi.mock("./provisioning", async (importOriginal) => {
   const real = await importOriginal<typeof import("./provisioning")>();
   return {
     ...real,
-    discardWorktreeOnArrival: (paneId: string) => {
-      discardRequests.push(paneId);
-      real.discardWorktreeOnArrival(paneId);
+    takeCreatedWorktree: (paneId: string) => {
+      const made = published.get(paneId);
+      if (!made) return Promise.resolve(null);
+      published.delete(paneId);
+      return made;
     },
     registerPostProvision: (
       paneId: string,
@@ -2273,7 +2279,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
 
   afterEach(() => {
     act(() => root.unmount());
-    discardRequests.length = 0;
+    published.clear();
   });
 
   const target = { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" };
@@ -2284,8 +2290,8 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-1",
+        deleteWorktrees: false,
         worktrees: [],
-        pendingPanes: [],
       }),
     );
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
@@ -2302,8 +2308,8 @@ describe("agent orchestrator —closing panes and workspaces", () => {
       agentRun.close({
         kind: "workspace",
         wsId: "ws-1",
+        deleteWorktrees: false,
         worktrees: [],
-        pendingPanes: [],
       }),
     );
     expect(deck.workspaces).toHaveLength(0);
@@ -2326,8 +2332,8 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-1",
+        deleteWorktrees: false,
         worktrees: [],
-        pendingPanes: [],
       }),
     );
     expect(order).toEqual(["revoked:2"]);
@@ -2344,8 +2350,8 @@ describe("agent orchestrator —closing panes and workspaces", () => {
       closing = agentRun.close({
         kind: "workspace",
         wsId: "ws-1",
+        deleteWorktrees: true,
         worktrees: [target],
-        pendingPanes: [],
       });
     });
     expect(discards).toEqual([]);
@@ -2363,8 +2369,8 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-2",
+        deleteWorktrees: true,
         worktrees: [target],
-        pendingPanes: [],
       }),
     );
     expect(failures).toEqual(["kd/ws/2: still in use"]);
@@ -2376,78 +2382,117 @@ describe("agent orchestrator —closing panes and workspaces", () => {
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-2",
+        deleteWorktrees: false,
         worktrees: [],
-        pendingPanes: [],
       }),
     );
     expect(failures).toEqual([]);
     expect(discards).toEqual([]);
   });
 
-  it("leaves the cleanup to a create still in flight rather than waiting on it", async () => {
-    // A pane mid-create has no cwd, so it contributes no delete target. The
-    // close cannot wait for the create either — its setup step runs in the
-    // session slot this close just reaped, and that step's promise never
-    // settles once the slot is gone. So the intent is left behind and the
-    // create removes its own worktree when it lands.
-    const closing = await act(async () =>
+  it("deletes what a still-running create put on disk, without waiting for the rest of it", async () => {
+    // A pane mid-create has no cwd, so it contributes no ordinary target. The
+    // create publishes the directory the moment `git worktree add` returns,
+    // which is what lets this close name it — and lets it settle even though
+    // the create's setup step is stuck in the session slot about to be reaped.
+    const made = { repo: "/repo", path: "/wt/9", branch: "kd/ws/9" };
+    published.set("pane-1", Promise.resolve(made));
+
+    const failures = await act(async () =>
       agentRun.close({
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-1",
+        deleteWorktrees: true,
         worktrees: [],
-        pendingPanes: ["pane-1"],
       }),
     );
 
-    // Resolved, not hanging — that is the whole point.
-    expect(closing).toEqual([]);
-    expect(discardRequests).toEqual(["pane-1"]);
-    // Nothing is removed from here: there is no path to name yet.
-    expect(discards).toEqual([]);
+    expect(failures).toEqual([]);
+    expect(discards).toEqual([[made]]);
   });
 
-  it("asks for no cleanup when the delete was not ticked", async () => {
+  it("removes what a create landed while the dialog was still open", async () => {
+    // The dialog's list is frozen when it opens. A create finishing while the
+    // user reads it turns a pane the dialog called "still being created" into
+    // one that owns a worktree — which that frozen list will never mention.
+    // Deciding from the live deck is what covers it.
+    act(() =>
+      deck.createWorkspace({
+        id: "ws-2",
+        instance: createWorkspaceInstance(),
+        name: "two",
+        cwd: "/repo",
+        worktreeBaseDir: "/wt",
+        panes: [
+          {
+            id: "pane-9",
+            agentType: "claude",
+            provisioning: { repo: "/repo", workspace: "two", index: 1 },
+          },
+        ],
+      }),
+    );
+    // …the create lands while the confirm dialog is up.
+    act(() =>
+      deck.resolvePaneProvisioning("ws-2", "pane-9", {
+        cwd: "/wt/late",
+        branch: "kd/ws/late",
+      }),
+    );
+    expect(deck.workspaces[1].panes[0].cwd).toBe("/wt/late");
+
+    await act(async () =>
+      agentRun.close({
+        kind: "agent",
+        wsId: "ws-2",
+        paneId: "pane-9",
+        deleteWorktrees: true,
+        // Exactly what the dialog offered when it opened: nothing.
+        worktrees: [],
+      }),
+    );
+
+    expect(discards).toEqual([
+      [{ repo: "/repo", path: "/wt/late", branch: "kd/ws/late" }],
+    ]);
+  });
+
+  it("deletes nothing when the box was left unticked", async () => {
+    published.set(
+      "pane-1",
+      Promise.resolve({ repo: "/repo", path: "/wt/9", branch: "kd/ws/9" }),
+    );
     await act(async () =>
       agentRun.close({
         kind: "agent",
         wsId: "ws-1",
         paneId: "pane-1",
+        deleteWorktrees: false,
         worktrees: [],
-        pendingPanes: [],
       }),
     );
-    expect(discardRequests).toEqual([]);
     expect(discards).toEqual([]);
+    // Consumed all the same, so no published entry is left behind.
+    expect(published.has("pane-1")).toBe(false);
   });
 
-  it("registers the cleanup BEFORE the reducer drops the pane", async () => {
-    // The create's own "did my pane leave?" check is what triggers the
-    // removal. Registering after the removal would let a create that lands in
-    // between see a gone pane with no request and keep the worktree.
-    const order: string[] = [];
-    discardRequests.length = 0;
-    const seen = () =>
-      order.push(
-        `request:${discardRequests.length}:panes:${deck.workspaces[0]?.panes.length ?? 0}`,
-      );
-    vi.mocked(dropPaneSpawnSpec).mockImplementationOnce(() => seen());
+  it("names one worktree once, however many sources mention it", async () => {
+    const target = { repo: "/repo", path: "/wt/2", branch: "kd/ws/2" };
+    published.set("pane-2", Promise.resolve(target));
 
     await act(async () =>
       agentRun.close({
         kind: "agent",
         wsId: "ws-1",
-        paneId: "pane-1",
-        worktrees: [],
-        pendingPanes: ["pane-1"],
+        paneId: "pane-2",
+        deleteWorktrees: true,
+        // pane-2 already owns /wt/2, so the deck names it too.
+        worktrees: [target],
       }),
     );
 
-    // The spec drop runs before both; by the end the request is in and the
-    // pane is out.
-    expect(order).toEqual(["request:0:panes:2"]);
-    expect(discardRequests).toEqual(["pane-1"]);
-    expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
+    expect(discards).toEqual([[target]]);
   });
 
   it("still reaps a pane whose reap REJECTS, and the rest with it", async () => {
@@ -2458,8 +2503,8 @@ describe("agent orchestrator —closing panes and workspaces", () => {
       agentRun.close({
         kind: "workspace",
         wsId: "ws-1",
+        deleteWorktrees: true,
         worktrees: [target],
-        pendingPanes: [],
       }),
     );
     expect(failures).toEqual([]);
