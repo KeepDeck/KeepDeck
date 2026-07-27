@@ -20,11 +20,6 @@ import { invalidateSkillsStaging } from "./skillsStaging";
 export interface SkillsLibrary {
   /** The stored skills; `null` while the first load is in flight. */
   skills: StoredSkill[] | null;
-  /** The library could not be READ — as distinct from being empty. The two
-   * used to look identical here, and the name-collision check is derived from
-   * this list: with an unreadable library every name looked free, so creating
-   * one that already existed wrote straight over it. */
-  unreadable: boolean;
   /** The last failed operation, human-readable; cleared by the next success
    * or by `clearError` (navigation away from the failed skill). */
   error: string | null;
@@ -41,7 +36,6 @@ export interface SkillsLibrary {
 
 export function useSkillsLibrary(open: boolean): SkillsLibrary {
   const [skills, setSkills] = useState<StoredSkill[] | null>(null);
-  const [unreadable, setUnreadable] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -54,13 +48,17 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
       (all) => {
         if (!alive) return;
         setSkills(all);
-        setUnreadable(false);
       },
       (e: unknown) => {
         if (!alive) return;
         log.warn("web:skills", `skills_list failed: ${describeError(e)}`);
+        // An empty list is what the editor can render, but it must not read as
+        // "you have no skills": the error is the difference, and it is the
+        // only thing on screen that says the library is unknown rather than
+        // empty. The name-collision guard that matters lives in the backend,
+        // which refuses a create over an existing skill whatever this list says.
         setSkills([]);
-        setUnreadable(true);
+        setError(`Could not read the skills library: ${describeError(e)}`);
       },
     );
     return () => {
@@ -72,7 +70,6 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     invalidateSkillsStaging();
     try {
       setSkills(await fetchSkills());
-      setUnreadable(false);
     } catch (e) {
       // The operation itself succeeded; only the re-read failed. Keep the
       // stale list — blanking it right after a successful write reads as
@@ -136,5 +133,5 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     [refresh],
   );
 
-  return { skills, unreadable, error, clearError, save, rename, remove };
+  return { skills, error, clearError, save, rename, remove };
 }

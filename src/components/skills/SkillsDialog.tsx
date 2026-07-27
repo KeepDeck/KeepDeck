@@ -56,7 +56,7 @@ const scopeOf = (skill: StoredSkill): SkillScope =>
  * rule.
  */
 export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
-  const { skills, unreadable, error, clearError, save, rename, remove } =
+  const { skills, error, clearError, save, rename, remove } =
     useSkillsLibrary(true);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<SkillFormState>(EMPTY_FORM);
@@ -168,17 +168,14 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
   // so saving one would "work" and then never reach the agent.
   const descriptionOk =
     form.description.trim() !== "" && isValidSkillDescription(form.description);
-  // A CREATE additionally needs a library we could actually read: `nameTaken`
-  // is derived from that list, so an unreadable one makes every name look
-  // free — and the write would land on the skill it collided with. Editing a
-  // skill is unaffected: the user reached it from a row that WAS listed.
+  // `nameTaken` is a courtesy — it catches the collision before the round
+  // trip and can name the skill. It is NOT the guard: it is derived from the
+  // listed library, which is empty whenever the read failed, and the backend
+  // refuses a create over an existing skill regardless. Disabling Create on a
+  // library we could not read would trade a silent overwrite for a silently
+  // dead button.
   const canSave =
-    selection !== null &&
-    dirty &&
-    nameOk &&
-    !nameTaken &&
-    descriptionOk &&
-    !(creating && unreadable);
+    selection !== null && dirty && nameOk && !nameTaken && descriptionOk;
 
   const submit = async () => {
     // The rename half is not idempotent: a double ⌘S entering twice would
@@ -268,6 +265,14 @@ export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
               <div className="skills__placeholder">
                 {skills === null ? (
                   "Loading…"
+                ) : error !== null ? (
+                  // A library that could not be READ renders as an empty one,
+                  // and with nothing selected the editor — the only other
+                  // place an error appears — is not mounted. Without this the
+                  // dialog claims you simply have no skills.
+                  <span className="skills__placeholder-title" role="alert">
+                    {error}
+                  </span>
                 ) : (
                   <>
                     <span className="skills__placeholder-title">

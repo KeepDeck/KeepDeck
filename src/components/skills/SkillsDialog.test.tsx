@@ -418,36 +418,30 @@ describe("SkillsDialog", () => {
     );
   });
 
-  it("will not create while the library could not be read", async () => {
-    // The collision check is derived from the listed library, so an
-    // unreadable one makes every name look free — and Create would then
-    // write straight over whatever is actually on disk under that name.
-    lib.unreadable = true;
+  it("still offers Create when the library could not be read, and says so", async () => {
+    // A failed read arrives as an empty list plus an error. Disabling Create
+    // here would leave a dead button on a dialog that shows no rows to open
+    // either — nothing left to do and nothing saying why. The backend refuses
+    // a real collision, so the offer is safe to keep.
+    lib.skills = [];
+    lib.error = "Could not read the skills library: boom";
     await mount();
+
+    expect(document.body.textContent).toContain("Could not read");
+
     act(() => buttonByTitle("New global skill")!.click());
     type(input("skill-name"), "review");
     type(input("skill-description"), "Reviews diffs");
     type(textarea(), "Steps");
 
-    expect(button("Create")!.disabled).toBe(true);
+    expect(button("Create")!.disabled).toBe(false);
     await act(async () => button("Create")!.click());
-    expect(lib.save).not.toHaveBeenCalled();
-  });
-
-  it("still lets an EDIT save while the library could not be read", async () => {
-    // The user reached this skill from a row that WAS listed, so there is no
-    // collision to miss — refusing here would block editing over a hiccup.
-    lib.skills = [skill("review")];
-    lib.unreadable = true;
-    await mount();
-    act(() => row("review")!.click());
-    type(input("skill-description"), "edited");
-
-    await act(async () => button("Save")!.click());
     expect(lib.save).toHaveBeenCalledWith(
       { kind: "global" },
-      expect.objectContaining({ description: "edited" }),
-      false,
+      expect.objectContaining({ name: "review" }),
+      // Marked a create, so the backend can refuse the name this empty list
+      // could not tell us was taken.
+      true,
     );
   });
 
