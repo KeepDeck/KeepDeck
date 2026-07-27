@@ -251,11 +251,22 @@ function App() {
     suspendAgent: orchestrator.suspend,
     resumeAgent: orchestrator.resume,
     createPane: orchestrator.createPane,
+    // A command reaches these from voice/MCP/a plugin, where no button was
+    // disabled to stop it — so they ask the same gate the UI does and answer
+    // whether they actually opened. Reading `canOpenDialog` from the enclosing
+    // render is sound: the hook re-reads its deps every render, so the closure
+    // that runs is always the current one.
     openSettings: (sectionId) => {
+      if (!canOpenDialog) return false;
       setSettingsSection(sectionId ?? undefined);
       setSettingsOpen(true);
+      return true;
     },
-    openUsage: () => setStatsOpen(true),
+    openUsage: () => {
+      if (!canOpenDialog) return false;
+      setStatsOpen(true);
+      return true;
+    },
   });
   // The plugin system: the bridge wires deck accessors + deck events; the
   // built-ins boot once (bootstrapPlugins waits for settings itself — enabled
@@ -358,12 +369,26 @@ function App() {
   const transactions = [
     agentFlow.dialog,
     closeFlow.closing,
+    forkDialog,
     error,
     frozen && !frozenAck ? frozen : null,
   ];
   const dialogOpen = transactions.some((t) => t !== null);
   const modalOpen =
     showForm || dialogOpen || settingsOpen || statsOpen || skillsOpen;
+  // The single "may another dialog open over what is up?" rule. Every surface
+  // that can raise one asks THIS — buttons, hotkeys, notification navigation,
+  // the update chip, and the command registry — because the question was
+  // spelled four different ways across eleven sites and three of them omitted
+  // `skillsOpen`. Stacking matters beyond looks: `useEscape` handlers are
+  // window-level and stack, so one Escape peels both layers, and over an alert
+  // that resolves to its confirm — dismissing a notice nobody read.
+  //
+  // `showForm` is deliberately absent: the create form is a passive surface,
+  // and on first run it is the only screen there is, so blocking here would
+  // make Settings unreachable.
+  const canOpenDialog =
+    !dialogOpen && !settingsOpen && !statsOpen && !skillsOpen;
   // The single "can add an agent" rule — a workspace is active, room under the
   // cap, and nothing modal is up. Both the ⌘T hotkey and the + Agent button
   // gate on this so they can't diverge (the button used to ignore modals).
@@ -478,7 +503,7 @@ function App() {
       // blocking would make settings unreachable). Its Esc yields while the
       // settings dialog is on top. The Stats and Skills dialogs DO block:
       // stacking Settings over either would give one Escape two layers to peel.
-      if (dialogOpen || settingsOpen || statsOpen || skillsOpen) return;
+      if (!canOpenDialog) return;
       setSettingsSection(undefined);
       setSettingsOpen(true);
     },
@@ -544,7 +569,7 @@ function App() {
           n.source,
           preciseTargetResolved,
         );
-        if (section !== null && !dialogOpen && !settingsOpen && !statsOpen) {
+        if (section !== null && canOpenDialog) {
           setSettingsSection(section);
           setSettingsOpen(true);
         }
@@ -554,7 +579,7 @@ function App() {
         // Same guard as the top bar's update chip: the dialog reads its
         // section only at open, so setting it over an open dialog would
         // silently not navigate.
-        if (!dialogOpen && !settingsOpen && !statsOpen) {
+        if (canOpenDialog) {
           setSettingsSection(
             settingsSectionForNotification(n.source) ?? undefined,
           );
@@ -635,7 +660,7 @@ function App() {
               onClick={() => {
                 if (updateState.phase === "ready") {
                   void restartToUpdate();
-                } else if (!dialogOpen && !settingsOpen && !statsOpen) {
+                } else if (canOpenDialog) {
                   setSettingsSection("updates");
                   setSettingsOpen(true);
                 }
@@ -711,7 +736,7 @@ function App() {
             type="button"
             className="bar__icon"
             onClick={() => setStatsOpen(true)}
-            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
+            disabled={!canOpenDialog}
             title="Usage statistics"
             aria-label="Open usage statistics"
           >
@@ -723,7 +748,7 @@ function App() {
             className="bar__icon"
             onClick={() => setSkillsOpen(true)}
             // Same modal etiquette as the gear: one dialog at a time.
-            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
+            disabled={!canOpenDialog}
             title="Skills"
             aria-label="Open skills"
           >
@@ -739,7 +764,7 @@ function App() {
             // Mirrors the ⌘, guard. The create form does NOT disable this:
             // on first run it's the only screen, and settings must stay
             // reachable over it (e.g. to pick the default agent first).
-            disabled={dialogOpen || settingsOpen || statsOpen || skillsOpen}
+            disabled={!canOpenDialog}
             title="Settings"
             aria-label="Open settings"
           >
@@ -828,7 +853,7 @@ function App() {
                   // dialog is above this form, the form's own Esc yields
                   // (an undefined onCancel also hides the covered button).
                   onCancel={
-                    settingsOpen || statsOpen || skillsOpen
+                    !canOpenDialog
                       ? undefined
                       : () => setCreating(false)
                   }

@@ -56,16 +56,26 @@ export interface CoreCommandDeps {
    * through the same sequence as one asked for by hand. */
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
   /** Open the settings dialog; `sectionId` lands it on a specific section
-   * (a plugin's `plugin:<id>`), null on the first. */
-  openSettings(sectionId: string | null): void;
-  /** Open the global usage-statistics surface. */
-  openUsage(): void;
+   * (a plugin's `plugin:<id>`), null on the first. Answers whether it opened:
+   * a command arrives with no button to have been disabled, so it asks the
+   * same "may another dialog open?" gate the UI does, and a refusal that
+   * reported success would leave the caller believing a surface is up. */
+  openSettings(sectionId: string | null): boolean;
+  /** Open the global usage-statistics surface. Same refusal contract as
+   * [`openSettings`]. */
+  openUsage(): boolean;
 }
 
 /** How long task delivery waits for the pane's PTY writer to appear (a
  * worktree create + CLI start can take a while), then for the CLI to start
  * accepting input. Readiness = "the input writer exists" is an MVP heuristic
  * — replaced by a real CLI-ready signal when one exists. */
+/** The refusal when a command asks for a surface that would stack over one
+ * already up. One sentence for both openers, because to the caller they are
+ * the same refusal for the same reason. */
+const DIALOG_BUSY_MESSAGE =
+  "Another dialog is open — close it before opening this one";
+
 const TASK_POLL_MS = 200;
 const TASK_POLL_TRIES = 300;
 const TASK_SETTLE_MS = 1500;
@@ -495,9 +505,10 @@ export function registerCoreCommands(
       run: (_args, source) => {
         // A plugin lands on its OWN section; anyone else on the first. The
         // section id mirrors what SettingsDialog builds per plugin.
-        deps.openSettings(
+        const opened = deps.openSettings(
           source.kind === "plugin" ? `plugin:${source.pluginId}` : null,
         );
+        if (!opened) throw new Error(DIALOG_BUSY_MESSAGE);
         return { opened: true };
       },
     }),
@@ -507,7 +518,7 @@ export function registerCoreCommands(
       title: "Open usage statistics",
       args: [],
       run: () => {
-        deps.openUsage();
+        if (!deps.openUsage()) throw new Error(DIALOG_BUSY_MESSAGE);
         return { opened: true };
       },
     }),
@@ -530,8 +541,8 @@ export function useCoreCommands(deps: {
    * reporting what it did. */
   resumeAgent(wsId: string, paneId: string): ResumeRequest;
   createPane(request: CreatePaneRequest): CreatePaneOutcome;
-  openSettings(sectionId: string | null): void;
-  openUsage(): void;
+  openSettings(sectionId: string | null): boolean;
+  openUsage(): boolean;
 }): void {
   const ref = useRef(deps);
   ref.current = deps;

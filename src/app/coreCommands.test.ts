@@ -102,8 +102,10 @@ function setup(workspaces: Workspace[]) {
       return { kind: "created" };
     },
   );
-  const openSettings = vi.fn();
-  const openUsage = vi.fn();
+  // Both answer whether they opened; the default is a free screen, and the
+  // refusal tests below override with `mockReturnValue(false)`.
+  const openSettings = vi.fn(() => true);
+  const openUsage = vi.fn(() => true);
   const dispose = registerCoreCommands(registry, {
     deck: () => deck,
     agents: () => AGENTS,
@@ -535,6 +537,20 @@ describe("settings.open", () => {
     await registry.execute("settings.open", {}, HOST);
     expect(openSettings).toHaveBeenLastCalledWith(null);
   });
+
+  it("reports a refusal instead of claiming it opened over another dialog", async () => {
+    // A command arrives with no button to have been disabled, so the host
+    // gate is the only thing standing between it and a stacked dialog. When
+    // it refuses, saying `{opened: true}` would tell a plugin a surface is up
+    // that is not — and stacking is what gives one Escape two layers to peel.
+    const { registry, openSettings } = setup([workspace({})]);
+    openSettings.mockReturnValue(false);
+
+    const result = await registry.execute("settings.open", {}, HOST);
+
+    expect(result.ok).toBe(false);
+    expect(openSettings).toHaveBeenCalledOnce();
+  });
 });
 
 describe("usage.open", () => {
@@ -544,6 +560,15 @@ describe("usage.open", () => {
 
     expect(result).toEqual({ ok: true, value: { opened: true } });
     expect(openUsage).toHaveBeenCalledOnce();
+  });
+
+  it("reports a refusal instead of claiming it opened over another dialog", async () => {
+    const { registry, openUsage } = setup([workspace({})]);
+    openUsage.mockReturnValue(false);
+
+    const result = await registry.execute("usage.open", {}, HOST);
+
+    expect(result.ok).toBe(false);
   });
 });
 
