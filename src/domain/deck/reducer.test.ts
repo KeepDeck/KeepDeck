@@ -548,7 +548,7 @@ describe("deckReducer restore actions ([F7])", () => {
     ).toBe(start);
   });
 
-  it("setPaneSession binds the resume key and no-ops on a same-id rebind", () => {
+  it("setPaneSession binds the resume key; a same-id rebind leaves the pane but claims the record", () => {
     const session = { id: "s-1", boundAt: "2026-07-02T00:00:00Z" };
     const start = state({ workspaces: [idleWs], activeId: "ws-1" });
     const bound = deckReducer(start, {
@@ -559,9 +559,25 @@ describe("deckReducer restore actions ([F7])", () => {
       at: "2026-01-01T00:00:00.000Z",
     });
     expect(bound.workspaces[0].panes[1].session).toEqual(session);
-    expect(
-      deckReducer(bound, { type: "setPaneSession", wsId: "ws-1", paneId: "pane-2", session: { id: "s-1", boundAt: "2026-07-02T09:00:00Z" }, at: "2026-01-01T00:00:00.000Z" }),
-    ).toBe(bound);
+
+    const again = deckReducer(bound, {
+      type: "setPaneSession",
+      wsId: "ws-1",
+      paneId: "pane-2",
+      session: { id: "s-1", boundAt: "2026-07-02T09:00:00Z" },
+      at: "2026-01-01T00:00:00.000Z",
+    });
+    // Nothing about the PANE changes — there is nothing to change.
+    expect(again.workspaces).toBe(bound.workspaces);
+    // But the journal hears it. Boot demotes every loaded `live` record to
+    // `closed`, and a restored pane resuming its session re-reports the SAME
+    // id: that re-report is the only thing that can flip the row back. Without
+    // it a running agent's row reads "Closed" for the pane's whole life.
+    expect(again.journal).not.toBe(bound.journal);
+    expect(again.journal.tail[again.journal.tail.length - 1]).toMatchObject({
+      e: "bound",
+      record: { sessionId: "s-1", paneId: "pane-2" },
+    });
   });
 
   it("setPaneSession(null) drops a dead binding; clearing a clear pane no-ops", () => {
