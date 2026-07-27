@@ -279,10 +279,16 @@
   font-size: 12px;
   color: #6b7280;
   font-variant-numeric: tabular-nums;
-  /* Clamped like every other card detail line: this used to hold only
-     "exit code 137", but a failed spawn puts the backend's message here —
-     a Rust error carrying a full worktree path — and a quarter-screen tile
-     cannot take it. The terminal beneath keeps the untruncated text. */
+}
+
+/* The exit veil's detail line only. It used to hold nothing but
+   "exit code 137"; a failed spawn puts the backend's message there — a Rust
+   error carrying a full worktree path — which a quarter-screen tile cannot
+   take. Deliberately NOT on `.pane__exit-sub`: that class dresses eight other
+   lines, and two of them (`.pane__wake-error`, the plan-failed sentence) are
+   prose meant to WRAP inside their card, on an opaque surface with no
+   terminal underneath to recover a clipped tail from. */
+.pane__exit-detail {
   max-width: 80%;
   overflow: hidden;
   text-overflow: ellipsis;

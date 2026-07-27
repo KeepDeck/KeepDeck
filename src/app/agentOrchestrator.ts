@@ -310,14 +310,7 @@ export type RestartOutcome =
   | "gone"
   /** It was stopped while the restart was out — a suspend the user asked for
    * outranks a restart that started first. */
-  | "stopped"
-  /** It changed under the close — in practice its reporter bound a new
-   * session id. The restart still completed: past the close the process is
-   * already gone, so declining to mount the prepared plan would leave the
-   * sweep to start a FRESH conversation instead. Reported separately from
-   * `restarted` because what came back is the session the user named, not
-   * necessarily the one the pane was carrying by then. */
-  | "changed";
+  | "stopped";
 
 /** What asking for a pane back did. */
 export type ResumeRequest =
@@ -712,6 +705,15 @@ export function createAgentOrchestrator(
         throw new Error(WORKSPACE_FULL_MESSAGE);
       case "gone":
         throw new Error(WORKSPACE_GONE_MESSAGE);
+      default: {
+        // A switch alone would NOT catch a new outcome here — this function
+        // returns void, so an unmatched value falls off the end and compiles
+        // clean. The `never` is what turns "someone added a refusal and
+        // forgot this file" into a type error instead of a fork whose
+        // irreversible surgery is reported as success.
+        const unhandled: never = landed;
+        throw new Error(`unhandled create outcome: ${JSON.stringify(unhandled)}`);
+      }
     }
   }
 
@@ -892,12 +894,16 @@ export function createAgentOrchestrator(
     // build a FRESH one, turning the resume the user named into a brand-new
     // conversation whose reporter then overwrites the binding. (The two
     // branches above are the exceptions that can still stand down, and both
-    // leave the pane in a state the sweep holds.) Mounting the plan that WAS
-    // prepared is the only honest option left, so the epoch is bumped either
-    // way; the outcome only tells the caller what the pane looked like when
-    // the close returned.
+    // leave the pane in a state the sweep holds.)
+    //
+    // There is deliberately no second `sameResumeTarget` check here. Nothing
+    // can move those four fields inside the reap: `agentType` has no writer at
+    // all, `cwd`/`branch` move only through `resetPaneLocation`, which needs an
+    // idle pane the check above already caught, and `sessionId` moves only on
+    // a postback — which the token revoked at the top of this function can no
+    // longer authenticate. A branch for it would be one nothing can reach.
     bumpEpoch(target.paneId);
-    return sameResumeTarget(afterClose, target) ? "restarted" : "changed";
+    return "restarted";
   }
 
   /** Wake one pane onto `sessionId`, or fresh when it is null. */

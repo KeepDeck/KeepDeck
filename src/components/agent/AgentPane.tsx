@@ -222,12 +222,11 @@ export function AgentPane({
     };
     // A restart that STOOD DOWN — the pane was stopped or closed under it —
     // resolves without a remount, so treating "resolved" as "restarted" left
-    // the card promising a restart that was not coming. The two outcomes that
-    // DO remount keep the spinner instead, because the epoch remount is what
-    // clears it: `restarted`, and `changed` — which past the close completes
-    // the restart too, and only reports that the pane had moved under it.
+    // the card promising a restart that was not coming. Only `restarted`
+    // keeps the spinner, because only it bumps the epoch, and that remount is
+    // what clears it.
     const settle = (outcome: RestartOutcome) => {
-      if (outcome === "restarted" || outcome === "changed") return;
+      if (outcome === "restarted") return;
       restartInFlight.current = false;
       setRestarting(false);
     };
@@ -615,7 +614,7 @@ export function AgentPane({
             <span className="pane__exit-title">
               {ended.kind === "failed" ? "Agent didn't start" : "Agent exited"}
             </span>
-            <span className="pane__exit-sub">
+            <span className="pane__exit-sub pane__exit-detail">
               {ended.kind === "failed"
                 ? ended.message
                 : ended.code !== null

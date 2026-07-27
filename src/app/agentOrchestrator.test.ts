@@ -2811,12 +2811,17 @@ describe("agent orchestrator —restarting an exited agent", () => {
     expect(epoch()).toBeUndefined();
   });
 
-  it("mounts the prepared plan when the pane moves under the reap, never a fresh one", async () => {
+  it("mounts the prepared plan even if the pane moves under the reap, never a fresh one", async () => {
     // Past the reap the process is already gone, so standing down is not on
     // offer: the sweep sees a pane that should run with no process and would
     // build a FRESH plan for it — turning the resume the user named by hand
     // into a brand-new conversation whose reporter then overwrites the
     // binding. The prepared plan is mounted instead.
+    //
+    // The session change is forced here through the deck directly; production
+    // can no longer produce it, because the token this restart revoked before
+    // building is the one a late postback would have to echo. The test keeps
+    // it as the belt to that braces.
     seed();
     await settle();
     let release!: () => void;
@@ -2832,7 +2837,6 @@ describe("agent orchestrator —restarting an exited agent", () => {
     // land inside `sessions.close`, which is the window the pre-reap checks
     // cannot cover.
     await act(async () => {});
-    // A late postback binds a different session while the reap is out.
     act(() =>
       deck.setPaneSession("ws-1", "pane-1", {
         id: "session-new",
@@ -2841,7 +2845,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
     );
     await act(async () => {
       release();
-      await expect(pending).resolves.toBe("changed");
+      await expect(pending).resolves.toBe("restarted");
     });
 
     // The remount happened, and the plan behind it is still the manual resume

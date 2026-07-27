@@ -276,16 +276,24 @@ export function registerCoreCommands(
         }
 
         // A full workspace used to swallow the add and then report a paneId
-        // that was never in the deck — with the worktree already created. A
-        // switch rather than two ifs, so a new refusal is a compile error here
-        // instead of falling through to the success report below.
-        switch (deps.createPane({ workspace, pane }).kind) {
+        // that was never in the deck — with the worktree already created. The
+        // `never` is what makes a new refusal a compile error here: a bare
+        // switch would let an unmatched outcome fall straight through to the
+        // success report below.
+        const landed = deps.createPane({ workspace, pane });
+        switch (landed.kind) {
           case "created":
             break;
           case "full":
             throw new Error(WORKSPACE_FULL_MESSAGE);
           case "gone":
             throw new Error(WORKSPACE_GONE_MESSAGE);
+          default: {
+            const unhandled: never = landed;
+            throw new Error(
+              `unhandled create outcome: ${JSON.stringify(unhandled)}`,
+            );
+          }
         }
         current = currentTarget();
         current.deck.selectWorkspace(workspace.id);

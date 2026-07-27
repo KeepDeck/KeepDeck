@@ -70,13 +70,17 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
     invalidateSkillsStaging();
     try {
       setSkills(await fetchSkills());
+      // Cleared only on a read that WORKED. Clearing regardless wiped the
+      // "could not read the library" notice on the first successful save,
+      // putting back the empty-looking library with nothing saying why —
+      // which is the whole thing that notice exists to prevent.
+      setError(null);
     } catch (e) {
       // The operation itself succeeded; only the re-read failed. Keep the
       // stale list — blanking it right after a successful write reads as
       // data loss (the same rule the failed-save path follows).
       log.warn("web:skills", `library reload failed; keeping the stale list: ${describeError(e)}`);
     }
-    setError(null);
   }, []);
 
   const save = useCallback(
