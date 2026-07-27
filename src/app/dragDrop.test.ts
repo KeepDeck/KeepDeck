@@ -1,16 +1,9 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { DROP_BLOCKER_ATTR } from "@keepdeck/ui-kit/dropBlocker";
 import { describe, expect, it, vi } from "vitest";
-import { DockPanel } from "../components/dock/DockPanel";
 import { log } from "../ipc/log";
 import { collectDropSurface, deliverDrop, deliverPathsToPoint } from "./dragDrop";
 import { registerPaneInput } from "./paneInput";
-
-// React 19 requires this flag for act() outside a test-framework integration.
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("collectDropSurface (real DOM)", () => {
   // Fixtures mirror DeckStage's real structure: a .deck__workspace layer per
@@ -52,12 +45,12 @@ describe("collectDropSurface (real DOM)", () => {
   });
 
   // happy-dom lays nothing out, so every rect here is zero — the geometry
-  // these feed is paneDnd's to test. What IS testable here is the contract
-  // between a surface that declares itself a blocker and the query that finds
-  // it. So the dock below is the REAL component: a hand-written fixture would
-  // carry whatever marker this module happens to look for, and prove only that
-  // a string equals itself — which is exactly how a half-finished rename would
-  // ship a dock that still looks floating and no longer blocks anything.
+  // these feed is paneDnd's to test. What IS testable is that the query picks
+  // up exactly the surfaces that declare themselves. The fixture builds its
+  // marker from the SHARED constant, which is the whole reason the constant
+  // exists: with one symbol there is no second literal for a rename to leave
+  // behind. That each real surface actually carries it is asserted where that
+  // surface lives — DockPanel, Peek and ModalOverlay each own that test.
   const DECK = `
       <main class="deck__workspace">
         <div class="deck__gridwrap"><div class="deck__grid">
@@ -65,36 +58,21 @@ describe("collectDropSurface (real DOM)", () => {
         </div></div>
       </main>`;
 
-  const mountDock = (floating: boolean): Root => {
-    document.body.innerHTML = `${DECK}<div id="dock-host"></div>`;
-    const root = createRoot(document.getElementById("dock-host")!);
-    act(() =>
-      root.render(
-        createElement(DockPanel, {
-          tabs: [{ id: "p:one", label: "One", element: "body" }],
-          activeTab: null,
-          onSelectTab: () => {},
-          floating,
-        }),
-      ),
-    );
-    return root;
-  };
-
-  it("reports no blocker while the dock is docked — it covers nothing", () => {
-    const root = mountDock(false);
+  it("reports no blocker when nothing covers the deck", () => {
+    document.body.innerHTML = DECK;
     const surface = collectDropSurface();
     expect(surface.panes.map((p) => p.id)).toEqual(["pane-1"]);
     expect(surface.blockers).toEqual([]);
-    act(() => root.unmount());
   });
 
-  it("finds the floating dock the dock itself marked, alongside the panes", () => {
-    const root = mountDock(true);
+  it("collects every declared blocker alongside the panes", () => {
+    // Two at once is the real case: a peek opened from a floating dock.
+    document.body.innerHTML = `${DECK}
+      <aside ${DROP_BLOCKER_ATTR}></aside>
+      <div ${DROP_BLOCKER_ATTR}></div>`;
     const surface = collectDropSurface();
     expect(surface.panes.map((p) => p.id)).toEqual(["pane-1"]);
-    expect(surface.blockers).toHaveLength(1);
-    act(() => root.unmount());
+    expect(surface.blockers).toHaveLength(2);
   });
 });
 

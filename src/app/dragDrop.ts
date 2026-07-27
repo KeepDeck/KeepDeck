@@ -4,21 +4,10 @@ import {
   type PaneRect,
   type Rect,
 } from "../domain/deck";
+import { DROP_BLOCKER_ATTR } from "@keepdeck/ui-kit/dropBlocker";
 import { formatDroppedPaths } from "../domain/terminal";
 import { describeError, log } from "../ipc/log";
 import { writeRawToPane } from "./paneInput";
-
-/**
- * The marker a surface carries to say "a drop released on me is mine, not the
- * pane's". An ATTRIBUTE rather than a class name, and exported rather than
- * spelled twice: a class is presentation, and a rename would leave the writer
- * and this reader agreeing with their own tests and with nothing else — the
- * dock would keep looking floating and quietly stop blocking drops.
- *
- * Carry it on anything opaque that covers the deck while it is interactive.
- * Modal surfaces do not need it: they take the pointer outright.
- */
-export const DROP_BLOCKER_ATTR = "data-kd-drop-blocker";
 
 /** Narrow a live element's box to the plain rect the hit-test works in. */
 function rectOf(el: Element): Rect {
@@ -51,11 +40,12 @@ function collectPaneRects(doc: Document = document): PaneRect[] {
  * covering them. Both halves are read synchronously here, so they describe the
  * same layout: a point must not clear a blocker that has since moved across it.
  *
- * Who blocks is declared by the surfaces themselves ([`DROP_BLOCKER_ATTR`]),
- * not enumerated here, so a new one arrives with the code that renders it
- * rather than by someone remembering this function exists. A surface that is
- * present but not laid out (a hidden overlay) reports a zero rect, which
- * contains no point — so absence needs no special case.
+ * Who blocks is declared by the surfaces themselves (`DROP_BLOCKER_ATTR`, in
+ * ui-kit so every surface that needs it can reach it), not enumerated here, so
+ * a new one arrives with the code that renders it rather than by someone
+ * remembering this function exists. A surface that is present but not laid out
+ * (a hidden overlay) reports a zero rect, which contains no point — so absence
+ * needs no special case.
  */
 export function collectDropSurface(doc: Document = document): DropSurface {
   const blockers = Array.from(

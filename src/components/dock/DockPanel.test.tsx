@@ -2,6 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DROP_BLOCKER_ATTR } from "@keepdeck/ui-kit/dropBlocker";
 import { DockPanel, type DockTabItem } from "./DockPanel";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -88,6 +89,22 @@ describe("DockPanel (controlled tab)", () => {
       floating: true,
     });
     expect(host.querySelector(".dock")?.className).toBe("dock dock--floating");
+  });
+
+  it("declares itself a drop blocker only while it covers the deck", () => {
+    // Docked it takes a column and covers nothing, so the marker would be a
+    // lie; floating it lies over panes whose rects are still live, and a file
+    // released on it must not reach the terminal underneath.
+    render({ tabs: TABS, activeTab: "p:one", onSelectTab: () => {} });
+    expect(host.querySelector(`.dock[${DROP_BLOCKER_ATTR}]`)).toBeNull();
+
+    render({
+      tabs: TABS,
+      activeTab: "p:one",
+      onSelectTab: () => {},
+      floating: true,
+    });
+    expect(host.querySelector(`.dock[${DROP_BLOCKER_ATTR}]`)).not.toBeNull();
   });
 
   it("changes geometry without re-mounting anything", () => {

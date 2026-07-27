@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode, type Ref } from "react";
+import { dropBlocker } from "./dropBlocker.ts";
 
 /**
  * The wide "peek" overlay — a dock plugin's detail surface. A 340px rail can't
@@ -108,6 +109,10 @@ export function Peek({
   return (
     <div
       className="peek"
+      // It covers the window, so a file dropped on it is the peek's — an OS
+      // drop is routed by coordinates alone and would otherwise be typed into
+      // whatever pane happens to lie behind the panel.
+      {...dropBlocker()}
       onClick={onClose}
       onKeyDown={(event) => {
         if (event.key === "Escape") {

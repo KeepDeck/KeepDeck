@@ -14,6 +14,7 @@ export { AgentGlyph, type AgentGlyphIcon } from "./AgentGlyph.tsx";
 export { Chip, type ChipProps } from "./Chip.tsx";
 export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
 export { Combobox, fuzzyFilter } from "./Combobox.tsx";
+export { DROP_BLOCKER_ATTR, dropBlocker } from "./dropBlocker.ts";
 export { Peek, type PeekProps } from "./Peek.tsx";
 export { noAutoCorrect } from "./inputProps.ts";
 export { shortPath } from "./paths.ts";

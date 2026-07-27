@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { DROP_BLOCKER_ATTR } from "../../app/dragDrop";
+import { dropBlocker } from "@keepdeck/ui-kit/dropBlocker";
 
 /** One dock tab as the panel renders it: identity, the strip label, and the
  * already-wired panel content (the composition root decides what props each
@@ -54,7 +54,7 @@ export function DockPanel({
       // Floating, the panel lies over panes, so a file released on it is the
       // panel's business and must not fall through to whatever it covers.
       // Docked it covers nothing, and the marker would be a lie.
-      {...(floating && { [DROP_BLOCKER_ATTR]: "" })}
+      {...(floating ? dropBlocker() : {})}
     >
       <div className="dock__tabs" role="tablist">
         {tabs.map((tab) => (
