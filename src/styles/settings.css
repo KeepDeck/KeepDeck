@@ -418,6 +418,12 @@
   font-weight: 600;
 }
 
+.settings__feature-agent-id {
+  color: #7f8999;
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .settings__feature-list {
   margin: 0;
 }
