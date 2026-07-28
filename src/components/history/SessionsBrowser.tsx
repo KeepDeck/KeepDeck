@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import {
-  AGENT_FEATURE,
-  hasAgentFeature,
+  agentSessionCapabilities,
   type AgentInfo,
 } from "../../domain/agents";
 import {
@@ -191,12 +190,10 @@ export function SessionsBrowser({
       >
         {journalRows.map((row) => {
           const agent = agents.find((a) => a.id === row.agent);
-          const supportsResume =
-            agent !== undefined &&
-            hasAgentFeature(agent.features, AGENT_FEATURE.resumeSession);
-          const supportsFork =
-            agent !== undefined &&
-            hasAgentFeature(agent.features, AGENT_FEATURE.forkSession);
+          const {
+            resume: supportsResume,
+            fork: supportsFork,
+          } = agentSessionCapabilities(agents, row.agent);
           const when = row.state === "closed" ? row.endedAt : row.boundAt;
           const dirMissing = !dirPresent(presence, row.cwd);
           return (
@@ -278,15 +275,11 @@ export function SessionsBrowser({
         )}
         {hits.map((hit) => {
           const agent = agents.find((a) => a.id === hit.agent);
-          const canReadHistory =
-            agent !== undefined &&
-            hasAgentFeature(agent.features, AGENT_FEATURE.sessionHistory);
-          const supportsResume =
-            agent !== undefined &&
-            hasAgentFeature(agent.features, AGENT_FEATURE.resumeSession);
-          const supportsFork =
-            agent !== undefined &&
-            hasAgentFeature(agent.features, AGENT_FEATURE.forkSession);
+          const {
+            history: canReadHistory,
+            resume: supportsResume,
+            fork: supportsFork,
+          } = agentSessionCapabilities(agents, hit.agent);
           return (
             <li
               key={`${hit.agent}:${hit.sessionId}`}

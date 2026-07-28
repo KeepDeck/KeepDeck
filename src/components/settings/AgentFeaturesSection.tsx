@@ -1,3 +1,4 @@
+import { projectAgentFeatureRows } from "../../app/agentFeatureCatalog";
 import type { AgentFeature } from "../../domain/agents";
 import type { InstalledPlugin } from "../../plugins";
 
@@ -34,6 +35,7 @@ export function AgentFeaturesSection({
               key={agent.id}
               agent={agent}
               featureCatalog={featureCatalog}
+              showAgentName={agents.length > 1}
             />
           ))}
         </div>
@@ -45,17 +47,19 @@ export function AgentFeaturesSection({
 function AgentFeatureCard({
   agent,
   featureCatalog,
+  showAgentName,
 }: {
   agent: NonNullable<
     InstalledPlugin["manifest"]["contributes"]["agents"]
   >[number];
   featureCatalog: readonly AgentFeature[];
+  showAgentName: boolean;
 }) {
   return (
     <div className="settings__feature-agent">
-      <div className="settings__feature-agent-name">
-        {agent.label}
-      </div>
+      {showAgentName && (
+        <div className="settings__feature-agent-name">{agent.label}</div>
+      )}
       {agent.features === undefined ? (
         <p className="settings__hint settings__features-legacy">
           This plugin uses a legacy API; static feature declarations are
@@ -67,66 +71,23 @@ function AgentFeatureCard({
         </p>
       ) : (
         <dl className="settings__feature-list">
-          {orderedFeatureRows(featureCatalog, agent.features).map(
-            ({ catalogFeature, declared }) => {
-              const supported = declared !== undefined;
-              return (
-                <div className="settings__feature-row" key={catalogFeature.id}>
-                  <dt
-                    title={declared?.description ?? catalogFeature.description}
-                  >
-                    {declared?.label ?? catalogFeature.label}
-                  </dt>
-                  <dd
-                    className={
-                      supported
-                        ? "settings__feature-state settings__feature-state--yes"
-                        : "settings__feature-state"
-                    }
-                  >
-                    {supported ? "Supported" : "Not supported"}
-                    {declared?.parameters
-                      ? ` · ${formatParameters(declared.parameters)}`
-                      : ""}
-                  </dd>
-                </div>
-              );
-            },
-          )}
+          {projectAgentFeatureRows(featureCatalog, agent.features).map((row) => (
+            <div className="settings__feature-row" key={row.id}>
+              <dt title={row.description}>{row.label}</dt>
+              <dd
+                className={
+                  row.supported
+                    ? "settings__feature-state settings__feature-state--yes"
+                    : "settings__feature-state"
+                }
+                title={row.stateText}
+              >
+                {row.stateText}
+              </dd>
+            </div>
+          ))}
         </dl>
       )}
     </div>
   );
-}
-
-/** Presentation order only: manifest order and support declarations remain
- * untouched, while unsupported catalog entries are grouped at the bottom. */
-function orderedFeatureRows(
-  catalog: readonly AgentFeature[],
-  declared: readonly AgentFeature[],
-): { catalogFeature: AgentFeature; declared: AgentFeature | undefined }[] {
-  const declarations = new Map(declared.map((feature) => [feature.id, feature]));
-  return catalog
-    .map((catalogFeature) => ({
-      catalogFeature,
-      declared: declarations.get(catalogFeature.id),
-    }))
-    .sort(
-      (a, b) =>
-        Number(b.declared !== undefined) - Number(a.declared !== undefined),
-    );
-}
-
-function formatParameters(
-  parameters: Readonly<Record<string, unknown>>,
-): string {
-  return Object.entries(parameters)
-    .map(([key, value]) => `${key}: ${formatParameter(value)}`)
-    .join("; ");
-}
-
-function formatParameter(value: unknown): string {
-  if (Array.isArray(value)) return value.join(", ");
-  if (value === null) return "none";
-  return String(value);
 }

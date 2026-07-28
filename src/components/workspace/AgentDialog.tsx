@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentRemoteSchemes,
+  agentSessionCapabilities,
   agentSupportsNew,
-  agentSupportsFork,
-  agentSupportsResume,
   agentSupportsYolo,
   canCreateAgent,
   remoteValid,
@@ -176,8 +175,10 @@ export function AgentDialog({
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
   const supportsNew = agentSupportsNew(agents, agentType);
-  const supportsResume = agentSupportsResume(agents, agentType);
-  const supportsFork = agentSupportsFork(agents, agentType);
+  const {
+    resume: supportsResume,
+    fork: supportsFork,
+  } = agentSessionCapabilities(agents, agentType);
   const startModeOptions: readonly (readonly [
     mode: SessionStartMode,
     label: string,

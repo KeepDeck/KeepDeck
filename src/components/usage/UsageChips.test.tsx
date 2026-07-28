@@ -135,6 +135,11 @@ describe("UsageChips", () => {
     expect(host.querySelector(".usage-chip")).toBeNull();
   });
 
+  it("does not wait forever when account usage is declared but unavailable", () => {
+    render(new Set(["claude"]), [{ ...CLAUDE, usageAvailable: false }]);
+    expect(host.querySelector(".usage-chip")).toBeNull();
+  });
+
   it("shows both account windows, calm below the thresholds", () => {
     reportUsage("pane-1", limitsReport(42), AT);
     render();

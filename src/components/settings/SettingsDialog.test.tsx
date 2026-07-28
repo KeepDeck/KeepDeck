@@ -477,7 +477,7 @@ describe("SettingsDialog", () => {
     )!;
     expect(panelOf(features).hasAttribute("hidden")).toBe(false);
     expect(features.textContent).toContain("CLI features");
-    expect(features.textContent).toContain("Example Agent");
+    expect(features.textContent).not.toContain("Example Agent");
     expect(features.textContent).not.toContain("example-agent");
     expect(features.textContent).toContain("Resume saved sessions");
     expect(features.textContent).toContain("Session analytics");
@@ -499,6 +499,42 @@ describe("SettingsDialog", () => {
         .slice(firstUnsupported)
         .every((state) => state?.startsWith("Not supported")),
     ).toBe(true);
+  });
+
+  it("names agents only when one plugin contributes more than one", async () => {
+    pluginStore.set([
+      {
+        ...CLI_PLUGIN,
+        manifest: {
+          ...CLI_PLUGIN.manifest,
+          contributes: {
+            agents: [
+              ...CLI_PLUGIN.manifest.contributes.agents,
+              {
+                id: "second-agent",
+                label: "Second Agent",
+                bin: "second",
+                features: [
+                  {
+                    id: "session.new",
+                    label: "New sessions",
+                    group: "sessions",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    await mount();
+    act(() => button("Example CLI").click());
+
+    const features = document.querySelector(
+      '[aria-label="Example CLI features"]',
+    )!;
+    expect(features.textContent).toContain("Example Agent");
+    expect(features.textContent).toContain("Second Agent");
   });
 
   it("reads the same feature declaration while a CLI plugin is disabled", async () => {

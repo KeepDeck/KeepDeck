@@ -117,21 +117,6 @@ export function agentSessionCapabilities(
   };
 }
 
-/** Whether `type`'s live integration can prepare a resume plan. */
-export function agentSupportsResume(
-  agents: AgentInfo[],
-  type: AgentType,
-): boolean {
-  return agentSessionCapabilities(agents, type).resume;
-}
-
-export function agentSupportsFork(
-  agents: AgentInfo[],
-  type: AgentType,
-): boolean {
-  return agentSessionCapabilities(agents, type).fork;
-}
-
 export function agentHasFeature(
   agents: AgentInfo[],
   type: AgentType,
