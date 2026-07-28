@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentRemoteSchemes,
+  agentSupportsNew,
   agentSupportsFork,
   agentSupportsResume,
   agentSupportsYolo,
@@ -174,13 +175,14 @@ export function AgentDialog({
   const prefillRef = useRef("");
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
+  const supportsNew = agentSupportsNew(agents, agentType);
   const supportsResume = agentSupportsResume(agents, agentType);
   const supportsFork = agentSupportsFork(agents, agentType);
   const startModeOptions: readonly (readonly [
     mode: SessionStartMode,
     label: string,
   ])[] = [
-    ["new", "New session"],
+    ...(supportsNew ? ([["new", "New session"]] as const) : []),
     ...(supportsResume ? ([["resume", "Resume"]] as const) : []),
     ...(supportsFork ? ([["fork", "Fork"]] as const) : []),
   ];
@@ -402,11 +404,11 @@ export function AgentDialog({
   // whole worktree block is hidden); everything else gates on both. Remote
   // ignores the local location too (the agent's cwd is on the box) and only
   // needs a valid endpoint — the Worktree + Start-from sections are hidden.
-  const valid = remote
+  const valid = supportsNew && (remote
     ? endpointOk
     : startMode === "resume"
       ? sessionOk
-      : canCreateAgent(kind, branch, baseOk) && sessionOk;
+      : canCreateAgent(kind, branch, baseOk) && sessionOk);
 
   // "Use next available": swap the occupied path (and its branch) for the
   // next free suggestion. A null result (no base, IPC down) leaves the field

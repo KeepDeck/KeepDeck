@@ -482,9 +482,17 @@ function readAgentSummaries(
     return undefined;
   }
   const read: AgentContributionSummary[] = [];
+  const ids = new Set<string>();
   value.forEach((entry, i) => {
     const summary = readSummaryEntry(entry, "agents", i, errors);
     if (!summary) return;
+    if (ids.has(summary.id)) {
+      errors.push(
+        `contributes.agents[${i}].id: duplicate agent "${summary.id}"`,
+      );
+      return;
+    }
+    ids.add(summary.id);
     const record = entry as Record<string, unknown>;
     const bin = record.bin;
     if (

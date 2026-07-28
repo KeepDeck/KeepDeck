@@ -48,17 +48,23 @@ export interface AgentInfo {
   /** Functional support projected from the plugin manifest. Runtime
    * contributions contain implementations only, never a parallel list. */
   features: readonly AgentFeature[];
+  /** Whether this live contribution can feed usage to the host. Derived from
+   * the implementation; readiness, not another support declaration. */
+  usageAvailable?: boolean;
   /** Whether the CLI resolves on the augmented PATH. */
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */
   path: string | null;
 }
 
-/** Agents to offer in the picker: installed only, but the full catalog when none
- *  are detected — never lock the user out of creating an agent ([F1]). */
+/** Agents that can create a fresh pane. Within that launchable set, prefer
+ * installed CLIs but keep the full set when none resolve ([F1]). */
 export function selectableAgents(agents: AgentInfo[]): AgentInfo[] {
-  const installed = agents.filter((a) => a.installed);
-  return installed.length > 0 ? installed : agents;
+  const launchable = agents.filter((agent) =>
+    hasAgentFeature(agent.features, AGENT_FEATURE.newSession),
+  );
+  const installed = launchable.filter((agent) => agent.installed);
+  return installed.length > 0 ? installed : launchable;
 }
 
 /** Pick a sensible agent type from the selectable set: keep `preferred` if it's
@@ -83,28 +89,47 @@ export function agentSupportsYolo(
   return agentHasFeature(agents, type, AGENT_FEATURE.yolo);
 }
 
+/** Whether `type` can create a fresh session. */
+export function agentSupportsNew(
+  agents: AgentInfo[],
+  type: AgentType,
+): boolean {
+  return agentHasFeature(agents, type, AGENT_FEATURE.newSession);
+}
+
+export interface AgentSessionCapabilities {
+  readonly history: boolean;
+  readonly resume: boolean;
+  readonly fork: boolean;
+}
+
+/** Session actions supported by one catalog entry. */
+export function agentSessionCapabilities(
+  agents: AgentInfo[],
+  type: AgentType,
+): AgentSessionCapabilities {
+  const agent = agents.find((entry) => entry.id === type);
+  const features = agent?.features ?? [];
+  return {
+    history: hasAgentFeature(features, AGENT_FEATURE.sessionHistory),
+    resume: hasAgentFeature(features, AGENT_FEATURE.resumeSession),
+    fork: hasAgentFeature(features, AGENT_FEATURE.forkSession),
+  };
+}
+
 /** Whether `type`'s live integration can prepare a resume plan. */
 export function agentSupportsResume(
   agents: AgentInfo[],
   type: AgentType,
 ): boolean {
-  return agentHasFeature(agents, type, AGENT_FEATURE.resumeSession);
+  return agentSessionCapabilities(agents, type).resume;
 }
 
-/** Whether `type`'s live integration can prepare a fork plan. */
 export function agentSupportsFork(
   agents: AgentInfo[],
   type: AgentType,
 ): boolean {
-  return agentHasFeature(agents, type, AGENT_FEATURE.forkSession);
-}
-
-/** Whether `type`'s live integration exposes its session store. */
-export function agentSupportsHistory(
-  agents: AgentInfo[],
-  type: AgentType,
-): boolean {
-  return agentHasFeature(agents, type, AGENT_FEATURE.sessionHistory);
+  return agentSessionCapabilities(agents, type).fork;
 }
 
 export function agentHasFeature(

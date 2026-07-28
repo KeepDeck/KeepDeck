@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentRemoteSchemes,
+  agentSupportsNew,
   agentSupportsYolo,
   remoteValid,
   selectableAgents,
@@ -18,7 +19,7 @@ function agent(
     id,
     label: id,
     command: id,
-    features: [],
+    features: [{ id: "session.new", label: "New sessions" }],
     installed,
     path: null,
     ...extra,
@@ -37,7 +38,21 @@ describe("selectableAgents", () => {
 
   it("falls back to the full list when none are installed (never lock out)", () => {
     const list = [agent("claude", false), agent("codex", false)];
-    expect(selectableAgents(list)).toBe(list);
+    expect(selectableAgents(list)).toEqual(list);
+  });
+
+  it("excludes agents that do not declare new-session support", () => {
+    const list = [
+      agent("history", true, {
+        features: [{ id: "session.history", label: "History" }],
+      }),
+      agent("claude", true),
+    ];
+    expect(selectableAgents(list).map((entry) => entry.id)).toEqual([
+      "claude",
+    ]);
+    expect(agentSupportsNew(list, "history")).toBe(false);
+    expect(agentSupportsNew(list, "claude")).toBe(true);
   });
 });
 

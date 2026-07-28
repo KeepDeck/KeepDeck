@@ -93,6 +93,7 @@ function toAgentInfo(
     icon: entry.icon,
     command: entry.detect.bin,
     features: projectAgentFeatures(summary, entry),
+    usageAvailable: entry.usage !== undefined,
     installed: status?.installed ?? true,
     path: status?.path ?? null,
   };

@@ -6,24 +6,17 @@ import {
   AGENT_FEATURE,
   type AgentFeature,
 } from "../domain/agents";
+import {
+  contributionSupportsFork,
+  contributionSupportsHistory,
+  contributionSupportsResume,
+} from "../plugins/agents/implementation";
 
-/** Execution predicates inspect implementations, not a declaration. They are
- * shared by the plan builder and activation-time manifest validation. */
-export function contributionSupportsResume(
-  agent: AgentContribution,
-): boolean {
-  return typeof agent.hooks["resume.plan"] === "function";
-}
-
-export function contributionSupportsFork(agent: AgentContribution): boolean {
-  return typeof agent.hooks["fork.plan"] === "function";
-}
-
-export function contributionSupportsHistory(
-  agent: AgentContribution,
-): boolean {
-  return agent.history !== undefined;
-}
+export {
+  contributionSupportsFork,
+  contributionSupportsHistory,
+  contributionSupportsResume,
+} from "../plugins/agents/implementation";
 
 /**
  * Project the manifest's single feature declaration into the live host

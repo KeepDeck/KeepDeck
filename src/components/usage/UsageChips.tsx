@@ -154,6 +154,7 @@ export function UsageChips({
   const providers = agents.filter(
     (agent) =>
       (hasAgentFeature(agent.features, AGENT_FEATURE.accountUsage) &&
+        agent.usageAvailable === true &&
         liveAgents.has(agent.id)) ||
       accounts.get(agent.id)?.kind === "reported",
   );

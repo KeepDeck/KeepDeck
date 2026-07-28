@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  agentSupportsNew,
   agentSupportsYolo,
   selectableAgents,
   defaultAgentType,
@@ -62,6 +63,7 @@ export function WorkspaceForm({
   const [yoloTouched, setYoloTouched] = useState(false);
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
+  const supportsNew = agentSupportsNew(agents, agentType);
   const supportsYolo = agentSupportsYolo(agents, agentType);
   const [count, setCount] = useState(1);
   // Empty string = no worktree isolation; maps to null in SpawnConfig.
@@ -149,7 +151,7 @@ export function WorkspaceForm({
   };
 
   const create = () => {
-    if (cwd)
+    if (cwd && (count === 0 || supportsNew))
       onCreate({
         name,
         cwd,
@@ -161,7 +163,7 @@ export function WorkspaceForm({
   };
 
   const submit = () => {
-    if (!cwd) return;
+    if (!cwd || (count > 0 && !supportsNew)) return;
     // No worktree dir chosen but the working dir is a git repo → in-app nudge
     // (no system dialogs) before running every agent in one repo working tree.
     // Skipped for an empty workspace ([F15]): no agents run, nothing to isolate.
@@ -301,8 +303,14 @@ export function WorkspaceForm({
         <button
           type="submit"
           className="form__create"
-          disabled={!cwd}
-          title={cwd ? "Create workspace" : "Choose a working directory first"}
+          disabled={!cwd || (count > 0 && !supportsNew)}
+          title={
+            !cwd
+              ? "Choose a working directory first"
+              : count > 0 && !supportsNew
+                ? "No agent that supports new sessions is selected"
+                : "Create workspace"
+          }
         >
           Create workspace
         </button>

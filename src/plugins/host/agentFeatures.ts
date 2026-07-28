@@ -8,7 +8,7 @@ import {
   contributionSupportsFork,
   contributionSupportsHistory,
   contributionSupportsResume,
-} from "../../app/agentCapabilities";
+} from "../agents/implementation";
 
 /**
  * Validate the manifest's one feature declaration against concrete runtime
@@ -17,6 +17,7 @@ import {
 export function validateAgentFeatureImplementations(
   summary: AgentContributionSummary,
   implementation: AgentContribution,
+  options: { external?: boolean } = {},
 ): void {
   if (summary.features === undefined) return; // legacy contract
 
@@ -58,8 +59,18 @@ export function validateAgentFeatureImplementations(
     );
   }
 
-  validateUsageFeatures(summary.features, implementation);
   validateRemoteFeature(summary.features, implementation.id);
+  requireSpawnPlan(summary.features, implementation, AGENT_FEATURE.yolo);
+  requireSpawnPlan(
+    summary.features,
+    implementation,
+    AGENT_FEATURE.remoteTarget,
+  );
+  validateUsageFeatures(
+    summary.features,
+    implementation,
+    options.external === true,
+  );
 }
 
 interface FeatureContract {
@@ -71,12 +82,17 @@ interface FeatureContract {
 function validateUsageFeatures(
   features: readonly AgentFeatureDeclaration[],
   implementation: AgentContribution,
+  external: boolean,
 ): void {
   const pane = features.some((feature) => feature.id === AGENT_FEATURE.paneUsage);
   const account = features.some(
     (feature) => feature.id === AGENT_FEATURE.accountUsage,
   );
-  if ((pane || account) && implementation.usage === undefined) {
+  if (
+    (pane || account) &&
+    implementation.usage === undefined &&
+    !external
+  ) {
     throw new Error(
       `agent "${implementation.id}": usage features require a usage implementation`,
     );
@@ -89,6 +105,21 @@ function validateUsageFeatures(
   if (implementation.usage?.limits !== undefined && !account) {
     throw new Error(
       `agent "${implementation.id}": limits implementation requires manifest feature "${AGENT_FEATURE.accountUsage}"`,
+    );
+  }
+}
+
+function requireSpawnPlan(
+  features: readonly AgentFeatureDeclaration[],
+  implementation: AgentContribution,
+  featureId: string,
+): void {
+  if (
+    features.some((feature) => feature.id === featureId) &&
+    typeof implementation.hooks["spawn.plan"] !== "function"
+  ) {
+    throw new Error(
+      `agent "${implementation.id}": manifest feature "${featureId}" requires a spawn.plan implementation`,
     );
   }
 }

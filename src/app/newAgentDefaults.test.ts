@@ -24,7 +24,7 @@ const agent = (id: string): AgentInfo => ({
   id,
   label: id,
   command: id,
-  features: [],
+  features: [{ id: "session.new", label: "New sessions" }],
   installed: true,
   path: "/bin",
 });

@@ -21,7 +21,7 @@ const agent = (id: string, label: string) => ({
   id,
   label,
   command: id,
-  features: [],
+  features: [{ id: "session.new", label: "New sessions" }],
   installed: true,
   path: null,
 });
@@ -151,7 +151,10 @@ describe("WorkspaceForm YOLO toggle", () => {
     catalog.list = [
       {
         ...agent("claude", "Claude Code"),
-        features: [{ id: "execution.yolo", label: "YOLO mode" }],
+        features: [
+          { id: "session.new", label: "New sessions" },
+          { id: "execution.yolo", label: "YOLO mode" },
+        ],
       },
     ];
     document.body.innerHTML = "";

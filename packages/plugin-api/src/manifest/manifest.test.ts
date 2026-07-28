@@ -363,6 +363,24 @@ describe("agent contribution bins", () => {
     expect(result.errors.some((e) => e.includes("contributes.agents[0]"))).toBe(true);
     expect(result.errors.some((e) => e.includes("contributes.agents[1]"))).toBe(true);
   });
+
+  it("rejects duplicate agent ids within one manifest", () => {
+    const result = readManifest({
+      ...CLI,
+      contributes: {
+        agents: [
+          { id: "claude", label: "Claude Code", bin: "claude" },
+          { id: "claude", label: "Claude Alternate", bin: "claude" },
+        ],
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toContain(
+        'contributes.agents[1].id: duplicate agent "claude"',
+      );
+    }
+  });
 });
 
 describe("CLI agent features", () => {

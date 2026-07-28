@@ -132,6 +132,7 @@ describe("useAgents", () => {
         features: [{ id: "execution.yolo", label: "YOLO mode" }],
         installed: false,
         path: null,
+        usageAvailable: false,
       },
     ]);
     expect(seen.loading).toBe(false);

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import {
+  agentSupportsNew,
   agentSupportsYolo,
   type AgentInfo,
 } from "../domain/agents";
@@ -234,6 +235,11 @@ export function registerCoreCommands(
         if (requested && !agents.some((a) => a.id === requested))
           throw new Error(`unknown agent type "${requested}"`);
         const agentType = requested ?? nextAgentType(agents, ws);
+        if (!agentSupportsNew(agents, agentType)) {
+          throw new Error(
+            `agent type "${agentType}" does not support new sessions`,
+          );
+        }
         const id = paneId(mintAgentSeq());
         const index = nextAgentIndex(ws);
 

@@ -151,7 +151,9 @@ export function buildPluginContext(
         const declaredAgent = manifest.contributes.agents!.find(
           (entry) => entry.id === agent.id,
         )!;
-        validateAgentFeatureImplementations(declaredAgent, agent);
+        validateAgentFeatureImplementations(declaredAgent, agent, {
+          external: source === "external",
+        });
         // The agent's binary is what spawn plans fall back to — it must be
         // legitimate by declaration, both tiers, no exceptions.
         if (!execCovers(manifest.capabilities, agent.detect.bin)) {

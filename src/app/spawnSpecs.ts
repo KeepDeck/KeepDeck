@@ -26,7 +26,7 @@ import { execCovers } from "../plugins/capabilities/execCovers";
 import {
   contributionSupportsFork,
   contributionSupportsResume,
-} from "./agentCapabilities";
+} from "../plugins/agents/implementation";
 
 export type SpawnPluginAccess = Pick<
   PluginManager,
@@ -185,6 +185,15 @@ async function buildPlan(
     ...(skills ? { skills } : {}),
     ...(facts.target ? { target: facts.target } : {}),
   };
+  if (
+    variant.kind === "spawn" &&
+    facts.target &&
+    typeof entry.hooks["spawn.plan"] !== "function"
+  ) {
+    throw new Error(
+      `${entry.id}: remote target requires a spawn.plan implementation`,
+    );
+  }
   try {
     if (variant.kind === "resume") {
       await entry.hooks["resume.plan"]?.(

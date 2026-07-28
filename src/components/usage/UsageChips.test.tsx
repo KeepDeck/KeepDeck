@@ -30,6 +30,7 @@ const CLAUDE: AgentInfo = {
     { id: "usage.pane", label: "Pane usage" },
     { id: "usage.account", label: "Account limits" },
   ],
+  usageAvailable: true,
   installed: true,
   path: null,
 };

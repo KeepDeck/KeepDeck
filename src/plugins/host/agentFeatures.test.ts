@@ -121,4 +121,30 @@ describe("validateAgentFeatureImplementations", () => {
       ),
     ).toThrow('requires non-empty supported "schemes"');
   });
+
+  it.each(["execution.yolo", "target.remote"])(
+    "rejects %s without a spawn.plan implementation",
+    (id) => {
+      const declaration =
+        id === "target.remote"
+          ? feature(id, { parameters: { schemes: ["ws"] } })
+          : feature(id);
+      expect(() =>
+        validateAgentFeatureImplementations(
+          summary([declaration]),
+          implementation(),
+        ),
+      ).toThrow(`feature "${id}" requires a spawn.plan`);
+    },
+  );
+
+  it("allows external usage declarations whose implementation cannot cross RPC", () => {
+    expect(() =>
+      validateAgentFeatureImplementations(
+        summary([feature("usage.pane"), feature("usage.account")]),
+        implementation(),
+        { external: true },
+      ),
+    ).not.toThrow();
+  });
 });
