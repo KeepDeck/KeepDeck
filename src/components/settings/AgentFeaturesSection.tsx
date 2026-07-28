@@ -23,11 +23,6 @@ export function AgentFeaturesSection({
       aria-label={`${plugin.manifest.name} features`}
     >
       <h3 className="settings__subheading">CLI features</h3>
-      {plugin.status.kind !== "active" && (
-        <p className="settings__hint settings__features-status">
-          {statusMessage(plugin.status.kind)}
-        </p>
-      )}
       {agents.length === 0 ? (
         <p className="settings__hint settings__features-empty">
           This integration declares no agents.
@@ -73,50 +68,54 @@ function AgentFeatureCard({
         </p>
       ) : (
         <dl className="settings__feature-list">
-          {featureCatalog.map((catalogFeature) => {
-            const declared = agent.features!.find(
-              (feature) => feature.id === catalogFeature.id,
-            );
-            const supported = declared !== undefined;
-            return (
-              <div className="settings__feature-row" key={catalogFeature.id}>
-                <dt title={declared?.description ?? catalogFeature.description}>
-                  {declared?.label ?? catalogFeature.label}
-                </dt>
-                <dd
-                  className={
-                    supported
-                      ? "settings__feature-state settings__feature-state--yes"
-                      : "settings__feature-state"
-                  }
-                >
-                  {supported ? "Supported" : "Not supported"}
-                  {declared?.parameters
-                    ? ` · ${formatParameters(declared.parameters)}`
-                    : ""}
-                </dd>
-              </div>
-            );
-          })}
+          {orderedFeatureRows(featureCatalog, agent.features).map(
+            ({ catalogFeature, declared }) => {
+              const supported = declared !== undefined;
+              return (
+                <div className="settings__feature-row" key={catalogFeature.id}>
+                  <dt
+                    title={declared?.description ?? catalogFeature.description}
+                  >
+                    {declared?.label ?? catalogFeature.label}
+                  </dt>
+                  <dd
+                    className={
+                      supported
+                        ? "settings__feature-state settings__feature-state--yes"
+                        : "settings__feature-state"
+                    }
+                  >
+                    {supported ? "Supported" : "Not supported"}
+                    {declared?.parameters
+                      ? ` · ${formatParameters(declared.parameters)}`
+                      : ""}
+                  </dd>
+                </div>
+              );
+            },
+          )}
         </dl>
       )}
     </div>
   );
 }
 
-function statusMessage(status: InstalledPlugin["status"]["kind"]): string {
-  switch (status) {
-    case "disabled":
-      return "Supported features are declared below; the plugin is disabled.";
-    case "unavailable":
-      return "Supported features are declared below; the CLI is unavailable.";
-    case "failed":
-      return "Supported features are declared below; activation failed.";
-    case "registered":
-      return "Supported features are declared below; activation is pending.";
-    case "active":
-      return "";
-  }
+/** Presentation order only: manifest order and support declarations remain
+ * untouched, while unsupported catalog entries are grouped at the bottom. */
+function orderedFeatureRows(
+  catalog: readonly AgentFeature[],
+  declared: readonly AgentFeature[],
+): { catalogFeature: AgentFeature; declared: AgentFeature | undefined }[] {
+  const declarations = new Map(declared.map((feature) => [feature.id, feature]));
+  return catalog
+    .map((catalogFeature) => ({
+      catalogFeature,
+      declared: declarations.get(catalogFeature.id),
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.declared !== undefined) - Number(a.declared !== undefined),
+    );
 }
 
 function formatParameters(

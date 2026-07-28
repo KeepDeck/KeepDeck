@@ -165,6 +165,31 @@ const CLI_PLUGIN = {
   status: { kind: "active" },
 };
 
+const YOLO_ONLY_PLUGIN = {
+  ...CLI_PLUGIN,
+  manifest: {
+    ...CLI_PLUGIN.manifest,
+    id: "yolo.cli",
+    name: "YOLO CLI",
+    contributes: {
+      agents: [
+        {
+          id: "yolo-agent",
+          label: "YOLO Agent",
+          bin: "yolo",
+          features: [
+            {
+              id: "execution.yolo",
+              label: "YOLO mode",
+              group: "execution",
+            },
+          ],
+        },
+      ],
+    },
+  },
+};
+
 const button = (text: string) =>
   Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === text,
@@ -443,7 +468,7 @@ describe("SettingsDialog", () => {
   });
 
   it("renders arbitrary features directly from active plugin manifests", async () => {
-    pluginStore.set([CLI_PLUGIN]);
+    pluginStore.set([CLI_PLUGIN, YOLO_ONLY_PLUGIN]);
     await mount();
     act(() => button("Example CLI").click());
 
@@ -460,6 +485,19 @@ describe("SettingsDialog", () => {
     expect(features.textContent).toContain(
       "Remote targetsSupported · schemes: ws, wss",
     );
+    const states = Array.from(
+      features.querySelectorAll(".settings__feature-state"),
+      (state) => state.textContent,
+    );
+    const firstUnsupported = states.findIndex((state) =>
+      state?.startsWith("Not supported"),
+    );
+    expect(firstUnsupported).toBeGreaterThan(0);
+    expect(
+      states
+        .slice(firstUnsupported)
+        .every((state) => state?.startsWith("Not supported")),
+    ).toBe(true);
   });
 
   it("reads the same feature declaration while a CLI plugin is disabled", async () => {
@@ -475,8 +513,8 @@ describe("SettingsDialog", () => {
     const features = document.querySelector(
       '[aria-label="Example CLI features"]',
     )!;
-    expect(features.textContent).toContain(
-      "Supported features are declared below; the plugin is disabled.",
+    expect(features.textContent).not.toContain(
+      "the plugin is disabled",
     );
     expect(features.textContent).toContain("Resume saved sessionsSupported");
     expect(features.textContent).toContain("A future plugin featureSupported");
