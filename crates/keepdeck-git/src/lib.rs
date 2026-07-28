@@ -29,6 +29,7 @@ pub mod provenance;
 pub mod repo;
 pub mod status;
 pub mod worktree;
+pub mod worktree_base;
 
 pub use error::GitError;
 pub use head::Head;
