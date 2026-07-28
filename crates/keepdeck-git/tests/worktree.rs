@@ -64,6 +64,39 @@ fn detects_repo_and_resolves_head() {
     fs::remove_dir_all(&non_repo).ok();
 }
 
+#[test]
+fn identifies_only_direct_local_branch_revisions() {
+    let repo_dir = init_repo();
+    let current = repo::current_branch(&repo_dir).unwrap().expect("branch");
+    let sha = repo::resolve_commit(&repo_dir, "HEAD").unwrap();
+    git(
+        &repo_dir,
+        &["update-ref", "refs/remotes/origin/base", "HEAD"],
+    );
+
+    let expected = Some(format!("refs/heads/{current}"));
+    assert_eq!(repo::local_branch_ref(&repo_dir, "HEAD").unwrap(), expected);
+    assert_eq!(
+        repo::local_branch_ref(&repo_dir, &current).unwrap(),
+        Some(format!("refs/heads/{current}"))
+    );
+    assert_eq!(repo::local_branch_ref(&repo_dir, &sha).unwrap(), None);
+    assert_eq!(
+        repo::local_branch_ref(&repo_dir, "origin/base").unwrap(),
+        None
+    );
+    assert_eq!(
+        repo::local_branch_ref(&repo_dir, &format!("{current}~0")).unwrap(),
+        None
+    );
+    assert_eq!(
+        repo::local_branch_ref(&repo_dir, "missing-branch").unwrap(),
+        None
+    );
+
+    fs::remove_dir_all(&repo_dir).ok();
+}
+
 /// Only a work tree's ROOT is attachable. `is_git_repo` says "true" for every
 /// subdirectory of a repo, so classifying on it would offer to attach an agent
 /// to `<repo>/src` — landing it on the main branch with no isolation at all.

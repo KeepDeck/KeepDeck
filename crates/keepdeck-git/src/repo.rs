@@ -55,6 +55,35 @@ pub fn resolve_commit(repo: &Path, rev: &str) -> Result<String, GitError> {
     Ok(out.trim().to_string())
 }
 
+/// Resolve `rev` to its full local branch ref, when it names one directly.
+///
+/// A commit SHA, tag, remote-tracking branch, detached `HEAD`, derived
+/// expression (`main~1`), or missing revision returns `None`. This preserves
+/// the identity of a selected local base branch separately from the exact
+/// commit SHA pinned at worktree creation time.
+pub fn local_branch_ref(repo: &Path, rev: &str) -> Result<Option<String>, GitError> {
+    match run_git(
+        repo,
+        [
+            "rev-parse",
+            "--symbolic-full-name",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            rev,
+        ],
+    ) {
+        Ok(out) => {
+            let reference = out.trim();
+            Ok(reference
+                .starts_with("refs/heads/")
+                .then(|| reference.to_string()))
+        }
+        Err(GitError::Command { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
 /// The repository's default branch — the remote HEAD's short name (`origin/HEAD`
 /// → `main`), which is what "the default branch" means for a clone. `None` when
 /// no `origin` remote declares one (no remote, unfetched HEAD, or a remote under
