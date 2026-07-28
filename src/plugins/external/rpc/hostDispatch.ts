@@ -1,8 +1,12 @@
 import type {
   AgentContribution,
+  AgentHistory,
   AgentHooks,
   AgentIcon,
   AgentIconPath,
+  AgentSessionFacts,
+  AgentSessionStub,
+  AgentTranscriptEntry,
   Disposable,
   DownloadRequest,
   DownloadState,
@@ -23,9 +27,11 @@ import {
   DECK_EVENT_CHANNELS,
   downloadChannel,
   fswatchChannel,
+  historyChannel,
   hookChannel,
   openChannel,
   speechLevelChannel,
+  type WireAgentHistoryCall,
   type WireHookCall,
   type WireOpenCall,
   type WireSpawnPlanOutput,
@@ -108,6 +114,41 @@ export function createHostDispatch(
       });
       const call: WireHookCall = { agentId, hook, input, output };
       push(hookChannel(id), call);
+    });
+  }
+
+  // Agent-history reads use the same correlated host→realm request shape as
+  // hooks. They stay separate because their result is immutable data rather
+  // than a spawn plan that mutates an existing object.
+  const HISTORY_TIMEOUT_MS = 10_000;
+  let nextHistoryId = 1;
+  const pendingHistory = new Map<
+    number,
+    (result: { ok: true; value: unknown } | { ok: false; error: string }) => void
+  >();
+
+  function callHistory(
+    agentId: string,
+    method: WireAgentHistoryCall["method"],
+    args: unknown[],
+  ): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const id = nextHistoryId++;
+      const timer = setTimeout(() => {
+        if (pendingHistory.delete(id))
+          reject(
+            new Error(
+              `agent history ${method} timed out after ${HISTORY_TIMEOUT_MS}ms`,
+            ),
+          );
+      }, HISTORY_TIMEOUT_MS);
+      pendingHistory.set(id, (result) => {
+        clearTimeout(timer);
+        if (!result.ok) return reject(new Error(result.error));
+        resolve(result.value);
+      });
+      const call: WireAgentHistoryCall = { agentId, method, args };
+      push(historyChannel(id), call);
     });
   }
 
@@ -303,8 +344,19 @@ export function createHostDispatch(
 
     // ---- agents: identity as data; hooks as host→realm proxies ----
     "agents.register": ([regId, entry]) => {
-      const { id, label, icon, detect, supportsYolo, hookNames, usage } =
-        entry as Omit<AgentContribution, "hooks"> & { hookNames?: string[] };
+      const {
+        id,
+        label,
+        icon,
+        detect,
+        supportsYolo,
+        hookNames,
+        hasHistory,
+        usage,
+      } = entry as Omit<AgentContribution, "hooks" | "history"> & {
+        hookNames?: string[];
+        hasHistory?: boolean;
+      };
       // Usage contributions cannot cross this boundary yet: the store calls
       // `normalize` SYNCHRONOUSLY per report, and a cross-realm proxy is
       // necessarily async. Loud, not silent — a plugin author must learn
@@ -318,9 +370,43 @@ export function createHostDispatch(
       for (const name of hookNames ?? []) {
         // Only the contract's hook names become proxies — a made-up name
         // from a hostile realm never lands on the host object.
-        if (name !== "spawn.plan" && name !== "resume.plan") continue;
+        if (
+          name !== "spawn.plan" &&
+          name !== "resume.plan" &&
+          name !== "fork.plan"
+        )
+          continue;
         hooks[name] = (input, output) => callHook(id, name, input, output);
       }
+      const history: AgentHistory | undefined =
+        hasHistory === true
+          ? {
+              list: async () =>
+                requireHistoryResult(
+                  "list",
+                  await callHistory(id, "list", []),
+                  sanitizeHistoryList,
+                ),
+              describe: async (ref) =>
+                requireHistoryResult(
+                  "describe",
+                  await callHistory(id, "describe", [ref]),
+                  sanitizeHistoryFacts,
+                ),
+              content: async (ref) =>
+                requireHistoryResult(
+                  "content",
+                  await callHistory(id, "content", [ref]),
+                  sanitizeHistoryContent,
+                ),
+              transcript: async (ref, page) =>
+                requireHistoryResult(
+                  "transcript",
+                  await callHistory(id, "transcript", [ref, page]),
+                  sanitizeHistoryTranscript,
+                ),
+            }
+          : undefined;
       retain(
         regId as number,
         ctx.agents.register({
@@ -332,6 +418,7 @@ export function createHostDispatch(
           // from a hostile realm degrades to "no YOLO support".
           ...(supportsYolo === true && { supportsYolo: true }),
           hooks,
+          ...(history && { history }),
         }),
       );
     },
@@ -340,6 +427,12 @@ export function createHostDispatch(
       if (!settle) return; // timed out, disposed, or never ours
       pendingHooks.delete(id as number);
       settle(asRealmResult(result, (v) => ({ ok: true, output: v.output })));
+    },
+    "agents.historyResult": ([id, result]) => {
+      const settle = pendingHistory.get(id as number);
+      if (!settle) return;
+      pendingHistory.delete(id as number);
+      settle(asRealmResult(result, (v) => ({ ok: true, value: v.value })));
     },
 
     // ---- the one teardown path shared by every registration kind ----
@@ -523,6 +616,10 @@ export function createHostDispatch(
         settle({ ok: false, error: "plugin bridge disposed" });
       }
       pendingHooks.clear();
+      for (const settle of pendingHistory.values()) {
+        settle({ ok: false, error: "plugin bridge disposed" });
+      }
+      pendingHistory.clear();
       for (const settle of pendingOpens.values()) {
         settle({ ok: false, error: "plugin bridge disposed" });
       }
@@ -629,4 +726,82 @@ function sanitizePlanOutput(value: unknown): WireSpawnPlanOutput | null {
       ? { envDefaults: v.envDefaults as [string, string][] }
       : {}),
   };
+}
+
+function requireHistoryResult<T>(
+  method: WireAgentHistoryCall["method"],
+  value: unknown,
+  sanitize: (value: unknown) => T | null,
+): T {
+  const result = sanitize(value);
+  if (result === null)
+    throw new Error(`agent history ${method} returned malformed data`);
+  return result;
+}
+
+function sanitizeHistoryList(value: unknown): AgentSessionStub[] | null {
+  if (!Array.isArray(value)) return null;
+  const result: AgentSessionStub[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return null;
+    const v = item as Record<string, unknown>;
+    if (
+      typeof v.sessionId !== "string" ||
+      typeof v.ref !== "string" ||
+      typeof v.mtime !== "number" ||
+      !Number.isFinite(v.mtime) ||
+      typeof v.size !== "number" ||
+      !Number.isFinite(v.size)
+    )
+      return null;
+    result.push({
+      sessionId: v.sessionId,
+      ref: v.ref,
+      mtime: v.mtime,
+      size: v.size,
+    });
+  }
+  return result;
+}
+
+function sanitizeHistoryFacts(value: unknown): AgentSessionFacts | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v.cwd !== "string" ||
+    (v.title !== undefined && typeof v.title !== "string") ||
+    (v.transcriptPath !== undefined && typeof v.transcriptPath !== "string")
+  )
+    return null;
+  return {
+    cwd: v.cwd,
+    ...(typeof v.title === "string" ? { title: v.title } : {}),
+    ...(typeof v.transcriptPath === "string"
+      ? { transcriptPath: v.transcriptPath }
+      : {}),
+  };
+}
+
+function sanitizeHistoryContent(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function sanitizeHistoryTranscript(
+  value: unknown,
+): AgentTranscriptEntry[] | null {
+  if (!Array.isArray(value)) return null;
+  const result: AgentTranscriptEntry[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return null;
+    const v = item as Record<string, unknown>;
+    if (
+      (v.role !== "user" &&
+        v.role !== "assistant" &&
+        v.role !== "other") ||
+      typeof v.text !== "string"
+    )
+      return null;
+    result.push({ role: v.role, text: v.text });
+  }
+  return result;
 }
