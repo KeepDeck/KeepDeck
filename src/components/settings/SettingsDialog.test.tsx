@@ -478,9 +478,7 @@ describe("SettingsDialog", () => {
     expect(panelOf(features).hasAttribute("hidden")).toBe(false);
     expect(features.textContent).toContain("CLI features");
     expect(features.textContent).toContain("Example Agent");
-    const agentId = features.querySelector(".settings__feature-agent-id")!;
-    expect(agentId.textContent).toBe("example-agent");
-    expect(agentId.classList.contains("settings__hint")).toBe(false);
+    expect(features.textContent).not.toContain("example-agent");
     expect(features.textContent).toContain("Resume saved sessions");
     expect(features.textContent).toContain("Session analytics");
     expect(features.textContent).toContain("Account limits");

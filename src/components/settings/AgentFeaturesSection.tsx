@@ -54,8 +54,7 @@ function AgentFeatureCard({
   return (
     <div className="settings__feature-agent">
       <div className="settings__feature-agent-name">
-        <span>{agent.label}</span>
-        <span className="settings__feature-agent-id">{agent.id}</span>
+        {agent.label}
       </div>
       {agent.features === undefined ? (
         <p className="settings__hint settings__features-legacy">
