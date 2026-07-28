@@ -29,9 +29,8 @@ export interface AgentContribution {
    * exactly — the host's availability gate reads the declaration before any
    * plugin code runs and rejects a drift at registration. */
   detect: { bin: string };
-  /** Whether this CLI can run with its permission prompts disabled (YOLO
-   * mode). Declares the capability only — the host gates its YOLO toggle on
-   * it; the hooks are where `input.yolo` becomes the CLI's actual flag. */
+  /** @deprecated API 30+ plugins declare `execution.yolo` once in the
+   * manifest. Retained only so the host can execute legacy plugins. */
   supportsYolo?: boolean;
   hooks: AgentHooks;
   /** How to read this agent's usage (limits, tokens, context) — see
@@ -40,10 +39,8 @@ export interface AgentContribution {
   /** Read-only discovery over this agent's session store ([F8] browser).
    * Absent = the agent's sessions don't appear in the global search. */
   history?: AgentHistory;
-  /** Declares this agent can run against a REMOTE target, and how. Absent =
-   *  local-only: the agent never appears in the "Where" picker's remote
-   *  options, and a pane of this agent simply ignores any target. The host
-   *  gates the remote UI on this declaration (mirrors `supportsYolo`). */
+  /** @deprecated API 30+ plugins declare `target.remote` and its schemes once
+   * in the manifest. Retained only for legacy plugin execution. */
   remote?: AgentRemote;
 }
 

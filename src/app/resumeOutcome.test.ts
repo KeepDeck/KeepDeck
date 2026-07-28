@@ -10,10 +10,9 @@ const AGENTS: AgentInfo[] = [
     id: "claude",
     label: "Claude",
     command: "claude",
-    supportsYolo: true,
+    features: [],
     installed: true,
     path: "/c",
-    usageCapabilities: [],
   },
 ];
 

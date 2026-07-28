@@ -376,6 +376,85 @@
   border-top: 1px solid #1c2230;
 }
 
+.settings__agent-features {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #1c2230;
+}
+
+.settings__subheading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #d7dce5;
+}
+
+.settings__features-status,
+.settings__features-empty {
+  margin: 8px 0 0;
+}
+
+.settings__feature-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.settings__feature-agent {
+  overflow: hidden;
+  border: 1px solid #252c3a;
+  border-radius: 6px;
+  background: #111620;
+}
+
+.settings__feature-agent-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #252c3a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings__feature-list {
+  margin: 0;
+}
+
+.settings__feature-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.settings__feature-row + .settings__feature-row {
+  border-top: 1px solid #1a202b;
+}
+
+.settings__feature-row dt,
+.settings__feature-row dd {
+  margin: 0;
+}
+
+.settings__feature-state {
+  color: #7f8999;
+  text-align: right;
+}
+
+.settings__feature-state--yes {
+  color: #70c995;
+}
+
+.settings__features-legacy {
+  margin: 0;
+  padding: 10px;
+}
+
 .settings__plugin-name {
   display: inline-flex;
   align-items: center;

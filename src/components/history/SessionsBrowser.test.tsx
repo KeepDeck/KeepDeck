@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
 import type { SearchHit } from "../../ipc/history";
+import type { AgentInfo } from "../../domain/agents";
 import type { SessionRecord } from "../../domain/journal";
 import type { SessionsBrowserApi } from "../../app/useSessionsBrowser";
 import { hitRecord, SessionsBrowser } from "./SessionsBrowser";
@@ -17,6 +18,19 @@ const worktreeIpc = vi.hoisted(() => ({
   ),
 }));
 vi.mock("../../ipc/worktree", () => worktreeIpc);
+
+const CAPABLE_AGENT: AgentInfo = {
+  id: "claude",
+  label: "Claude Code",
+  command: "claude",
+  features: [
+    { id: "session.resume", label: "Resume" },
+    { id: "session.fork", label: "Fork" },
+    { id: "session.history", label: "History" },
+  ],
+  installed: true,
+  path: null,
+};
 
 const hit = (over: Partial<SearchHit> = {}): SearchHit => ({
   agent: "claude",
@@ -109,7 +123,7 @@ describe("SessionsBrowser", () => {
       root.render(
         createElement(SessionsBrowser, {
           api: a,
-          agents: [],
+          agents: [CAPABLE_AGENT],
           ready: true,
           rows,
           onDelete: (callbacks.onDelete as (id: string) => void) ?? vi.fn(),
@@ -127,7 +141,7 @@ describe("SessionsBrowser", () => {
       root.render(
         createElement(SessionsBrowser, {
           api: a,
-          agents: [],
+          agents: [CAPABLE_AGENT],
           ready: true,
           rows: [],
           onDelete: vi.fn(),
@@ -162,7 +176,7 @@ describe("SessionsBrowser", () => {
     const a = api([]);
     const props = {
       api: a,
-      agents: [],
+      agents: [CAPABLE_AGENT],
       rows: [],
       onDelete: vi.fn(),
       onResume: vi.fn(),
@@ -240,7 +254,7 @@ describe("SessionsBrowser", () => {
       root.render(
         createElement(SessionsBrowser, {
           api: a,
-          agents: [],
+          agents: [CAPABLE_AGENT],
           ready: true,
           rows: [],
           onDelete: vi.fn(),
@@ -274,6 +288,40 @@ describe("SessionsBrowser", () => {
     await act(async () => back.click());
     expect(document.querySelector(".browser__viewer")).toBeNull();
     expect(document.querySelector(".history__row")).not.toBeNull(); // the list again
+  });
+
+  it("hides unsupported actions and does not open stale indexed history", async () => {
+    const a = api([hit()]);
+    await act(async () =>
+      root.render(
+        createElement(SessionsBrowser, {
+          api: a,
+          agents: [
+            {
+              ...CAPABLE_AGENT,
+              features: [],
+            },
+          ],
+          ready: true,
+          rows: [closed()],
+          onDelete: vi.fn(),
+          onResume: vi.fn(),
+          onFork: vi.fn(),
+        }),
+      ),
+    );
+
+    expect(document.querySelector(".history__resume")).toBeNull();
+    expect(document.querySelector(".history__fork")).toBeNull();
+    const open = document.querySelector<HTMLButtonElement>(".browser__open")!;
+    expect(open.disabled).toBe(true);
+    await act(async () =>
+      document.querySelector<HTMLLIElement>(
+        ".history__row:not(.browser__journal)",
+      )!.click(),
+    );
+    expect(a.transcript).not.toHaveBeenCalled();
+    expect(document.querySelector(".browser__viewer")).toBeNull();
   });
 
   it("shows the paging counter: partial as 'X of N', complete as the plain total", async () => {
@@ -344,7 +392,7 @@ describe("SessionsBrowser journal section", () => {
       root.render(
         createElement(SessionsBrowser, {
           api: a,
-          agents: [],
+          agents: [CAPABLE_AGENT],
           ready: true,
           rows,
           onDelete,

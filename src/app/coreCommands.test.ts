@@ -57,8 +57,22 @@ vi.mock("./settingsManager", () => ({
 }));
 
 const AGENTS: AgentInfo[] = [
-  { id: "claude", label: "Claude", command: "claude", supportsYolo: true, installed: true, path: "/c", usageCapabilities: ["paneTelemetry", "accountLimits"] },
-  { id: "codex", label: "Codex", command: "codex", supportsYolo: false, installed: true, path: "/x", usageCapabilities: ["paneTelemetry", "accountLimits"] },
+  {
+    id: "claude",
+    label: "Claude",
+    command: "claude",
+    features: [{ id: "execution.yolo", label: "YOLO mode" }],
+    installed: true,
+    path: "/c",
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    command: "codex",
+    features: [],
+    installed: true,
+    path: "/x",
+  },
 ];
 
 const workspace = (over: Partial<Workspace>): Workspace => ({

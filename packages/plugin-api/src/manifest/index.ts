@@ -9,6 +9,8 @@ export {
   declaredAgentBins,
   readManifest,
   type AgentContributionSummary,
+  type AgentFeatureDeclaration,
+  type AgentFeatureParameter,
   type ContributionSummary,
   type ManifestResult,
   type PluginCategory,

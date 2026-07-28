@@ -26,10 +26,12 @@ const CLAUDE: AgentInfo = {
   id: "claude",
   label: "Claude Code",
   command: "claude",
-  supportsYolo: true,
+  features: [
+    { id: "usage.pane", label: "Pane usage" },
+    { id: "usage.account", label: "Account limits" },
+  ],
   installed: true,
   path: null,
-  usageCapabilities: ["paneTelemetry", "accountLimits"],
 };
 
 const OPENCODE: AgentInfo = {
@@ -37,7 +39,7 @@ const OPENCODE: AgentInfo = {
   id: "opencode",
   label: "OpenCode",
   command: "opencode",
-  usageCapabilities: ["paneTelemetry"],
+  features: [{ id: "usage.pane", label: "Pane usage" }],
 };
 
 const AT = 1_738_400_000_000;

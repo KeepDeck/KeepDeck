@@ -24,10 +24,9 @@ const agent = (id: string): AgentInfo => ({
   id,
   label: id,
   command: id,
-  supportsYolo: false,
+  features: [],
   installed: true,
   path: "/bin",
-  usageCapabilities: ["paneTelemetry", "accountLimits"],
 });
 const AGENTS = [agent("claude"), agent("codex")];
 

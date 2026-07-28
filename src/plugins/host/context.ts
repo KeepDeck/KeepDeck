@@ -7,6 +7,7 @@ import { execCovers } from "../capabilities/execCovers";
 import type { ContributionRegistries } from "../registries/contributions";
 import type { PluginSource } from "../model/installed";
 import type { PluginHostDeps } from "./deps";
+import { validateAgentFeatureImplementations } from "./agentFeatures";
 import { describeError } from "./errors";
 
 /**
@@ -147,6 +148,10 @@ export function buildPluginContext(
     agents: {
       register: (agent) => {
         declared("agents", agent.id);
+        const declaredAgent = manifest.contributes.agents!.find(
+          (entry) => entry.id === agent.id,
+        )!;
+        validateAgentFeatureImplementations(declaredAgent, agent);
         // The agent's binary is what spawn plans fall back to — it must be
         // legitimate by declaration, both tiers, no exceptions.
         if (!execCovers(manifest.capabilities, agent.detect.bin)) {
@@ -157,9 +162,7 @@ export function buildPluginContext(
         // When the manifest declares the agent's bin statically (the host's
         // pre-activation availability input), the runtime registration must
         // agree with it — a drift would silently defeat the activation gate.
-        const declaredBin = manifest.contributes.agents?.find(
-          (entry) => entry.id === agent.id,
-        )?.bin;
+        const declaredBin = declaredAgent.bin;
         if (declaredBin !== undefined && declaredBin !== agent.detect.bin) {
           throw new Error(
             `agent "${agent.id}": detect.bin "${agent.detect.bin}" does not match the manifest's declared bin "${declaredBin}"`,

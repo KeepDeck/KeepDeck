@@ -111,6 +111,60 @@ const FILES_PLUGIN = {
   status: { kind: "active" },
 };
 
+const CLI_PLUGIN = {
+  manifest: {
+    id: "example.cli",
+    name: "Example CLI",
+    version: "1.0.0",
+    minApiVersion: 30,
+    category: "cli",
+    capabilities: [],
+    contributes: {
+      agents: [
+        {
+          id: "example-agent",
+          label: "Example Agent",
+          bin: "example",
+          features: [
+            {
+              id: "session.new",
+              label: "New sessions",
+              group: "sessions",
+            },
+            {
+              id: "session.resume",
+              label: "Resume saved sessions",
+              group: "sessions",
+            },
+            {
+              id: "usage.pane",
+              label: "Session analytics",
+              group: "usage",
+            },
+            {
+              id: "usage.account",
+              label: "Account limits",
+              group: "usage",
+            },
+            {
+              id: "target.remote",
+              label: "Remote targets",
+              group: "execution",
+              parameters: { schemes: ["ws", "wss"] },
+            },
+            {
+              id: "vendor.future",
+              label: "A future plugin feature",
+              group: "custom",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  status: { kind: "active" },
+};
+
 const button = (text: string) =>
   Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === text,
@@ -386,6 +440,46 @@ describe("SettingsDialog", () => {
     } finally {
       section.dispose();
     }
+  });
+
+  it("renders arbitrary features directly from active plugin manifests", async () => {
+    pluginStore.set([CLI_PLUGIN]);
+    await mount();
+    act(() => button("Example CLI").click());
+
+    const features = document.querySelector(
+      '[aria-label="Example CLI features"]',
+    )!;
+    expect(panelOf(features).hasAttribute("hidden")).toBe(false);
+    expect(features.textContent).toContain("CLI features");
+    expect(features.textContent).toContain("Example Agent");
+    expect(features.textContent).toContain("Resume saved sessions");
+    expect(features.textContent).toContain("Session analytics");
+    expect(features.textContent).toContain("Account limits");
+    expect(features.textContent).toContain("A future plugin feature");
+    expect(features.textContent).toContain(
+      "Remote targetsSupported · schemes: ws, wss",
+    );
+  });
+
+  it("reads the same feature declaration while a CLI plugin is disabled", async () => {
+    pluginStore.set([
+      {
+        ...CLI_PLUGIN,
+        status: { kind: "disabled" },
+      },
+    ]);
+    await mount();
+    act(() => button("Example CLI").click());
+
+    const features = document.querySelector(
+      '[aria-label="Example CLI features"]',
+    )!;
+    expect(features.textContent).toContain(
+      "Supported features are declared below; the plugin is disabled.",
+    );
+    expect(features.textContent).toContain("Resume saved sessionsSupported");
+    expect(features.textContent).toContain("A future plugin featureSupported");
   });
 
   it("reveals a plugin opened directly below the navigation fold", async () => {

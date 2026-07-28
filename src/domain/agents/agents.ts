@@ -1,3 +1,10 @@
+import {
+  AGENT_FEATURE,
+  findAgentFeature,
+  hasAgentFeature,
+  type AgentFeature,
+} from "./features";
+
 /** Coding-agent kind a pane runs — an OPEN set now: ids come from cli
  *  plugins' agent contributions (`keepdeck.claude` / `keepdeck.codex` /
  *  `keepdeck.opencode` ship built-in), so this is a plain string, not a
@@ -5,12 +12,8 @@
  *  pane must surface "agent unavailable", never silently run a default. */
 export type AgentType = string;
 
-/** The host-side structural twin of the plugin usage capability contract. */
-export type AgentUsageCapability = "paneTelemetry" | "accountLimits";
-
 /** The host-side structural twin of the plugin-api `RemoteScheme`. Kept local
- *  (no plugin-api import) like `AgentUsageCapability`: data, not a contract
- *  reference. */
+ *  (no plugin-api import): data, not a contract reference. */
 export type AgentRemoteScheme = "ws" | "wss" | "http" | "https";
 
 /** A brand mark as bare SVG path data — the domain's structural twin of the
@@ -42,26 +45,13 @@ export interface AgentInfo {
   icon?: AgentIcon;
   /** CLI command to spawn (passed back to `session_spawn`). */
   command: string;
-  /** Whether the CLI can run with permission prompts disabled (YOLO mode) —
-   * gates the YOLO toggle wherever an agent is created. */
-  supportsYolo: boolean;
-  /** Whether the agent declares a remote capability (its plugin's
-   *  `remote.mode === "nativeServer"`) — gates the "Where: Remote" option in
-   *  the spawn dialog. Absent = no (the common case); the gate defaults
-   *  false, so an agent that can't honor a target never gets one picked. */
-  supportsRemote?: boolean;
-  /** URI schemes the agent's remote client speaks, when it declares remote
-   *  support; absent otherwise. The spawn dialog validates a pasted
-   *  endpoint's scheme against these so the agent isn't paired with a scheme
-   *  it can't speak. */
-  remoteSchemes?: readonly AgentRemoteScheme[];
+  /** Functional support projected from the plugin manifest. Runtime
+   * contributions contain implementations only, never a parallel list. */
+  features: readonly AgentFeature[];
   /** Whether the CLI resolves on the augmented PATH. */
   installed: boolean;
   /** Absolute path of the resolved binary, when installed. */
   path: string | null;
-  /** The independently declared usage surfaces this agent can populate.
-   * Absent/empty = no usage contribution. */
-  usageCapabilities?: readonly AgentUsageCapability[];
 }
 
 /** Agents to offer in the picker: installed only, but the full catalog when none
@@ -90,7 +80,40 @@ export function agentSupportsYolo(
   agents: AgentInfo[],
   type: AgentType,
 ): boolean {
-  return agents.find((a) => a.id === type)?.supportsYolo ?? false;
+  return agentHasFeature(agents, type, AGENT_FEATURE.yolo);
+}
+
+/** Whether `type`'s live integration can prepare a resume plan. */
+export function agentSupportsResume(
+  agents: AgentInfo[],
+  type: AgentType,
+): boolean {
+  return agentHasFeature(agents, type, AGENT_FEATURE.resumeSession);
+}
+
+/** Whether `type`'s live integration can prepare a fork plan. */
+export function agentSupportsFork(
+  agents: AgentInfo[],
+  type: AgentType,
+): boolean {
+  return agentHasFeature(agents, type, AGENT_FEATURE.forkSession);
+}
+
+/** Whether `type`'s live integration exposes its session store. */
+export function agentSupportsHistory(
+  agents: AgentInfo[],
+  type: AgentType,
+): boolean {
+  return agentHasFeature(agents, type, AGENT_FEATURE.sessionHistory);
+}
+
+export function agentHasFeature(
+  agents: AgentInfo[],
+  type: AgentType,
+  featureId: string,
+): boolean {
+  const agent = agents.find((entry) => entry.id === type);
+  return agent ? hasAgentFeature(agent.features, featureId) : false;
 }
 
 /** The remote URI schemes `type`'s catalog entry declares, or null when the
@@ -104,10 +127,22 @@ export function agentRemoteSchemes(
   agents: AgentInfo[],
   type: AgentType,
 ): readonly AgentRemoteScheme[] | null {
-  const a = agents.find((x) => x.id === type);
-  return a?.supportsRemote && a.remoteSchemes && a.remoteSchemes.length > 0
-    ? a.remoteSchemes
-    : null;
+  const agent = agents.find((entry) => entry.id === type);
+  if (!agent) return null;
+  const feature = findAgentFeature(agent.features, AGENT_FEATURE.remoteTarget);
+  const schemes = feature?.parameters?.schemes;
+  if (!Array.isArray(schemes)) return null;
+  const allowed = schemes.filter(isRemoteScheme);
+  return allowed.length > 0 ? allowed : null;
+}
+
+function isRemoteScheme(value: unknown): value is AgentRemoteScheme {
+  return (
+    value === "ws" ||
+    value === "wss" ||
+    value === "http" ||
+    value === "https"
+  );
 }
 
 /** Whether `raw` is a usable remote-server endpoint for an agent that speaks

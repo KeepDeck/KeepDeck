@@ -1,5 +1,9 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import type { AgentInfo } from "../../domain/agents";
+import {
+  AGENT_FEATURE,
+  hasAgentFeature,
+  type AgentInfo,
+} from "../../domain/agents";
 import { DEFAULT_SETTINGS, type UsageDisplay } from "../../domain/settings";
 import {
   chipWindows,
@@ -149,7 +153,7 @@ export function UsageChips({
   // after a restart, honestly aged). The "unavailable" arm has no producer.
   const providers = agents.filter(
     (agent) =>
-      (agent.usageCapabilities?.includes("accountLimits") === true &&
+      (hasAgentFeature(agent.features, AGENT_FEATURE.accountUsage) &&
         liveAgents.has(agent.id)) ||
       accounts.get(agent.id)?.kind === "reported",
   );

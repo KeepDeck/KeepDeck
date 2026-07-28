@@ -2,8 +2,13 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentContribution, Disposable } from "@keepdeck/plugin-api";
+import type {
+  AgentContribution,
+  AgentFeatureDeclaration,
+  Disposable,
+} from "@keepdeck/plugin-api";
 import type { BinStatus } from "../ipc/agents";
+import type { InstalledPlugin } from "../plugins";
 import { createContributionRegistries } from "../plugins/registries/contributions";
 import type { AppRuntime } from "./runtime";
 import { AppRuntimeProvider } from "./runtimeContext";
@@ -20,8 +25,14 @@ const ipc = vi.hoisted(() => ({
 vi.mock("../ipc/agents", () => ipc);
 
 const pluginRegistries = createContributionRegistries();
+let installedPlugins: readonly InstalledPlugin[] = [];
+const pluginHost = {
+  subscribe: () => () => {},
+  getInstalled: () => installedPlugins,
+};
 const runtime = {
   plugins: {
+    pluginHost,
     pluginRegistries,
     bootstrapPlugins: () => Promise.resolve(),
   },
@@ -35,7 +46,6 @@ const claude: AgentContribution = {
     paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
   },
   detect: { bin: "claude" },
-  supportsYolo: true,
   hooks: {},
 };
 
@@ -49,13 +59,43 @@ describe("useAgents", () => {
   let root: Root;
   let registered: Disposable[] = [];
 
-  const register = (agent: AgentContribution) => {
+  const register = (
+    agent: AgentContribution,
+    features: AgentFeatureDeclaration[] = [
+      { id: "execution.yolo", label: "YOLO mode" },
+    ],
+  ) => {
+    installedPlugins = [
+      {
+        manifest: {
+          id: "test-plugin",
+          name: "Test plugin",
+          version: "1.0.0",
+          minApiVersion: 30,
+          category: "cli",
+          capabilities: [],
+          contributes: {
+            agents: [
+              {
+                id: agent.id,
+                label: agent.label,
+                bin: agent.detect.bin,
+                features,
+              },
+            ],
+          },
+        },
+        source: "builtin",
+        status: { kind: "active" },
+      },
+    ];
     registered.push(pluginRegistries.agents.add("test-plugin", agent));
   };
 
   beforeEach(() => {
     ipc.detectBins.mockReset();
     resetAgentsCache();
+    installedPlugins = [];
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -89,11 +129,9 @@ describe("useAgents", () => {
           paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
         },
         command: "claude",
-        supportsYolo: true,
-        supportsRemote: false,
+        features: [{ id: "execution.yolo", label: "YOLO mode" }],
         installed: false,
         path: null,
-        usageCapabilities: [],
       },
     ]);
     expect(seen.loading).toBe(false);
@@ -106,30 +144,48 @@ describe("useAgents", () => {
     expect(seen.agents[0]?.installed).toBe(true);
   });
 
-  it("preserves pane and account usage capabilities independently", async () => {
-    register({
-      ...claude,
-      usage: { capabilities: ["paneTelemetry"], normalize: () => null },
-    });
+  it("projects usage features from the manifest", async () => {
+    register(
+      {
+        ...claude,
+        usage: { normalize: () => null },
+      },
+      [{ id: "usage.pane", label: "Pane usage" }],
+    );
     ipc.detectBins.mockResolvedValue([
       { bin: "claude", installed: true, path: "/usr/bin/claude" },
     ]);
     await mount();
-    expect(seen.agents[0]?.usageCapabilities).toEqual(["paneTelemetry"]);
+    expect(seen.agents[0]?.features).toEqual([
+      { id: "usage.pane", label: "Pane usage" },
+    ]);
   });
 
-  it("maps a declared remote capability to supportsRemote + its schemes", async () => {
-    register({
-      ...claude,
-      detect: { bin: "codex" },
-      remote: { mode: "nativeServer", schemes: ["ws", "wss"] },
-    });
+  it("projects a remote feature and its parameters from the manifest", async () => {
+    register(
+      {
+        ...claude,
+        detect: { bin: "codex" },
+      },
+      [
+        {
+          id: "target.remote",
+          label: "Remote targets",
+          parameters: { schemes: ["ws", "wss"] },
+        },
+      ],
+    );
     ipc.detectBins.mockResolvedValue([
       { bin: "codex", installed: true, path: "/usr/bin/codex" },
     ]);
     await mount();
-    expect(seen.agents[0]?.supportsRemote).toBe(true);
-    expect(seen.agents[0]?.remoteSchemes).toEqual(["ws", "wss"]);
+    expect(seen.agents[0]?.features).toEqual([
+      {
+        id: "target.remote",
+        label: "Remote targets",
+        parameters: { schemes: ["ws", "wss"] },
+      },
+    ]);
   });
 
   it("a remount seeds from the cached detection instead of flashing installed", async () => {

@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dirPresent, useDirPresence } from "./useDirPresence";
 import type { AgentTranscriptEntry } from "@keepdeck/plugin-api";
-import type { AgentInfo } from "../../domain/agents";
+import {
+  AGENT_FEATURE,
+  hasAgentFeature,
+  type AgentInfo,
+} from "../../domain/agents";
 import {
   handleFromHit,
   type SessionHandle,
@@ -187,6 +191,12 @@ export function SessionsBrowser({
       >
         {journalRows.map((row) => {
           const agent = agents.find((a) => a.id === row.agent);
+          const supportsResume =
+            agent !== undefined &&
+            hasAgentFeature(agent.features, AGENT_FEATURE.resumeSession);
+          const supportsFork =
+            agent !== undefined &&
+            hasAgentFeature(agent.features, AGENT_FEATURE.forkSession);
           const when = row.state === "closed" ? row.endedAt : row.boundAt;
           const dirMissing = !dirPresent(presence, row.cwd);
           return (
@@ -226,7 +236,7 @@ export function SessionsBrowser({
                   label="dir gone"
                 />
               )}
-              {row.state === "closed" && (
+              {row.state === "closed" && supportsResume && (
                 <button
                   type="button"
                   className="history__resume"
@@ -241,14 +251,16 @@ export function SessionsBrowser({
                   Resume
                 </button>
               )}
-              <button
-                type="button"
-                className="history__fork"
-                title="Fork — a new conversation continuing from this session"
-                onClick={() => onFork(row)}
-              >
-                Fork
-              </button>
+              {supportsFork && (
+                <button
+                  type="button"
+                  className="history__fork"
+                  title="Fork — a new conversation continuing from this session"
+                  onClick={() => onFork(row)}
+                >
+                  Fork
+                </button>
+              )}
               <button
                 type="button"
                 className="history__delete"
@@ -266,6 +278,15 @@ export function SessionsBrowser({
         )}
         {hits.map((hit) => {
           const agent = agents.find((a) => a.id === hit.agent);
+          const canReadHistory =
+            agent !== undefined &&
+            hasAgentFeature(agent.features, AGENT_FEATURE.sessionHistory);
+          const supportsResume =
+            agent !== undefined &&
+            hasAgentFeature(agent.features, AGENT_FEATURE.resumeSession);
+          const supportsFork =
+            agent !== undefined &&
+            hasAgentFeature(agent.features, AGENT_FEATURE.forkSession);
           return (
             <li
               key={`${hit.agent}:${hit.sessionId}`}
@@ -274,12 +295,21 @@ export function SessionsBrowser({
               // alone is a hidden hit-target. The action buttons stop the
               // bubble; the inner button stays for keyboard access (its
               // synthesized click bubbles here too).
-              onClick={() => openViewer(hit)}
+              onClick={canReadHistory ? () => openViewer(hit) : undefined}
             >
               <span className="history__glyph">
                 <AgentGlyph icon={agent?.icon} />
               </span>
-              <button type="button" className="browser__open" title="Read this session">
+              <button
+                type="button"
+                className="browser__open"
+                disabled={!canReadHistory}
+                title={
+                  canReadHistory
+                    ? "Read this session"
+                    : "Session history is unavailable for this agent"
+                }
+              >
                 <span className="browser__name">
                   {hit.title ?? hit.sessionId}
                 </span>
@@ -298,35 +328,39 @@ export function SessionsBrowser({
                 />
               )}
               <span className="history__when">{formatAge(hit.mtime, now)}</span>
-              <button
-                type="button"
-                className="history__resume"
-                disabled={!dirPresent(presence, hit.cwd)}
-                title={
-                  hit.cwd === ""
-                    ? "The session has no recorded directory"
-                    : dirPresent(presence, hit.cwd)
-                      ? `Resume in ${hit.cwd}`
-                      : "The session's directory no longer exists — fork it instead"
-                }
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onResume(hitRecord(hit));
-                }}
-              >
-                Resume
-              </button>
-              <button
-                type="button"
-                className="history__fork"
-                title="Fork — a new conversation continuing from this session"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onFork(hitRecord(hit));
-                }}
-              >
-                Fork
-              </button>
+              {supportsResume && (
+                <button
+                  type="button"
+                  className="history__resume"
+                  disabled={!dirPresent(presence, hit.cwd)}
+                  title={
+                    hit.cwd === ""
+                      ? "The session has no recorded directory"
+                      : dirPresent(presence, hit.cwd)
+                        ? `Resume in ${hit.cwd}`
+                        : "The session's directory no longer exists — fork it instead"
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onResume(hitRecord(hit));
+                  }}
+                >
+                  Resume
+                </button>
+              )}
+              {supportsFork && (
+                <button
+                  type="button"
+                  className="history__fork"
+                  title="Fork — a new conversation continuing from this session"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onFork(hitRecord(hit));
+                  }}
+                >
+                  Fork
+                </button>
+              )}
             </li>
           );
         })}

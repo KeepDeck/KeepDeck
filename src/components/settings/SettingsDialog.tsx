@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAppRuntime } from "../../app/runtimeContext";
-import { useContributions, useInstalledPlugins } from "../../plugins";
+import type { AgentFeature } from "../../domain/agents";
+import {
+  useContributions,
+  useInstalledPlugins,
+  type InstalledPlugin,
+} from "../../plugins";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
@@ -33,6 +38,7 @@ export function SettingsDialog({
   useEscape(onClose);
   const installed = useInstalledPlugins(pluginHost);
   const contributed = useContributions(pluginRegistries.settingsSections);
+  const featureCatalog = buildFeatureCatalog(installed);
   const appSections: { id: string; label: string; body: ReactNode }[] =
     SETTINGS_SECTIONS.map((s) => ({
       id: s.id,
@@ -50,6 +56,7 @@ export function SettingsDialog({
         <PluginPage
           plugin={plugin}
           section={sectionFor(contributed, plugin.manifest.id)}
+          featureCatalog={featureCatalog}
         />
       ),
     }));
@@ -142,6 +149,26 @@ export function SettingsDialog({
 
       </div>
     </ModalOverlay>
+  );
+}
+
+/** Union of self-describing manifest features in deterministic install order.
+ * Pure and generic: a feature unknown to this host appears automatically. */
+export function buildFeatureCatalog(
+  installed: readonly InstalledPlugin[],
+): AgentFeature[] {
+  const catalog = new Map<string, AgentFeature>();
+  for (const plugin of installed) {
+    for (const agent of plugin.manifest.contributes.agents ?? []) {
+      for (const feature of agent.features ?? []) {
+        if (!catalog.has(feature.id)) catalog.set(feature.id, feature);
+      }
+    }
+  }
+  return [...catalog.values()].sort(
+    (a, b) =>
+      (a.group ?? "").localeCompare(b.group ?? "") ||
+      a.label.localeCompare(b.label),
   );
 }
 

@@ -120,7 +120,7 @@ describe("codex plugin hooks", () => {
 
   it("YOLO adds the global bypass flag, BEFORE the resume subcommand", async () => {
     const agent = activate(null);
-    expect(agent.supportsYolo).toBe(true);
+    expect(agent.supportsYolo).toBeUndefined();
 
     const spawn = output();
     await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);
@@ -144,8 +144,8 @@ describe("codex plugin hooks", () => {
     ]);
   });
 
-  it("declares nativeServer remote support", () => {
-    expect(activate(null).remote?.mode).toBe("nativeServer");
+  it("does not duplicate manifest remote support at runtime", () => {
+    expect(activate(null).remote).toBeUndefined();
   });
 
   it("prepends `--remote <ep>` (before globals and subcommand) on a nativeServer target", async () => {

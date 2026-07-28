@@ -7,8 +7,10 @@ import { RefreshIcon } from "@keepdeck/ui-kit/icons";
 import { useAppRuntime } from "../../app/runtimeContext";
 import { updateSettings } from "../../app/settingsManager";
 import { useSettings } from "../../app/useSettings";
+import type { AgentFeature } from "../../domain/agents";
 import { DEFAULT_SETTINGS, withPluginMuted } from "../../domain/settings";
 import type { Contribution, InstalledPlugin } from "../../plugins";
+import { AgentFeaturesSection } from "./AgentFeaturesSection";
 import { PluginSettingsSection } from "./PluginSettingsSection";
 
 /**
@@ -17,16 +19,17 @@ import { PluginSettingsSection } from "./PluginSettingsSection";
  * page carries everything about the plugin: the enable toggle (for an
  * external plugin enabling IS the consent, so its requested access is spelled
  * out), the `dev` badge, Restart — and, when the plugin is active and
- * contributed a settings section, its fields below a separator. A disabled
- * plugin's section is unregistered with it, so the fields and the features
- * they toggle appear and disappear together.
+ * contributed a settings section, its fields below a separator. Static CLI
+ * feature declarations remain visible even while a plugin is disabled.
  */
 export function PluginPage({
   plugin,
   section,
+  featureCatalog,
 }: {
   plugin: InstalledPlugin;
   section: SettingsSectionContribution | null;
+  featureCatalog: readonly AgentFeature[];
 }) {
   const { externalPluginInfo, pluginHost, restartPlugin } =
     useAppRuntime().plugins;
@@ -121,6 +124,11 @@ export function PluginPage({
           </label>
         </div>
       )}
+
+      <AgentFeaturesSection
+        plugin={plugin}
+        featureCatalog={featureCatalog}
+      />
 
       {section && plugin.status.kind === "active" && (
         <div className="settings__plugin-fields">

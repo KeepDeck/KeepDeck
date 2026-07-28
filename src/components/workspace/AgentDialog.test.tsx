@@ -30,6 +30,8 @@ vi.mock("../../ipc/worktree", () => worktreeIpc);
 // on it.
 const catalog = vi.hoisted(() => ({
   supportsYolo: true,
+  supportsResume: true,
+  supportsFork: true,
   // Extra installed agents beyond claude — empty by default so every existing
   // test sees a single-agent catalog; a test can add one to exercise the
   // cross-agent guard.
@@ -46,7 +48,19 @@ vi.mock("../../app/useAgents", () => ({
           paths: [{ d: "M0 0h24v24H0z", color: "#D97757" }],
         },
         command: "claude",
-        supportsYolo: catalog.supportsYolo,
+        features: [
+          { id: "session.new", label: "New sessions" },
+          ...(catalog.supportsResume
+            ? [{ id: "session.resume", label: "Resume" }]
+            : []),
+          ...(catalog.supportsFork
+            ? [{ id: "session.fork", label: "Fork" }]
+            : []),
+          { id: "session.history", label: "History" },
+          ...(catalog.supportsYolo
+            ? [{ id: "execution.yolo", label: "YOLO" }]
+            : []),
+        ],
         installed: true,
         path: null,
       },
@@ -107,10 +121,14 @@ describe("AgentDialog worktree location flow", () => {
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     confirmed = [];
+    catalog.supportsResume = true;
+    catalog.supportsFork = true;
   });
   afterEach(() => {
     act(() => root.unmount());
     vi.useRealTimers();
+    catalog.supportsResume = true;
+    catalog.supportsFork = true;
   });
 
   /** Let the debounced probe fire and its promise land. */
@@ -519,6 +537,8 @@ describe("AgentDialog start-from session picker", () => {
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     confirmed = [];
+    catalog.supportsResume = true;
+    catalog.supportsFork = true;
     worktreeIpc.probeWorktree.mockImplementation((path: string) =>
       Promise.resolve({ exists: path !== "/gone", isWorktree: false, branch: null }),
     );
@@ -526,6 +546,8 @@ describe("AgentDialog start-from session picker", () => {
   afterEach(() => {
     act(() => root.unmount());
     vi.useRealTimers();
+    catalog.supportsResume = true;
+    catalog.supportsFork = true;
   });
 
   const mount = () =>
@@ -645,6 +667,19 @@ describe("AgentDialog start-from session picker", () => {
     submit();
     expect(confirmed).toHaveLength(1);
     expect(confirmed[0].session).toBeUndefined();
+  });
+
+  it("only offers continuation modes implemented by the selected agent", async () => {
+    catalog.supportsResume = false;
+    catalog.supportsFork = true;
+    await mount();
+
+    const modes = [
+      ...document.querySelectorAll<HTMLButtonElement>(".form__types button"),
+    ].map((entry) => entry.textContent);
+    expect(modes).toContain("New session");
+    expect(modes).not.toContain("Resume");
+    expect(modes).toContain("Fork");
   });
 });
 
@@ -810,7 +845,12 @@ describe("AgentDialog cross-agent pick guard", () => {
         label: "Codex",
         icon: { viewBox: "0 0 24 24", paths: [{ d: "M0 0h24v24H0z", color: "#fff" }] },
         command: "codex",
-        supportsYolo: false,
+        features: [
+          { id: "session.new", label: "New sessions" },
+          { id: "session.resume", label: "Resume" },
+          { id: "session.fork", label: "Fork" },
+          { id: "session.history", label: "History" },
+        ],
         installed: true,
         path: null,
       },
@@ -919,9 +959,14 @@ describe("remote gating (Experimental setting)", () => {
     id: "codex",
     label: "Codex",
     command: "codex",
-    supportsYolo: false,
-    supportsRemote: true,
-    remoteSchemes: ["ws", "wss"],
+    features: [
+      { id: "session.new", label: "New sessions" },
+      {
+        id: "target.remote",
+        label: "Remote targets",
+        parameters: { schemes: ["ws", "wss"] },
+      },
+    ],
     installed: true,
     path: null,
   };

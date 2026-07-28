@@ -18,8 +18,7 @@ function agent(
     id,
     label: id,
     command: id,
-    supportsYolo: false,
-    usageCapabilities: ["paneTelemetry", "accountLimits"],
+    features: [],
     installed,
     path: null,
     ...extra,
@@ -77,7 +76,9 @@ describe("defaultAgentType", () => {
 
 describe("agentSupportsYolo", () => {
   const list = [
-    agent("claude", true, { supportsYolo: true }),
+    agent("claude", true, {
+      features: [{ id: "execution.yolo", label: "YOLO mode" }],
+    }),
     agent("codex", true),
   ];
 
@@ -93,13 +94,26 @@ describe("agentSupportsYolo", () => {
 describe("agentRemoteSchemes", () => {
   const list = [
     agent("codex", true, {
-      supportsRemote: true,
-      remoteSchemes: ["ws", "wss"],
+      features: [
+        {
+          id: "target.remote",
+          label: "Remote targets",
+          parameters: { schemes: ["ws", "wss"] },
+        },
+      ],
     }),
     // Declares remote but with NO schemes — a malformed contribution. The
     // selector returns null so the dialog's Where option hides (Create could
     // never enable with no schemes to validate against).
-    agent("buggy", true, { supportsRemote: true, remoteSchemes: [] }),
+    agent("buggy", true, {
+      features: [
+        {
+          id: "target.remote",
+          label: "Remote targets",
+          parameters: { schemes: [] },
+        },
+      ],
+    }),
     agent("claude", true),
   ];
 

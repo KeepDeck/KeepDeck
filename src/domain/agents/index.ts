@@ -5,4 +5,5 @@
  */
 export * from "./agentLocation";
 export * from "./agents";
+export * from "./features";
 export * from "./spawnPlans";
