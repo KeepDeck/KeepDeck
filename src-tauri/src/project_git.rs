@@ -39,11 +39,11 @@
 //! debounce to schedule one fresh status read.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use keepdeck_git::{diff, head, log, repo, status};
+use keepdeck_git::{diff, head, log, repo, status, worktree, worktree_base};
 use notify::{Event, EventKind, RecommendedWatcher};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -194,8 +194,9 @@ const HISTORY_CHUNK: usize = 50;
 const HISTORY_MAX: usize = 10_000;
 
 /// A repo's history for the changes view: the recent log (newest first, up to
-/// `limit`, clamped), annotated with the fork point off `base` (defaulting to
-/// the repo's default branch — exact for worktrees created off it).
+/// `limit`, clamped), annotated with the fork point off `base`. Without an
+/// explicit base, KeepDeck-managed worktrees use their private Git metadata;
+/// legacy/foreign worktrees fall back to the repo's default branch.
 #[tauri::command(async)]
 pub fn project_git_history(
     path: String,
@@ -214,52 +215,23 @@ pub fn project_git_history(
 
     // The fork-point ladder:
     // 1. an EXPLICIT base wins — merge-base against it, as asked;
-    // 2. else the branch's own reflog: git recorded the creation commit when
-    //    the branch was cut, which is the exact fork even for a worktree made
-    //    off a picked base (the default-branch guess would misjudge that);
-    // 3. else merge-base against the repo's default branch.
+    // 2. a managed worktree's symbolic private base ref follows the selected
+    //    local branch and yields a dynamic merge-base after rebases;
+    // 3. its pinned creation SHA is the fallback if that branch disappeared;
+    // 4. legacy/foreign worktrees use the repo's default branch heuristic.
     // A fork AT the tip means "this ref IS the base" — nothing to measure.
-    let default = repo::default_branch(&repo).unwrap_or(None);
-    let branch_name = if rev == "HEAD" {
-        repo::current_branch(&repo).unwrap_or(None)
-    } else {
-        Some(rev.to_string())
-    };
     let fork = match base {
         Some(ref base_ref) => repo::merge_base(&repo, base_ref, rev)
             .map_err(|e| e.to_string())?
             .filter(|fork| fork != &tip),
-        // No explicit base: measure against the repo's default branch — but
-        // only if one resolves. Without it (a local-only `git init`, or a repo
-        // whose only remote isn't `origin`) there is no base branch, so there
-        // is nothing this ref could have forked FROM, and every rung of the
-        // ladder needs a base to mean anything. Measuring anyway would reach
-        // the reflog and take the branch's creation entry, which in a repo
-        // with no base IS its first commit — an ancestor of the tip and not
-        // the tip, so it clears both guards and draws the branch as forked
-        // from its own root.
-        None => match default.as_deref() {
-            None => None,
-            Some(base_ref) => {
-                let from_reflog = branch_name
-                    // The default branch's creation entry is its clone point —
-                    // meaningless as a fork; the base branch has no base.
-                    .filter(|name| name != base_ref)
-                    .and_then(|name| repo::branch_created_at(&repo, &name).ok().flatten())
-                    .filter(|created| created != &tip)
-                    // A rebase orphans the creation point — only an ancestor
-                    // of the tip still describes this branch's history.
-                    .filter(|created| {
-                        repo::merge_base(&repo, created, &tip).ok().flatten().as_deref()
-                            == Some(created.as_str())
-                    });
-                match from_reflog {
-                    Some(created) => Some(created),
-                    None => repo::merge_base(&repo, base_ref, rev)
-                        .map_err(|e| e.to_string())?
-                        .filter(|fork| fork != &tip),
-                }
-            }
+        None => match managed_worktree_fork(&repo, rev, &tip)? {
+            WorktreeFork::Resolved(fork) => fork,
+            WorktreeFork::Unavailable => match repo::default_branch(&repo).unwrap_or(None) {
+                Some(base_ref) => repo::merge_base(&repo, &base_ref, rev)
+                    .map_err(|e| e.to_string())?
+                    .filter(|fork| fork != &tip),
+                None => None,
+            },
         },
     };
 
@@ -289,6 +261,66 @@ pub fn project_git_history(
             })
             .collect(),
     })
+}
+
+/// Result of consulting worktree-private metadata. `Resolved(None)` is
+/// intentionally distinct from `Unavailable`: metadata can authoritatively say
+/// that the inspected ref is sitting at its base tip, in which case the default
+/// branch heuristic must not invent a fork below it.
+enum WorktreeFork {
+    Unavailable,
+    Resolved(Option<String>),
+}
+
+fn managed_worktree_fork(
+    repo_path: &Path,
+    rev: &str,
+    tip: &str,
+) -> Result<WorktreeFork, String> {
+    let Some(metadata_path) = metadata_worktree(repo_path, rev)? else {
+        return Ok(WorktreeFork::Unavailable);
+    };
+    let metadata = worktree_base::read(&metadata_path).map_err(|e| e.to_string())?;
+    if metadata.is_empty() {
+        return Ok(WorktreeFork::Unavailable);
+    }
+
+    match metadata
+        .fork_point(&metadata_path, rev)
+        .map_err(|e| e.to_string())?
+    {
+        Some(fork) if fork == tip => Ok(WorktreeFork::Resolved(None)),
+        Some(fork) => Ok(WorktreeFork::Resolved(Some(fork))),
+        None => Ok(WorktreeFork::Unavailable),
+    }
+}
+
+fn metadata_worktree(repo_path: &Path, rev: &str) -> Result<Option<PathBuf>, String> {
+    if rev == "HEAD" {
+        return Ok(Some(repo_path.to_path_buf()));
+    }
+
+    let Some(branch_ref) =
+        repo::local_branch_ref(repo_path, rev).map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    let branch = branch_ref
+        .strip_prefix("refs/heads/")
+        .unwrap_or(&branch_ref);
+    if repo::current_branch(repo_path)
+        .map_err(|e| e.to_string())?
+        .as_deref()
+        == Some(branch)
+    {
+        return Ok(Some(repo_path.to_path_buf()));
+    }
+
+    Ok(worktree::list(repo_path)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|candidate| candidate.branch.as_deref() == Some(branch))
+        .map(|candidate| candidate.path))
 }
 
 /// A repo's local branches, for the history browser's ref picker.
@@ -779,22 +811,22 @@ mod tests {
     }
 
     #[test]
-    fn fork_comes_from_the_reflog_for_a_picked_base() {
+    fn legacy_branch_after_descendant_rebase_uses_the_default_merge_base() {
         let repo = init_repo();
         fake_origin_main_here(&repo);
 
-        // A picked base: a feature branch one commit past main…
-        git(&repo, &["checkout", "-q", "-b", "base-feat"]);
-        fs::write(repo.join("base.ts"), "b\n").unwrap();
-        git(&repo, &["add", "."]);
-        git(&repo, &["commit", "-q", "-m", "base work"]);
-        let base_tip = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
-
-        // …and an agent branch cut FROM it, one commit of its own.
-        git(&repo, &["checkout", "-q", "-b", "kd/picked/1"]);
+        git(&repo, &["checkout", "-q", "-b", "kd/legacy/1"]);
         fs::write(repo.join("own.ts"), "o\n").unwrap();
         git(&repo, &["add", "."]);
         git(&repo, &["commit", "-q", "-m", "own work"]);
+
+        git(&repo, &["checkout", "-q", "main"]);
+        fs::write(repo.join("mainline.ts"), "m\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "mainline moves"]);
+        let main_tip = keepdeck_git::repo::resolve_commit(&repo, "main").unwrap();
+        git(&repo, &["checkout", "-q", "kd/legacy/1"]);
+        git(&repo, &["rebase", "-q", "main"]);
 
         let history = project_git_history(
             repo.to_string_lossy().into_owned(),
@@ -804,36 +836,116 @@ mod tests {
             None,
             None,
         )
+        .expect("legacy history after descendant rebase");
+
+        // The branch creation reflog still points at the initial commit, which
+        // remains an ancestor after this rebase. It must not outrank the current
+        // merge-base with main or "mainline moves" is counted as agent work.
+        assert_eq!(history.fork_sha.as_deref(), Some(main_tip.as_str()));
+        assert_eq!(history.ahead, Some(1));
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn fork_comes_from_private_metadata_for_a_picked_base() {
+        let repo = init_repo();
+        fake_origin_main_here(&repo);
+        let main_tip = keepdeck_git::repo::resolve_commit(&repo, "main").unwrap();
+
+        // A picked base: a feature branch one commit past main…
+        git(&repo, &["checkout", "-q", "-b", "base-feat"]);
+        fs::write(repo.join("base.ts"), "b\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "base work"]);
+        let base_tip = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
+
+        // …and a managed agent worktree cut FROM it.
+        let worktree_root = unique_dir("picked-worktrees");
+        let agent = worktree_root.join("agent");
+        keepdeck_git::worktree::add(&repo, &agent, "kd/picked/1", &base_tip)
+            .expect("add agent worktree");
+        keepdeck_git::worktree_base::record(
+            &agent,
+            &base_tip,
+            Some("refs/heads/base-feat"),
+        )
+        .expect("record private base");
+
+        // At the base tip there is authoritatively no fork yet. Falling through
+        // to origin/main here would invent one at main and count "base work".
+        let untouched = project_git_history(
+            agent.to_string_lossy().into_owned(),
+            roots(&agent),
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("untouched history");
+        assert_eq!(untouched.fork_sha, None);
+        assert_eq!(untouched.ahead, None);
+
+        fs::write(agent.join("own.ts"), "o\n").unwrap();
+        git(&agent, &["add", "."]);
+        git(&agent, &["commit", "-q", "-m", "own work"]);
+
+        let history = project_git_history(
+            agent.to_string_lossy().into_owned(),
+            roots(&agent),
+            false,
+            None,
+            None,
+            None,
+        )
         .expect("history");
 
-        // The default-branch heuristic would blame the base's commit on the
-        // agent (fork at main, ahead 2). The reflog knows better.
+        // The default-branch heuristic would blame the picked base's commit on
+        // the agent (fork at main, ahead 2). Private metadata knows better.
         assert_eq!(history.fork_sha.as_deref(), Some(base_tip.as_str()));
         assert_eq!(history.ahead, Some(1));
         assert_eq!(history.commits[0].subject, "own work");
 
-        // A rebase orphans the creation point — the ladder falls back to the
-        // default-branch heuristic instead of measuring from a non-ancestor.
-        // Main must move first: rebasing onto an ancestor is a no-op.
-        git(&repo, &["checkout", "-q", "main"]);
-        fs::write(repo.join("mainline.ts"), "m\n").unwrap();
+        // Explicit base still wins over managed metadata.
+        let explicit = project_git_history(
+            agent.to_string_lossy().into_owned(),
+            roots(&agent),
+            false,
+            Some("main".to_string()),
+            None,
+            None,
+        )
+        .expect("explicit-base history");
+        assert_eq!(explicit.fork_sha.as_deref(), Some(main_tip.as_str()));
+        assert_eq!(explicit.ahead, Some(2), "picked base + own work");
+
+        // Advance the SAME selected base and rebase the agent onto it. The
+        // symbolic private ref follows the branch, unlike a creation reflog.
+        fs::write(repo.join("base-2.ts"), "b2\n").unwrap();
         git(&repo, &["add", "."]);
-        git(&repo, &["commit", "-q", "-m", "mainline moves"]);
-        git(&repo, &["checkout", "-q", "kd/picked/1"]);
-        git(&repo, &["rebase", "-q", "main"]);
+        git(&repo, &["commit", "-q", "-m", "base moves"]);
+        let new_base_tip = keepdeck_git::repo::resolve_commit(&repo, "base-feat").unwrap();
+        git(&agent, &["rebase", "-q", "base-feat"]);
+
+        // Browse the branch FROM the main worktree: metadata lookup must find
+        // the linked worktree in which this ref is checked out.
         let rebased = project_git_history(
             repo.to_string_lossy().into_owned(),
             roots(&repo),
             false,
             None,
             None,
-            None,
+            Some("kd/picked/1".to_string()),
         )
         .expect("history after rebase");
-        let main_sha = keepdeck_git::repo::resolve_commit(&repo, "main").unwrap();
-        assert_eq!(rebased.fork_sha.as_deref(), Some(main_sha.as_str()));
-        assert_eq!(rebased.ahead, Some(2), "base+own commits, both rebased");
+        assert_eq!(
+            rebased.fork_sha.as_deref(),
+            Some(new_base_tip.as_str())
+        );
+        assert_eq!(rebased.ahead, Some(1), "only the agent's own commit");
 
+        keepdeck_git::worktree::remove(&repo, &agent, true).ok();
+        fs::remove_dir_all(&worktree_root).ok();
         fs::remove_dir_all(&repo).ok();
     }
 
@@ -861,12 +973,9 @@ mod tests {
         fs::remove_dir_all(&repo).ok();
     }
 
-    /// A local-only repo (no `fake_origin_main_here`, so no `origin/HEAD`)
-    /// has no default branch — and therefore no base anything could have
-    /// forked from. The reflog rung must not fire: a branch's creation entry
-    /// here IS the repo's first commit, which is an ancestor of the tip and
-    /// not the tip, so it clears both guards and would be reported as a fork
-    /// point above the initial commit — the branch forked from its own root.
+    /// A local-only legacy branch has neither private metadata nor a default
+    /// branch, so there is no authoritative base from which to measure it.
+    /// Its generic branch-creation reflog is intentionally ignored.
     #[test]
     fn history_measures_no_fork_when_no_default_branch_resolves() {
         let repo = init_repo();
@@ -889,6 +998,39 @@ mod tests {
         assert_eq!(history.ahead, None, "nothing to be ahead OF");
         assert_eq!(history.commits.len(), 2);
 
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn managed_metadata_resolves_without_a_remote_default_branch() {
+        let repo = init_repo();
+        let base = keepdeck_git::repo::resolve_commit(&repo, "main").unwrap();
+        let worktree_root = unique_dir("local-only-worktrees");
+        let agent = worktree_root.join("agent");
+        keepdeck_git::worktree::add(&repo, &agent, "kd/local/1", &base)
+            .expect("add agent worktree");
+        keepdeck_git::worktree_base::record(&agent, &base, Some("refs/heads/main"))
+            .expect("record private base");
+
+        fs::write(agent.join("own.ts"), "o\n").unwrap();
+        git(&agent, &["add", "."]);
+        git(&agent, &["commit", "-q", "-m", "own work"]);
+
+        let history = project_git_history(
+            agent.to_string_lossy().into_owned(),
+            roots(&agent),
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("managed history without origin/HEAD");
+
+        assert_eq!(history.fork_sha.as_deref(), Some(base.as_str()));
+        assert_eq!(history.ahead, Some(1));
+
+        keepdeck_git::worktree::remove(&repo, &agent, true).ok();
+        fs::remove_dir_all(&worktree_root).ok();
         fs::remove_dir_all(&repo).ok();
     }
 

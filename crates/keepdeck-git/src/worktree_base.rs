@@ -29,6 +29,29 @@ pub struct BaseMetadata {
     pub at_creation: Option<String>,
 }
 
+impl BaseMetadata {
+    /// Whether this worktree has no KeepDeck base metadata.
+    pub fn is_empty(&self) -> bool {
+        self.branch_ref.is_none() && self.at_creation.is_none()
+    }
+
+    /// Resolve the best fork point described by this metadata.
+    pub fn fork_point(&self, worktree: &Path, rev: &str) -> Result<Option<String>, GitError> {
+        if self.branch_ref.is_some() {
+            if let Some(fork) = repo::merge_base(worktree, BASE_REF, rev)? {
+                return Ok(Some(fork));
+            }
+        }
+
+        let Some(created) = self.at_creation.as_ref() else {
+            return Ok(None);
+        };
+        let remains_ancestor =
+            repo::merge_base(worktree, created, rev)?.as_deref() == Some(created.as_str());
+        Ok(remains_ancestor.then(|| created.clone()))
+    }
+}
+
 /// Record the base of a newly-created worktree in its private ref namespace.
 ///
 /// `base_commit` must be a full commit SHA already resolved by the caller.
@@ -88,19 +111,7 @@ pub fn read(worktree: &Path) -> Result<BaseMetadata, GitError> {
 /// heuristic.
 pub fn fork_point(worktree: &Path, rev: &str) -> Result<Option<String>, GitError> {
     let metadata = read(worktree)?;
-
-    if metadata.branch_ref.is_some() {
-        if let Some(fork) = repo::merge_base(worktree, BASE_REF, rev)? {
-            return Ok(Some(fork));
-        }
-    }
-
-    let Some(created) = metadata.at_creation else {
-        return Ok(None);
-    };
-    let remains_ancestor =
-        repo::merge_base(worktree, &created, rev)?.as_deref() == Some(created.as_str());
-    Ok(remains_ancestor.then_some(created))
+    metadata.fork_point(worktree, rev)
 }
 
 fn read_symbolic(worktree: &Path, reference: &str) -> Result<Option<String>, GitError> {
