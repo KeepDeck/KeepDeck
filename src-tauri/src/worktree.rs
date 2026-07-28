@@ -70,8 +70,9 @@ pub struct CreateSpec {
     /// Explicit branch name to create; auto-generated when absent/blank.
     pub branch: Option<String>,
     /// Base commit/rev; ALWAYS resolved to a commit sha at create time
-    /// (defaults to `HEAD`), so the whole batch pins to one commit and the
-    /// branch's creation reflog records a sha — a source provenance trusts.
+    /// (defaults to `HEAD`), while a directly-selected local branch is also
+    /// retained as worktree-private base identity. The SHA pins the batch and
+    /// keeps branch-creation provenance trustworthy.
     pub base: Option<String>,
     /// Workspace name, used only for the auto branch name.
     #[serde(default)]
@@ -296,7 +297,8 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
     // name-sourced creation, which reflog provenance deliberately refuses to
     // trust, and the born branch would never be attributed back to this
     // worktree at close time. Pinning also keeps a whole batch on one commit
-    // even if the base moves mid-batch.
+    // even if the base moves mid-batch. The local branch identity is retained
+    // separately in a private base ref for dynamic fork-point resolution.
     let base_rev = spec.base.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let has_explicit_base = base_rev.is_some();
     let base_rev = base_rev.unwrap_or("HEAD");
