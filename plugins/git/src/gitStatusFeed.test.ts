@@ -21,11 +21,15 @@ function makeCtx() {
   const watchers = new Map<string, Set<() => void>>();
   const disposed: string[] = [];
   let fail: string | null = null;
+  let refuseWatch: string | null = null;
   const status = vi.fn(async (repo: string) => {
     if (fail) throw new Error(fail);
     return { ...clean(), oid: repo };
   });
   const watch = vi.fn((repo: string, onChange: () => void) => {
+    // The capability/scope gate throws for an undeclared capability or an
+    // out-of-scope path.
+    if (refuseWatch) throw new Error(refuseWatch);
     let set = watchers.get(repo);
     if (!set) {
       set = new Set();
@@ -51,6 +55,9 @@ function makeCtx() {
     fire: (repo: string) => watchers.get(repo)?.forEach((cb) => cb()),
     failWith: (message: string | null) => {
       fail = message;
+    },
+    refuseWatchWith: (message: string | null) => {
+      refuseWatch = message;
     },
   };
 }
@@ -149,6 +156,48 @@ describe("gitStatusFeed", () => {
     // that is gone: its diff re-reads and reports the same failure.
     expect(now.version).toBe(before + 1);
     expect(notified).toHaveBeenCalled();
+  });
+
+  it("still serves reads when the watch is refused", async () => {
+    git.refuseWatchWith("git watch not permitted for /repo");
+    subscribeGitStatus("/repo", vi.fn());
+    await settle();
+
+    // Not live, but not blank either: the read still happened.
+    expect(git.status).toHaveBeenCalledTimes(1);
+    expect(gitStatusSnapshot("/repo").status?.oid).toBe("/repo");
+  });
+
+  it("retries a refused watch on the next subscriber, and re-reads with it", async () => {
+    git.refuseWatchWith("git watch not permitted for /repo");
+    const stop = subscribeGitStatus("/repo", vi.fn());
+    await settle();
+    expect(git.status).toHaveBeenCalledTimes(1);
+
+    // A feed with no watcher will never re-read itself and there is no
+    // refresh button by design — so a new subscriber has to be the retry.
+    // Without it, one refused watch froze this repo for the session.
+    git.refuseWatchWith(null);
+    subscribeGitStatus("/repo", vi.fn());
+    await settle();
+
+    expect(git.status).toHaveBeenCalledTimes(2);
+    // And it is live again: a change now reaches the feed.
+    git.fire("/repo");
+    await settle(300);
+    expect(git.status).toHaveBeenCalledTimes(3);
+    stop();
+  });
+
+  it("does NOT re-read for a second subscriber when the feed IS live", async () => {
+    subscribeGitStatus("/repo", vi.fn());
+    await settle();
+    expect(git.status).toHaveBeenCalledTimes(1);
+
+    // The retry must not undo the whole point of sharing the feed.
+    subscribeGitStatus("/repo", vi.fn());
+    await settle();
+    expect(git.status).toHaveBeenCalledTimes(1);
   });
 
   it("debounces a burst of watch events into one re-read", async () => {

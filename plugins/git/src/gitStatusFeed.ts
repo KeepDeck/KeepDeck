@@ -103,18 +103,10 @@ function warn(message: string): void {
   }
 }
 
-function open(repo: string): Feed {
-  const feed: Feed = {
-    snapshot: EMPTY,
-    listeners: new Set(),
-    watcher: null,
-    timer: null,
-    inflight: false,
-    dirty: false,
-  };
-  feeds.set(repo, feed);
-
-  void load(repo, feed);
+/** Put `feed` under the repo's watch. Leaves `watcher` null if the backend
+ * refuses — the feed still serves reads, it just isn't live, which is the
+ * state `subscribeGitStatus` retries out of. */
+function startWatch(repo: string, feed: Feed): void {
   try {
     const { services } = getRuntime();
     feed.watcher = services.git.watch(repo, () => {
@@ -125,11 +117,23 @@ function open(repo: string): Feed {
       }, WATCH_DEBOUNCE_MS);
     });
   } catch (cause) {
-    // No watch (e.g. refused) degrades to load-on-subscribe — the surfaces
-    // still work, they just aren't live.
     const message = cause instanceof Error ? cause.message : String(cause);
     warn(`git watch failed for ${repo}: ${message}`);
   }
+}
+
+function open(repo: string): Feed {
+  const feed: Feed = {
+    snapshot: EMPTY,
+    listeners: new Set(),
+    watcher: null,
+    timer: null,
+    inflight: false,
+    dirty: false,
+  };
+  feeds.set(repo, feed);
+  void load(repo, feed);
+  startWatch(repo, feed);
   return feed;
 }
 
@@ -145,7 +149,19 @@ function close(repo: string, feed: Feed): void {
 /** Subscribe to `repo`'s status; returns the unsubscribe. The first
  * subscriber opens the feed, the last one to leave disposes it. */
 export function subscribeGitStatus(repo: string, listener: () => void): () => void {
-  const feed = feeds.get(repo) ?? open(repo);
+  let feed = feeds.get(repo);
+  if (!feed) {
+    feed = open(repo);
+  } else if (!feed.watcher) {
+    // The feed exists but is NOT live: its watch was refused when it opened,
+    // so nothing will ever re-read it and there is deliberately no refresh
+    // button anywhere. A new subscriber is the only retry there is — which is
+    // what the per-mount hook this replaced did implicitly, by loading every
+    // time a surface mounted. Without this, one refused watch froze the repo's
+    // status for the rest of the session and re-opening the tab read nothing.
+    startWatch(repo, feed);
+    void load(repo, feed);
+  }
   feed.listeners.add(listener);
   return () => {
     feed.listeners.delete(listener);
