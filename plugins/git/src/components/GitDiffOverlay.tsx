@@ -1,0 +1,116 @@
+import { useEffect, useState } from "react";
+import { DiffPeek } from "./DiffPeek";
+import { useGitStatus } from "./useGitStatus";
+import { groupEntries, type ChangeRow } from "../domain/status";
+import type { HistoryScope } from "../domain/history";
+import { subscribePeekRequests, takePeekRequest } from "../peekRequests";
+
+/**
+ * The open diff. Splitting the union keeps a null-row worktree
+ * unrepresentable: a Changes row is always picked before it opens, while a
+ * History scope opens first and the peek's rail seeds its file after.
+ *
+ * `repo` is the peek's OWN — captured when the diff was opened, not read from
+ * the tab. The two are independent on purpose: see the overlay below.
+ */
+type OpenDiff =
+  | { repo: string; kind: "worktree"; row: ChangeRow }
+  | {
+      repo: string;
+      kind: "history";
+      row: ChangeRow | null;
+      scope: HistoryScope;
+    };
+
+/**
+ * The plugin's resident diff viewer — the single consumer of the tab's peek
+ * requests. Registered as a host overlay, so it lives for as long as the
+ * plugin is active regardless of what the dock is doing: switching to another
+ * dock tab no longer hides an open diff, and closing the dock no longer
+ * destroys it. Empty until a request arrives.
+ *
+ * It also keeps a full-window overlay OUT of the dock's subtree, which is
+ * what let the dock be a plain panel again — `.peek` is `position: fixed`
+ * with a window-level z-index, and a fixed descendant is only ever as
+ * window-level as its ancestors allow.
+ */
+export function GitDiffOverlay() {
+  const [diff, setDiff] = useState<OpenDiff | null>(null);
+
+  useEffect(() => {
+    const consume = () => {
+      const next = takePeekRequest();
+      if (!next) return;
+      // A History scope opens with no file yet; a Changes row opens on itself.
+      setDiff(
+        next.kind === "worktree"
+          ? { repo: next.repo, kind: "worktree", row: next.row }
+          : { repo: next.repo, kind: "history", row: null, scope: next.scope },
+      );
+    };
+    // A request may predate this mount; the take-based consume is naturally
+    // StrictMode-safe — a re-invoked effect finds the slot empty and touches
+    // nothing.
+    consume();
+    return subscribePeekRequests(consume);
+  }, []);
+
+  if (!diff) return null;
+  return (
+    <OpenDiffPeek
+      // A diff of another repo is a different subject, not the same peek
+      // re-pointed: remount so nothing of the old one's fetch state carries.
+      key={diff.repo}
+      diff={diff}
+      onSelect={(row) => setDiff((prev) => (prev ? { ...prev, row } : prev))}
+      onClose={() => setDiff(null)}
+    />
+  );
+}
+
+/**
+ * One open diff, live against its own repo. The status feed lives HERE rather
+ * than in the tab: the peek needs the change list for its rail and a `version`
+ * to re-read on, and it needs both with the dock in any state, including
+ * closed — the tab is not there to supply them.
+ *
+ * That the tab watches the same repo in the window where both are open costs
+ * one extra `git status` per change, not a second watcher: the host's watch
+ * fanout already shares one backend watcher per path across subscribers.
+ */
+function OpenDiffPeek({
+  diff,
+  onSelect,
+  onClose,
+}: {
+  diff: OpenDiff;
+  onSelect: (row: ChangeRow) => void;
+  onClose: () => void;
+}) {
+  const { status, version } = useGitStatus(diff.repo);
+  const groups = status ? groupEntries(status.entries) : null;
+
+  return (
+    <DiffPeek
+      repo={diff.repo}
+      view={
+        diff.kind === "worktree"
+          ? {
+              kind: "file",
+              row: diff.row,
+              changeSet: { kind: "worktree", groups },
+            }
+          : diff.row !== null
+            ? {
+                kind: "file",
+                row: diff.row,
+                changeSet: { kind: "history", scope: diff.scope },
+              }
+            : { kind: "waiting", scope: diff.scope }
+      }
+      version={version}
+      onSelect={onSelect}
+      onClose={onClose}
+    />
+  );
+}

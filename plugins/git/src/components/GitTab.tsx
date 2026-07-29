@@ -1,24 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { DockTabProps } from "@keepdeck/plugin-api";
 import { Dropdown } from "@keepdeck/ui-kit/Dropdown";
 import { shortPath } from "@keepdeck/ui-kit/paths";
 import { useGitStatus } from "./useGitStatus";
 import { groupEntries, headline, type ChangeRow } from "../domain/status";
-import { DiffPeek } from "./DiffPeek";
 import { FileSection } from "./FileRows";
 import { HistoryView } from "./HistoryView";
-import type { HistoryScope } from "../domain/history";
+import { requestPeek } from "../peekRequests";
 import { BranchIcon } from "../icons";
-
-/**
- * The open peek: a Changes file, or a History scope. A History scope opens
- * before any file is picked — the rail seeds `row`. Splitting the union
- * keeps a null-row worktree unrepresentable; DiffPeek turns the history
- * variant into a `file`/`waiting` view from there.
- */
-type Peek =
-  | { kind: "worktree"; row: ChangeRow }
-  | { kind: "history"; row: ChangeRow | null; scope: HistoryScope };
 
 /**
  * The Git tab: a live changes view of the chosen repo. The root is a pane's
@@ -28,8 +17,15 @@ type Peek =
  *
  * Everything updates by itself: the git watch (edits, staging, commits,
  * checkouts) feeds `useGitStatus`, which is why there is no refresh button
- * anywhere. Clicking a row lifts its diff into the wide peek; the open peek
- * follows status refreshes too.
+ * anywhere.
+ *
+ * Opening a row or a history scope HANDS the diff to the plugin's resident
+ * overlay (`GitDiffOverlay`) instead of rendering it here. A peek rendered in
+ * a tab body is hidden with it on a tab switch and unmounted with it when the
+ * dock closes; the diff belongs to neither. The tab therefore also does not
+ * close an open diff when its own root changes — that diff is pinned to the
+ * repo it was opened on and stays live against it, rather than vanishing from
+ * under the reader because something re-rooted the panel behind it.
  */
 export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   const [target, setTarget] = useState(
@@ -49,13 +45,6 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
 
   const { status, error, version } = useGitStatus(target);
   const [mode, setMode] = useState<"changes" | "history">("changes");
-  const [peek, setPeek] = useState<Peek | null>(null);
-
-  // A new root starts fresh — drop any open diff (the mode survives: "I'm
-  // reviewing history" holds across pane clicks).
-  useEffect(() => {
-    setPeek(null);
-  }, [target]);
 
   // Distinct roots: each pane worktree once, the workspace folder last (a
   // pane attached to the main repo can't duplicate it).
@@ -85,7 +74,8 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   ];
 
   const groups = status ? groupEntries(status.entries) : null;
-  const openRow = (row: ChangeRow) => setPeek({ kind: "worktree", row });
+  const openRow = (row: ChangeRow) =>
+    requestPeek({ repo: target, kind: "worktree", row });
 
   return (
     <div className="git">
@@ -149,7 +139,9 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           <HistoryView
             repo={target}
             version={version}
-            onOpen={(scope) => setPeek({ kind: "history", row: null, scope })}
+            onOpen={(scope) =>
+              requestPeek({ repo: target, kind: "history", scope })
+            }
           />
         ) : (
           <>
@@ -185,30 +177,6 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
           </>
         )}
       </div>
-
-      {peek && (
-        <DiffPeek
-          repo={target}
-          view={
-            peek.kind === "worktree"
-              ? {
-                  kind: "file",
-                  row: peek.row,
-                  changeSet: { kind: "worktree", groups },
-                }
-              : peek.row !== null
-                ? {
-                    kind: "file",
-                    row: peek.row,
-                    changeSet: { kind: "history", scope: peek.scope },
-                  }
-                : { kind: "waiting", scope: peek.scope }
-          }
-          version={version}
-          onSelect={(row) => setPeek((prev) => (prev ? { ...prev, row } : prev))}
-          onClose={() => setPeek(null)}
-        />
-      )}
     </div>
   );
 }

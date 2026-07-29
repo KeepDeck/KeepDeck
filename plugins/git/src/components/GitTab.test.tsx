@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, Fragment } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -11,7 +11,9 @@ import type {
   WorkspaceSnapshot,
 } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
+import { takePeekRequest } from "../peekRequests";
 import { GitTab } from "./GitTab";
+import { GitDiffOverlay } from "./GitDiffOverlay";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -127,10 +129,33 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   setRuntime(null);
+  // A test that opens a diff without a consumer leaves the request parked in
+  // the module's slot; drain it so it can't open a peek in the next test.
+  takePeekRequest();
   vi.useRealTimers();
 });
 
+/**
+ * Tab and overlay as SIBLINGS — the shape the host mounts them in (the dock
+ * panel and `PluginOverlays` are siblings in the composition root). The peek
+ * assertions below therefore exercise the real path: the tab publishes a
+ * request, the resident overlay renders the diff.
+ */
 async function render(selectedPaneId: string | null = null) {
+  await act(async () => {
+    root.render(
+      createElement(
+        Fragment,
+        null,
+        createElement(GitTab, { workspace, selectedPaneId }),
+        createElement(GitDiffOverlay),
+      ),
+    );
+  });
+}
+
+/** The tab alone, with no consumer for what it opens. */
+async function renderTabOnly(selectedPaneId: string | null = null) {
   await act(async () => {
     root.render(createElement(GitTab, { workspace, selectedPaneId }));
   });
@@ -212,6 +237,36 @@ describe("GitTab", () => {
     await settle(2);
     expect(git.status.mock.calls.length).toBe(before + 1);
     expect(host.textContent).toContain("hot.ts");
+  });
+
+  it("renders no peek of its own — it hands the diff to the resident overlay", async () => {
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus({
+      entries: [
+        { path: "src/app.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
+      ],
+    }));
+    setRuntime(makeCtx(git));
+
+    await renderTabOnly();
+    const row = [...host.querySelectorAll("button.git__row")].find((el) =>
+      el.textContent?.includes("app.ts"),
+    );
+    await act(async () => {
+      (row as HTMLButtonElement).click();
+    });
+
+    // Nothing full-window inside the tab: a peek rendered here would be
+    // hidden with the tab body and destroyed when the dock closes.
+    expect(host.querySelector(".peek")).toBeNull();
+    expect(git.diffFile).not.toHaveBeenCalled();
+    // The open gesture went out as a request instead, carrying the repo it
+    // was opened on.
+    expect(takePeekRequest()).toEqual({
+      repo: "/repo",
+      kind: "worktree",
+      row: expect.objectContaining({ path: "src/app.ts" }),
+    });
   });
 
   it("clicking a row opens the diff peek with the parsed hunk", async () => {
