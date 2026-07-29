@@ -289,6 +289,62 @@ describe("GitDiffOverlay", () => {
     expect(overlayHost.querySelector(".peek")).toBeNull();
   });
 
+  it("a second history scope never seeds from the first scope's files", async () => {
+    // Two scopes of the SAME repo, so nothing remounts between them: the
+    // rail's list is the only thing that must not carry over.
+    let releaseSecond: (files: { path: string; code: string }[]) => void =
+      () => {};
+    const calls: string[][] = [];
+    const changedFiles = vi.fn((_repo: string, from: string, to?: string) => {
+      calls.push([from, to ?? ""]);
+      if (calls.length === 1) {
+        return Promise.resolve([{ path: "first.ts", code: "M" }]);
+      }
+      return new Promise((resolve) => {
+        releaseSecond = resolve as typeof releaseSecond;
+      });
+    });
+    const ctx = makeCtx();
+    (ctx.services.git as { changedFiles: unknown }).changedFiles = changedFiles;
+    setRuntime(ctx);
+    await mountOverlay();
+
+    await act(async () => {
+      requestPeek({
+        repo: "/repo",
+        workspace: WS,
+        kind: "history",
+        scope: { kind: "commit", sha: "aaa1111", subject: "First" },
+      });
+    });
+    expect(overlayHost.querySelector(".git__row--on")?.textContent).toContain(
+      "first.ts",
+    );
+
+    // Switch scopes while the peek stays open; the new list is still in
+    // flight.
+    await act(async () => {
+      requestPeek({
+        repo: "/repo",
+        workspace: WS,
+        kind: "history",
+        scope: { kind: "commit", sha: "bbb2222", subject: "Second" },
+      });
+    });
+
+    // The old list was still in state at this point. Seeding from it opened
+    // a file that is not in this scope at all, under this scope's header.
+    expect(overlayHost.querySelector(".git__row--on")).toBeNull();
+    expect(overlayHost.textContent).not.toContain("first.ts");
+
+    await act(async () => {
+      releaseSecond([{ path: "second.ts", code: "M" }]);
+    });
+    expect(overlayHost.querySelector(".git__row--on")?.textContent).toContain(
+      "second.ts",
+    );
+  });
+
   it("closing the diff clears it, leaving nothing behind", async () => {
     setRuntime(makeCtx());
     await mountOverlay();

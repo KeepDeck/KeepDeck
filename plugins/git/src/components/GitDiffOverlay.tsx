@@ -83,7 +83,11 @@ export function GitDiffOverlay() {
   return (
     <OpenDiffPeek
       // A diff of another repo is a different subject, not the same peek
-      // re-pointed: remount so nothing of the old one's fetch state carries.
+      // re-pointed: remount so it starts on the new repo's own status feed
+      // rather than re-subscribing mid-life. It is NOT what keeps stale
+      // content out — every list and fetch below carries the change set it
+      // belongs to, which is what makes switching scopes within one repo
+      // safe too.
       key={diff.repo}
       diff={diff}
       onSelect={(row) => setDiff((prev) => (prev ? { ...prev, row } : prev))}

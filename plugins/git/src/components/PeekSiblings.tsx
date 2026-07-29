@@ -66,8 +66,28 @@ export function PeekSiblings({
 }) {
   const scope = changeSet.kind === "history" ? changeSet.scope : null;
   const range = scope && scopeRange(scope);
-  const [files, setFiles] = useState<GitChangedFile[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The list is stored WITH the change set it belongs to. Keeping them apart
+  // let the seed below read the previous scope's files: clearing the list is
+  // a state update, so within the render that switched scopes the old list is
+  // still there, and the seed would open one of its files under the new
+  // scope's header.
+  const [loaded, setLoaded] = useState<{
+    key: string;
+    files: GitChangedFile[];
+  } | null>(null);
+  // Keyed for the same reason, and so a failure does not blink away and back
+  // on every refresh the way clearing it up front would.
+  const [failed, setFailed] = useState<{ key: string; message: string } | null>(
+    null,
+  );
+
+  // One key drives the fetch, the clear and the seed, so they cannot
+  // disagree about what a different list is — `repo` included, since two
+  // worktrees of one repo share shas.
+  const key = changeSetKey(repo, range || undefined);
+  // Only the list that belongs to the CURRENT change set counts as loaded.
+  const files = loaded?.key === key ? loaded.files : null;
+  const error = failed?.key === key ? failed.message : null;
 
   // The rail's rows in visual order — what the arrows walk.
   const groups = changeSet.kind === "worktree" ? changeSet.groups : null;
@@ -115,34 +135,25 @@ export function PeekSiblings({
       ?.scrollIntoView({ block: "nearest" });
   }, [current?.path, current?.kind]);
 
-  // A version bump refetches IN PLACE; only a different change set clears the
-  // list first (the HistoryView drill's idiom). One key drives both the clear
-  // and the re-read, so they cannot disagree about what a different list is —
-  // `repo` included, since two worktrees of one repo share shas.
-  const key = changeSetKey(repo, range || undefined);
-  const keyRef = useRef("");
+  // A version bump refetches IN PLACE; a different change set supersedes the
+  // list, which needs no separate clear — the list carries the key it was
+  // fetched for, so a stale one simply stops counting as loaded.
   useEffect(() => {
     if (!range) return;
-    if (keyRef.current !== key) {
-      keyRef.current = key;
-      setFiles(null);
-      setError(null);
-    }
     let cancelled = false;
     const { services, log } = getRuntime();
     services.git
       .changedFiles(repo, range.from, range.to)
       .then((next) => {
         if (cancelled) return;
-        setFiles(next);
-        setError(null);
+        setLoaded({ key, files: next });
+        setFailed(null);
       })
       .catch((cause: unknown) => {
         const message = cause instanceof Error ? cause.message : String(cause);
         log.warn(`changed files failed for ${repo}: ${message}`);
         if (cancelled) return;
-        setError(message);
-        setFiles(null);
+        setFailed({ key, message });
       });
     return () => {
       cancelled = true;
