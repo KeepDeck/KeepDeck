@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
@@ -80,8 +80,18 @@ export function DiffPeek({
   // Which diff is on screen, decided once: the fetch below re-reads on it, the
   // stale-content clear compares it, and the peek resets its scroll on it.
   const key = diffKey(repo, row, range);
-  const [diff, setDiff] = useState<FileDiff | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The fetch's outcome, carrying the diff it was fetched FOR, as one union.
+  // Clearing on a key change used to be a `setState` inside the effect below,
+  // which lands a commit late: the render that first showed the new row's
+  // name, path and badge still had the previous row's hunks in state, so a
+  // frame could paint one file's diff under another file's header. Derived
+  // per render, a superseded diff simply stops counting.
+  const [fetched, setFetched] = useState<
+    { key: string; diff: FileDiff } | { key: string; error: string } | null
+  >(null);
+  const settled = fetched?.key === key ? fetched : null;
+  const diff = settled && "diff" in settled ? settled.diff : null;
+  const error = settled && "error" in settled ? settled.error : null;
   // Joined flat text compares by VALUE in the hook's deps, so rebuilding the
   // string each render never re-triggers tokenization.
   const showsCode = diff !== null && !diff.binary;
@@ -92,16 +102,12 @@ export function DiffPeek({
   const offsets = showsCode ? hunkOffsets(diff) : [];
 
   // A version bump refreshes the open diff IN PLACE; switching to another
-  // file clears it first, so the old hunks never show under the new name.
-  const diffKeyRef = useRef("");
+  // file supersedes it, which the derivation above already handles — there is
+  // nothing to clear here, and so no window in which the old hunks can show
+  // under the new name.
   useEffect(() => {
     // No file to diff yet — the rail seeds the first file of a History scope.
     if (!row) return;
-    if (diffKeyRef.current !== key) {
-      diffKeyRef.current = key;
-      setDiff(null);
-      setError(null);
-    }
     let cancelled = false;
     const { services, log } = getRuntime();
     const read = range
@@ -122,15 +128,13 @@ export function DiffPeek({
     read
       .then((next) => {
         if (cancelled) return;
-        setDiff(next);
-        setError(null);
+        setFetched({ key, diff: next });
       })
       .catch((cause: unknown) => {
         const message = cause instanceof Error ? cause.message : String(cause);
         log.warn(`diff failed for ${row.path}: ${message}`);
         if (cancelled) return;
-        setError(message);
-        setDiff(null);
+        setFetched({ key, error: message });
       });
     return () => {
       cancelled = true;
