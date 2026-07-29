@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
+import { readManifest } from "@keepdeck/plugin-api";
 import type { PluginContext } from "@keepdeck/plugin-api";
+import { requestPeek, takePeekRequest } from "./peekRequests";
 import plugin from "./index";
 
 /**
@@ -11,25 +14,32 @@ import plugin from "./index";
  * tests goes through that gate — components are mounted directly — so a
  * declaration that drifts from what `activate` registers would only surface
  * by the Git tab vanishing from a running app.
+ *
+ * The manifest is read through the host's own `readManifest`, not a raw
+ * `JSON.parse`. The validator DROPS an entry missing a label or carrying an
+ * id outside the allowed characters, which is exactly the shape that then
+ * fails `declared()` — parsing the file ourselves would call such a manifest
+ * fine while the running host refused the plugin.
  */
-const manifest = JSON.parse(
-  readFileSync(join("plugins/git/manifest.json"), "utf8"),
-) as {
-  contributes: Record<string, Array<{ id: string }> | boolean | undefined>;
-};
+const HERE = dirname(fileURLToPath(import.meta.url));
+const parsed = readManifest(
+  JSON.parse(readFileSync(join(HERE, "..", "manifest.json"), "utf8")),
+);
 
-function declaredIds(kind: string): string[] {
-  const list = manifest.contributes[kind];
-  return Array.isArray(list) ? list.map((entry) => entry.id) : [];
+function declaredIds(kind: "dockTabs" | "overlays"): string[] {
+  if (!parsed.ok) return [];
+  return (parsed.manifest.contributes[kind] ?? []).map((entry) => entry.id);
 }
 
 /** Activate against a context that RECORDS what each surface registers. */
 function activateAndRecord() {
   const registered: Record<string, string[]> = { dockTabs: [], overlays: [] };
   const ctx = {
-    services: {
-      git: {},
-      fs: {},
+    services: { git: {}, fs: {} },
+    events: {
+      onPaneSelected: () => ({ dispose: vi.fn() }),
+      onWorkspaceClosed: () => ({ dispose: vi.fn() }),
+      onDeckChanged: () => ({ dispose: vi.fn() }),
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     ui: {
@@ -49,16 +59,22 @@ function activateAndRecord() {
 }
 
 describe("git plugin manifest", () => {
-  it("declares every surface activation registers", () => {
+  it("passes the host's own validator", () => {
+    // A manifest the validator rejects never reaches `declared()` at all —
+    // the plugin fails to load, and every parity check below would be
+    // comparing against an empty list without saying so.
+    expect(parsed.ok, parsed.ok ? "" : parsed.errors.join("; ")).toBe(true);
+  });
+
+  it("declares exactly the surfaces activation registers, and no others", () => {
     const registered = activateAndRecord();
     plugin.deactivate?.();
 
-    // Registering an undeclared id throws in the host and fails the plugin.
-    for (const kind of ["dockTabs", "overlays"]) {
-      for (const id of registered[kind]) {
-        expect(declaredIds(kind), `${kind} "${id}" is not in manifest.json`)
-          .toContain(id);
-      }
+    // Both directions: registering an undeclared id throws in the host and
+    // fails the plugin, while a declaration nobody registers is a dead
+    // promise to the user about what this plugin contributes.
+    for (const kind of ["dockTabs", "overlays"] as const) {
+      expect(declaredIds(kind).sort()).toEqual(registered[kind].sort());
     }
   });
 
@@ -71,13 +87,20 @@ describe("git plugin manifest", () => {
     expect(registered.overlays).toContain("diff");
     expect(registered.dockTabs).toEqual(["git"]);
   });
+});
 
-  it("declares nothing it never registers", () => {
-    const registered = activateAndRecord();
+describe("git plugin deactivate", () => {
+  it("drains a parked request — the next activation never replays a stale peek", () => {
+    activateAndRecord();
+    requestPeek({
+      repo: "/repo",
+      workspace: { id: "ws-1", instance: "instance-1" },
+      kind: "worktree",
+      row: { path: "a.ts", origPath: null, code: "M", kind: "unstaged" },
+    });
+
     plugin.deactivate?.();
 
-    for (const kind of ["dockTabs", "overlays"]) {
-      expect(declaredIds(kind).sort()).toEqual(registered[kind].sort());
-    }
+    expect(takePeekRequest()).toBeNull();
   });
 });

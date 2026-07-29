@@ -3,6 +3,8 @@
 import "./styles.css";
 import type { KeepDeckPlugin } from "@keepdeck/plugin-api";
 import { setRuntime } from "./runtime";
+import { closeAllGitStatusFeeds } from "./gitStatusFeed";
+import { takePeekRequest } from "./peekRequests";
 import { GitTab } from "./components/GitTab";
 import { GitDiffOverlay } from "./components/GitDiffOverlay";
 
@@ -18,6 +20,14 @@ const activate: KeepDeckPlugin["activate"] = (ctx) => {
   ctx.ui.registerOverlay({ id: "diff", Component: GitDiffOverlay });
 };
 
-const deactivate = () => setRuntime(null);
+const deactivate = () => {
+  // Drain the one-slot bus: a request parked in this lifetime must never
+  // replay into the NEXT activation's overlay as a stale peek.
+  takePeekRequest();
+  // A feed holds a watch subscription and a pending debounce timer, both
+  // belonging to the activation that opened them.
+  closeAllGitStatusFeeds();
+  setRuntime(null);
+};
 
 export default { activate, deactivate } satisfies KeepDeckPlugin;

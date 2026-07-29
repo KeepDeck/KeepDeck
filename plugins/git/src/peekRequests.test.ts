@@ -50,7 +50,10 @@ describe("peekRequests", () => {
     const first = vi.fn();
     const second = vi.fn();
     const stopFirst = subscribePeekRequests(first);
-    subscribePeekRequests(second);
+    // Captured, not discarded: the listener set is module state, so a
+    // subscription this test leaks would go on answering every request the
+    // REST of the file makes.
+    const stopSecond = subscribePeekRequests(second);
 
     requestPeek(worktree("a.ts"));
     expect(first).toHaveBeenCalledTimes(1);
@@ -62,6 +65,35 @@ describe("peekRequests", () => {
 
     expect(first).toHaveBeenCalledTimes(1);
     expect(second).toHaveBeenCalledTimes(2);
+
+    stopSecond();
+    takePeekRequest();
+    requestPeek(worktree("c.ts"));
+    expect(second).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers null when nothing was ever requested", () => {
+    expect(takePeekRequest()).toBeNull();
+  });
+
+  it("survives a subscriber unsubscribing while it is being notified", () => {
+    const late = vi.fn();
+    let stopLate = () => {};
+    // The producer is one synchronous loop; a listener that tears down during
+    // it must not make the loop skip the ones behind it.
+    const stopEarly = subscribePeekRequests(() => stopLate());
+    stopLate = subscribePeekRequests(late);
+
+    expect(() => requestPeek(worktree("a.ts"))).not.toThrow();
+    // Removed mid-notification, but the snapshot the loop walks still
+    // reaches it — the alternative is a request one listener silently eats.
+    expect(late).toHaveBeenCalledTimes(1);
+
+    takePeekRequest();
+    requestPeek(worktree("b.ts"));
+    expect(late).toHaveBeenCalledTimes(1);
+
+    stopEarly();
   });
 
   it("notifies synchronously, so a listener can consume within the call", () => {
