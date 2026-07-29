@@ -406,6 +406,47 @@ describe("opening a history scope", () => {
     ).toContain("b.ts");
   });
 
+  it("a failed refetch REPLACES the rail's list instead of sitting over it", async () => {
+    vi.useFakeTimers();
+    const git = makeGit();
+    git.statuses.set("/repo", cleanStatus());
+    git.histories.set("/repo", {
+      forkSha: null,
+      ahead: null,
+      commits: [
+        { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "add feature" },
+      ],
+    });
+    // The fake's methods are captured when the ctx is built, so the failure
+    // has to be switchable from inside it rather than swapped in later.
+    let fail = false;
+    git.changedFiles = vi.fn(async () => {
+      if (fail) throw new Error("no such path: /repo");
+      return [{ path: "listed.ts", origPath: null, code: "M" }];
+    });
+    setRuntime(makeCtx(git));
+
+    await rig.render();
+    await openHistory();
+    await act(async () => listRow("add feature").click());
+    await rig.settle(0);
+    expect(rig.host.querySelector(".peek__aside")?.textContent).toContain(
+      "listed.ts",
+    );
+
+    // The worktree is deleted under the open peek: the feed's next read bumps
+    // `version`, so the rail refetches the SAME scope — and now fails.
+    fail = true;
+    git.fireChange("/repo");
+    await rig.settle(301);
+
+    // The error must SUPERSEDE the list. Keeping both left rows the failing
+    // repo can no longer diff, still clickable and still seedable.
+    const aside = rig.host.querySelector(".peek__aside")!;
+    expect(aside.textContent).toContain("no such path: /repo");
+    expect(aside.textContent).not.toContain("listed.ts");
+  });
+
   it("a status refresh while a history scope is waiting refetches its file list", async () => {
     vi.useFakeTimers();
     const git = makeGit();
