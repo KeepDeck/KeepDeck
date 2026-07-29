@@ -24,9 +24,14 @@ const ARROW_KEYS: Record<string, ArrowKey | undefined> = {
 
 /** The change set an open diff belongs to — what the peek's rail lists.
  * A union, not optional fields: a worktree diff belongs to the LIVE status
- * groups, a History diff to one drilled scope; never both. */
+ * groups, a History diff to one drilled scope; never both.
+ *
+ * `error` carries the status feed's own failure. A peek can outlive the
+ * worktree it opened on (closing the pane deletes it), and the rail is where
+ * that has to be said — silently dropping the list left the reader looking at
+ * hunks of a directory that no longer exists. */
 export type ChangeSet =
-  | { kind: "worktree"; groups: ChangeGroups | null }
+  | { kind: "worktree"; groups: ChangeGroups | null; error: string | null }
   | { kind: "history"; scope: HistoryScope };
 
 /**
@@ -61,8 +66,30 @@ export function PeekSiblings({
 }) {
   const scope = changeSet.kind === "history" ? changeSet.scope : null;
   const range = scope && scopeRange(scope);
-  const [files, setFiles] = useState<GitChangedFile[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The fetch's outcome, stored WITH the change set it belongs to and as ONE
+  // union rather than a list beside an error.
+  //
+  // Keyed, because clearing a list is a state update: within the render that
+  // switched scopes the old list would still be there, and the seed below
+  // would open one of its files under the new scope's header. A union,
+  // because a list and an error must not both be current — a failed refetch
+  // under an unchanged key left the previous list rendered UNDER the error
+  // banner, still clickable, still seedable. It also means a failure does not
+  // blink away and back on every refresh, the way clearing up front would.
+  const [fetched, setFetched] = useState<
+    | { key: string; files: GitChangedFile[] }
+    | { key: string; error: string }
+    | null
+  >(null);
+
+  // One key drives the fetch, the clear and the seed, so they cannot
+  // disagree about what a different list is — `repo` included, since two
+  // worktrees of one repo share shas.
+  const key = changeSetKey(repo, range || undefined);
+  // Only an outcome that belongs to the CURRENT change set counts.
+  const settled = fetched?.key === key ? fetched : null;
+  const files = settled && "files" in settled ? settled.files : null;
+  const error = settled && "error" in settled ? settled.error : null;
 
   // The rail's rows in visual order — what the arrows walk.
   const groups = changeSet.kind === "worktree" ? changeSet.groups : null;
@@ -110,34 +137,26 @@ export function PeekSiblings({
       ?.scrollIntoView({ block: "nearest" });
   }, [current?.path, current?.kind]);
 
-  // A version bump refetches IN PLACE; only a different change set clears the
-  // list first (the HistoryView drill's idiom). One key drives both the clear
-  // and the re-read, so they cannot disagree about what a different list is —
-  // `repo` included, since two worktrees of one repo share shas.
-  const key = changeSetKey(repo, range || undefined);
-  const keyRef = useRef("");
+  // A version bump refetches IN PLACE; a different change set supersedes the
+  // list, which needs no separate clear — the list carries the key it was
+  // fetched for, so a stale one simply stops counting as loaded.
   useEffect(() => {
     if (!range) return;
-    if (keyRef.current !== key) {
-      keyRef.current = key;
-      setFiles(null);
-      setError(null);
-    }
     let cancelled = false;
     const { services, log } = getRuntime();
     services.git
       .changedFiles(repo, range.from, range.to)
       .then((next) => {
         if (cancelled) return;
-        setFiles(next);
-        setError(null);
+        setFetched({ key, files: next });
       })
       .catch((cause: unknown) => {
         const message = cause instanceof Error ? cause.message : String(cause);
         log.warn(`changed files failed for ${repo}: ${message}`);
         if (cancelled) return;
-        setError(message);
-        setFiles(null);
+        // Supersedes the list this key had: a rail that shows an error must
+        // not also offer rows read before it.
+        setFetched({ key, error: message });
       });
     return () => {
       cancelled = true;
@@ -156,6 +175,14 @@ export function PeekSiblings({
   }, [isHistory, current, files, onSelect]);
 
   if (changeSet.kind === "worktree") {
+    // The repo stopped answering — say so where the list would have been.
+    // The body says it too (the diff re-read fails on the same version bump),
+    // but the rail is what visibly disappeared.
+    if (changeSet.error) {
+      return (
+        <div className="git__empty git__empty--bad">{changeSet.error}</div>
+      );
+    }
     if (!groups) return null;
     return (
       <div ref={railRef}>

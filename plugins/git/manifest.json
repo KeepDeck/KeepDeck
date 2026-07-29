@@ -21,6 +21,12 @@
         "id": "git",
         "label": "Git"
       }
+    ],
+    "overlays": [
+      {
+        "id": "diff",
+        "label": "Diff peek"
+      }
     ]
   }
 }
