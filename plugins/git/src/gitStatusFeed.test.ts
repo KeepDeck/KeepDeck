@@ -18,7 +18,11 @@ function makeCtx() {
   const disposed: string[] = [];
   let fail: string | null = null;
   let refuseWatch: string | null = null;
+  let hold: Promise<void> | null = null;
   const status = vi.fn(async (repo: string) => {
+    // A read that only settles when the test says so — the window a close or
+    // a fresh change can land in.
+    if (hold) await hold;
     if (fail) throw new Error(fail);
     return { ...clean(), oid: repo };
   });
@@ -54,6 +58,9 @@ function makeCtx() {
     },
     refuseWatchWith: (message: string | null) => {
       refuseWatch = message;
+    },
+    holdStatus: (until: Promise<void> | null) => {
+      hold = until;
     },
   };
 }
@@ -206,6 +213,54 @@ describe("gitStatusFeed", () => {
     sub("/repo");
     await settle();
     expect(git.status).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a read that lands after its feed was closed", async () => {
+    // Hold the read open, then let the last subscriber go while it is still
+    // in flight — the dock closing on a slow repo.
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    git.holdStatus(held);
+
+    const stop = sub("/repo");
+    stop();
+    expect(git.disposed).toEqual(["/repo"]);
+
+    release();
+    await settle();
+
+    // The late result must not publish into a feed nobody is watching, and
+    // must not resurrect it.
+    expect(gitStatusSnapshot("/repo")).toEqual({
+      status: null,
+      error: null,
+      version: 0,
+    });
+  });
+
+  it("coalesces a change that lands mid-read into exactly one re-read", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    git.holdStatus(held);
+    sub("/repo");
+    expect(git.status).toHaveBeenCalledTimes(1);
+
+    // Two changes while the first read is still running: single-flight marks
+    // the feed dirty rather than queueing a pile-up.
+    git.fire("/repo");
+    await settle(300);
+    git.fire("/repo");
+    await settle(300);
+    expect(git.status).toHaveBeenCalledTimes(1);
+
+    release();
+    await settle();
+    expect(git.status).toHaveBeenCalledTimes(2);
+    expect(gitStatusSnapshot("/repo").status?.oid).toBe("/repo");
   });
 
   it("debounces a burst of watch events into one re-read", async () => {
