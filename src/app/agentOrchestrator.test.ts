@@ -168,7 +168,8 @@ vi.mock("./spawnSpecs", () => {
 });
 /** The post-provision map is write-only by design (a step is consumed when it
  *  succeeds), so a fork test has no way to read back the step it registered.
- *  Spied and delegated: the real behaviour stands, and the step is reachable. */
+ *  The worktree manager is faked here, so these spies ARE its map — a fork test
+ *  reaches its step through the recorded call. */
 const steps = vi.hoisted(() => ({
   register: vi.fn(),
   clear: vi.fn(),
@@ -188,30 +189,6 @@ const published = vi.hoisted(
   () =>
     new Map<string, Promise<{ repo: string; path: string; branch: string } | null>>(),
 );
-
-vi.mock("./provisioning", async (importOriginal) => {
-  const real = await importOriginal<typeof import("./provisioning")>();
-  return {
-    ...real,
-    takeCreatedWorktree: (paneId: string) => {
-      const made = published.get(paneId);
-      if (!made) return Promise.resolve(null);
-      published.delete(paneId);
-      return made;
-    },
-    registerPostProvision: (
-      paneId: string,
-      step: (worktree: { cwd: string; branch: string }) => Promise<void>,
-    ) => {
-      steps.register(paneId, step);
-      real.registerPostProvision(paneId, step);
-    },
-    clearPostProvision: (paneId: string) => {
-      steps.clear(paneId);
-      real.clearPostProvision(paneId);
-    },
-  };
-});
 
 /** The session registry as the orchestrator sees it: what it started, and
  *  what each pane's process is doing. */
@@ -372,13 +349,26 @@ function Probe() {
         },
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
-        provision: (panes, _report, setup) => {
-          asked.push({ panes, setup });
-          return Promise.resolve();
-        },
-        discardWorktrees: (targets) => {
-          discarded.push(targets);
-          return Promise.resolve(discardFailures);
+        // The worktree lifecycle as one fake: git creates and removals are not
+        // things this test performs, and the published map stands in for what a
+        // create put on disk.
+        worktrees: {
+          provision: (panes, _report, setup) => {
+            asked.push({ panes, setup });
+            return Promise.resolve();
+          },
+          awaitCreated: (paneId) => {
+            const made = published.get(paneId);
+            if (!made) return Promise.resolve(null);
+            published.delete(paneId);
+            return made;
+          },
+          registerPostProvision: steps.register,
+          clearPostProvision: steps.clear,
+          remove: (targets) => {
+            discarded.push(targets);
+            return Promise.resolve(discardFailures);
+          },
         },
       }),
     };

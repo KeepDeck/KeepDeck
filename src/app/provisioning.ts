@@ -1,20 +1,14 @@
 import type { AgentType } from "../domain/agents";
-import {
-  makePanes,
-  makeProvisioningPanes,
-  type Pane,
-  type PaneProvisioning,
-  type WorktreeTarget,
-} from "../domain/deck";
-import { describeError, log } from "../ipc/log";
-import { createWorktree, inspectRepo, removeWorktree } from "../ipc/worktree";
+import { makePanes, makeProvisioningPanes, type Pane } from "../domain/deck";
 
 /**
- * Optimistic provisioning: panes land in the deck the moment they're asked
- * for — in worktree mode as status cards carrying their create intent — and
- * `runProvisioning` performs the actual `git worktree add`s in the
- * background, reporting each result into the deck as it settles. Nothing
- * here awaits before the user sees their panes.
+ * Optimistic provisioning, planning half: panes land in the deck the moment
+ * they're asked for — in worktree mode as status cards carrying their create
+ * intent — and nothing here awaits before the user sees them. Performing the
+ * actual `git worktree add`s, and reporting each result into the deck as it
+ * settles, is the worktree manager's ([`app/worktrees`]); this module holds the
+ * pieces the manager is driven WITH: what to plan, where to report, and how the
+ * workspace's setup command is packaged.
  */
 
 /** Where the background runner reports as each pane's create settles. */
@@ -64,106 +58,8 @@ export function provisionInto(
 }
 
 /**
- * Post-provision steps, keyed by pane id: a JS step run AFTER a pane's worktree
- * is created (and setup passed) but BEFORE its card resolves — the seam where a
- * journal fork runs its store surgery bound to the CREATED worktree. It runs on
- * the initial create AND on every Retry (both go through `provisionPane`), so a
- * retried fork re-runs its surgery instead of silently resolving into a plain
- * (non-fork) pane. A step THROWS to fail (the worktree is rolled back and the
- * card fails); it is consumed once it succeeds, and kept across a failed attempt
- * so the retry re-runs it.
- *
- * PERSISTENCE COUPLING (don't miss this): a step lives ONLY in this in-memory
- * map — it cannot survive an app restart. So ANY pane that registers a step
- * MUST also be excluded from persistence, or its card restores as a plain
- * retryable card and Retry resolves a NON-fork pane. The journal fork does this
- * via `PaneProvisioning.fork`, which `serializeDeck` drops; a future second user
- * of this map must add the equivalent.
- */
-const postProvisionSteps = new Map<
-  string,
-  (worktree: { cwd: string; branch: string }) => Promise<void>
->();
-
-/**
- * What each pane's worktree create has put on disk, published the moment
- * `git worktree add` returns and BEFORE anything else the create does.
- *
- * Published early on purpose. The close needs two things a create cannot give
- * it at the same moment: the path, and permission to delete only after the
- * pane's process is reaped. Waiting for the whole create supplies neither —
- * the setup step runs in the session slot the close just reaped, so waiting
- * there is a deadlock — and letting the CREATE delete supplies the path but
- * loses the ordering, removing a directory a still-live setup command is
- * writing into.
- *
- * Publishing at the git call splits those apart: this promise always settles
- * promptly (nothing but the git call is in front of it), so the close can await
- * it, then reap, then delete — in that order, with `discardWorktrees` doing the
- * removal and reporting its failures like any other.
- *
- * Kept until READ, then dropped. The pane also drops its own entry once it
- * takes ownership (`onResolved`), because from then on it has a `cwd` and the
- * close can name the worktree without help.
- */
-const created = new Map<string, Promise<CreatedWorktree | null>>();
-
-/** A worktree a create put on disk: enough for [`discardWorktrees`]. */
-export interface CreatedWorktree {
-  repo: string;
-  path: string;
-  branch: string;
-}
-
-/**
- * What `paneId`'s create made, waiting for the `git worktree add` to return if
- * it has not yet. Null when there is nothing outstanding — the pane already
- * owns its worktree (so it has a `cwd` to be named by), or its create failed
- * and rolled back, or it never had one.
- */
-export function takeCreatedWorktree(
-  paneId: string,
-): Promise<CreatedWorktree | null> {
-  const pending = created.get(paneId);
-  if (!pending) return Promise.resolve(null);
-  created.delete(paneId);
-  return pending;
-}
-
-/** Register a step to run after `paneId`'s worktree lands (see the map doc). */
-export function registerPostProvision(
-  paneId: string,
-  step: (worktree: { cwd: string; branch: string }) => Promise<void>,
-): void {
-  postProvisionSteps.set(paneId, step);
-}
-
-/** Forget a pane's post-provision step (the fork was abandoned before it ran). */
-export function clearPostProvision(paneId: string): void {
-  postProvisionSteps.delete(paneId);
-}
-
-/** Run the registered step, if any. Returns null on success (or when none is
- * registered — a plain pane) and the failure message otherwise; a successful
- * step is consumed, a failed one is KEPT so a Retry re-runs it. */
-async function runPostProvision(
-  paneId: string,
-  worktree: { cwd: string; branch: string },
-): Promise<string | null> {
-  const step = postProvisionSteps.get(paneId);
-  if (!step) return null;
-  try {
-    await step(worktree);
-    postProvisionSteps.delete(paneId);
-    return null;
-  } catch (e) {
-    return describeError(e);
-  }
-}
-
-/**
  * Build `count` panes for a workspace, synchronously. In worktree mode each
- * pane carries its create intent (a status card until `runProvisioning`
+ * pane carries its create intent (a status card until the manager's `provision`
  * resolves it); otherwise plain panes that run in the workspace cwd.
  */
 export function planPanes(
@@ -184,184 +80,6 @@ export function planPanes(
       name: ws.name,
     },
     yolo,
-  );
-}
-
-/**
- * Create the worktrees behind `panes`' provisioning cards, reporting each
- * result as it lands (completion order is whatever the per-repo lock hands
- * out — the deck shows panes coming alive as they're ready). One base commit
- * is pinned for the whole batch so concurrent creates don't straddle a moving
- * HEAD; a pane whose intent carries its own picked `base` forks from that
- * instead. Panes without an intent are ignored, so a retry can pass one pane
- * and the batch flows can pass them all. Never throws: a failure lands on its
- * pane's card via `onFailed`.
- *
- * `setup` is the workspace's one-time preparation command: it runs in each
- * created worktree before the pane resolves, and a failure ROLLS THE WORKTREE
- * BACK (so Retry re-creates from scratch instead of hitting "already exists")
- * and lands on the card with the output tail.
- */
-export async function runProvisioning(
-  panes: Pane[],
-  cb: ProvisionCallbacks,
-  setup?: SetupStep,
-): Promise<void> {
-  const pending = panes.filter((p) => p.provisioning);
-  if (pending.length === 0) return;
-
-  let batchBase: { commit?: string; branch?: string } | undefined;
-  try {
-    const inspected = await inspectRepo(pending[0].provisioning!.repo);
-    batchBase = {
-      ...(inspected.head && { commit: inspected.head }),
-      ...(inspected.branch && { branch: inspected.branch }),
-    };
-  } catch {
-    batchBase = undefined; // create resolves HEAD itself when base is omitted
-  }
-
-  await Promise.all(
-    pending.map((p) => provisionPane(p.id, p.provisioning!, batchBase, cb, setup)),
-  );
-}
-
-/**
- * One pane's create (+ optional setup) → its card resolves or fails.
- *
- * What it puts on disk is published the instant `git worktree add` returns
- * (see [`created`]), so a close can name the directory without waiting for the
- * rest of this. Nothing here deletes on a close's behalf: this function only
- * stops early, and the close does the removing in the order it needs.
- */
-async function provisionPane(
-  paneId: string,
-  intent: PaneProvisioning,
-  batchBase: { commit?: string; branch?: string } | undefined,
-  cb: ProvisionCallbacks,
-  setup?: SetupStep,
-): Promise<void> {
-  /**
-   * The pane left while we were working. Asked after every await that could
-   * outlive it, because everything past the create is done ON ITS BEHALF: a
-   * setup command would spawn into a session slot the close already reaped,
-   * and `onResolved` would hand a worktree to a pane that cannot take it.
-   * Whether that worktree then goes is the close's decision, not ours — it is
-   * the only party that knows what the user ticked and when the process died.
-   */
-  const abandoned = (): boolean => {
-    if (!cb.abandoned(paneId)) return false;
-    log.info(
-      "web:provisioning",
-      `${paneId} left while its worktree was being created — stopping here`,
-    );
-    return true;
-  };
-
-  let publish!: (made: CreatedWorktree | null) => void;
-  created.set(
-    paneId,
-    new Promise<CreatedWorktree | null>((resolve) => {
-      publish = resolve;
-    }),
-  );
-
-  let rec: { path: string; branch: string };
-  try {
-    rec = await createWorktree({
-      repo: intent.repo,
-      baseDir: intent.baseDir ?? "",
-      agentId: paneId,
-      branch: intent.branch,
-      // The user's picked base branch outranks the batch-pinned HEAD.
-      base: intent.base ?? batchBase?.commit,
-      ...(!intent.base && batchBase?.branch && { baseBranch: batchBase.branch }),
-      workspace: intent.workspace,
-      index: intent.index,
-      path: intent.path,
-    });
-  } catch (e) {
-    log.error(
-      "web:provisioning",
-      `worktree create failed for ${paneId}: ${describeError(e)}`,
-    );
-    // Nothing landed, so a close has nothing to remove.
-    publish(null);
-    created.delete(paneId);
-    cb.onFailed(paneId, describeError(e));
-    return;
-  }
-  // The directory exists: say so before anything else can delay it. A close
-  // racing this is the case the early publish is for.
-  publish({ repo: intent.repo, path: rec.path, branch: rec.branch });
-  // Before the setup command, not only after: it runs in the pane's session
-  // slot, and spawning there once the pane is gone leaves a process with
-  // nothing to reap it.
-  if (abandoned()) return;
-
-  if (setup) {
-    cb.onSetup?.(paneId);
-    const result = await setup(paneId, { cwd: rec.path, branch: rec.branch });
-    // Asked BEFORE the result is judged. A pane closed mid-setup ends the
-    // command, so it comes back not-ok — but that is the close, not a broken
-    // setup, and the failure branch below would roll back a worktree whose
-    // fate is the close's to decide.
-    if (abandoned()) return;
-    if (!result.ok) {
-      log.error(
-        "web:provisioning",
-        `setup failed for ${paneId} in ${rec.path}: ${result.tail}`,
-      );
-      await rollbackWorktree(intent.repo, rec);
-      // Rolled back, so there is nothing left for a close to remove.
-      created.delete(paneId);
-      cb.onFailed(paneId, `Setup failed: ${result.tail}`);
-      return;
-    }
-  }
-
-  // The worktree is on disk — run any registered post-provision step (a journal
-  // fork's store surgery, bound to the CREATED worktree). A failure rolls the
-  // worktree back and fails the card; the step stays registered, so Retry
-  // re-runs it rather than resolving into a plain (non-fork) pane.
-  const stepError = await runPostProvision(paneId, {
-    cwd: rec.path,
-    branch: rec.branch,
-  });
-  if (stepError !== null) {
-    log.error(
-      "web:provisioning",
-      `post-provision step failed for ${paneId} in ${rec.path}: ${stepError}`,
-    );
-    await rollbackWorktree(intent.repo, rec);
-    created.delete(paneId);
-    cb.onFailed(paneId, stepError);
-    return;
-  }
-  // The last gate, with no await between it and the handover: past here the
-  // pane owns the worktree and an ordinary close can name it by its `cwd`, so
-  // the published entry is no longer anyone's only handle on it.
-  if (abandoned()) return;
-  created.delete(paneId);
-
-  cb.onResolved(paneId, { cwd: rec.path, branch: rec.branch });
-}
-
-/** Best-effort teardown of a half-prepared worktree so Retry re-creates cleanly
- * instead of hitting "already exists"; a failing remove leaves the card error as
- * the source of truth. */
-async function rollbackWorktree(
-  repo: string,
-  rec: { path: string; branch: string },
-): Promise<void> {
-  await removeWorktree(repo, rec.path, {
-    force: true,
-    branch: rec.branch,
-  }).catch((e) =>
-    log.warn(
-      "web:provisioning",
-      `worktree rollback failed for ${rec.path}: ${describeError(e)}`,
-    ),
   );
 }
 
@@ -409,34 +127,6 @@ export function setupStepFor(
       cols: 80,
       rows: 24,
     });
-}
-
-/**
- * Tear down each target's git worktree and branches when the close dialog's
- * delete checkbox was ticked. Always forced — the checkbox is explicit intent,
- * so a dirty worktree / unmerged branch is discarded per the user's decision;
- * the same intent covers every branch the agent CREATED in the worktree, not
- * just the tracked one (side branches would otherwise pile up dead). Never
- * throws: a failing target is collected so one bad worktree doesn't strand the
- * rest, and the messages surface in the error dialog.
- */
-export async function discardWorktrees(
-  targets: WorktreeTarget[],
-): Promise<string[]> {
-  const failures: string[] = [];
-  for (const t of targets) {
-    try {
-      await removeWorktree(t.repo, t.path, {
-        force: true,
-        branch: t.branch,
-        reapCreatedBranches: true,
-      });
-    } catch (e) {
-      log.warn("web:provisioning", `worktree discard failed for ${t.path}: ${describeError(e)}`);
-      failures.push(`${t.branch ?? t.path}: ${e}`);
-    }
-  }
-  return failures;
 }
 
 /** The workspace env contract for the one-time setup command: the same

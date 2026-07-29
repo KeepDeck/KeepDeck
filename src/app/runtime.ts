@@ -19,7 +19,7 @@ import {
   paneSessionState,
   subscribeSessions,
 } from "./ptyManager";
-import { discardWorktrees, runProvisioning } from "./provisioning";
+import { createWorktreeManager } from "./worktrees";
 import { openPath } from "../ipc/app";
 import { probeWorktree } from "../ipc/worktree";
 import { log } from "../ipc/log";
@@ -91,8 +91,7 @@ export function createAppRuntime(
       },
       plugins,
       probe: probeWorktree,
-      provision: runProvisioning,
-      discardWorktrees,
+      worktrees: createWorktreeManager(),
     }),
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),
