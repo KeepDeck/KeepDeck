@@ -1,179 +1,24 @@
 // @vitest-environment happy-dom
-import { act, createElement, Fragment } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  GitBranches,
-  GitChangedFile,
-  GitHistory,
-  GitStatus,
-  PluginContext,
-  WorkspaceSnapshot,
-} from "@keepdeck/plugin-api";
+import { act } from "react";
+import { describe, expect, it, vi } from "vitest";
 import { setRuntime } from "../runtime";
 import { takePeekRequest } from "../peekRequests";
-import { GitTab } from "./GitTab";
-import { GitDiffOverlay } from "./GitDiffOverlay";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
-const workspace: WorkspaceSnapshot = {
-  id: "ws-1",
-  instance: "instance-1",
-  name: "app",
-  cwd: "/repo",
-  panes: [
-    { id: "p1", name: "agent 1", cwd: "/wt/one", branch: "kd/app/1", agentType: "claude" },
-  ],
-};
-
-const cleanStatus = (over: Partial<GitStatus> = {}): GitStatus => ({
-  branch: "main",
-  detached: false,
-  oid: "abc1234def",
-  upstream: null,
-  ahead: null,
-  behind: null,
-  entries: [],
-  ...over,
-});
-
-/** A fake git service keyed by repo path — enough to drive the tab end to end. */
-function makeGit() {
-  const statuses = new Map<string, GitStatus>();
-  const histories = new Map<string, GitHistory>();
-  const branchLists = new Map<string, GitBranches>();
-  const changed = new Map<string, GitChangedFile[]>();
-  const watchers = new Map<string, Set<() => void>>();
-  return {
-    statuses,
-    histories,
-    branchLists,
-    changed, // keyed `${from}..${to ?? ""}`
-    status: vi.fn(async (repo: string) => {
-      const st = statuses.get(repo);
-      if (!st) throw new Error(`not a git repository: ${repo}`);
-      return st;
-    }),
-    history: vi.fn(async (repo: string, opts?: { limit?: number }) => {
-      const h = histories.get(repo);
-      if (!h) throw new Error(`no history for: ${repo}`);
-      // The real backend windows the log by the asked limit.
-      return { ...h, commits: h.commits.slice(0, opts?.limit ?? 50) };
-    }),
-    changedFiles: vi.fn(
-      async (_repo: string, from: string, to?: string) =>
-        changed.get(`${from}..${to ?? ""}`) ?? [],
-    ),
-    branches: vi.fn(
-      async (repo: string) =>
-        branchLists.get(repo) ?? { current: "main", branches: ["main"] },
-    ),
-    diffFile: vi.fn(
-      async () => "@@ -1 +1 @@\n-hello\n+goodbye\n",
-    ),
-    watch: vi.fn((repo: string, onChange: () => void) => {
-      let set = watchers.get(repo);
-      if (!set) {
-        set = new Set();
-        watchers.set(repo, set);
-      }
-      set.add(onChange);
-      return { dispose: () => void set!.delete(onChange) };
-    }),
-    /** Simulate the backend's repo-changed event. */
-    fireChange: (repo: string) => watchers.get(repo)?.forEach((cb) => cb()),
-    watcherCount: (repo: string) => watchers.get(repo)?.size ?? 0,
-  };
-}
-
-function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
-  return {
-    // The resident diff overlay subscribes to these to drop a diff whose
-    // workspace the user has left; nothing here fires them.
-    events: {
-      onPaneSelected: () => ({ dispose: vi.fn() }),
-      onWorkspaceClosed: () => ({ dispose: vi.fn() }),
-      onDeckChanged: () => ({ dispose: vi.fn() }),
-    },
-    services: {
-      git: {
-        status: git.status,
-        diffFile: git.diffFile,
-        history: git.history,
-        branches: git.branches,
-        changedFiles: git.changedFiles,
-        watch: git.watch,
-      },
-      fs: {
-        readDir: vi.fn(async () => []),
-        readFile: vi.fn(async (path: string) => ({
-          path,
-          text: "brand new\n",
-          isBinary: false,
-          size: 10,
-          truncated: false,
-        })),
-        watch: vi.fn(() => ({ dispose: vi.fn() })),
-      },
-    },
-    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  } as unknown as PluginContext;
-}
-
-let root: Root;
-let host: HTMLDivElement;
-
-beforeEach(() => {
-  host = document.createElement("div");
-  document.body.appendChild(host);
-  root = createRoot(host);
-});
-
-afterEach(async () => {
-  await act(async () => root.unmount());
-  host.remove();
-  setRuntime(null);
-  // A test that opens a diff without a consumer leaves the request parked in
-  // the module's slot; drain it so it can't open a peek in the next test.
-  takePeekRequest();
-  vi.useRealTimers();
-});
+import {
+  cleanStatus,
+  makeCtx,
+  makeGit,
+  mountGitHarness,
+  workspace,
+} from "./gitHarness";
 
 /**
- * Tab and overlay as SIBLINGS — the shape the host mounts them in (the dock
- * panel and `PluginOverlays` are siblings in the composition root). The peek
- * assertions below therefore exercise the real path: the tab publishes a
- * request, the resident overlay renders the diff.
+ * The Git TAB: its change list, the repo it roots on, and the live feed
+ * behind both. What a row OPENS is the peek's business and lives in
+ * `GitPeek.test.tsx`; the History listing lives in `GitHistory.test.tsx`.
+ * The one test here that touches opening is the guard that the tab renders no
+ * peek of its own.
  */
-async function render(selectedPaneId: string | null = null) {
-  await act(async () => {
-    root.render(
-      createElement(
-        Fragment,
-        null,
-        createElement(GitTab, { workspace, selectedPaneId }),
-        createElement(GitDiffOverlay),
-      ),
-    );
-  });
-}
-
-/** The tab alone, with no consumer for what it opens. */
-async function renderTabOnly(selectedPaneId: string | null = null) {
-  await act(async () => {
-    root.render(createElement(GitTab, { workspace, selectedPaneId }));
-  });
-}
-
-/** Flush the debounce timer AND the reads it schedules. */
-async function settle(ms: number) {
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(ms);
-  });
-}
+const rig = mountGitHarness();
 
 describe("GitTab", () => {
   it("shows the branch line and grouped changes for the workspace repo", async () => {
@@ -190,17 +35,17 @@ describe("GitTab", () => {
     }));
     setRuntime(makeCtx(git));
 
-    await render();
+    await rig.render();
 
-    expect(host.textContent).toContain("main");
-    expect(host.textContent).toContain("↑2 ↓1");
-    expect(host.textContent).toContain("Changes");
-    expect(host.textContent).toContain("app.ts");
-    expect(host.textContent).toContain("Untracked");
-    expect(host.textContent).toContain("notes.md");
+    expect(rig.host.textContent).toContain("main");
+    expect(rig.host.textContent).toContain("↑2 ↓1");
+    expect(rig.host.textContent).toContain("Changes");
+    expect(rig.host.textContent).toContain("app.ts");
+    expect(rig.host.textContent).toContain("Untracked");
+    expect(rig.host.textContent).toContain("notes.md");
     // Sections with no rows don't render at all.
-    expect(host.textContent).not.toContain("Staged");
-    expect(host.textContent).not.toContain("Conflicts");
+    expect(rig.host.textContent).not.toContain("Staged");
+    expect(rig.host.textContent).not.toContain("Conflicts");
   });
 
   it("defaults to the highlighted pane's worktree and says so when it is clean", async () => {
@@ -208,11 +53,11 @@ describe("GitTab", () => {
     git.statuses.set("/wt/one", cleanStatus({ branch: "kd/app/1" }));
     setRuntime(makeCtx(git));
 
-    await render("p1");
+    await rig.render("p1");
 
     expect(git.status).toHaveBeenCalledWith("/wt/one");
-    expect(host.textContent).toContain("kd/app/1");
-    expect(host.textContent).toContain("No changes");
+    expect(rig.host.textContent).toContain("kd/app/1");
+    expect(rig.host.textContent).toContain("No changes");
   });
 
   it("watch events re-read the status after the debounce — no refresh button exists", async () => {
@@ -221,10 +66,10 @@ describe("GitTab", () => {
     git.statuses.set("/repo", cleanStatus());
     setRuntime(makeCtx(git));
 
-    await render();
-    await settle(0);
-    expect(host.textContent).toContain("No changes");
-    expect(host.querySelector("button[title*='efresh']")).toBeNull();
+    await rig.render();
+    await rig.settle(0);
+    expect(rig.host.textContent).toContain("No changes");
+    expect(rig.host.querySelector("button[title*='efresh']")).toBeNull();
 
     // The repo becomes dirty; a burst of watch events lands.
     git.statuses.set("/repo", cleanStatus({
@@ -237,13 +82,13 @@ describe("GitTab", () => {
     git.fireChange("/repo");
     git.fireChange("/repo");
 
-    await settle(299);
+    await rig.settle(299);
     // Still within the debounce window — no read yet.
     expect(git.status.mock.calls.length).toBe(before);
 
-    await settle(2);
+    await rig.settle(2);
     expect(git.status.mock.calls.length).toBe(before + 1);
-    expect(host.textContent).toContain("hot.ts");
+    expect(rig.host.textContent).toContain("hot.ts");
   });
 
   it("renders no peek of its own — it hands the diff to the resident overlay", async () => {
@@ -255,8 +100,8 @@ describe("GitTab", () => {
     }));
     setRuntime(makeCtx(git));
 
-    await renderTabOnly();
-    const row = [...host.querySelectorAll("button.git__row")].find((el) =>
+    await rig.renderTabOnly();
+    const row = [...rig.host.querySelectorAll("button.git__row")].find((el) =>
       el.textContent?.includes("app.ts"),
     );
     await act(async () => {
@@ -265,7 +110,7 @@ describe("GitTab", () => {
 
     // Nothing full-window inside the tab: a peek rendered here would be
     // hidden with the tab body and destroyed when the dock closes.
-    expect(host.querySelector(".peek")).toBeNull();
+    expect(rig.host.querySelector(".peek")).toBeNull();
     expect(git.diffFile).not.toHaveBeenCalled();
     // The open gesture went out as a request instead, carrying the repo it
     // was opened on.
@@ -278,613 +123,27 @@ describe("GitTab", () => {
     });
   });
 
-  it("clicking a row opens the diff peek with the parsed hunk", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus({
-      entries: [
-        { path: "src/app.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
-        { path: "notes.md", origPath: null, staged: ".", unstaged: ".", untracked: true, conflicted: false },
-      ],
-    }));
-    const ctx = makeCtx(git);
-    setRuntime(ctx);
-
-    await render();
-    const row = [...host.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("app.ts"),
-    );
-    expect(row).toBeTruthy();
-    await act(async () => {
-      (row as HTMLButtonElement).click();
-    });
-
-    expect(git.diffFile).toHaveBeenCalledWith("/repo", "src/app.ts", {
-      staged: false,
-    });
-    // ONCE. The peek joins the tab's settled status feed, so there is no
-    // cold `version` tick to re-run the fetch — a private feed per mount read
-    // the same diff twice on every open.
-    expect(git.diffFile).toHaveBeenCalledTimes(1);
-    expect(host.querySelector(".peek")).toBeTruthy();
-    expect(host.textContent).toContain("goodbye");
-
-    // The rail is there on the first frame, not after a second round trip.
-    const aside = host.querySelector(".peek__aside")!;
-    expect(aside.textContent).toContain("app.ts");
-    expect(aside.textContent).toContain("notes.md");
-    expect(aside.querySelector(".git__row--on")?.textContent).toContain(
-      "app.ts",
-    );
-
-    // Clicking a sibling switches the peek to ITS diff in place.
-    const sibling = [...aside.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("notes.md"),
-    ) as HTMLButtonElement;
-    await act(async () => sibling.click());
-    expect(ctx.services.fs.readFile).toHaveBeenCalledWith("/repo/notes.md");
-    expect(host.textContent).toContain("brand new");
-    expect(
-      host.querySelector(".peek__aside .git__row--on")?.textContent,
-    ).toContain("notes.md");
-  });
-
-  it("arrow keys walk the peek rail: up/down by file, left/right by directory", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus({
-      entries: [
-        { path: "src/app.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
-        { path: "src/util.ts", origPath: null, staged: ".", unstaged: "M", untracked: false, conflicted: false },
-        { path: "notes.md", origPath: null, staged: ".", unstaged: ".", untracked: true, conflicted: false },
-      ],
-    }));
-    const ctx = makeCtx(git);
-    setRuntime(ctx);
-
-    await render();
-    const row = [...host.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("app.ts"),
-    ) as HTMLButtonElement;
-    await act(async () => row.click());
-
-    const marked = () =>
-      host.querySelector(".peek__aside .git__row--on")?.textContent;
-    const press = (key: string) =>
-      act(async () => {
-        window.dispatchEvent(
-          new KeyboardEvent("keydown", { key, cancelable: true }),
-        );
-      });
-
-    // Down: the next file in the rail's order.
-    await press("ArrowDown");
-    expect(marked()).toContain("util.ts");
-    expect(git.diffFile).toHaveBeenLastCalledWith("/repo", "src/util.ts", {
-      staged: false,
-    });
-
-    // Right: the first file of the next directory group (src/ → root).
-    await press("ArrowRight");
-    expect(marked()).toContain("notes.md");
-    expect(ctx.services.fs.readFile).toHaveBeenCalledWith("/repo/notes.md");
-
-    // Left: back to the previous group's FIRST file.
-    await press("ArrowLeft");
-    expect(marked()).toContain("app.ts");
-
-    // Up at the top clamps — the selection stays put.
-    await press("ArrowUp");
-    expect(marked()).toContain("app.ts");
-  });
-
-  it("an untracked row renders the file's content as all-added, via fs", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus({
-      entries: [
-        { path: "notes.md", origPath: null, staged: ".", unstaged: ".", untracked: true, conflicted: false },
-      ],
-    }));
-    const ctx = makeCtx(git);
-    setRuntime(ctx);
-
-    await render();
-    const row = [...host.querySelectorAll("button.git__row")].find((el) =>
-      el.textContent?.includes("notes.md"),
-    );
-    await act(async () => {
-      (row as HTMLButtonElement).click();
-    });
-
-    expect(git.diffFile).not.toHaveBeenCalled();
-    expect(ctx.services.fs.readFile).toHaveBeenCalledWith("/repo/notes.md");
-    expect(host.textContent).toContain("brand new");
-  });
-
   it("tears down the repo watcher when the root switches", async () => {
     const git = makeGit();
     git.statuses.set("/repo", cleanStatus());
     git.statuses.set("/wt/one", cleanStatus({ branch: "kd/app/1" }));
     setRuntime(makeCtx(git));
 
-    await render();
+    await rig.render();
     expect(git.watcherCount("/repo")).toBe(1);
 
     // Highlighting the pane re-roots the tab onto its worktree.
-    await render("p1");
+    await rig.render("p1");
     expect(git.watcherCount("/repo")).toBe(0);
     expect(git.watcherCount("/wt/one")).toBe(1);
-  });
-
-  it("History mode lists commits since the fork and opens a commit straight in the peek", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    const fork = "f0".repeat(20);
-    git.histories.set("/repo", {
-      forkSha: fork,
-      ahead: 2,
-      commits: [
-        { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "add feature" },
-        { sha: "b2".repeat(20), author: "Agent", timestamp: 1_750_000_000, subject: "fix tests" },
-        // The FULL log continues past the fork commit into base history.
-        { sha: fork, author: "Me", timestamp: 1_740_000_000, subject: "base work" },
-        { sha: "e5".repeat(20), author: "Me", timestamp: 1_730_000_000, subject: "older base work" },
-      ],
-    });
-    const commitSha = "a1".repeat(20);
-    git.changed.set(`${commitSha}^..${commitSha}`, [
-      { path: "src/feature.ts", origPath: null, code: "A" },
-    ]);
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-
-    // Commits newest-first plus the pinned since-fork summary; the count is
-    // the branch's own side of the fork, not the listing length.
-    expect(host.textContent).toContain("Since fork");
-    expect(host.textContent).toContain("2 commits");
-    expect(host.textContent).toContain("add feature");
-    expect(host.textContent).toContain("fix tests");
-    expect(host.textContent).toContain("a1a1a1a");
-    // The full history is visible too, split by the fork-point divider:
-    // branch work above, base history below.
-    expect(host.textContent).toContain("base work");
-    expect(host.textContent).toContain("older base work");
-    const divider = host.querySelector(".git__forkline");
-    expect(divider).toBeTruthy();
-    // The list is a single pane now — no slide track, no drill back button.
-    expect(host.querySelector(".git__track")).toBeNull();
-    expect(host.querySelector(".git__drillback")).toBeNull();
-
-    // Opening a commit goes straight to the peek: the rail fetches its files
-    // and seeds the first one, whose range diff fills the body.
-    const commitRow = [...host.querySelectorAll(".git__list button.git__row")].find((el) =>
-      el.textContent?.includes("add feature"),
-    ) as HTMLButtonElement;
-    await act(async () => commitRow.click());
-    expect(git.changedFiles).toHaveBeenCalledWith(
-      "/repo",
-      `${commitSha}^`,
-      commitSha,
-    );
-    await act(async () => {});
-    expect(host.querySelector(".peek")).toBeTruthy();
-    expect(git.diffFile).toHaveBeenCalledWith("/repo", "src/feature.ts", {
-      from: `${commitSha}^`,
-      to: commitSha,
-    });
-    expect(host.textContent).toContain("goodbye");
-    // The rail names the commit and lists its files, the seeded one marked.
-    const aside = host.querySelector(".peek__aside")!;
-    expect(aside.textContent).toContain("add feature");
-    expect(aside.textContent).toContain("a1a1a1a");
-    expect(aside.querySelector(".git__row--on")?.textContent).toContain(
-      "feature.ts",
-    );
-
-    // Closing the peek returns to the commit list; nothing slid in behind it.
-    await act(async () => {
-      (host.querySelector(".peek") as HTMLElement).click(); // close peek
-    });
-    expect(host.querySelector(".peek")).toBeNull();
-    expect(host.textContent).toContain("fix tests");
-  });
-
-  it("the since-fork peek diffs against the working tree (open-ended range)", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    const fork = "f0".repeat(20);
-    git.histories.set("/repo", {
-      forkSha: fork,
-      ahead: 1,
-      commits: [
-        { sha: "c3".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "work" },
-      ],
-    });
-    git.changed.set(`${fork}..`, [
-      { path: "net.ts", origPath: null, code: "M" },
-    ]);
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-
-    const pin = host.querySelector("button.git__row--pin") as HTMLButtonElement;
-    await act(async () => pin.click());
-    expect(git.changedFiles).toHaveBeenCalledWith("/repo", fork, undefined);
-    await act(async () => {});
-    // Opening the sweep peeks the seeded file's range diff — open-ended, so
-    // it reaches the working tree. The rail names the sweep, lists its files.
-    expect(host.querySelector(".peek")).toBeTruthy();
-    expect(git.diffFile).toHaveBeenCalledWith("/repo", "net.ts", {
-      from: fork,
-      to: undefined,
-    });
-    const aside = host.querySelector(".peek__aside")!;
-    expect(aside.textContent).toContain("Since fork");
-    expect(aside.textContent).toContain("f0f0f0f");
-    expect(aside.querySelector(".git__row--on")?.textContent).toContain(
-      "net.ts",
-    );
-  });
-
-  it("an empty history scope opens the peek and says so, not Loading forever", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    const fork = "f0".repeat(20);
-    git.histories.set("/repo", {
-      forkSha: fork,
-      ahead: 1,
-      commits: [
-        { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "empty commit" },
-      ],
-    });
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-
-    const commitRow = [...host.querySelectorAll(".git__list button.git__row")].find((el) =>
-      el.textContent?.includes("empty commit"),
-    ) as HTMLButtonElement;
-    await act(async () => commitRow.click());
-    await act(async () => {});
-
-    // The scope resolves to no files — the rail carries the note and the
-    // body stays blank, instead of hanging on "Loading…" forever.
-    expect(host.querySelector(".peek")).toBeTruthy();
-    expect(host.querySelector(".peek__aside")?.textContent).toContain(
-      "Nothing changed here.",
-    );
-    expect(host.querySelector(".peek__body")?.textContent).not.toContain(
-      "Loading…",
-    );
-  });
-
-  it("arrow keys walk the history peek's rail after the first file is seeded", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    git.histories.set("/repo", {
-      forkSha: null,
-      ahead: null,
-      commits: [
-        { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "add feature" },
-      ],
-    });
-    const commitSha = "a1".repeat(20);
-    git.changed.set(`${commitSha}^..${commitSha}`, [
-      { path: "src/one.ts", origPath: null, code: "A" },
-      { path: "src/two.ts", origPath: null, code: "M" },
-    ]);
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-
-    const commitRow = [...host.querySelectorAll(".git__list button.git__row")].find((el) =>
-      el.textContent?.includes("add feature"),
-    ) as HTMLButtonElement;
-    await act(async () => commitRow.click());
-    await act(async () => {});
-
-    // The rail seeded the first file and its range diff loaded.
-    const aside = host.querySelector(".peek__aside")!;
-    expect(aside.querySelector(".git__row--on")?.textContent).toContain("one.ts");
-    expect(git.diffFile).toHaveBeenCalledWith("/repo", "src/one.ts", {
-      from: `${commitSha}^`,
-      to: commitSha,
-    });
-
-    // ArrowDown walks the rail to the second file — range diff, marked.
-    await act(async () => {
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowDown", cancelable: true }),
-      );
-    });
-    expect(aside.querySelector(".git__row--on")?.textContent).toContain("two.ts");
-    expect(git.diffFile).toHaveBeenLastCalledWith("/repo", "src/two.ts", {
-      from: `${commitSha}^`,
-      to: commitSha,
-    });
-  });
-
-  it("closing the peek mid-seed is safe — the pending fetch is cancelled, no revival", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    git.histories.set("/repo", {
-      forkSha: null,
-      ahead: null,
-      commits: [
-        { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "add feature" },
-      ],
-    });
-    // A deferred file list so the seed cannot land before we close.
-    let resolveFiles!: (v: GitChangedFile[]) => void;
-    git.changedFiles = vi.fn(
-      async () =>
-        new Promise<GitChangedFile[]>((r) => {
-          resolveFiles = r;
-        }),
-    );
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-
-    const commitRow = [...host.querySelectorAll(".git__list button.git__row")].find((el) =>
-      el.textContent?.includes("add feature"),
-    ) as HTMLButtonElement;
-    await act(async () => commitRow.click());
-    // Peek open, seed still pending (row null).
-    expect(host.querySelector(".peek")).toBeTruthy();
-
-    // Close BEFORE the file list resolves.
-    await act(async () => {
-      (host.querySelector(".peek") as HTMLElement).click();
-    });
-    expect(host.querySelector(".peek")).toBeNull();
-
-    // The late resolution must not revive the dismissed peek — the rail's
-    // fetch effect marked itself cancelled on unmount.
-    await act(async () =>
-      resolveFiles([{ path: "src/x.ts", origPath: null, code: "A" }]),
-    );
-    await act(async () => {});
-    expect(host.querySelector(".peek")).toBeNull();
-  });
-
-  it("opening a different commit after closing shows the new commit's files, not the old", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    git.histories.set("/repo", {
-      forkSha: null,
-      ahead: null,
-      commits: [
-        { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_001, subject: "first commit" },
-        { sha: "b2".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "second commit" },
-      ],
-    });
-    const a = "a1".repeat(20);
-    const b = "b2".repeat(20);
-    git.changed.set(`${a}^..${a}`, [{ path: "src/a.ts", origPath: null, code: "A" }]);
-    git.changed.set(`${b}^..${b}`, [{ path: "src/b.ts", origPath: null, code: "M" }]);
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-
-    const row = (subject: string) =>
-      [...host.querySelectorAll(".git__list button.git__row")].find((el) =>
-        el.textContent?.includes(subject),
-      ) as HTMLButtonElement;
-
-    // First commit -> seeds a.ts and its range diff.
-    await act(async () => row("first commit").click());
-    await act(async () => {});
-    expect(host.querySelector(".peek")).toBeTruthy();
-    expect(git.diffFile).toHaveBeenCalledWith("/repo", "src/a.ts", {
-      from: `${a}^`,
-      to: a,
-    });
-
-    // Close, then open the other commit — its files/diff load; A's don't leak.
-    await act(async () => {
-      (host.querySelector(".peek") as HTMLElement).click();
-    });
-    await act(async () => row("second commit").click());
-    await act(async () => {});
-    expect(host.querySelector(".peek")).toBeTruthy();
-    expect(git.diffFile).toHaveBeenLastCalledWith("/repo", "src/b.ts", {
-      from: `${b}^`,
-      to: b,
-    });
-    expect(host.querySelector(".peek__aside .git__row--on")?.textContent).toContain(
-      "b.ts",
-    );
-  });
-
-  it("a status refresh while a history scope is waiting refetches its file list", async () => {
-    vi.useFakeTimers();
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    git.histories.set("/repo", {
-      forkSha: null,
-      ahead: null,
-      commits: [
-        { sha: "a1".repeat(20), author: "Agent", timestamp: 1_760_000_000, subject: "add feature" },
-      ],
-    });
-    // A never-resolving fetch keeps the scope waiting (row null) throughout,
-    // so the refresh lands in the null-row window the gap is about.
-    git.changedFiles = vi.fn(
-      async () => new Promise<GitChangedFile[]>(() => {}),
-    );
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-    const commitRow = [...host.querySelectorAll(".git__list button.git__row")].find((el) =>
-      el.textContent?.includes("add feature"),
-    ) as HTMLButtonElement;
-    await act(async () => commitRow.click());
-    await settle(0);
-
-    // Waiting — no file seeded yet.
-    expect(host.querySelector(".peek")).toBeTruthy();
-    expect(host.querySelector(".peek__aside .git__row--on")).toBeNull();
-
-    // A repo change bumps the status feed's version; the rail refetches the
-    // scope's files even though no file is chosen yet.
-    const before = git.changedFiles.mock.calls.length;
-    git.fireChange("/repo");
-    await settle(301);
-    expect(git.changedFiles.mock.calls.length).toBeGreaterThan(before);
-    expect(host.querySelector(".peek")).toBeTruthy();
-  });
-
-  it("without a fork point History is a plain log with no since-fork row", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    git.histories.set("/repo", {
-      forkSha: null,
-      ahead: null,
-      commits: [
-        { sha: "d4".repeat(20), author: "Me", timestamp: 1_760_000_000, subject: "init" },
-      ],
-    });
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-
-    expect(host.textContent).toContain("init");
-    expect(host.textContent).not.toContain("Since fork");
-    expect(host.querySelector(".git__forkline")).toBeNull();
-  });
-
-  it("History loads lazily in chunks of 50 and stops when the log runs dry", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    git.histories.set("/repo", {
-      forkSha: null,
-      ahead: null,
-      commits: Array.from({ length: 60 }, (_, i) => ({
-        sha: String(i).padStart(2, "0").repeat(20),
-        author: "Me",
-        timestamp: 1_760_000_000 - i,
-        subject: `commit ${i}`,
-      })),
-    });
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-
-    // First chunk: 50 commit rows and a live sentinel.
-    expect(git.history).toHaveBeenCalledWith("/repo", { limit: 50 });
-    expect(host.querySelectorAll("button.git__row").length).toBe(50);
-    const more = host.querySelector("button.git__more") as HTMLButtonElement;
-    expect(more).toBeTruthy();
-
-    // The next chunk widens the window; a 60-commit repo underfills it, so
-    // the sentinel retires — the list is complete.
-    await act(async () => more.click());
-    expect(git.history).toHaveBeenCalledWith("/repo", { limit: 100 });
-    expect(host.querySelectorAll("button.git__row").length).toBe(60);
-    expect(host.querySelector("button.git__more")).toBeNull();
-  });
-
-  it("History can browse a branch that is not checked out", async () => {
-    const git = makeGit();
-    git.statuses.set("/repo", cleanStatus());
-    git.branchLists.set("/repo", {
-      current: "main",
-      branches: ["kd/side/1", "main"],
-    });
-    const fork = "f0".repeat(20);
-    git.histories.set("/repo", {
-      forkSha: null,
-      ahead: null,
-      commits: [
-        { sha: "d4".repeat(20), author: "Me", timestamp: 1_760_000_000, subject: "init" },
-      ],
-    });
-    setRuntime(makeCtx(git));
-
-    await render();
-    const historyBtn = [...host.querySelectorAll("button.git__modebtn")].find(
-      (el) => el.textContent === "History",
-    ) as HTMLButtonElement;
-    await act(async () => historyBtn.click());
-
-    // The picker marks the checkout with the green-check badge, not a text
-    // suffix; switching to the foreign branch walks it by ref — no checkout
-    // involved.
-    expect(host.querySelector(".git__refcur .git__refcheck")).toBeTruthy();
-    expect(host.textContent).not.toContain("checked out");
-    git.histories.set("/repo", {
-      forkSha: fork,
-      ahead: 1,
-      commits: [
-        { sha: "a9".repeat(20), author: "Agent", timestamp: 1_760_000_100, subject: "side work" },
-        { sha: fork, author: "Me", timestamp: 1_760_000_000, subject: "init" },
-      ],
-    });
-    // The ui-kit Dropdown portals its listbox outside this component host.
-    const trigger = host.querySelector(
-      ".git__ref .dropdown__button",
-    ) as HTMLButtonElement;
-    await act(async () => trigger.click());
-    const option = [...document.querySelectorAll("button[role='option']")].find(
-      (el) => el.textContent === "kd/side/1",
-    ) as HTMLButtonElement;
-    await act(async () => option.click());
-
-    expect(git.history).toHaveBeenLastCalledWith("/repo", {
-      limit: 50,
-      rev: "kd/side/1",
-    });
-    expect(host.textContent).toContain("side work");
-
-    // Since-fork on a foreign ref pins the range's end to the ref — there is
-    // no working tree to reach.
-    const pin = host.querySelector("button.git__row--pin") as HTMLButtonElement;
-    await act(async () => pin.click());
-    expect(git.changedFiles).toHaveBeenCalledWith("/repo", fork, "kd/side/1");
   });
 
   it("surfaces a status failure instead of a stuck spinner", async () => {
     const git = makeGit(); // no statuses registered → status() rejects
     setRuntime(makeCtx(git));
 
-    await render();
+    await rig.render();
 
-    expect(host.textContent).toContain("not a git repository");
+    expect(rig.host.textContent).toContain("not a git repository");
   });
 });
