@@ -646,6 +646,58 @@ describe("sweep", () => {
   });
 });
 
+describe("the ordering between arming and teardown", () => {
+  // The race this manager was built for: staging arms every live root with a
+  // `.agents/skills` symlink, and a removal deletes a root's directory. One
+  // landing inside the other leaves a husk git can no longer even name.
+  it("takes its own hooks out of a directory before git touches it", async () => {
+    const order: string[] = [];
+    skills.disarmSkills.mockImplementation(async (roots) => {
+      order.push(`disarm:${roots.join(",")}`);
+    });
+    worktree.removeWorktree.mockImplementation(async (_repo, path) => {
+      order.push(`remove:${path}`);
+    });
+
+    await manager.remove([{ repo: "/r", path: "/wt/1", branch: "b1" }]);
+
+    expect(order).toEqual(["disarm:/wt/1", "remove:/wt/1"]);
+  });
+
+  it("holds an arming until the removal in flight has finished", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    worktree.removeWorktree.mockImplementation(async () => held);
+
+    const removing = manager.remove([{ repo: "/r", path: "/wt/1", branch: "b1" }]);
+    const arming = manager.skillsFor(ref("ws-1"));
+    // Give the staging every chance to jump the queue.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(skills.stageSkills).not.toHaveBeenCalled();
+
+    release();
+    await removing;
+    await arming;
+    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed removal does not stall what is queued behind it", async () => {
+    worktree.removeWorktree.mockRejectedValue(new Error("dirty"));
+
+    const failures = await manager.remove([
+      { repo: "/r", path: "/wt/1", branch: "b1" },
+    ]);
+    expect(failures).toHaveLength(1);
+
+    await expect(manager.skillsFor(ref("ws-1"))).resolves.toEqual(
+      stagedFor("ws-1"),
+    );
+  });
+});
+
 describe("remove", () => {
   it("keeps tearing down after a failure and collects its message", async () => {
     worktree.removeWorktree

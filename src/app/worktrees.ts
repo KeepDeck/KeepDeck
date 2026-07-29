@@ -203,6 +203,32 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
   let sweeping: Promise<void> | null = null;
   let sweepAgain = false;
 
+  /**
+   * The one queue that orders arming against teardown.
+   *
+   * THE invariant this module exists for: staging arms every live spawn root
+   * with a `.agents/skills` symlink, and a removal deletes a root's whole
+   * directory. Run concurrently, an arming lands between git's recursive delete
+   * and its final `rmdir`, which then fails on a directory that is no longer a
+   * worktree — an orphaned branch and a husk nothing can clear. Because both
+   * sides pass through here, the ordering is a property of this object rather
+   * than a convention its callers have to keep.
+   *
+   * One queue for all workspaces, deliberately: staging is a directory copy and
+   * a removal is a user closing panes, so nothing here is hot enough to split,
+   * and a finer queue would have to know which repository a root belongs to —
+   * knowledge that lives a layer down, in git.
+   */
+  let queue: Promise<unknown> = Promise.resolve();
+
+  /** Run `work` after everything already queued. A failure inside `work` is the
+   * caller's to handle and must not stall the queue for everyone else. */
+  function inOrder<T>(work: () => Promise<T>): Promise<T> {
+    const next = queue.then(work);
+    queue = next.catch(() => {});
+    return next;
+  }
+
   /** Run the registered step, if any. Returns null on success (or when none is
    * registered — a plain pane) and the failure message otherwise; a successful
    * step is consumed, a failed one is KEPT so a Retry re-runs it. */
@@ -423,7 +449,9 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
       const key = JSON.stringify([workspace.instance, ...roots]);
       let views = staged.get(key);
       if (!views) {
-        views = stageSkills(workspace.id, roots);
+        // Queued: a staging that started while a removal is in flight would arm
+        // the very directory being deleted (see [`queue`]).
+        views = inOrder(() => stageSkills(workspace.id, roots));
         staged.set(key, views);
       }
       return views;
@@ -456,24 +484,30 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
       return sweeping;
     },
 
-    async remove(targets) {
-      const failures: string[] = [];
-      for (const t of targets) {
-        try {
-          await removeWorktree(t.repo, t.path, {
-            force: true,
-            branch: t.branch,
-            reapCreatedBranches: true,
-          });
-        } catch (e) {
-          log.warn(
-            "web:worktrees",
-            `worktree removal failed for ${t.path}: ${describeError(e)}`,
-          );
-          failures.push(`${t.branch ?? t.path}: ${e}`);
+    remove(targets) {
+      return inOrder(async () => {
+        // Our own hooks come out first: `.agents/skills` is KeepDeck's, and a
+        // symlink left in a directory git is deleting is exactly what made its
+        // final `rmdir` fail. Awaited, not fired off — the point is the order.
+        await disarmSkills(targets.map((t) => t.path));
+        const failures: string[] = [];
+        for (const t of targets) {
+          try {
+            await removeWorktree(t.repo, t.path, {
+              force: true,
+              branch: t.branch,
+              reapCreatedBranches: true,
+            });
+          } catch (e) {
+            log.warn(
+              "web:worktrees",
+              `worktree removal failed for ${t.path}: ${describeError(e)}`,
+            );
+            failures.push(`${t.branch ?? t.path}: ${e}`);
+          }
         }
-      }
-      return failures;
+        return failures;
+      });
     },
   };
 }
