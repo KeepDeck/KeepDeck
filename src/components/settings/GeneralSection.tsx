@@ -53,7 +53,8 @@ const SUSPENDED_OPTIONS: Record<
   },
   tray: {
     label: "Tray",
-    hint: "Suspended agents move to the bottom tray; restoring one resumes it.",
+    hint:
+      "Suspending moves agents to the bottom tray; restoring one keeps it stopped.",
   },
 };
 

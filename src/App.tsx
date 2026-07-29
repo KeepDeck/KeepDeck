@@ -126,7 +126,12 @@ function App() {
   // before the boot gate below, which does not render the deck until settings
   // have loaded. It is the type's floor, not a pre-hydration default.
   const dockMode = settings?.dockMode ?? DEFAULT_SETTINGS.dockMode;
-  const minimizeOn = useMinimizeMode(deckLayout, minimizeStyle, deck);
+  const minimizeOn = useMinimizeMode(
+    deckLayout,
+    minimizeStyle,
+    suspendedInTray,
+    deck,
+  );
   // Restore the saved deck on boot; save (debounced) on every change ([F7]).
   // `frozen` = the stored deck needs a newer build: session parked, no saves.
   const { restoring, frozen } = usePersistence(deck);

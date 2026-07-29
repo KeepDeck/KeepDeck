@@ -12,6 +12,7 @@ type MinimizeDeck = Pick<Deck, "viewByWs" | "clearMinimized">;
 export function useMinimizeMode(
   deckLayout: DeckLayout,
   minimizeStyle: MinimizeStyle,
+  suspendedInTray: boolean,
   deck: MinimizeDeck,
 ): boolean {
   const minimizeOn = deckLayout === "grid" && minimizeStyle !== "none";
@@ -20,8 +21,15 @@ export function useMinimizeMode(
   );
 
   useEffect(() => {
-    if (minimizeStyle === "none" && hasMinimized) deck.clearMinimized();
-  }, [deck.clearMinimized, hasMinimized, minimizeStyle]);
+    if (minimizeStyle === "none" && hasMinimized) {
+      deck.clearMinimized(suspendedInTray);
+    }
+  }, [
+    deck.clearMinimized,
+    hasMinimized,
+    minimizeStyle,
+    suspendedInTray,
+  ]);
 
   return minimizeOn;
 }

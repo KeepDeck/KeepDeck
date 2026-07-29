@@ -25,10 +25,16 @@ function visiblePanes(
   minimizeOn: boolean,
   suspendedInTray: boolean,
 ): Pane[] {
+  const minimized = view?.minimized ?? [];
   const hiddenIds = [
-    ...(minimizeOn ? (view?.minimized ?? []) : []),
+    ...(minimizeOn ? minimized : []),
     ...(suspendedInTray
-      ? ws.panes.filter(paneIsSuspended).map((pane) => pane.id)
+      ? ws.panes
+          .filter(
+            (pane) =>
+              paneIsSuspended(pane) && minimized.includes(pane.id),
+          )
+          .map((pane) => pane.id)
       : []),
   ];
   return partitionPanes(ws.panes, hiddenIds).live;
@@ -91,13 +97,14 @@ export function paneHotkeyTarget(
   const view = viewByWs[ws.id];
   const visible = visiblePanes(ws, view, minimizeOn, suspendedInTray);
   let pane = visible.find((p) => p.id === view?.select);
-  // Switching the setting to Tray can hide a selected suspended pane without
-  // mutating the durable deck. Resolve that newly-stranded selection the same
-  // way an explicit minimize does, while retaining the old "ambiguous means
-  // null" rule for a genuinely absent/stale selection.
+  // The suspend-to-tray transition can hide the selected pane. Resolve that
+  // newly-stranded selection the same way an explicit minimize does, while
+  // retaining the old "ambiguous means null" rule for a genuinely
+  // absent/stale selection.
   if (
     !pane &&
     suspendedInTray &&
+    view?.minimized?.includes(view.select ?? "") &&
     ws.panes.some((p) => p.id === view?.select && paneIsSuspended(p))
   ) {
     pane = visible[0];
@@ -139,6 +146,7 @@ export function maximizeHotkeyTarget(
   const selected =
     visible.find((p) => p.id === view?.select) ??
     (suspendedInTray &&
+    view?.minimized?.includes(view.select ?? "") &&
     ws.panes.some((p) => p.id === view?.select && paneIsSuspended(p))
       ? visible[0]
       : undefined);

@@ -106,6 +106,10 @@ export function createAppRuntime(
         parkOnLaunch: () => getSettings()?.parkAgentsOnLaunch ?? false,
         subscribe: subscribeSettings,
       },
+      suspendPolicy: {
+        moveToTray: () =>
+          getSettings()?.suspendedAgentPlacement === "tray",
+      },
       sessions: {
         subscribe: subscribeSessions,
         state: paneSessionState,

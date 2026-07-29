@@ -55,7 +55,7 @@ export const MINIMIZE_STYLES: readonly MinimizeStyle[] = ["tray", "strip", "none
 /** Where an agent the user suspended stays:
  * - `pane` — keep its tile in the deck and show the existing Resume card;
  * - `tray` — replace the tile with a stand-in in the bottom tray. Restoring
- *   that stand-in explicitly resumes the agent.
+ *   that stand-in returns its stopped card; Resume remains a separate action.
  *
  * This is presentation only: the pane's durable `suspended` marker remains
  * the source of truth, so switching the preference never starts a process. */

@@ -763,19 +763,20 @@ describe("paneOnScreen", () => {
     expect(paneOnScreen(panes, undefined, "list", false, "pane-2")).toBe(false);
   });
 
-  it("tray placement hides suspended panes in grid and list without changing their state", () => {
+  it("tray placement hides suspended panes present in the minimized set", () => {
+    const view = { select: "pane-1", minimized: ["pane-1"] };
     expect(
-      paneOnScreen(withSuspended, undefined, "grid", true, "pane-1", true),
+      paneOnScreen(withSuspended, view, "grid", true, "pane-1", true),
     ).toBe(false);
     expect(
-      paneOnScreen(withSuspended, undefined, "grid", true, "pane-2", true),
+      paneOnScreen(withSuspended, view, "grid", true, "pane-2", true),
     ).toBe(true);
     // A selected suspended list row is skipped and the first live sibling
     // becomes the expanded body, matching DeckStage.
     expect(
       paneOnScreen(
         withSuspended,
-        { select: "pane-1" },
+        view,
         "list",
         false,
         "pane-1",
@@ -785,10 +786,24 @@ describe("paneOnScreen", () => {
     expect(
       paneOnScreen(
         withSuspended,
-        { select: "pane-1" },
+        view,
         "list",
         false,
         "pane-2",
+        true,
+      ),
+    ).toBe(true);
+    expect(withSuspended[0].idle?.reason).toBe("suspended");
+  });
+
+  it("a suspended pane restored from the tray is on screen but remains stopped", () => {
+    expect(
+      paneOnScreen(
+        withSuspended,
+        { select: "pane-1" },
+        "grid",
+        true,
+        "pane-1",
         true,
       ),
     ).toBe(true);

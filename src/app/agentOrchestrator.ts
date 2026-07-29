@@ -347,6 +347,13 @@ export interface LaunchPolicyPort {
   subscribe(listener: () => void): () => void;
 }
 
+/** Where a successful manual suspend places its pane. Read at the transition
+ * boundary so changing the preference never wakes or mutates an agent by
+ * itself. */
+export interface SuspendPolicyPort {
+  moveToTray(): boolean;
+}
+
 /** The live PTY sessions. Subscribed to rather than polled: a restart drops a
  * pane's cached plan and closes its process, and nothing in the deck records
  * either — without this the orchestrator would never rebuild the plan. */
@@ -384,6 +391,7 @@ export interface AgentOrchestratorDeps {
   spawnContext: SpawnContextSource;
   agents: AgentCatalogPort;
   launchPolicy: LaunchPolicyPort;
+  suspendPolicy: SuspendPolicyPort;
   sessions: SessionRegistryPort;
   plugins: SpawnPluginAccess;
   probe: WorktreeProbePort;
@@ -460,6 +468,7 @@ export function createAgentOrchestrator(
     spawnContext,
     agents,
     launchPolicy,
+    suspendPolicy,
     sessions,
     plugins,
     probe,
@@ -1200,7 +1209,7 @@ export function createAgentOrchestrator(
         // build it a fresh plan and acquire a NEW process, which the
         // following teardown would then orphan (unmounting a view never kills
         // a session; only closing the pane does).
-        actions.suspendPane(wsId, paneId);
+        actions.suspendPane(wsId, paneId, suspendPolicy.moveToTray());
         // Revoke the bridge token before the process can report anything
         // else; a postback landing in the gap above is harmless (it binds the
         // pane's own real session, which is what a later resume wants).

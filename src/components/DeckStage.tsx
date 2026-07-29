@@ -246,14 +246,18 @@ export function DeckStage({
         // Grid: the live (not minimized) panes tile; the minimized ones are
         // hidden but stay in the grid mounted. List: the selected pane expands,
         // the rest fold to headers.
+        const minimizedIds = view?.minimized ?? [];
         const suspendedTrayPanes = suspendedInTray
-          ? ws.panes.filter(paneIsSuspended)
+          ? ws.panes.filter(
+              (pane) =>
+                paneIsSuspended(pane) && minimizedIds.includes(pane.id),
+            )
           : [];
         const suspendedTrayIds = new Set(
           suspendedTrayPanes.map((pane) => pane.id),
         );
         const manuallyMinimizedIds = canMinimize
-          ? (view?.minimized ?? [])
+          ? minimizedIds
           : [];
         const manuallyMinimizedSet = new Set(manuallyMinimizedIds);
         const { live } = partitionPanes(
@@ -275,7 +279,8 @@ export function DeckStage({
           if (!liveIndex.has(pane.id)) {
             // Hidden from the chosen layout, but still mounted. In addition
             // to explicit grid minimizes this includes suspended panes while
-            // the global placement is Tray.
+            // the global placement is Tray and its suspend transition put it
+            // in the existing minimized set.
             return {
               colSpan: 1,
               visible: false,
@@ -380,16 +385,7 @@ export function DeckStage({
             entryOf(pane, "Restore", restoreById.get(pane.id)!),
           );
         const suspendedEntries = suspendedTrayPanes.map((pane) =>
-          entryOf(pane, "Resume", () => {
-            // A pane can be suspended while already explicitly minimized
-            // (for example through a command). Resume must reveal it too;
-            // otherwise the tray chip disappears but the running agent stays
-            // hidden in the minimized set.
-            if (view?.minimized?.includes(pane.id)) {
-              onToggleMinimize(ws.id, pane.id);
-            }
-            onResumeAgent(ws.id, pane.id);
-          }),
+          entryOf(pane, "Restore", () => onToggleMinimize(ws.id, pane.id)),
         );
         const minimizeEntryById = new Map(
           minimizeEntries.map((entry) => [entry.id, entry]),
@@ -535,7 +531,7 @@ export function DeckStage({
                         stopped — a deck of suspended agents would otherwise be
                         told the opposite of what it is. */}
                     {suspendedTrayPanes.length > 0
-                      ? "Resume one below to bring it back"
+                      ? "Restore one below to inspect it"
                       : "They keep running — restore one below to bring it back"}
                   </span>
                 </div>

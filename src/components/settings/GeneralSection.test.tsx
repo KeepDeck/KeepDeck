@@ -118,7 +118,7 @@ describe("GeneralSection — dock mode", () => {
     });
   });
 
-  it("explains that restoring a suspended tray entry resumes it", () => {
+  it("explains that restoring a suspended tray entry keeps it stopped", () => {
     settings.current = {
       ...DEFAULT_SETTINGS,
       suspendedAgentPlacement: "tray",
@@ -128,6 +128,6 @@ describe("GeneralSection — dock mode", () => {
       Array.from(host.querySelectorAll(".settings__hint"))
         .map((hint) => hint.textContent)
         .join(" "),
-    ).toContain("restoring one resumes it");
+    ).toContain("restoring one keeps it stopped");
   });
 });

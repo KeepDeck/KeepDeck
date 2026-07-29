@@ -314,6 +314,7 @@ const ctx = { ...EMPTY_SPAWN_CONTEXT, bridgeDir: "/bridge/run-1" };
 // policy is read live, so a test may flip it while the deck stands.
 const catalog = {
   parkOnLaunch: false,
+  moveSuspendedToTray: false,
   agents: ["claude", "codex", "opencode"].map((id) => ({
     id,
     label: id,
@@ -354,6 +355,9 @@ function Probe() {
         launchPolicy: {
           parkOnLaunch: () => catalog.parkOnLaunch,
           subscribe: () => () => {},
+        },
+        suspendPolicy: {
+          moveToTray: () => catalog.moveSuspendedToTray,
         },
         sessions: {
           subscribe: pty.subscribe,
@@ -451,6 +455,7 @@ describe("agent orchestrator —session policy", () => {
     });
     catalog.ready = true;
     catalog.parkOnLaunch = false;
+    catalog.moveSuspendedToTray = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -2068,6 +2073,7 @@ describe("agent orchestrator —suspending an agent", () => {
     });
     catalog.ready = true;
     catalog.parkOnLaunch = false;
+    catalog.moveSuspendedToTray = false;
     pty.reset();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
@@ -2114,6 +2120,17 @@ describe("agent orchestrator —suspending an agent", () => {
       session: { id: "s-1", boundAt: "2026-07-25T09:00:00.000Z" },
       idle: { reason: "suspended", at: expect.any(String) },
     });
+    expect(deck.viewByWs["ws-1"]?.minimized).toBeUndefined();
+  });
+
+  it("atomically moves the stopped pane to the existing tray when configured", async () => {
+    catalog.moveSuspendedToTray = true;
+    seed();
+
+    await act(async () => agentRun.suspend("ws-1", "pane-1"));
+
+    expect(pane().idle).toMatchObject({ reason: "suspended" });
+    expect(deck.viewByWs["ws-1"]?.minimized).toEqual(["pane-1"]);
   });
 
   it("marks the pane idle BEFORE reaping, so no sweep can respawn it mid-flight", async () => {

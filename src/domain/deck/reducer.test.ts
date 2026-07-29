@@ -397,6 +397,47 @@ describe("deckReducer restore actions ([F7])", () => {
       id: "pane-2",
       idle: { reason: "suspended", at: "2026-07-25T10:00:00.000Z" },
     });
+    expect(next.viewByWs).toEqual({});
+  });
+
+  it("suspendPane atomically uses the existing minimized transition for Tray", () => {
+    const next = deckReducer(
+      state({
+        workspaces: [idleWs],
+        activeId: "ws-1",
+        viewByWs: {
+          "ws-1": { focus: "pane-2", select: "pane-2" },
+        },
+      }),
+      {
+        type: "suspendPane",
+        wsId: "ws-1",
+        paneId: "pane-2",
+        at: "2026-07-25T10:00:00.000Z",
+        moveToTray: true,
+      },
+    );
+
+    expect(next.workspaces[0].panes[1].idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T10:00:00.000Z",
+    });
+    expect(next.viewByWs).toEqual({
+      "ws-1": { select: "pane-1", minimized: ["pane-2"] },
+    });
+
+    const restored = deckReducer(next, {
+      type: "toggleMinimize",
+      wsId: "ws-1",
+      paneId: "pane-2",
+    });
+    expect(restored.viewByWs).toEqual({
+      "ws-1": { select: "pane-2" },
+    });
+    expect(restored.workspaces[0].panes[1].idle).toEqual({
+      reason: "suspended",
+      at: "2026-07-25T10:00:00.000Z",
+    });
   });
 
   it("suspendPane is a no-op (same ref) for an unknown pane", () => {
@@ -932,6 +973,31 @@ describe("deckReducer clearMinimized", () => {
     });
 
     expect(deckReducer(start, { type: "clearMinimized" })).toBe(start);
+  });
+
+  it("can retain only suspended panes that use minimized as their tray", () => {
+    const workspace = ws("a", ["a-1", "a-2", "a-3"]);
+    workspace.panes[1] = {
+      ...workspace.panes[1],
+      idle: {
+        reason: "suspended",
+        at: "2026-07-25T10:00:00.000Z",
+      },
+    };
+    const next = deckReducer(
+      state({
+        workspaces: [workspace],
+        activeId: "a",
+        viewByWs: {
+          a: { minimized: ["a-1", "a-2", "gone"] },
+        },
+      }),
+      { type: "clearMinimized", preserveSuspended: true },
+    );
+
+    expect(next.viewByWs).toEqual({
+      a: { minimized: ["a-2"] },
+    });
   });
 });
 

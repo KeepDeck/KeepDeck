@@ -455,10 +455,11 @@ type PaneVisibilityView = Pick<
  * semantics DeckStage paints (list default-expands the first pane; grid
  * resolves a stale maximize via [`resolveFocus`]; a minimized pane only
  * leaves the grid while the minimize styles are in force; a suspended pane
- * leaves either layout while its placement is Tray). Callers own the "is the
- * workspace active / is a modal covering the deck" half — this answers only
- * the layout's part. Drives banner suppression: a wrong `true` swallows a
- * needed OS banner, a wrong `false` merely shows a redundant one.
+ * in the minimized set leaves either layout while its placement is Tray).
+ * Callers own the "is the workspace active / is a modal covering the deck"
+ * half — this answers only the layout's part. Drives banner suppression: a
+ * wrong `true` swallows a needed OS banner, a wrong `false` merely shows a
+ * redundant one.
  */
 export function paneOnScreen(
   panes: Pane[],
@@ -468,8 +469,14 @@ export function paneOnScreen(
   paneId: string,
   suspendedInTray = false,
 ): boolean {
+  const minimized = view?.minimized ?? [];
   const suspendedIds = suspendedInTray
-    ? panes.filter(paneIsSuspended).map((pane) => pane.id)
+    ? panes
+        .filter(
+          (pane) =>
+            paneIsSuspended(pane) && minimized.includes(pane.id),
+        )
+        .map((pane) => pane.id)
     : [];
   if (layout === "list") {
     const { live } = partitionPanes(panes, suspendedIds);
@@ -481,7 +488,7 @@ export function paneOnScreen(
   const { live } = partitionPanes(
     panes,
     [
-      ...(minimizeOn ? (view?.minimized ?? []) : []),
+      ...(minimizeOn ? minimized : []),
       ...suspendedIds,
     ],
   );

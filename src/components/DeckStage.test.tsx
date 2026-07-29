@@ -532,10 +532,11 @@ describe("DeckStage — suspended agents", () => {
     )!;
   };
 
-  it("moves an existing suspended pane to the tray without resuming it", () => {
+  it("restores a suspended pane without resuming, then resumes from its card", () => {
     render({
       workspaces: suspended,
       suspendedAgentPlacement: "tray",
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
     });
 
     expect(
@@ -549,19 +550,37 @@ describe("DeckStage — suspended agents", () => {
     expect(callbacks.onResumeAgent).not.toHaveBeenCalled();
 
     const trayEntry = openOnlyTrayEntry();
-    expect(trayEntry.getAttribute("aria-label")).toContain("Resume");
+    expect(trayEntry.getAttribute("aria-label")).toContain("Restore");
     act(() => trayEntry.click());
+    expect(callbacks.onToggleMinimize).toHaveBeenCalledWith(
+      "ws-1",
+      "pane-1",
+    );
+    expect(callbacks.onResumeAgent).not.toHaveBeenCalled();
+
+    render({
+      workspaces: suspended,
+      suspendedAgentPlacement: "tray",
+      viewByWs: {
+        "ws-1": {
+          select: "pane-1",
+        },
+      },
+    });
+    const pane = document.querySelector<HTMLElement>(
+      "[data-pane-id='pane-1']",
+    )!;
+    expect(pane.classList.contains("pane--hidden")).toBe(false);
+    expect(pane.textContent).toContain("Suspended");
+    expect(document.querySelector(".deck__tray")).toBeNull();
+
+    act(() =>
+      pane.querySelector<HTMLButtonElement>(".pane__card-action")!.click(),
+    );
     expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
   });
 
-  it("switches placement live without changing the pane's suspended state", () => {
-    render({ workspaces: suspended });
-    expect(
-      document
-        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
-        .classList.contains("pane--hidden"),
-    ).toBe(false);
-
+  it("does not derive tray placement from the durable suspended marker alone", () => {
     render({
       workspaces: suspended,
       suspendedAgentPlacement: "tray",
@@ -570,14 +589,8 @@ describe("DeckStage — suspended agents", () => {
       document
         .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
         .classList.contains("pane--hidden"),
-    ).toBe(true);
-
-    render({ workspaces: suspended });
-    const pane = document.querySelector<HTMLElement>(
-      "[data-pane-id='pane-1']",
-    )!;
-    expect(pane.classList.contains("pane--hidden")).toBe(false);
-    expect(pane.textContent).toContain("Suspended");
+    ).toBe(false);
+    expect(document.querySelector(".deck__tray")).toBeNull();
     expect(callbacks.onResumeAgent).not.toHaveBeenCalled();
   });
 
@@ -585,7 +598,9 @@ describe("DeckStage — suspended agents", () => {
     render({
       workspaces: suspended,
       deckLayout: "list",
-      viewByWs: { "ws-1": { select: "pane-1" } },
+      viewByWs: {
+        "ws-1": { select: "pane-1", minimized: ["pane-1"] },
+      },
       suspendedAgentPlacement: "tray",
     });
 
@@ -604,7 +619,7 @@ describe("DeckStage — suspended agents", () => {
     );
   });
 
-  it("reveals a manually minimized suspended pane before resuming it", () => {
+  it("delegates restoring a suspended pane to the ordinary minimize transition", () => {
     render({
       workspaces: suspended,
       viewByWs: { "ws-1": { minimized: ["pane-1"] } },
@@ -617,7 +632,7 @@ describe("DeckStage — suspended agents", () => {
       "ws-1",
       "pane-1",
     );
-    expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
+    expect(callbacks.onResumeAgent).not.toHaveBeenCalled();
   });
 
   // The strip variant renders its stand-ins directly; the tray's chips go
