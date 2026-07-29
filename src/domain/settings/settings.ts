@@ -52,6 +52,22 @@ export type MinimizeStyle = "tray" | "strip" | "none";
  * allow-list a stored value is validated against. */
 export const MINIMIZE_STYLES: readonly MinimizeStyle[] = ["tray", "strip", "none"];
 
+/** Where an agent the user suspended stays:
+ * - `pane` — keep its tile in the deck and show the existing Resume card;
+ * - `tray` — replace the tile with a stand-in in the bottom tray. Restoring
+ *   that stand-in explicitly resumes the agent.
+ *
+ * This is presentation only: the pane's durable `suspended` marker remains
+ * the source of truth, so switching the preference never starts a process. */
+export type SuspendedAgentPlacement = "pane" | "tray";
+
+/** Every suspended-agent placement, in picker order and as the stored-value
+ * allow-list. */
+export const SUSPENDED_AGENT_PLACEMENTS: readonly SuspendedAgentPlacement[] = [
+  "pane",
+  "tray",
+];
+
 /** How the right-hand dock occupies the window:
  * - `docked`   — it takes a column of its own and the deck grid shrinks to fit;
  * - `floating` — it lies OVER the deck at the same edge, so the grid keeps its
@@ -98,6 +114,8 @@ export interface Settings {
   deckLayout: DeckLayout;
   /** How a minimized agent is presented in the grid layout (tray / strip). */
   minimizeStyle: MinimizeStyle;
+  /** Whether a suspended agent keeps its pane or moves to the bottom tray. */
+  suspendedAgentPlacement: SuspendedAgentPlacement;
   /** Whether the dock takes a column beside the deck or floats over it. */
   dockMode: DockMode;
   /** Per-plugin persisted settings, keyed by plugin id. The plugin system
@@ -144,6 +162,7 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollback: 10_000,
   deckLayout: "grid",
   minimizeStyle: "tray",
+  suspendedAgentPlacement: "pane",
   dockMode: "docked",
   plugins: { enabled: {}, values: {}, consented: {} },
   notifications: { enabled: true, mode: "system-and-app", mutedPlugins: [] },
@@ -315,6 +334,14 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (MINIMIZE_STYLES.includes(doc.minimizeStyle as MinimizeStyle)) {
     settings.minimizeStyle = doc.minimizeStyle as MinimizeStyle;
+  }
+  if (
+    SUSPENDED_AGENT_PLACEMENTS.includes(
+      doc.suspendedAgentPlacement as SuspendedAgentPlacement,
+    )
+  ) {
+    settings.suspendedAgentPlacement =
+      doc.suspendedAgentPlacement as SuspendedAgentPlacement;
   }
   if (DOCK_MODES.includes(doc.dockMode as DockMode)) {
     settings.dockMode = doc.dockMode as DockMode;
