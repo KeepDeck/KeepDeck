@@ -13,7 +13,6 @@ import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createContributionRegistries } from "../plugins/registries/contributions";
 import type { AppRuntime } from "./runtime";
-import { invalidateSkillsStaging } from "./skillsStaging";
 import {
   bindPaneSpawnSpecSession,
   buildForkSpec,
@@ -38,14 +37,13 @@ import {
 
 const hostState = vi.hoisted(() => ({ installed: [] as unknown[] }));
 
-// Staged skills are a host fact fetched through the staging memo; the wire
-// behind it is stubbed so tests pick what the "library" holds.
+// Staged skills are a host fact the plan build ASKS for — the worktree manager
+// resolves them (and owns which directories get armed), so here it is a thunk
+// and tests pick what it answers.
 const skillsState = vi.hoisted(() => ({
   views: null as SpawnSkillsInput | null,
 }));
-vi.mock("../ipc/skills", () => ({
-  stageSkills: vi.fn(async () => skillsState.views),
-}));
+const stagedSkills = () => Promise.resolve(skillsState.views);
 const pluginRegistries = createContributionRegistries();
 const plugins = {
   pluginRegistries,
@@ -101,7 +99,6 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     resetPaneSpawnSpecs();
     hostState.installed = [];
     skillsState.views = null;
-    invalidateSkillsStaging();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -118,7 +115,13 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
   const mount = async (workspaces: Workspace[]) => {
     for (const workspace of workspaces) {
       for (const pane of workspace.panes) {
-        await buildLivePaneSpec(runtime.plugins, workspace, pane, ctx);
+        await buildLivePaneSpec(
+          runtime.plugins,
+          workspace,
+          pane,
+          ctx,
+          stagedSkills,
+        );
       }
     }
     seen = {};
@@ -239,7 +242,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
     await buildResumeSpec(
       plugins,
       "claude",
-      { paneId: "pane-9", workspace: W1, cwd: "/repo" },
+      { paneId: "pane-9", workspace: W1, cwd: "/repo", stagedSkills },
       ctx,
       "old-id",
       "restore",
@@ -356,6 +359,7 @@ describe("the spawn-plan pipeline (plugin hooks + host bridge arming)", () => {
       workspaces[0],
       workspaces[0].panes[0],
       ctx,
+      stagedSkills,
     );
 
     // A failure is a CHANGE, and saying so is what gets the error tile drawn:
@@ -637,7 +641,6 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
   beforeEach(() => {
     resetPaneSpawnSpecs();
     hostState.installed = [];
-    invalidateSkillsStaging();
     registered.push(pluginRegistries.agents.add("test-plugin", adopting));
     heard = 0;
     stop = subscribeSpawnSpecs(() => {
@@ -654,7 +657,13 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
   const facts = { paneId: "pane-1", workspace: W1, cwd: "/repo" };
 
   it("announces a plan built by the ordinary sweep", async () => {
-    await buildLivePaneSpec(plugins, ws([{ id: "pane-1", agentType: "claude" }])[0], { id: "pane-1", agentType: "claude" }, ctx);
+    await buildLivePaneSpec(
+      plugins,
+      ws([{ id: "pane-1", agentType: "claude" }])[0],
+      { id: "pane-1", agentType: "claude" },
+      ctx,
+      stagedSkills,
+    );
     expect(heard).toBeGreaterThan(0);
   });
 

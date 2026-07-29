@@ -20,6 +20,7 @@ import {
   subscribeSessions,
 } from "./ptyManager";
 import { createWorktreeManager } from "./worktrees";
+import { skillRootsOf } from "../domain/deck";
 import { openPath } from "../ipc/app";
 import { probeWorktree } from "../ipc/worktree";
 import { log } from "../ipc/log";
@@ -67,11 +68,34 @@ export function createAppRuntime(
   // Loads on construction, for the same reason the deck store lives here: the
   // resume plans built from it are prepared before any terminal mounts.
   const spawnContext = createSpawnContextSource();
+  // The worktree lifecycle, reading the live deck for its ONE answer to which
+  // directories are spawn roots — the arming side and the sweeping side used to
+  // derive that from two snapshots and disagree.
+  const worktrees = createWorktreeManager({
+    rootsOf: (ref) => {
+      // Matched on the exact LIFETIME, not the reusable id: a reborn workspace
+      // must not be handed the dead one's roots. Compared here rather than
+      // through `findWorkspaceByRef` because the ref crossing the manager's
+      // boundary is the plugin-API shape, whose instance is a plain string.
+      const ws = deckStore
+        .getSnapshot()
+        .workspaces.find(
+          (candidate) =>
+            candidate.id === ref.id && candidate.instance === ref.instance,
+        );
+      return ws ? skillRootsOf(ws) : [];
+    },
+    live: () =>
+      deckStore
+        .getSnapshot()
+        .workspaces.map((ws) => ({ id: ws.id, roots: skillRootsOf(ws) })),
+  });
   return {
     downloads,
     plugins,
     deckStore,
     spawnContext,
+    worktrees,
     /** One per app: pane ids are minted app-wide, sessions are keyed by them,
      * and a request can name a pane in a workspace that is not on screen. */
     orchestrator: createAgentOrchestrator({
@@ -91,7 +115,7 @@ export function createAppRuntime(
       },
       plugins,
       probe: probeWorktree,
-      worktrees: createWorktreeManager(),
+      worktrees,
     }),
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),

@@ -16,8 +16,15 @@
  * globals that outlived a test's `clearAllMocks`, and a lifetime nobody owns is
  * exactly the shape of bug this module exists to prevent.
  */
+import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { Pane, PaneProvisioning, WorktreeTarget } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
+import {
+  disarmSkills,
+  pruneSkills,
+  stageSkills,
+  type SkillsStagingViews,
+} from "../ipc/skills";
 import { createWorktree, inspectRepo, removeWorktree } from "../ipc/worktree";
 import type { ProvisionCallbacks, SetupStep } from "./provisioning";
 
@@ -26,6 +33,26 @@ export interface CreatedWorktree {
   repo: string;
   path: string;
   branch: string;
+}
+
+/** One workspace as the sweep sees it: its durable id (the key its staged dirs
+ * live under) and the spawn cwds currently claimed by its panes. */
+export interface LiveWorkspace {
+  id: string;
+  roots: string[];
+}
+
+/**
+ * The deck as this manager reads it — the ONE source for which directories are
+ * live spawn roots. Arming a root and sweeping a dead one used to derive that
+ * set independently, from two snapshots taken at different moments, and the
+ * disagreement is what armed a directory that was being deleted.
+ */
+export interface WorktreeDeckView {
+  /** The workspace's live spawn roots; empty when it is gone. */
+  rootsOf(workspace: WorkspaceRef): string[];
+  /** Every live workspace with its roots. */
+  live(): LiveWorkspace[];
 }
 
 /** What a pane's worktree needs from its owner. */
@@ -65,6 +92,45 @@ export interface WorktreeManager {
   /** Forget a pane's post-provision step (the fork was abandoned before it ran). */
   clearPostProvision(paneId: string): void;
   /**
+   * The workspace's staged shared skills, ready for a spawn plan — and, as a
+   * side effect, its live spawn roots armed with the codex-facing
+   * `.agents/skills` symlink. `null` = nothing to inject (an empty library, or
+   * a staging that failed and was degraded by the IPC layer): panes then spawn
+   * without skills rather than re-hitting a broken backend.
+   *
+   * The roots come from the deck, never from the caller: a build path that
+   * passed its own snapshot is how a directory being deleted got armed.
+   * `landing` is the one honest exception — a pane about to exist in a cwd the
+   * deck does not list yet — and it is a cwd, not a set.
+   *
+   * Memoized per workspace INSTANCE and root set: staging rebuilds the on-disk
+   * views from the library, so it runs once and every later pane spawn in that
+   * workspace reuses the promise. Ids may be reused after a close, instances
+   * never are, so a reborn id cannot be served a dead lifetime's promise (whose
+   * dirs the sweep may have deleted). The DISK key stays the durable id.
+   */
+  skillsFor(
+    workspace: WorkspaceRef,
+    landing?: string,
+  ): Promise<SkillsStagingViews | null>;
+  /** The library changed (any scope): every workspace re-stages on its next
+   * spawn. Editing is rare and staging is cheap — no finer bookkeeping. */
+  invalidateSkills(): void;
+  /**
+   * Drop what no live workspace claims any more: the derived skill dirs of
+   * workspaces that are gone, and the `.agents/skills` arming of spawn cwds
+   * that left. Called on every deck transition that can shrink the live set —
+   * a pane or workspace closing, a directory found missing, and once the deck
+   * has hydrated at boot (which catches whatever a crash or an update left).
+   *
+   * `deckHydrated` is a fact only the caller has, and the DECISION is made
+   * here: sweeping a deck that is still loading reads as "no workspaces exist"
+   * and would delete every live dir, so this refuses rather than trusting each
+   * call site to remember. Bursts coalesce — a workspace closing six panes
+   * sweeps once.
+   */
+  sweep(deckHydrated: boolean): Promise<void>;
+  /**
    * Tear down each target's git worktree and branches when the close dialog's
    * delete checkbox was ticked. Always forced — the checkbox is explicit
    * intent, so a dirty worktree / unmerged branch is discarded per the user's
@@ -76,7 +142,7 @@ export interface WorktreeManager {
   remove(targets: WorktreeTarget[]): Promise<string[]>;
 }
 
-export function createWorktreeManager(): WorktreeManager {
+export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
   /**
    * Post-provision steps, keyed by pane id: a JS step run AFTER a pane's
    * worktree is created (and setup passed) but BEFORE its card resolves — the
@@ -122,6 +188,21 @@ export function createWorktreeManager(): WorktreeManager {
    */
   const created = new Map<string, Promise<CreatedWorktree | null>>();
 
+  /** In-flight and completed stagings, keyed by workspace instance + root set
+   * (see [`WorktreeManager.skillsFor`]). A `null` result is remembered too. */
+  const staged = new Map<string, Promise<SkillsStagingViews | null>>();
+
+  /** The deck as the last sweep saw it — what the next one diffs against to
+   * find the roots that left. Keyed by nothing but its own recency: a sweep
+   * always compares against the state it last acted on. */
+  let swept: LiveWorkspace[] = [];
+
+  /** The sweep in flight, if any, and whether another was asked for while it
+   * ran. A close of six panes fires six transitions; one pass over the same
+   * directories answers all of them. */
+  let sweeping: Promise<void> | null = null;
+  let sweepAgain = false;
+
   /** Run the registered step, if any. Returns null on success (or when none is
    * registered — a plain pane) and the failure message otherwise; a successful
    * step is consumed, a failed one is KEPT so a Retry re-runs it. */
@@ -138,6 +219,22 @@ export function createWorktreeManager(): WorktreeManager {
     } catch (e) {
       return describeError(e);
     }
+  }
+
+  /** One pass of the sweep: disarm the roots that left, then drop the derived
+   * dirs of workspaces that are gone. Both best-effort — the IPC layer logs and
+   * swallows, because housekeeping must never break a close. */
+  async function sweepOnce(): Promise<void> {
+    const live = deck.live();
+    const claimed = new Set(live.flatMap((ws) => ws.roots));
+    // One rule for closed workspaces AND closed panes: a spawn cwd is disarmed
+    // the moment NO live workspace claims it any more.
+    const departed = [...new Set(swept.flatMap((ws) => ws.roots))].filter(
+      (root) => !claimed.has(root),
+    );
+    swept = live;
+    await disarmSkills(departed);
+    await pruneSkills(live.map((ws) => ws.id).sort());
   }
 
   /** Best-effort teardown of a half-prepared worktree so Retry re-creates
@@ -315,6 +412,48 @@ export function createWorktreeManager(): WorktreeManager {
 
     clearPostProvision(paneId) {
       postProvisionSteps.delete(paneId);
+    },
+
+    skillsFor(workspace, landing) {
+      const roots = [
+        ...new Set([...deck.rootsOf(workspace), ...(landing ? [landing] : [])]),
+      ].sort();
+      // A JSON array as the memo key: injective for any path, with no reliance
+      // on a separator byte that paths are merely assumed not to contain.
+      const key = JSON.stringify([workspace.instance, ...roots]);
+      let views = staged.get(key);
+      if (!views) {
+        views = stageSkills(workspace.id, roots);
+        staged.set(key, views);
+      }
+      return views;
+    },
+
+    invalidateSkills() {
+      staged.clear();
+    },
+
+    async sweep(deckHydrated) {
+      if (!deckHydrated) return;
+      if (sweeping) {
+        // Someone already asked; that pass may already have read the deck, so
+        // one more after it covers this request too.
+        sweepAgain = true;
+        return sweeping;
+      }
+      sweeping = (async () => {
+        try {
+          await sweepOnce();
+          while (sweepAgain) {
+            sweepAgain = false;
+            await sweepOnce();
+          }
+        } finally {
+          sweeping = null;
+          sweepAgain = false;
+        }
+      })();
+      return sweeping;
     },
 
     async remove(targets) {

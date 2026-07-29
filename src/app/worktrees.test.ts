@@ -7,12 +7,25 @@ const worktree = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/worktree", () => worktree);
 
+const skills = vi.hoisted(() => ({
+  stageSkills: vi.fn(),
+  disarmSkills: vi.fn(async (_roots: string[]) => {}),
+  pruneSkills: vi.fn(async (_liveWsIds: string[]) => {}),
+}));
+vi.mock("../ipc/skills", () => skills);
+
 /** The pane is still in the deck for the whole create — the ordinary case.
  * The tests that close a pane mid-create override this. */
 const stays = () => false;
 
+import type { WorkspaceRef } from "@keepdeck/plugin-api";
+import type { SkillsStagingViews } from "../ipc/skills";
 import { planPanes, type SetupStep } from "./provisioning";
-import { createWorktreeManager, type WorktreeManager } from "./worktrees";
+import {
+  createWorktreeManager,
+  type LiveWorkspace,
+  type WorktreeManager,
+} from "./worktrees";
 
 /** The workspace's setup, as the manager sees it: a step that answers. How it
  * actually runs — in the pane's own process slot — is the registry's, and is
@@ -30,13 +43,34 @@ const setupStep = (
   };
 };
 
+/** The deck the manager reads, as a test double: what `live()` returns IS the
+ * app's answer to which roots are claimed, and `rootsOf` answers from it. */
+let deck: LiveWorkspace[] = [];
+
 /** A fresh manager per test: its maps are per-instance precisely so no test —
  * and no workspace — inherits another's in-flight state. */
 let manager: WorktreeManager;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  manager = createWorktreeManager();
+  deck = [];
+  skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
+  manager = createWorktreeManager({
+    rootsOf: (ref) => deck.find((ws) => ws.id === ref.id)?.roots ?? [],
+    live: () => deck,
+  });
+});
+
+/** A workspace REF: the id keys the disk, the instance keys the memo. */
+const ref = (id: string, instance = `${id}-life-1`): WorkspaceRef => ({
+  id,
+  instance,
+});
+
+const stagedFor = (wsId: string): SkillsStagingViews => ({
+  claudePluginDir: `/staging/${wsId}/claude-plugin`,
+  opencodeConfigDir: `/staging/${wsId}/opencode`,
+  skillsDir: `/staging/${wsId}/skills`,
 });
 
 describe("provision", () => {
@@ -463,6 +497,152 @@ describe("provision with a post-provision step", () => {
       abandoned: stays,
     });
     expect(onFailed).toHaveBeenCalledWith("pane-1", "surgery boom");
+  });
+});
+
+describe("skillsFor", () => {
+  it("stages once per workspace, even for concurrent callers", async () => {
+    const [a, b] = await Promise.all([
+      manager.skillsFor(ref("ws-1")),
+      manager.skillsFor(ref("ws-1")),
+    ]);
+    expect(a).toEqual(stagedFor("ws-1"));
+    expect(b).toEqual(a);
+    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
+
+    await manager.skillsFor(ref("ws-2"));
+    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
+  });
+
+  it("a reused id with a NEW instance re-stages — but to the same disk id", async () => {
+    // The sweep may have deleted the dead lifetime's dirs; serving the memoized
+    // promise would hand the reborn workspace vanished paths.
+    await manager.skillsFor(ref("ws-1", "life-1"));
+    await manager.skillsFor(ref("ws-1", "life-2"));
+    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
+    // The DISK key is the durable id — that's where the user's library is.
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", []);
+  });
+
+  it("re-stages after a library edit invalidates the memo", async () => {
+    await manager.skillsFor(ref("ws-1"));
+    manager.invalidateSkills();
+    await manager.skillsFor(ref("ws-1"));
+    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
+  });
+
+  it("arms the roots the DECK reports — not a set the caller worked out", async () => {
+    // The whole point of the move: a build path can no longer hand over its own
+    // (possibly stale) snapshot, so it cannot arm a directory being deleted.
+    deck = [{ id: "ws-1", roots: ["/wt/b", "/wt/a"] }];
+    await manager.skillsFor(ref("ws-1"));
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"]);
+  });
+
+  it("a new worktree in the deck re-stages — it must be armed now, not later", async () => {
+    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
+    await manager.skillsFor(ref("ws-1"));
+    await manager.skillsFor(ref("ws-1"));
+    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
+
+    deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }];
+    await manager.skillsFor(ref("ws-1"));
+    expect(skills.stageSkills).toHaveBeenCalledTimes(2);
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"]);
+  });
+
+  it("a landing cwd rides along, and does not duplicate a root already there", async () => {
+    // A pane the deck cannot report yet: a journal resume or fork about to land
+    // in a directory of its own.
+    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
+    await manager.skillsFor(ref("ws-1"), "/wt/new");
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/new"]);
+
+    await manager.skillsFor(ref("ws-1"), "/wt/a");
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a"]);
+  });
+
+  it("remembers an empty result — panes must not re-stage per spawn", async () => {
+    skills.stageSkills.mockResolvedValue(null);
+    expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
+    expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
+    expect(skills.stageSkills).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("sweep", () => {
+  it("refuses while the deck is still loading — it would read as empty", async () => {
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    await manager.sweep(false);
+    expect(skills.pruneSkills).not.toHaveBeenCalled();
+    expect(skills.disarmSkills).not.toHaveBeenCalled();
+  });
+
+  it("prunes the workspaces that are gone, at boot and on every close", async () => {
+    deck = [
+      { id: "ws-1", roots: ["/repo"] },
+      { id: "ws-2", roots: ["/other"] },
+    ];
+    await manager.sweep(true);
+    expect(skills.pruneSkills).toHaveBeenLastCalledWith(["ws-1", "ws-2"]);
+
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    await manager.sweep(true);
+    expect(skills.pruneSkills).toHaveBeenLastCalledWith(["ws-1"]);
+    expect(skills.disarmSkills).toHaveBeenLastCalledWith(["/other"]);
+  });
+
+  it("an empty hydrated deck sweeps everything", async () => {
+    deck = [];
+    await manager.sweep(true);
+    expect(skills.pruneSkills).toHaveBeenLastCalledWith([]);
+  });
+
+  it("disarms a closing workspace's roots, late-added ones included", async () => {
+    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
+    await manager.sweep(true);
+    // A worktree pane lands AFTER that sweep…
+    deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }];
+    await manager.sweep(true);
+    // …and the close still disarms BOTH of the workspace's roots.
+    deck = [];
+    await manager.sweep(true);
+    expect(skills.disarmSkills).toHaveBeenLastCalledWith(["/wt/a", "/wt/b"]);
+    expect(skills.pruneSkills).toHaveBeenLastCalledWith([]);
+  });
+
+  it("keeps a root another pane still claims", async () => {
+    deck = [{ id: "ws-1", roots: ["/repo", "/wt/a"] }];
+    await manager.sweep(true);
+
+    // The worktree pane closed: its cwd is nobody's now.
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    await manager.sweep(true);
+    expect(skills.disarmSkills).toHaveBeenLastCalledWith(["/wt/a"]);
+
+    // One of the panes sharing the workspace cwd closed; the other still runs
+    // there, so that root must stay armed.
+    await manager.sweep(true);
+    const disarmed = skills.disarmSkills.mock.calls.flatMap((call) => call[0]);
+    expect(disarmed).not.toContain("/repo");
+  });
+
+  it("coalesces a burst — six panes closing sweep the same dirs once", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    skills.pruneSkills.mockImplementationOnce(async () => held);
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+
+    const first = manager.sweep(true);
+    // Three more transitions land while the first pass is still in flight.
+    const rest = [manager.sweep(true), manager.sweep(true), manager.sweep(true)];
+    release();
+    await Promise.all([first, ...rest]);
+
+    // One pass for the burst, not one per request.
+    expect(skills.pruneSkills).toHaveBeenCalledTimes(2);
   });
 });
 

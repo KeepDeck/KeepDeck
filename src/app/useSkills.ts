@@ -1,9 +1,13 @@
 /**
  * The skills library as UI state: the stored list plus save/remove that keep
- * the spawn side honest — every successful write invalidates the staging
- * memo, so the next pane spawn re-stages the edited library. Loading happens
- * when the dialog opens (`open` flips true), not at boot: the library is
- * cold data until the user looks at it.
+ * the spawn side honest — every successful write reports the library as changed,
+ * so the staged views it invalidates are re-staged at the next pane spawn.
+ * Loading happens when the dialog opens (`open` flips true), not at boot: the
+ * library is cold data until the user looks at it.
+ *
+ * The invalidation arrives as a callback rather than being reached for directly:
+ * the staged views belong to the worktree manager, which owns them together with
+ * the directories they are armed into.
  */
 import { useCallback, useEffect, useState } from "react";
 import { composeSkillFile, type SkillDraft, type SkillScope } from "../domain/skills";
@@ -15,7 +19,6 @@ import {
   type StoredSkill,
 } from "../ipc/skills";
 import { describeError, log } from "../ipc/log";
-import { invalidateSkillsStaging } from "./skillsStaging";
 
 export interface SkillsLibrary {
   /** The stored skills; `null` while the first load is in flight. */
@@ -34,7 +37,10 @@ export interface SkillsLibrary {
   remove(scope: SkillScope, name: string): Promise<boolean>;
 }
 
-export function useSkillsLibrary(open: boolean): SkillsLibrary {
+export function useSkillsLibrary(
+  open: boolean,
+  onLibraryChanged: () => void,
+): SkillsLibrary {
   const [skills, setSkills] = useState<StoredSkill[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,7 +73,7 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
   }, [open]);
 
   const refresh = useCallback(async () => {
-    invalidateSkillsStaging();
+    onLibraryChanged();
     try {
       setSkills(await fetchSkills());
       // Cleared only on a read that WORKED. Clearing regardless wiped the
@@ -81,7 +87,7 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
       // data loss (the same rule the failed-save path follows).
       log.warn("web:skills", `library reload failed; keeping the stale list: ${describeError(e)}`);
     }
-  }, []);
+  }, [onLibraryChanged]);
 
   const save = useCallback(
     async (scope: SkillScope, draft: SkillDraft, expectNew: boolean) => {
@@ -112,14 +118,14 @@ export function useSkillsLibrary(open: boolean): SkillsLibrary {
       await renameSkill(scope, from, to);
       // The directory moved — staged views are stale NOW, even though the
       // list reload waits for the save that follows.
-      invalidateSkillsStaging();
+      onLibraryChanged();
       setError(null);
       return true;
     } catch (e) {
       setError(`Rename failed: ${describeError(e)}`);
       return false;
     }
-  }, []);
+  }, [onLibraryChanged]);
 
   const clearError = useCallback(() => setError(null), []);
 

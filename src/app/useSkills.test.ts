@@ -17,12 +17,13 @@ const wire = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/skills", () => wire);
 
-const staging = vi.hoisted(() => ({ invalidateSkillsStaging: vi.fn() }));
-vi.mock("./skillsStaging", () => staging);
+/** The staged views belong to the worktree manager; the hook only reports that
+ * the library moved under them. */
+const libraryChanged = vi.fn();
 
 let lib: SkillsLibrary;
 function Probe() {
-  lib = useSkillsLibrary(true);
+  lib = useSkillsLibrary(true, libraryChanged);
   return null;
 }
 
@@ -35,7 +36,7 @@ describe("the skills library hook", () => {
     wire.saveSkill.mockClear();
     wire.deleteSkill.mockClear();
     wire.renameSkill.mockClear();
-    staging.invalidateSkillsStaging.mockClear();
+    libraryChanged.mockClear();
     document.body.innerHTML = "<div id='host'></div>";
     root = createRoot(document.getElementById("host")!);
   });
@@ -82,7 +83,7 @@ describe("the skills library hook", () => {
     // The spawn side re-stages on the next spawn, and the list is fresh —
     // via the STRICT read, so a transient error keeps the stale list
     // instead of blanking a library the user just successfully wrote to.
-    expect(staging.invalidateSkillsStaging).toHaveBeenCalledTimes(1);
+    expect(libraryChanged).toHaveBeenCalledTimes(1);
     // The initial load and the post-save reload — both through the strict
     // read, so a transient error keeps the stale list instead of blanking a
     // library the user just successfully wrote to.
@@ -125,7 +126,7 @@ describe("the skills library hook", () => {
 
     expect(ok).toBe(false);
     expect(lib.error).toContain("disk full");
-    expect(staging.invalidateSkillsStaging).not.toHaveBeenCalled();
+    expect(libraryChanged).not.toHaveBeenCalled();
   });
 
   it("rename invalidates staging but leaves the reload to the save that follows", async () => {
@@ -141,7 +142,7 @@ describe("the skills library hook", () => {
       "review",
       "deep-review",
     );
-    expect(staging.invalidateSkillsStaging).toHaveBeenCalledTimes(1);
+    expect(libraryChanged).toHaveBeenCalledTimes(1);
     // One user action, one reload: rename itself must not re-read the list,
     // so only the dialog's initial load has happened.
     expect(wire.fetchSkills).toHaveBeenCalledTimes(1);
@@ -157,7 +158,7 @@ describe("the skills library hook", () => {
 
     expect(ok).toBe(false);
     expect(lib.error).toContain("already exists");
-    expect(staging.invalidateSkillsStaging).not.toHaveBeenCalled();
+    expect(libraryChanged).not.toHaveBeenCalled();
   });
 
   it("a failed save whose reload also fails keeps the stale list", async () => {
@@ -192,6 +193,6 @@ describe("the skills library hook", () => {
       { kind: "workspace", wsId: "ws-2" },
       "review",
     );
-    expect(staging.invalidateSkillsStaging).toHaveBeenCalledTimes(1);
+    expect(libraryChanged).toHaveBeenCalledTimes(1);
   });
 });

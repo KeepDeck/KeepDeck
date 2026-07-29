@@ -13,7 +13,6 @@ import {
   paneSuspendBlock,
   paneWakeOrigin,
   sessionClaimant,
-  skillRootsOf,
   worktreeTargets,
   WORKSPACE_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
@@ -808,10 +807,6 @@ export function createAgentOrchestrator(
     // echo to bind this pane. That is the invariant the token's own note in
     // spawnSpecs states.
     dropPaneSpawnSpec(target.paneId);
-    const ws = findWorkspaceByRef(
-      deck.getSnapshot().workspaces,
-      target.workspace,
-    );
     // A throwing `resume.plan` propagates as-is: the pane's process is already
     // gone, so the plan-failed flag the cache records has no live terminal to
     // paint over, and the card reports the failed restart either way.
@@ -824,7 +819,7 @@ export function createAgentOrchestrator(
         cwd: target.cwd,
         branch: target.branch,
         yolo: target.yolo,
-        ...(ws ? { wsSkillRoots: skillRootsOf(ws) } : {}),
+        stagedSkills: () => worktrees.skillsFor(target.workspace),
       },
       ctx,
       target.sessionId,
@@ -925,7 +920,8 @@ export function createAgentOrchestrator(
             cwd: dir,
             branch: pane.branch,
             yolo: pane.yolo,
-            wsSkillRoots: skillRootsOf(ws),
+            stagedSkills: () =>
+              worktrees.skillsFor({ id: ws.id, instance: ws.instance }),
           },
           ctx,
           sessionId,
@@ -979,7 +975,9 @@ export function createAgentOrchestrator(
   function planLivePanes(ctx: SpawnPlanContext): void {
     for (const ws of deck.getSnapshot().workspaces) {
       for (const pane of ws.panes) {
-        void buildLivePaneSpec(plugins, ws, pane, ctx).then((changed) => {
+        const stagedSkills = () =>
+          worktrees.skillsFor({ id: ws.id, instance: ws.instance });
+        void buildLivePaneSpec(plugins, ws, pane, ctx, stagedSkills).then((changed) => {
           if (!changed) return;
           publish();
           // A plan landing is what a pane waiting to start was waiting FOR —
@@ -1373,9 +1371,13 @@ export function createAgentOrchestrator(
             cwd: record.cwd,
             branch: record.branch,
             yolo,
-            // The pane isn't in the deck yet, so its cwd can't come from
-            // `skillRootsOf` — stage it explicitly.
-            wsSkillRoots: [record.cwd],
+            // The pane isn't in the deck yet, so the deck cannot report its
+            // cwd — it rides along as the landing root.
+            stagedSkills: () =>
+              worktrees.skillsFor(
+                { id: ws.id, instance: ws.instance },
+                record.cwd,
+              ),
           },
           ctx,
           record.sessionId,
@@ -1450,7 +1452,9 @@ export function createAgentOrchestrator(
               workspace,
               cwd,
               yolo,
-              wsSkillRoots: [cwd],
+              // The fork's pane is not in the deck yet: its target directory
+              // rides along as the landing root.
+              stagedSkills: () => worktrees.skillsFor(workspace, cwd),
             },
             ctx,
             {

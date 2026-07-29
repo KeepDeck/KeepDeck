@@ -21,6 +21,9 @@ interface SkillsDialogProps {
   /** The active workspace, hosting the "This workspace" scope; `null` (no
    * workspace yet) leaves only the global scope. */
   activeWs: { id: string; name: string } | null;
+  /** A write landed, so the staged views are stale — the worktree manager's
+   * memo has to drop them or the next spawn injects yesterday's library. */
+  onLibraryChanged(): void;
   onClose(): void;
 }
 
@@ -55,9 +58,15 @@ const scopeOf = (skill: StoredSkill): SkillScope =>
  * transition. Destructive steps confirm in-app, per the no-system-dialogs
  * rule.
  */
-export function SkillsDialog({ activeWs, onClose }: SkillsDialogProps) {
-  const { skills, error, clearError, save, rename, remove } =
-    useSkillsLibrary(true);
+export function SkillsDialog({
+  activeWs,
+  onLibraryChanged,
+  onClose,
+}: SkillsDialogProps) {
+  const { skills, error, clearError, save, rename, remove } = useSkillsLibrary(
+    true,
+    onLibraryChanged,
+  );
   const [selection, setSelection] = useState<Selection | null>(null);
   const [form, setForm] = useState<SkillFormState>(EMPTY_FORM);
   const [dirty, setDirty] = useState(false);

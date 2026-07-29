@@ -365,6 +365,11 @@ function Probe() {
           },
           registerPostProvision: steps.register,
           clearPostProvision: steps.clear,
+          // Skills staging is stubbed out: what a plan does with them is
+          // spawnSpecs' suite, and the arming it drives is the manager's own.
+          skillsFor: () => Promise.resolve(null),
+          invalidateSkills: () => {},
+          sweep: () => Promise.resolve(),
           remove: (targets) => {
             discarded.push(targets);
             return Promise.resolve(discardFailures);
@@ -495,7 +500,10 @@ describe("agent orchestrator —session policy", () => {
         cwd: "/repo",
         branch: undefined,
         yolo: undefined,
-        wsSkillRoots: ["/repo"],
+        // The build ASKS the worktree manager for the workspace's staged
+        // skills; which roots that arms is the manager's answer, not a set
+        // this call site is free to compute.
+        stagedSkills: expect.any(Function),
       },
       expect.anything(),
       "old",
@@ -2577,7 +2585,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
         cwd: "/worktree",
         branch: "feature/restart",
         yolo: true,
-        wsSkillRoots: ["/worktree"],
+        stagedSkills: expect.any(Function),
       },
       ctx,
       "session-old",
