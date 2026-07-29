@@ -3,6 +3,8 @@ use std::fmt;
 /// An error from a git operation.
 #[derive(Debug)]
 pub enum GitError {
+    /// A caller supplied metadata that violates a public API contract.
+    InvalidInput(String),
     /// The `git` binary could not be launched (not installed / not on `PATH`).
     Spawn(std::io::Error),
     /// A git command ran but exited non-zero; carries the args and its stderr.
@@ -19,6 +21,7 @@ pub enum GitError {
 impl fmt::Display for GitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            GitError::InvalidInput(message) => write!(f, "invalid git input: {message}"),
             GitError::Spawn(e) => write!(f, "failed to run git: {e}"),
             GitError::Command {
                 args,

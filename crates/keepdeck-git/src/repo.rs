@@ -55,6 +55,35 @@ pub fn resolve_commit(repo: &Path, rev: &str) -> Result<String, GitError> {
     Ok(out.trim().to_string())
 }
 
+/// Resolve `rev` to its full local branch ref, when it names one directly.
+///
+/// A commit SHA, tag, remote-tracking branch, detached `HEAD`, derived
+/// expression (`main~1`), or missing revision returns `None`. This preserves
+/// the identity of a selected local base branch separately from the exact
+/// commit SHA pinned at worktree creation time.
+pub fn local_branch_ref(repo: &Path, rev: &str) -> Result<Option<String>, GitError> {
+    match run_git(
+        repo,
+        [
+            "rev-parse",
+            "--symbolic-full-name",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            rev,
+        ],
+    ) {
+        Ok(out) => {
+            let reference = out.trim();
+            Ok(reference
+                .starts_with("refs/heads/")
+                .then(|| reference.to_string()))
+        }
+        Err(GitError::Command { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
 /// The repository's default branch — the remote HEAD's short name (`origin/HEAD`
 /// → `main`), which is what "the default branch" means for a clone. `None` when
 /// no `origin` remote declares one (no remote, unfetched HEAD, or a remote under
@@ -81,26 +110,30 @@ pub fn merge_base(repo: &Path, a: &str, b: &str) -> Result<Option<String>, GitEr
     }
 }
 
-/// The commit a branch was CREATED at — its reflog's oldest entry. Git writes
-/// that entry at `branch -b`/`worktree add -b` time (`branch: Created from …`),
-/// so the true fork point is already persisted by git itself: nothing of ours
-/// to store, and exact even when the branch was cut from a picked base the
-/// default-branch heuristic would misjudge. `None` when the reflog is gone
-/// (expired, disabled, foreign clone) — callers fall back to a heuristic.
+/// Oldest commit in a local branch's reflog, when that reflog still begins
+/// with the branch creation entry.
 ///
-/// Callers must validate the answer is still an ANCESTOR of the branch tip:
-/// a rebase moves the branch off its creation point, orphaning the entry.
+/// This is legacy migration evidence, not a fork authority by itself. Callers
+/// must validate ancestry and compare it with the current default-branch
+/// merge-base so a descendant rebase can supersede the stale creation point.
 pub fn branch_created_at(repo: &Path, branch: &str) -> Result<Option<String>, GitError> {
     match run_git(
         repo,
-        ["--no-optional-locks", "log", "-g", "--format=%H", branch, "--"],
+        [
+            "--no-optional-locks",
+            "log",
+            "-g",
+            "--format=%H%x09%gs",
+            branch,
+            "--",
+        ],
     ) {
         Ok(out) => Ok(out
             .lines()
-            .filter(|line| !line.is_empty())
-            .next_back()
-            .map(str::to_string)),
-        // No reflog for the ref is an answer, not an error.
+            .rfind(|line| !line.is_empty())
+            .and_then(|line| line.split_once('\t'))
+            .filter(|(_, message)| message.starts_with("branch: Created from "))
+            .map(|(sha, _)| sha.to_string())),
         Err(GitError::Command { .. }) => Ok(None),
         Err(other) => Err(other),
     }

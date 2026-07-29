@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use keepdeck_git::{branch, provenance, repo, worktree};
+use keepdeck_git::{branch, provenance, repo, worktree, worktree_base};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -70,9 +70,14 @@ pub struct CreateSpec {
     /// Explicit branch name to create; auto-generated when absent/blank.
     pub branch: Option<String>,
     /// Base commit/rev; ALWAYS resolved to a commit sha at create time
-    /// (defaults to `HEAD`), so the whole batch pins to one commit and the
-    /// branch's creation reflog records a sha — a source provenance trusts.
+    /// (defaults to `HEAD`), while a directly-selected local branch is also
+    /// retained as worktree-private base identity. The SHA pins the batch and
+    /// keeps branch-creation provenance trustworthy.
     pub base: Option<String>,
+    /// Local branch identity corresponding to a separately pinned `base` SHA.
+    /// Batch provisioning supplies both so every agent starts at one commit
+    /// while history can still follow that branch after a rebase.
+    pub base_branch: Option<String>,
     /// Workspace name, used only for the auto branch name.
     #[serde(default)]
     pub workspace: String,
@@ -296,13 +301,32 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
     // name-sourced creation, which reflog provenance deliberately refuses to
     // trust, and the born branch would never be attributed back to this
     // worktree at close time. Pinning also keeps a whole batch on one commit
-    // even if the base moves mid-batch.
+    // even if the base moves mid-batch. The local branch identity is retained
+    // separately in a private base ref for dynamic fork-point resolution.
     let base_rev = spec.base.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let base = repo::resolve_commit(&repo_path, base_rev.unwrap_or("HEAD")).map_err(|e| {
-        match base_rev {
-            Some(rev) => format!("cannot resolve base '{rev}': {e}"),
-            None => e.to_string(),
-        }
+    let has_explicit_base = base_rev.is_some();
+    let base_rev = base_rev.unwrap_or("HEAD");
+    let base_branch_rev = spec
+        .base_branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty())
+        .unwrap_or(base_rev);
+    let base_branch_ref = repo::local_branch_ref(&repo_path, base_branch_rev)
+        .map_err(|e| format!("cannot identify base branch: {e}"))?;
+    if spec
+        .base_branch
+        .as_deref()
+        .is_some_and(|branch| !branch.trim().is_empty())
+        && base_branch_ref.is_none()
+    {
+        return Err(format!(
+            "cannot identify local base branch '{base_branch_rev}'"
+        ));
+    }
+    let base = repo::resolve_commit(&repo_path, base_rev).map_err(|e| match base_rev {
+        "HEAD" if !has_explicit_base => e.to_string(),
+        rev => format!("cannot resolve base '{rev}': {e}"),
     })?;
 
     let chosen_branch = choose_branch(spec.branch.as_deref(), &spec.workspace, spec.index);
@@ -323,7 +347,13 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("create worktree parent dir: {e}"))?;
         }
-        worktree::add(&repo_path, &target, &branch, &base).map_err(|e| e.to_string())?;
+        add_worktree_with_base(
+            &repo_path,
+            &target,
+            &branch,
+            &base,
+            base_branch_ref.as_deref(),
+        )?;
         return Ok(WorktreeRecord {
             agent_id: spec.agent_id,
             path: target.to_string_lossy().into_owned(),
@@ -360,13 +390,56 @@ fn create_worktree(locks: &RepoLocks, spec: CreateSpec) -> Result<WorktreeRecord
     let (branch, path) =
         chosen.ok_or_else(|| "could not find a free worktree branch/dir".to_string())?;
 
-    worktree::add(&repo_path, &path, &branch, &base).map_err(|e| e.to_string())?;
+    add_worktree_with_base(
+        &repo_path,
+        &path,
+        &branch,
+        &base,
+        base_branch_ref.as_deref(),
+    )?;
 
     Ok(WorktreeRecord {
         agent_id: spec.agent_id,
         path: path.to_string_lossy().into_owned(),
         branch,
     })
+}
+
+/// Provision one worktree and attach its Git-native base metadata as one
+/// application-level operation. If metadata cannot be recorded, remove the
+/// just-created worktree and branch so callers never receive a partially
+/// provisioned agent.
+fn add_worktree_with_base(
+    repo_path: &Path,
+    path: &Path,
+    branch: &str,
+    base_commit: &str,
+    base_branch_ref: Option<&str>,
+) -> Result<(), String> {
+    worktree::add(repo_path, path, branch, base_commit).map_err(|e| e.to_string())?;
+
+    let managed_branch_ref = format!("refs/heads/{branch}");
+    if let Err(metadata_error) = worktree_base::record(
+        path,
+        base_commit,
+        base_branch_ref,
+        &managed_branch_ref,
+    ) {
+        let cleanup_error = match worktree::remove(repo_path, path, true) {
+            Ok(()) => repo::delete_branch(repo_path, branch, true)
+                .err()
+                .map(|e| format!("delete branch during rollback: {e}")),
+            Err(e) => Some(format!("remove worktree during rollback: {e}")),
+        };
+        let cleanup = cleanup_error
+            .map(|e| format!("; rollback also failed: {e}"))
+            .unwrap_or_default();
+        return Err(format!(
+            "could not record worktree base metadata: {metadata_error}{cleanup}"
+        ));
+    }
+
+    Ok(())
 }
 
 /// Remove an agent's worktree, and — when `spec.branch` is set — delete that
@@ -632,12 +705,38 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         git(&dir, &["init", "-q"]);
-        git(&dir, &["config", "user.email", "test@keepdeck.ai"]);
-        git(&dir, &["config", "user.name", "KeepDeck Test"]);
-        std::fs::write(dir.join("README.md"), "hi").unwrap();
-        git(&dir, &["add", "."]);
-        git(&dir, &["commit", "-q", "-m", "init"]);
+        configure_repo(&dir);
         dir
+    }
+
+    fn init_sha256_repo(label: &str) -> Option<PathBuf> {
+        let dir = std::env::temp_dir().join(format!(
+            "keepdeck-free-branch-{label}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["init", "-q", "--object-format=sha256"])
+            .status()
+            .expect("run git init");
+        if !status.success() {
+            let _ = std::fs::remove_dir_all(&dir);
+            eprintln!("git does not support SHA-256 repositories; skipping");
+            return None;
+        }
+        configure_repo(&dir);
+        Some(dir)
+    }
+
+    fn configure_repo(dir: &Path) {
+        git(dir, &["config", "user.email", "test@keepdeck.ai"]);
+        git(dir, &["config", "user.name", "KeepDeck Test"]);
+        std::fs::write(dir.join("README.md"), "hi").unwrap();
+        git(dir, &["add", "."]);
+        git(dir, &["commit", "-q", "-m", "init"]);
     }
 
     #[test]
@@ -710,6 +809,7 @@ mod tests {
             agent_id: agent.to_string(),
             branch: None,
             base: None,
+            base_branch: None,
             workspace: "ws".to_string(),
             index: 1,
             dir: None,
@@ -945,6 +1045,7 @@ mod tests {
         let current = git_out(&repo, &["rev-parse", "--abbrev-ref", "HEAD"])
             .trim()
             .to_string();
+        let base_sha = keepdeck_git::repo::resolve_commit(&repo, &current).unwrap();
         let base_dir = repo.with_file_name(format!(
             "{}-wts",
             repo.file_name().unwrap().to_string_lossy()
@@ -958,7 +1059,8 @@ mod tests {
                 base_dir: base_dir.to_string_lossy().into_owned(),
                 agent_id: "pane-1".to_string(),
                 branch: None,
-                base: Some(current),
+                base: Some(current.clone()),
+                base_branch: None,
                 workspace: "ws".to_string(),
                 index: 1,
                 dir: None,
@@ -987,6 +1089,8 @@ mod tests {
                     .strip_prefix("branch: Created from ")
                     .map(str::to_string)
             });
+        let metadata =
+            worktree_base::read(Path::new(&record.path)).expect("read private base metadata");
 
         // Swept before ANY assertion or unwrap below, so no failure mode
         // leaves the repo and its worktree behind — and so the sweep happens
@@ -1005,6 +1109,188 @@ mod tests {
                 && source.chars().all(|c| c.is_ascii_hexdigit()),
             "base reached git as {source:?}, not a resolved commit sha",
         );
+        assert_eq!(
+            metadata,
+            worktree_base::BaseMetadata {
+                branch_ref: Some(format!("refs/heads/{current}")),
+                at_creation: Some(base_sha),
+                managed_branch_ref: Some(format!("refs/heads/{}", record.branch)),
+            }
+        );
+    }
+
+    #[test]
+    fn batch_pinned_sha_retains_branch_identity_after_rebase() {
+        let repo = init_repo("batch-base-identity");
+        let current = git_out(&repo, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .trim()
+            .to_string();
+        let base_sha = keepdeck_git::repo::resolve_commit(&repo, &current).unwrap();
+        let base_dir = repo.with_file_name(format!(
+            "{}-wts",
+            repo.file_name().unwrap().to_string_lossy()
+        ));
+        let _ = std::fs::remove_dir_all(&base_dir);
+
+        let record = create_worktree(
+            &RepoLocks::default(),
+            CreateSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                base_dir: base_dir.to_string_lossy().into_owned(),
+                agent_id: "pane-batch".to_string(),
+                branch: Some("kd/batch/1".to_string()),
+                base: Some(base_sha.clone()),
+                base_branch: Some(current.clone()),
+                workspace: "ws".to_string(),
+                index: 1,
+                dir: None,
+                path: None,
+            },
+        )
+        .expect("create from separately pinned batch base");
+        let agent = PathBuf::from(&record.path);
+
+        std::fs::write(agent.join("agent.txt"), "agent\n").unwrap();
+        git(&agent, &["add", "."]);
+        git(&agent, &["commit", "-q", "-m", "agent work"]);
+        std::fs::write(repo.join("main.txt"), "main\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "main moves"]);
+        let new_main = keepdeck_git::repo::resolve_commit(&repo, &current).unwrap();
+        git(&agent, &["rebase", "-q", &current]);
+
+        let metadata = worktree_base::read(&agent).expect("read metadata");
+        let fork = metadata
+            .fork_point(&agent, "HEAD")
+            .expect("resolve dynamic fork");
+        assert_eq!(metadata.branch_ref, Some(format!("refs/heads/{current}")));
+        assert_eq!(metadata.at_creation, Some(base_sha));
+        assert_eq!(
+            metadata.managed_branch_ref,
+            Some("refs/heads/kd/batch/1".to_string())
+        );
+        assert_eq!(fork, Some(new_main));
+
+        let _ = std::fs::remove_dir_all(&base_dir);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn exact_path_creation_records_private_base_metadata() {
+        let repo = init_repo("exact-path-metadata");
+        let current = git_out(&repo, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .trim()
+            .to_string();
+        let base_sha = keepdeck_git::repo::resolve_commit(&repo, &current).unwrap();
+        let target = repo.with_file_name(format!(
+            "{}-exact-wt",
+            repo.file_name().unwrap().to_string_lossy()
+        ));
+        let _ = std::fs::remove_dir_all(&target);
+
+        let record = create_worktree(
+            &RepoLocks::default(),
+            CreateSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                base_dir: String::new(),
+                agent_id: "pane-exact".to_string(),
+                branch: Some("kd/exact/1".to_string()),
+                base: Some(current.clone()),
+                base_branch: None,
+                workspace: "ws".to_string(),
+                index: 1,
+                dir: None,
+                path: Some(target.to_string_lossy().into_owned()),
+            },
+        )
+        .expect("exact-path create");
+
+        let metadata = worktree_base::read(Path::new(&record.path)).expect("read metadata");
+        assert_eq!(
+            metadata,
+            worktree_base::BaseMetadata {
+                branch_ref: Some(format!("refs/heads/{current}")),
+                at_creation: Some(base_sha),
+                managed_branch_ref: Some("refs/heads/kd/exact/1".to_string()),
+            }
+        );
+
+        let _ = std::fs::remove_dir_all(&target);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn metadata_failure_rolls_back_the_new_worktree_and_branch() {
+        let repo = init_repo("metadata-rollback");
+        let base = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
+        let target = repo.with_file_name(format!(
+            "{}-rollback-wt",
+            repo.file_name().unwrap().to_string_lossy()
+        ));
+        let branch = "kd/rollback/1";
+        let _ = std::fs::remove_dir_all(&target);
+
+        let error = add_worktree_with_base(
+            &repo,
+            &target,
+            branch,
+            &base,
+            Some("refs/heads/invalid branch"),
+        )
+        .expect_err("invalid symbolic base must fail");
+
+        assert!(
+            error.contains("could not record worktree base metadata"),
+            "unexpected error: {error}"
+        );
+        assert!(!target.exists(), "partially-created worktree leaked");
+        assert!(
+            !keepdeck_git::repo::branch_exists(&repo, branch).unwrap(),
+            "partially-created branch leaked"
+        );
+        let registrations = git_out(&repo, &["worktree", "list", "--porcelain"]);
+        assert!(
+            !registrations.contains("-rollback-wt"),
+            "worktree registration leaked:\n{registrations}"
+        );
+
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn metadata_failure_rolls_back_a_sha256_worktree_and_branch() {
+        let Some(repo) = init_sha256_repo("metadata-rollback-sha256") else {
+            return;
+        };
+        let base = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
+        assert_eq!(base.len(), 64, "fixture must use SHA-256 object ids");
+        let target = repo.with_file_name(format!(
+            "{}-rollback-wt",
+            repo.file_name().unwrap().to_string_lossy()
+        ));
+        let branch = "kd/rollback-sha256/1";
+        let _ = std::fs::remove_dir_all(&target);
+
+        let error = add_worktree_with_base(
+            &repo,
+            &target,
+            branch,
+            &base,
+            Some("refs/heads/invalid branch"),
+        )
+        .expect_err("invalid symbolic base must fail");
+
+        assert!(
+            error.contains("could not record worktree base metadata"),
+            "unexpected error: {error}"
+        );
+        assert!(!target.exists(), "partially-created worktree leaked");
+        assert!(
+            !keepdeck_git::repo::branch_exists(&repo, branch).unwrap(),
+            "partially-created branch leaked"
+        );
+
+        let _ = std::fs::remove_dir_all(&repo);
     }
 
     #[test]

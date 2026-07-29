@@ -109,7 +109,7 @@ describe("runProvisioning", () => {
     expect(onFailed).not.toHaveBeenCalled();
     // A concurrent batch must not straddle a moving HEAD.
     for (const call of worktree.createWorktree.mock.calls) {
-      expect(call[0]).toMatchObject({ base: "abc123" });
+      expect(call[0]).toMatchObject({ base: "abc123", baseBranch: "main" });
     }
   });
 
@@ -134,6 +134,10 @@ describe("runProvisioning", () => {
     expect(worktree.createWorktree.mock.calls.map((c: any[]) => c[0].base)).toEqual([
       "develop", // its intent's own fork point
       "abc123", // the batch default
+    ]);
+    expect(worktree.createWorktree.mock.calls.map((c: any[]) => c[0].baseBranch)).toEqual([
+      undefined, // backend derives identity from the picked branch itself
+      "main", // paired with the separately pinned batch commit
     ]);
   });
 

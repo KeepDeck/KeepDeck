@@ -29,11 +29,14 @@ export interface CreateWorktreeArgs {
   agentId: string;
   /** Explicit branch; auto-generated (`kd/<ws>/<n>`) when omitted/blank. */
   branch?: string | null;
-  /** Base commit/rev — a branch NAME is fine: the Rust side ALWAYS resolves
-   *  it to a commit sha at create time (defaults to HEAD), pinning the batch
-   *  to one commit and giving the born branch a sha-sourced creation reflog,
-   *  which branch provenance trusts at close-time reaping. */
+  /** Base commit/rev — a branch NAME is fine: Rust pins its current commit for
+   *  the batch and retains a directly-selected local branch as worktree-private
+   *  base identity. That identity drives dynamic fork resolution after rebases;
+   *  the SHA also keeps close-time branch provenance trustworthy. */
   base?: string | null;
+  /** Local branch identity paired with an already-pinned `base` SHA. Batch
+   * provisioning supplies both; omit when `base` itself names the branch. */
+  baseBranch?: string | null;
   workspace?: string;
   index?: number;
   /** Explicit worktree folder (relative to baseDir); derived from branch when omitted. */
