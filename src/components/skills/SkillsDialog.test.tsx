@@ -92,11 +92,7 @@ describe("SkillsDialog", () => {
   const mount = (activeWs: { id: string; name: string } | null = { id: "ws-1", name: "My project" }) =>
     act(async () =>
       root.render(
-        createElement(SkillsDialog, {
-          activeWs,
-          onLibraryChanged: () => {},
-          onClose: () => closed++,
-        }),
+        createElement(SkillsDialog, { activeWs, onClose: () => closed++ }),
       ),
     );
 

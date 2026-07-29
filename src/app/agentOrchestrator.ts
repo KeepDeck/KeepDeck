@@ -475,6 +475,14 @@ export function createAgentOrchestrator(
   let booted = false;
   let scheduled = false;
 
+  /** What a plan build asks for its workspace's staged skills — the question,
+   * stated once. `landing` names a cwd the deck cannot report yet, because the
+   * pane is about to be created in it; everything else the manager derives
+   * itself, which is the whole point of it owning the root set. */
+  const skillsAsk =
+    (workspace: WorkspaceRef, landing?: string) => () =>
+      worktrees.skillsFor(workspace, landing);
+
   function publish(): void {
     // The plan snapshot is read off the shared cache rather than mirrored:
     // resume and fork plans are written there by other paths, and a second
@@ -819,7 +827,7 @@ export function createAgentOrchestrator(
         cwd: target.cwd,
         branch: target.branch,
         yolo: target.yolo,
-        stagedSkills: () => worktrees.skillsFor(target.workspace),
+        stagedSkills: skillsAsk(target.workspace),
       },
       ctx,
       target.sessionId,
@@ -920,8 +928,7 @@ export function createAgentOrchestrator(
             cwd: dir,
             branch: pane.branch,
             yolo: pane.yolo,
-            stagedSkills: () =>
-              worktrees.skillsFor({ id: ws.id, instance: ws.instance }),
+            stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
           },
           ctx,
           sessionId,
@@ -975,8 +982,7 @@ export function createAgentOrchestrator(
   function planLivePanes(ctx: SpawnPlanContext): void {
     for (const ws of deck.getSnapshot().workspaces) {
       for (const pane of ws.panes) {
-        const stagedSkills = () =>
-          worktrees.skillsFor({ id: ws.id, instance: ws.instance });
+        const stagedSkills = skillsAsk({ id: ws.id, instance: ws.instance });
         void buildLivePaneSpec(plugins, ws, pane, ctx, stagedSkills).then((changed) => {
           if (!changed) return;
           publish();
@@ -1373,11 +1379,10 @@ export function createAgentOrchestrator(
             yolo,
             // The pane isn't in the deck yet, so the deck cannot report its
             // cwd — it rides along as the landing root.
-            stagedSkills: () =>
-              worktrees.skillsFor(
-                { id: ws.id, instance: ws.instance },
-                record.cwd,
-              ),
+            stagedSkills: skillsAsk(
+              { id: ws.id, instance: ws.instance },
+              record.cwd,
+            ),
           },
           ctx,
           record.sessionId,
@@ -1454,7 +1459,7 @@ export function createAgentOrchestrator(
               yolo,
               // The fork's pane is not in the deck yet: its target directory
               // rides along as the landing root.
-              stagedSkills: () => worktrees.skillsFor(workspace, cwd),
+              stagedSkills: skillsAsk(workspace, cwd),
             },
             ctx,
             {

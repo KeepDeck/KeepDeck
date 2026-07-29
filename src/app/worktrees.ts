@@ -189,13 +189,20 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
   const created = new Map<string, Promise<CreatedWorktree | null>>();
 
   /** In-flight and completed stagings, keyed by workspace instance + root set
-   * (see [`WorktreeManager.skillsFor`]). A `null` result is remembered too. */
-  const staged = new Map<string, Promise<SkillsStagingViews | null>>();
+   * (see [`WorktreeManager.skillsFor`]). A `null` result is remembered too. The
+   * roots ride along because a teardown has to find the entries that stood for
+   * the arming it just undid — see [`forgetStaged`]. */
+  const staged = new Map<
+    string,
+    { roots: string[]; views: Promise<SkillsStagingViews | null> }
+  >();
 
-  /** The deck as the last sweep saw it — what the next one diffs against to
-   * find the roots that left. Keyed by nothing but its own recency: a sweep
-   * always compares against the state it last acted on. */
+  /** The deck as the last sweep acted on it — what the next one diffs against to
+   * find the roots that left — and whether any sweep has run at all. The flag is
+   * not redundant: a deck that boots EMPTY compares equal to the initial value,
+   * and that first pass is exactly the one that clears what a crash left. */
   let swept: LiveWorkspace[] = [];
+  let sweptOnce = false;
 
   /** The sweep in flight, if any, and whether another was asked for while it
    * ran. A close of six panes fires six transitions; one pass over the same
@@ -247,38 +254,119 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
     }
   }
 
-  /** One pass of the sweep: disarm the roots that left, then drop the derived
-   * dirs of workspaces that are gone. Both best-effort — the IPC layer logs and
-   * swallows, because housekeeping must never break a close. */
-  async function sweepOnce(): Promise<void> {
-    const live = deck.live();
+  /** Which spawn cwds no live workspace claims any more — the one rule that
+   * covers a closed pane, a closed workspace and a doomed worktree alike. */
+  function unclaimed(candidates: string[], live: LiveWorkspace[]): string[] {
     const claimed = new Set(live.flatMap((ws) => ws.roots));
-    // One rule for closed workspaces AND closed panes: a spawn cwd is disarmed
-    // the moment NO live workspace claims it any more.
-    const departed = [...new Set(swept.flatMap((ws) => ws.roots))].filter(
-      (root) => !claimed.has(root),
+    return [...new Set(candidates)].filter((root) => !claimed.has(root));
+  }
+
+  /** Drop every memoized staging whose root set covers one of `roots`.
+   *
+   * The memo caches the RESULT of a call whose SIDE EFFECT was arming those
+   * directories, so disarming one has to invalidate it. Without this, a root
+   * that leaves and comes back — the default when a pane is deleted and a new
+   * one takes the freed folder — is served a cache hit, `stageSkills` never
+   * runs again, and the new worktree silently has no `.agents/skills`. */
+  function forgetStaged(roots: string[]): void {
+    if (roots.length === 0) return;
+    const dropped = new Set(roots);
+    for (const [key, entry] of staged) {
+      if (entry.roots.some((root) => dropped.has(root))) staged.delete(key);
+    }
+  }
+
+  /** What the live set looks like, for "has anything I act on changed?".
+   * Deliberately here and nowhere else: a second projection of the same
+   * question, in a React hook, is how the trigger and the answer came to
+   * disagree. */
+  function liveFingerprint(live: LiveWorkspace[]): string {
+    return JSON.stringify(
+      live.map((ws) => [ws.id, [...ws.roots].sort()]).sort(),
     );
-    swept = live;
-    await disarmSkills(departed);
-    await pruneSkills(live.map((ws) => ws.id).sort());
+  }
+
+  /** One pass of the sweep: disarm the roots that left, forget the stagings that
+   * armed them, then drop the derived dirs of workspaces that are gone. Runs in
+   * the queue for the same reason a removal does — the disarm here is a teardown
+   * — and both IPCs are best-effort, since housekeeping must never break a
+   * close. */
+  function sweepOnce(): Promise<void> {
+    return inOrder(async () => {
+      const live = deck.live();
+      const departed = unclaimed(
+        swept.flatMap((ws) => ws.roots),
+        live,
+      );
+      await disarmSkills(departed);
+      forgetStaged(departed);
+      swept = live;
+      sweptOnce = true;
+      // Re-read for the PRUNE: the list that decides what to delete must not be
+      // one IPC round trip old, or a workspace created while the disarm was in
+      // flight is pruned as dead and its panes spawn pointing at deleted dirs.
+      await pruneSkills(deck.live().map((ws) => ws.id).sort());
+    });
+  }
+
+  /**
+   * Tear ONE worktree down: our own hooks out of the directory, the stagings
+   * that armed it forgotten, then git.
+   *
+   * Every teardown goes through here — a close's removal and a half-prepared
+   * create's rollback alike. Two paths doing this by hand is what let an arming
+   * land inside a `git worktree remove`, and a rollback that skipped the disarm
+   * was the same divergence in miniature.
+   *
+   * One queue slot PER TARGET, not per call: the guarantee is per directory, and
+   * holding one slot across a whole workspace's teardown stalled spawn-plan
+   * builds in unrelated workspaces for the length of N forced git removals.
+   *
+   * Returns the user-facing message when git refused, `null` on success.
+   */
+  function teardown(
+    target: WorktreeTarget,
+    reapCreatedBranches: boolean,
+  ): Promise<string | null> {
+    return inOrder(async () => {
+      // A cwd another LIVE workspace still runs a pane in stays armed: two
+      // workspaces may legitimately share a directory, and the arming is keyed
+      // by path, not by workspace. Same rule the sweep applies.
+      await disarmSkills(unclaimed([target.path], deck.live()));
+      forgetStaged([target.path]);
+      try {
+        await removeWorktree(target.repo, target.path, {
+          force: true,
+          branch: target.branch,
+          reapCreatedBranches,
+        });
+        return null;
+      } catch (e) {
+        log.warn(
+          "web:worktrees",
+          `worktree removal failed for ${target.path}: ${describeError(e)}`,
+        );
+        return `${target.branch ?? target.path}: ${e}`;
+      }
+    });
   }
 
   /** Best-effort teardown of a half-prepared worktree so Retry re-creates
    * cleanly instead of hitting "already exists"; a failing remove leaves the
-   * card error as the source of truth. */
+   * card error as the source of truth. The agent's own side branches are NOT
+   * reaped here — this worktree never became a pane's, so nothing was born in
+   * it that a close would sweep. */
   async function rollbackWorktree(
     repo: string,
     rec: { path: string; branch: string },
   ): Promise<void> {
-    await removeWorktree(repo, rec.path, {
-      force: true,
-      branch: rec.branch,
-    }).catch((e) =>
-      log.warn(
-        "web:worktrees",
-        `worktree rollback failed for ${rec.path}: ${describeError(e)}`,
-      ),
+    const failure = await teardown(
+      { repo, path: rec.path, branch: rec.branch },
+      false,
     );
+    if (failure) {
+      log.warn("web:worktrees", `worktree rollback failed: ${failure}`);
+    }
   }
 
   /**
@@ -447,13 +535,24 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
       // A JSON array as the memo key: injective for any path, with no reliance
       // on a separator byte that paths are merely assumed not to contain.
       const key = JSON.stringify([workspace.instance, ...roots]);
-      let views = staged.get(key);
-      if (!views) {
-        // Queued: a staging that started while a removal is in flight would arm
-        // the very directory being deleted (see [`queue`]).
-        views = inOrder(() => stageSkills(workspace.id, roots));
-        staged.set(key, views);
-      }
+      const memoized = staged.get(key);
+      if (memoized) return memoized.views;
+      // Queued: a staging that started while a teardown is in flight would arm
+      // the very directory being deleted (see [`queue`]).
+      const views = inOrder(() => {
+        // Re-checked at EXECUTION time. A root can only have left while this
+        // waited — the teardown that removed it ran in this same queue — and
+        // arming a directory that is gone is the mistake this owner exists to
+        // prevent. The `landing` cwd is exempt: the deck cannot see a pane that
+        // has not landed yet. A later call sees the smaller set, keys on it and
+        // stages afresh, so nothing is lost by narrowing here.
+        const claimed = new Set(deck.rootsOf(workspace));
+        const armable = roots.filter(
+          (root) => claimed.has(root) || root === landing,
+        );
+        return stageSkills(workspace.id, armable);
+      });
+      staged.set(key, { roots, views });
       return views;
     },
 
@@ -463,6 +562,12 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
 
     async sweep(deckHydrated) {
       if (!deckHydrated) return;
+      // Called on every deck transition, so the cheap comparison is what keeps a
+      // rename or a pane reorder from costing two IPC round trips. The first
+      // pass always runs: it is the one that clears what a crash left behind.
+      if (sweptOnce && liveFingerprint(swept) === liveFingerprint(deck.live())) {
+        return;
+      }
       if (sweeping) {
         // Someone already asked; that pass may already have read the deck, so
         // one more after it covers this request too.
@@ -484,30 +589,13 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
       return sweeping;
     },
 
-    remove(targets) {
-      return inOrder(async () => {
-        // Our own hooks come out first: `.agents/skills` is KeepDeck's, and a
-        // symlink left in a directory git is deleting is exactly what made its
-        // final `rmdir` fail. Awaited, not fired off — the point is the order.
-        await disarmSkills(targets.map((t) => t.path));
-        const failures: string[] = [];
-        for (const t of targets) {
-          try {
-            await removeWorktree(t.repo, t.path, {
-              force: true,
-              branch: t.branch,
-              reapCreatedBranches: true,
-            });
-          } catch (e) {
-            log.warn(
-              "web:worktrees",
-              `worktree removal failed for ${t.path}: ${describeError(e)}`,
-            );
-            failures.push(`${t.branch ?? t.path}: ${e}`);
-          }
-        }
-        return failures;
-      });
+    async remove(targets) {
+      const failures: string[] = [];
+      for (const target of targets) {
+        const failure = await teardown(target, true);
+        if (failure) failures.push(failure);
+      }
+      return failures;
     },
   };
 }

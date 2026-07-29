@@ -55,7 +55,7 @@ describe("the worktree sweep trigger", () => {
     expect(sweep).toHaveBeenLastCalledWith(true);
   });
 
-  it("asks again when a workspace leaves", async () => {
+  it("asks again whenever the deck changes", async () => {
     await render([ws("ws-1"), ws("ws-2")], true);
     expect(sweep).toHaveBeenCalledTimes(1);
 
@@ -63,17 +63,18 @@ describe("the worktree sweep trigger", () => {
     expect(sweep).toHaveBeenCalledTimes(2);
   });
 
-  it("asks again when a pane's root leaves, even within one workspace", async () => {
-    await render([ws("ws-1", "One", [pane("p1", "/wt/a")])], true);
+  it("does not ask on a re-render that leaves the deck alone", async () => {
+    // The deck store hands back the same array until something actually
+    // changes, and this hook keys on exactly that. WHICH changes are worth an
+    // IPC is the manager's call, not a rule duplicated here — a second opinion
+    // about what a live root is was how the trigger and the answer drifted
+    // apart (see worktrees.test.ts "does nothing when the live set is
+    // unchanged").
+    const workspaces = [ws("ws-1", "One", [pane("p1", "/wt/a")])];
+    await render(workspaces, true);
     expect(sweep).toHaveBeenCalledTimes(1);
 
-    await render([ws("ws-1", "One", [])], true);
-    expect(sweep).toHaveBeenCalledTimes(2);
-  });
-
-  it("renames and re-renders do not ask — ids and roots key the dirs, not names", async () => {
-    await render([ws("ws-1", "Old name")], true);
-    await render([ws("ws-1", "New name")], true);
+    await render(workspaces, true);
     expect(sweep).toHaveBeenCalledTimes(1);
   });
 });

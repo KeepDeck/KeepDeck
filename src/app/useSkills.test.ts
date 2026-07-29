@@ -17,13 +17,16 @@ const wire = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/skills", () => wire);
 
-/** The staged views belong to the worktree manager; the hook only reports that
- * the library moved under them. */
+/** The staged views belong to the worktree manager; the hook reaches it through
+ * the runtime to say the library moved under them. */
 const libraryChanged = vi.fn();
+vi.mock("./runtimeContext", () => ({
+  useAppRuntime: () => ({ worktrees: { invalidateSkills: libraryChanged } }),
+}));
 
 let lib: SkillsLibrary;
 function Probe() {
-  lib = useSkillsLibrary(true, libraryChanged);
+  lib = useSkillsLibrary(true);
   return null;
 }
 

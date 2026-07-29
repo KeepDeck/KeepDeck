@@ -1,20 +1,22 @@
 /**
- * Trigger only: the deck's shape changed, so ask the worktree manager to sweep.
+ * Trigger only: the deck changed, so ask the worktree manager to sweep.
  *
- * Every decision belongs to the manager ([`app/worktrees`]) — whether sweeping
- * is safe at all (an unhydrated deck reads as "no workspaces exist"), what is
- * dead, and coalescing a burst of closes into a single pass. This hook exists
- * only because React is where the deck's transitions are observed, and it holds
- * no policy so that no second place can disagree with the manager about what a
- * live root is.
+ * It holds NO projection of the deck on purpose. An earlier version keyed the
+ * effect on its own digest of `(workspace id, skill roots)` — a second,
+ * independent expression of "what counts as a change" living in a React hook,
+ * next to the manager's own. The two already disagreed (the manager matches a
+ * workspace's LIFETIME, the digest dropped it), and the moment they drifted
+ * further the sweep would silently stop firing. So the hook passes the deck
+ * along and the manager decides everything: whether sweeping is safe at all,
+ * whether anything it acts on actually changed, what is dead, and how a burst of
+ * closes coalesces.
  *
  * Every shrink of the live set gets a sweep, not just boot: a workspace closing
- * leaves derived skill dirs behind, and an app that is restarted once a week
- * would otherwise carry them for a week. Renames do not re-run it — ids and
- * roots key the digest, never names.
+ * leaves derived skill dirs behind, and an app restarted once a week would
+ * otherwise carry them for a week.
  */
 import { useEffect } from "react";
-import { skillRootsOf, type Workspace } from "../domain/deck";
+import type { Workspace } from "../domain/deck";
 import type { WorktreeManager } from "./worktrees";
 
 export function useWorktreeSweep(
@@ -22,14 +24,10 @@ export function useWorktreeSweep(
   workspaces: Workspace[],
   deckHydrated: boolean,
 ): void {
-  const digest = workspaces
-    .map((ws) => JSON.stringify([ws.id, ...skillRootsOf(ws)]))
-    .sort()
-    .join("\n");
   useEffect(() => {
     void worktrees.sweep(deckHydrated);
-    // The digest IS the workspaces' identity here; listing the array too would
-    // re-run this on every deck render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [worktrees, deckHydrated, digest]);
+    // `workspaces` is the deck store's array — a new identity only when the deck
+    // actually changed, never per render — so this fires on every transition and
+    // the manager shrugs off the ones that change nothing it owns.
+  }, [worktrees, workspaces, deckHydrated]);
 }

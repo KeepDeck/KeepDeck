@@ -958,7 +958,6 @@ function App() {
           {skillsOpen && (
             <SkillsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}
-              onLibraryChanged={runtime.worktrees.invalidateSkills}
               onClose={() => setSkillsOpen(false)}
             />
           )}

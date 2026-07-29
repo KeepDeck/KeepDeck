@@ -174,6 +174,21 @@ const steps = vi.hoisted(() => ({
   register: vi.fn(),
   clear: vi.fn(),
 }));
+
+/** What the worktree manager was asked to stage for, per call. The plan facts
+ *  only carry a thunk, so a wrong workspace ref or landing cwd inside it is
+ *  invisible unless the fake records its arguments. */
+const skillsAsked = vi.fn(
+  (_workspace: { id: string; instance: string }, _landing?: string) =>
+    Promise.resolve(null),
+);
+
+/** The facts of the most recent resume-plan build. The mock spans the file, so
+ *  an index would pick an earlier test's workspace lifetime. */
+function lastResumeFacts() {
+  const calls = vi.mocked(buildResumeSpec).mock.calls;
+  return calls[calls.length - 1][2];
+}
 vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
 
 /** A retired session's telemetry must not stay bound to the pane, or a
@@ -365,9 +380,11 @@ function Probe() {
           },
           registerPostProvision: steps.register,
           clearPostProvision: steps.clear,
-          // Skills staging is stubbed out: what a plan does with them is
-          // spawnSpecs' suite, and the arming it drives is the manager's own.
-          skillsFor: () => Promise.resolve(null),
+          // RECORDED, not stubbed: the facts carry a thunk, so the only way to
+          // check which workspace a build actually asks about — and which
+          // landing cwd rides along — is to invoke it and see what arrives.
+          // What a plan then DOES with the views is spawnSpecs' suite.
+          skillsFor: skillsAsked,
           invalidateSkills: () => {},
           sweep: () => Promise.resolve(),
           remove: (targets) => {
@@ -502,12 +519,24 @@ describe("agent orchestrator —session policy", () => {
         yolo: undefined,
         // The build ASKS the worktree manager for the workspace's staged
         // skills; which roots that arms is the manager's answer, not a set
-        // this call site is free to compute.
+        // this call site is free to compute. What the thunk asks FOR is
+        // asserted below — `expect.any(Function)` alone would pass on a wrong
+        // workspace ref.
         stagedSkills: expect.any(Function),
       },
       expect.anything(),
       "old",
       "restore",
+    );
+    // The thunk itself: asked about THIS workspace lifetime, with no landing cwd
+    // (the pane is in the deck, so the manager derives its roots). The LAST call
+    // — the mock spans the whole file, and an earlier test's workspace has a
+    // different lifetime.
+    const facts = lastResumeFacts();
+    await facts.stagedSkills?.();
+    expect(skillsAsked).toHaveBeenCalledWith(
+      { id: "ws-1", instance: deck.workspaces[0].instance },
+      undefined,
     );
   });
 
@@ -2599,6 +2628,15 @@ describe("agent orchestrator —restarting an exited agent", () => {
       branch: "feature/restart",
       session: { id: "session-old" },
     });
+    // And the restart asks about the pane's OWN workspace lifetime — the local
+    // lookup that used to gate this was dropped, so the thunk is the only place
+    // that still says which workspace the skills come from.
+    const facts = lastResumeFacts();
+    await facts.stagedSkills?.();
+    expect(skillsAsked).toHaveBeenCalledWith(
+      { id: "ws-1", instance: deck.workspaces[0].instance },
+      undefined,
+    );
   });
 
   it("starts fresh only on click, clearing the binding but keeping the worktree", async () => {
