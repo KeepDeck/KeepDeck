@@ -170,6 +170,58 @@ describe("agent registration payload", () => {
     const [, payload] = register![1] as [number, Record<string, unknown>];
     expect(payload.supportsYolo).toBe(true);
   });
+
+  it("keeps history callbacks local and serves host history requests", async () => {
+    const call = vi.fn((..._args: unknown[]) => Promise.resolve(undefined));
+    const rpc = { call } as unknown as GuestRpc;
+    const bundle = buildGuestContext(rpc, fakeManifest());
+    const describe = vi.fn(async (ref: string) => ({
+      cwd: "/repo",
+      title: ref,
+    }));
+    bundle.ctx.agents.register({
+      id: "codex",
+      label: "Codex",
+      detect: { bin: "codex" },
+      hooks: {},
+      history: {
+        list: async () => [],
+        describe,
+        content: async () => "",
+        transcript: async () => [],
+      },
+    });
+    await bundle.registrationsSettled();
+
+    const register = call.mock.calls.find(([path]) => path === "agents.register");
+    const [, payload] = register![1] as [number, Record<string, unknown>];
+    expect(payload.hasHistory).toBe(true);
+    expect(payload).not.toHaveProperty("history");
+
+    bundle.dispatchEvent("history:17", {
+      agentId: "codex",
+      method: "describe",
+      args: ["session-ref"],
+    });
+    await vi.waitFor(() =>
+      expect(
+        call.mock.calls.find(
+          ([path, args]) =>
+            path === "agents.historyResult" &&
+            (args as unknown[])[0] === 17,
+        ),
+      ).toBeDefined(),
+    );
+    expect(describe).toHaveBeenCalledWith("session-ref");
+    const result = call.mock.calls.find(
+      ([path, args]) =>
+        path === "agents.historyResult" && (args as unknown[])[0] === 17,
+    );
+    expect((result![1] as unknown[])[1]).toEqual({
+      ok: true,
+      value: { cwd: "/repo", title: "session-ref" },
+    });
+  });
 });
 
 describe("remote download streams", () => {

@@ -64,17 +64,11 @@ const plugin: KeepDeckPlugin = {
       label: "Codex",
       icon,
       detect: { bin: "codex" },
-      supportsYolo: true,
-      // codex has a native client/server split: the host can run this pane as
-      // a local `codex --remote <ep>` thin client attached to a codex
-      // app-server on a VPS. Declared as a capability so the host gates the
-      // remote UI on it (claude/kimi don't declare it → no remote option).
-      // codex's app-server speaks WebSocket.
-      remote: { mode: "nativeServer", schemes: ["ws", "wss"] },
+      // Remote support and its ws/wss schemes are declared once in the
+      // manifest; this hook is only the implementation that consumes target.
       // Per-pane tokens/context stay in the rollout; current account limits
       // come from the host's one shared official app-server manager.
       usage: {
-        capabilities: ["paneTelemetry", "accountLimits"],
         normalize: normalizeCodexRollout,
         tail: "codex",
         limits: {

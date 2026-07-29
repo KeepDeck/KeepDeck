@@ -101,11 +101,9 @@ const plugin: KeepDeckPlugin = {
       label: "Claude Code",
       icon,
       detect: { bin: "claude" },
-      supportsYolo: true,
       // StatusLine carries provider cost/limits; the transcript tail supplies
       // deduplicated cumulative tokens.
       usage: {
-        capabilities: ["paneTelemetry", "accountLimits"],
         normalize: normalizeClaudeStatusline,
         tail: "claude",
       },

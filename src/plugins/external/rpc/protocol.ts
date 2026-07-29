@@ -108,6 +108,7 @@ export type EventChannel =
   | `fswatch:${string}`
   | `download:${string}`
   | `hook:${string}`
+  | `history:${string}`
   | `open:${string}`;
 
 /** The three deck-lifecycle channels a guest may subscribe to by name via
@@ -156,6 +157,11 @@ export function hookChannel(id: number): `hook:${string}` {
   return `hook:${id}`;
 }
 
+/** The push channel for ONE agent-history invocation (host→guest). */
+export function historyChannel(id: number): `history:${string}` {
+  return `history:${id}`;
+}
+
 /** The push channel for ONE file-open invocation (host→guest) — the same
  * request/response shape as agent hooks. The host mints the id and pushes a
  * `WireOpenCall`; the guest runs the plugin's handler and answers with an
@@ -194,6 +200,13 @@ export interface WireHookCall {
   hook: string;
   input: unknown;
   output: WireSpawnPlanOutput;
+}
+
+/** One read-only call into an external agent's session history provider. */
+export interface WireAgentHistoryCall {
+  agentId: string;
+  method: "list" | "describe" | "content" | "transcript";
+  args: unknown[];
 }
 
 // ---------------------------------------------------------------- open bodies

@@ -57,8 +57,25 @@ vi.mock("./settingsManager", () => ({
 }));
 
 const AGENTS: AgentInfo[] = [
-  { id: "claude", label: "Claude", command: "claude", supportsYolo: true, installed: true, path: "/c", usageCapabilities: ["paneTelemetry", "accountLimits"] },
-  { id: "codex", label: "Codex", command: "codex", supportsYolo: false, installed: true, path: "/x", usageCapabilities: ["paneTelemetry", "accountLimits"] },
+  {
+    id: "claude",
+    label: "Claude",
+    command: "claude",
+    features: [
+      { id: "session.new", label: "New sessions" },
+      { id: "execution.yolo", label: "YOLO mode" },
+    ],
+    installed: true,
+    path: "/c",
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    command: "codex",
+    features: [{ id: "session.new", label: "New sessions" }],
+    installed: true,
+    path: "/x",
+  },
 ];
 
 const workspace = (over: Partial<Workspace>): Workspace => ({
@@ -272,6 +289,30 @@ describe("agent.spawn", () => {
       ok: false,
       error: { code: "failed", message: 'unknown agent type "gemini"' },
     });
+  });
+
+  it("refuses an agent that does not support new sessions", async () => {
+    const { registry } = setup([workspace({})]);
+    const original = AGENTS[1].features;
+    AGENTS[1].features = [
+      { id: "session.history", label: "Session history" },
+    ];
+    try {
+      const result = await registry.execute(
+        "agent.spawn",
+        { workspace: "web", agentType: "codex" },
+        HOST,
+      );
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: "failed",
+          message: 'agent type "codex" does not support new sessions',
+        },
+      });
+    } finally {
+      AGENTS[1].features = original;
+    }
   });
 
   it("does not attach a delayed spawn to a replacement with the same id", async () => {

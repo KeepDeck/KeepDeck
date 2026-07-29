@@ -1,4 +1,5 @@
 import type {
+  AgentHistory,
   AgentHooks,
   CommandInfo,
   CommandResult,
@@ -21,6 +22,7 @@ import type {
 import { describeError } from "./errors";
 import type { GuestRpc } from "./rpc";
 import {
+  type WireAgentHistoryCall,
   speechLevelChannel,
   type WireHookCall,
   type WireOpenCall,
@@ -154,6 +156,7 @@ export function buildGuestContext(
   // Agent hooks stay HERE (functions can't cross the wire); the host pushes
   // `hook:<id>` per invocation and we answer with `agents.hookResult`.
   const agentHooks = new Map<string, AgentHooks>();
+  const agentHistories = new Map<string, AgentHistory>();
   // File-open handlers likewise: identity crosses as data, the open()
   // callback stays here; the host pushes `open:<id>` and we answer with
   // `openers.openResult`.
@@ -405,6 +408,7 @@ export function buildGuestContext(
             .catch(noop);
         }
         agentHooks.set(agent.id, agent.hooks);
+        if (agent.history) agentHistories.set(agent.id, agent.history);
         return registerRemote(
           "agents.register",
           {
@@ -415,8 +419,12 @@ export function buildGuestContext(
             // Sparse like the host's read: only a true declaration crosses.
             ...(agent.supportsYolo === true && { supportsYolo: true }),
             hookNames: Object.keys(agent.hooks),
+            ...(agent.history !== undefined && { hasHistory: true }),
           },
-          () => agentHooks.delete(agent.id),
+          () => {
+            agentHooks.delete(agent.id);
+            agentHistories.delete(agent.id);
+          },
         );
       },
     },
@@ -662,6 +670,45 @@ export function buildGuestContext(
     }
   }
 
+  /** Run one host-requested read against an agent's history provider. */
+  async function runHistory(callId: number, payload: unknown): Promise<void> {
+    const { agentId, method, args } = payload as WireAgentHistoryCall;
+    try {
+      const history = agentHistories.get(agentId);
+      if (!history) throw new Error(`no history provider for agent "${agentId}"`);
+      let value: unknown;
+      switch (method) {
+        case "list":
+          value = await history.list();
+          break;
+        case "describe":
+          value = await history.describe(args[0] as string);
+          break;
+        case "content":
+          value = await history.content(args[0] as string);
+          break;
+        case "transcript":
+          value = await history.transcript(
+            args[0] as string,
+            args[1] as { offset: number; limit: number },
+          );
+          break;
+        default:
+          throw new Error(`unknown agent history method: ${String(method)}`);
+      }
+      void rpc
+        .call("agents.historyResult", [callId, { ok: true, value }])
+        .catch(noop);
+    } catch (error) {
+      void rpc
+        .call("agents.historyResult", [
+          callId,
+          { ok: false, error: describeError(error) },
+        ])
+        .catch(noop);
+    }
+  }
+
   /** Run one host-requested file-open and post the boolean verdict back. */
   async function runOpen(callId: number, payload: unknown): Promise<void> {
     const { handlerId, request } = payload as WireOpenCall;
@@ -683,6 +730,10 @@ export function buildGuestContext(
   }
 
   function dispatchEvent(channel: string, payload: unknown): void {
+    if (channel.startsWith("history:")) {
+      void runHistory(Number(channel.slice("history:".length)), payload);
+      return;
+    }
     if (channel.startsWith("hook:")) {
       void runHook(Number(channel.slice("hook:".length)), payload);
       return;

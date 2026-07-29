@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentRemoteSchemes,
+  agentSupportsNew,
   agentSupportsYolo,
   remoteValid,
   selectableAgents,
@@ -18,8 +19,7 @@ function agent(
     id,
     label: id,
     command: id,
-    supportsYolo: false,
-    usageCapabilities: ["paneTelemetry", "accountLimits"],
+    features: [{ id: "session.new", label: "New sessions" }],
     installed,
     path: null,
     ...extra,
@@ -38,7 +38,21 @@ describe("selectableAgents", () => {
 
   it("falls back to the full list when none are installed (never lock out)", () => {
     const list = [agent("claude", false), agent("codex", false)];
-    expect(selectableAgents(list)).toBe(list);
+    expect(selectableAgents(list)).toEqual(list);
+  });
+
+  it("excludes agents that do not declare new-session support", () => {
+    const list = [
+      agent("history", true, {
+        features: [{ id: "session.history", label: "History" }],
+      }),
+      agent("claude", true),
+    ];
+    expect(selectableAgents(list).map((entry) => entry.id)).toEqual([
+      "claude",
+    ]);
+    expect(agentSupportsNew(list, "history")).toBe(false);
+    expect(agentSupportsNew(list, "claude")).toBe(true);
   });
 });
 
@@ -77,7 +91,9 @@ describe("defaultAgentType", () => {
 
 describe("agentSupportsYolo", () => {
   const list = [
-    agent("claude", true, { supportsYolo: true }),
+    agent("claude", true, {
+      features: [{ id: "execution.yolo", label: "YOLO mode" }],
+    }),
     agent("codex", true),
   ];
 
@@ -93,13 +109,26 @@ describe("agentSupportsYolo", () => {
 describe("agentRemoteSchemes", () => {
   const list = [
     agent("codex", true, {
-      supportsRemote: true,
-      remoteSchemes: ["ws", "wss"],
+      features: [
+        {
+          id: "target.remote",
+          label: "Remote targets",
+          parameters: { schemes: ["ws", "wss"] },
+        },
+      ],
     }),
     // Declares remote but with NO schemes — a malformed contribution. The
     // selector returns null so the dialog's Where option hides (Create could
     // never enable with no schemes to validate against).
-    agent("buggy", true, { supportsRemote: true, remoteSchemes: [] }),
+    agent("buggy", true, {
+      features: [
+        {
+          id: "target.remote",
+          label: "Remote targets",
+          parameters: { schemes: [] },
+        },
+      ],
+    }),
     agent("claude", true),
   ];
 

@@ -44,7 +44,14 @@ vi.mock("./updateManager", () => ({
 }));
 
 const agents = [
-  { id: "claude", label: "Claude", command: "claude", supportsYolo: false, installed: true, path: null, usageCapabilities: ["paneTelemetry", "accountLimits"] as const },
+  {
+    id: "claude",
+    label: "Claude",
+    command: "claude",
+    features: [],
+    installed: true,
+    path: null,
+  },
 ];
 const workspaceInstance = createWorkspaceInstance();
 

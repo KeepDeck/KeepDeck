@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { buildAgentFeatureCatalog } from "../../app/agentFeatureCatalog";
 import { useAppRuntime } from "../../app/runtimeContext";
-import { useContributions, useInstalledPlugins } from "../../plugins";
+import {
+  useContributions,
+  useInstalledPlugins,
+} from "../../plugins";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
@@ -33,6 +37,7 @@ export function SettingsDialog({
   useEscape(onClose);
   const installed = useInstalledPlugins(pluginHost);
   const contributed = useContributions(pluginRegistries.settingsSections);
+  const featureCatalog = buildAgentFeatureCatalog(installed);
   const appSections: { id: string; label: string; body: ReactNode }[] =
     SETTINGS_SECTIONS.map((s) => ({
       id: s.id,
@@ -50,6 +55,7 @@ export function SettingsDialog({
         <PluginPage
           plugin={plugin}
           section={sectionFor(contributed, plugin.manifest.id)}
+          featureCatalog={featureCatalog}
         />
       ),
     }));

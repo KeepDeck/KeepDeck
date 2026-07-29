@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentRemoteSchemes,
+  agentSessionCapabilities,
+  agentSupportsNew,
   agentSupportsYolo,
   canCreateAgent,
   remoteValid,
@@ -172,7 +174,32 @@ export function AgentDialog({
   const prefillRef = useRef("");
   const { agents } = useAgents();
   const agentOptions = selectableAgents(agents);
+  const supportsNew = agentSupportsNew(agents, agentType);
+  const {
+    resume: supportsResume,
+    fork: supportsFork,
+  } = agentSessionCapabilities(agents, agentType);
+  const startModeOptions: readonly (readonly [
+    mode: SessionStartMode,
+    label: string,
+  ])[] = [
+    ...(supportsNew ? ([["new", "New session"]] as const) : []),
+    ...(supportsResume ? ([["resume", "Resume"]] as const) : []),
+    ...(supportsFork ? ([["fork", "Fork"]] as const) : []),
+  ];
   useEscape(onCancel);
+
+  // A continuation mode belongs to the selected agent's live adapter. Agent
+  // switches (or a contribution disappearing) must not leave an unsupported
+  // mode selected behind a hidden button.
+  useEffect(() => {
+    if (
+      (startMode === "resume" && !supportsResume) ||
+      (startMode === "fork" && !supportsFork)
+    ) {
+      setStartMode("new");
+    }
+  }, [startMode, supportsResume, supportsFork]);
 
   // The picker's options, paged through the SAME engine as the global browser
   // ([[usePagedSessionSearch]]) — the fetcher is scoped to the selected agent
@@ -378,11 +405,11 @@ export function AgentDialog({
   // whole worktree block is hidden); everything else gates on both. Remote
   // ignores the local location too (the agent's cwd is on the box) and only
   // needs a valid endpoint — the Worktree + Start-from sections are hidden.
-  const valid = remote
+  const valid = supportsNew && (remote
     ? endpointOk
     : startMode === "resume"
       ? sessionOk
-      : canCreateAgent(kind, branch, baseOk) && sessionOk;
+      : canCreateAgent(kind, branch, baseOk) && sessionOk);
 
   // "Use next available": swap the occupied path (and its branch) for the
   // next free suggestion. A null result (no base, IPC down) leaves the field
@@ -513,13 +540,7 @@ export function AgentDialog({
           <>
             <span className="form__label">Start from</span>
             <div className="form__types">
-              {(
-                [
-                  ["new", "New session"],
-                  ["resume", "Resume"],
-                  ["fork", "Fork"],
-                ] as const
-              ).map(([mode, label]) => (
+              {startModeOptions.map(([mode, label]) => (
                 <button
                   key={mode}
                   type="button"

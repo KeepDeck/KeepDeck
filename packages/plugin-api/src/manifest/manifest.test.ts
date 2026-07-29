@@ -363,4 +363,128 @@ describe("agent contribution bins", () => {
     expect(result.errors.some((e) => e.includes("contributes.agents[0]"))).toBe(true);
     expect(result.errors.some((e) => e.includes("contributes.agents[1]"))).toBe(true);
   });
+
+  it("rejects duplicate agent ids within one manifest", () => {
+    const result = readManifest({
+      ...CLI,
+      contributes: {
+        agents: [
+          { id: "claude", label: "Claude Code", bin: "claude" },
+          { id: "claude", label: "Claude Alternate", bin: "claude" },
+        ],
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toContain(
+        'contributes.agents[1].id: duplicate agent "claude"',
+      );
+    }
+  });
+});
+
+describe("CLI agent features", () => {
+  const FEATURED_CLI = {
+    ...GOLDEN,
+    minApiVersion: 30,
+    category: "cli",
+    capabilities: [{ kind: "exec", commands: ["codex"] }],
+    contributes: {
+      agents: [
+        {
+          id: "codex",
+          label: "Codex",
+          bin: "codex",
+          features: [
+            {
+              id: "session.resume",
+              label: "Resume saved sessions",
+              group: "sessions",
+              description: "Continue a conversation from its recorded state.",
+            },
+            {
+              id: "target.remote",
+              label: "Remote targets",
+              group: "execution",
+              parameters: { schemes: ["ws", "wss"], experimental: false },
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  it("preserves self-describing generic features and shallow parameters", () => {
+    const result = readManifest(FEATURED_CLI);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.manifest.contributes.agents?.[0]?.features).toEqual(
+      FEATURED_CLI.contributes.agents[0].features,
+    );
+  });
+
+  it("requires the single feature declaration for API 30 CLI agents", () => {
+    const result = readManifest({
+      ...FEATURED_CLI,
+      contributes: {
+        agents: [{ id: "codex", label: "Codex", bin: "codex" }],
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toContain(
+      "contributes.agents[0].features: required for plugin API 30 and newer",
+    );
+  });
+
+  it("keeps feature-less legacy CLI manifests valid", () => {
+    const result = readManifest({
+      ...FEATURED_CLI,
+      minApiVersion: 29,
+      contributes: {
+        agents: [{ id: "codex", label: "Codex", bin: "codex" }],
+      },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects duplicate, unsafe, and malformed feature declarations", () => {
+    const cases: [unknown, string][] = [
+      [
+        [
+          { id: "session.resume", label: "Resume" },
+          { id: "session.resume", label: "Again" },
+        ],
+        "duplicate feature",
+      ],
+      [[{ id: "Session Resume", label: "Resume" }], "lowercase segments"],
+      [[{ id: "session.resume", label: "Resume\nforged" }], "safe non-empty"],
+      [
+        [
+          {
+            id: "target.remote",
+            label: "Remote",
+            parameters: { schemes: [{ nested: true }] },
+          },
+        ],
+        "JSON scalar",
+      ],
+    ];
+    for (const [features, expected] of cases) {
+      const result = readManifest({
+        ...FEATURED_CLI,
+        contributes: {
+          agents: [
+            {
+              ...FEATURED_CLI.contributes.agents[0],
+              features,
+            },
+          ],
+        },
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) continue;
+      expect(result.errors.join("; ")).toContain(expected);
+    }
+  });
 });

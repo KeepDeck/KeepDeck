@@ -2,7 +2,7 @@
   "id": "keepdeck.opencode",
   "name": "OpenCode",
   "version": "0.1.0",
-  "minApiVersion": 27,
+  "minApiVersion": 30,
   "category": "cli",
   "description": "Teaches KeepDeck the OpenCode CLI: identity and detection, spawn/resume/fork with session relocation, session-store history, and pane usage.",
   "capabilities": [
@@ -13,6 +13,46 @@
     { "kind": "notifications" }
   ],
   "contributes": {
-    "agents": [{ "id": "opencode", "label": "OpenCode", "bin": "opencode" }]
+    "agents": [
+      {
+        "id": "opencode",
+        "label": "OpenCode",
+        "bin": "opencode",
+        "features": [
+          { "id": "session.new", "label": "New sessions", "group": "sessions" },
+          {
+            "id": "session.resume",
+            "label": "Resume saved sessions",
+            "group": "sessions"
+          },
+          {
+            "id": "session.fork",
+            "label": "Fork sessions",
+            "group": "sessions"
+          },
+          {
+            "id": "session.history",
+            "label": "Session history",
+            "group": "sessions"
+          },
+          {
+            "id": "usage.pane",
+            "label": "Session analytics",
+            "group": "usage"
+          },
+          {
+            "id": "execution.yolo",
+            "label": "YOLO mode",
+            "group": "execution"
+          },
+          {
+            "id": "target.remote",
+            "label": "Remote targets",
+            "group": "execution",
+            "parameters": { "schemes": ["http", "https"] }
+          }
+        ]
+      }
+    ]
   }
 }

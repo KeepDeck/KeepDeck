@@ -145,7 +145,7 @@ describe("Kimi CLI plugin", () => {
 
   it("YOLO adds --yolo on spawn and resume alike", async () => {
     const { agent } = await activate();
-    expect(agent.supportsYolo).toBe(true);
+    expect(agent.supportsYolo).toBeUndefined();
 
     const spawn = output();
     await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);

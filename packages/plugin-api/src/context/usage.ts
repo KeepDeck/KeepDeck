@@ -123,10 +123,9 @@ export type UsageCapability = "paneTelemetry" | "accountLimits";
  * synchronously per report, and a cross-realm proxy is necessarily async.
  * An external plugin's declaration is ignored with a host-log warning. */
 export interface AgentUsage {
-  /** Static routing hints for the host UI. The normalizer remains tolerant and
-   * may return a partial report, but an account-limits chip is created only for
-   * agents that explicitly declare `accountLimits`. */
-  capabilities: readonly UsageCapability[];
+  /** @deprecated API 30+ plugins declare `usage.pane` / `usage.account` once
+   * in the manifest. Retained only for legacy plugin execution. */
+  capabilities?: readonly UsageCapability[];
   /** Normalize this agent's bridge usage payloads (statusLine reports,
    * tailed session-file events — whatever its reporters emit). */
   normalize: UsageNormalizer;

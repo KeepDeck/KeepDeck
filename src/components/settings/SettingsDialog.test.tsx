@@ -111,6 +111,85 @@ const FILES_PLUGIN = {
   status: { kind: "active" },
 };
 
+const CLI_PLUGIN = {
+  manifest: {
+    id: "example.cli",
+    name: "Example CLI",
+    version: "1.0.0",
+    minApiVersion: 30,
+    category: "cli",
+    capabilities: [],
+    contributes: {
+      agents: [
+        {
+          id: "example-agent",
+          label: "Example Agent",
+          bin: "example",
+          features: [
+            {
+              id: "session.new",
+              label: "New sessions",
+              group: "sessions",
+            },
+            {
+              id: "session.resume",
+              label: "Resume saved sessions",
+              group: "sessions",
+            },
+            {
+              id: "usage.pane",
+              label: "Session analytics",
+              group: "usage",
+            },
+            {
+              id: "usage.account",
+              label: "Account limits",
+              group: "usage",
+            },
+            {
+              id: "target.remote",
+              label: "Remote targets",
+              group: "execution",
+              parameters: { schemes: ["ws", "wss"] },
+            },
+            {
+              id: "vendor.future",
+              label: "A future plugin feature",
+              group: "custom",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  status: { kind: "active" },
+};
+
+const YOLO_ONLY_PLUGIN = {
+  ...CLI_PLUGIN,
+  manifest: {
+    ...CLI_PLUGIN.manifest,
+    id: "yolo.cli",
+    name: "YOLO CLI",
+    contributes: {
+      agents: [
+        {
+          id: "yolo-agent",
+          label: "YOLO Agent",
+          bin: "yolo",
+          features: [
+            {
+              id: "execution.yolo",
+              label: "YOLO mode",
+              group: "execution",
+            },
+          ],
+        },
+      ],
+    },
+  },
+};
+
 const button = (text: string) =>
   Array.from(document.querySelectorAll("button")).find(
     (b) => b.textContent === text,
@@ -386,6 +465,96 @@ describe("SettingsDialog", () => {
     } finally {
       section.dispose();
     }
+  });
+
+  it("renders arbitrary features directly from active plugin manifests", async () => {
+    pluginStore.set([CLI_PLUGIN, YOLO_ONLY_PLUGIN]);
+    await mount();
+    act(() => button("Example CLI").click());
+
+    const features = document.querySelector(
+      '[aria-label="Example CLI features"]',
+    )!;
+    expect(panelOf(features).hasAttribute("hidden")).toBe(false);
+    expect(features.textContent).toContain("CLI features");
+    expect(features.textContent).not.toContain("Example Agent");
+    expect(features.textContent).not.toContain("example-agent");
+    expect(features.textContent).toContain("Resume saved sessions");
+    expect(features.textContent).toContain("Session analytics");
+    expect(features.textContent).toContain("Account limits");
+    expect(features.textContent).toContain("A future plugin feature");
+    expect(features.textContent).toContain(
+      "Remote targetsSupported · schemes: ws, wss",
+    );
+    const states = Array.from(
+      features.querySelectorAll(".settings__feature-state"),
+      (state) => state.textContent,
+    );
+    const firstUnsupported = states.findIndex((state) =>
+      state?.startsWith("Not supported"),
+    );
+    expect(firstUnsupported).toBeGreaterThan(0);
+    expect(
+      states
+        .slice(firstUnsupported)
+        .every((state) => state?.startsWith("Not supported")),
+    ).toBe(true);
+  });
+
+  it("names agents only when one plugin contributes more than one", async () => {
+    pluginStore.set([
+      {
+        ...CLI_PLUGIN,
+        manifest: {
+          ...CLI_PLUGIN.manifest,
+          contributes: {
+            agents: [
+              ...CLI_PLUGIN.manifest.contributes.agents,
+              {
+                id: "second-agent",
+                label: "Second Agent",
+                bin: "second",
+                features: [
+                  {
+                    id: "session.new",
+                    label: "New sessions",
+                    group: "sessions",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    await mount();
+    act(() => button("Example CLI").click());
+
+    const features = document.querySelector(
+      '[aria-label="Example CLI features"]',
+    )!;
+    expect(features.textContent).toContain("Example Agent");
+    expect(features.textContent).toContain("Second Agent");
+  });
+
+  it("reads the same feature declaration while a CLI plugin is disabled", async () => {
+    pluginStore.set([
+      {
+        ...CLI_PLUGIN,
+        status: { kind: "disabled" },
+      },
+    ]);
+    await mount();
+    act(() => button("Example CLI").click());
+
+    const features = document.querySelector(
+      '[aria-label="Example CLI features"]',
+    )!;
+    expect(features.textContent).not.toContain(
+      "the plugin is disabled",
+    );
+    expect(features.textContent).toContain("Resume saved sessionsSupported");
+    expect(features.textContent).toContain("A future plugin featureSupported");
   });
 
   it("reveals a plugin opened directly below the navigation fold", async () => {

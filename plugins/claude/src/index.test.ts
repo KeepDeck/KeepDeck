@@ -140,7 +140,7 @@ describe("claude plugin hooks", () => {
 
   it("YOLO adds the skip-permissions flag on spawn and resume alike", async () => {
     const agent = activate(null);
-    expect(agent.supportsYolo).toBe(true);
+    expect(agent.supportsYolo).toBeUndefined();
 
     const spawn = output();
     await agent.hooks["spawn.plan"]!({ ...input, yolo: true }, spawn);

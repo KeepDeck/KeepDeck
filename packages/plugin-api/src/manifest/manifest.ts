@@ -71,7 +71,33 @@ export interface ContributionSummary {
  * runs, so availability (installed vs not) can gate activation centrally. */
 export interface AgentContributionSummary extends ContributionSummary {
   bin?: string;
+  /** Functional features this CLI integration provides. This is the ONE
+   * support declaration: runtime contributions provide implementations, not
+   * another capability list. Absent is accepted only for legacy API floors. */
+  features?: AgentFeatureDeclaration[];
 }
+
+/** One functional feature exposed by a CLI integration. Presence means
+ * supported; absence means unsupported. The descriptor is self-presenting so
+ * Settings can render future and third-party features without host changes. */
+export interface AgentFeatureDeclaration {
+  /** Stable semantic id, e.g. `session.resume` or `target.remote`. */
+  id: string;
+  label: string;
+  /** Stable grouping token used for generic presentation and sorting. */
+  group?: string;
+  description?: string;
+  /** Feature-specific static configuration. Shallow JSON by design: enough
+   * for schemes/modes/limits without creating an unbounded schema language. */
+  parameters?: Record<string, AgentFeatureParameter>;
+}
+
+export type AgentFeatureParameter =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly (string | number | boolean | null)[];
 
 /** The binaries a plugin's declared agents need — the host's pre-activation
  * input to one shared detection pass and its activation gate. */
@@ -184,6 +210,15 @@ export function readManifest(value: unknown): ManifestResult {
     for (const kind of DECK_ONLY_KINDS) {
       if (contributes[kind])
         errors.push(`contributes.${kind}: a "cli" plugin contributes agents, not deck chrome`);
+    }
+    if (minApiVersion !== null && minApiVersion >= 30) {
+      for (const [index, agent] of (contributes.agents ?? []).entries()) {
+        if (agent.features === undefined) {
+          errors.push(
+            `contributes.agents[${index}].features: required for plugin API 30 and newer`,
+          );
+        }
+      }
     }
   } else if (contributes.agents) {
     errors.push(`contributes.agents: requires category "cli"`);
@@ -447,23 +482,167 @@ function readAgentSummaries(
     return undefined;
   }
   const read: AgentContributionSummary[] = [];
+  const ids = new Set<string>();
   value.forEach((entry, i) => {
     const summary = readSummaryEntry(entry, "agents", i, errors);
     if (!summary) return;
-    const bin = isRecord(entry) ? entry.bin : undefined;
-    if (bin === undefined) {
-      read.push(summary);
+    if (ids.has(summary.id)) {
+      errors.push(
+        `contributes.agents[${i}].id: duplicate agent "${summary.id}"`,
+      );
       return;
     }
-    if (typeof bin !== "string" || !CONTRIB_ID.test(bin)) {
+    ids.add(summary.id);
+    const record = entry as Record<string, unknown>;
+    const bin = record.bin;
+    if (
+      bin !== undefined &&
+      (typeof bin !== "string" || !CONTRIB_ID.test(bin))
+    ) {
       errors.push(
         `contributes.agents[${i}]: bin must be a plain program name (alphanumerics, "-" or "_")`,
       );
       return;
     }
-    read.push({ ...summary, bin });
+    const features = readAgentFeatures(record.features, i, errors);
+    read.push({
+      ...summary,
+      ...(typeof bin === "string" ? { bin } : {}),
+      ...(features !== undefined ? { features } : {}),
+    });
   });
   return read.length > 0 ? read : undefined;
+}
+
+const FEATURE_ID = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
+const FEATURE_GROUP = /^[a-z][a-z0-9-]*$/;
+const FEATURE_PARAMETER = /^[a-z][a-zA-Z0-9]*$/;
+const FEATURE_LABEL_MAX = 80;
+const FEATURE_DESCRIPTION_MAX = 240;
+
+function readAgentFeatures(
+  value: unknown,
+  agentIndex: number,
+  errors: string[],
+): AgentFeatureDeclaration[] | undefined {
+  if (value === undefined) return undefined;
+  const at = `contributes.agents[${agentIndex}].features`;
+  if (!Array.isArray(value)) {
+    errors.push(`${at}: must be an array`);
+    return undefined;
+  }
+
+  const features: AgentFeatureDeclaration[] = [];
+  const ids = new Set<string>();
+  value.forEach((raw, featureIndex) => {
+    const field = `${at}[${featureIndex}]`;
+    if (!isRecord(raw)) {
+      errors.push(`${field}: must be an object`);
+      return;
+    }
+    const id = typeof raw.id === "string" ? raw.id : "";
+    const label = typeof raw.label === "string" ? raw.label.trim() : "";
+    if (!FEATURE_ID.test(id)) {
+      errors.push(
+        `${field}.id: must be lowercase segments separated by "." or "-"`,
+      );
+      return;
+    }
+    if (ids.has(id)) {
+      errors.push(`${field}.id: duplicate feature "${id}"`);
+      return;
+    }
+    if (
+      label === "" ||
+      label.length > FEATURE_LABEL_MAX ||
+      hasUnsafeText(label)
+    ) {
+      errors.push(
+        `${field}.label: must be a safe non-empty string of at most ${FEATURE_LABEL_MAX} characters`,
+      );
+      return;
+    }
+
+    const group = raw.group;
+    if (
+      group !== undefined &&
+      (typeof group !== "string" || !FEATURE_GROUP.test(group))
+    ) {
+      errors.push(`${field}.group: must be a lowercase token`);
+      return;
+    }
+    const description =
+      typeof raw.description === "string" ? raw.description.trim() : undefined;
+    if (
+      raw.description !== undefined &&
+      (description === "" ||
+        description === undefined ||
+        description.length > FEATURE_DESCRIPTION_MAX ||
+        hasUnsafeText(description))
+    ) {
+      errors.push(
+        `${field}.description: must be a safe non-empty string of at most ${FEATURE_DESCRIPTION_MAX} characters`,
+      );
+      return;
+    }
+    const parameters = readFeatureParameters(raw.parameters, field, errors);
+    if (parameters === null) return;
+
+    ids.add(id);
+    features.push({
+      id,
+      label,
+      ...(typeof group === "string" ? { group } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(parameters !== undefined ? { parameters } : {}),
+    });
+  });
+  return features;
+}
+
+function readFeatureParameters(
+  value: unknown,
+  featureField: string,
+  errors: string[],
+): Record<string, AgentFeatureParameter> | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    errors.push(`${featureField}.parameters: must be an object`);
+    return null;
+  }
+  const parameters: Record<string, AgentFeatureParameter> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!FEATURE_PARAMETER.test(key)) {
+      errors.push(
+        `${featureField}.parameters: key "${key}" must be a lowercase or camelCase token`,
+      );
+      return null;
+    }
+    if (!isFeatureParameter(raw)) {
+      errors.push(
+        `${featureField}.parameters.${key}: must be a JSON scalar or an array of JSON scalars`,
+      );
+      return null;
+    }
+    parameters[key] = raw;
+  }
+  return parameters;
+}
+
+function isFeatureParameter(value: unknown): value is AgentFeatureParameter {
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry) =>
+        entry === null ||
+        typeof entry === "string" ||
+        typeof entry === "boolean" ||
+        (typeof entry === "number" && Number.isFinite(entry)),
+    )
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -7,7 +7,7 @@ import type {
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { createHostDispatch } from "./hostDispatch";
-import type { WireHookCall } from "./protocol";
+import type { WireAgentHistoryCall, WireHookCall } from "./protocol";
 
 /**
  * The agent-hook proxy across the RPC seam: `agents.register` turns the
@@ -97,6 +97,15 @@ describe("agent hooks over the RPC seam", () => {
     const h = harness();
     await h.dispatch.call("agents.register", [1, entry]);
     expect(Object.keys(h.agent().hooks)).toEqual(["spawn.plan"]);
+  });
+
+  it("carries fork.plan as a first-class hook", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [
+      1,
+      { ...entry, hookNames: ["fork.plan"] },
+    ]);
+    expect(Object.keys(h.agent().hooks)).toEqual(["fork.plan"]);
   });
 
   it("supportsYolo crosses strictly; a non-true value from the realm drops", async () => {
@@ -227,6 +236,100 @@ describe("agent hooks over the RPC seam", () => {
     );
     h.dispatch.dispose();
     await expect(running).rejects.toThrow("disposed");
+  });
+});
+
+describe("agent history over the RPC seam", () => {
+  it("round-trips every history method and sanitizes returned data", async () => {
+    const h = harness();
+    await h.dispatch.call("agents.register", [1, { ...entry, hasHistory: true }]);
+    const history = h.agent().history!;
+
+    const list = history.list();
+    expect(h.pushes[0].payload).toEqual({
+      agentId: "gemini",
+      method: "list",
+      args: [],
+    } satisfies WireAgentHistoryCall);
+    await h.dispatch.call("agents.historyResult", [
+      Number(h.pushes[0].channel.slice("history:".length)),
+      {
+        ok: true,
+        value: [
+          {
+            sessionId: "session-1",
+            ref: "/store/session-1",
+            mtime: 42,
+            size: 7,
+            ignored: "host strips extras",
+          },
+        ],
+      },
+    ]);
+    await expect(list).resolves.toEqual([
+      {
+        sessionId: "session-1",
+        ref: "/store/session-1",
+        mtime: 42,
+        size: 7,
+      },
+    ]);
+
+    const describe = history.describe("/store/session-1");
+    await h.dispatch.call("agents.historyResult", [
+      Number(h.pushes[1].channel.slice("history:".length)),
+      {
+        ok: true,
+        value: { cwd: "/repo", title: "Session", transcriptPath: "/transcript" },
+      },
+    ]);
+    await expect(describe).resolves.toEqual({
+      cwd: "/repo",
+      title: "Session",
+      transcriptPath: "/transcript",
+    });
+
+    const content = history.content("/store/session-1");
+    await h.dispatch.call("agents.historyResult", [
+      Number(h.pushes[2].channel.slice("history:".length)),
+      { ok: true, value: "searchable text" },
+    ]);
+    await expect(content).resolves.toBe("searchable text");
+
+    const transcript = history.transcript("/store/session-1", {
+      offset: 0,
+      limit: 20,
+    });
+    await h.dispatch.call("agents.historyResult", [
+      Number(h.pushes[3].channel.slice("history:".length)),
+      { ok: true, value: [{ role: "assistant", text: "Hello", ignored: true }] },
+    ]);
+    await expect(transcript).resolves.toEqual([
+      { role: "assistant", text: "Hello" },
+    ]);
+  });
+
+  it("rejects malformed history data and fails reads still in flight on dispose", async () => {
+    const malformed = harness();
+    await malformed.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasHistory: true },
+    ]);
+    const listing = malformed.agent().history!.list();
+    await malformed.dispatch.call("agents.historyResult", [
+      Number(malformed.pushes[0].channel.slice("history:".length)),
+      { ok: true, value: [{ sessionId: "session-1" }] },
+    ]);
+    await expect(listing).rejects.toThrow("malformed");
+
+    const disposed = harness();
+    await disposed.dispatch.call("agents.register", [
+      1,
+      { ...entry, hasHistory: true },
+    ]);
+    const content = disposed.agent().history!.content("/store/session-1");
+    disposed.dispatch.dispose();
+    await expect(content).rejects.toThrow("disposed");
   });
 });
 

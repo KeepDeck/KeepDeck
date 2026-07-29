@@ -67,18 +67,14 @@ const plugin: KeepDeckPlugin = {
       label: "OpenCode",
       icon,
       detect: { bin: "opencode" },
-      supportsYolo: true,
       // opencode has a native client/server split: the host can run this pane
       // as a local `opencode attach <ep>` thin client against an `opencode
-      // serve` on a VPS. Declared as a capability so the host gates the remote
-      // UI on it (mirrors codex; claude/kimi don't declare it). opencode's
-      // serve speaks HTTP.
-      remote: { mode: "nativeServer", schemes: ["http", "https"] },
+      // serve` on a VPS. Support and http/https schemes are declared once in
+      // the manifest; the hooks only implement the behavior.
       history: opencodeHistory(ctx),
       // Pane usage from the injected reporter's `message.updated` envelopes.
       // No account windows — opencode exposes none (see [`normalizeOpencodeUsage`]).
       usage: {
-        capabilities: ["paneTelemetry"],
         normalize: normalizeOpencodeUsage,
       },
       hooks: {

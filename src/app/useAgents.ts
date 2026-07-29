@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AgentContribution } from "@keepdeck/plugin-api";
+import type {
+  AgentContribution,
+  AgentContributionSummary,
+} from "@keepdeck/plugin-api";
 import type { AgentInfo } from "../domain/agents";
 import { detectBins, type BinStatus } from "../ipc/agents";
-import { useContributions } from "../plugins/react";
+import type { InstalledPlugin } from "../plugins";
+import {
+  useContributions,
+  useInstalledPlugins,
+} from "../plugins/react";
+import { projectAgentFeatures } from "./agentCapabilities";
 import { useAppRuntime } from "./runtimeContext";
 
 // Last known per-bin install status. A remount seeds from it so consumers
@@ -19,8 +27,10 @@ let lastStatus = new Map<string, BinStatus>();
  * may fail to spawn than to hide one that works.
  */
 export function useAgents(): { agents: AgentInfo[]; loading: boolean } {
-  const { bootstrapPlugins, pluginRegistries } = useAppRuntime().plugins;
+  const { bootstrapPlugins, pluginHost, pluginRegistries } =
+    useAppRuntime().plugins;
   const contributions = useContributions(pluginRegistries.agents);
+  const installed = useInstalledPlugins(pluginHost);
   const [booted, setBooted] = useState(false);
   const [status, setStatus] = useState(lastStatus);
 
@@ -60,16 +70,21 @@ export function useAgents(): { agents: AgentInfo[]; loading: boolean } {
 
   const agents = useMemo(
     () =>
-      contributions.map(({ entry }) =>
-        toAgentInfo(entry, status.get(entry.detect.bin)),
+      contributions.map(({ pluginId, entry }) =>
+        toAgentInfo(
+          entry,
+          agentSummary(installed, pluginId, entry),
+          status.get(entry.detect.bin),
+        ),
       ),
-    [contributions, status],
+    [contributions, installed, status],
   );
   return { agents, loading: !booted };
 }
 
 function toAgentInfo(
   entry: AgentContribution,
+  summary: AgentContributionSummary,
   status: BinStatus | undefined,
 ): AgentInfo {
   return {
@@ -77,13 +92,29 @@ function toAgentInfo(
     label: entry.label,
     icon: entry.icon,
     command: entry.detect.bin,
-    supportsYolo: entry.supportsYolo === true,
-    supportsRemote: entry.remote?.mode === "nativeServer",
-    remoteSchemes: entry.remote?.schemes,
+    features: projectAgentFeatures(summary, entry),
+    usageAvailable: entry.usage !== undefined,
     installed: status?.installed ?? true,
     path: status?.path ?? null,
-    usageCapabilities: entry.usage?.capabilities ?? [],
   };
+}
+
+function agentSummary(
+  installed: readonly InstalledPlugin[],
+  pluginId: string,
+  implementation: AgentContribution,
+): AgentContributionSummary {
+  return (
+    installed
+      .find((plugin) => plugin.manifest.id === pluginId)
+      ?.manifest.contributes.agents?.find(
+        (summary) => summary.id === implementation.id,
+      ) ?? {
+      id: implementation.id,
+      label: implementation.label,
+      bin: implementation.detect.bin,
+    }
+  );
 }
 
 /** Test hook: forget the cached detection. */

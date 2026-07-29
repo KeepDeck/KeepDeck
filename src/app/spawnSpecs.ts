@@ -23,6 +23,10 @@ import { postbackCount } from "./postbacks";
 import { stagedSkillsFor } from "./skillsStaging";
 import type { PluginManager } from "./pluginManager";
 import { execCovers } from "../plugins/capabilities/execCovers";
+import {
+  contributionSupportsFork,
+  contributionSupportsResume,
+} from "../plugins/agents/implementation";
 
 export type SpawnPluginAccess = Pick<
   PluginManager,
@@ -181,6 +185,15 @@ async function buildPlan(
     ...(skills ? { skills } : {}),
     ...(facts.target ? { target: facts.target } : {}),
   };
+  if (
+    variant.kind === "spawn" &&
+    facts.target &&
+    typeof entry.hooks["spawn.plan"] !== "function"
+  ) {
+    throw new Error(
+      `${entry.id}: remote target requires a spawn.plan implementation`,
+    );
+  }
   try {
     if (variant.kind === "resume") {
       await entry.hooks["resume.plan"]?.(
@@ -325,7 +338,7 @@ export async function buildResumeSpec(
 ): Promise<boolean> {
   const agent = findAgent(plugins, agentType);
   if (!agent) return false; // unavailable — the card keeps the pane idle
-  if (!agent.entry.hooks["resume.plan"]) {
+  if (!contributionSupportsResume(agent.entry)) {
     log.warn(
       "web:agents",
       `${agentType}: cannot resume ${facts.paneId} — plugin has no resume.plan hook`,
@@ -355,7 +368,7 @@ export async function buildForkSpec(
 ): Promise<boolean> {
   const agent = findAgent(plugins, agentType);
   if (!agent) return false;
-  if (!agent.entry.hooks["fork.plan"]) {
+  if (!contributionSupportsFork(agent.entry)) {
     log.warn(
       "web:agents",
       `${agentType}: cannot fork ${fork.sessionId} — plugin has no fork.plan hook`,

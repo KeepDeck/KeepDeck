@@ -21,6 +21,7 @@ const agent = (id: string, label: string) => ({
   id,
   label,
   command: id,
+  features: [{ id: "session.new", label: "New sessions" }],
   installed: true,
   path: null,
 });
@@ -147,7 +148,15 @@ describe("WorkspaceForm YOLO toggle", () => {
 
   beforeEach(() => {
     resetAgentsCache();
-    catalog.list = [{ ...agent("claude", "Claude Code"), supportsYolo: true }];
+    catalog.list = [
+      {
+        ...agent("claude", "Claude Code"),
+        features: [
+          { id: "session.new", label: "New sessions" },
+          { id: "execution.yolo", label: "YOLO mode" },
+        ],
+      },
+    ];
     document.body.innerHTML = "";
     root = createRoot(document.body.appendChild(document.createElement("div")));
     created = [];
@@ -200,7 +209,7 @@ describe("WorkspaceForm YOLO toggle", () => {
     submit();
     expect("yolo" in created[0]).toBe(false);
 
-    catalog.list = TWO_AGENTS; // no supportsYolo anywhere
+    catalog.list = TWO_AGENTS; // no execution.yolo feature anywhere
     await mount(true);
     expect(checkbox()).toBeNull();
     submit();

@@ -2,7 +2,7 @@
   "id": "keepdeck.kimi",
   "name": "Kimi Code",
   "version": "0.1.0",
-  "minApiVersion": 25,
+  "minApiVersion": 30,
   "category": "cli",
   "description": "Adds the Kimi Code CLI with exact session resume and an optional one-time setup for session persistence.",
   "capabilities": [
@@ -13,7 +13,46 @@
     { "kind": "fsWrite", "paths": ["~/.kimi-code"] }
   ],
   "contributes": {
-    "agents": [{ "id": "kimi", "label": "Kimi Code", "bin": "kimi" }],
+    "agents": [
+      {
+        "id": "kimi",
+        "label": "Kimi Code",
+        "bin": "kimi",
+        "features": [
+          { "id": "session.new", "label": "New sessions", "group": "sessions" },
+          {
+            "id": "session.resume",
+            "label": "Resume saved sessions",
+            "group": "sessions"
+          },
+          {
+            "id": "session.fork",
+            "label": "Fork sessions",
+            "group": "sessions"
+          },
+          {
+            "id": "session.history",
+            "label": "Session history",
+            "group": "sessions"
+          },
+          {
+            "id": "usage.pane",
+            "label": "Session analytics",
+            "group": "usage"
+          },
+          {
+            "id": "usage.account",
+            "label": "Account limits",
+            "group": "usage"
+          },
+          {
+            "id": "execution.yolo",
+            "label": "YOLO mode",
+            "group": "execution"
+          }
+        ]
+      }
+    ],
     "settings": true
   }
 }

@@ -5,8 +5,8 @@ import { createWorkspaceInstance } from "../workspaceInstance";
 import { resolvePaneRef, resolveWorkspaceRef } from "./resolve";
 
 const AGENTS: AgentInfo[] = [
-  { id: "claude", label: "Claude", command: "claude", supportsYolo: false, installed: true, path: "/c" },
-  { id: "codex", label: "Codex", command: "codex", supportsYolo: false, installed: true, path: "/x" },
+  { id: "claude", label: "Claude", command: "claude", features: [], installed: true, path: "/c" },
+  { id: "codex", label: "Codex", command: "codex", features: [], installed: true, path: "/x" },
 ];
 
 const ws = (over: Partial<Workspace>): Workspace => ({

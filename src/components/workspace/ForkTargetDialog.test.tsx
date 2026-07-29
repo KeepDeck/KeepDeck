@@ -23,9 +23,16 @@ const RECORD: SessionHandle = {
   cwd: "/ws",
   title: "iOS-personal-area",
 };
-const AGENTS = [
-  { id: "codex", label: "Codex" },
-] as unknown as AgentInfo[];
+const AGENTS: AgentInfo[] = [
+  {
+    id: "codex",
+    label: "Codex",
+    command: "codex",
+    features: [],
+    installed: true,
+    path: null,
+  },
+];
 const WS_CWD = "/Users/x/XcodeProjects/iOS-personal-area";
 
 const pathInput = () =>
@@ -205,8 +212,18 @@ describe("ForkTargetDialog YOLO toggle", () => {
   let root: Root;
   let confirmed: ForkTargetDialogResult[];
 
-  // codex is the forked agent; flipping supportsYolo hides/shows the toggle.
+  // codex is the forked agent; its manifest feature hides/shows the toggle.
   let agents: AgentInfo[];
+  const codex = (supportsYolo: boolean): AgentInfo => ({
+    id: "codex",
+    label: "Codex",
+    command: "codex",
+    features: supportsYolo
+      ? [{ id: "execution.yolo", label: "YOLO mode" }]
+      : [],
+    installed: true,
+    path: null,
+  });
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -214,7 +231,7 @@ describe("ForkTargetDialog YOLO toggle", () => {
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
     confirmed = [];
-    agents = [{ id: "codex", label: "Codex", supportsYolo: true }] as unknown as AgentInfo[];
+    agents = [codex(true)];
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -249,7 +266,7 @@ describe("ForkTargetDialog YOLO toggle", () => {
   });
 
   it("is hidden for an agent whose plugin declares no YOLO support", () => {
-    agents = [{ id: "codex", label: "Codex", supportsYolo: false }] as unknown as AgentInfo[];
+    agents = [codex(false)];
     mount(true);
     expect(yoloCheckbox()).toBeNull();
   });
@@ -274,7 +291,7 @@ describe("ForkTargetDialog YOLO toggle", () => {
   });
 
   it("never submits YOLO when the agent lacks support, even if the default was on", () => {
-    agents = [{ id: "codex", label: "Codex", supportsYolo: false }] as unknown as AgentInfo[];
+    agents = [codex(false)];
     mount(true);
     submit();
     // No toggle was shown, so onConfirm's yolo is forced false regardless of
