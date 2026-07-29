@@ -669,18 +669,18 @@ describe("sweep", () => {
     expect(skills.pruneSkills).toHaveBeenLastCalledWith([]);
   });
 
-  it("keeps a root another pane still claims", async () => {
+  it("disarms only the root that left, never one the workspace still claims", async () => {
+    // Panes that share a cwd are not counted here on purpose: `roots` IS the
+    // claim, so a workspace keeps its cwd listed while any pane runs in it, and
+    // the sweep's rule is simply "no live workspace claims this any more".
+    // Sharing across WORKSPACES is covered by the teardown's own case.
     deck = [{ id: "ws-1", roots: ["/repo", "/wt/a"] }];
     await manager.sweep(true);
 
-    // The worktree pane closed: its cwd is nobody's now.
     deck = [{ id: "ws-1", roots: ["/repo"] }];
     await manager.sweep(true);
-    expect(skills.disarmSkills).toHaveBeenLastCalledWith(["/wt/a"]);
 
-    // One of the panes sharing the workspace cwd closed; the other still runs
-    // there, so that root must stay armed.
-    await manager.sweep(true);
+    expect(skills.disarmSkills).toHaveBeenLastCalledWith(["/wt/a"]);
     const disarmed = skills.disarmSkills.mock.calls.flatMap((call) => call[0]);
     expect(disarmed).not.toContain("/repo");
   });
