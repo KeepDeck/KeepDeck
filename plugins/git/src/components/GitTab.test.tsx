@@ -292,10 +292,14 @@ describe("GitTab", () => {
     expect(git.diffFile).toHaveBeenCalledWith("/repo", "src/app.ts", {
       staged: false,
     });
+    // ONCE. The peek joins the tab's settled status feed, so there is no
+    // cold `version` tick to re-run the fetch — a private feed per mount read
+    // the same diff twice on every open.
+    expect(git.diffFile).toHaveBeenCalledTimes(1);
     expect(host.querySelector(".peek")).toBeTruthy();
     expect(host.textContent).toContain("goodbye");
 
-    // The rail lists the whole working-tree set, the open row marked.
+    // The rail is there on the first frame, not after a second round trip.
     const aside = host.querySelector(".peek__aside")!;
     expect(aside.textContent).toContain("app.ts");
     expect(aside.textContent).toContain("notes.md");

@@ -24,9 +24,14 @@ const ARROW_KEYS: Record<string, ArrowKey | undefined> = {
 
 /** The change set an open diff belongs to — what the peek's rail lists.
  * A union, not optional fields: a worktree diff belongs to the LIVE status
- * groups, a History diff to one drilled scope; never both. */
+ * groups, a History diff to one drilled scope; never both.
+ *
+ * `error` carries the status feed's own failure. A peek can outlive the
+ * worktree it opened on (closing the pane deletes it), and the rail is where
+ * that has to be said — silently dropping the list left the reader looking at
+ * hunks of a directory that no longer exists. */
 export type ChangeSet =
-  | { kind: "worktree"; groups: ChangeGroups | null }
+  | { kind: "worktree"; groups: ChangeGroups | null; error: string | null }
   | { kind: "history"; scope: HistoryScope };
 
 /**
@@ -156,6 +161,14 @@ export function PeekSiblings({
   }, [isHistory, current, files, onSelect]);
 
   if (changeSet.kind === "worktree") {
+    // The repo stopped answering — say so where the list would have been.
+    // The body says it too (the diff re-read fails on the same version bump),
+    // but the rail is what visibly disappeared.
+    if (changeSet.error) {
+      return (
+        <div className="git__empty git__empty--bad">{changeSet.error}</div>
+      );
+    }
     if (!groups) return null;
     return (
       <div ref={railRef}>

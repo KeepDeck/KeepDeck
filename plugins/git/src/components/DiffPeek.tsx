@@ -165,7 +165,11 @@ export function DiffPeek({
       aside={
         // No rail before the status has ever loaded — an empty column says
         // nothing (a loaded-then-empty worktree still shows its clean note).
-        changeSet.kind === "worktree" && !changeSet.groups ? undefined : (
+        // A FAILED status is different: it has something to say, so the rail
+        // stays to say it.
+        changeSet.kind === "worktree" &&
+        !changeSet.groups &&
+        !changeSet.error ? undefined : (
           <PeekSiblings
             repo={repo}
             changeSet={changeSet}

@@ -69,14 +69,15 @@ export function GitDiffOverlay() {
 }
 
 /**
- * One open diff, live against its own repo. The status feed lives HERE rather
- * than in the tab: the peek needs the change list for its rail and a `version`
- * to re-read on, and it needs both with the dock in any state, including
- * closed — the tab is not there to supply them.
+ * One open diff, live against its own repo. It subscribes to the repo's
+ * status in its own right rather than borrowing the tab's: the peek needs the
+ * change list for its rail and a `version` to re-read on, with the dock in any
+ * state — including closed, where there is no tab to supply them.
  *
- * That the tab watches the same repo in the window where both are open costs
- * one extra `git status` per change, not a second watcher: the host's watch
- * fanout already shares one backend watcher per path across subscribers.
+ * Subscribing is not the same as owning. Both surfaces read the one feed
+ * `gitStatusFeed` keeps per repo, so the peek opens at whatever the tab had
+ * already settled on: no second read, no cold `version` transition, and one
+ * answer to "what changed" instead of two that drift.
  */
 function OpenDiffPeek({
   diff,
@@ -87,7 +88,7 @@ function OpenDiffPeek({
   onSelect: (row: ChangeRow) => void;
   onClose: () => void;
 }) {
-  const { status, version } = useGitStatus(diff.repo);
+  const { status, error, version } = useGitStatus(diff.repo);
   const groups = status ? groupEntries(status.entries) : null;
 
   return (
@@ -98,7 +99,7 @@ function OpenDiffPeek({
           ? {
               kind: "file",
               row: diff.row,
-              changeSet: { kind: "worktree", groups },
+              changeSet: { kind: "worktree", groups, error },
             }
           : diff.row !== null
             ? {

@@ -68,7 +68,7 @@ describe("DiffPeek", () => {
           view: {
             kind: "file",
             row,
-            changeSet: { kind: "worktree", groups: null },
+            changeSet: { kind: "worktree", groups: null, error: null },
           },
           version: 1,
           onSelect: vi.fn(),
@@ -106,7 +106,11 @@ describe("DiffPeek", () => {
           view: {
             kind: "file",
             row,
-            changeSet: { kind: "worktree", groups: railGroups(RAIL_ROWS) },
+            changeSet: {
+              kind: "worktree",
+              groups: railGroups(RAIL_ROWS),
+              error: null,
+            },
           },
           version,
           onSelect,
