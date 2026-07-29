@@ -464,6 +464,11 @@ pub async fn worktree_remove(locks: State<'_, RepoLocks>, spec: RemoveSpec) -> R
 /// registration and the `kd/…` branch forever. So the dirty check only runs
 /// while the directory exists, and a failed `git worktree remove` on a gone
 /// directory falls through to `prune`, which is exactly the tool for that.
+///
+/// A removal git ABANDONED MIDWAY is treated the same way, and for the same
+/// reason: the registration and the branch are separate from the directory, so
+/// a directory that resisted must not strand them ([`husk_left_behind`]). Only
+/// a git that refused before touching anything aborts the whole removal.
 fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
     let repo_path = PathBuf::from(&spec.repo);
     let path = PathBuf::from(&spec.path);
@@ -499,11 +504,23 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
         Vec::new()
     };
 
+    // Read BEFORE the removal: half the evidence [`husk_left_behind`] needs to
+    // tell a git that refused from a git that gave up midway.
+    let registered = is_registered_worktree(&repo_path, &path);
+
+    let mut leftover = None;
     match worktree::remove(&repo_path, &path, spec.force) {
         Ok(()) => {}
         // Git refuses to `remove` a worktree whose dir is already gone; only a
         // failure with the dir still present is a real error.
         Err(_) if !path.exists() => {}
+        Err(e) if husk_left_behind(&repo_path, &path, registered) => {
+            // Finish the delete git walked out of, then carry on to prune and
+            // the branch reap regardless of how the directory ends up.
+            leftover = clear_husk(&path).err().map(|why| format!("{e}; {why}"));
+        }
+        // Git refused before touching anything: the worktree is intact and
+        // must stay that way — its branch included.
         Err(e) => return Err(e.to_string()),
     }
     // Drop the administrative record (best-effort) — after the remove above,
@@ -519,10 +536,70 @@ fn remove_worktree(locks: &RepoLocks, spec: RemoveSpec) -> Result<(), String> {
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let failures = reap_branches(&repo_path, primary, &created, spec.force);
-    if failures.is_empty() {
+    let problems: Vec<String> = leftover.into_iter().chain(failures).collect();
+    if problems.is_empty() {
         Ok(())
     } else {
-        Err(failures.join("\n"))
+        Err(problems.join("\n"))
+    }
+}
+
+/// Did git abandon the removal PAST its own point of no return?
+///
+/// `git worktree remove` deletes the administrative record even when deleting
+/// the working directory fails — "there's no going back from here", in its own
+/// source's words. So a record that is gone while the directory survives means
+/// the worktree no longer exists as far as git is concerned: no later `git
+/// worktree remove` can address the leftover, and abandoning the prune and the
+/// branch reap here is what strands a `kd/…` branch with no worktree.
+///
+/// A record still in place is the opposite case — git refused (a locked
+/// worktree, submodules, a tree dirtier than our own check saw) without
+/// touching a file, and the caller's worktree is still whole.
+fn husk_left_behind(repo_path: &Path, path: &Path, was_registered: bool) -> bool {
+    was_registered && !is_registered_worktree(repo_path, path)
+}
+
+/// Whether `path` is currently one of `repo_path`'s registered worktrees.
+///
+/// Compared canonically: git reports the realpath, while our path comes from
+/// the webview and may spell the same directory differently. A listing that
+/// cannot be read answers "no" — for both callers that is the answer that
+/// keeps a directory rather than deleting one.
+fn is_registered_worktree(repo_path: &Path, path: &Path) -> bool {
+    let Ok(target) = std::fs::canonicalize(path) else {
+        return false;
+    };
+    match worktree::list(repo_path) {
+        Ok(list) => list
+            .iter()
+            .any(|wt| std::fs::canonicalize(&wt.path).is_ok_and(|known| known == target)),
+        Err(e) => {
+            log::warn!(
+                "worktree: can't list the worktrees of {} ({e}); treating {} as unregistered",
+                repo_path.display(),
+                path.display()
+            );
+            false
+        }
+    }
+}
+
+/// Delete what git left behind at `path`.
+///
+/// Safe only where [`husk_left_behind`] holds: git deregistered this directory
+/// and already deleted part of it, so finishing is what the caller asked for
+/// and a surviving husk is the worse outcome — the pane's directory can never
+/// be reused and no git command still reaches it. Reported, not thrown, so the
+/// registration and branch cleanup still run.
+fn clear_husk(path: &Path) -> Result<(), String> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!(
+            "leftover directory '{}' could not be removed: {e}",
+            path.display()
+        )),
     }
 }
 
@@ -1376,5 +1453,97 @@ mod tests {
         assert!(wt.join("wip.txt").exists(), "work was destroyed");
         let _ = std::fs::remove_dir_all(&repo);
         let _ = std::fs::remove_dir_all(&wt);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clear_husk_deletes_the_leftovers_and_tolerates_a_gone_path() {
+        let husk = std::env::temp_dir().join(format!("keepdeck-husk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&husk);
+        // The shape a half-finished removal leaves: our own arming symlink, a
+        // nested directory, and git's `.git` pointer file.
+        std::fs::create_dir_all(husk.join(".agents")).unwrap();
+        std::os::unix::fs::symlink("/tmp", husk.join(".agents").join("skills")).unwrap();
+        std::fs::write(husk.join(".git"), "gitdir: /nowhere").unwrap();
+
+        clear_husk(&husk).expect("a leftover we can delete must be deleted");
+        assert!(!husk.exists());
+        clear_husk(&husk).expect("already gone is not a failure");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_reaps_registration_and_branch_when_git_abandons_a_husk() {
+        // THE regression: git deletes the administrative record even when the
+        // directory delete fails, so bailing out here left an orphan `kd/…`
+        // branch and a husk no `git worktree remove` could ever address.
+        let (repo, wt, branch) = repo_with_worktree("husk");
+        // An unwritable subdirectory makes git's recursive delete fail for
+        // real, without depending on the timing that produced it in the wild
+        // (staged-skills arming re-creating `.agents` mid-delete).
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::create_dir_all(wt.join("locked")).unwrap();
+        std::fs::write(wt.join("locked").join("f"), "x").unwrap();
+        std::fs::set_permissions(wt.join("locked"), std::fs::Permissions::from_mode(0o555))
+            .unwrap();
+
+        let result = remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: true,
+                branch: Some(branch.clone()),
+                reap_created_branches: false,
+            },
+        );
+
+        // The undeletable directory is still reported — truthfully, and last.
+        let message = result.expect_err("an unremovable leftover must be reported");
+        assert!(
+            message.contains("leftover directory"),
+            "leftover not reported: {message}"
+        );
+        // ...but the cleanup it used to abort now runs to the end.
+        let list = git_out(&repo, &["worktree", "list", "--porcelain"]);
+        assert!(!list.contains("-wt"), "registration leaked:\n{list}");
+        let branches = git_out(&repo, &["branch", "--list", &branch]);
+        assert!(branches.trim().is_empty(), "branch leaked: {branches}");
+
+        let _ = std::fs::set_permissions(wt.join("locked"), std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn remove_keeps_the_worktree_when_git_refuses_outright() {
+        // The other side of the husk rule: a git that refuses BEFORE touching
+        // anything (here, a locked worktree — that needs `--force` twice) must
+        // abort the whole removal. Deleting the directory ourselves or reaping
+        // the branch would destroy a worktree git deliberately spared.
+        let (repo, wt, branch) = repo_with_worktree("refused");
+        git(&repo, &["worktree", "lock", wt.to_str().unwrap()]);
+
+        let result = remove_worktree(
+            &RepoLocks::default(),
+            RemoveSpec {
+                repo: repo.to_string_lossy().into_owned(),
+                path: wt.to_string_lossy().into_owned(),
+                force: true,
+                branch: Some(branch.clone()),
+                reap_created_branches: false,
+            },
+        );
+
+        assert!(result.is_err(), "a refused removal must surface");
+        assert!(wt.join(".git").exists(), "the worktree was destroyed");
+        let list = git_out(&repo, &["worktree", "list", "--porcelain"]);
+        assert!(list.contains("-wt"), "registration was dropped:\n{list}");
+        let branches = git_out(&repo, &["branch", "--list", &branch]);
+        assert!(!branches.trim().is_empty(), "branch was reaped: {branches}");
+
+        git(&repo, &["worktree", "unlock", wt.to_str().unwrap()]);
+        let _ = std::fs::remove_dir_all(&wt);
+        let _ = std::fs::remove_dir_all(&repo);
     }
 }
