@@ -1,3 +1,4 @@
+import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { ChangeRow } from "./domain/status";
 import type { HistoryScope } from "./domain/history";
 
@@ -25,10 +26,16 @@ import type { HistoryScope } from "./domain/history";
 
 /** The two open gestures. History carries no row: a scope opens BEFORE any
  * file is picked and the peek's rail seeds the first one, which is why the
- * consumer — not the request — owns the current row. */
-export type PeekRequest =
-  | { repo: string; kind: "worktree"; row: ChangeRow }
-  | { repo: string; kind: "history"; scope: HistoryScope };
+ * consumer — not the request — owns the current row.
+ *
+ * `workspace` is the one the gesture was made in. The peek outlives the dock
+ * but must not outlive its subject: without this the diff had no way to know
+ * the user had walked away to another workspace, and stayed on screen over
+ * it. */
+export type PeekRequest = { repo: string; workspace: WorkspaceRef } & (
+  | { kind: "worktree"; row: ChangeRow }
+  | { kind: "history"; scope: HistoryScope }
+);
 
 let pending: PeekRequest | null = null;
 const listeners = new Set<() => void>();

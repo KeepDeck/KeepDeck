@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import { DiffPeek } from "./DiffPeek";
 import { useGitStatus } from "./useGitStatus";
 import { groupEntries, type ChangeRow } from "../domain/status";
 import type { HistoryScope } from "../domain/history";
+import { getRuntime } from "../runtime";
 import { subscribePeekRequests, takePeekRequest } from "../peekRequests";
 
 /**
@@ -13,14 +15,10 @@ import { subscribePeekRequests, takePeekRequest } from "../peekRequests";
  * `repo` is the peek's OWN — captured when the diff was opened, not read from
  * the tab. The two are independent on purpose: see the overlay below.
  */
-type OpenDiff =
-  | { repo: string; kind: "worktree"; row: ChangeRow }
-  | {
-      repo: string;
-      kind: "history";
-      row: ChangeRow | null;
-      scope: HistoryScope;
-    };
+type OpenDiff = { repo: string; workspace: WorkspaceRef } & (
+  | { kind: "worktree"; row: ChangeRow }
+  | { kind: "history"; row: ChangeRow | null; scope: HistoryScope }
+);
 
 /**
  * The plugin's resident diff viewer — the single consumer of the tab's peek
@@ -41,11 +39,12 @@ export function GitDiffOverlay() {
     const consume = () => {
       const next = takePeekRequest();
       if (!next) return;
+      const { repo, workspace } = next;
       // A History scope opens with no file yet; a Changes row opens on itself.
       setDiff(
         next.kind === "worktree"
-          ? { repo: next.repo, kind: "worktree", row: next.row }
-          : { repo: next.repo, kind: "history", row: null, scope: next.scope },
+          ? { repo, workspace, kind: "worktree", row: next.row }
+          : { repo, workspace, kind: "history", row: null, scope: next.scope },
       );
     };
     // A request may predate this mount; the take-based consume is naturally
@@ -53,6 +52,31 @@ export function GitDiffOverlay() {
     // nothing.
     consume();
     return subscribePeekRequests(consume);
+  }, []);
+
+  // The diff outlives the dock, but not its subject. Being resident, this
+  // overlay is never remounted by a workspace change the way the dock panel
+  // is — so without these it kept a full-window diff of the workspace the
+  // user just left on screen over the one they went to, with nothing on it
+  // naming where it came from.
+  useEffect(() => {
+    const { events } = getRuntime();
+    const gone = (workspace: WorkspaceRef) =>
+      setDiff((prev) =>
+        prev && prev.workspace.instance === workspace.instance ? null : prev,
+      );
+    // Fires for the ACTIVE workspace, so a different one named here means the
+    // user moved: the open diff belongs to the workspace they left.
+    const selected = events.onPaneSelected(({ workspace }) =>
+      setDiff((prev) =>
+        prev && prev.workspace.instance !== workspace.instance ? null : prev,
+      ),
+    );
+    const closed = events.onWorkspaceClosed(({ workspace }) => gone(workspace));
+    return () => {
+      selected.dispose();
+      closed.dispose();
+    };
   }, []);
 
   if (!diff) return null;

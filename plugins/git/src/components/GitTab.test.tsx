@@ -91,6 +91,13 @@ function makeGit() {
 
 function makeCtx(git: ReturnType<typeof makeGit>): PluginContext {
   return {
+    // The resident diff overlay subscribes to these to drop a diff whose
+    // workspace the user has left; nothing here fires them.
+    events: {
+      onPaneSelected: () => ({ dispose: vi.fn() }),
+      onWorkspaceClosed: () => ({ dispose: vi.fn() }),
+      onDeckChanged: () => ({ dispose: vi.fn() }),
+    },
     services: {
       git: {
         status: git.status,
@@ -264,6 +271,8 @@ describe("GitTab", () => {
     // was opened on.
     expect(takePeekRequest()).toEqual({
       repo: "/repo",
+      // The workspace rides along: the peek must not outlive it.
+      workspace: { id: workspace.id, instance: workspace.instance },
       kind: "worktree",
       row: expect.objectContaining({ path: "src/app.ts" }),
     });

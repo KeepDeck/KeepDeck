@@ -2,7 +2,12 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GitStatus, PluginContext, WorkspaceSnapshot } from "@keepdeck/plugin-api";
+import type {
+  GitStatus,
+  PluginContext,
+  WorkspaceRef,
+  WorkspaceSnapshot,
+} from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
 import { requestPeek, takePeekRequest } from "../peekRequests";
 import { GitDiffOverlay } from "./GitDiffOverlay";
@@ -45,8 +50,39 @@ const row = (path: string): ChangeRow => ({
   kind: "unstaged",
 });
 
+/** Deck events the resident overlay listens to, with a handle to fire them
+ * the way the host bridge does. */
+const deckEvents = {
+  paneSelected: new Set<(e: { workspace: WorkspaceRef }) => void>(),
+  workspaceClosed: new Set<(e: { workspace: WorkspaceRef }) => void>(),
+  reset() {
+    this.paneSelected.clear();
+    this.workspaceClosed.clear();
+  },
+  fireActive(workspace: WorkspaceRef) {
+    for (const cb of [...this.paneSelected]) cb({ workspace });
+  },
+  fireClosed(workspace: WorkspaceRef) {
+    for (const cb of [...this.workspaceClosed]) cb({ workspace });
+  },
+};
+
+const WS: WorkspaceRef = { id: "ws-1", instance: "instance-1" };
+const OTHER_WS: WorkspaceRef = { id: "ws-2", instance: "instance-2" };
+
 function makeCtx(over: Partial<GitStatus> | null = null): PluginContext {
   return {
+    events: {
+      onPaneSelected: (cb: (e: { workspace: WorkspaceRef }) => void) => {
+        deckEvents.paneSelected.add(cb);
+        return { dispose: () => deckEvents.paneSelected.delete(cb) };
+      },
+      onWorkspaceClosed: (cb: (e: { workspace: WorkspaceRef }) => void) => {
+        deckEvents.workspaceClosed.add(cb);
+        return { dispose: () => deckEvents.workspaceClosed.delete(cb) };
+      },
+      onDeckChanged: () => ({ dispose: vi.fn() }),
+    },
     services: {
       git: {
         status: vi.fn(async () => ({ ...status(["src/app.ts"]), ...over })),
@@ -99,6 +135,7 @@ afterEach(async () => {
   overlayHost.remove();
   setRuntime(null);
   takePeekRequest();
+  deckEvents.reset();
 });
 
 async function mountOverlay() {
@@ -131,7 +168,12 @@ describe("GitDiffOverlay", () => {
 
     // No GitTab is mounted: this is the dock closed, or another tab showing.
     await act(async () => {
-      requestPeek({ repo: "/repo", kind: "worktree", row: row("src/app.ts") });
+      requestPeek({
+        repo: "/repo",
+        workspace: WS,
+        kind: "worktree",
+        row: row("src/app.ts"),
+      });
     });
 
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
@@ -171,6 +213,7 @@ describe("GitDiffOverlay", () => {
     await act(async () => {
       requestPeek({
         repo: "/repo",
+        workspace: WS,
         kind: "history",
         scope: { kind: "commit", sha: "abc1234def", subject: "Add a thing" },
       });
@@ -184,11 +227,78 @@ describe("GitDiffOverlay", () => {
     expect(peek?.textContent).not.toContain("goodbye");
   });
 
+  it("closes the diff when the user moves to another workspace", async () => {
+    setRuntime(makeCtx());
+    await mountOverlay();
+    await act(async () => {
+      requestPeek({
+        repo: "/repo",
+        workspace: WS,
+        kind: "worktree",
+        row: row("src/app.ts"),
+      });
+    });
+    expect(overlayHost.querySelector(".peek")).toBeTruthy();
+
+    // ⌘N / ⇧⌘W / a workspace command: the dock panel is remounted by its
+    // key, but this overlay is resident and would otherwise keep covering
+    // the new workspace with the old one's diff.
+    await act(async () => deckEvents.fireActive(OTHER_WS));
+
+    expect(overlayHost.querySelector(".peek")).toBeNull();
+  });
+
+  it("keeps the diff when the highlight moves WITHIN its own workspace", async () => {
+    setRuntime(makeCtx());
+    await mountOverlay();
+    await act(async () => {
+      requestPeek({
+        repo: "/repo",
+        workspace: WS,
+        kind: "worktree",
+        row: row("src/app.ts"),
+      });
+    });
+
+    // The same event carries an ordinary pane selection — clicking a pane
+    // must not shut a diff the user is reading.
+    await act(async () => deckEvents.fireActive(WS));
+
+    expect(overlayHost.querySelector(".peek")).toBeTruthy();
+    expect(overlayHost.textContent).toContain("goodbye");
+  });
+
+  it("closes the diff when its own workspace is closed", async () => {
+    setRuntime(makeCtx());
+    await mountOverlay();
+    await act(async () => {
+      requestPeek({
+        repo: "/repo",
+        workspace: WS,
+        kind: "worktree",
+        row: row("src/app.ts"),
+      });
+    });
+    expect(overlayHost.querySelector(".peek")).toBeTruthy();
+
+    // Closing another workspace is none of this diff's business.
+    await act(async () => deckEvents.fireClosed(OTHER_WS));
+    expect(overlayHost.querySelector(".peek")).toBeTruthy();
+
+    await act(async () => deckEvents.fireClosed(WS));
+    expect(overlayHost.querySelector(".peek")).toBeNull();
+  });
+
   it("closing the diff clears it, leaving nothing behind", async () => {
     setRuntime(makeCtx());
     await mountOverlay();
     await act(async () => {
-      requestPeek({ repo: "/repo", kind: "worktree", row: row("src/app.ts") });
+      requestPeek({
+        repo: "/repo",
+        workspace: WS,
+        kind: "worktree",
+        row: row("src/app.ts"),
+      });
     });
     expect(overlayHost.querySelector(".peek")).toBeTruthy();
 

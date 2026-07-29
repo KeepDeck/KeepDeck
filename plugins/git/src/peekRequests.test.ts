@@ -14,8 +14,11 @@ const row = (path: string): ChangeRow => ({
   kind: "unstaged",
 });
 
+const WS = { id: "ws-1", instance: "instance-1" };
+
 const worktree = (path: string): PeekRequest => ({
   repo: "/repo",
+  workspace: WS,
   kind: "worktree",
   row: row(path),
 });

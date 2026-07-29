@@ -74,8 +74,11 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
   ];
 
   const groups = status ? groupEntries(status.entries) : null;
+  // The workspace rides along so the peek can outlive the dock without
+  // outliving the workspace it was opened in.
+  const subject = { id: workspace.id, instance: workspace.instance };
   const openRow = (row: ChangeRow) =>
-    requestPeek({ repo: target, kind: "worktree", row });
+    requestPeek({ repo: target, workspace: subject, kind: "worktree", row });
 
   return (
     <div className="git">
@@ -140,7 +143,12 @@ export function GitTab({ workspace, selectedPaneId }: DockTabProps) {
             repo={target}
             version={version}
             onOpen={(scope) =>
-              requestPeek({ repo: target, kind: "history", scope })
+              requestPeek({
+                repo: target,
+                workspace: subject,
+                kind: "history",
+                scope,
+              })
             }
           />
         ) : (
