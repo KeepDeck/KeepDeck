@@ -70,6 +70,10 @@ import {
   pathOccupancy,
   type SpawnConfig,
 } from "./domain/deck";
+import {
+  subscribeWindowCovers,
+  windowCovered,
+} from "@keepdeck/ui-kit/windowCover";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import "./styles/index.css";
@@ -240,6 +244,14 @@ function App() {
     suspendAgent: orchestrator.suspend,
     closeAgents: orchestrator.close,
   });
+  // A plugin's full-window peek (a file preview, a diff) is host chrome the
+  // host does not own: it is rendered inside a resident overlay, so nothing
+  // here would otherwise know it is there. It declares itself instead
+  // (ui-kit's window-cover register), and joins the rules below as one more
+  // term rather than as a second, parallel notion of "something is in front".
+  // Declared up here for the same reason `canOpenDialog` is — so the reader
+  // never has to check whether a use below beat its declaration.
+  const peekOpen = useSyncExternalStore(subscribeWindowCovers, windowCovered);
   // Transactional dialogs — while one is up, nothing else may open over it.
   // One list, one rule: a new dialog joins by being added here.
   const transactions = [
@@ -266,7 +278,7 @@ function App() {
   // and on first run it is the only screen there is, so blocking here would
   // make Settings unreachable.
   const canOpenDialog =
-    !dialogOpen && !settingsOpen && !statsOpen && !skillsOpen;
+    !dialogOpen && !settingsOpen && !statsOpen && !skillsOpen && !peekOpen;
   // The command registry's core set — spawn/focus/close/switch/write behind
   // one executor, for every invoker (voice, MCP, a future palette). Closes go
   // through the same confirm flow as ⌘W.
@@ -339,7 +351,12 @@ function App() {
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
   const modalOpen =
-    showForm || dialogOpen || settingsOpen || statsOpen || skillsOpen;
+    showForm ||
+    dialogOpen ||
+    settingsOpen ||
+    statsOpen ||
+    skillsOpen ||
+    peekOpen;
   // The single "can add an agent" rule — a workspace is active, room under the
   // cap, and nothing modal is up. Both the ⌘T hotkey and the + Agent button
   // gate on this so they can't diverge (the button used to ignore modals).
