@@ -1,12 +1,5 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  type ReactNode,
-  type Ref,
-} from "react";
+import { useLayoutEffect, useRef, type ReactNode, type Ref } from "react";
 import { dropBlocker } from "./dropBlocker.ts";
-import { coverWindow } from "./windowCover.ts";
 
 /**
  * The wide "peek" overlay — a dock plugin's detail surface. A 340px rail can't
@@ -97,12 +90,6 @@ export function Peek({
   // which is a race, not a behavior. Layout effect, so it lands before paint:
   // the old content is still mounted here, and the reader never sees the
   // position move.
-  // Say that the window is covered for as long as this is up. The host's
-  // "is anything in front of the deck?" rules — which hotkeys may fire, and
-  // whether a pane is visible enough to skip its notification banner — cannot
-  // see a surface a plugin opened inside a resident overlay.
-  useEffect(() => coverWindow(), []);
-
   useLayoutEffect(() => {
     const body = bodyRef.current;
     if (!body) return;

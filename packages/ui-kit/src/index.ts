@@ -24,7 +24,6 @@ export { Dropdown, type DropdownOption } from "./Dropdown.tsx";
 export { Combobox, fuzzyFilter } from "./Combobox.tsx";
 export { DROP_BLOCKER_ATTR, dropBlocker } from "./dropBlocker.ts";
 export { Peek, type PeekProps } from "./Peek.tsx";
-export { coverWindow, subscribeWindowCovers, windowCovered } from "./windowCover.ts";
 export { noAutoCorrect } from "./inputProps.ts";
 export { shortPath } from "./paths.ts";
 export * from "./icons.tsx";
