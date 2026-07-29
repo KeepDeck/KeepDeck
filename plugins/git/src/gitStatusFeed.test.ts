@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitStatus, PluginContext } from "@keepdeck/plugin-api";
 import { setRuntime } from "./runtime";
-import {
-  closeAllGitStatusFeeds,
-  gitStatusSnapshot,
-  subscribeGitStatus,
-} from "./gitStatusFeed";
+import { gitStatusSnapshot, subscribeGitStatus } from "./gitStatusFeed";
 
 const clean = (): GitStatus => ({
   branch: "main",
@@ -63,15 +59,27 @@ function makeCtx() {
 }
 
 let git: ReturnType<typeof makeCtx>;
+/** Every subscription this test made, so the file cleans up after itself —
+ * the module exposes no reset, because in production a feed is closed only by
+ * its last subscriber leaving. */
+let open: Array<() => void>;
+
+/** Subscribe and remember the unsubscribe. */
+function sub(repo: string, listener: () => void = vi.fn()): () => void {
+  const stop = subscribeGitStatus(repo, listener);
+  open.push(stop);
+  return stop;
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
+  open = [];
   git = makeCtx();
   setRuntime(git.ctx);
 });
 
 afterEach(() => {
-  closeAllGitStatusFeeds();
+  for (const stop of open.splice(0)) stop();
   setRuntime(null);
   vi.useRealTimers();
 });
@@ -83,7 +91,7 @@ async function settle(ms = 0) {
 
 describe("gitStatusFeed", () => {
   it("opens one watch and one read for the first subscriber", async () => {
-    subscribeGitStatus("/repo", vi.fn());
+    sub("/repo");
     await settle();
 
     expect(git.status).toHaveBeenCalledTimes(1);
@@ -93,13 +101,13 @@ describe("gitStatusFeed", () => {
   });
 
   it("joins a second subscriber to the SETTLED snapshot — no second read, no cold version", async () => {
-    subscribeGitStatus("/repo", vi.fn());
+    sub("/repo");
     await settle();
     const settledVersion = gitStatusSnapshot("/repo").version;
 
     // The diff peek opening over the tab: same repo, already warm.
     const second = vi.fn();
-    subscribeGitStatus("/repo", second);
+    sub("/repo", second);
     await settle();
 
     // This is the regression: a private feed per mount read again and ticked
@@ -111,8 +119,8 @@ describe("gitStatusFeed", () => {
   });
 
   it("keeps the feed alive while any subscriber remains, and disposes at the last", async () => {
-    const stopTab = subscribeGitStatus("/repo", vi.fn());
-    const stopPeek = subscribeGitStatus("/repo", vi.fn());
+    const stopTab = sub("/repo");
+    const stopPeek = sub("/repo");
     await settle();
 
     // The dock closes: the tab goes, the peek stays.
@@ -129,8 +137,8 @@ describe("gitStatusFeed", () => {
   });
 
   it("separate repos keep separate feeds", async () => {
-    subscribeGitStatus("/one", vi.fn());
-    subscribeGitStatus("/two", vi.fn());
+    sub("/one");
+    sub("/two");
     await settle();
 
     expect(git.status).toHaveBeenCalledTimes(2);
@@ -140,7 +148,7 @@ describe("gitStatusFeed", () => {
 
   it("publishes a failure AND bumps the version, so readers re-read", async () => {
     const notified = vi.fn();
-    subscribeGitStatus("/repo", notified);
+    sub("/repo", notified);
     await settle();
     const before = gitStatusSnapshot("/repo").version;
 
@@ -160,7 +168,7 @@ describe("gitStatusFeed", () => {
 
   it("still serves reads when the watch is refused", async () => {
     git.refuseWatchWith("git watch not permitted for /repo");
-    subscribeGitStatus("/repo", vi.fn());
+    sub("/repo");
     await settle();
 
     // Not live, but not blank either: the read still happened.
@@ -170,7 +178,7 @@ describe("gitStatusFeed", () => {
 
   it("retries a refused watch on the next subscriber, and re-reads with it", async () => {
     git.refuseWatchWith("git watch not permitted for /repo");
-    const stop = subscribeGitStatus("/repo", vi.fn());
+    const stop = sub("/repo");
     await settle();
     expect(git.status).toHaveBeenCalledTimes(1);
 
@@ -178,7 +186,7 @@ describe("gitStatusFeed", () => {
     // refresh button by design — so a new subscriber has to be the retry.
     // Without it, one refused watch froze this repo for the session.
     git.refuseWatchWith(null);
-    subscribeGitStatus("/repo", vi.fn());
+    sub("/repo");
     await settle();
 
     expect(git.status).toHaveBeenCalledTimes(2);
@@ -190,18 +198,18 @@ describe("gitStatusFeed", () => {
   });
 
   it("does NOT re-read for a second subscriber when the feed IS live", async () => {
-    subscribeGitStatus("/repo", vi.fn());
+    sub("/repo");
     await settle();
     expect(git.status).toHaveBeenCalledTimes(1);
 
     // The retry must not undo the whole point of sharing the feed.
-    subscribeGitStatus("/repo", vi.fn());
+    sub("/repo");
     await settle();
     expect(git.status).toHaveBeenCalledTimes(1);
   });
 
   it("debounces a burst of watch events into one re-read", async () => {
-    subscribeGitStatus("/repo", vi.fn());
+    sub("/repo");
     await settle();
     expect(git.status).toHaveBeenCalledTimes(1);
 
@@ -216,7 +224,7 @@ describe("gitStatusFeed", () => {
   });
 
   it("survives a runtime that is gone — no unhandled rejection, no latched read", async () => {
-    subscribeGitStatus("/repo", vi.fn());
+    sub("/repo");
     await settle();
 
     // Teardown order: deactivate nulls the runtime before React unmounts the

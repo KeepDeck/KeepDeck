@@ -3,7 +3,6 @@
 import "./styles.css";
 import type { KeepDeckPlugin } from "@keepdeck/plugin-api";
 import { setRuntime } from "./runtime";
-import { closeAllGitStatusFeeds } from "./gitStatusFeed";
 import { takePeekRequest } from "./peekRequests";
 import { GitTab } from "./components/GitTab";
 import { GitDiffOverlay } from "./components/GitDiffOverlay";
@@ -24,10 +23,15 @@ const deactivate = () => {
   // Drain the one-slot bus: a request parked in this lifetime must never
   // replay into the NEXT activation's overlay as a stale peek.
   takePeekRequest();
-  // A feed holds a watch subscription and a pending debounce timer, both
-  // belonging to the activation that opened them.
-  closeAllGitStatusFeeds();
   setRuntime(null);
+  // Status feeds are deliberately NOT closed here. A feed belongs to its
+  // subscribers, and they are still mounted at this point — the host runs
+  // `deactivate` before it disposes the contributions that unmount them. It
+  // closed feeds out from under live surfaces, which rewound their `version`
+  // to the unknown-repo default and re-ran every read keyed on it against a
+  // runtime this line has just nulled. The last surface to unmount closes
+  // the feed and disposes its watch, which is the same teardown by a route
+  // that cannot run early.
 };
 
 export default { activate, deactivate } satisfies KeepDeckPlugin;

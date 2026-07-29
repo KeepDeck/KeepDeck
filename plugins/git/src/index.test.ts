@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readManifest } from "@keepdeck/plugin-api";
 import type { PluginContext } from "@keepdeck/plugin-api";
 import { requestPeek, takePeekRequest } from "./peekRequests";
+import { gitStatusSnapshot, subscribeGitStatus } from "./gitStatusFeed";
 import plugin from "./index";
 
 /**
@@ -35,7 +36,21 @@ function declaredIds(kind: "dockTabs" | "overlays"): string[] {
 function activateAndRecord() {
   const registered: Record<string, string[]> = { dockTabs: [], overlays: [] };
   const ctx = {
-    services: { git: {}, fs: {} },
+    services: {
+      git: {
+        status: vi.fn(async (repo: string) => ({
+          branch: "main",
+          detached: false,
+          oid: repo,
+          upstream: null,
+          ahead: null,
+          behind: null,
+          entries: [],
+        })),
+        watch: vi.fn(() => ({ dispose: vi.fn() })),
+      },
+      fs: {},
+    },
     events: {
       onPaneSelected: () => ({ dispose: vi.fn() }),
       onWorkspaceClosed: () => ({ dispose: vi.fn() }),
@@ -90,6 +105,26 @@ describe("git plugin manifest", () => {
 });
 
 describe("git plugin deactivate", () => {
+  it("leaves a subscribed status feed standing — the host unmounts its surfaces after this", async () => {
+    activateAndRecord();
+    const stop = subscribeGitStatus("/repo", vi.fn());
+    await Promise.resolve();
+    await Promise.resolve();
+    const before = gitStatusSnapshot("/repo");
+    expect(before.status?.oid).toBe("/repo");
+
+    plugin.deactivate?.();
+
+    // Closing here reached past a still-mounted surface: the host runs
+    // `deactivate` BEFORE disposing the contributions that unmount them, so a
+    // closed feed answered the unknown-repo default and rewound `version`,
+    // re-running every read keyed on it against a runtime just set to null.
+    expect(gitStatusSnapshot("/repo")).toBe(before);
+    stop();
+    // The last subscriber leaving is what disposes it, in production too.
+    expect(gitStatusSnapshot("/repo").version).toBe(0);
+  });
+
   it("drains a parked request — the next activation never replays a stale peek", () => {
     activateAndRecord();
     requestPeek({

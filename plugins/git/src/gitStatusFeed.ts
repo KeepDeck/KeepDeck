@@ -144,6 +144,12 @@ function close(repo: string, feed: Feed): void {
   feed.watcher = null;
   if (feed.timer) clearTimeout(feed.timer);
   feed.timer = null;
+  // A read already in flight cannot be cancelled — `publish` drops its result
+  // because the feed is no longer registered. Clearing these stops the dead
+  // object carrying "a read is running, and another is owed" for ever, which
+  // matters only if something holds a stale handle, but costs nothing.
+  feed.inflight = false;
+  feed.dirty = false;
 }
 
 /** Subscribe to `repo`'s status; returns the unsubscribe. The first
@@ -173,11 +179,4 @@ export function subscribeGitStatus(repo: string, listener: () => void): () => vo
  * can back `useSyncExternalStore` directly. */
 export function gitStatusSnapshot(repo: string): GitStatusSnapshot {
   return feeds.get(repo)?.snapshot ?? EMPTY;
-}
-
-/** Drop every feed. The plugin's `deactivate` calls this: a feed holds a
- * watch subscription and a pending timer, and both belong to the activation
- * that opened them. */
-export function closeAllGitStatusFeeds(): void {
-  for (const [repo, feed] of [...feeds]) close(repo, feed);
 }

@@ -11,7 +11,6 @@ import type {
 } from "@keepdeck/plugin-api";
 import { setRuntime } from "../runtime";
 import { takePeekRequest } from "../peekRequests";
-import { closeAllGitStatusFeeds } from "../gitStatusFeed";
 import { GitTab } from "./GitTab";
 import { GitDiffOverlay } from "./GitDiffOverlay";
 
@@ -155,11 +154,11 @@ export function mountGitHarness(): GitHarness {
   });
 
   afterEach(async () => {
+    // Unmounting is what closes the status feeds: the last surface to
+    // unsubscribe disposes the repo's feed and its watch. Nothing else has to
+    // reach into that module state, here or in production.
     await act(async () => root.unmount());
     host.remove();
-    // Feeds are module state keyed by repo; a live one would carry a settled
-    // status into the next test and hide a cold-start regression.
-    closeAllGitStatusFeeds();
     setRuntime(null);
     // A test that opens a diff without a consumer leaves the request parked
     // in the module's slot; drain it so it can't open a peek in the next one.
