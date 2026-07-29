@@ -710,6 +710,16 @@ describe("partitionPanes", () => {
 
 describe("paneOnScreen", () => {
   const panes = seed(3); // pane-1..3
+  const withSuspended = [
+    {
+      ...panes[0],
+      idle: {
+        reason: "suspended" as const,
+        at: "2026-07-29T10:00:00.000Z",
+      },
+    },
+    ...panes.slice(1),
+  ];
 
   it("grid, plainly tiled: every live pane is on screen", () => {
     expect(paneOnScreen(panes, undefined, "grid", true, "pane-2")).toBe(true);
@@ -751,6 +761,44 @@ describe("paneOnScreen", () => {
     // DeckStage's default: view?.select ?? panes[0]
     expect(paneOnScreen(panes, undefined, "list", false, "pane-1")).toBe(true);
     expect(paneOnScreen(panes, undefined, "list", false, "pane-2")).toBe(false);
+  });
+
+  it("tray placement hides suspended panes in grid and list without changing their state", () => {
+    expect(
+      paneOnScreen(withSuspended, undefined, "grid", true, "pane-1", true),
+    ).toBe(false);
+    expect(
+      paneOnScreen(withSuspended, undefined, "grid", true, "pane-2", true),
+    ).toBe(true);
+    // A selected suspended list row is skipped and the first live sibling
+    // becomes the expanded body, matching DeckStage.
+    expect(
+      paneOnScreen(
+        withSuspended,
+        { select: "pane-1" },
+        "list",
+        false,
+        "pane-1",
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      paneOnScreen(
+        withSuspended,
+        { select: "pane-1" },
+        "list",
+        false,
+        "pane-2",
+        true,
+      ),
+    ).toBe(true);
+    expect(withSuspended[0].idle?.reason).toBe("suspended");
+  });
+
+  it("pane placement preserves the existing suspended-card visibility", () => {
+    expect(
+      paneOnScreen(withSuspended, undefined, "grid", true, "pane-1", false),
+    ).toBe(true);
   });
 
   it("an unknown pane is never on screen", () => {

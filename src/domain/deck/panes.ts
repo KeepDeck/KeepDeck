@@ -344,6 +344,14 @@ export function paneIdleIsDurable(idle: PaneIdle | undefined): boolean {
   return idle?.reason === "suspended";
 }
 
+/** Whether this pane was explicitly suspended by the user. Kept as a pane
+ * question (rather than repeated `idle?.reason` checks) because rendering,
+ * hotkey targeting, and notification visibility must all agree when the
+ * suspended-agent placement is Tray. */
+export function paneIsSuspended(pane: Pane): boolean {
+  return pane.idle?.reason === "suspended";
+}
+
 /** WHO asked for this pane to come up, or null when it isn't coming up at
  *  all. The sweep's one reader: taking the origin from an accessor rather
  *  than re-deriving `pane.idle?.reason === "waking" ? … : "restore"` at each
@@ -446,10 +454,11 @@ type PaneVisibilityView = Pick<
  * workspace's panes, view state and the deck's display mode — the same
  * semantics DeckStage paints (list default-expands the first pane; grid
  * resolves a stale maximize via [`resolveFocus`]; a minimized pane only
- * leaves the grid while the minimize styles are in force). Callers own the
- * "is the workspace active / is a modal covering the deck" half — this
- * answers only the layout's part. Drives banner suppression: a wrong `true`
- * swallows a needed OS banner, a wrong `false` merely shows a redundant one.
+ * leaves the grid while the minimize styles are in force; a suspended pane
+ * leaves either layout while its placement is Tray). Callers own the "is the
+ * workspace active / is a modal covering the deck" half — this answers only
+ * the layout's part. Drives banner suppression: a wrong `true` swallows a
+ * needed OS banner, a wrong `false` merely shows a redundant one.
  */
 export function paneOnScreen(
   panes: Pane[],
@@ -457,13 +466,24 @@ export function paneOnScreen(
   layout: "grid" | "list",
   minimizeOn: boolean,
   paneId: string,
+  suspendedInTray = false,
 ): boolean {
+  const suspendedIds = suspendedInTray
+    ? panes.filter(paneIsSuspended).map((pane) => pane.id)
+    : [];
   if (layout === "list") {
-    return (view?.select ?? panes[0]?.id) === paneId;
+    const { live } = partitionPanes(panes, suspendedIds);
+    const selected = live.some((pane) => pane.id === view?.select)
+      ? view?.select
+      : live[0]?.id;
+    return selected === paneId;
   }
   const { live } = partitionPanes(
     panes,
-    minimizeOn ? view?.minimized : undefined,
+    [
+      ...(minimizeOn ? (view?.minimized ?? []) : []),
+      ...suspendedIds,
+    ],
   );
   if (!live.some((pane) => pane.id === paneId)) return false;
   const focused = resolveFocus(live, view?.focus);

@@ -120,6 +120,7 @@ const props = (overrides: Record<string, unknown> = {}) => ({
   selectedPaneId: null,
   deckLayout: "grid" as const,
   minimizeStyle: "tray" as const,
+  suspendedAgentPlacement: "pane" as const,
   agents: [
     {
       id: "codex",
@@ -517,6 +518,105 @@ describe("DeckStage — suspended agents", () => {
 
     const resume = pane.querySelector<HTMLButtonElement>(".pane__card-action")!;
     act(() => resume.click());
+    expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
+  });
+
+  const openOnlyTrayEntry = () => {
+    act(() =>
+      document
+        .querySelector<HTMLButtonElement>(".minimized-overflow__trigger")!
+        .click(),
+    );
+    return document.querySelector<HTMLButtonElement>(
+      "[role='dialog'] .minimized--chip",
+    )!;
+  };
+
+  it("moves an existing suspended pane to the tray without resuming it", () => {
+    render({
+      workspaces: suspended,
+      suspendedAgentPlacement: "tray",
+    });
+
+    expect(
+      document
+        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
+        .classList.contains("pane--hidden"),
+    ).toBe(true);
+    expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
+      "Suspended · 1",
+    );
+    expect(callbacks.onResumeAgent).not.toHaveBeenCalled();
+
+    const trayEntry = openOnlyTrayEntry();
+    expect(trayEntry.getAttribute("aria-label")).toContain("Resume");
+    act(() => trayEntry.click());
+    expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
+  });
+
+  it("switches placement live without changing the pane's suspended state", () => {
+    render({ workspaces: suspended });
+    expect(
+      document
+        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
+        .classList.contains("pane--hidden"),
+    ).toBe(false);
+
+    render({
+      workspaces: suspended,
+      suspendedAgentPlacement: "tray",
+    });
+    expect(
+      document
+        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
+        .classList.contains("pane--hidden"),
+    ).toBe(true);
+
+    render({ workspaces: suspended });
+    const pane = document.querySelector<HTMLElement>(
+      "[data-pane-id='pane-1']",
+    )!;
+    expect(pane.classList.contains("pane--hidden")).toBe(false);
+    expect(pane.textContent).toContain("Suspended");
+    expect(callbacks.onResumeAgent).not.toHaveBeenCalled();
+  });
+
+  it("uses the tray in list layout too, and expands the live sibling", () => {
+    render({
+      workspaces: suspended,
+      deckLayout: "list",
+      viewByWs: { "ws-1": { select: "pane-1" } },
+      suspendedAgentPlacement: "tray",
+    });
+
+    expect(
+      document
+        .querySelector<HTMLElement>("[data-pane-id='pane-1']")!
+        .classList.contains("pane--hidden"),
+    ).toBe(true);
+    expect(
+      document
+        .querySelector<HTMLElement>("[data-pane-id='pane-2']")!
+        .classList.contains("pane--folded"),
+    ).toBe(false);
+    expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
+      "Suspended · 1",
+    );
+  });
+
+  it("reveals a manually minimized suspended pane before resuming it", () => {
+    render({
+      workspaces: suspended,
+      viewByWs: { "ws-1": { minimized: ["pane-1"] } },
+      suspendedAgentPlacement: "tray",
+    });
+
+    const trayEntry = openOnlyTrayEntry();
+    act(() => trayEntry.click());
+    expect(callbacks.onToggleMinimize).toHaveBeenCalledWith(
+      "ws-1",
+      "pane-1",
+    );
     expect(callbacks.onResumeAgent).toHaveBeenCalledWith("ws-1", "pane-1");
   });
 

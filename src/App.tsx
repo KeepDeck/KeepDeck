@@ -117,6 +117,10 @@ function App() {
   // the screen on what's visible.
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
+  const suspendedAgentPlacement =
+    settings?.suspendedAgentPlacement ??
+    DEFAULT_SETTINGS.suspendedAgentPlacement;
+  const suspendedInTray = suspendedAgentPlacement === "tray";
   // Whether the dock takes a column beside the deck or lies over it ([F6]).
   // Unlike its two neighbours the fallback never applies: nothing reads this
   // before the boot gate below, which does not render the deck until settings
@@ -365,6 +369,7 @@ function App() {
     viewByWs: deck.viewByWs,
     deckLayout,
     minimizeOn,
+    suspendedInTray,
     modalOpen,
     dockCovers,
   });
@@ -374,6 +379,7 @@ function App() {
     viewByWs: deck.viewByWs,
     deckLayout,
     minimizeOn,
+    suspendedInTray,
     modalOpen,
     dockCovers,
   };
@@ -392,6 +398,7 @@ function App() {
         now.deckLayout,
         now.minimizeOn,
         source.paneId,
+        now.suspendedInTray,
       );
     });
     return () => setSourceVisibilityProbe(null);
@@ -419,6 +426,7 @@ function App() {
         deck.viewByWs,
         agents,
         minimizeOn,
+        suspendedInTray,
       );
       if (!target) return;
       if (target.kind === "workspace")
@@ -434,6 +442,7 @@ function App() {
         deck.viewByWs,
         agents,
         minimizeOn,
+        suspendedInTray,
       );
       if (!target) return;
       // No confirmation, unlike ⌘W: suspending is reversible, and a modal per
@@ -458,6 +467,7 @@ function App() {
         deck.activeId,
         deck.viewByWs,
         minimizeOn,
+        suspendedInTray,
       );
       if (target) deck.toggleFocus(target.wsId, target.paneId);
     },
@@ -759,6 +769,7 @@ function App() {
             selectedPaneId={selectedPaneId}
             deckLayout={deckLayout}
             minimizeStyle={minimizeStyle}
+            suspendedAgentPlacement={suspendedAgentPlacement}
             agents={agents}
             agentsReady={!agentsLoading}
             unavailableAgentReasons={unavailableReasons}

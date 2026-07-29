@@ -1,6 +1,11 @@
 import type { AgentInfo } from "../agents";
 import type { Pane } from "./panes";
-import { paneDisplayTitle, partitionPanes, resolveFocus } from "./panes";
+import {
+  paneDisplayTitle,
+  paneIsSuspended,
+  partitionPanes,
+  resolveFocus,
+} from "./panes";
 import type { WorkspaceView } from "./reducer";
 import type { Workspace } from "./workspaces";
 
@@ -10,16 +15,23 @@ export type CloseTarget =
   | { kind: "agent"; wsId: string; paneId: string; label: string }
   | { kind: "workspace"; wsId: string };
 
-/** The workspace's VISIBLE panes: the ones the minimized set doesn't hide.
- * `minimizeOn` says whether that set is in force — it's ignored exactly where
- * rendering ignores it (the list layout, or the "none" minimize style), so the
- * hotkeys and the screen always agree on what's visible. */
+/** The workspace's VISIBLE panes: the ones neither the active minimized set
+ * nor the suspended-agent tray hides. `minimizeOn` says whether the former is
+ * in force; `suspendedInTray` says whether the latter is. Keeping both here
+ * makes hotkeys and DeckStage agree on what's visible. */
 function visiblePanes(
   ws: Workspace,
   view: WorkspaceView | undefined,
   minimizeOn: boolean,
+  suspendedInTray: boolean,
 ): Pane[] {
-  return partitionPanes(ws.panes, minimizeOn ? view?.minimized : undefined).live;
+  const hiddenIds = [
+    ...(minimizeOn ? (view?.minimized ?? []) : []),
+    ...(suspendedInTray
+      ? ws.panes.filter(paneIsSuspended).map((pane) => pane.id)
+      : []),
+  ];
+  return partitionPanes(ws.panes, hiddenIds).live;
 }
 
 /**
@@ -27,10 +39,10 @@ function visiblePanes(
  * pane when nothing is selected (an unambiguous target — a solo pane never
  * even carries the selection highlight, [U2]). Minimized panes are never
  * targeted: a habituated confirm must not close an agent that isn't on
- * screen. An empty workspace has nothing but itself to close, so ⌘W targets
- * the workspace — same as the rail's close button. Null when there is no
- * active workspace or a stale/absent selection leaves several candidates.
- * Pure.
+ * screen, including a suspended pane represented only in the tray. An empty
+ * workspace has nothing but itself to close, so ⌘W targets the workspace —
+ * same as the rail's close button. Null when there is no active workspace or
+ * a stale/absent selection leaves several candidates. Pure.
  */
 export function closeHotkeyTarget(
   workspaces: Workspace[],
@@ -38,11 +50,19 @@ export function closeHotkeyTarget(
   viewByWs: Record<string, WorkspaceView>,
   agents: AgentInfo[],
   minimizeOn: boolean,
+  suspendedInTray = false,
 ): CloseTarget | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   if (ws.panes.length === 0) return { kind: "workspace", wsId: ws.id };
-  const target = paneHotkeyTarget(workspaces, activeId, viewByWs, agents, minimizeOn);
+  const target = paneHotkeyTarget(
+    workspaces,
+    activeId,
+    viewByWs,
+    agents,
+    minimizeOn,
+    suspendedInTray,
+  );
   return target && { kind: "agent", ...target };
 }
 
@@ -55,7 +75,8 @@ export function closeHotkeyTarget(
  * leaves several candidates. Pure.
  *
  * Shared by ⌘W and ⇧⌘W so the two can never disagree about WHICH agent the
- * user meant — only about what to do with it.
+ * user meant — only about what to do with it. Suspended panes placed in the
+ * tray are excluded for the same reason minimized panes are.
  */
 export function paneHotkeyTarget(
   workspaces: Workspace[],
@@ -63,12 +84,24 @@ export function paneHotkeyTarget(
   viewByWs: Record<string, WorkspaceView>,
   agents: AgentInfo[],
   minimizeOn: boolean,
+  suspendedInTray = false,
 ): { wsId: string; paneId: string; label: string } | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   const view = viewByWs[ws.id];
-  const visible = visiblePanes(ws, view, minimizeOn);
+  const visible = visiblePanes(ws, view, minimizeOn, suspendedInTray);
   let pane = visible.find((p) => p.id === view?.select);
+  // Switching the setting to Tray can hide a selected suspended pane without
+  // mutating the durable deck. Resolve that newly-stranded selection the same
+  // way an explicit minimize does, while retaining the old "ambiguous means
+  // null" rule for a genuinely absent/stale selection.
+  if (
+    !pane &&
+    suspendedInTray &&
+    ws.panes.some((p) => p.id === view?.select && paneIsSuspended(p))
+  ) {
+    pane = visible[0];
+  }
   if (!pane && visible.length === 1) pane = visible[0];
   if (!pane) return null;
   return {
@@ -94,14 +127,20 @@ export function maximizeHotkeyTarget(
   activeId: string,
   viewByWs: Record<string, WorkspaceView>,
   minimizeOn: boolean,
+  suspendedInTray = false,
 ): { wsId: string; paneId: string } | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   const view = viewByWs[ws.id];
-  const visible = visiblePanes(ws, view, minimizeOn);
+  const visible = visiblePanes(ws, view, minimizeOn, suspendedInTray);
   if (visible.length <= 1) return null;
   const focused = resolveFocus(visible, view?.focus);
   if (focused) return { wsId: ws.id, paneId: focused };
-  const selected = visible.find((p) => p.id === view?.select);
+  const selected =
+    visible.find((p) => p.id === view?.select) ??
+    (suspendedInTray &&
+    ws.panes.some((p) => p.id === view?.select && paneIsSuspended(p))
+      ? visible[0]
+      : undefined);
   return selected ? { wsId: ws.id, paneId: selected.id } : null;
 }

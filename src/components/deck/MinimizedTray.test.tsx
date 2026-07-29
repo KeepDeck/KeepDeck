@@ -176,6 +176,31 @@ describe("MinimizedTray", () => {
     expect(document.activeElement).toBe(overflow);
   });
 
+  it("uses the supplied state label for a suspended-agent shelf", () => {
+    act(() =>
+      root.render(
+        createElement(MinimizedTray, {
+          entries,
+          active: true,
+          stateLabel: "Suspended",
+        }),
+      ),
+    );
+    expect(document.querySelector(".deck__tray-label")?.textContent).toBe(
+      "Suspended · 4",
+    );
+    const overflow = document.querySelector<HTMLButtonElement>(
+      ".minimized-overflow__trigger",
+    )!;
+    expect(overflow.getAttribute("aria-label")).toBe(
+      "Show 2 more suspended agents",
+    );
+    act(() => overflow.click());
+    expect(
+      document.querySelector("[role='dialog']")?.getAttribute("aria-label"),
+    ).toBe("Suspended agents");
+  });
+
   it("removes overflow when a resize makes every item fit", () => {
     act(() =>
       root.render(createElement(MinimizedTray, { entries, active: true })),
