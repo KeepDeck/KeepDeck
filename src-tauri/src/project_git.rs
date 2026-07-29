@@ -39,11 +39,11 @@
 //! debounce to schedule one fresh status read.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use keepdeck_git::{diff, head, log, repo, status, worktree, worktree_base};
+use keepdeck_git::{diff, head, log, provenance, repo, status, worktree, worktree_base};
 use notify::{Event, EventKind, RecommendedWatcher};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -215,10 +215,10 @@ pub fn project_git_history(
 
     // The fork-point ladder:
     // 1. an EXPLICIT base wins — merge-base against it, as asked;
-    // 2. a managed worktree's symbolic private base ref follows the selected
-    //    local branch and yields a dynamic merge-base after rebases;
-    // 3. its pinned creation SHA is the fallback if that branch disappeared;
-    // 4. legacy/foreign worktrees use the repo's default branch heuristic.
+    // 2. metadata owned by this branch follows its selected local base;
+    // 3. its creation SHA prevents a reset base from moving the fork backward;
+    // 4. metadata-less branches combine validated creation evidence with the
+    //    current default-branch merge-base for upgrade compatibility.
     // A fork AT the tip means "this ref IS the base" — nothing to measure.
     let fork = match base {
         Some(ref base_ref) => repo::merge_base(&repo, base_ref, rev)
@@ -226,12 +226,7 @@ pub fn project_git_history(
             .filter(|fork| fork != &tip),
         None => match managed_worktree_fork(&repo, rev, &tip)? {
             WorktreeFork::Resolved(fork) => fork,
-            WorktreeFork::Unavailable => match repo::default_branch(&repo).unwrap_or(None) {
-                Some(base_ref) => repo::merge_base(&repo, &base_ref, rev)
-                    .map_err(|e| e.to_string())?
-                    .filter(|fork| fork != &tip),
-                None => None,
-            },
+            WorktreeFork::Unavailable => legacy_fork(&repo, rev, &tip)?,
         },
     };
 
@@ -277,16 +272,12 @@ fn managed_worktree_fork(
     rev: &str,
     tip: &str,
 ) -> Result<WorktreeFork, String> {
-    let Some(metadata_path) = metadata_worktree(repo_path, rev)? else {
+    let Some(metadata) = metadata_for_revision(repo_path, rev)? else {
         return Ok(WorktreeFork::Unavailable);
     };
-    let metadata = worktree_base::read(&metadata_path).map_err(|e| e.to_string())?;
-    if metadata.is_empty() {
-        return Ok(WorktreeFork::Unavailable);
-    }
 
     match metadata
-        .fork_point(&metadata_path, rev)
+        .fork_point(repo_path, rev)
         .map_err(|e| e.to_string())?
     {
         Some(fork) if fork == tip => Ok(WorktreeFork::Resolved(None)),
@@ -295,32 +286,97 @@ fn managed_worktree_fork(
     }
 }
 
-fn metadata_worktree(repo_path: &Path, rev: &str) -> Result<Option<PathBuf>, String> {
-    if rev == "HEAD" {
-        return Ok(Some(repo_path.to_path_buf()));
-    }
-
-    let Some(branch_ref) =
-        repo::local_branch_ref(repo_path, rev).map_err(|e| e.to_string())?
-    else {
+fn metadata_for_revision(
+    repo_path: &Path,
+    rev: &str,
+) -> Result<Option<worktree_base::BaseMetadata>, String> {
+    let Some(branch_ref) = revision_branch_ref(repo_path, rev)? else {
         return Ok(None);
     };
     let branch = branch_ref
         .strip_prefix("refs/heads/")
         .unwrap_or(&branch_ref);
-    if repo::current_branch(repo_path)
-        .map_err(|e| e.to_string())?
-        .as_deref()
-        == Some(branch)
-    {
-        return Ok(Some(repo_path.to_path_buf()));
+
+    let mut candidates = Vec::new();
+    for registered in worktree::list(repo_path).map_err(|e| e.to_string())? {
+        let metadata = worktree_base::read_registered(repo_path, &registered.path)
+            .map_err(|e| e.to_string())?;
+        if !metadata.is_empty() {
+            candidates.push((registered.path, metadata));
+        }
     }
 
-    Ok(worktree::list(repo_path)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|candidate| candidate.branch.as_deref() == Some(branch))
-        .map(|candidate| candidate.path))
+    if let Some((_, metadata)) = candidates
+        .iter()
+        .find(|(_, metadata)| {
+            metadata.managed_branch_ref.as_deref() == Some(branch_ref.as_str())
+        })
+    {
+        return Ok(Some(metadata.clone()));
+    }
+
+    for (worktree_path, metadata) in candidates {
+        let created = provenance::created_branches(repo_path, &worktree_path)
+            .map_err(|e| e.to_string())?;
+        if created.iter().any(|created| created == branch) {
+            return Ok(Some(metadata));
+        }
+    }
+    Ok(None)
+}
+
+fn revision_branch_ref(repo_path: &Path, rev: &str) -> Result<Option<String>, String> {
+    if rev == "HEAD" {
+        return repo::current_branch(repo_path)
+            .map(|branch| branch.map(|branch| format!("refs/heads/{branch}")))
+            .map_err(|e| e.to_string());
+    }
+    repo::local_branch_ref(repo_path, rev).map_err(|e| e.to_string())
+}
+
+fn legacy_fork(repo_path: &Path, rev: &str, tip: &str) -> Result<Option<String>, String> {
+    let Some(default_branch) = repo::default_branch(repo_path).map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let Some(default_fork) =
+        repo::merge_base(repo_path, &default_branch, rev).map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+
+    let branch = revision_branch_ref(repo_path, rev)?
+        .and_then(|reference| reference.strip_prefix("refs/heads/").map(str::to_string));
+    let creation = match branch.as_deref() {
+        Some(branch) if branch != default_branch => {
+            repo::branch_created_at(repo_path, branch).map_err(|e| e.to_string())?
+        }
+        _ => None,
+    };
+    let valid_creation = match creation {
+        Some(created)
+            if created != tip
+                && repo::merge_base(repo_path, &created, tip)
+                    .map_err(|e| e.to_string())?
+                    .as_deref()
+                    == Some(created.as_str()) =>
+        {
+            Some(created)
+        }
+        _ => None,
+    };
+
+    let fork = match valid_creation {
+        Some(created)
+            if repo::merge_base(repo_path, &default_fork, &created)
+                .map_err(|e| e.to_string())?
+                .as_deref()
+                == Some(default_fork.as_str()) =>
+        {
+            created
+        }
+        _ => default_fork,
+    };
+    Ok((fork != tip).then_some(fork))
 }
 
 /// A repo's local branches, for the history browser's ref picker.
@@ -848,6 +904,37 @@ mod tests {
     }
 
     #[test]
+    fn legacy_picked_base_uses_validated_creation_evidence() {
+        let repo = init_repo();
+        fake_origin_main_here(&repo);
+
+        git(&repo, &["checkout", "-q", "-b", "base-feat"]);
+        fs::write(repo.join("base.ts"), "b\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "base work"]);
+        let base_tip = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
+        git(&repo, &["checkout", "-q", "-b", "kd/legacy-picked/1"]);
+        fs::write(repo.join("own.ts"), "o\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "own work"]);
+
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("legacy picked-base history");
+
+        assert_eq!(history.fork_sha.as_deref(), Some(base_tip.as_str()));
+        assert_eq!(history.ahead, Some(1));
+
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
     fn fork_comes_from_private_metadata_for_a_picked_base() {
         let repo = init_repo();
         fake_origin_main_here(&repo);
@@ -869,6 +956,7 @@ mod tests {
             &agent,
             &base_tip,
             Some("refs/heads/base-feat"),
+            "refs/heads/kd/picked/1",
         )
         .expect("record private base");
 
@@ -944,7 +1032,108 @@ mod tests {
         );
         assert_eq!(rebased.ahead, Some(1), "only the agent's own commit");
 
+        // A pre-existing branch that merely VISITS the managed worktree keeps
+        // its own default-branch fork. Worktree-private storage scopes the
+        // metadata lifecycle; checkout location does not transfer ownership.
+        git(&repo, &["checkout", "-q", "main"]);
+        fs::write(repo.join("main-visitor.ts"), "m\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "main before visitor"]);
+        let visitor_fork = keepdeck_git::repo::resolve_commit(&repo, "main").unwrap();
+        git(&repo, &["checkout", "-q", "-b", "topic-visitor"]);
+        fs::write(repo.join("visitor.ts"), "v\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "visitor work"]);
+        git(&repo, &["checkout", "-q", "main"]);
+        git(&agent, &["switch", "-q", "topic-visitor"]);
+
+        let visitor_head = project_git_history(
+            agent.to_string_lossy().into_owned(),
+            roots(&agent),
+            false,
+            None,
+            None,
+            None,
+        )
+        .expect("visitor HEAD history");
+        let visitor_named = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            Some("topic-visitor".to_string()),
+        )
+        .expect("visitor named-ref history");
+        for visitor in [&visitor_head, &visitor_named] {
+            assert_eq!(
+                visitor.fork_sha.as_deref(),
+                Some(visitor_fork.as_str())
+            );
+            assert_eq!(visitor.ahead, Some(1));
+        }
+
+        // The original managed branch remains associated with its private
+        // metadata even while no worktree has it checked out.
+        let original_named = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            Some("kd/picked/1".to_string()),
+        )
+        .expect("original managed branch while unchecked");
+        assert_eq!(
+            original_named.fork_sha.as_deref(),
+            Some(new_base_tip.as_str())
+        );
+        assert_eq!(original_named.ahead, Some(1));
+
         keepdeck_git::worktree::remove(&repo, &agent, true).ok();
+        fs::remove_dir_all(&worktree_root).ok();
+        fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn managed_history_survives_an_externally_deleted_worktree_directory() {
+        let repo = init_repo();
+        fake_origin_main_here(&repo);
+        git(&repo, &["checkout", "-q", "-b", "base-stale"]);
+        fs::write(repo.join("base-stale.ts"), "b\n").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "stale base"]);
+        let base_tip = keepdeck_git::repo::resolve_commit(&repo, "HEAD").unwrap();
+        let worktree_root = unique_dir("stale-history-worktrees");
+        let agent = worktree_root.join("agent");
+        keepdeck_git::worktree::add(&repo, &agent, "kd/stale-history/1", &base_tip)
+            .expect("add agent worktree");
+        keepdeck_git::worktree_base::record(
+            &agent,
+            &base_tip,
+            Some("refs/heads/base-stale"),
+            "refs/heads/kd/stale-history/1",
+        )
+        .expect("record private base");
+        fs::write(agent.join("own.ts"), "o\n").unwrap();
+        git(&agent, &["add", "."]);
+        git(&agent, &["commit", "-q", "-m", "own work"]);
+
+        fs::remove_dir_all(&agent).expect("external worktree deletion");
+        let history = project_git_history(
+            repo.to_string_lossy().into_owned(),
+            roots(&repo),
+            false,
+            None,
+            None,
+            Some("kd/stale-history/1".to_string()),
+        )
+        .expect("history through surviving admin metadata");
+
+        assert_eq!(history.fork_sha.as_deref(), Some(base_tip.as_str()));
+        assert_eq!(history.ahead, Some(1));
+
+        keepdeck_git::worktree::prune(&repo).ok();
         fs::remove_dir_all(&worktree_root).ok();
         fs::remove_dir_all(&repo).ok();
     }
@@ -1009,8 +1198,13 @@ mod tests {
         let agent = worktree_root.join("agent");
         keepdeck_git::worktree::add(&repo, &agent, "kd/local/1", &base)
             .expect("add agent worktree");
-        keepdeck_git::worktree_base::record(&agent, &base, Some("refs/heads/main"))
-            .expect("record private base");
+        keepdeck_git::worktree_base::record(
+            &agent,
+            &base,
+            Some("refs/heads/main"),
+            "refs/heads/kd/local/1",
+        )
+        .expect("record private base");
 
         fs::write(agent.join("own.ts"), "o\n").unwrap();
         git(&agent, &["add", "."]);

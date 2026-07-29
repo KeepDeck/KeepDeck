@@ -68,12 +68,12 @@
 //! and nothing is attributed.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::cmd::run_git;
 use crate::error::GitError;
-use crate::head;
 use crate::repo;
+use crate::{head, worktree};
 
 /// One reflog entry: its unix timestamp, the commit its NEW side points to,
 /// and its message ("" for a worktree's birth entry, which git writes without
@@ -268,7 +268,7 @@ fn admin_evidence(
     repo_path: &Path,
     worktree: &Path,
 ) -> Result<Option<(Vec<ReflogEntry>, Option<String>)>, GitError> {
-    let Some(admin) = admin_gitdir(repo_path, worktree)? else {
+    let Some(admin) = worktree::admin_git_dir(repo_path, worktree)? else {
         return Ok(None); // already pruned (or never a linked worktree): no evidence
     };
     let Some(id) = admin.file_name().map(|n| n.to_string_lossy().into_owned()) else {
@@ -289,48 +289,6 @@ fn admin_evidence(
         Err(other) => return Err(other),
     };
     Ok(Some((head_log, fallback)))
-}
-
-/// The admin dir `<common>/worktrees/<id>` whose `gitdir` pointer names this
-/// worktree path — the worktree's identity that outlives its directory (until
-/// `git worktree prune`). `None` when no admin entry matches.
-fn admin_gitdir(repo_path: &Path, worktree: &Path) -> Result<Option<PathBuf>, GitError> {
-    let worktrees = head::git_common_dir(repo_path)?.join("worktrees");
-    let Ok(entries) = std::fs::read_dir(&worktrees) else {
-        return Ok(None); // a repo with no linked worktrees has no such dir
-    };
-    for entry in entries.flatten() {
-        let admin = entry.path();
-        let Ok(pointer) = std::fs::read_to_string(admin.join("gitdir")) else {
-            continue;
-        };
-        // The pointer is `<worktree-path>/.git`; its parent is the worktree.
-        let matches = PathBuf::from(pointer.trim())
-            .parent()
-            .is_some_and(|recorded| paths_match(recorded, worktree));
-        if matches {
-            return Ok(Some(admin));
-        }
-    }
-    Ok(None)
-}
-
-/// Whether two spellings name the same worktree path. Git records the
-/// REALPATH in the `gitdir` pointer while callers pass the path as stored
-/// (e.g. `/var/…` vs macOS's canonical `/private/var/…`), and the worktree
-/// itself may be GONE — so the symlinks are resolved on the surviving PARENT
-/// directories and only the leaf names compared directly.
-fn paths_match(recorded: &Path, worktree: &Path) -> bool {
-    if recorded == worktree {
-        return true;
-    }
-    let canonical_leaf = |p: &Path| -> Option<PathBuf> {
-        Some(p.parent()?.canonicalize().ok()?.join(p.file_name()?))
-    };
-    match (canonical_leaf(recorded), canonical_leaf(worktree)) {
-        (Some(a), Some(b)) => a == b,
-        _ => false,
-    }
 }
 
 /// The local branches that were CREATED in the worktree at `worktree`, in

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cmd::run_git;
 use crate::error::GitError;
+use crate::head;
 
 /// A worktree as reported by `git worktree list --porcelain`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +125,50 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<
 pub fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, GitError> {
     let out = run_git(repo, &["worktree", "list", "--porcelain"])?;
     Ok(parse_worktrees(&out))
+}
+
+/// Locate the surviving administrative gitdir for a registered linked
+/// worktree, even when its working directory has been deleted externally.
+pub(crate) fn admin_git_dir(
+    repo_path: &Path,
+    worktree_path: &Path,
+) -> Result<Option<PathBuf>, GitError> {
+    let worktrees = head::git_common_dir(repo_path)?.join("worktrees");
+    let Ok(entries) = std::fs::read_dir(&worktrees) else {
+        return Ok(None);
+    };
+    for entry in entries.flatten() {
+        let admin = entry.path();
+        let Ok(pointer) = std::fs::read_to_string(admin.join("gitdir")) else {
+            continue;
+        };
+        let matches = PathBuf::from(pointer.trim())
+            .parent()
+            .is_some_and(|recorded| paths_match(recorded, worktree_path));
+        if matches {
+            return Ok(Some(admin));
+        }
+    }
+    Ok(None)
+}
+
+/// Compare a worktree path with Git's realpath-based administrative pointer.
+fn paths_match(recorded: &Path, worktree: &Path) -> bool {
+    if recorded == worktree {
+        return true;
+    }
+    let canonical_leaf = |path: &Path| -> Option<PathBuf> {
+        Some(
+            path.parent()?
+                .canonicalize()
+                .ok()?
+                .join(path.file_name()?),
+        )
+    };
+    match (canonical_leaf(recorded), canonical_leaf(worktree)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
 }
 
 /// Remove the worktree at `path`.

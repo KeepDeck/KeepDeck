@@ -110,6 +110,35 @@ pub fn merge_base(repo: &Path, a: &str, b: &str) -> Result<Option<String>, GitEr
     }
 }
 
+/// Oldest commit in a local branch's reflog, when that reflog still begins
+/// with the branch creation entry.
+///
+/// This is legacy migration evidence, not a fork authority by itself. Callers
+/// must validate ancestry and compare it with the current default-branch
+/// merge-base so a descendant rebase can supersede the stale creation point.
+pub fn branch_created_at(repo: &Path, branch: &str) -> Result<Option<String>, GitError> {
+    match run_git(
+        repo,
+        [
+            "--no-optional-locks",
+            "log",
+            "-g",
+            "--format=%H%x09%gs",
+            branch,
+            "--",
+        ],
+    ) {
+        Ok(out) => Ok(out
+            .lines()
+            .rfind(|line| !line.is_empty())
+            .and_then(|line| line.split_once('\t'))
+            .filter(|(_, message)| message.starts_with("branch: Created from "))
+            .map(|(sha, _)| sha.to_string())),
+        Err(GitError::Command { .. }) => Ok(None),
+        Err(other) => Err(other),
+    }
+}
+
 /// The current branch name, or `None` when `HEAD` is detached.
 pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
     let out = run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])?;

@@ -210,15 +210,19 @@ export async function runProvisioning(
   const pending = panes.filter((p) => p.provisioning);
   if (pending.length === 0) return;
 
-  let base: string | undefined;
+  let batchBase: { commit?: string; branch?: string } | undefined;
   try {
-    base = (await inspectRepo(pending[0].provisioning!.repo)).head ?? undefined;
+    const inspected = await inspectRepo(pending[0].provisioning!.repo);
+    batchBase = {
+      ...(inspected.head && { commit: inspected.head }),
+      ...(inspected.branch && { branch: inspected.branch }),
+    };
   } catch {
-    base = undefined; // create resolves HEAD itself when base is omitted
+    batchBase = undefined; // create resolves HEAD itself when base is omitted
   }
 
   await Promise.all(
-    pending.map((p) => provisionPane(p.id, p.provisioning!, base, cb, setup)),
+    pending.map((p) => provisionPane(p.id, p.provisioning!, batchBase, cb, setup)),
   );
 }
 
@@ -233,7 +237,7 @@ export async function runProvisioning(
 async function provisionPane(
   paneId: string,
   intent: PaneProvisioning,
-  base: string | undefined,
+  batchBase: { commit?: string; branch?: string } | undefined,
   cb: ProvisionCallbacks,
   setup?: SetupStep,
 ): Promise<void> {
@@ -270,7 +274,8 @@ async function provisionPane(
       agentId: paneId,
       branch: intent.branch,
       // The user's picked base branch outranks the batch-pinned HEAD.
-      base: intent.base ?? base,
+      base: intent.base ?? batchBase?.commit,
+      ...(!intent.base && batchBase?.branch && { baseBranch: batchBase.branch }),
       workspace: intent.workspace,
       index: intent.index,
       path: intent.path,

@@ -34,6 +34,9 @@ export interface CreateWorktreeArgs {
    *  base identity. That identity drives dynamic fork resolution after rebases;
    *  the SHA also keeps close-time branch provenance trustworthy. */
   base?: string | null;
+  /** Local branch identity paired with an already-pinned `base` SHA. Batch
+   * provisioning supplies both; omit when `base` itself names the branch. */
+  baseBranch?: string | null;
   workspace?: string;
   index?: number;
   /** Explicit worktree folder (relative to baseDir); derived from branch when omitted. */
