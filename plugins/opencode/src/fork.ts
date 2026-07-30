@@ -148,18 +148,35 @@ export async function opencodeForkPlan(
   const file = `${SCRATCH_DIR}/fork-${input.paneId}.json`;
   await ctx.services.fsWrite.writeFile(file, JSON.stringify(rekeyed));
 
-  // Run FROM the target: import binds the session's directory to this cwd.
-  const importRun = await runOpencode(ctx, ["import", file], input.cwd);
-  // The exit code is authoritative; the id echo is a secondary check only when
-  // the PTY could not report a code. A substring match ALONE cannot tell a full
-  // import from a header-only / dedup-emptied one, so it is never the sole gate.
-  const ok =
-    importRun.code === 0 ||
-    (importRun.code === null && importRun.text.includes(newSessionId));
-  if (!ok) {
-    throw new Error(`opencode import failed (exit ${importRun.code}): ${tail(importRun.text)}`);
+  try {
+    // Run FROM the target: import binds the session's directory to this cwd.
+    const importRun = await runOpencode(ctx, ["import", file], input.cwd);
+    // The exit code is authoritative; the id echo is a secondary check only when
+    // the PTY could not report a code. A substring match ALONE cannot tell a full
+    // import from a header-only / dedup-emptied one, so it is never the sole gate.
+    const ok =
+      importRun.code === 0 ||
+      (importRun.code === null && importRun.text.includes(newSessionId));
+    if (!ok) {
+      throw new Error(`opencode import failed (exit ${importRun.code}): ${tail(importRun.text)}`);
+    }
+    return newSessionId;
+  } finally {
+    // The scratch held the WHOLE conversation. Its purpose ends with the
+    // import, so it does not outlive it — on the failure path either, where
+    // the transcript would otherwise sit in /tmp until the OS reaped it. The
+    // write capability has no unlink, so the content is overwritten; the file
+    // itself is created 0600 by the host.
+    await ctx.services.fsWrite
+      .writeFile(file, "{}")
+      .catch((cause: unknown) =>
+        ctx.log.warn(
+          `could not clear the fork scratch ${file}: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        ),
+      );
   }
-  return newSessionId;
 }
 
 /** Whether the fork target already exists on disk — a not-yet-provisioned
