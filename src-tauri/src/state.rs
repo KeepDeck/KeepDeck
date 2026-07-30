@@ -107,6 +107,20 @@ fn save_atomic(path: &Path, json: &str) -> io::Result<()> {
 /// destination, creating parent directories on the way. Shared with
 /// `crate::migration`, which copies legacy documents with the same guarantee.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_atomic_mode(path, bytes, None)
+}
+
+/// [`write_atomic`] with an explicit unix mode for the file it creates.
+///
+/// The mode lands on the TEMP file BEFORE the first byte is written, so the
+/// content is never briefly readable under a wider one — a window that
+/// matters for the write capability's targets, which can sit outside the
+/// home (`/tmp`) where no directory mode backstops them.
+pub(crate) fn write_atomic_mode(
+    path: &Path,
+    bytes: &[u8],
+    mode: Option<u32>,
+) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -115,6 +129,13 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let tmp = path.with_file_name(name);
     {
         let mut file = fs::File::create(&tmp)?;
+        #[cfg(unix)]
+        if let Some(mode) = mode {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(mode))?;
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
         file.write_all(bytes)?;
         file.sync_all()?;
     }

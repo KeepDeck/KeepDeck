@@ -18,7 +18,7 @@ use crate::containment::expand_home;
 #[tauri::command(async)]
 pub fn plugins_fs_write_mkdir(path: String, roots: Vec<String>) -> Result<(), String> {
     let target = resolve_write(&path, &roots)?;
-    fs::create_dir_all(&target).map_err(|e| e.to_string())
+    create_dir_owner_only(&target)
 }
 
 #[tauri::command(async)]
@@ -32,9 +32,13 @@ pub fn plugins_fs_write_copy(
     let from = resolve_write(&src, &roots)?;
     let to = resolve_write(&dst, &roots)?;
     if let Some(dir) = to.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        create_dir_owner_only(dir)?;
     }
-    fs::copy(&from, &to).map(|_| ()).map_err(|e| e.to_string())
+    fs::copy(&from, &to).map_err(|e| e.to_string())?;
+    // The copy inherits the SOURCE's mode, which says nothing about where it
+    // is landing.
+    restrict_file(&to);
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -44,7 +48,11 @@ pub fn plugins_fs_write_file(
     roots: Vec<String>,
 ) -> Result<(), String> {
     let target = resolve_write(&path, &roots)?;
-    crate::state::write_atomic(&target, text.as_bytes()).map_err(|e| e.to_string())
+    if let Some(dir) = target.parent() {
+        create_dir_owner_only(dir)?;
+    }
+    crate::state::write_atomic_mode(&target, text.as_bytes(), Some(FILE_MODE))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command(async)]
@@ -58,16 +66,74 @@ pub fn plugins_fs_write_append(
     }
     let target = resolve_write(&path, &roots)?;
     if let Some(dir) = target.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        create_dir_owner_only(dir)?;
     }
+    let existed = target.exists();
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&target)
         .map_err(|e| e.to_string())?;
+    if !existed {
+        restrict_file(&target);
+    }
     file.write_all(format!("{line}\n").as_bytes())
         .and_then(|()| file.sync_all())
         .map_err(|e| e.to_string())
+}
+
+/// Owner-only modes for what this capability CREATES.
+///
+/// The bridge inbox already restricts itself for the same reason
+/// (`bridge.rs`), but it lives inside the home, whose own mode is a
+/// backstop. A declared write root can leave the home entirely — opencode's
+/// fork writes a whole conversation export under `/tmp` — and there nothing
+/// else narrows it: `create_dir_all` yields 0755 and a fresh file 0644, so
+/// the export was readable by every local user until the OS reaped it.
+const DIR_MODE: u32 = 0o700;
+const FILE_MODE: u32 = 0o600;
+
+/// Create `dir` and its missing ancestors, restricting ONLY the ones this
+/// call actually creates. A directory that already existed belongs to the
+/// user or the agent — an agent store like `~/.claude/projects` is theirs to
+/// share, and silently narrowing it would be a side effect of writing a file.
+fn create_dir_owner_only(dir: &Path) -> Result<(), String> {
+    let mut created = Vec::new();
+    let mut cursor = Some(dir);
+    while let Some(path) = cursor {
+        if path.exists() {
+            break;
+        }
+        created.push(path.to_path_buf());
+        cursor = path.parent();
+    }
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    for path in created {
+        restrict_dir(&path);
+    }
+    Ok(())
+}
+
+/// Best-effort, like the bridge's: a plugin's write must not fail because a
+/// mode could not be set, but nothing it creates starts out world-readable.
+fn restrict_dir(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(DIR_MODE));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+fn restrict_file(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(FILE_MODE));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 /// Canonicalize the deepest existing ancestor and re-join the (`..`-free)
@@ -144,6 +210,71 @@ mod tests {
         let err = plugins_fs_write_file("/tmp/elsewhere.txt".into(), "x".into(), roots)
             .unwrap_err();
         assert!(err.contains("outside"), "{err}");
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn what_the_capability_creates_is_owner_only() {
+        let (dir, roots) = root();
+        // A declared root can sit outside the home (opencode's fork writes a
+        // whole conversation export under /tmp), so the default 0755/0644
+        // would leave it readable by every local user.
+        let scratch = dir.path().join("scratch");
+        let file = scratch.join("export.json");
+        plugins_fs_write_file(
+            file.to_string_lossy().into_owned(),
+            "transcript".into(),
+            roots.clone(),
+        )
+        .unwrap();
+        assert_eq!(mode_of(&scratch), DIR_MODE);
+        assert_eq!(mode_of(&file), FILE_MODE);
+
+        let appended = scratch.join("log.txt");
+        plugins_fs_write_append(
+            appended.to_string_lossy().into_owned(),
+            "line".into(),
+            roots.clone(),
+        )
+        .unwrap();
+        assert_eq!(mode_of(&appended), FILE_MODE);
+
+        let copied = scratch.join("copy.json");
+        plugins_fs_write_copy(
+            file.to_string_lossy().into_owned(),
+            copied.to_string_lossy().into_owned(),
+            roots,
+        )
+        .unwrap();
+        assert_eq!(mode_of(&copied), FILE_MODE);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_directory_keeps_the_mode_its_owner_chose() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, roots) = root();
+        // An agent store the user shares on purpose — writing a file into it
+        // must not silently narrow it.
+        let store = dir.path().join("store");
+        fs::create_dir_all(&store).unwrap();
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o755)).unwrap();
+
+        plugins_fs_write_file(
+            store.join("session.json").to_string_lossy().into_owned(),
+            "{}".into(),
+            roots,
+        )
+        .unwrap();
+
+        assert_eq!(mode_of(&store), 0o755);
+        assert_eq!(mode_of(&store.join("session.json")), FILE_MODE);
     }
 
     #[test]
