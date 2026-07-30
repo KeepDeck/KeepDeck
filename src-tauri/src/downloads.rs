@@ -476,7 +476,7 @@ fn run_download(
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let part = sidecar_path(&target, ".part");
+    let part = sidecar_path(target, ".part");
     let part_metadata = sidecar_path(&part, ".meta");
     if fs::symlink_metadata(&part)
         .map(|metadata| metadata.file_type().is_symlink())
@@ -493,13 +493,9 @@ fn run_download(
         allowed_domains,
     )?;
 
-    if request.integrity.is_some() {
+    if let Some(integrity) = request.integrity.as_ref() {
         emit(channel, &request.id, "verifying", *progress, None);
-        if let Err(error) = verify_integrity(
-            &part,
-            request.integrity.as_ref().expect("checked"),
-            cancelled,
-        ) {
+        if let Err(error) = verify_integrity(&part, integrity, cancelled) {
             let _ = remove_partial(&part, &part_metadata);
             return Err(error);
         }
@@ -673,7 +669,9 @@ fn transfer(
 }
 
 enum OpenResponse {
-    Response(ureq::Response),
+    /// Boxed: a live HTTP response dwarfs the other two arms, and every
+    /// caller of `open_response` would carry that size for a `Restart`.
+    Response(Box<ureq::Response>),
     /** A 416 whose advertised complete length equals the local partial. */
     Complete(u64),
     /** The remote object and local partial disagree; restart from byte zero. */
@@ -733,7 +731,7 @@ fn open_response(
             Err(error) => return Err(humanize_http(error)),
         };
         if !matches!(response.status(), 301 | 302 | 303 | 307 | 308) {
-            return Ok(OpenResponse::Response(response));
+            return Ok(OpenResponse::Response(Box::new(response)));
         }
         let location = response
             .header("Location")
@@ -1161,9 +1159,9 @@ fn remove_path(path: &Path) -> Result<(), String> {
         fs::remove_file(path).map_err(|e| e.to_string())?;
     }
     for sidecar in [
-        sidecar_path(&path, ".part"),
-        sidecar_path(&path, ".part.meta"),
-        sidecar_path(&path, ".unpack.part"),
+        sidecar_path(path, ".part"),
+        sidecar_path(path, ".part.meta"),
+        sidecar_path(path, ".unpack.part"),
     ] {
         if sidecar.is_dir() {
             let _ = fs::remove_dir_all(sidecar);

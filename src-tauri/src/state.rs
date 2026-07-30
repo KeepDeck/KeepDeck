@@ -10,6 +10,7 @@
 //! rejects is quarantined to a `.bak` sibling instead of being overwritten
 //! by the next save.
 
+use std::cmp::Reverse;
 use std::fs;
 use std::io::{self, ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
@@ -166,7 +167,7 @@ fn prune_backups(path: &Path, keep: usize) {
         .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
-    backups.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
+    backups.sort_by_key(|(modified, _)| Reverse(*modified)); // newest first
     for (_, old) in backups.into_iter().skip(keep) {
         if let Err(e) = fs::remove_file(&old) {
             log::warn!("backup prune failed for {}: {e}", old.display());

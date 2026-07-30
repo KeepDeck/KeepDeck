@@ -292,7 +292,7 @@ mod tests {
         fs::write(path, content).unwrap();
     }
 
-    fn roots(root: &PathBuf) -> Vec<String> {
+    fn roots(root: &Path) -> Vec<String> {
         vec![root.to_string_lossy().into_owned()]
     }
 
