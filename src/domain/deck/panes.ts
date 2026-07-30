@@ -5,9 +5,6 @@ import type {
   ResumeOrigin,
 } from "../agents";
 import { MAX_PANES, clampPaneCount } from "./layout";
-// Type-only, so the module graph stays acyclic at runtime (reducer's chain
-// imports this module; the types are erased).
-import type { WorkspaceView } from "./reducer";
 
 /** The agent session a pane is bound to — the resume key ([F7]/[F8]). Bound at
  * save time while the pane is alive (spawn-diff over the agent's own store),
@@ -344,6 +341,14 @@ export function paneIdleIsDurable(idle: PaneIdle | undefined): boolean {
   return idle?.reason === "suspended";
 }
 
+/** Whether this pane was explicitly suspended by the user. Kept as a pane
+ * question (rather than repeated `idle?.reason` checks) because rendering,
+ * hotkey targeting, and notification visibility must all agree when the
+ * suspended-agent placement is Tray. */
+export function paneIsSuspended(pane: Pane): boolean {
+  return pane.idle?.reason === "suspended";
+}
+
 /** WHO asked for this pane to come up, or null when it isn't coming up at
  *  all. The sweep's one reader: taking the origin from an accessor rather
  *  than re-deriving `pane.idle?.reason === "waking" ? … : "restore"` at each
@@ -429,45 +434,6 @@ export function resolveFocus(
 ): string | null {
   if (!focusedId || panes.length <= 1) return null;
   return panes.some((pane) => pane.id === focusedId) ? focusedId : null;
-}
-
-/** The slice of `WorkspaceView` pane visibility depends on. A `Pick` (not a
- * restated structural shape): every field here is optional, so a hand-rolled
- * copy would accept ANY object and a reducer-side rename would silently feed
- * `undefined` into visibility decisions — the type-only import keeps renames
- * a compile error without pulling in reducer logic. */
-type PaneVisibilityView = Pick<
-  WorkspaceView,
-  "focus" | "select" | "minimized"
->;
-
-/**
- * Whether the pane's BODY is actually being rendered right now, given its
- * workspace's panes, view state and the deck's display mode — the same
- * semantics DeckStage paints (list default-expands the first pane; grid
- * resolves a stale maximize via [`resolveFocus`]; a minimized pane only
- * leaves the grid while the minimize styles are in force). Callers own the
- * "is the workspace active / is a modal covering the deck" half — this
- * answers only the layout's part. Drives banner suppression: a wrong `true`
- * swallows a needed OS banner, a wrong `false` merely shows a redundant one.
- */
-export function paneOnScreen(
-  panes: Pane[],
-  view: PaneVisibilityView | undefined,
-  layout: "grid" | "list",
-  minimizeOn: boolean,
-  paneId: string,
-): boolean {
-  if (layout === "list") {
-    return (view?.select ?? panes[0]?.id) === paneId;
-  }
-  const { live } = partitionPanes(
-    panes,
-    minimizeOn ? view?.minimized : undefined,
-  );
-  if (!live.some((pane) => pane.id === paneId)) return false;
-  const focused = resolveFocus(live, view?.focus);
-  return focused === null || focused === paneId;
 }
 
 /** Display title for the pane at `index`: the manual name wins, then the

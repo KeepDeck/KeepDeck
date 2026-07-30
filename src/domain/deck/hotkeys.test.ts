@@ -194,6 +194,39 @@ describe("paneHotkeyTarget", () => {
     expect(paneHotkeyTarget(workspaces, "ws-1", {}, agents, true)).toBeNull();
     expect(paneHotkeyTarget(workspaces, "nope", {}, agents, true)).toBeNull();
   });
+
+  it("never targets a suspended pane placed in the tray", () => {
+    const workspaces = [
+      ws("ws-1", [
+        {
+          id: "pane-1",
+          idle: {
+            reason: "suspended",
+            at: "2026-07-29T10:00:00.000Z",
+          },
+        },
+        { id: "pane-2", agentType: "claude" },
+        { id: "pane-3", agentType: "claude" },
+      ]),
+    ];
+    const view = {
+      "ws-1": { select: "pane-1", suspendedTray: ["pane-1"] },
+    };
+    expect(
+      paneHotkeyTarget(workspaces, "ws-1", view, agents, true),
+    ).toMatchObject({ paneId: "pane-2" });
+    // Keeping the pane retains the existing behavior: its card is a valid
+    // target (the suspend command will then explain that it is stopped).
+    expect(
+      paneHotkeyTarget(
+        workspaces,
+        "ws-1",
+        { "ws-1": { select: "pane-1" } },
+        agents,
+        true,
+      ),
+    ).toMatchObject({ paneId: "pane-1" });
+  });
 });
 
 describe("maximizeHotkeyTarget", () => {
@@ -259,6 +292,34 @@ describe("maximizeHotkeyTarget", () => {
         three,
         "ws-1",
         { "ws-1": { select: "pane-3", minimized: ["pane-3"] } },
+        true,
+      ),
+    ).toBeNull();
+  });
+
+  it("does not maximize a suspended tray pane or count it as visible", () => {
+    const workspaces = [
+      ws("ws-1", [
+        {
+          id: "pane-1",
+          idle: {
+            reason: "suspended",
+            at: "2026-07-29T10:00:00.000Z",
+          },
+        },
+        { id: "pane-2" },
+      ]),
+    ];
+    expect(
+      maximizeHotkeyTarget(
+        workspaces,
+        "ws-1",
+        {
+          "ws-1": {
+            select: "pane-1",
+            suspendedTray: ["pane-1"],
+          },
+        },
         true,
       ),
     ).toBeNull();

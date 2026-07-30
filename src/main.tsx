@@ -26,6 +26,8 @@ void initUsageHistory();
 // Update checks are background-only chatter — nothing gates on them. In dev
 // builds the manager probes app_info once and stays disabled.
 const runtime = createAppRuntime();
+runtime.start();
+window.addEventListener("beforeunload", () => runtime.dispose(), { once: true });
 void initUpdates(runtime.downloads);
 // Notifications: track OS window focus for the banner rule, and announce a
 // newly-found update version once.

@@ -1,9 +1,8 @@
 import { createCommandRegistry } from "../domain/commands";
 
 /**
- * The app's one command registry. Module-level like the plugin manager: core
- * features register their commands from the composition root, plugins through
- * their context, and every invoker (voice, MCP, hotkeys) executes against
- * this same instance — one executor, one journal.
+ * The process's one command registry. The runtime-owned application controller
+ * registers core features, plugins register through their context, and every
+ * invoker (voice, MCP, hotkeys) executes against this same instance.
  */
 export const commands = createCommandRegistry();

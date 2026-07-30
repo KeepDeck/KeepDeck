@@ -4,7 +4,9 @@ import type { Deck } from "./useDeck";
  * changed only when panes appear or disappear. Shared by the usage lanes
  * that key their sweeps on membership (tail teardown, store retention), so
  * "what counts as a member" can never drift between them. */
-export function paneMembershipKey(deck: Deck): string {
+export function paneMembershipKey(
+  deck: Pick<Deck, "workspaces">,
+): string {
   return deck.workspaces
     .flatMap((ws) => ws.panes.map((pane) => pane.id))
     .sort()

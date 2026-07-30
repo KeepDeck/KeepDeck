@@ -48,6 +48,15 @@ describe("GeneralSection — dock mode", () => {
       ),
     );
 
+  const suspendedButtons = () =>
+    new Map(
+      Array.from(host.querySelectorAll<HTMLButtonElement>("button")).flatMap((b) =>
+        b.textContent === "Keep pane" || b.textContent === "Tray"
+          ? [[b.textContent, b] as const]
+          : [],
+      ),
+    );
+
   it("marks the stored mode active and offers the other one", () => {
     // Both directions: an inverted comparison that happens to light the
     // non-default mode correctly would still leave the default one dead.
@@ -91,5 +100,47 @@ describe("GeneralSection — dock mode", () => {
     expect(docked.join(" ")).toContain("takes a column of its own");
     expect(floating.join(" ")).toContain("lies over the deck");
     expect(floating.join(" ")).not.toContain("takes a column of its own");
+  });
+
+  it("keeps suspended panes by default and writes the tray placement alone", () => {
+    mount();
+    expect(suspendedButtons().get("Keep pane")?.className).toContain(
+      "form__type--active",
+    );
+    expect(suspendedButtons().get("Tray")?.className).not.toContain(
+      "form__type--active",
+    );
+
+    act(() => suspendedButtons().get("Tray")!.click());
+    expect(settingsManager.updateSettings).toHaveBeenCalledTimes(1);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith({
+      suspendedAgentPlacement: "tray",
+    });
+  });
+
+  it("explains that restoring a suspended tray entry keeps it stopped", () => {
+    settings.current = {
+      ...DEFAULT_SETTINGS,
+      suspendedAgentPlacement: "tray",
+    };
+    mount();
+    expect(
+      Array.from(host.querySelectorAll(".settings__hint"))
+        .map((hint) => hint.textContent)
+        .join(" "),
+    ).toContain("restoring one keeps it stopped");
+  });
+
+  it("gives the two Tray choices distinct accessible names and states", () => {
+    mount();
+    const minimizedTray = host.querySelector<HTMLButtonElement>(
+      "[aria-label='Minimized agents: Tray']",
+    )!;
+    const suspendedTray = host.querySelector<HTMLButtonElement>(
+      "[aria-label='Suspended agents: Tray']",
+    )!;
+    expect(minimizedTray).not.toBe(suspendedTray);
+    expect(minimizedTray.getAttribute("aria-pressed")).toBe("true");
+    expect(suspendedTray.getAttribute("aria-pressed")).toBe("false");
   });
 });

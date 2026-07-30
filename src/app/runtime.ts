@@ -1,35 +1,39 @@
+import { skillRootsOf } from "../domain/deck";
+import { openPath } from "../ipc/app";
+import { log } from "../ipc/log";
+import { probeWorktree } from "../ipc/worktree";
+import {
+  createAgentOrchestrator,
+  type AgentCatalogPort,
+} from "./agentOrchestrator";
+import { createApplicationController } from "./applicationController";
+import { createDeckPersistence } from "./deckPersistence";
+import { createDeckStore } from "./deckStore";
 import {
   DownloadManager,
   tauriDownloadBackend,
   type DownloadBackend,
 } from "./downloadManager";
-import { createPluginManager } from "./pluginManager";
 import { createFileOpenManager } from "./fileOpenManager";
-import { createDeckStore } from "./deckStore";
-import { createSpawnContextSource } from "./spawnContextSource";
-import {
-  createAgentOrchestrator,
-  type AgentCatalogPort,
-} from "./agentOrchestrator";
-import { getSettings, subscribeSettings } from "./settingsManager";
+import { createJournalPersistence } from "./journalPersistence";
+import { createMinimizePolicy } from "./minimizePolicy";
+import { createPluginDeckBridge } from "./pluginDeckBridge";
+import { createPluginManager } from "./pluginManager";
 import {
   acquirePane,
   closePane,
-  runPaneOnce,
   paneSessionState,
+  runPaneOnce,
   subscribeSessions,
 } from "./ptyManager";
+import { createSessionBinding } from "./sessionBinding";
+import { getSettings, subscribeSettings } from "./settingsManager";
+import { createSpawnContextSource } from "./spawnContextSource";
+import { createUsageChannel } from "./usageChannel";
 import { createWorktreeManager } from "./worktrees";
-import { skillRootsOf } from "../domain/deck";
-import { openPath } from "../ipc/app";
-import { probeWorktree } from "../ipc/worktree";
-import { log } from "../ipc/log";
+import { createWorktreeSweeper } from "./worktreeSweeper";
 
-/** The agent catalog as the orchestrator needs it: the ids cli plugins
- * currently contribute, live. Only the ids — whether the binary is installed
- * is the dialog's concern, not the wake decision's (a pane whose agent is
- * contributed but missing fails visibly in its terminal, which is the honest
- * place for it). */
+/** The live agent contributions as the orchestrator needs them. */
 function agentCatalogPort(
   plugins: ReturnType<typeof createPluginManager>,
 ): AgentCatalogPort {
@@ -37,86 +41,114 @@ function agentCatalogPort(
   return {
     commands: () =>
       new Map(registry.list().map((c) => [c.entry.id, c.entry.detect.bin])),
-    // No settings gate here: the bootstrap holds its own, and holds it in the
-    // better place. This branch had added one around the call because a
-    // bootstrap that beats the settings load reads every enabled flag as
-    // unset — but gating the whole call also puts the settings latency in
-    // front of plugin DISCOVERY, which needs nothing from settings. The
-    // bootstrap now runs discovery alongside the load and waits only to
-    // install, so this call site has nothing left to arrange.
     ready: () => plugins.bootstrapPlugins(),
     subscribe: registry.subscribe,
   };
 }
 
-/**
- * App composition root. The manager itself is an ordinary constructible class;
- * this runtime owns one instance because plugins and the updater share one
- * process-wide target/id registry.
- */
+/** Application composition root and owner of app-lifetime services. */
 export function createAppRuntime(
   downloadBackend: DownloadBackend = tauriDownloadBackend,
 ) {
   const downloads = new DownloadManager(downloadBackend);
   const plugins = createPluginManager(downloads);
-  // The deck's state owner. It lives HERE, not in `useDeck`, because code
-  // outside React has to read and dispatch against the same state — the agent
-  // orchestrator drives pane lifecycles whether or not any component is
-  // mounted, and a store created inside a component would tie the deck's
-  // lifetime (and the processes it describes) to a render tree.
   const deckStore = createDeckStore();
-  // Loads on construction, for the same reason the deck store lives here: the
-  // resume plans built from it are prepared before any terminal mounts.
+  const deckPersistence = createDeckPersistence(deckStore);
+  const minimizePolicy = createMinimizePolicy(deckStore, {
+    minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
+    subscribe: subscribeSettings,
+  });
+  const journalPersistence = createJournalPersistence(
+    deckStore,
+    deckPersistence,
+  );
+  let sessionBinding: ReturnType<typeof createSessionBinding> | null = null;
   const spawnContext = createSpawnContextSource();
-  // The worktree lifecycle, reading the live deck for its ONE answer to which
-  // directories are spawn roots — the arming side and the sweeping side used to
-  // derive that from two snapshots and disagree.
   const worktrees = createWorktreeManager({
     rootsOf: (ref) => {
-      // Matched on the exact LIFETIME, not the reusable id: a reborn workspace
-      // must not be handed the dead one's roots. Compared here rather than
-      // through `findWorkspaceByRef` because the ref crossing the manager's
-      // boundary is the plugin-API shape, whose instance is a plain string.
-      const ws = deckStore
+      const workspace = deckStore
         .getSnapshot()
         .workspaces.find(
           (candidate) =>
             candidate.id === ref.id && candidate.instance === ref.instance,
         );
-      return ws ? skillRootsOf(ws) : [];
+      return workspace ? skillRootsOf(workspace) : [];
     },
     live: () =>
       deckStore
         .getSnapshot()
-        .workspaces.map((ws) => ({ id: ws.id, roots: skillRootsOf(ws) })),
+        .workspaces.map((workspace) => ({
+          id: workspace.id,
+          roots: skillRootsOf(workspace),
+        })),
   });
+  const orchestrator = createAgentOrchestrator({
+    deck: deckStore,
+    spawnContext,
+    agents: agentCatalogPort(plugins),
+    launchPolicy: {
+      parkOnLaunch: () => getSettings()?.parkAgentsOnLaunch ?? false,
+      subscribe: subscribeSettings,
+    },
+    suspendPolicy: {
+      moveToTray: () =>
+        getSettings()?.suspendedAgentPlacement === "tray",
+    },
+    sessions: {
+      subscribe: subscribeSessions,
+      state: paneSessionState,
+      acquire: acquirePane,
+      close: closePane,
+      runOnce: runPaneOnce,
+    },
+    plugins,
+    probe: probeWorktree,
+    worktrees,
+  });
+  const application = createApplicationController(
+    deckStore,
+    plugins,
+    orchestrator,
+  );
+  const worktreeSweeper = createWorktreeSweeper(
+    deckStore,
+    deckPersistence,
+    worktrees,
+  );
+  const pluginDeckBridge = createPluginDeckBridge(deckStore, plugins);
+  let usageChannel: ReturnType<typeof createUsageChannel> | null = null;
+  let disposed = false;
+
   return {
     downloads,
     plugins,
     deckStore,
+    deckPersistence,
     spawnContext,
     worktrees,
-    /** One per app: pane ids are minted app-wide, sessions are keyed by them,
-     * and a request can name a pane in a workspace that is not on screen. */
-    orchestrator: createAgentOrchestrator({
-      deck: deckStore,
-      spawnContext,
-      agents: agentCatalogPort(plugins),
-      launchPolicy: {
-        parkOnLaunch: () => getSettings()?.parkAgentsOnLaunch ?? false,
-        subscribe: subscribeSettings,
-      },
-      sessions: {
-        subscribe: subscribeSessions,
-        state: paneSessionState,
-        acquire: acquirePane,
-        close: closePane,
-        runOnce: runPaneOnce,
-      },
-      plugins,
-      probe: probeWorktree,
-      worktrees,
-    }),
+    application,
+    start() {
+      if (disposed) return;
+      sessionBinding ??= createSessionBinding(deckStore);
+      usageChannel ??= createUsageChannel(
+        deckStore,
+        plugins.pluginRegistries.agents,
+      );
+      application.start();
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      application.dispose();
+      usageChannel?.dispose();
+      pluginDeckBridge.dispose();
+      worktreeSweeper.dispose();
+      minimizePolicy.dispose();
+      journalPersistence.dispose();
+      sessionBinding?.dispose();
+      deckPersistence.dispose();
+    },
+    orchestrator,
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),
       openPath,

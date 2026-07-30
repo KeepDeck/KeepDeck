@@ -4,10 +4,12 @@ import { useSettings } from "../../app/useSettings";
 import { selectableAgents } from "../../domain/agents";
 import {
   MINIMIZE_STYLES,
+  SUSPENDED_AGENT_PLACEMENTS,
   DECK_LAYOUTS,
   DOCK_MODES,
   DEFAULT_SETTINGS,
   type MinimizeStyle,
+  type SuspendedAgentPlacement,
   type DeckLayout,
   type DockMode,
 } from "../../domain/settings";
@@ -40,6 +42,22 @@ const MINIMIZE_OPTIONS: Record<MinimizeStyle, { label: string; hint: string }> =
   },
 };
 
+/** Label + one-line explanation for each suspended-agent placement. */
+const SUSPENDED_OPTIONS: Record<
+  SuspendedAgentPlacement,
+  { label: string; hint: string }
+> = {
+  pane: {
+    label: "Keep pane",
+    hint: "Suspended agents stay in the deck with their Resume card.",
+  },
+  tray: {
+    label: "Tray",
+    hint:
+      "Suspending moves agents to the bottom tray; restoring one keeps it stopped.",
+  },
+};
+
 /** Label + one-line explanation for each dock mode, in picker order. */
 const DOCK_OPTIONS: Record<DockMode, { label: string; hint: string }> = {
   docked: {
@@ -66,6 +84,9 @@ export function GeneralSection() {
   const defaultYolo = settings?.defaultYolo ?? DEFAULT_SETTINGS.defaultYolo;
   const deckLayout = settings?.deckLayout ?? DEFAULT_SETTINGS.deckLayout;
   const minimizeStyle = settings?.minimizeStyle ?? DEFAULT_SETTINGS.minimizeStyle;
+  const suspendedAgentPlacement =
+    settings?.suspendedAgentPlacement ??
+    DEFAULT_SETTINGS.suspendedAgentPlacement;
   const dockMode = settings?.dockMode ?? DEFAULT_SETTINGS.dockMode;
   const parkAgentsOnLaunch =
     settings?.parkAgentsOnLaunch ?? DEFAULT_SETTINGS.parkAgentsOnLaunch;
@@ -125,13 +146,19 @@ export function GeneralSection() {
       <span className="settings__hint">{LAYOUT_OPTIONS[deckLayout].hint}</span>
 
       <span className="form__label">Minimized agents</span>
-      <div className="form__types">
+      <div
+        className="form__types"
+        role="group"
+        aria-label="Minimized agents"
+      >
         {MINIMIZE_STYLES.map((style) => (
           <button
             key={style}
             type="button"
             className={`form__type${style === minimizeStyle ? " form__type--active" : ""}`}
             disabled={deckLayout !== "grid"}
+            aria-label={`Minimized agents: ${MINIMIZE_OPTIONS[style].label}`}
+            aria-pressed={style === minimizeStyle}
             onClick={() => updateSettings({ minimizeStyle: style })}
           >
             {MINIMIZE_OPTIONS[style].label}
@@ -142,6 +169,31 @@ export function GeneralSection() {
         {deckLayout === "grid"
           ? MINIMIZE_OPTIONS[minimizeStyle].hint
           : "Applies to the grid layout."}
+      </span>
+
+      <span className="form__label">Suspended agents</span>
+      <div
+        className="form__types"
+        role="group"
+        aria-label="Suspended agents"
+      >
+        {SUSPENDED_AGENT_PLACEMENTS.map((placement) => (
+          <button
+            key={placement}
+            type="button"
+            className={`form__type${placement === suspendedAgentPlacement ? " form__type--active" : ""}`}
+            aria-label={`Suspended agents: ${SUSPENDED_OPTIONS[placement].label}`}
+            aria-pressed={placement === suspendedAgentPlacement}
+            onClick={() =>
+              updateSettings({ suspendedAgentPlacement: placement })
+            }
+          >
+            {SUSPENDED_OPTIONS[placement].label}
+          </button>
+        ))}
+      </div>
+      <span className="settings__hint">
+        {SUSPENDED_OPTIONS[suspendedAgentPlacement].hint}
       </span>
 
       <span className="form__label">Dock</span>

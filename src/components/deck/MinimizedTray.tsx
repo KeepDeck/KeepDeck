@@ -126,6 +126,15 @@ function focusAfterRestore(anchor: HTMLButtonElement, paneId: string) {
       anchor.focus({ preventScroll: true });
       return;
     }
+    const replacement = Array.from(
+      ownerDocument.querySelectorAll<HTMLElement>("[data-restore-pane-id]"),
+    ).find(
+      (candidate) => candidate.dataset.restorePaneId === paneId,
+    );
+    if (replacement) {
+      replacement.focus({ preventScroll: true });
+      if (ownerDocument.activeElement === replacement) return;
+    }
     const pane = Array.from(
       ownerDocument.querySelectorAll<HTMLElement>("[data-pane-id]"),
     ).find((candidate) => candidate.dataset.paneId === paneId);
@@ -144,12 +153,14 @@ function MinimizedOverflow({
   anchor,
   id,
   entries,
+  stateLabel,
   popoverWidth,
   onClose,
 }: {
   anchor: HTMLButtonElement;
   id: string;
   entries: MinimizedTrayEntry[];
+  stateLabel: string;
   popoverWidth: number;
   onClose(): void;
 }) {
@@ -218,7 +229,7 @@ function MinimizedOverflow({
       id={id}
       role="dialog"
       aria-modal={false}
-      aria-label="Minimized agents"
+      aria-label={`${stateLabel} agents`}
       tabIndex={-1}
       className="minimized-overflow"
       style={{
@@ -230,7 +241,7 @@ function MinimizedOverflow({
       }}
     >
       <div className="minimized-overflow__header">
-        <span>Minimized agents</span>
+        <span>{stateLabel} agents</span>
         <span>{entries.length}</span>
       </div>
       <div className="minimized-overflow__list">
@@ -245,6 +256,7 @@ function MinimizedOverflow({
             stopped={entry.stopped}
             label={entry.label}
             active
+            restorePaneId={entry.id}
             onClick={() => {
               onClose();
               entry.onRestore();
@@ -269,9 +281,14 @@ function MinimizedOverflow({
 export function MinimizedTray({
   entries,
   active,
+  stateLabel = "Minimized",
 }: {
   entries: MinimizedTrayEntry[];
   active: boolean;
+  /** Describes why these panes are represented here. Kept generic so the
+   * same bottom shelf can hold suspended agents without calling them
+   * minimized, and can describe a mixed shelf as Hidden. */
+  stateLabel?: string;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const sizerRef = useRef<HTMLDivElement | null>(null);
@@ -338,7 +355,9 @@ export function MinimizedTray({
 
   return (
     <div className="deck__tray">
-      <span className="deck__tray-label">Minimized · {entries.length}</span>
+      <span className="deck__tray-label">
+        {stateLabel} · {entries.length}
+      </span>
       <div ref={sizerRef} className="deck__tray-sizer" aria-hidden>
         {entries.map((entry) => (
           <span
@@ -369,7 +388,11 @@ export function MinimizedTray({
             stopped={entry.stopped}
             label={entry.label}
             active={active}
-            onClick={entry.onRestore}
+            restorePaneId={entry.id}
+            onClick={(event) => {
+              entry.onRestore();
+              focusAfterRestore(event.currentTarget, entry.id);
+            }}
           />
         ))}
         {hiddenCount > 0 && (
@@ -377,7 +400,7 @@ export function MinimizedTray({
             ref={overflowRef}
             type="button"
             className="minimized-overflow__trigger"
-            aria-label={`Show ${hiddenCount} more minimized ${hiddenCount === 1 ? "agent" : "agents"}`}
+            aria-label={`Show ${hiddenCount} more ${stateLabel.toLowerCase()} ${hiddenCount === 1 ? "agent" : "agents"}`}
             aria-haspopup="dialog"
             aria-expanded={active && overflowOpen}
             aria-controls={active && overflowOpen ? popoverId : undefined}
@@ -394,6 +417,7 @@ export function MinimizedTray({
           anchor={overflowRef.current}
           id={popoverId}
           entries={hiddenEntries}
+          stateLabel={stateLabel}
           popoverWidth={popoverWidth}
           onClose={closeOverflow}
         />

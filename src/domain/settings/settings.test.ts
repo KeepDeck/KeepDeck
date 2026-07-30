@@ -35,6 +35,7 @@ describe("hydrateSettings", () => {
         scrollback: 50_000,
         deckLayout: "list",
         minimizeStyle: "strip",
+        suspendedAgentPlacement: "tray",
         dockMode: "floating",
         plugins: {
           enabled: { git: true },
@@ -51,6 +52,7 @@ describe("hydrateSettings", () => {
       scrollback: 50_000,
       deckLayout: "list",
       minimizeStyle: "strip",
+      suspendedAgentPlacement: "tray",
       dockMode: "floating",
       plugins: { enabled: { git: true }, values: { git: { remote: "origin" } }, consented: {} },
       notifications: { enabled: false, mode: "system", mutedPlugins: [] },
@@ -148,6 +150,28 @@ describe("hydrateSettings", () => {
       expect(
         hydrateSettings(JSON.stringify({ minimizeStyle: bad }))?.settings.minimizeStyle,
       ).toBe("tray");
+    }
+  });
+
+  it("defaults suspended agents to keeping their panes", () => {
+    expect(hydrateSettings("{}")?.settings.suspendedAgentPlacement).toBe("pane");
+    expect(serializeSettings(defaultSettingsDocument())).not.toContain(
+      "suspendedAgentPlacement",
+    );
+  });
+
+  it("accepts tray placement for suspended agents and rejects malformed values", () => {
+    const tray = hydrateSettings('{"suspendedAgentPlacement":"tray"}')!;
+    expect(tray.settings.suspendedAgentPlacement).toBe("tray");
+    expect(JSON.parse(serializeSettings(tray)).suspendedAgentPlacement).toBe(
+      "tray",
+    );
+    for (const bad of ["strip", "hidden", true, 1]) {
+      expect(
+        hydrateSettings(
+          JSON.stringify({ suspendedAgentPlacement: bad }),
+        )?.settings.suspendedAgentPlacement,
+      ).toBe("pane");
     }
   });
 

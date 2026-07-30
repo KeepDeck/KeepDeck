@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import {
   agentSupportsNew,
   agentSupportsYolo,
@@ -22,7 +21,6 @@ import {
 } from "../domain/deck";
 import { inspectRepo } from "../ipc/worktree";
 import { firstFreeAgentWorktree, nextAgentIndex, nextAgentType } from "./newAgentDefaults";
-import { commands } from "./commandRegistry";
 import { mintAgentSeq } from "./ids";
 import { paneInputReady, pasteToPane, writeRawToPane } from "./paneInput";
 import { getSettings } from "./settingsManager";
@@ -37,10 +35,9 @@ import type { Deck } from "./useDeck";
 
 /**
  * The deck's core command set — what any invoker (voice, MCP, hotkeys, a
- * future palette) can do to the deck through the command registry. Handlers
- * read the CURRENT deck through accessors, exactly like the plugin deck
- * bridge: the registration happens once, the deck it acts on is always this
- * render's.
+ * future palette) can do to the deck through the command registry. The plain
+ * application controller registers once; accessors read the current store and
+ * current UI port for every invocation.
  */
 export interface CoreCommandDeps {
   deck(): Deck;
@@ -539,40 +536,4 @@ export function registerCoreCommands(
   return () => {
     for (const dispose of disposers) dispose();
   };
-}
-
-/** Wire the core commands to the live deck — the composition root's hook.
- * Registration happens once; the accessors always read the current render's
- * deck through the ref (the plugin deck bridge's idiom). */
-export function useCoreCommands(deps: {
-  deck: Deck;
-  agents: AgentInfo[];
-  requestCloseAgent(wsId: string, paneId: string, label: string): void;
-  suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
-  /** Ask for a stopped agent back — the same gesture as its card's Resume,
-   * reporting what it did. */
-  resumeAgent(wsId: string, paneId: string): ResumeRequest;
-  createPane(request: CreatePaneRequest): CreatePaneOutcome;
-  openSettings(sectionId: string | null): boolean;
-  openUsage(): boolean;
-}): void {
-  const ref = useRef(deps);
-  ref.current = deps;
-  useEffect(
-    () =>
-      registerCoreCommands(commands, {
-        deck: () => ref.current.deck,
-        agents: () => ref.current.agents,
-        requestCloseAgent: (wsId, paneIdToClose, label) =>
-          ref.current.requestCloseAgent(wsId, paneIdToClose, label),
-        suspendAgent: (wsId, paneIdToSuspend) =>
-          ref.current.suspendAgent(wsId, paneIdToSuspend),
-        resumeAgent: (wsId, paneIdToResume) =>
-          ref.current.resumeAgent(wsId, paneIdToResume),
-        createPane: (request) => ref.current.createPane(request),
-        openSettings: (sectionId) => ref.current.openSettings(sectionId),
-        openUsage: () => ref.current.openUsage(),
-      }),
-    [],
-  );
 }

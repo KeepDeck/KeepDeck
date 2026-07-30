@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { AgentDialogResult } from "../agents";
 import { MAX_PANES } from "./layout";
 import {
   appendPane,
@@ -8,18 +7,15 @@ import {
   paneBlock,
   paneCanPark,
   paneCanSuspend,
-  paneFromAgentRequest,
   paneDisplayTitle,
   paneHasProcess,
   paneIdleIsDurable,
   paneIsRemoteFresh,
   idleReadsAsStopped,
-  paneOnScreen,
   paneSuspendBlock,
   paneResumeSessionId,
   paneWakeOrigin,
   paneWakesAutomatically,
-  partitionPanes,
   removePane,
   resolveFocus,
   sessionClaimant,
@@ -470,140 +466,6 @@ describe("paneCanPark", () => {
   });
 });
 
-describe("paneFromAgentRequest", () => {
-  const ws = { cwd: "/repo", name: "deck" };
-  const request = (over: Partial<AgentDialogResult> = {}): AgentDialogResult => ({
-    agentType: "claude",
-    name: "",
-    location: { kind: "main" },
-    yolo: false,
-    ...over,
-  });
-
-  it("shapes a bare pane for the main repo", () => {
-    expect(paneFromAgentRequest("pane-1", request(), ws, 1)).toEqual({
-      id: "pane-1",
-      agentType: "claude",
-    });
-  });
-
-  it("carries the endpoint and NOTHING local for a remote agent", () => {
-    // The location field still holds whatever the dialog last showed; a
-    // remote pane must not pick up a cwd on this machine from it.
-    expect(
-      paneFromAgentRequest(
-        "pane-1",
-        request({
-          location: { kind: "existing", path: "/wt/a", branch: "kd/a" },
-          remoteEndpoint: "wss://vps",
-        }),
-        ws,
-        1,
-      ),
-    ).toEqual({
-      id: "pane-1",
-      agentType: "claude",
-      remoteEndpoint: "wss://vps",
-    });
-  });
-
-  it("pins an existing worktree by cwd and branch", () => {
-    expect(
-      paneFromAgentRequest(
-        "pane-2",
-        request({ location: { kind: "existing", path: "/wt/a", branch: "kd/a" } }),
-        ws,
-        3,
-      ),
-    ).toEqual({
-      id: "pane-2",
-      agentType: "claude",
-      cwd: "/wt/a",
-      branch: "kd/a",
-    });
-  });
-
-  it("carries the create intent for a worktree that does not exist yet", () => {
-    expect(
-      paneFromAgentRequest(
-        "pane-3",
-        request({
-          location: {
-            kind: "new",
-            path: "/wt/kd-deck-3",
-            branch: "kd/deck/3",
-            baseBranch: "release",
-          },
-        }),
-        ws,
-        3,
-      ),
-    ).toEqual({
-      id: "pane-3",
-      agentType: "claude",
-      provisioning: {
-        repo: "/repo",
-        path: "/wt/kd-deck-3",
-        branch: "kd/deck/3",
-        base: "release",
-        workspace: "deck",
-        index: 3,
-      },
-    });
-  });
-
-  it("never stamps runsSetup — a pane added later is not part of the batch", () => {
-    // The workspace's one-time setup command belongs to the create form's
-    // batch. Stamping it here would make "+ Agent" re-run it per pane.
-    const pane = paneFromAgentRequest(
-      "pane-3",
-      request({
-        location: { kind: "new", path: "/wt/a", branch: "kd/a" },
-      }),
-      ws,
-      1,
-    );
-    expect(pane.provisioning?.runsSetup).toBeUndefined();
-  });
-
-  it("keeps unset fields OFF the pane rather than present-and-undefined", () => {
-    // Persistence and the deck's equality checks both read presence, so a
-    // blank name or branch must not land as a key at all.
-    const pane = paneFromAgentRequest(
-      "pane-4",
-      request({
-        name: "   ",
-        location: { kind: "new", path: "/wt/a", branch: "", baseBranch: "" },
-      }),
-      ws,
-      1,
-    );
-    expect(Object.keys(pane).sort()).toEqual(["agentType", "id", "provisioning"]);
-    expect(Object.keys(pane.provisioning!).sort()).toEqual([
-      "index",
-      "path",
-      "repo",
-      "workspace",
-    ]);
-  });
-
-  it("trims the name and arms yolo only when asked", () => {
-    expect(
-      paneFromAgentRequest(
-        "pane-5",
-        request({ name: "  planner  ", yolo: true }),
-        ws,
-        1,
-      ),
-    ).toEqual({
-      id: "pane-5",
-      name: "planner",
-      agentType: "claude",
-      yolo: true,
-    });
-  });
-});
-
 describe("removePane", () => {
   it("removes by id and keeps the rest", () => {
     expect(removePane(seed(3), "pane-2")).toEqual([
@@ -681,80 +543,5 @@ describe("paneDisplayTitle", () => {
 
   it("defaults a type-less pane to claude", () => {
     expect(paneDisplayTitle({ id: "pane-1" }, 1, agents)).toBe("Claude Code 2");
-  });
-});
-
-describe("partitionPanes", () => {
-  it("returns the SAME array as live (and empty minimized) when nothing is minimized", () => {
-    const panes = seed(3);
-    const both = partitionPanes(panes, undefined);
-    expect(both.live).toBe(panes); // stable ref for memoization
-    expect(both.minimized).toEqual([]);
-    expect(partitionPanes(panes, []).live).toBe(panes);
-  });
-
-  it("splits by the minimized set, preserving pane order in each group", () => {
-    const panes = seed(4); // pane-1..pane-4
-    const { live, minimized } = partitionPanes(panes, ["pane-3", "pane-1"]);
-    expect(live.map((p) => p.id)).toEqual(["pane-2", "pane-4"]);
-    expect(minimized.map((p) => p.id)).toEqual(["pane-1", "pane-3"]);
-  });
-
-  it("ignores minimized ids that no longer match a pane (self-heals)", () => {
-    const panes = seed(2);
-    const { live, minimized } = partitionPanes(panes, ["pane-2", "pane-99"]);
-    expect(live.map((p) => p.id)).toEqual(["pane-1"]);
-    expect(minimized.map((p) => p.id)).toEqual(["pane-2"]);
-  });
-});
-
-describe("paneOnScreen", () => {
-  const panes = seed(3); // pane-1..3
-
-  it("grid, plainly tiled: every live pane is on screen", () => {
-    expect(paneOnScreen(panes, undefined, "grid", true, "pane-2")).toBe(true);
-  });
-
-  it("grid: a minimized pane is off screen — but only while minimize is in force", () => {
-    const view = { minimized: ["pane-2"] };
-    expect(paneOnScreen(panes, view, "grid", true, "pane-2")).toBe(false);
-    expect(paneOnScreen(panes, view, "grid", true, "pane-1")).toBe(true);
-    // minimizeStyle "none" / list mode ignore the stored minimized set,
-    // exactly as DeckStage renders it.
-    expect(paneOnScreen(panes, view, "grid", false, "pane-2")).toBe(true);
-  });
-
-  it("grid with a maximize: only the maximized pane is on screen", () => {
-    const view = { focus: "pane-1" };
-    expect(paneOnScreen(panes, view, "grid", true, "pane-1")).toBe(true);
-    expect(paneOnScreen(panes, view, "grid", true, "pane-2")).toBe(false);
-  });
-
-  it("grid: a STALE maximize (its pane gone) resolves to none, like resolveFocus", () => {
-    const view = { focus: "pane-gone" };
-    expect(paneOnScreen(panes, view, "grid", true, "pane-2")).toBe(true);
-  });
-
-  it("grid: a maximize on a solo pane is a no-op — the lone tile is on screen", () => {
-    expect(paneOnScreen(seed(1), { focus: "pane-1" }, "grid", true, "pane-1")).toBe(
-      true,
-    );
-  });
-
-  it("list: only the expanded pane is on screen; empty select expands the first", () => {
-    expect(paneOnScreen(panes, { select: "pane-2" }, "list", false, "pane-2")).toBe(
-      true,
-    );
-    expect(paneOnScreen(panes, { select: "pane-2" }, "list", false, "pane-1")).toBe(
-      false,
-    );
-    // DeckStage's default: view?.select ?? panes[0]
-    expect(paneOnScreen(panes, undefined, "list", false, "pane-1")).toBe(true);
-    expect(paneOnScreen(panes, undefined, "list", false, "pane-2")).toBe(false);
-  });
-
-  it("an unknown pane is never on screen", () => {
-    expect(paneOnScreen(panes, undefined, "grid", true, "pane-99")).toBe(false);
-    expect(paneOnScreen([], undefined, "list", false, "pane-1")).toBe(false);
   });
 });

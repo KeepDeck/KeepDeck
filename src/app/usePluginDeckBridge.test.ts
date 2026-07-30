@@ -1,20 +1,16 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { AppRuntimeProvider } from "./runtimeContext";
-import type { AppRuntime } from "./runtime";
+import { initialDeckState } from "../domain/deck";
 import type { Deck } from "./useDeck";
 import {
   closedWorkspaces,
+  createPluginDeckBridge,
   revealDockTabOn,
-  usePluginDeckBridge,
-} from "./usePluginDeckBridge";
-
-(
-  globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+} from "./pluginDeckBridge";
+import { createDeckStore } from "./deckStore";
+import { createDeckActions } from "./deckActions";
+import type { createPluginManager } from "./pluginManager";
 
 const ref = (id: string, instance = createWorkspaceInstance()) => ({
   id,
@@ -86,7 +82,7 @@ describe("revealDockTabOn", () => {
  * a full-window diff of the workspace the user left sitting over the one they
  * went to, with the whole suite green.
  */
-describe("usePluginDeckBridge pane-selected emission", () => {
+describe("plugin deck bridge pane-selected emission", () => {
   const workspace = (id: string) => ({
     id,
     instance: createWorkspaceInstance(),
@@ -99,39 +95,36 @@ describe("usePluginDeckBridge pane-selected emission", () => {
   function harness() {
     const emitted: Array<{ workspace: { id: string }; paneId: string | null }> =
       [];
-    const runtime = {
-      plugins: {
-        pluginDeckEvents: {
-          emitWorkspaceClosed: vi.fn(),
-          emitDeckChanged: vi.fn(),
-          emitPaneSelected: (e: {
-            workspace: { id: string };
-            paneId: string | null;
-          }) => emitted.push(e),
-        },
-        wireDeckAccess: vi.fn(),
-        wireDeckUi: vi.fn(),
+    const plugins = {
+      pluginDeckEvents: {
+        emitWorkspaceClosed: vi.fn(),
+        emitDeckChanged: vi.fn(),
+        emitPaneSelected: (e: {
+          workspace: { id: string };
+          paneId: string | null;
+        }) => emitted.push(e),
       },
-    } as unknown as AppRuntime;
-
-    const host = document.createElement("div");
-    const root = createRoot(host);
-    const Probe = ({ deck }: { deck: Deck }) => {
-      usePluginDeckBridge(deck);
-      return null;
-    };
+      wireDeckAccess: vi.fn(),
+      wireDeckUi: vi.fn(),
+    } as unknown as ReturnType<typeof createPluginManager>;
+    const store = createDeckStore();
+    const actions = createDeckActions(store);
+    const bridge = createPluginDeckBridge(store, plugins);
     const render = async (deck: Deck) => {
-      await act(async () => {
-        root.render(
-          createElement(
-            AppRuntimeProvider,
-            { runtime },
-            createElement(Probe, { deck }),
-          ),
-        );
+      actions.hydrate({
+        ...initialDeckState,
+        workspaces: deck.workspaces,
+        activeId: deck.activeId,
+        viewByWs: Object.fromEntries(
+          deck.workspaces.map((workspace) => [
+            workspace.id,
+            deck.viewOf(workspace.id),
+          ]),
+        ),
       });
+      await Promise.resolve();
     };
-    return { emitted, render, unmount: () => act(async () => root.unmount()) };
+    return { emitted, render, unmount: () => bridge.dispose() };
   }
 
   const deckOf = (workspaces: ReturnType<typeof workspace>[], activeId: string) =>

@@ -89,6 +89,8 @@ function buildDeckActions(store: DeckStore) {
     toggleMinimize: (wsId: string, paneId: string) =>
       dispatch({ type: "toggleMinimize", wsId, paneId }),
     clearMinimized: () => dispatch({ type: "clearMinimized" }),
+    restoreSuspendedPane: (wsId: string, paneId: string) =>
+      dispatch({ type: "restoreSuspendedPane", wsId, paneId }),
     selectPane: (wsId: string, paneId: string) =>
       dispatch({ type: "selectPane", wsId, paneId }),
     toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),
@@ -101,8 +103,14 @@ function buildDeckActions(store: DeckStore) {
     hydrate: (state: DeckState) => dispatch({ type: "hydrate", state }),
     clearPaneIdle: (wsId: string, paneId: string) =>
       dispatch({ type: "clearPaneIdle", wsId, paneId }),
-    suspendPane: (wsId: string, paneId: string) =>
-      dispatch({ type: "suspendPane", wsId, paneId, at: nowIso() }),
+    suspendPane: (wsId: string, paneId: string, moveToTray = false) =>
+      dispatch({
+        type: "suspendPane",
+        wsId,
+        paneId,
+        at: nowIso(),
+        moveToTray,
+      }),
     requestPaneWake: (wsId: string, paneId: string) =>
       dispatch({ type: "requestPaneWake", wsId, paneId }),
     failPaneWake: (wsId: string, paneId: string) =>

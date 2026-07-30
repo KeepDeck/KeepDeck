@@ -6,6 +6,10 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { createDeckStore } from "./deckStore";
+import {
+  createDeckPersistence,
+  type DeckPersistence,
+} from "./deckPersistence";
 import { usePersistence } from "./usePersistence";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -47,14 +51,19 @@ const STORED = JSON.stringify({
 });
 
 let deck: Deck;
+let persistence: DeckPersistence;
 let restoring: boolean;
 let frozen: ReturnType<typeof usePersistence>["frozen"];
 
 function Probe() {
-  // Fresh per mount (a bare call would rebuild it on every render).
-  const [store] = useState(createDeckStore);
+  const [owners] = useState(() => {
+    const store = createDeckStore();
+    return { store, persistence: createDeckPersistence(store) };
+  });
+  const { store } = owners;
+  persistence = owners.persistence;
   deck = useDeck(store);
-  ({ restoring, frozen } = usePersistence(deck));
+  ({ restoring, frozen } = usePersistence(persistence));
   return null;
 }
 
@@ -74,6 +83,7 @@ describe("usePersistence", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    persistence.dispose();
     vi.useRealTimers();
   });
 

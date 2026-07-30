@@ -1,8 +1,5 @@
-// @vitest-environment happy-dom
-import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Deck } from "./useDeck";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { DeckStore } from "./deckStore";
 
 const bridge = vi.hoisted(() => ({
   onSessionBound: vi.fn(),
@@ -21,10 +18,10 @@ vi.mock("./usageManager", () => ({
   beginPaneUsageSession: bridge.beginPaneUsageSession,
 }));
 
-import { postbackAccepted, useSessionBinding } from "./useSessionBinding";
-
-(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
-  true;
+import {
+  createSessionBinding,
+  postbackAccepted,
+} from "./sessionBinding";
 
 // The bridge's anti-forgery rule: an inbox postback binds a pane only when
 // it echoes the per-spawn secret. Writing a file is not enough.
@@ -44,7 +41,7 @@ describe("postbackAccepted", () => {
   });
 });
 
-describe("useSessionBinding", () => {
+describe("createSessionBinding", () => {
   // Defaulted to a no-op so the shared `let` is never undefined across the
   // effect-flush race (a call before the handler registers is a silent no-op
   // rather than a cryptic TypeError flake).
@@ -64,19 +61,17 @@ describe("useSessionBinding", () => {
       emit = handler;
       return Promise.resolve(() => {});
     });
-    document.body.innerHTML = "<div id='host'></div>";
   });
 
-  afterEach(() => {
-    document.body.innerHTML = "";
-  });
-
-  const mount = async (sessionId?: string) => {
-    const setPaneSession = vi.fn();
-    const deck = {
+  const mount = (sessionId?: string) => {
+    const state = {
       workspaces: [
         {
           id: "ws-1",
+          instance: "instance-1",
+          name: "workspace",
+          cwd: "/repo",
+          worktreeBaseDir: null,
           panes: [
             {
               id: "pane-1",
@@ -87,21 +82,23 @@ describe("useSessionBinding", () => {
           ],
         },
       ],
-      setPaneSession,
-    } as unknown as Deck;
-    const Probe = () => {
-      useSessionBinding(deck);
-      return null;
+      activeId: "ws-1",
+      viewByWs: {},
+      journal: { records: {}, tail: [] },
     };
-    const root = createRoot(document.getElementById("host")!);
-    await act(async () => root.render(createElement(Probe)));
-    return { root, setPaneSession };
+    const dispatch = vi.fn(() => state);
+    const store = {
+      getSnapshot: () => state,
+      subscribe: () => () => {},
+      dispatch,
+    } as unknown as DeckStore;
+    return { binding: createSessionBinding(store), dispatch };
   };
 
   it("clears pane telemetry before binding a different session", async () => {
-    const { root, setPaneSession } = await mount("session-old");
+    const { binding, dispatch } = mount("session-old");
 
-    act(() => emit({ paneId: "pane-1", sessionId: "session-new", token: "tok" }));
+    emit({ paneId: "pane-1", sessionId: "session-new", token: "tok" });
 
     expect(bridge.beginPaneUsageSession).toHaveBeenCalledWith(
       "pane-1",
@@ -111,13 +108,15 @@ describe("useSessionBinding", () => {
       "pane-1",
       "session-new",
     );
-    expect(setPaneSession).toHaveBeenCalledWith(
-      "ws-1",
-      "pane-1",
-      expect.objectContaining({ id: "session-new" }),
-      undefined,
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "setPaneSession",
+        wsId: "ws-1",
+        paneId: "pane-1",
+        session: expect.objectContaining({ id: "session-new" }),
+      }),
     );
-    act(() => root.unmount());
+    binding.dispose();
   });
 
   it("re-reports the SAME session with the stamp it was first bound at", async () => {
@@ -125,58 +124,64 @@ describe("useSessionBinding", () => {
     // timestamp each time makes the journal record differ from itself, so the
     // dedupe misses and every one of them appends and fsyncs a `bound` event
     // and re-renders the deck. Nothing about the binding has changed.
-    const { root, setPaneSession } = await mount("session-old");
+    const { binding, dispatch } = mount("session-old");
 
-    act(() => emit({ paneId: "pane-1", sessionId: "session-old", token: "tok" }));
+    emit({ paneId: "pane-1", sessionId: "session-old", token: "tok" });
 
-    expect(setPaneSession).toHaveBeenCalledWith(
-      "ws-1",
-      "pane-1",
-      { id: "session-old", boundAt: "2026-07-22T00:00:00Z" },
-      undefined,
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session: {
+          id: "session-old",
+          boundAt: "2026-07-22T00:00:00Z",
+        },
+      }),
     );
-    act(() => root.unmount());
+    binding.dispose();
   });
 
   it("keeps telemetry on the initial and same-session bindings", async () => {
-    let mounted = await mount();
-    act(() => emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" }));
+    let mounted = mount();
+    emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" });
     expect(bridge.beginPaneUsageSession).not.toHaveBeenCalled();
-    act(() => mounted.root.unmount());
+    mounted.binding.dispose();
 
-    document.body.innerHTML = "<div id='host'></div>";
-    mounted = await mount("session-1");
-    act(() => emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" }));
+    mounted = mount("session-1");
+    emit({ paneId: "pane-1", sessionId: "session-1", token: "tok" });
     expect(bridge.beginPaneUsageSession).not.toHaveBeenCalled();
-    act(() => mounted.root.unmount());
+    mounted.binding.dispose();
   });
 
   it("does not bind a session for a REMOTE pane (fresh-session only)", async () => {
     // A remote pane's local thin-client reporter fires too — but binding it
     // would let a revive/restart resume LOCALLY against a VPS-only session id.
     // The postback is still counted; only the binding is skipped.
-    const setPaneSession = vi.fn();
-    const deck = {
+    const state = {
       workspaces: [
         {
           id: "ws-1",
+          instance: "instance-1",
+          name: "workspace",
+          cwd: "/repo",
+          worktreeBaseDir: null,
           panes: [{ id: "pane-1", remoteEndpoint: "ws://vps:4500" }],
         },
       ],
-      setPaneSession,
-    } as unknown as Deck;
-    const Probe = () => {
-      useSessionBinding(deck);
-      return null;
+      activeId: "ws-1",
+      viewByWs: {},
+      journal: { records: {}, tail: [] },
     };
-    const root = createRoot(document.getElementById("host")!);
-    await act(async () => root.render(createElement(Probe)));
+    const dispatch = vi.fn(() => state);
+    const binding = createSessionBinding({
+      getSnapshot: () => state,
+      subscribe: () => () => {},
+      dispatch,
+    } as unknown as DeckStore);
 
-    act(() => emit({ paneId: "pane-1", sessionId: "ses-1", token: "tok" }));
+    emit({ paneId: "pane-1", sessionId: "ses-1", token: "tok" });
 
     expect(bridge.bumpPostback).toHaveBeenCalledWith("pane-1");
     expect(bridge.bindPaneSpawnSpecSession).not.toHaveBeenCalled();
-    expect(setPaneSession).not.toHaveBeenCalled();
-    act(() => root.unmount());
+    expect(dispatch).not.toHaveBeenCalled();
+    binding.dispose();
   });
 });
