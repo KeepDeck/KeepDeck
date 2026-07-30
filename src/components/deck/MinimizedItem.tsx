@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import type { MouseEvent } from "react";
 import { RestoreUpIcon } from "../../ui/icons";
 import { BranchBadge, StoppedMarker, YoloBadge } from "../../ui/badges";
 import type { GitBadge } from "../../ui/gitBadge";
@@ -25,7 +26,9 @@ interface MinimizedItemProps {
   label: string;
   /** False while the source workspace is mounted but inactive. */
   active: boolean;
-  onClick(): void;
+  /** Stable focus target when one stand-in is replaced by another. */
+  restorePaneId?: string;
+  onClick(event: MouseEvent<HTMLButtonElement>): void;
 }
 
 interface MinimizedItemContentProps {
@@ -87,6 +90,7 @@ export function MinimizedItem({
   stopped,
   label,
   active,
+  restorePaneId,
   onClick,
 }: MinimizedItemProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -139,10 +143,11 @@ export function MinimizedItem({
           focused.current = false;
           closeTooltip();
         }}
-        onClick={() => {
+        onClick={(event) => {
           closeTooltip();
-          onClick();
+          onClick(event);
         }}
+        data-restore-pane-id={restorePaneId}
         aria-label={label}
         aria-describedby={active && tooltipAnchor ? tooltipId : undefined}
       >

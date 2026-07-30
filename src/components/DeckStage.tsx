@@ -14,19 +14,16 @@ import {
   idleReadsAsStopped,
   paneIsSuspended,
   paneResumeSessionId,
-  partitionPanes,
+  resolveSelectedPaneId,
   resolveFocus,
+  visiblePanes,
   type GitPosition,
   type Pane,
   type Workspace,
   type WorkspaceView,
   paneBody,
 } from "../domain/deck";
-import type {
-  MinimizeStyle,
-  DeckLayout,
-  SuspendedAgentPlacement,
-} from "../domain/settings";
+import type { MinimizeStyle, DeckLayout } from "../domain/settings";
 import { gitBadge } from "../ui/gitBadge";
 import { AgentPane, type UnavailableAgent } from "./agent/AgentPane";
 import { MinimizedItem } from "./deck/MinimizedItem";
@@ -66,10 +63,6 @@ interface DeckStageProps {
   deckLayout: DeckLayout;
   /** How a minimized agent is shown in the grid layout (tray / strip). */
   minimizeStyle: MinimizeStyle;
-  /** Whether explicitly suspended agents keep their pane or live in the
-   * bottom tray until resumed. Presentation only; it never changes idle
-   * state by itself. */
-  suspendedAgentPlacement: SuspendedAgentPlacement;
   /** Agent catalog, for pane commands and derived titles. */
   agents: AgentInfo[];
   /** The catalog reflects the booted plugin system — only then can a pane's
@@ -96,6 +89,8 @@ interface DeckStageProps {
   onToggleFocus(wsId: string, paneId: string): void;
   /** Minimize a pane out of the grid, or restore it (grid layout only). */
   onToggleMinimize(wsId: string, paneId: string): void;
+  /** Return a suspended pane from its tray placement without resuming it. */
+  onRestoreSuspendedPane(wsId: string, paneId: string): void;
   /** Ask to close a pane; `label` is its display title for the confirm. */
   onCloseAgent(wsId: string, paneId: string, label: string): void;
   onRenamePane(wsId: string, paneId: string, name: string): void;
@@ -168,7 +163,6 @@ export function DeckStage({
   selectedPaneId,
   deckLayout,
   minimizeStyle,
-  suspendedAgentPlacement,
   agents,
   agentsReady,
   unavailableAgentReasons,
@@ -181,6 +175,7 @@ export function DeckStage({
   onSelectPane,
   onToggleFocus,
   onToggleMinimize,
+  onRestoreSuspendedPane,
   onCloseAgent,
   onRenamePane,
   onPaneTitle,
@@ -200,7 +195,6 @@ export function DeckStage({
   const isList = deckLayout === "list";
   // Minimizing is a grid-only affordance, and off entirely under `none`.
   const canMinimize = !isList && minimizeStyle !== "none";
-  const suspendedInTray = suspendedAgentPlacement === "tray";
   return (
     <>
       {workspaces.map((ws) => {
@@ -247,12 +241,9 @@ export function DeckStage({
         // hidden but stay in the grid mounted. List: the selected pane expands,
         // the rest fold to headers.
         const minimizedIds = view?.minimized ?? [];
-        const suspendedTrayPanes = suspendedInTray
-          ? ws.panes.filter(
-              (pane) =>
-                paneIsSuspended(pane) && minimizedIds.includes(pane.id),
-            )
-          : [];
+        const suspendedTrayPanes = ws.panes.filter(
+          (pane) => view?.suspendedTray?.includes(pane.id),
+        );
         const suspendedTrayIds = new Set(
           suspendedTrayPanes.map((pane) => pane.id),
         );
@@ -260,16 +251,16 @@ export function DeckStage({
           ? minimizedIds
           : [];
         const manuallyMinimizedSet = new Set(manuallyMinimizedIds);
-        const { live } = partitionPanes(
-          ws.panes,
-          [...manuallyMinimizedIds, ...suspendedTrayIds],
-        );
+        const live = visiblePanes(ws.panes, view, canMinimize);
         const liveIndex = new Map(live.map((p, i) => [p.id, i] as const));
         const focusedHere = isList ? null : resolveFocus(live, view?.focus);
         const soloGrid = live.length === 1;
-        const expandedId = live.some((pane) => pane.id === view?.select)
-          ? view?.select
-          : live[0]?.id;
+        const expandedId = resolveSelectedPaneId(
+          ws.panes,
+          view,
+          deckLayout,
+          canMinimize,
+        );
         const trackColumns =
           live.length === 0 ? 1 : focusedHere ? 1 : paneGridTrackColumns(live.length);
         const rowCount =
@@ -385,7 +376,9 @@ export function DeckStage({
             entryOf(pane, "Restore", restoreById.get(pane.id)!),
           );
         const suspendedEntries = suspendedTrayPanes.map((pane) =>
-          entryOf(pane, "Restore", () => onToggleMinimize(ws.id, pane.id)),
+          entryOf(pane, "Restore", () =>
+            onRestoreSuspendedPane(ws.id, pane.id),
+          ),
         );
         const minimizeEntryById = new Map(
           minimizeEntries.map((entry) => [entry.id, entry]),
@@ -412,7 +405,9 @@ export function DeckStage({
           suspendedEntries.length > 0 &&
           minimizeEntries.length > 0
             ? "Hidden"
-            : suspendedEntries.length > 0
+            : suspendedTrayPanes.some((pane) => !paneIsSuspended(pane))
+              ? "Hidden"
+              : suspendedEntries.length > 0
               ? "Suspended"
               : "Minimized";
 
@@ -466,11 +461,7 @@ export function DeckStage({
               focused={layout.focused}
               hidden={layout.hidden}
               folded={layout.folded}
-              selected={
-                pane.id === selectedPaneId ||
-                (suspendedTrayIds.has(selectedPaneId ?? "") &&
-                  pane.id === live[0]?.id)
-              }
+              selected={pane.id === selectedPaneId}
               solo={layout.solo}
               idle={pane.idle}
               wakeError={wakeFailed[pane.id] ?? null}
@@ -521,8 +512,13 @@ export function DeckStage({
                 <div className="deck__grid-empty" role="status">
                   <span className="deck__grid-empty-title">
                     {suspendedTrayPanes.length === ws.panes.length
-                      ? "Every agent is suspended"
-                      : suspendedTrayPanes.length > 0
+                      ? suspendedTrayPanes.every(paneIsSuspended)
+                        ? "Every agent is suspended"
+                        : "Every agent is in the tray"
+                      : suspendedTrayPanes.length > 0 &&
+                          minimizeEntries.length > 0
+                        ? "Every agent is hidden"
+                        : suspendedTrayPanes.length > 0
                         ? "Every agent is in the tray"
                         : "Every agent is minimized"}
                   </span>
@@ -552,6 +548,7 @@ export function DeckStage({
                       stopped={entry.stopped}
                       label={entry.label}
                       active={isActive}
+                      restorePaneId={entry.id}
                       onClick={entry.onRestore}
                     />
                   ))}

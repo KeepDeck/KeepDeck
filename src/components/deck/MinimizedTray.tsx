@@ -126,6 +126,15 @@ function focusAfterRestore(anchor: HTMLButtonElement, paneId: string) {
       anchor.focus({ preventScroll: true });
       return;
     }
+    const replacement = Array.from(
+      ownerDocument.querySelectorAll<HTMLElement>("[data-restore-pane-id]"),
+    ).find(
+      (candidate) => candidate.dataset.restorePaneId === paneId,
+    );
+    if (replacement) {
+      replacement.focus({ preventScroll: true });
+      if (ownerDocument.activeElement === replacement) return;
+    }
     const pane = Array.from(
       ownerDocument.querySelectorAll<HTMLElement>("[data-pane-id]"),
     ).find((candidate) => candidate.dataset.paneId === paneId);
@@ -247,6 +256,7 @@ function MinimizedOverflow({
             stopped={entry.stopped}
             label={entry.label}
             active
+            restorePaneId={entry.id}
             onClick={() => {
               onClose();
               entry.onRestore();
@@ -378,7 +388,11 @@ export function MinimizedTray({
             stopped={entry.stopped}
             label={entry.label}
             active={active}
-            onClick={entry.onRestore}
+            restorePaneId={entry.id}
+            onClick={(event) => {
+              entry.onRestore();
+              focusAfterRestore(event.currentTarget, entry.id);
+            }}
           />
         ))}
         {hiddenCount > 0 && (

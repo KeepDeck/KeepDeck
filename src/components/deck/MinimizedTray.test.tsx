@@ -7,6 +7,7 @@ import {
   type MinimizedTrayEntry,
   visibleTrayItemCount,
 } from "./MinimizedTray";
+import { MinimizedItem } from "./MinimizedItem";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -264,6 +265,99 @@ describe("MinimizedTray", () => {
     expect(
       document.querySelector<HTMLElement>("[role='dialog']")?.style.width,
     ).toBe("276px");
+  });
+
+  it("focuses the restored pane when a direct final chip disappears", () => {
+    let frame: FrameRequestCallback | null = null;
+    const requestFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        frame = callback;
+        return 1;
+      });
+
+    function DirectRestoreHarness() {
+      const [restored, setRestored] = useState(false);
+      const entry: MinimizedTrayEntry = {
+        id: "direct-pane",
+        title: "Direct agent",
+        label: "Restore direct agent",
+        onRestore: () => setRestored(true),
+      };
+      return (
+        <>
+          <section
+            data-pane-id="direct-pane"
+            tabIndex={-1}
+            hidden={!restored}
+          />
+          {!restored && <MinimizedTray entries={[entry]} active />}
+        </>
+      );
+    }
+
+    act(() => root.render(<DirectRestoreHarness />));
+    const restore = document.querySelector<HTMLButtonElement>(
+      "[aria-label='Restore direct agent']",
+    )!;
+    act(() => restore.focus());
+    act(() => restore.click());
+
+    const pane = document.querySelector<HTMLElement>(
+      "[data-pane-id='direct-pane']",
+    )!;
+    expect(document.activeElement).not.toBe(pane);
+    act(() => frame?.(0));
+    expect(document.activeElement).toBe(pane);
+
+    requestFrame.mockRestore();
+  });
+
+  it("moves focus to the Strip stand-in that replaces a tray chip", () => {
+    let frame: FrameRequestCallback | null = null;
+    const requestFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        frame = callback;
+        return 1;
+      });
+
+    function ReplacementHarness() {
+      const [inTray, setInTray] = useState(true);
+      const entry: MinimizedTrayEntry = {
+        id: "shared-pane",
+        title: "Shared agent",
+        label: "Restore shared agent",
+        onRestore: () => setInTray(false),
+      };
+      return inTray ? (
+        <MinimizedTray entries={[entry]} active />
+      ) : (
+        <MinimizedItem
+          variant="bar"
+          title="Shared agent"
+          label="Restore shared agent from strip"
+          active
+          restorePaneId="shared-pane"
+          onClick={() => {}}
+        />
+      );
+    }
+
+    act(() => root.render(<ReplacementHarness />));
+    const restore = document.querySelector<HTMLButtonElement>(
+      "[aria-label='Restore shared agent']",
+    )!;
+    act(() => restore.focus());
+    act(() => restore.click());
+    const replacement = document.querySelector<HTMLButtonElement>(
+      "[data-restore-pane-id='shared-pane']",
+    )!;
+    expect(document.activeElement).not.toBe(replacement);
+    act(() => frame?.(0));
+    expect(document.activeElement).toBe(replacement);
+
+    requestFrame.mockRestore();
   });
 
   it("focuses the restored pane when restoring the last hidden entry removes +N", () => {

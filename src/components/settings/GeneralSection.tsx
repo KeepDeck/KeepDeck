@@ -146,13 +146,19 @@ export function GeneralSection() {
       <span className="settings__hint">{LAYOUT_OPTIONS[deckLayout].hint}</span>
 
       <span className="form__label">Minimized agents</span>
-      <div className="form__types">
+      <div
+        className="form__types"
+        role="group"
+        aria-label="Minimized agents"
+      >
         {MINIMIZE_STYLES.map((style) => (
           <button
             key={style}
             type="button"
             className={`form__type${style === minimizeStyle ? " form__type--active" : ""}`}
             disabled={deckLayout !== "grid"}
+            aria-label={`Minimized agents: ${MINIMIZE_OPTIONS[style].label}`}
+            aria-pressed={style === minimizeStyle}
             onClick={() => updateSettings({ minimizeStyle: style })}
           >
             {MINIMIZE_OPTIONS[style].label}
@@ -166,12 +172,18 @@ export function GeneralSection() {
       </span>
 
       <span className="form__label">Suspended agents</span>
-      <div className="form__types">
+      <div
+        className="form__types"
+        role="group"
+        aria-label="Suspended agents"
+      >
         {SUSPENDED_AGENT_PLACEMENTS.map((placement) => (
           <button
             key={placement}
             type="button"
             className={`form__type${placement === suspendedAgentPlacement ? " form__type--active" : ""}`}
+            aria-label={`Suspended agents: ${SUSPENDED_OPTIONS[placement].label}`}
+            aria-pressed={placement === suspendedAgentPlacement}
             onClick={() =>
               updateSettings({ suspendedAgentPlacement: placement })
             }
