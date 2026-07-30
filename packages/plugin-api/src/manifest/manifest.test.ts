@@ -221,6 +221,10 @@ describe("readManifest", () => {
     const cases: [unknown, string][] = [
       [{ kind: "exec", commands: [] }, "non-empty"],
       [{ kind: "exec" }, "non-empty"],
+      // A bare wildcard grants arbitrary execution while showing the user
+      // nothing to approve — the same reason `commands` refuses one.
+      [{ kind: "exec", commands: ["*"] }, 'bare "*"'],
+      [{ kind: "exec", commands: ["git", "*"] }, 'bare "*"'],
       [{ kind: "fs", scope: "disk" }, '"workspace" or "everywhere"'],
       [{ kind: "fsWrite", paths: [] }, "non-empty"],
       [{ kind: "fsWrite" }, "non-empty"],

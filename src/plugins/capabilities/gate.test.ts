@@ -183,19 +183,21 @@ describe("createCapabilityGate — sessions.spawn", () => {
     expect(backend.sessions.spawn).not.toHaveBeenCalled();
   });
 
-  it('the "*" wildcard covers any program', async () => {
+  it('a literal "*" entry is not a wildcard — the gate still denies', () => {
     const { backend } = fakeBackend();
     const log = fakeLog();
+    // `readManifest` refuses a bare "*" now, so no installed plugin declares
+    // one; a hand-built manifest carrying it must not spawn anything either.
     const gate = createCapabilityGate(
       manifest([{ kind: "exec", commands: ["*"] }]),
       backend,
       { diagnostics: "silent", log },
     );
 
-    await gate.sessions.spawn(spawnOpts("anything-goes"), vi.fn());
-
-    expect(backend.sessions.spawn).toHaveBeenCalledTimes(1);
-    expect(log.warn).not.toHaveBeenCalled();
+    expect(() => gate.sessions.spawn(spawnOpts("anything-goes"), vi.fn())).toThrow(
+      /exec/,
+    );
+    expect(backend.sessions.spawn).not.toHaveBeenCalled();
   });
 
   it("log diagnostics emits one precise warning and still denies the call", () => {

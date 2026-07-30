@@ -262,6 +262,14 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
       case "exec":
         if (!isStringArray(cap.commands) || cap.commands.length === 0)
           errors.push(`${at}: exec needs a non-empty "commands" string array`);
+        // The same rule `commands` already applies, for the same reason: a
+        // bare wildcard makes consent meaningless — the user is asked to
+        // approve "run programs" with nothing named. `exec` is the more
+        // dangerous of the two and had no guard at all.
+        else if (cap.commands.some((command) => command === "*"))
+          errors.push(
+            `${at}: exec commands must name programs (a bare "*" is not allowed)`,
+          );
         else out.push({ kind: "exec", commands: cap.commands });
         return;
       case "fs":
