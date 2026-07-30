@@ -1,7 +1,6 @@
 import {
   paneAgentType,
   paneFrozenTitle,
-  paneIsSuspended,
   resolveFocus,
   type Pane,
   type PaneSession,
@@ -12,7 +11,6 @@ import {
   hydrateJournalSlice,
   withJournalEvent,
   type JournalEvent,
-  type JournalRecords,
   type JournalSlice,
 } from "../journal";
 import {
@@ -41,30 +39,16 @@ import {
   workspaceIdsAreUnique,
   type Workspace,
 } from "./workspaces";
-import type { WorkspaceInstance } from "../workspaceInstance";
+import type { DeckAction } from "./reducerActions";
+import {
+  hidePaneView,
+  setViewField,
+  withDefaultSelection,
+  type WorkspaceView,
+} from "./workspaceView";
 
-/**
- * One workspace's runtime view state, in a SINGLE object per workspace so a
- * workspace's UI state has one home instead of being smeared across parallel
- * `*ByWs` maps. Sparse: an absent field means its default — no maximize, no
- * selection, dock closed, no tab picked. `focus`/`select` persist with the
- * deck; `dock`/`dockTab` are session-only (the codec never writes them, so
- * every launch starts with the dock closed on its default tab).
- */
-export interface WorkspaceView {
-  /** Maximized pane id, when one is maximized. Persisted. */
-  focus?: string;
-  /** Highlighted (selected) pane id. Persisted. */
-  select?: string;
-  /** Whether this workspace's dock is open. Session-only. */
-  dock?: boolean;
-  /** The selected dock tab id (`pluginId:entryId`). Session-only. */
-  dockTab?: string;
-  /** Pane ids minimized out of the grid (the tray/strip minimize styles).
-   * Session-only, like dock/dockTab — persist.ts never writes it, so every
-   * launch starts with nothing minimized. Kept only while non-empty. */
-  minimized?: string[];
-}
+export type { DeckAction } from "./reducerActions";
+export type { WorkspaceView } from "./workspaceView";
 
 /**
  * The deck's interdependent state: the workspaces, which one is active, and the
@@ -95,193 +79,12 @@ export interface DeckState {
   viewByWs: Record<string, WorkspaceView>;
 }
 
-export type DeckAction =
-  | { type: "selectWorkspace"; id: string }
-  /** `at` guards against a reused `ws-N` id inheriting a crash-orphaned
-   * journal key (it stamps the pruning event). */
-  | { type: "createWorkspace"; workspace: Workspace; at: string }
-  /** Append an already-formed agent pane (from the add-agent dialog). */
-  | { type: "addAgentPane"; id: string; pane: Pane }
-  | { type: "renameWorkspace"; id: string; name: string }
-  /** Reorder the rail: move workspace `id` to `toIndex` (drag & drop). */
-  | { type: "moveWorkspace"; id: string; toIndex: number }
-  | { type: "closeAgent"; wsId: string; paneId: string; at: string }
-  | { type: "closeWorkspace"; id: string; at: string }
-  | { type: "toggleFocus"; wsId: string; paneId: string }
-  /** Minimize a pane out of the grid, or restore it (the tray/strip styles). */
-  | { type: "toggleMinimize"; wsId: string; paneId: string }
-  /** Drop the session-only minimized set from every workspace view. Suspended
-   * panes may be retained when their placement uses that same set as a tray. */
-  | { type: "clearMinimized"; preserveSuspended?: boolean }
-  | { type: "selectPane"; wsId: string; paneId: string }
-  /** Flip a workspace's dock (the top bar's dock button). */
-  | { type: "toggleDock"; wsId: string }
-  /** Pick a workspace's dock tab — remembered per workspace, session-only. */
-  | { type: "setDockTab"; wsId: string; tabId: string }
-  /** Manual pane rename ([F11]); empty name reverts to auto/derived. */
-  | { type: "renamePane"; wsId: string; paneId: string; name: string }
-  /** Auto title from the terminal (OSC) for a pane ([F11]). */
-  | { type: "setPaneAutoTitle"; wsId: string; paneId: string; title: string }
-  /** Replace the whole deck with a restored one (app boot, [F7]). */
-  | { type: "hydrate"; state: DeckState }
-  /** Drop an idle pane's marker so its terminal mounts and spawns — the LAST
-   * step of the revive sweep, after the probe and the plan ([F7]). To ask for
-   * a stopped pane back, dispatch `requestPaneWake` instead. */
-  | { type: "clearPaneIdle"; wsId: string; paneId: string }
-  /** Suspend a live pane: it keeps its place, session binding and worktree,
-   * but nothing wakes it again except an explicit resume. `moveToTray` uses
-   * the existing session-only minimize transition atomically. */
-  | {
-      type: "suspendPane";
-      wsId: string;
-      paneId: string;
-      at: string;
-      moveToTray?: boolean;
-    }
-  /** Hand a suspended/parked pane back to the revive sweep, which resumes it
-   * the same way it resumes any restored pane. */
-  | { type: "requestPaneWake"; wsId: string; paneId: string }
-  /** That wake could not be prepared — put the pane back down where it was,
-   * rather than let it come up as a different conversation. */
-  | { type: "failPaneWake"; wsId: string; paneId: string }
-  /** The launch policy says this pane must not start on its own — stop it
-   * rising and give it the stopped card. */
-  | { type: "parkPane"; wsId: string; paneId: string }
-  /** Detach a pane from a gone worktree (drops cwd/branch/session) so it can
-   * start fresh in the workspace cwd ([F7] restore reconcile). */
-  | { type: "resetPaneLocation"; wsId: string; paneId: string }
-  /** Bind a live pane to its agent session — the resume key ([F7]/[F8]) —
-   * or drop a dead binding (`null`). */
-  | {
-      type: "setPaneSession";
-      wsId: string;
-      paneId: string;
-      session: PaneSession | null;
-      /** The session's transcript file when the reporter delivered it —
-       * journal-only data, never stored on the pane. */
-      transcriptPath?: string;
-      /** Stamp for the journal seal of the previous binding, if any. */
-      at: string;
-    }
-  /** A background worktree create landed: pin the pane to it and mount its
-   * terminal. */
-  | {
-      type: "resolvePaneProvisioning";
-      wsId: string;
-      paneId: string;
-      cwd: string;
-      branch: string;
-    }
-  /** Record why a pane's worktree create failed, or clear it (`null`) when a
-   * Retry starts. */
-  | {
-      type: "setPaneProvisioningError";
-      wsId: string;
-      paneId: string;
-      error: string | null;
-    }
-  /** The provisioning card's step: the worktree exists, setup is running. */
-  | { type: "setPaneProvisioningPhase"; wsId: string; paneId: string; phase: "setup" }
-  /** Set (or, via `undefined`, clear) one plugin's opaque persisted slot for
-   * a workspace — the write path behind a plugin's workspace-scoped storage
-   * (`ctx.storage.workspace(workspace)`). */
-  | {
-      type: "setWorkspacePluginSlot";
-      wsId: string;
-      workspaceInstance: WorkspaceInstance;
-      pluginId: string;
-      value: unknown;
-    }
-  /** Fold the loaded journal.jsonl in at boot (after the deck hydrated). */
-  | { type: "hydrateJournal"; records: JournalRecords; at: string }
-  /** Drop one journal row (the history list's ×) — metadata only, the agent
-   * store is untouched. */
-  | { type: "deleteJournalRecord"; wsId: string; sessionId: string; at: string }
-  /** The persistence hook appended the first `count` tail events to disk. */
-  | { type: "journalFlushed"; count: number };
-
 export const initialDeckState: DeckState = {
   workspaces: [],
   activeId: "",
   viewByWs: {},
   journal: emptyJournal,
 };
-
-/** A workspace view with no set field is dropped from the map so `viewByWs`
- * stays sparse (an absent entry = all defaults), like the maps it replaced. */
-function isEmptyView(view: WorkspaceView): boolean {
-  return (
-    view.focus === undefined &&
-    view.select === undefined &&
-    view.dock === undefined &&
-    view.dockTab === undefined &&
-    view.minimized === undefined
-  );
-}
-
-/** Set (or, via `undefined`, clear) ONE field of a workspace's view. Prunes an
- * emptied view out of the map, and returns the SAME map reference when the
- * value is unchanged — so a no-op dispatch causes no re-render, exactly like
- * the old per-map dropKey/spread guards. Generic over a single key so the
- * assignment is type-checked (a `keyof` union would not be). */
-function setViewField<K extends keyof WorkspaceView>(
-  viewByWs: Record<string, WorkspaceView>,
-  wsId: string,
-  field: K,
-  value: WorkspaceView[K] | undefined,
-): Record<string, WorkspaceView> {
-  const current = viewByWs[wsId];
-  if ((current?.[field] ?? undefined) === value) return viewByWs;
-  const next: WorkspaceView = { ...current };
-  if (value === undefined) delete next[field];
-  else next[field] = value;
-  if (isEmptyView(next)) {
-    const { [wsId]: _emptied, ...rest } = viewByWs;
-    return rest;
-  }
-  return { ...viewByWs, [wsId]: next };
-}
-
-/** Add one pane to the existing session-only minimized set while keeping
- * focus/selection valid. Shared by the explicit minimize gesture and the
- * suspend-to-tray transition so both have exactly the same view semantics. */
-function minimizePaneView(
-  state: DeckState,
-  wsId: string,
-  paneId: string,
-): Record<string, WorkspaceView> {
-  const view = state.viewByWs[wsId];
-  const current = view?.minimized ?? [];
-  if (current.includes(paneId)) return state.viewByWs;
-  const next = [...current, paneId];
-  let viewByWs = setViewField(
-    state.viewByWs,
-    wsId,
-    "minimized",
-    next,
-  );
-  if (view?.focus === paneId) {
-    viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
-  }
-  const selected = view?.select;
-  if (selected !== undefined && next.includes(selected)) {
-    const ws = state.workspaces.find((workspace) => workspace.id === wsId);
-    const firstLive = ws?.panes.find((pane) => !next.includes(pane.id))?.id;
-    viewByWs = setViewField(viewByWs, wsId, "select", firstLive);
-  }
-  return viewByWs;
-}
-
-/** Default a workspace's selection to its first pane, only if it has none yet. */
-function withDefaultSelection(
-  viewByWs: Record<string, WorkspaceView>,
-  wsId: string,
-  ws: Workspace | undefined,
-): Record<string, WorkspaceView> {
-  const first = ws?.panes[0]?.id;
-  if (viewByWs[wsId]?.select || !first) return viewByWs;
-  return setViewField(viewByWs, wsId, "select", first);
-}
 
 /** The `bound` journal event for a pane's session — how a pane becomes a
  * journal record, in ONE place: both binding paths (a reporter postback via
@@ -427,8 +230,11 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       // "none" style, where the minimized set is ignored and every pane
       // shows), or clear it when none remain.
       if (view?.select === paneId) {
-        const minimized = view?.minimized ?? [];
-        const firstLive = remaining.find((p) => !minimized.includes(p.id));
+        const hidden = new Set([
+          ...(view?.minimized ?? []),
+          ...(view?.suspendedTray ?? []),
+        ]);
+        const firstLive = remaining.find((p) => !hidden.has(p.id));
         viewByWs = setViewField(viewByWs, wsId, "select", (firstLive ?? remaining[0])?.id);
       }
       // Drop the closed pane from the minimized set so it can't linger as a
@@ -440,6 +246,15 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
           viewByWs,
           wsId,
           "minimized",
+          next.length > 0 ? next : undefined,
+        );
+      }
+      if (view?.suspendedTray?.includes(paneId)) {
+        const next = view.suspendedTray.filter((id) => id !== paneId);
+        viewByWs = setViewField(
+          viewByWs,
+          wsId,
+          "suspendedTray",
           next.length > 0 ? next : undefined,
         );
       }
@@ -485,7 +300,16 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       const current = view?.minimized ?? [];
       const isMinimized = current.includes(paneId);
       if (!isMinimized) {
-        return withView(state, minimizePaneView(state, wsId, paneId));
+        return withView(
+          state,
+          hidePaneView(
+            state.viewByWs,
+            state.workspaces,
+            wsId,
+            paneId,
+            "minimized",
+          ),
+        );
       }
       const next = current.filter((id) => id !== paneId);
       let viewByWs = setViewField(
@@ -506,19 +330,33 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       for (const wsId of Object.keys(viewByWs)) {
         const current = viewByWs[wsId]?.minimized;
         if (!current) continue;
-        const retained = action.preserveSuspended
-          ? current.filter((paneId) => {
-              const pane = findPane(state.workspaces, wsId, paneId);
-              return !!pane && paneIsSuspended(pane);
-            })
-          : [];
-        if (retained.length === current.length) continue;
         viewByWs = setViewField(
           viewByWs,
           wsId,
           "minimized",
-          retained.length > 0 ? retained : undefined,
+          undefined,
         );
+      }
+      return withView(state, viewByWs);
+    }
+    case "restoreSuspendedPane": {
+      const { wsId, paneId } = action;
+      const view = state.viewByWs[wsId];
+      const current = view?.suspendedTray;
+      if (!current?.includes(paneId)) return state;
+      const next = current.filter((id) => id !== paneId);
+      let viewByWs = setViewField(
+        state.viewByWs,
+        wsId,
+        "suspendedTray",
+        next.length > 0 ? next : undefined,
+      );
+      // Manual minimize placement is independent and can coexist after a
+      // Grid→List suspend. Do not strand selection on a pane that remains
+      // hidden when Grid applies that marker.
+      if (!view?.minimized?.includes(paneId)) {
+        viewByWs = setViewField(viewByWs, wsId, "select", paneId);
+        viewByWs = setViewField(viewByWs, wsId, "focus", undefined);
       }
       return withView(state, viewByWs);
     }
@@ -590,7 +428,13 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return action.moveToTray
         ? withView(
             next,
-            minimizePaneView(next, action.wsId, action.paneId),
+            hidePaneView(
+              next.viewByWs,
+              next.workspaces,
+              action.wsId,
+              action.paneId,
+              "suspendedTray",
+            ),
           )
         : next;
     }

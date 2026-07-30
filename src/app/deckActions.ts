@@ -88,8 +88,9 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "toggleFocus", wsId, paneId }),
     toggleMinimize: (wsId: string, paneId: string) =>
       dispatch({ type: "toggleMinimize", wsId, paneId }),
-    clearMinimized: (preserveSuspended = false) =>
-      dispatch({ type: "clearMinimized", preserveSuspended }),
+    clearMinimized: () => dispatch({ type: "clearMinimized" }),
+    restoreSuspendedPane: (wsId: string, paneId: string) =>
+      dispatch({ type: "restoreSuspendedPane", wsId, paneId }),
     selectPane: (wsId: string, paneId: string) =>
       dispatch({ type: "selectPane", wsId, paneId }),
     toggleDock: (wsId: string) => dispatch({ type: "toggleDock", wsId }),

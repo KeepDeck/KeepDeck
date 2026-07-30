@@ -8,6 +8,7 @@ export * from "./layout";
 export * from "./paneDnd";
 export * from "./paneBody";
 export * from "./panes";
+export * from "./paneVisibility";
 export * from "./persist";
 export * from "./railDnd";
 export * from "./reducer";

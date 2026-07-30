@@ -210,10 +210,10 @@ describe("paneHotkeyTarget", () => {
       ]),
     ];
     const view = {
-      "ws-1": { select: "pane-1", minimized: ["pane-1"] },
+      "ws-1": { select: "pane-1", suspendedTray: ["pane-1"] },
     };
     expect(
-      paneHotkeyTarget(workspaces, "ws-1", view, agents, true, true),
+      paneHotkeyTarget(workspaces, "ws-1", view, agents, true),
     ).toMatchObject({ paneId: "pane-2" });
     // Keeping the pane retains the existing behavior: its card is a valid
     // target (the suspend command will then explain that it is stopped).
@@ -224,7 +224,6 @@ describe("paneHotkeyTarget", () => {
         { "ws-1": { select: "pane-1" } },
         agents,
         true,
-        false,
       ),
     ).toMatchObject({ paneId: "pane-1" });
   });
@@ -318,10 +317,9 @@ describe("maximizeHotkeyTarget", () => {
         {
           "ws-1": {
             select: "pane-1",
-            minimized: ["pane-1"],
+            suspendedTray: ["pane-1"],
           },
         },
-        true,
         true,
       ),
     ).toBeNull();

@@ -1,11 +1,9 @@
 import type { AgentInfo } from "../agents";
-import type { Pane } from "./panes";
 import {
   paneDisplayTitle,
-  paneIsSuspended,
-  partitionPanes,
   resolveFocus,
 } from "./panes";
+import { visiblePanes } from "./paneVisibility";
 import type { WorkspaceView } from "./reducer";
 import type { Workspace } from "./workspaces";
 
@@ -14,31 +12,6 @@ import type { Workspace } from "./workspaces";
 export type CloseTarget =
   | { kind: "agent"; wsId: string; paneId: string; label: string }
   | { kind: "workspace"; wsId: string };
-
-/** The workspace's VISIBLE panes: the ones neither the active minimized set
- * nor the suspended-agent tray hides. `minimizeOn` says whether the former is
- * in force; `suspendedInTray` says whether the latter is. Keeping both here
- * makes hotkeys and DeckStage agree on what's visible. */
-function visiblePanes(
-  ws: Workspace,
-  view: WorkspaceView | undefined,
-  minimizeOn: boolean,
-  suspendedInTray: boolean,
-): Pane[] {
-  const minimized = view?.minimized ?? [];
-  const hiddenIds = [
-    ...(minimizeOn ? minimized : []),
-    ...(suspendedInTray
-      ? ws.panes
-          .filter(
-            (pane) =>
-              paneIsSuspended(pane) && minimized.includes(pane.id),
-          )
-          .map((pane) => pane.id)
-      : []),
-  ];
-  return partitionPanes(ws.panes, hiddenIds).live;
-}
 
 /**
  * What ⌘W targets: the active workspace's selected pane, or its only VISIBLE
@@ -56,7 +29,6 @@ export function closeHotkeyTarget(
   viewByWs: Record<string, WorkspaceView>,
   agents: AgentInfo[],
   minimizeOn: boolean,
-  suspendedInTray = false,
 ): CloseTarget | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
@@ -67,7 +39,6 @@ export function closeHotkeyTarget(
     viewByWs,
     agents,
     minimizeOn,
-    suspendedInTray,
   );
   return target && { kind: "agent", ...target };
 }
@@ -90,12 +61,11 @@ export function paneHotkeyTarget(
   viewByWs: Record<string, WorkspaceView>,
   agents: AgentInfo[],
   minimizeOn: boolean,
-  suspendedInTray = false,
 ): { wsId: string; paneId: string; label: string } | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   const view = viewByWs[ws.id];
-  const visible = visiblePanes(ws, view, minimizeOn, suspendedInTray);
+  const visible = visiblePanes(ws.panes, view, minimizeOn);
   let pane = visible.find((p) => p.id === view?.select);
   // The suspend-to-tray transition can hide the selected pane. Resolve that
   // newly-stranded selection the same way an explicit minimize does, while
@@ -103,9 +73,7 @@ export function paneHotkeyTarget(
   // absent/stale selection.
   if (
     !pane &&
-    suspendedInTray &&
-    view?.minimized?.includes(view.select ?? "") &&
-    ws.panes.some((p) => p.id === view?.select && paneIsSuspended(p))
+    view?.suspendedTray?.includes(view.select ?? "")
   ) {
     pane = visible[0];
   }
@@ -134,20 +102,17 @@ export function maximizeHotkeyTarget(
   activeId: string,
   viewByWs: Record<string, WorkspaceView>,
   minimizeOn: boolean,
-  suspendedInTray = false,
 ): { wsId: string; paneId: string } | null {
   const ws = workspaces.find((w) => w.id === activeId);
   if (!ws) return null;
   const view = viewByWs[ws.id];
-  const visible = visiblePanes(ws, view, minimizeOn, suspendedInTray);
+  const visible = visiblePanes(ws.panes, view, minimizeOn);
   if (visible.length <= 1) return null;
   const focused = resolveFocus(visible, view?.focus);
   if (focused) return { wsId: ws.id, paneId: focused };
   const selected =
     visible.find((p) => p.id === view?.select) ??
-    (suspendedInTray &&
-    view?.minimized?.includes(view.select ?? "") &&
-    ws.panes.some((p) => p.id === view?.select && paneIsSuspended(p))
+    (view?.suspendedTray?.includes(view.select ?? "")
       ? visible[0]
       : undefined);
   return selected ? { wsId: ws.id, paneId: selected.id } : null;
