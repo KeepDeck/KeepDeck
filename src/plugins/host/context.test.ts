@@ -272,8 +272,16 @@ describe("buildPluginContext", () => {
 
     expect(ctx.storage).toBe(storage);
     expect(deps.storage).toHaveBeenCalledWith("p");
-    expect(ctx.services).toBe(services);
     expect(deps.services).toHaveBeenCalledWith(m, "builtin");
+    // Every service passes through as the gate built it…
+    expect(ctx.services.ports).toBe(services.ports);
+    expect(ctx.services.sessions).toBe(services.sessions);
+    expect(ctx.services.downloads).toBe(services.downloads);
+    // …except the two watches, which are wrapped so their OS watcher is
+    // tracked like every other Disposable this context hands out.
+    expect(ctx.services.fs.readDir).toBe(services.fs.readDir);
+    expect(ctx.services.fs.watch).not.toBe(services.fs.watch);
+    expect(ctx.services.git.watch).not.toBe(services.git.watch);
 
     await ctx.settings.read();
     expect(settingsView.read).toHaveBeenCalledTimes(1);
@@ -296,6 +304,28 @@ describe("buildPluginContext", () => {
     disposeAll();
     expect(deck).toHaveBeenCalledTimes(1);
     expect(pane).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposeAll stops watches the plugin opened through ctx.services", () => {
+    const { deps, services } = fakeDeps();
+    const { ctx, disposeAll } = buildPluginContext(
+      manifest("p"),
+      "builtin",
+      createContributionRegistries(),
+      deps,
+    );
+
+    // A built-in may watch directly instead of going through a registration.
+    // The Disposable owns an OS watcher, so it has to be torn down with the
+    // rest — nothing else holds the handle after deactivate.
+    ctx.services.fs.watch("/repo", () => {});
+    ctx.services.git.watch("/repo", () => {});
+    const fsWatch = vi.mocked(services.fs.watch).mock.results[0].value.dispose;
+    const gitWatch = vi.mocked(services.git.watch).mock.results[0].value.dispose;
+
+    disposeAll();
+    expect(fsWatch).toHaveBeenCalledTimes(1);
+    expect(gitWatch).toHaveBeenCalledTimes(1);
   });
 
   it("an early manual dispose retires the brace — disposeAll never runs it again", () => {
