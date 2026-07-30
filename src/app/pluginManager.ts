@@ -93,7 +93,7 @@ import {
  * events, capability-gated platform services, the namespaced log), and boots
  * the built-in plugins. React reads through the `useContributions` /
  * `useInstalledPlugins` bridges; the deck side is wired late by
- * `usePluginDeckBridge` because the deck lives inside React.
+ * the app-owned plugin deck bridge because the deck has its own store.
  */
 
 export interface DeckUiAccess {
@@ -269,7 +269,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
   }>();
   const deckChanged = channel<void>();
 
-  /** Fired by the deck bridge (`usePluginDeckBridge`) — not exported to
+  /** Fired by the app-owned deck bridge — not exported to
    * plugins; they subscribe through their context, which tracks disposal. */
   const pluginDeckEvents = {
     emitWorkspaceClosed: (e: { workspace: PluginWorkspaceRef }) =>

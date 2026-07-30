@@ -1,13 +1,18 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentUsage, NormalizedUsage } from "@keepdeck/plugin-api";
+import type {
+  AgentContribution,
+  AgentUsage,
+  NormalizedUsage,
+} from "@keepdeck/plugin-api";
 import { normalizeCodexRollout } from "../../plugins/codex/src/usage";
 import type { UsageReportEvent } from "../ipc/usage";
 import type { PaneIdle } from "../domain/deck";
+import type { ContributionRegistry } from "../plugins/registries/contributions";
 import { getUsageSnapshot, resetUsageManager } from "./usageManager";
-import { useUsageChannel } from "./useUsageChannel";
+import { createUsageChannel, type UsageChannel } from "./usageChannel";
+import type { DeckStore } from "./deckStore";
 import type { Deck } from "./useDeck";
 
 // React 19 requires this flag for act() outside a test-framework integration.
@@ -42,13 +47,6 @@ vi.mock("../ipc/usage", () => ({
 }));
 vi.mock("../ipc/sessions", () => ({ onSessionBound: ipc.onSessionBound }));
 vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: ipc.peekPaneSpawnSpec }));
-vi.mock("./runtimeContext", () => ({
-  useAppRuntime: () => ({ plugins: { pluginRegistries: { agents: {} } } }),
-}));
-vi.mock("../plugins/react", () => ({
-  useContributions: () => ipc.contributions,
-}));
-
 /** A fake normalizer echoing fixed windows — the mechanics under test are
  * registration, arming and polling, not payload parsing. */
 const reported = (at: number): NormalizedUsage => ({
@@ -77,29 +75,49 @@ const deckWith = (
     ],
   }) as unknown as Deck;
 
-function Probe({ deck }: { deck: Deck }) {
-  useUsageChannel(deck);
-  return null;
-}
-
 interface Bound {
   paneId: string;
   token: string;
   transcriptPath?: string;
 }
 
-describe("useUsageChannel", () => {
-  let root: Root;
+describe("createUsageChannel", () => {
+  let channel: UsageChannel | null;
+  let currentDeck: Deck;
+  let deckListeners: Set<() => void>;
+  let deckStore: DeckStore;
   let emit: (report: UsageReportEvent) => void;
   let emitBound: (bound: Bound) => void;
 
   const mount = async (deck: Deck) => {
-    act(() => root.render(createElement(Probe, { deck })));
+    currentDeck = deck;
+    if (channel) {
+      for (const listener of [...deckListeners]) listener();
+    } else {
+      const agents = {
+        list: () => ipc.contributions,
+        subscribe: () => () => {},
+      } as unknown as ContributionRegistry<AgentContribution>;
+      channel = createUsageChannel(deckStore, agents);
+    }
     await act(async () => {});
   };
 
   beforeEach(() => {
     resetUsageManager();
+    channel = null;
+    currentDeck = deckWith([]);
+    deckListeners = new Set();
+    deckStore = {
+      getSnapshot: () => currentDeck as ReturnType<DeckStore["getSnapshot"]>,
+      subscribe(listener) {
+        deckListeners.add(listener);
+        return () => deckListeners.delete(listener);
+      },
+      dispatch: vi.fn(() => {
+        throw new Error("usage channel tests do not dispatch deck actions");
+      }),
+    };
     ipc.contributions = [
       {
         pluginId: "keepdeck.claude",
@@ -150,12 +168,10 @@ describe("useUsageChannel", () => {
       .mockImplementation((paneId: string) =>
         paneId === "pane-1" ? { token: "tok-1" } : undefined,
       );
-    document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
   });
 
   afterEach(() => {
-    act(() => root.unmount());
+    channel?.dispose();
     resetUsageManager();
   });
 

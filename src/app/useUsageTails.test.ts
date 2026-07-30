@@ -1,12 +1,10 @@
 // @vitest-environment happy-dom
-import { act, createElement, useState } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentUsage } from "@keepdeck/plugin-api";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import type { Deck } from "./useDeck";
-import { useDeck } from "./useDeck";
 import { createDeckStore } from "./deckStore";
+import { createDeckActions, type DeckActions } from "./deckActions";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -36,23 +34,16 @@ const specs = vi.hoisted(() => ({ token: "token-1" as string | null }));
 vi.mock("./spawnSpecs", () => ({
   peekPaneSpawnSpec: () => (specs.token ? { token: specs.token } : undefined),
 }));
-vi.mock("./useSessionBinding", () => ({ postbackAccepted: () => true }));
+vi.mock("./sessionBinding", () => ({ postbackAccepted: () => true }));
 
-import { useUsageTails } from "./useUsageTails";
+import { createUsageTailsLane } from "./usageChannelTails";
+import type { UsageLane } from "./usageChannelSource";
 
 const usageByAgent = new Map<string, AgentUsage>([
   ["codex", { tail: "codex" } as AgentUsage],
 ]);
 
-let deck: Deck;
-
-function Probe() {
-  // Fresh per mount (a bare call would rebuild it on every render).
-  const [store] = useState(createDeckStore);
-  deck = useDeck(store);
-  useUsageTails(deck, usageByAgent);
-  return null;
-}
+let deck: DeckActions;
 
 function seed() {
   act(() => {
@@ -73,21 +64,27 @@ function seed() {
   });
 }
 
-describe("useUsageTails — a suspended pane's watcher", () => {
-  let root: Root;
+describe("usage tails — a suspended pane's watcher", () => {
+  let lane: UsageLane;
 
   beforeEach(() => {
     ipc.watchSessionFile.mockClear();
     ipc.unwatchSessionFile.mockClear();
     ipc.findCodexRollout.mockClear();
     specs.token = "token-1";
-    document.body.innerHTML = "<div id='host'></div>";
-    root = createRoot(document.getElementById("host")!);
-    act(() => root.render(createElement(Probe)));
+    const store = createDeckStore();
+    deck = createDeckActions(store);
+    lane = createUsageTailsLane({
+      deck: store,
+      declarations: {
+        current: () => usageByAgent,
+        subscribe: () => () => {},
+      },
+    });
   });
 
   afterEach(() => {
-    act(() => root.unmount());
+    lane.dispose();
   });
 
   const settle = async () => {

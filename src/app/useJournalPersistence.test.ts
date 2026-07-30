@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement, useState } from "react";
+import { act, createElement, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeJournalEvent } from "../domain/journal/persist";
@@ -8,7 +8,14 @@ import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import type { Deck } from "./useDeck";
 import { useDeck } from "./useDeck";
 import { createDeckStore } from "./deckStore";
-import { useJournalPersistence } from "./useJournalPersistence";
+import type {
+  DeckPersistence,
+  DeckPersistenceSnapshot,
+} from "./deckPersistence";
+import {
+  createJournalPersistence,
+  type JournalPersistence,
+} from "./journalPersistence";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -37,12 +44,51 @@ const storedLine = (wsId: string, sessionId: string): string =>
   } satisfies JournalEvent);
 
 let deck: Deck;
+let journalPersistence: JournalPersistence;
+
+function mutablePersistence(initial: DeckPersistenceSnapshot): {
+  port: DeckPersistence;
+  set(next: DeckPersistenceSnapshot): void;
+} {
+  let snapshot = initial;
+  const listeners = new Set<() => void>();
+  return {
+    port: {
+      getSnapshot: () => snapshot,
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      dispose() {},
+    },
+    set(next) {
+      snapshot = next;
+      for (const listener of [...listeners]) listener();
+    },
+  };
+}
 
 function Probe({ restoring, frozen }: { restoring: boolean; frozen: boolean }) {
-  // Fresh per mount (a bare call would rebuild it on every render).
-  const [store] = useState(createDeckStore);
-  deck = useDeck(store);
-  useJournalPersistence(deck, restoring, frozen);
+  const [owners] = useState(() => {
+    const store = createDeckStore();
+    const persistence = mutablePersistence({
+      restoring,
+      frozen: frozen ? { kind: "unreadable" } : null,
+    });
+    return {
+      store,
+      persistence,
+      journal: createJournalPersistence(store, persistence.port),
+    };
+  });
+  useEffect(() => {
+    owners.persistence.set({
+      restoring,
+      frozen: frozen ? { kind: "unreadable" } : null,
+    });
+  }, [frozen, owners, restoring]);
+  journalPersistence = owners.journal;
+  deck = useDeck(owners.store);
   return null;
 }
 
@@ -89,6 +135,7 @@ describe("useJournalPersistence", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    journalPersistence.dispose();
   });
 
   const mount = async (props: { restoring: boolean; frozen: boolean }) => {

@@ -12,7 +12,7 @@ import { isRecord } from "../domain/json";
  *
  * Access to the live deck arrives through a late-bound accessor pair rather
  * than a captured state object: the deck lives in React (`useDeck`), and the
- * manager wiring (`usePluginDeckBridge`) keeps the accessor pointed at the
+ * runtime's plugin deck bridge keeps the accessor pointed at the
  * CURRENT render's state.
  */
 export interface DeckAccess {

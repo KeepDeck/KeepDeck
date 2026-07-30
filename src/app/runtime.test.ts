@@ -39,5 +39,8 @@ describe("createAppRuntime", () => {
     expect(() => second.downloads.start(request("same-id"))).not.toThrow();
     expect(firstBackend.start).toHaveBeenCalledOnce();
     expect(secondBackend.start).toHaveBeenCalledOnce();
+
+    first.dispose();
+    second.dispose();
   });
 });
