@@ -225,6 +225,11 @@ fn creation_stamp(repo_path: &Path, branch: &str) -> Result<Option<(u64, String)
         .map(|e| (e.ts, e.new_sha.clone())))
 }
 
+/// What a worktree's HEAD can testify to: its reflog, plus the branch to fall
+/// back on when the log alone doesn't name one. The three readers below all
+/// answer in this shape, so it is named once.
+type HeadEvidence = (Vec<ReflogEntry>, Option<String>);
+
 /// The worktree's HEAD reflog plus the fallback branch for [`initial_branch`],
 /// or `None` when there is no evidence to read. Two routes to the same
 /// private log: through the worktree directory while it exists, else through
@@ -235,7 +240,7 @@ fn creation_stamp(repo_path: &Path, branch: &str) -> Result<Option<(u64, String)
 fn head_evidence(
     repo_path: &Path,
     worktree: &Path,
-) -> Result<Option<(Vec<ReflogEntry>, Option<String>)>, GitError> {
+) -> Result<Option<HeadEvidence>, GitError> {
     if worktree.exists() {
         if let Some(evidence) = live_evidence(worktree)? {
             return Ok(Some(evidence));
@@ -248,7 +253,7 @@ fn head_evidence(
 /// whenever the directory can't answer (raced away mid-read, broken
 /// registration, no reflog): the caller falls through to the admin route,
 /// which reads the same log if it still exists.
-fn live_evidence(worktree: &Path) -> Result<Option<(Vec<ReflogEntry>, Option<String>)>, GitError> {
+fn live_evidence(worktree: &Path) -> Result<Option<HeadEvidence>, GitError> {
     let head_log = reflog(worktree, "HEAD")?;
     if head_log.is_empty() {
         return Ok(None);
@@ -267,7 +272,7 @@ fn live_evidence(worktree: &Path) -> Result<Option<(Vec<ReflogEntry>, Option<Str
 fn admin_evidence(
     repo_path: &Path,
     worktree: &Path,
-) -> Result<Option<(Vec<ReflogEntry>, Option<String>)>, GitError> {
+) -> Result<Option<HeadEvidence>, GitError> {
     let Some(admin) = worktree::admin_git_dir(repo_path, worktree)? else {
         return Ok(None); // already pruned (or never a linked worktree): no evidence
     };

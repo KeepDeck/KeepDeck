@@ -55,7 +55,7 @@ pub struct RepoStatus {
 pub fn status(path: &Path) -> Result<RepoStatus, GitError> {
     let out = run_git(
         path,
-        &[
+        [
             "--no-optional-locks",
             "status",
             "--porcelain=v2",
@@ -210,7 +210,9 @@ mod tests {
 
     #[test]
     fn parses_ordinary_changes_with_spaces_in_paths() {
-        let input = "1 M. N... 100644 100644 100644 aaa bbb src/deep file.ts\01 .M N... 100644 100644 100644 aaa aaa README.md\0";
+        // `\u{0}` rather than `\0`: the next record starts with "1", and `\01`
+        // reads as an octal escape at a glance.
+        let input = "1 M. N... 100644 100644 100644 aaa bbb src/deep file.ts\u{0}1 .M N... 100644 100644 100644 aaa aaa README.md\u{0}";
         let st = parse_status(input);
         assert_eq!(st.entries.len(), 2);
 
