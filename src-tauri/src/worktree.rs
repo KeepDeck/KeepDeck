@@ -607,20 +607,15 @@ fn husk_verdict(before: Option<bool>, after: Option<bool>) -> bool {
 /// Whether `path` is currently one of `repo_path`'s registered worktrees, or
 /// `None` when that cannot be established.
 ///
-/// Compared canonically: git reports the realpath, while our path comes from
-/// the webview and may spell the same directory differently. `None` covers both
-/// ways of not knowing — the listing failed, or the path cannot be canonicalized
-/// — and it is deliberately NOT `Some(false)`: `git worktree list` drops an
-/// entry whose admin record it cannot read while still exiting 0, so "absent
-/// from the listing" is only evidence of deregistration when the listing itself
-/// was sound.
+/// The comparison itself belongs to `keepdeck_git` — it is the same one git's
+/// administrative records need, and a third variant written here was exactly the
+/// kind of duplication that drifts. This adds only the three-valued reading:
+/// `None` is deliberately NOT `Some(false)`, because `git worktree list` drops an
+/// entry whose admin record it cannot read while still exiting 0, so "absent from
+/// the listing" is evidence of deregistration only when the listing was sound.
 fn is_registered_worktree(repo_path: &Path, path: &Path) -> Option<bool> {
-    let target = std::fs::canonicalize(path).ok()?;
-    match worktree::list(repo_path) {
-        Ok(list) => Some(
-            list.iter()
-                .any(|wt| std::fs::canonicalize(&wt.path).is_ok_and(|known| known == target)),
-        ),
+    match worktree::is_registered(repo_path, path) {
+        Ok(registered) => Some(registered),
         Err(e) => {
             log::warn!(
                 "worktree: can't list the worktrees of {} ({e}); \

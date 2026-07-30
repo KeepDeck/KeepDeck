@@ -17,10 +17,10 @@
  */
 import { useEffect } from "react";
 import type { Workspace } from "../domain/deck";
-import type { WorktreeManager } from "./worktrees";
+import type { WorktreeHousekeeping } from "./worktrees";
 
 export function useWorktreeSweep(
-  worktrees: WorktreeManager,
+  worktrees: WorktreeHousekeeping,
   workspaces: Workspace[],
   deckHydrated: boolean,
 ): void {

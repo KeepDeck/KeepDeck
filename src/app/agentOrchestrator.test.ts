@@ -385,8 +385,6 @@ function Probe() {
           // landing cwd rides along — is to invoke it and see what arrives.
           // What a plan then DOES with the views is spawnSpecs' suite.
           skillsFor: skillsAsked,
-          invalidateSkills: () => {},
-          sweep: () => Promise.resolve(),
           remove: (targets) => {
             discarded.push(targets);
             return Promise.resolve(discardFailures);
@@ -3321,6 +3319,20 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(peekPaneSpawnSpec(minted)).toBeUndefined();
   });
 
+  it("asks about the recorded session's OWN directory as the landing cwd", async () => {
+    // A journal resume mints a pane in the directory the session was recorded
+    // in, which the deck cannot report until that pane lands — so the cwd rides
+    // along with the skills question instead of being derived from the deck.
+    await act(async () => agentRun.resumeSession("ws-1", handle()));
+
+    const facts = lastResumeFacts();
+    await facts.stagedSkills?.();
+    expect(skillsAsked).toHaveBeenCalledWith(
+      { id: "ws-1", instance: deck.workspaces[0].instance },
+      facts.cwd,
+    );
+  });
+
   it("a YOLO override reaches the pane AND the plan's facts", async () => {
     await act(async () =>
       agentRun.resumeSession("ws-1", handle({ yolo: false }), { yolo: true }),
@@ -3350,6 +3362,10 @@ describe("agent orchestrator —forking a recorded session", () => {
     vi.mocked(buildForkSpec).mockClear();
     steps.register.mockClear();
     steps.clear.mockClear();
+    // Cleared like every other recording spy in this file: it spans the whole
+    // suite, so a `toHaveBeenCalledTimes` here would otherwise count the calls
+    // every earlier test made.
+    skillsAsked.mockClear();
     ipc.probeWorktree.mockReset().mockResolvedValue({
       exists: true,
       isWorktree: false,
@@ -3388,6 +3404,14 @@ describe("agent orchestrator —forking a recorded session", () => {
     expect(pane.session).toBeUndefined();
     const call = vi.mocked(buildForkSpec).mock.calls[0];
     expect(call[2]).toMatchObject({ paneId: pane.id, cwd: "/elsewhere" });
+    // The skills question carries the LANDING cwd: the deck cannot report a
+    // directory whose pane has not landed yet, so the fork's target rides along
+    // and the manager arms it with everything else the workspace claims.
+    await call[2].stagedSkills?.();
+    expect(skillsAsked).toHaveBeenCalledWith(
+      { id: "ws-1", instance: deck.workspaces[0].instance },
+      "/elsewhere",
+    );
     // Exact, not a subset: an extra or renamed field in the fork request is
     // as much a defect as a missing one.
     expect(call[4]).toEqual({

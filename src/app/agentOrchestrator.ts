@@ -32,7 +32,7 @@ import { clearPaneUsage } from "./usageManager";
 import { postbackCount } from "./postbacks";
 import type { SuspendOutcome } from "./suspendOutcome";
 import { planPanes, provisionInto, setupStepFor } from "./provisioning";
-import type { WorktreeManager } from "./worktrees";
+import type { WorktreeProvisioner } from "./worktrees";
 import {
   createDeckActions,
   type DeckActions,
@@ -387,13 +387,15 @@ export interface AgentOrchestratorDeps {
   sessions: SessionRegistryPort;
   plugins: SpawnPluginAccess;
   probe: WorktreeProbePort;
-  /** The pane worktree lifecycle, as one collaborator: creating them,
-   * publishing what landed, and tearing them down. Injected like the probe —
-   * it shells out to git and runs the workspace's setup command in a PTY,
-   * neither of which a test of the creation sequence wants to actually do —
-   * and injected as ONE object because the order between its operations is its
-   * own invariant, not something a caller may recombine. */
-  worktrees: WorktreeManager;
+  /** The pane worktree lifecycle, as one collaborator: creating them, publishing
+   * what landed, tearing them down, and answering what skills a plan gets.
+   * Injected like the probe — it shells out to git and runs the workspace's setup
+   * command in a PTY, neither of which a test of the creation sequence wants to
+   * actually do — and as ONE object because the order between those operations is
+   * its own invariant, not something a caller may recombine. Deliberately the
+   * PROVISIONER role, not the whole manager: housekeeping and cache invalidation
+   * belong to other consumers, and a fake here should not have to stub them. */
+  worktrees: WorktreeProvisioner;
 }
 
 /** How one attempt to bring a pane up ended. */

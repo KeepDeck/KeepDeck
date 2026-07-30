@@ -127,6 +127,19 @@ pub fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, GitError> {
     Ok(parse_worktrees(&out))
 }
 
+/// Is `path` one of `repo`'s registered worktrees?
+///
+/// Compared the way git's own records are: a listing reports realpaths, while a
+/// caller's path may spell the same directory differently, so [`paths_match`]
+/// decides — the one comparison, rather than a second one written at the call
+/// site. `Err` is left to the caller: "we could not ask git" is not the same
+/// answer as "no", and a caller acting on the difference must be able to tell.
+pub fn is_registered(repo: &Path, path: &Path) -> Result<bool, GitError> {
+    Ok(list(repo)?
+        .iter()
+        .any(|known| paths_match(&known.path, path)))
+}
+
 /// Locate the surviving administrative gitdir for a registered linked
 /// worktree, even when its working directory has been deleted externally.
 pub(crate) fn admin_git_dir(

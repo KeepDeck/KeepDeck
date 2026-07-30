@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
 import { useWorktreeSweep } from "./useWorktreeSweep";
-import type { WorktreeManager } from "./worktrees";
+import type { WorktreeHousekeeping } from "./worktrees";
 
 (
   globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -16,9 +16,10 @@ const ws = (id: string, name = id, panes: Workspace["panes"] = []): Workspace =>
 const pane = (id: string, cwd: string) =>
   ({ id, agentType: "codex", cwd, branch: "kd/x" }) as Workspace["panes"][number];
 
-/** Only `sweep` is exercised here; the trigger knows nothing of the rest. */
+/** The trigger needs exactly one method, and its port says exactly that — so the
+ * double is a real `WorktreeHousekeeping`, with no cast to escape the check. */
 const sweep = vi.fn(async () => {});
-const manager = { sweep } as unknown as WorktreeManager;
+const manager: WorktreeHousekeeping = { sweep };
 
 function Probe({
   workspaces,

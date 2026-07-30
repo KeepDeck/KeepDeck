@@ -7,10 +7,12 @@ const worktree = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/worktree", () => worktree);
 
+// The IPC wrappers report whether they got through — the manager only records a
+// sweep as done when they did — so the doubles answer `true` like the real ones.
 const skills = vi.hoisted(() => ({
   stageSkills: vi.fn(),
-  disarmSkills: vi.fn(async (_roots: string[]) => {}),
-  pruneSkills: vi.fn(async (_liveWsIds: string[]) => {}),
+  disarmSkills: vi.fn(async (_roots: string[]) => true),
+  pruneSkills: vi.fn(async (_liveWsIds: string[]) => true),
 }));
 vi.mock("../ipc/skills", () => skills);
 
@@ -67,8 +69,8 @@ beforeEach(() => {
   vi.resetAllMocks();
   deck = [];
   skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
-  skills.disarmSkills.mockResolvedValue(undefined);
-  skills.pruneSkills.mockResolvedValue(undefined);
+  skills.disarmSkills.mockResolvedValue(true);
+  skills.pruneSkills.mockResolvedValue(true);
   manager = createWorktreeManager({
     // Matched on the exact LIFETIME, like the production adapter: a reborn
     // workspace must not be handed the dead one's roots.
@@ -525,6 +527,16 @@ describe("provision with a post-provision step", () => {
 });
 
 describe("skillsFor", () => {
+  // A workspace the deck still has. Staging for one it does NOT have is a case
+  // of its own ("no staging for a workspace the deck has dropped"), because
+  // rebuilding its derived dirs races the sweep that is deleting them.
+  beforeEach(() => {
+    deck = [
+      { id: "ws-1", roots: ["/repo"] },
+      { id: "ws-2", roots: ["/repo2"] },
+    ];
+  });
+
   it("stages once per workspace, even for concurrent callers", async () => {
     const [a, b] = await Promise.all([
       manager.skillsFor(ref("ws-1")),
@@ -620,6 +632,58 @@ describe("skillsFor", () => {
     expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a"]);
   });
 
+  it("stages nothing for a workspace the deck has dropped", async () => {
+    // Its derived dirs are on the sweep's list; rebuilding them from the library
+    // would race that deletion and leave a directory nothing owns.
+    deck = [];
+    await expect(manager.skillsFor(ref("gone"))).resolves.toBeNull();
+    expect(skills.stageSkills).not.toHaveBeenCalled();
+  });
+
+  it("does not answer a wider root set with a staging that armed less", async () => {
+    // The narrowing at execution time is what keeps a departed root from being
+    // armed — but the entry must then claim only what it DID arm, or the root's
+    // return is served this hit and nothing ever arms it.
+    deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    worktree.removeWorktree.mockImplementation(async () => held);
+
+    const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
+    const narrowed = manager.skillsFor(ref("ws-1")); // keyed on [a, b]
+    deck = [{ id: "ws-1", roots: ["/wt/a"] }]; // b leaves while this waits
+    release();
+    await removing;
+    await narrowed;
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a"]);
+
+    deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }]; // and b comes back
+    await manager.skillsFor(ref("ws-1"));
+    expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", ["/wt/a", "/wt/b"]);
+  });
+
+  it("never answers a dead lifetime with the roots of the id's new owner", async () => {
+    // Ids are reusable, lifetimes are not. A call queued for the dead one must
+    // not arm the newcomer's directories when it finally runs.
+    deck = [{ id: "ws-1", roots: ["/wt/old"], instance: "life-1" }];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    worktree.removeWorktree.mockImplementation(async () => held);
+
+    const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
+    const stale = manager.skillsFor(ref("ws-1", "life-1"));
+    deck = [{ id: "ws-1", roots: ["/wt/new"], instance: "life-2" }];
+    release();
+    await removing;
+    await stale;
+
+    expect(skills.stageSkills).not.toHaveBeenCalledWith("ws-1", ["/wt/new"]);
+  });
+
   it("remembers an empty result — panes must not re-stage per spawn", async () => {
     skills.stageSkills.mockResolvedValue(null);
     expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
@@ -693,12 +757,13 @@ describe("sweep", () => {
     await manager.sweep(true); // baseline: ws-1 known
 
     deck = [{ id: "ws-1", roots: [] }]; // a pane closed → something to disarm
-    skills.disarmSkills.mockImplementation(async () => {
+    skills.disarmSkills.mockImplementation(async (): Promise<boolean> => {
       // A new workspace lands while the disarm is in flight.
       deck = [
         { id: "ws-1", roots: [] },
         { id: "ws-2", roots: ["/repo2"] },
       ];
+      return true;
     });
 
     await manager.sweep(true);
@@ -718,6 +783,20 @@ describe("sweep", () => {
     expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
   });
 
+  it("retries a pass whose housekeeping failed instead of recording it as done", async () => {
+    // The IPCs swallow their own errors, so a pass that got nowhere used to be
+    // remembered as having cleaned this state — and at boot that state is exactly
+    // what a crash left behind.
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    skills.pruneSkills.mockResolvedValueOnce(false);
+
+    await manager.sweep(true);
+    expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
+
+    await manager.sweep(true); // same deck, but nothing was actually swept
+    expect(skills.pruneSkills).toHaveBeenCalledTimes(2);
+  });
+
   it("still runs the first pass on an empty deck — that is the crash sweep", async () => {
     // An empty hydrated deck compares equal to the initial state, and skipping
     // it would leave whatever an earlier session or an update left behind.
@@ -731,7 +810,10 @@ describe("sweep", () => {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    skills.pruneSkills.mockImplementationOnce(async () => held);
+    skills.pruneSkills.mockImplementationOnce(async () => {
+      await held;
+      return true;
+    });
     deck = [{ id: "ws-1", roots: ["/repo"] }];
 
     const first = manager.sweep(true);
@@ -740,8 +822,10 @@ describe("sweep", () => {
     release();
     await Promise.all([first, ...rest]);
 
-    // One pass for the burst, not one per request.
-    expect(skills.pruneSkills).toHaveBeenCalledTimes(2);
+    // ONE pass of IPCs for the whole burst. The queue serializes the four
+    // requests and each one after the first finds the live set already accounted
+    // for, so it costs nothing — no second mechanism needed to coalesce.
+    expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -749,12 +833,19 @@ describe("the ordering between arming and teardown", () => {
   // The race this manager was built for: staging arms every live root with a
   // `.agents/skills` symlink, and a removal deletes a root's directory. One
   // landing inside the other leaves a husk git can no longer even name.
+  //
+  // A live workspace throughout: the armings below are the ones a real spawn
+  // performs, and a workspace the deck has dropped deliberately stages nothing.
+  beforeEach(() => {
+    deck = [{ id: "ws-1", roots: ["/repo"] }];
+  });
   it("disarms before git on the ROLLBACK path too, not only on a close", async () => {
     // The rollback used to call `removeWorktree` directly — off the queue and
     // with no disarm — so the owner had two teardowns with two guarantees.
     const order: string[] = [];
     skills.disarmSkills.mockImplementation(async (roots) => {
       order.push(`disarm:${roots.join(",")}`);
+      return true;
     });
     worktree.inspectRepo.mockResolvedValue({ head: "abc" });
     worktree.createWorktree.mockResolvedValue({
@@ -815,10 +906,44 @@ describe("the ordering between arming and teardown", () => {
     expect(stagedAfter).toBeLessThan(lastRemoval);
   });
 
+  it("makes a create wait for a queued teardown of the same directory", async () => {
+    // The close hands the folder straight back: the "+ Agent" dialog suggests a
+    // path whose teardown is still queued, because the pane has already left the
+    // deck and nothing reads it as occupied. Unqueued, the create could land
+    // first and git would then delete a live worktree.
+    const order: string[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    worktree.removeWorktree.mockImplementation(async () => {
+      order.push("remove");
+      await held;
+    });
+    worktree.inspectRepo.mockResolvedValue({ head: "abc" });
+    worktree.createWorktree.mockImplementation(async () => {
+      order.push("create");
+      return { path: "/wt/pane-1", branch: "kd/ws/1" };
+    });
+
+    const removing = manager.remove([
+      { repo: "/repo", path: "/wt/pane-1", branch: "old" },
+    ]);
+    const provisioning = manager.provision(
+      planPanes({ cwd: "/repo", worktreeBaseDir: "/wt", name: "ws" }, 1, 1, "claude"),
+      { onResolved: vi.fn(), onFailed: vi.fn(), abandoned: stays },
+    );
+    release();
+    await Promise.all([removing, provisioning]);
+
+    expect(order).toEqual(["remove", "create"]);
+  });
+
   it("takes its own hooks out of a directory before git touches it", async () => {
     const order: string[] = [];
     skills.disarmSkills.mockImplementation(async (roots) => {
       order.push(`disarm:${roots.join(",")}`);
+      return true;
     });
     worktree.removeWorktree.mockImplementation(async (_repo, path) => {
       order.push(`remove:${path}`);

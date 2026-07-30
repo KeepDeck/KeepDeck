@@ -83,22 +83,29 @@ export async function stageSkills(
 }
 
 /** Remove KeepDeck's `.agents/skills` symlinks from the given spawn cwds
- * (a closing workspace's directories). Best-effort. */
-export async function disarmSkills(roots: string[]): Promise<void> {
-  if (roots.length === 0) return;
+ * (a closing workspace's directories). Best-effort: never throws, and reports
+ * whether it actually got through, so a caller that records "this state is
+ * cleaned up" can decline to record a failure. */
+export async function disarmSkills(roots: string[]): Promise<boolean> {
+  if (roots.length === 0) return true;
   try {
     await invoke("skills_disarm", { roots });
+    return true;
   } catch (e) {
     log.warn("web:skills", `skills_disarm failed: ${describeError(e)}`);
+    return false;
   }
 }
 
 /** Drop the derived dirs of workspaces not in `liveWsIds` (closed ones must
- * not keep dead staging around). Best-effort — a failed sweep only logs. */
-export async function pruneSkills(liveWsIds: string[]): Promise<void> {
+ * not keep dead staging around). Best-effort — a failed sweep only logs — and
+ * reports success for the same reason `disarmSkills` does. */
+export async function pruneSkills(liveWsIds: string[]): Promise<boolean> {
   try {
     await invoke("skills_prune", { liveWsIds });
+    return true;
   } catch (e) {
     log.warn("web:skills", `skills_prune failed: ${describeError(e)}`);
+    return false;
   }
 }

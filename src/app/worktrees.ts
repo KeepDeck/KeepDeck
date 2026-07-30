@@ -55,8 +55,12 @@ export interface WorktreeDeckView {
   live(): LiveWorkspace[];
 }
 
-/** What a pane's worktree needs from its owner. */
-export interface WorktreeManager {
+/**
+ * What the pane lifecycle needs: creating worktrees, naming what landed, and
+ * tearing them down again — plus the staged skills a spawn plan asks for, since
+ * arming a directory and deleting it are the pair whose ORDER is the invariant.
+ */
+export interface WorktreeProvisioner {
   /**
    * Create the worktrees behind `panes`' provisioning cards, reporting each
    * result as it lands (completion order is whatever the per-repo lock hands
@@ -113,23 +117,6 @@ export interface WorktreeManager {
     workspace: WorkspaceRef,
     landing?: string,
   ): Promise<SkillsStagingViews | null>;
-  /** The library changed (any scope): every workspace re-stages on its next
-   * spawn. Editing is rare and staging is cheap — no finer bookkeeping. */
-  invalidateSkills(): void;
-  /**
-   * Drop what no live workspace claims any more: the derived skill dirs of
-   * workspaces that are gone, and the `.agents/skills` arming of spawn cwds
-   * that left. Called on every deck transition that can shrink the live set —
-   * a pane or workspace closing, a directory found missing, and once the deck
-   * has hydrated at boot (which catches whatever a crash or an update left).
-   *
-   * `deckHydrated` is a fact only the caller has, and the DECISION is made
-   * here: sweeping a deck that is still loading reads as "no workspaces exist"
-   * and would delete every live dir, so this refuses rather than trusting each
-   * call site to remember. Bursts coalesce — a workspace closing six panes
-   * sweeps once.
-   */
-  sweep(deckHydrated: boolean): Promise<void>;
   /**
    * Tear down each target's git worktree and branches when the close dialog's
    * delete checkbox was ticked. Always forced — the checkbox is explicit
@@ -141,6 +128,41 @@ export interface WorktreeManager {
    */
   remove(targets: WorktreeTarget[]): Promise<string[]>;
 }
+
+/** What the deck's housekeeping needs — nothing else. */
+export interface WorktreeHousekeeping {
+  /**
+   * Drop what no live workspace claims any more: the derived skill dirs of
+   * workspaces that are gone, and the `.agents/skills` arming of spawn cwds
+   * that left. Called on every deck transition, since any of them can shrink the
+   * live set, and once the deck has hydrated at boot (which catches whatever a
+   * crash or an update left behind).
+   *
+   * `deckHydrated` is a fact only the caller has; every DECISION is made here.
+   * Sweeping a deck that is still loading reads as "no workspaces exist" and
+   * would delete every live dir, so this refuses rather than trusting each call
+   * site to remember — and a transition that changes nothing it acts on costs no
+   * IPC at all.
+   */
+  sweep(deckHydrated: boolean): Promise<void>;
+}
+
+/** What the skills editor needs: a way to say the library moved. */
+export interface SkillsInvalidation {
+  /** The library changed (any scope): every workspace re-stages on its next
+   * spawn. Editing is rare and staging is cheap — no finer bookkeeping. */
+  invalidateSkills(): void;
+}
+
+/**
+ * The whole owner, as the composition root builds it. Consumers take the role
+ * they need instead of this: the orchestrator has no business with `sweep`, the
+ * sweep trigger has none with provisioning, and a fake that has to stub methods
+ * its subject never calls is a fake that stops catching anything.
+ */
+export type WorktreeManager = WorktreeProvisioner &
+  WorktreeHousekeeping &
+  SkillsInvalidation;
 
 export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
   /**
@@ -197,18 +219,13 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
     { roots: string[]; views: Promise<SkillsStagingViews | null> }
   >();
 
-  /** The deck as the last sweep acted on it — what the next one diffs against to
-   * find the roots that left — and whether any sweep has run at all. The flag is
-   * not redundant: a deck that boots EMPTY compares equal to the initial value,
-   * and that first pass is exactly the one that clears what a crash left. */
-  let swept: LiveWorkspace[] = [];
-  let sweptOnce = false;
-
-  /** The sweep in flight, if any, and whether another was asked for while it
-   * ran. A close of six panes fires six transitions; one pass over the same
-   * directories answers all of them. */
-  let sweeping: Promise<void> | null = null;
-  let sweepAgain = false;
+  /** The deck as the last sweep acted on it, and what the next one diffs against
+   * to find the roots that left. `null` = no pass has completed, which is NOT the
+   * same as "an empty deck": that first pass is the one that clears what a crash
+   * left behind, so it must run even against nothing. Only a pass whose IPCs
+   * actually got through records itself here — otherwise a transient failure
+   * would be remembered as done and never retried. */
+  let swept: LiveWorkspace[] | null = null;
 
   /**
    * The one queue that orders arming against teardown.
@@ -286,27 +303,18 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
     );
   }
 
-  /** One pass of the sweep: disarm the roots that left, forget the stagings that
-   * armed them, then drop the derived dirs of workspaces that are gone. Runs in
-   * the queue for the same reason a removal does — the disarm here is a teardown
-   * — and both IPCs are best-effort, since housekeeping must never break a
-   * close. */
-  function sweepOnce(): Promise<void> {
-    return inOrder(async () => {
-      const live = deck.live();
-      const departed = unclaimed(
-        swept.flatMap((ws) => ws.roots),
-        live,
-      );
-      await disarmSkills(departed);
-      forgetStaged(departed);
-      swept = live;
-      sweptOnce = true;
-      // Re-read for the PRUNE: the list that decides what to delete must not be
-      // one IPC round trip old, or a workspace created while the disarm was in
-      // flight is pruned as dead and its panes spawn pointing at deleted dirs.
-      await pruneSkills(deck.live().map((ws) => ws.id).sort());
-    });
+  /** Take our own hooks out of `roots` — the ones no live workspace still claims
+   * — and forget the stagings that put them there.
+   *
+   * The two steps are one step: the memo caches the RESULT of a call whose SIDE
+   * EFFECT was the arming, so a disarm that left the memo alone would serve a
+   * cache hit for a directory whose symlink is gone. Stated once, because a
+   * teardown and the sweep both need it and spelling it twice let them drift
+   * (one filtered its disarm and not its forget). */
+  async function disarm(roots: string[]): Promise<boolean> {
+    const ok = await disarmSkills(unclaimed(roots, deck.live()));
+    forgetStaged(roots);
+    return ok;
   }
 
   /**
@@ -332,8 +340,7 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
       // A cwd another LIVE workspace still runs a pane in stays armed: two
       // workspaces may legitimately share a directory, and the arming is keyed
       // by path, not by workspace. Same rule the sweep applies.
-      await disarmSkills(unclaimed([target.path], deck.live()));
-      forgetStaged([target.path]);
+      await disarm([target.path]);
       try {
         await removeWorktree(target.repo, target.path, {
           force: true,
@@ -411,18 +418,26 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
 
     let rec: { path: string; branch: string };
     try {
-      rec = await createWorktree({
-        repo: intent.repo,
-        baseDir: intent.baseDir ?? "",
-        agentId: paneId,
-        branch: intent.branch,
-        // The user's picked base branch outranks the batch-pinned HEAD.
-        base: intent.base ?? batchBase?.commit,
-        ...(!intent.base && batchBase?.branch && { baseBranch: batchBase.branch }),
-        workspace: intent.workspace,
-        index: intent.index,
-        path: intent.path,
-      });
+      // In the queue like every other worktree operation. A create was the one
+      // that was not, and the close flow hands the freed folder straight back:
+      // the "+ Agent" dialog suggests a path whose teardown may still be queued
+      // (the pane has already left the deck, so nothing reads it as occupied),
+      // and whoever ran first won. Queued, the teardown that was asked for first
+      // finishes first, and the create either lands afterwards or fails honestly.
+      rec = await inOrder(() =>
+        createWorktree({
+          repo: intent.repo,
+          baseDir: intent.baseDir ?? "",
+          agentId: paneId,
+          branch: intent.branch,
+          // The user's picked base branch outranks the batch-pinned HEAD.
+          base: intent.base ?? batchBase?.commit,
+          ...(!intent.base && batchBase?.branch && { baseBranch: batchBase.branch }),
+          workspace: intent.workspace,
+          index: intent.index,
+          path: intent.path,
+        }),
+      );
     } catch (e) {
       log.error(
         "web:worktrees",
@@ -529,64 +544,86 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
     },
 
     skillsFor(workspace, landing) {
+      const keyFor = (roots: string[]) =>
+        // A JSON array as the memo key: injective for any path, with no reliance
+        // on a separator byte that paths are merely assumed not to contain.
+        JSON.stringify([workspace.instance, ...roots]);
       const roots = [
         ...new Set([...deck.rootsOf(workspace), ...(landing ? [landing] : [])]),
       ].sort();
-      // A JSON array as the memo key: injective for any path, with no reliance
-      // on a separator byte that paths are merely assumed not to contain.
-      const key = JSON.stringify([workspace.instance, ...roots]);
+      const key = keyFor(roots);
       const memoized = staged.get(key);
       if (memoized) return memoized.views;
+
+      const entry: {
+        roots: string[];
+        views: Promise<SkillsStagingViews | null>;
+      } = { roots, views: undefined as never };
       // Queued: a staging that started while a teardown is in flight would arm
       // the very directory being deleted (see [`queue`]).
-      const views = inOrder(() => {
+      entry.views = inOrder(() => {
         // Re-checked at EXECUTION time. A root can only have left while this
         // waited — the teardown that removed it ran in this same queue — and
         // arming a directory that is gone is the mistake this owner exists to
         // prevent. The `landing` cwd is exempt: the deck cannot see a pane that
-        // has not landed yet. A later call sees the smaller set, keys on it and
-        // stages afresh, so nothing is lost by narrowing here.
+        // has not landed yet.
         const claimed = new Set(deck.rootsOf(workspace));
         const armable = roots.filter(
           (root) => claimed.has(root) || root === landing,
         );
+        if (armable.length !== roots.length) {
+          // The entry may only ever claim what it ARMED. Left keyed on the wider
+          // set, it would answer a later call whose roots are back to that set —
+          // a cache hit for directories this staging deliberately skipped, which
+          // would then never be armed by anyone.
+          staged.delete(key);
+          entry.roots = armable;
+          staged.set(keyFor(armable), entry);
+        }
+        // Nothing to stage for a workspace that is gone: `stage` would rebuild
+        // its derived dirs from the library, which the sweep is on its way to
+        // delete. A landing cwd is the exception — it belongs to a pane that has
+        // not landed yet, and its workspace is live by construction.
+        if (armable.length === 0 && !deck.live().some((ws) => ws.id === workspace.id)) {
+          return Promise.resolve(null);
+        }
         return stageSkills(workspace.id, armable);
       });
-      staged.set(key, { roots, views });
-      return views;
+      staged.set(key, entry);
+      return entry.views;
     },
 
     invalidateSkills() {
       staged.clear();
     },
 
-    async sweep(deckHydrated) {
-      if (!deckHydrated) return;
-      // Called on every deck transition, so the cheap comparison is what keeps a
-      // rename or a pane reorder from costing two IPC round trips. The first
-      // pass always runs: it is the one that clears what a crash left behind.
-      if (sweptOnce && liveFingerprint(swept) === liveFingerprint(deck.live())) {
-        return;
-      }
-      if (sweeping) {
-        // Someone already asked; that pass may already have read the deck, so
-        // one more after it covers this request too.
-        sweepAgain = true;
-        return sweeping;
-      }
-      sweeping = (async () => {
-        try {
-          await sweepOnce();
-          while (sweepAgain) {
-            sweepAgain = false;
-            await sweepOnce();
-          }
-        } finally {
-          sweeping = null;
-          sweepAgain = false;
-        }
-      })();
-      return sweeping;
+    sweep(deckHydrated) {
+      if (!deckHydrated) return Promise.resolve();
+      return inOrder(async () => {
+        // Compared HERE, not at the call, and that is the whole coalescing
+        // mechanism: a burst of transitions queues a burst of passes, and every
+        // pass after the first finds the live set already accounted for and costs
+        // no IPC. Reading it at the call instead would compare against a `swept`
+        // a queued pass was about to overwrite — which is what a second
+        // "sweep again" flag then had to paper over.
+        const live = deck.live();
+        if (swept && liveFingerprint(swept) === liveFingerprint(live)) return;
+        const departed = unclaimed(
+          swept?.flatMap((ws) => ws.roots) ?? [],
+          live,
+        );
+        const disarmed = await disarm(departed);
+        // Re-read for the PRUNE: the list that decides what to DELETE must not be
+        // one IPC round trip old, or a workspace created while the disarm was in
+        // flight is pruned as dead and its panes spawn pointing at deleted dirs.
+        const pruned = await pruneSkills(
+          deck.live().map((ws) => ws.id).sort(),
+        );
+        // Only a pass that got through counts as done. Recording a failed one
+        // would retire the very state it failed to clean until the deck happens
+        // to change again — and at boot that state is a crash's leftovers.
+        if (disarmed && pruned) swept = live;
+      });
     },
 
     async remove(targets) {
