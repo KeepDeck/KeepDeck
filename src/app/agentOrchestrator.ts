@@ -13,7 +13,6 @@ import {
   paneSuspendBlock,
   paneWakeOrigin,
   sessionClaimant,
-  skillRootsOf,
   worktreeTargets,
   WORKSPACE_FULL_MESSAGE,
   WORKSPACE_GONE_MESSAGE,
@@ -32,16 +31,8 @@ import { mintAgentSeqs } from "./ids";
 import { clearPaneUsage } from "./usageManager";
 import { postbackCount } from "./postbacks";
 import type { SuspendOutcome } from "./suspendOutcome";
-import {
-  clearPostProvision,
-  planPanes,
-  takeCreatedWorktree,
-  provisionInto,
-  registerPostProvision,
-  setupStepFor,
-  type ProvisionCallbacks,
-  type SetupStep,
-} from "./provisioning";
+import { planPanes, provisionInto, setupStepFor } from "./provisioning";
+import type { WorktreeProvisioner } from "./worktrees";
 import {
   createDeckActions,
   type DeckActions,
@@ -347,24 +338,6 @@ export interface AgentCatalogPort {
  * behind the app's back. */
 export type WorktreeProbePort = (dir: string) => Promise<{ exists: boolean }>;
 
-/** Creates the worktrees behind provisioning cards, reporting each result
- * into the deck as it lands. Injected like the probe: it shells out to git
- * and runs the workspace's setup command in a PTY, neither of which a test
- * of the creation sequence wants to actually do. Never throws — a failure
- * lands on its pane's card. */
-export type ProvisionPort = (
-  panes: Pane[],
-  report: ProvisionCallbacks,
-  setup?: SetupStep,
-) => Promise<void>;
-
-/** Tears down the git worktrees a confirmed close asked to delete, returning
- * the ones it could not. Injected for the same reason as the create beside
- * it: `git worktree remove --force` is not something a test performs. */
-export type DiscardWorktreesPort = (
-  targets: WorktreeTarget[],
-) => Promise<string[]>;
-
 /** Whether restored agents come back stopped instead of resuming. Live, not a
  * value captured once: the setting is not a fact about any pane, and the panes
  * it governs are precisely the ones that have not started yet — including the
@@ -414,8 +387,15 @@ export interface AgentOrchestratorDeps {
   sessions: SessionRegistryPort;
   plugins: SpawnPluginAccess;
   probe: WorktreeProbePort;
-  provision: ProvisionPort;
-  discardWorktrees: DiscardWorktreesPort;
+  /** The pane worktree lifecycle, as one collaborator: creating them, publishing
+   * what landed, tearing them down, and answering what skills a plan gets.
+   * Injected like the probe — it shells out to git and runs the workspace's setup
+   * command in a PTY, neither of which a test of the creation sequence wants to
+   * actually do — and as ONE object because the order between those operations is
+   * its own invariant, not something a caller may recombine. Deliberately the
+   * PROVISIONER role, not the whole manager: housekeeping and cache invalidation
+   * belong to other consumers, and a fake here should not have to stub them. */
+  worktrees: WorktreeProvisioner;
 }
 
 /** How one attempt to bring a pane up ended. */
@@ -483,8 +463,7 @@ export function createAgentOrchestrator(
     sessions,
     plugins,
     probe,
-    provision,
-    discardWorktrees,
+    worktrees,
   } = deps;
   const actions: DeckActions = createDeckActions(deck);
   const blocked = new Map<string, string>();
@@ -497,6 +476,14 @@ export function createAgentOrchestrator(
   let view: AgentRunView = EMPTY_VIEW;
   let booted = false;
   let scheduled = false;
+
+  /** What a plan build asks for its workspace's staged skills — the question,
+   * stated once. `landing` names a cwd the deck cannot report yet, because the
+   * pane is about to be created in it; everything else the manager derives
+   * itself, which is the whole point of it owning the root set. */
+  const skillsAsk =
+    (workspace: WorkspaceRef, landing?: string) => () =>
+      worktrees.skillsFor(workspace, landing);
 
   function publish(): void {
     // The plan snapshot is read off the shared cache rather than mirrored:
@@ -661,9 +648,11 @@ export function createAgentOrchestrator(
       const step = ws.setup
         ? setupStepFor(ws.setup, sessions.runOnce)
         : undefined;
-      void provision(stamped, provisionInto(actions, ws.id), step);
+      void worktrees.provision(stamped, provisionInto(actions, ws.id), step);
     }
-    if (plain.length > 0) void provision(plain, provisionInto(actions, ws.id));
+    if (plain.length > 0) {
+      void worktrees.provision(plain, provisionInto(actions, ws.id));
+    }
   }
 
   /** See [`AgentOrchestrator.createPane`]. A named function rather than an
@@ -676,7 +665,7 @@ export function createAgentOrchestrator(
       // no pane to run the plan or to finish the fork's surgery, and ids are
       // never reused, so both would sit there for the life of the process.
       dropPaneSpawnSpec(pane.id);
-      clearPostProvision(pane.id);
+      worktrees.clearPostProvision(pane.id);
       return { kind };
     };
     if (!ws) return refuse("gone");
@@ -828,10 +817,6 @@ export function createAgentOrchestrator(
     // echo to bind this pane. That is the invariant the token's own note in
     // spawnSpecs states.
     dropPaneSpawnSpec(target.paneId);
-    const ws = findWorkspaceByRef(
-      deck.getSnapshot().workspaces,
-      target.workspace,
-    );
     // A throwing `resume.plan` propagates as-is: the pane's process is already
     // gone, so the plan-failed flag the cache records has no live terminal to
     // paint over, and the card reports the failed restart either way.
@@ -844,7 +829,7 @@ export function createAgentOrchestrator(
         cwd: target.cwd,
         branch: target.branch,
         yolo: target.yolo,
-        ...(ws ? { wsSkillRoots: skillRootsOf(ws) } : {}),
+        stagedSkills: skillsAsk(target.workspace),
       },
       ctx,
       target.sessionId,
@@ -945,7 +930,7 @@ export function createAgentOrchestrator(
             cwd: dir,
             branch: pane.branch,
             yolo: pane.yolo,
-            wsSkillRoots: skillRootsOf(ws),
+            stagedSkills: skillsAsk({ id: ws.id, instance: ws.instance }),
           },
           ctx,
           sessionId,
@@ -999,7 +984,8 @@ export function createAgentOrchestrator(
   function planLivePanes(ctx: SpawnPlanContext): void {
     for (const ws of deck.getSnapshot().workspaces) {
       for (const pane of ws.panes) {
-        void buildLivePaneSpec(plugins, ws, pane, ctx).then((changed) => {
+        const stagedSkills = skillsAsk({ id: ws.id, instance: ws.instance });
+        void buildLivePaneSpec(plugins, ws, pane, ctx, stagedSkills).then((changed) => {
           if (!changed) return;
           publish();
           // A plan landing is what a pane waiting to start was waiting FOR —
@@ -1244,22 +1230,22 @@ export function createAgentOrchestrator(
         // A fork card abandoned instead of retried leaves its post-provision
         // step registered (it is kept across a failure so Retry can re-run
         // it) — there is no Retry coming now.
-        clearPostProvision(paneId);
+        worktrees.clearPostProvision(paneId);
       }
       // Every create this close covers is consumed either way, so nothing is
       // left holding a published entry. Each settles as soon as its
       // `git worktree add` returned — the rest of the create, including a
       // setup command in the slot about to be reaped, is not in front of it.
-      const made = (await Promise.all(paneIds.map(takeCreatedWorktree))).filter(
-        (worktree) => worktree !== null,
-      );
+      const made = (
+        await Promise.all(paneIds.map((id) => worktrees.awaitCreated(id)))
+      ).filter((worktree) => worktree !== null);
       // What to delete is finished HERE, against the deck as it stands now.
       // The dialog's list was frozen when it opened, and a create can land
       // while the user reads it — turning a pane the dialog listed as "still
       // being created" into one that owns a worktree, which that list will
       // never mention. `request.worktrees` still leads because it carries the
       // observed branch a bare pane read cannot.
-      const worktrees = request.deleteWorktrees
+      const doomed = request.deleteWorktrees
         ? dedupeByPath([
             ...request.worktrees,
             ...(ws
@@ -1280,8 +1266,8 @@ export function createAgentOrchestrator(
       // Only AFTER the processes are reaped: a worktree that is still some
       // agent's cwd cannot be removed — including one whose setup command was
       // running in the slot the reap above just emptied.
-      if (worktrees.length === 0) return [];
-      return discardWorktrees(worktrees);
+      if (doomed.length === 0) return [];
+      return worktrees.remove(doomed);
     },
     async restart(wsId, paneId, mode) {
       if (restarting.has(paneId)) return "in-flight";
@@ -1393,9 +1379,12 @@ export function createAgentOrchestrator(
             cwd: record.cwd,
             branch: record.branch,
             yolo,
-            // The pane isn't in the deck yet, so its cwd can't come from
-            // `skillRootsOf` — stage it explicitly.
-            wsSkillRoots: [record.cwd],
+            // The pane isn't in the deck yet, so the deck cannot report its
+            // cwd — it rides along as the landing root.
+            stagedSkills: skillsAsk(
+              { id: ws.id, instance: ws.instance },
+              record.cwd,
+            ),
           },
           ctx,
           record.sessionId,
@@ -1470,7 +1459,9 @@ export function createAgentOrchestrator(
               workspace,
               cwd,
               yolo,
-              wsSkillRoots: [cwd],
+              // The fork's pane is not in the deck yet: its target directory
+              // rides along as the landing root.
+              stagedSkills: skillsAsk(workspace, cwd),
             },
             ctx,
             {
@@ -1515,8 +1506,8 @@ export function createAgentOrchestrator(
         // the CREATED worktree, so opencode's import relocates the session
         // there. Throwing from the step is how `provisionPane` learns to roll
         // the worktree back and fail the card.
-        registerPostProvision(id, async (worktree) => {
-          if (!(await surgery(worktree.cwd))) {
+        worktrees.registerPostProvision(id, async (made) => {
+          if (!(await surgery(made.cwd))) {
             throw new Error("Agent could not prepare a fork plan");
           }
         });

@@ -19,7 +19,7 @@ import { useJournalPersistence } from "./app/useJournalPersistence";
 import { useSessionsBrowser } from "./app/useSessionsBrowser";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import type { SessionHandle } from "./domain/journal";
-import { useSkillsPrune } from "./app/useSkillsPrune";
+import { useWorktreeSweep } from "./app/useWorktreeSweep";
 import { useAgentRunView } from "./app/useAgentRunView";
 import { askForPaneBack } from "./app/resumeOutcome";
 import { suspendRefusalText } from "./app/suspendOutcome";
@@ -129,10 +129,11 @@ function App() {
   // journal.jsonl rides the same boot gate: hydrate after the deck restored,
   // freeze alongside a frozen deck (see the hook's ordering contract).
   useJournalPersistence(deck, restoring, frozen !== null);
-  // Skills housekeeping: drop dead workspaces' derived skill dirs at boot
-  // and on every close. Never while restoring or parked — an unhydrated deck
-  // reads as "no workspaces" and would sweep the live dirs too.
-  useSkillsPrune(deck.workspaces, !restoring && !frozen);
+  // Worktree housekeeping: the manager drops dead workspaces' derived skill
+  // dirs and disarms departed spawn cwds. Asked on every deck transition and at
+  // boot; it refuses while restoring or parked, since an unhydrated deck reads
+  // as "no workspaces" and would sweep the live dirs too.
+  useWorktreeSweep(runtime.worktrees, deck.workspaces, !restoring && !frozen);
   const [frozenAck, setFrozenAck] = useState(false);
   // Per-install spawn-plan constants (bridge inbox, reporter activation) — the
   // deck's first paint waits for it ([F7]/[F8] session identity v2).

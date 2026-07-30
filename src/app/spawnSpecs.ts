@@ -13,14 +13,13 @@ import {
 import {
   paneAgentType,
   paneHasProcess,
-  skillRootsOf,
   type Pane,
   type Workspace,
 } from "../domain/deck";
 import { describeError, log } from "../ipc/log";
 import { mintBridgeToken } from "./ids";
 import { postbackCount } from "./postbacks";
-import { stagedSkillsFor } from "./skillsStaging";
+import type { SkillsStagingViews } from "../ipc/skills";
 import type { PluginManager } from "./pluginManager";
 import { execCovers } from "../plugins/capabilities/execCovers";
 import {
@@ -131,12 +130,15 @@ async function buildAndCache(
 /** The pane-side facts a plan is built from — the hook input's shape minus
  * the resume session (that arrives with the resume request, not the pane). */
 export interface PaneSpawnFacts extends SpawnPlanInput {
-  /** Every spawn cwd of the WORKSPACE's panes — staging arms each with the
-   * codex-facing `.agents/skills` symlink ("skills live in the launched
-   * CLI's cwd, period"). Workspace-level data riding on pane facts so every
-   * build path feeds the same staging call (and kept OFF the hook input:
-   * `base` below lists its fields explicitly). */
-  wsSkillRoots?: string[];
+  /** This workspace's staged shared skills, resolved by whoever owns the
+   * worktrees — asked for here, never computed here. A build path that worked
+   * out the arming set itself is how a directory being deleted got armed, so
+   * the set is deliberately not expressible in these facts. Absent = this
+   * build has no skills source and the hook input stays sparse.
+   *
+   * Named apart from the hook input's own `skills` (which carries the resolved
+   * views) because this is the QUESTION, not the answer. */
+  stagedSkills?: () => Promise<SkillsStagingViews | null>;
 }
 
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
@@ -169,13 +171,10 @@ async function buildPlan(
   };
   // Staged shared skills are a host fact like the bridge — but delivered as
   // hook INPUT, because loading them is per-CLI dialect (a flag here, an env
-  // var there), and dialects are exactly what hooks own. The full workspace
-  // REF goes in: the memo keys on the never-reused instance (see
-  // skillsStaging), the disk on the durable id.
-  const skills = await stagedSkillsFor(
-    facts.workspace,
-    facts.wsSkillRoots ?? [],
-  );
+  // var there), and dialects are exactly what hooks own. WHICH skills, and
+  // which directories get armed for them, is the worktree manager's answer:
+  // this only asks.
+  const skills = facts.stagedSkills ? await facts.stagedSkills() : null;
   const base: SpawnPlanInput = {
     paneId,
     workspace: facts.workspace,
@@ -407,6 +406,7 @@ export async function buildLivePaneSpec(
   ws: Workspace,
   pane: Pane,
   ctx: SpawnPlanContext,
+  stagedSkills: () => Promise<SkillsStagingViews | null>,
 ): Promise<boolean> {
   if (!paneHasProcess(pane)) return false;
   if (specs.has(pane.id) || pending.has(pane.id) || failed.has(pane.id)) {
@@ -425,7 +425,7 @@ export async function buildLivePaneSpec(
           cwd: pane.cwd ?? ws.cwd,
           branch: pane.branch,
           yolo: pane.yolo,
-          wsSkillRoots: skillRootsOf(ws),
+          stagedSkills,
           ...(pane.remoteEndpoint
             ? {
                 target: {

@@ -168,11 +168,27 @@ vi.mock("./spawnSpecs", () => {
 });
 /** The post-provision map is write-only by design (a step is consumed when it
  *  succeeds), so a fork test has no way to read back the step it registered.
- *  Spied and delegated: the real behaviour stands, and the step is reachable. */
+ *  The worktree manager is faked here, so these spies ARE its map — a fork test
+ *  reaches its step through the recorded call. */
 const steps = vi.hoisted(() => ({
   register: vi.fn(),
   clear: vi.fn(),
 }));
+
+/** What the worktree manager was asked to stage for, per call. The plan facts
+ *  only carry a thunk, so a wrong workspace ref or landing cwd inside it is
+ *  invisible unless the fake records its arguments. */
+const skillsAsked = vi.fn(
+  (_workspace: { id: string; instance: string }, _landing?: string) =>
+    Promise.resolve(null),
+);
+
+/** The facts of the most recent resume-plan build. The mock spans the file, so
+ *  an index would pick an earlier test's workspace lifetime. */
+function lastResumeFacts() {
+  const calls = vi.mocked(buildResumeSpec).mock.calls;
+  return calls[calls.length - 1][2];
+}
 vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
 
 /** A retired session's telemetry must not stay bound to the pane, or a
@@ -188,30 +204,6 @@ const published = vi.hoisted(
   () =>
     new Map<string, Promise<{ repo: string; path: string; branch: string } | null>>(),
 );
-
-vi.mock("./provisioning", async (importOriginal) => {
-  const real = await importOriginal<typeof import("./provisioning")>();
-  return {
-    ...real,
-    takeCreatedWorktree: (paneId: string) => {
-      const made = published.get(paneId);
-      if (!made) return Promise.resolve(null);
-      published.delete(paneId);
-      return made;
-    },
-    registerPostProvision: (
-      paneId: string,
-      step: (worktree: { cwd: string; branch: string }) => Promise<void>,
-    ) => {
-      steps.register(paneId, step);
-      real.registerPostProvision(paneId, step);
-    },
-    clearPostProvision: (paneId: string) => {
-      steps.clear(paneId);
-      real.clearPostProvision(paneId);
-    },
-  };
-});
 
 /** The session registry as the orchestrator sees it: what it started, and
  *  what each pane's process is doing. */
@@ -372,13 +364,31 @@ function Probe() {
         },
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
-        provision: (panes, _report, setup) => {
-          asked.push({ panes, setup });
-          return Promise.resolve();
-        },
-        discardWorktrees: (targets) => {
-          discarded.push(targets);
-          return Promise.resolve(discardFailures);
+        // The worktree lifecycle as one fake: git creates and removals are not
+        // things this test performs, and the published map stands in for what a
+        // create put on disk.
+        worktrees: {
+          provision: (panes, _report, setup) => {
+            asked.push({ panes, setup });
+            return Promise.resolve();
+          },
+          awaitCreated: (paneId) => {
+            const made = published.get(paneId);
+            if (!made) return Promise.resolve(null);
+            published.delete(paneId);
+            return made;
+          },
+          registerPostProvision: steps.register,
+          clearPostProvision: steps.clear,
+          // RECORDED, not stubbed: the facts carry a thunk, so the only way to
+          // check which workspace a build actually asks about — and which
+          // landing cwd rides along — is to invoke it and see what arrives.
+          // What a plan then DOES with the views is spawnSpecs' suite.
+          skillsFor: skillsAsked,
+          remove: (targets) => {
+            discarded.push(targets);
+            return Promise.resolve(discardFailures);
+          },
         },
       }),
     };
@@ -505,11 +515,26 @@ describe("agent orchestrator —session policy", () => {
         cwd: "/repo",
         branch: undefined,
         yolo: undefined,
-        wsSkillRoots: ["/repo"],
+        // The build ASKS the worktree manager for the workspace's staged
+        // skills; which roots that arms is the manager's answer, not a set
+        // this call site is free to compute. What the thunk asks FOR is
+        // asserted below — `expect.any(Function)` alone would pass on a wrong
+        // workspace ref.
+        stagedSkills: expect.any(Function),
       },
       expect.anything(),
       "old",
       "restore",
+    );
+    // The thunk itself: asked about THIS workspace lifetime, with no landing cwd
+    // (the pane is in the deck, so the manager derives its roots). The LAST call
+    // — the mock spans the whole file, and an earlier test's workspace has a
+    // different lifetime.
+    const facts = lastResumeFacts();
+    await facts.stagedSkills?.();
+    expect(skillsAsked).toHaveBeenCalledWith(
+      { id: "ws-1", instance: deck.workspaces[0].instance },
+      undefined,
     );
   });
 
@@ -2587,7 +2612,7 @@ describe("agent orchestrator —restarting an exited agent", () => {
         cwd: "/worktree",
         branch: "feature/restart",
         yolo: true,
-        wsSkillRoots: ["/worktree"],
+        stagedSkills: expect.any(Function),
       },
       ctx,
       "session-old",
@@ -2601,6 +2626,15 @@ describe("agent orchestrator —restarting an exited agent", () => {
       branch: "feature/restart",
       session: { id: "session-old" },
     });
+    // And the restart asks about the pane's OWN workspace lifetime — the local
+    // lookup that used to gate this was dropped, so the thunk is the only place
+    // that still says which workspace the skills come from.
+    const facts = lastResumeFacts();
+    await facts.stagedSkills?.();
+    expect(skillsAsked).toHaveBeenCalledWith(
+      { id: "ws-1", instance: deck.workspaces[0].instance },
+      undefined,
+    );
   });
 
   it("starts fresh only on click, clearing the binding but keeping the worktree", async () => {
@@ -3285,6 +3319,20 @@ describe("agent orchestrator —continuing a recorded session", () => {
     expect(peekPaneSpawnSpec(minted)).toBeUndefined();
   });
 
+  it("asks about the recorded session's OWN directory as the landing cwd", async () => {
+    // A journal resume mints a pane in the directory the session was recorded
+    // in, which the deck cannot report until that pane lands — so the cwd rides
+    // along with the skills question instead of being derived from the deck.
+    await act(async () => agentRun.resumeSession("ws-1", handle()));
+
+    const facts = lastResumeFacts();
+    await facts.stagedSkills?.();
+    expect(skillsAsked).toHaveBeenCalledWith(
+      { id: "ws-1", instance: deck.workspaces[0].instance },
+      facts.cwd,
+    );
+  });
+
   it("a YOLO override reaches the pane AND the plan's facts", async () => {
     await act(async () =>
       agentRun.resumeSession("ws-1", handle({ yolo: false }), { yolo: true }),
@@ -3314,6 +3362,10 @@ describe("agent orchestrator —forking a recorded session", () => {
     vi.mocked(buildForkSpec).mockClear();
     steps.register.mockClear();
     steps.clear.mockClear();
+    // Cleared like every other recording spy in this file: it spans the whole
+    // suite, so a `toHaveBeenCalledTimes` here would otherwise count the calls
+    // every earlier test made.
+    skillsAsked.mockClear();
     ipc.probeWorktree.mockReset().mockResolvedValue({
       exists: true,
       isWorktree: false,
@@ -3352,6 +3404,14 @@ describe("agent orchestrator —forking a recorded session", () => {
     expect(pane.session).toBeUndefined();
     const call = vi.mocked(buildForkSpec).mock.calls[0];
     expect(call[2]).toMatchObject({ paneId: pane.id, cwd: "/elsewhere" });
+    // The skills question carries the LANDING cwd: the deck cannot report a
+    // directory whose pane has not landed yet, so the fork's target rides along
+    // and the manager arms it with everything else the workspace claims.
+    await call[2].stagedSkills?.();
+    expect(skillsAsked).toHaveBeenCalledWith(
+      { id: "ws-1", instance: deck.workspaces[0].instance },
+      "/elsewhere",
+    );
     // Exact, not a subset: an extra or renamed field in the fork request is
     // as much a defect as a missing one.
     expect(call[4]).toEqual({
