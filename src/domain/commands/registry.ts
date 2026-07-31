@@ -85,10 +85,18 @@ export interface CommandRegistry {
 const JOURNAL_CAP = 200;
 
 export function createCommandRegistry(
-  opts: { now?: () => number; journalCap?: number } = {},
+  opts: {
+    now?: () => number;
+    journalCap?: number;
+    /** Where a throwing `onDidExecute` listener is reported (the composition
+     * root passes the app log). The registry never lets one alter a command's
+     * outcome, so without a reporter the throw would be silent. */
+    onListenerError?: (error: unknown) => void;
+  } = {},
 ): CommandRegistry {
   const now = opts.now ?? Date.now;
   const cap = opts.journalCap ?? JOURNAL_CAP;
+  const onListenerError = opts.onListenerError ?? (() => {});
   const commands = new Map<string, CommandSpec>();
   const journal: JournalEntry[] = [];
   const listeners = new Set<(entry: JournalEntry) => void>();
@@ -111,7 +119,20 @@ export function createCommandRegistry(
     };
     journal.push(entry);
     if (journal.length > cap) journal.splice(0, journal.length - cap);
-    for (const cb of [...listeners]) cb(entry);
+    // A listener observes an outcome that has already happened — its throw
+    // must not alter it. Unguarded, a throw on the success path would land in
+    // `execute`'s catch, re-record the finished command as `error` and flip
+    // the return to `{ok:false}`; on the refusal paths (which record outside
+    // the try) it would reject the promise, breaking the "returns a result"
+    // contract. Per-listener, so one broken subscriber doesn't starve the
+    // rest.
+    for (const cb of [...listeners]) {
+      try {
+        cb(entry);
+      } catch (error) {
+        onListenerError(error);
+      }
+    }
   }
 
   return {
