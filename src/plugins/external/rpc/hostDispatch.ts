@@ -188,8 +188,11 @@ export function createHostDispatch(
     });
   }
 
-  // Flipped by dispose(). Guards the one async acquisition (speech) whose
-  // resource can land AFTER the sweep already ran.
+  // Flipped by dispose(). Guards the speech capture — an async acquisition
+  // whose resource can land AFTER the sweep already ran. Sessions have the
+  // same shape and carry their own guard (`hostSessions.spawn`); any NEW
+  // handler that awaits a resource into existence and then stores it needs
+  // one too.
   let disposed = false;
   // Registrations retained by the guest-minted id that will later dispose them.
   const registrations = new Map<number, Disposable>();

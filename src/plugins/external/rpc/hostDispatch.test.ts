@@ -459,6 +459,35 @@ describe("file-open handlers over the RPC seam", () => {
   });
 });
 
+describe("sessions over the RPC seam", () => {
+  it("a PTY landing after dispose is closed, not stored", async () => {
+    const close = vi.fn(async () => {});
+    let releaseSpawn!: () => void;
+    const spawn = vi.fn(
+      () =>
+        new Promise<{ id: string; write: () => void; resize: () => void; close: typeof close }>(
+          (resolve) => {
+            releaseSpawn = () =>
+              resolve({ id: "s-1", write: vi.fn(), resize: vi.fn(), close });
+          },
+        ),
+    );
+    const ctx = {
+      services: { sessions: { spawn } },
+    } as unknown as PluginContext;
+    const dispatch = createHostDispatch(ctx, () => {});
+
+    const starting = dispatch.call("services.sessions.spawn", [{ command: "x" }]);
+    // The realm dies while the PTY is spawning: the sweep already ran over a
+    // map the handle isn't in yet. Storing it would orphan a live process
+    // group — the exact leak the speech guard closed one handler over.
+    dispatch.dispose();
+    releaseSpawn();
+    await expect(starting).rejects.toThrow("disposed");
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("speech captures over the RPC seam", () => {
   function speechHarness() {
     const cancel = vi.fn(async () => {});
