@@ -5,7 +5,9 @@
 //! mutated or locked up). The SQL text lives in the plugin — the schema
 //! knowledge is its; this command only enforces the boundary.
 
-use crate::containment::{expand_home, resolve_within};
+use std::path::PathBuf;
+
+use crate::containment::{expand_home, is_unbounded_root, resolve_within};
 
 #[tauri::command(async)]
 pub fn plugins_sqlite_query(
@@ -14,10 +16,20 @@ pub fn plugins_sqlite_query(
     params: Vec<String>,
     roots: Vec<String>,
 ) -> Result<Vec<Vec<Option<String>>>, String> {
+    // Same rule as the write side: a declared root whose canonical form is
+    // "/" or the whole home bounds nothing and authorizes nothing — the
+    // parse guard refuses the literal spellings, the proof refuses the rest.
     let expanded: Vec<String> = roots
         .iter()
         .map(|root| expand_home(root))
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter(|root| {
+            let path = PathBuf::from(root);
+            let real = std::fs::canonicalize(&path).unwrap_or(path);
+            !is_unbounded_root(&real)
+        })
+        .collect();
     let db = resolve_within(&expand_home(&db_path)?, &expanded, false)?;
     keepdeck_index::query_readonly(&db, &sql, &params)
 }

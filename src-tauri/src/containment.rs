@@ -7,7 +7,7 @@
 //! backend (`project_fs`, `project_git`) so the escape analysis exists once.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Expand a leading `~/` to the user's home directory — THE home expansion
 /// for every containment-adjacent path (three separate copies drifted once;
@@ -19,6 +19,27 @@ pub fn expand_home(path: &str) -> Result<String, String> {
         return Ok(format!("{}/{rest}", PathBuf::from(home).to_string_lossy()));
     }
     Ok(path.to_string())
+}
+
+/// A root that bounds nothing: the filesystem root, or the user's whole
+/// home. The manifest guard rejects the literal spellings ("/", "~/"), but a
+/// spelling like "~/../.." canonicalizes to the same place, and no denylist
+/// of spellings can enumerate those — so the PROOF refuses such a root as
+/// authority, on the canonical form it already computes. This is the
+/// semantic half of the same rule; the parse guard remains the loud,
+/// author-facing half.
+pub fn is_unbounded_root(root: &Path) -> bool {
+    if root == Path::new("/") {
+        return true;
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        let home = fs::canonicalize(&home).unwrap_or(home);
+        if root == home {
+            return true;
+        }
+    }
+    false
 }
 
 /// Canonicalize `path` and require the result to sit inside one of `roots`

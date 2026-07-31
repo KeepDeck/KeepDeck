@@ -178,6 +178,13 @@ fn resolve_write(path: &str, roots: &[String]) -> Result<PathBuf, String> {
     for root in roots {
         let expanded = PathBuf::from(expand_home(root)?);
         let root_real = fs::canonicalize(&expanded).unwrap_or(expanded);
+        // A root whose canonical form is "/" or the whole home authorizes
+        // nothing. The manifest guard already refuses the literal spellings;
+        // this is the proof's own half, for the spellings ("~/../..") a
+        // string denylist cannot enumerate.
+        if crate::containment::is_unbounded_root(&root_real) {
+            continue;
+        }
         if real.starts_with(&root_real) {
             return Ok(real);
         }
@@ -275,6 +282,25 @@ mod tests {
 
         assert_eq!(mode_of(&store), 0o755);
         assert_eq!(mode_of(&store.join("session.json")), FILE_MODE);
+    }
+
+    #[test]
+    fn an_unbounded_root_authorizes_nothing() {
+        // These roots never pass the manifest's parse guard — but this layer
+        // must hold on its own: "~/../.." is not literally "/" and slips any
+        // spelling denylist, yet canonicalizes to exactly the root the guard
+        // exists to refuse.
+        let home = std::env::var("HOME").unwrap();
+        for root in ["/".to_string(), home.clone(), format!("{home}/../..")] {
+            let err = plugins_fs_write_file(
+                "/tmp/kd-unbounded-root-probe.txt".into(),
+                "x".into(),
+                vec![root.clone()],
+            )
+            .unwrap_err();
+            assert!(err.contains("outside"), "root {root:?} authorized: {err}");
+        }
+        assert!(!Path::new("/tmp/kd-unbounded-root-probe.txt").exists());
     }
 
     #[test]
