@@ -32,6 +32,8 @@ export type {
   UsageWindow,
 } from "./usage.ts";
 export {
+  allowanceWindow,
+  asCount,
   asFiniteNumber,
   asNonEmptyString,
   clampPercent,
