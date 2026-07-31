@@ -157,9 +157,12 @@ export interface WorktreeTarget {
   repo: string;
   /** The worktree directory to remove. */
   path: string;
-  /** The branch to delete once the worktree is gone, when the pane still tracks
-   * one. Absent for a detached-HEAD worktree — the dir is still removed, the
-   * (now-unknown) branch is left intact rather than skipping the whole target. */
+  /** The branch to delete BY NAME once the worktree is gone, when the pane
+   * still tracks one. Absent for a detached-HEAD worktree — the dir is still
+   * removed, and no branch is named here. Naming is not the whole story:
+   * the delete flow also reaps branches BORN in the worktree (the user's
+   * checkbox says "and its branches"), so absence means "nothing to name",
+   * never "no branch will be touched". */
   branch?: string;
 }
 
@@ -177,13 +180,17 @@ export interface GitPosition {
  * (the main repo) has no worktree of its own, and a non-worktree workspace owns
  * nothing — an empty result is the signal that there's nothing to offer deleting.
  *
- * The directory is ALWAYS offered; only the branch half varies with what's
+ * The directory is ALWAYS offered; only the NAMED branch varies with what's
  * known about the worktree's HEAD:
  * - runtime HEAD observed on a branch → that currently checked-out branch;
- * - runtime HEAD observed but DETACHED → no branch (deleting one would be
+ * - runtime HEAD observed but DETACHED → none named (naming one would be
  *   ambiguous on a bare commit — the dir is not: skipping it, as this once
  *   did, stranded the directory on disk with the delete checkbox gone);
  * - HEAD not observed → the pane's durable owned branch, when it has one.
+ *
+ * Naming is only the explicit half: the delete flow additionally reaps
+ * branches born in the worktree (`reapCreatedBranches`) — see
+ * [`WorktreeTarget.branch`].
  */
 export function worktreeTargets(
   ws: Workspace,
