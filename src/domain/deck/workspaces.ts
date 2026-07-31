@@ -177,13 +177,13 @@ export interface GitPosition {
  * (the main repo) has no worktree of its own, and a non-worktree workspace owns
  * nothing — an empty result is the signal that there's nothing to offer deleting.
  *
- * The branch to delete depends on what's known about the worktree's HEAD:
- * - runtime HEAD observed on a branch → target that currently checked-out branch;
- * - runtime HEAD observed but DETACHED → not a delete target (you're on a bare
- *   commit, not a branch — deleting is ambiguous, so leave it alone);
- * - HEAD not observed → fall back to the pane's durable owned branch, and still
- *   offer the worktree dir even when that's absent (a detached worktree whose
- *   branch is unknown here) so its directory isn't stranded on disk undeletable.
+ * The directory is ALWAYS offered; only the branch half varies with what's
+ * known about the worktree's HEAD:
+ * - runtime HEAD observed on a branch → that currently checked-out branch;
+ * - runtime HEAD observed but DETACHED → no branch (deleting one would be
+ *   ambiguous on a bare commit — the dir is not: skipping it, as this once
+ *   did, stranded the directory on disk with the delete checkbox gone);
+ * - HEAD not observed → the pane's durable owned branch, when it has one.
  */
 export function worktreeTargets(
   ws: Workspace,
@@ -194,12 +194,9 @@ export function worktreeTargets(
   return panes.flatMap((p) => {
     if (!p.cwd) return [];
     const observed = gitPositions?.get(p.cwd);
-    if (observed) {
-      return observed.branch
-        ? [{ repo: ws.cwd, path: p.cwd, branch: observed.branch }]
-        : [];
-    }
-    return [{ repo: ws.cwd, path: p.cwd, branch: p.branch }];
+    return [
+      { repo: ws.cwd, path: p.cwd, branch: observed ? observed.branch : p.branch },
+    ];
   });
 }
 

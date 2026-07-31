@@ -209,14 +209,20 @@ describe("worktreeTargets", () => {
     expect(worktreeTargets(plain, "b-p1")).toEqual([]);
   });
 
-  it("uses runtime current branch for owned worktrees, without targeting detached heads", () => {
+  it("uses runtime current branch for owned worktrees; a detached head offers the dir alone", () => {
     const heads = new Map([
       ["/wt/kd-a-1", { branch: "feature/x" }],
       ["/wt/kd-a-2", { head: "a".repeat(40) }],
     ]);
 
+    // The detached pane's target carries NO branch — not even the pane's
+    // durable one, which the observed bare commit has superseded. Deleting a
+    // branch would be ambiguous there; skipping the whole target (as this
+    // once did) stranded the directory with the delete checkbox gone, against
+    // the WorktreeTarget contract.
     expect(worktreeTargets(wtWs, undefined, heads)).toEqual([
       { repo: "/repo", path: "/wt/kd-a-1", branch: "feature/x" },
+      { repo: "/repo", path: "/wt/kd-a-2", branch: undefined },
     ]);
   });
 
