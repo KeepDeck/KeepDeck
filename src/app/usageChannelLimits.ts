@@ -89,6 +89,15 @@ export function createUsageLimitsLane({
           usageSourceTimestamp(read.sourceAt, Date.now()) ?? requestedAt;
         const account = limits.normalize(read.body, sourceAt);
         if (account) setAccountUsage(agentId, account);
+        else
+          // A fetch that THROWS is logged below; a fetch that succeeded and
+          // didn't normalize was silent — indistinguishable from "no data
+          // yet", which is how codex's unread business-plan quota hid for a
+          // whole release cycle. Every polled source, one line.
+          log.debug(
+            "web:usage",
+            `${limits.poll} ${phase}: response did not normalize — no account claim recorded`,
+          );
       } catch (error) {
         log.debug("web:usage", `${limits.poll} ${phase} failed: ${error}`);
       }

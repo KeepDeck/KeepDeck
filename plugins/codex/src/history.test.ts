@@ -86,6 +86,19 @@ describe("codex history", () => {
     ]);
   });
 
+  it("an unreadable date partition fails the walk — a partial answer prunes the index", async () => {
+    const history = codexHistory(
+      ctx({}, {
+        "~/.codex/sessions": [{ name: "2026", path: "/s/2026", kind: "dir" }],
+        "/s/2026": [{ name: "07", path: "/s/2026/07", kind: "dir" }],
+        // "/s/2026/07" deliberately absent → readDir throws mid-walk. A []
+        // here looked like every session under it was deleted, and the index
+        // prune acted on that.
+      }),
+    );
+    await expect(history.list()).rejects.toThrow();
+  });
+
   it("describe reads the session_meta cwd; titles skip instruction blobs", async () => {
     const history = codexHistory(ctx({ "/r.jsonl": LINES }, {}));
     expect(await history.describe("/r.jsonl")).toEqual({

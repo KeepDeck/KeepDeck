@@ -42,7 +42,7 @@ pub fn sanitize_branch_component(input: &str) -> String {
     // `.lock`, and a single pass leaves `a.lock.lock` -> `a.lock`.
     while let Some(stripped) = result.strip_suffix(".lock") {
         result = stripped
-            .trim_end_matches(|c| c == '-' || c == '.')
+            .trim_end_matches(['-', '.'])
             .to_string();
     }
 

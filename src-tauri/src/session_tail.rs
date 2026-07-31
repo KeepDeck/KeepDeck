@@ -32,6 +32,7 @@
 //!   a torn multi-byte character or half-written line never breaks parsing;
 //!   it completes on the next poll).
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -370,10 +371,7 @@ fn drain_file(
 
     let mut events = Vec::new();
     let mut chunk = [0_u8; 64 * 1024];
-    loop {
-        let Ok(read) = file.read(&mut chunk) else {
-            break;
-        };
+    while let Ok(read) = file.read(&mut chunk) {
         if read == 0 {
             break;
         }
@@ -741,7 +739,7 @@ fn rollouts_newest_first(root: &std::path::Path) -> Vec<(std::time::SystemTime, 
             found.push((modified, path));
         }
     }
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|(modified, _)| Reverse(*modified));
     found
 }
 
@@ -1534,7 +1532,7 @@ mod tests {
         })
         .expect("watch");
 
-        write!(file, "{TOKEN_COUNT_LINE}\n").unwrap();
+        writeln!(file, "{TOKEN_COUNT_LINE}").unwrap();
         file.flush().unwrap();
         // NO drop(file) — the handle stays open like a live CLI's.
 
@@ -1573,7 +1571,7 @@ mod tests {
         )
         .unwrap();
         let mut file = OpenOptions::new().append(true).open(&path).unwrap();
-        write!(file, "{TURN_CONTEXT_LINE}\n").unwrap();
+        writeln!(file, "{TURN_CONTEXT_LINE}").unwrap();
         drop(file);
         let second = rx
             .recv_timeout(Duration::from_secs(10))

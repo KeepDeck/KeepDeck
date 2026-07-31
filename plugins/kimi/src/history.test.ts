@@ -87,6 +87,28 @@ describe("kimi history", () => {
     ]);
   });
 
+  it("an unreadable working-dir folder fails the list; a session without agents/main is skipped", async () => {
+    // Failure ≠ absence. An unreadable wd folder must throw (a partial list
+    // prunes the index), while a session dir that simply never spawned an
+    // agent has no agents/main and is legitimately skipped.
+    const broken = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        // "/k/wd_a_1" deliberately absent → readDir throws.
+      }),
+    );
+    await expect(broken.list()).rejects.toThrow();
+
+    const bare = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" }],
+        "/k/wd_a_1": [{ name: "session_s1", path: "/k/wd_a_1/session_s1", kind: "dir" }],
+        // no agents/main for session_s1 — created, never spawned.
+      }),
+    );
+    expect(await bare.list()).toEqual([]);
+  });
+
   it("describe reads workDir + title from the sibling state.json", async () => {
     const history = kimiHistory(
       ctx({ "/k/wd_a_1/session_s1/state.json": STATE }, {}),

@@ -123,7 +123,7 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<
 
 /// List the repository's worktrees.
 pub fn list(repo: &Path) -> Result<Vec<WorktreeInfo>, GitError> {
-    let out = run_git(repo, &["worktree", "list", "--porcelain"])?;
+    let out = run_git(repo, ["worktree", "list", "--porcelain"])?;
     Ok(parse_worktrees(&out))
 }
 
@@ -201,12 +201,12 @@ pub fn remove(repo: &Path, path: &Path, force: bool) -> Result<(), GitError> {
 
 /// Prune administrative records of worktrees whose directories are gone.
 pub fn prune(repo: &Path) -> Result<(), GitError> {
-    run_git(repo, &["worktree", "prune"]).map(drop)
+    run_git(repo, ["worktree", "prune"]).map(drop)
 }
 
 /// Whether the working tree at `path` has uncommitted or untracked changes.
 pub fn is_dirty(path: &Path) -> Result<bool, GitError> {
-    let out = run_git(path, &["status", "--porcelain"])?;
+    let out = run_git(path, ["status", "--porcelain"])?;
     Ok(!out.trim().is_empty())
 }
 

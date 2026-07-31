@@ -362,7 +362,17 @@ export function SessionsBrowser({
             <span className="browser__spinner" />
           </li>
         )}
-        {emptyList && (
+        {/* A failed page zero cleared its rows on purpose — naming the
+            failure beats a truthless "No sessions match". NOT inside the
+            empty-state gate: that gate also requires the journal to be
+            empty, and a workspace with journal rows would otherwise show a
+            failed search as a quietly shorter list. */}
+        {api.error && (
+          <li className="history__row browser__empty">
+            Search failed: {api.error}
+          </li>
+        )}
+        {emptyList && !api.error && (
           <li className="history__row browser__empty">
             {api.scanning
               ? "Indexing the stores…"

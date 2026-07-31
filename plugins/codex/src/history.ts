@@ -55,7 +55,11 @@ const FILE_UUID = /^rollout-.*-([0-9a-f-]{36})\.jsonl$/;
 export function codexHistory(ctx: PluginContext): AgentHistory {
   const walk = async (path: string): Promise<AgentSessionStub[]> => {
     const out: AgentSessionStub[] = [];
-    const entries = await ctx.services.fs.readDir(path).catch(() => []);
+    // No catch: the store's root already answered, so a date partition that
+    // fails to read is a failure, not an absence — a partial walk reads as
+    // "those sessions were deleted" and the index prune acts on it. The
+    // throw lands in the scanner's per-agent catch: logged, nothing pruned.
+    const entries = await ctx.services.fs.readDir(path);
     for (const entry of entries) {
       if (entry.kind === "dir") {
         out.push(...(await walk(entry.path)));

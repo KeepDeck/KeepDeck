@@ -15,6 +15,7 @@
 //! created, GC failures are ignored, and the panic hook delegates to the
 //! default hook after recording.
 
+use std::cmp::Reverse;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
@@ -153,7 +154,7 @@ pub fn collect_garbage() -> usize {
 /// out; whatever is over budget is deleted only once idle past `GC_MIN_IDLE`.
 /// A recent-but-over-budget file still occupies budget — it exists on disk.
 fn plan_gc(mut files: Vec<LogFile>, now: SystemTime) -> Vec<PathBuf> {
-    files.sort_by(|a, b| b.modified.cmp(&a.modified));
+    files.sort_by_key(|file| Reverse(file.modified));
     let mut kept_bytes = 0u64;
     let mut kept_files = 0usize;
     let mut doomed = Vec::new();

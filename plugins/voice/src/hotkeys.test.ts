@@ -163,4 +163,46 @@ describe("installPttHotkeys", () => {
     press("keydown", { code: "Space", key: " ", altKey: true });
     expect(c.start).not.toHaveBeenCalled();
   });
+
+  it("window blur mid-hold cancels the capture — the keyup is never coming", () => {
+    const state = { phase: "idle" as VoicePhase };
+    const c = fakeController(state);
+    uninstall = installPttHotkeys(c, () => DEFAULT_BINDINGS);
+
+    press("keydown", { code: "Space", key: " ", altKey: true });
+    expect(c.start).toHaveBeenCalledWith("command");
+    // Cmd-Tab / Spotlight / screen lock: the window loses focus with the key
+    // still down. Without this, heldChord stayed set and the mic recorded in
+    // the background. Cancel, not stop — half an utterance must not execute.
+    window.dispatchEvent(new Event("blur"));
+    expect(c.cancel).toHaveBeenCalledTimes(1);
+    expect(c.stop).not.toHaveBeenCalled();
+
+    // The hold is over: the eventual stray keyup must be a no-op.
+    press("keyup", { code: "Space", key: " ", altKey: true });
+    expect(c.stop).not.toHaveBeenCalled();
+  });
+
+  it("the tab going hidden mid-hold cancels too; blur with no hold is a no-op", () => {
+    const state = { phase: "idle" as VoicePhase };
+    const c = fakeController(state);
+    uninstall = installPttHotkeys(c, () => DEFAULT_BINDINGS);
+
+    // No hold → nothing to cancel (a click-started toggle session must not
+    // be killed by a mere focus change).
+    window.dispatchEvent(new Event("blur"));
+    expect(c.cancel).not.toHaveBeenCalled();
+
+    press("keydown", { code: "Space", key: " ", altKey: true });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(c.cancel).toHaveBeenCalledTimes(1);
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+  });
 });

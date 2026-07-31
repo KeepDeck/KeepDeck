@@ -39,11 +39,13 @@ export interface CommandInfo {
 }
 
 /** Who asked. Journaled with every call — the voice history reads it, and
- * an audit trail needs it verbatim. */
+ * an audit trail needs it verbatim. An `external` arm (MCP, a control
+ * socket) arrives WITH its transport: it needs a per-client gate at that
+ * transport, and declaring it before one exists would only invite callers
+ * to mint unvetted sources. */
 export type CommandSource =
   | { kind: "host" }
-  | { kind: "plugin"; pluginId: string }
-  | { kind: "external"; client: string };
+  | { kind: "plugin"; pluginId: string };
 
 export type CommandError =
   | { code: "unknown-command"; message: string }
@@ -85,10 +87,18 @@ export interface CommandRegistry {
 const JOURNAL_CAP = 200;
 
 export function createCommandRegistry(
-  opts: { now?: () => number; journalCap?: number } = {},
+  opts: {
+    now?: () => number;
+    journalCap?: number;
+    /** Where a throwing `onDidExecute` listener is reported (the composition
+     * root passes the app log). The registry never lets one alter a command's
+     * outcome, so without a reporter the throw would be silent. */
+    onListenerError?: (error: unknown) => void;
+  } = {},
 ): CommandRegistry {
   const now = opts.now ?? Date.now;
   const cap = opts.journalCap ?? JOURNAL_CAP;
+  const onListenerError = opts.onListenerError ?? (() => {});
   const commands = new Map<string, CommandSpec>();
   const journal: JournalEntry[] = [];
   const listeners = new Set<(entry: JournalEntry) => void>();
@@ -111,7 +121,25 @@ export function createCommandRegistry(
     };
     journal.push(entry);
     if (journal.length > cap) journal.splice(0, journal.length - cap);
-    for (const cb of [...listeners]) cb(entry);
+    // A listener observes an outcome that has already happened — its throw
+    // must not alter it. Unguarded, a throw on the success path would land in
+    // `execute`'s catch, re-record the finished command as `error` and flip
+    // the return to `{ok:false}`; on the refusal paths (which record outside
+    // the try) it would reject the promise, breaking the "returns a result"
+    // contract. Per-listener, so one broken subscriber doesn't starve the
+    // rest.
+    for (const cb of [...listeners]) {
+      try {
+        cb(entry);
+      } catch (error) {
+        try {
+          onListenerError(error);
+        } catch {
+          // A reporter that throws reports nothing — but it must not re-open
+          // the very hole this guard closes.
+        }
+      }
+    }
   }
 
   return {

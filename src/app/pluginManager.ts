@@ -618,6 +618,23 @@ export function createPluginManager(appDownloads: DownloadManager) {
       // is a UX gate, never a lockout boundary).
       isAgentBinInstalled: (bin) => agentBinInstalled.get(bin) ?? true,
       refreshAgentBins: detectAndCacheBins,
+      // A failed plugin otherwise surfaces only as a log line and a hint in
+      // Settings → Plugins — invisible unless the user goes looking. Plugin
+      // source, deliberately: notification navigation maps it to the
+      // plugin's OWN settings page, where the failure reason renders — an
+      // `app` source is a hard-wired alias for the Updates section and
+      // would land the click on the wrong page. This call does not go
+      // through the plugin's notify port, so the plugin's mute setting
+      // doesn't silence its own failure report. Tagged so a Rescan retry
+      // replaces the banner instead of stacking it.
+      onPluginFailed: (manifest, reason) =>
+        notify({
+          title: `Plugin "${manifest.name}" failed to load`,
+          body: reason,
+          severity: "error",
+          source: { type: "plugin", pluginId: manifest.id },
+          tag: `plugin-failed:${manifest.id}`,
+        }),
     },
     pluginRegistries,
   );

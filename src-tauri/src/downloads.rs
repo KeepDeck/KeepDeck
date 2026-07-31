@@ -366,6 +366,25 @@ pub fn download_exists(
     integrity: Option<DownloadIntegrity>,
 ) -> Result<bool, String> {
     let path = target_path(target.path())?;
+    installed_at(&path, &target, integrity.as_ref())
+}
+
+/// Whether what sits at `path` is the artifact this request would install.
+///
+/// Asked by BOTH the surface that offers a download and the download itself,
+/// because the two must not disagree: when the UI reads an artifact as
+/// not-installed while the download refuses to replace it, the user is left
+/// with a dead end and no affordance that clears it (Delete renders only for
+/// an *installed* model).
+///
+/// Not cancellable on purpose: this answers "is this the artifact", and a
+/// cancellation must never read as "integrity failed" — that verdict deletes
+/// a file.
+fn installed_at(
+    path: &Path,
+    target: &DownloadTarget,
+    integrity: Option<&DownloadIntegrity>,
+) -> Result<bool, String> {
     match target {
         DownloadTarget::File { .. } => {
             if !path.is_file() {
@@ -374,10 +393,10 @@ pub fn download_exists(
             let Some(integrity) = integrity else {
                 return Ok(true);
             };
-            Ok(verify_integrity(&path, &integrity, &AtomicBool::new(false)).is_ok())
+            Ok(verify_integrity(path, integrity, &AtomicBool::new(false)).is_ok())
         }
         DownloadTarget::TarGz { expected_files, .. } => {
-            Ok(path.is_dir() && holds_expected(&path, &expected_files)?)
+            Ok(path.is_dir() && holds_expected(path, expected_files)?)
         }
     }
 }
@@ -440,15 +459,26 @@ fn run_download(
     allowed_domains: Option<&[String]>,
 ) -> Result<(), String> {
     if target.exists() {
-        return Err(format!(
-            "download target already exists: {}",
-            request.target.path()
-        ));
+        // Only a target that IS the requested artifact is a conflict. One that
+        // fails this request's integrity (or a tarGz dir missing its expected
+        // files) is the dead end instead: `download_exists` reports it
+        // not-installed, so the UI offers a download — and the Delete button
+        // that would clear it renders only for an installed artifact. Replace
+        // it rather than refusing forever — but do NOT clear it here: the
+        // stale artifact must survive until a verified replacement is staged
+        // (the promote below), or a failed or cancelled transfer costs the
+        // user the working artifact they had.
+        if installed_at(target, &request.target, request.integrity.as_ref())? {
+            return Err(format!(
+                "download target already exists: {}",
+                request.target.path()
+            ));
+        }
     }
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let part = sidecar_path(&target, ".part");
+    let part = sidecar_path(target, ".part");
     let part_metadata = sidecar_path(&part, ".meta");
     if fs::symlink_metadata(&part)
         .map(|metadata| metadata.file_type().is_symlink())
@@ -465,13 +495,9 @@ fn run_download(
         allowed_domains,
     )?;
 
-    if request.integrity.is_some() {
+    if let Some(integrity) = request.integrity.as_ref() {
         emit(channel, &request.id, "verifying", *progress, None);
-        if let Err(error) = verify_integrity(
-            &part,
-            request.integrity.as_ref().expect("checked"),
-            cancelled,
-        ) {
+        if let Err(error) = verify_integrity(&part, integrity, cancelled) {
             let _ = remove_partial(&part, &part_metadata);
             return Err(error);
         }
@@ -480,6 +506,13 @@ fn run_download(
 
     match &request.target {
         DownloadTarget::File { .. } => {
+            // rename(2) replaces a plain file atomically, so a stale artifact
+            // needs no clearing at all — only a type-changed target (a
+            // directory sitting where a file will land) does, and by now the
+            // verified replacement exists on disk.
+            if target.is_dir() {
+                remove_target_only(target)?;
+            }
             fs::rename(&part, target).map_err(|e| e.to_string())?;
         }
         DownloadTarget::TarGz {
@@ -645,7 +678,9 @@ fn transfer(
 }
 
 enum OpenResponse {
-    Response(ureq::Response),
+    /// Boxed: a live HTTP response dwarfs the other two arms, and every
+    /// caller of `open_response` would carry that size for a `Restart`.
+    Response(Box<ureq::Response>),
     /** A 416 whose advertised complete length equals the local partial. */
     Complete(u64),
     /** The remote object and local partial disagree; restart from byte zero. */
@@ -705,7 +740,7 @@ fn open_response(
             Err(error) => return Err(humanize_http(error)),
         };
         if !matches!(response.status(), 301 | 302 | 303 | 307 | 308) {
-            return Ok(OpenResponse::Response(response));
+            return Ok(OpenResponse::Response(Box::new(response)));
         }
         let location = response
             .header("Location")
@@ -962,11 +997,30 @@ fn unpack_tar_gz(
         return Err("archive does not contain the expected files".into());
     };
     check_cancelled(cancelled)?;
+    // The stale artifact this download replaces survives all the way to
+    // HERE: the verified replacement is fully staged, so the exposure is
+    // one clear + one rename instead of the whole transfer.
+    if target.exists() {
+        remove_target_only(target)?;
+    }
     fs::rename(&publish, target).map_err(|e| e.to_string())?;
     if publish != staging {
         let _ = fs::remove_dir_all(staging);
     }
     Ok(())
+}
+
+/// Remove exactly `path` — file or directory — leaving its sidecars alone.
+/// The promote-time clear must not touch `.part`: that IS the downloaded
+/// replacement it is clearing the way for.
+fn remove_target_only(path: &Path) -> Result<(), String> {
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|e| e.to_string())
+    } else if path.symlink_metadata().is_ok() {
+        fs::remove_file(path).map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    }
 }
 
 fn reject_symlinks(root: &Path) -> Result<(), String> {
@@ -1133,9 +1187,9 @@ fn remove_path(path: &Path) -> Result<(), String> {
         fs::remove_file(path).map_err(|e| e.to_string())?;
     }
     for sidecar in [
-        sidecar_path(&path, ".part"),
-        sidecar_path(&path, ".part.meta"),
-        sidecar_path(&path, ".unpack.part"),
+        sidecar_path(path, ".part"),
+        sidecar_path(path, ".part.meta"),
+        sidecar_path(path, ".unpack.part"),
     ] {
         if sidecar.is_dir() {
             let _ = fs::remove_dir_all(sidecar);
@@ -1226,6 +1280,206 @@ mod tests {
         assert!(safe_relative("../secret").is_err());
         assert!(safe_relative("/absolute").is_err());
         assert!(safe_relative("models/good.bin").is_ok());
+    }
+
+    #[test]
+    fn an_artifact_that_fails_the_requests_integrity_is_not_installed() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("model.bin");
+        fs::write(&path, b"corrupted").unwrap();
+        let target = DownloadTarget::File {
+            path: "model.bin".into(),
+        };
+        // The digest of the bytes the request expects — not the digest of the
+        // "corrupted" bytes actually on disk.
+        let integrity = DownloadIntegrity::Sha256 {
+            digest: format!("{:x}", Sha256::digest(b"good")),
+            bytes: None,
+        };
+
+        // Not installed — so the download must be free to replace it, and the
+        // UI's "already exists" refusal would be a dead end.
+        assert!(!installed_at(&path, &target, Some(&integrity)).unwrap());
+        // The same file with nothing to check against still counts as present.
+        assert!(installed_at(&path, &target, None).unwrap());
+    }
+
+    #[test]
+    fn a_corrupted_artifact_is_replaced_rather_than_refused_forever() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("model.bin");
+        fs::write(&target, b"corrupted").unwrap();
+
+        let (url, _captured) =
+            serve_once("HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ngood");
+        let mut request = request(url);
+        request.integrity = Some(DownloadIntegrity::Sha256 {
+            digest: format!("{:x}", Sha256::digest(b"good")),
+            bytes: None,
+        });
+
+        // Before: this refused with "already exists" while `download_exists`
+        // called the same file not-installed — and the Delete button that
+        // would have cleared it renders only for an installed artifact, so the
+        // user had no way out of the loop.
+        run_download(
+            &request,
+            &target,
+            &AtomicBool::new(false),
+            &Channel::new(|_| Ok(())),
+            &mut Progress {
+                received: 0,
+                total: None,
+            },
+            None,
+        )
+        .expect("a target failing this request's integrity is replaced");
+
+        assert_eq!(fs::read(&target).unwrap(), b"good");
+    }
+
+    #[test]
+    fn a_failed_replacement_leaves_the_existing_artifact_in_place() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("model.bin");
+        fs::write(&target, b"old-but-working").unwrap();
+
+        // The server refuses — the transfer fails after the conflict check
+        // decided this stale artifact may be replaced. What the user HAD must
+        // survive a replacement that never arrived.
+        let (url, _captured) = serve_once("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        let mut request = request(url);
+        request.integrity = Some(DownloadIntegrity::Sha256 {
+            digest: format!("{:x}", Sha256::digest(b"good")),
+            bytes: None,
+        });
+
+        run_download(
+            &request,
+            &target,
+            &AtomicBool::new(false),
+            &Channel::new(|_| Ok(())),
+            &mut Progress {
+                received: 0,
+                total: None,
+            },
+            None,
+        )
+        .expect_err("the transfer failed");
+
+        assert_eq!(fs::read(&target).unwrap(), b"old-but-working");
+    }
+
+    #[test]
+    fn a_cancel_during_the_precheck_never_costs_the_artifact() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("model.bin");
+        fs::write(&target, b"old-but-working").unwrap();
+
+        let mut request = request("http://127.0.0.1:1/never-reached".into());
+        request.integrity = Some(DownloadIntegrity::Sha256 {
+            digest: format!("{:x}", Sha256::digest(b"good")),
+            bytes: None,
+        });
+
+        // The integrity pre-check is deliberately not cancellable ("is this
+        // the artifact" must never read as "integrity failed"), so a cancel
+        // lands at the transfer's first gate. It must find the artifact
+        // untouched — the user cancelled a download, not their model.
+        let error = run_download(
+            &request,
+            &target,
+            &AtomicBool::new(true),
+            &Channel::new(|_| Ok(())),
+            &mut Progress {
+                received: 0,
+                total: None,
+            },
+            None,
+        )
+        .expect_err("the cancel surfaced");
+        assert_eq!(error, CANCELLED);
+        assert_eq!(fs::read(&target).unwrap(), b"old-but-working");
+    }
+
+    #[test]
+    fn a_type_changed_target_is_cleared_only_after_the_bytes_are_verified() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("model");
+        fs::create_dir_all(target.join("nested")).unwrap();
+        fs::write(target.join("nested/weights.onnx"), b"old dir artifact").unwrap();
+
+        // A catalog that re-publishes a dir artifact as a single file: the
+        // dir reads not-installed, and the promote — not the pre-check —
+        // clears it, so a failed transfer would have left it whole.
+        let (url, _captured) =
+            serve_once("HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ngood");
+        let mut request = request(url);
+        request.integrity = Some(DownloadIntegrity::Sha256 {
+            digest: format!("{:x}", Sha256::digest(b"good")),
+            bytes: None,
+        });
+
+        run_download(
+            &request,
+            &target,
+            &AtomicBool::new(false),
+            &Channel::new(|_| Ok(())),
+            &mut Progress {
+                received: 0,
+                total: None,
+            },
+            None,
+        )
+        .expect("the replacement landed");
+
+        assert_eq!(fs::read(&target).unwrap(), b"good");
+    }
+
+    #[test]
+    fn an_intact_artifact_is_still_refused_as_a_conflict() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("model.bin");
+        fs::write(&target, b"good").unwrap();
+
+        let mut request = request("http://127.0.0.1:1/never-reached".into());
+        request.integrity = Some(DownloadIntegrity::Sha256 {
+            digest: format!("{:x}", Sha256::digest(b"good")),
+            bytes: None,
+        });
+
+        let error = run_download(
+            &request,
+            &target,
+            &AtomicBool::new(false),
+            &Channel::new(|_| Ok(())),
+            &mut Progress {
+                received: 0,
+                total: None,
+            },
+            None,
+        )
+        .expect_err("an artifact that IS the requested one stays untouched");
+
+        assert!(error.contains("already exists"), "{error}");
+        assert_eq!(fs::read(&target).unwrap(), b"good");
+    }
+
+    #[test]
+    fn a_targz_dir_missing_an_expected_file_is_not_installed() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("parakeet");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("model.onnx"), b"weights").unwrap();
+        let target = DownloadTarget::TarGz {
+            path: "parakeet".into(),
+            expected_files: vec!["model.onnx".into(), "tokens.txt".into()],
+            strip_single_root: false,
+        };
+
+        assert!(!installed_at(&dir, &target, None).unwrap());
+        fs::write(dir.join("tokens.txt"), b"tokens").unwrap();
+        assert!(installed_at(&dir, &target, None).unwrap());
     }
 
     #[test]

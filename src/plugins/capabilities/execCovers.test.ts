@@ -22,8 +22,12 @@ describe("execCovers", () => {
     expect(execCovers([exec("git")], "curl")).toBe(false);
   });
 
-  it("the wildcard covers anything", () => {
-    expect(execCovers([exec("*")], "anything-at-all")).toBe(true);
+  it("has no wildcard — a literal \"*\" covers only a program called that", () => {
+    // `readManifest` rejects a bare "*", so this shape can no longer come
+    // from a manifest; honouring it here would re-open the hole by a second
+    // route.
+    expect(execCovers([exec("*")], "anything-at-all")).toBe(false);
+    expect(execCovers([exec("*")], "*")).toBe(true);
   });
 
   it("requires the literal \"$SHELL\" entry to cover a shell spawn", () => {

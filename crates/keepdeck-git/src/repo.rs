@@ -9,7 +9,7 @@ use crate::error::GitError;
 /// `git` can't be run — callers only care whether worktree isolation is
 /// available here, so the ambiguity collapses to a plain "no".
 pub fn is_git_repo(path: &Path) -> bool {
-    run_git(path, &["rev-parse", "--is-inside-work-tree"])
+    run_git(path, ["rev-parse", "--is-inside-work-tree"])
         .map(|out| out.trim() == "true")
         .unwrap_or(false)
 }
@@ -30,7 +30,7 @@ pub fn is_git_repo(path: &Path) -> bool {
 /// repo, or when `git` can't be run — same collapse-to-"no" contract as
 /// [`is_git_repo`].
 pub fn is_worktree_root(path: &Path) -> bool {
-    let Ok(out) = run_git(path, &["rev-parse", "--show-toplevel"]) else {
+    let Ok(out) = run_git(path, ["rev-parse", "--show-toplevel"]) else {
         return false;
     };
     match (Path::new(out.trim()).canonicalize(), path.canonicalize()) {
@@ -50,7 +50,7 @@ pub fn resolve_commit(repo: &Path, rev: &str) -> Result<String, GitError> {
     // revision, not an option — the same guard the `--` siblings carry.
     let out = run_git(
         repo,
-        &["rev-parse", "--verify", "--quiet", "--end-of-options", &spec],
+        ["rev-parse", "--verify", "--quiet", "--end-of-options", &spec],
     )?;
     Ok(out.trim().to_string())
 }
@@ -89,7 +89,7 @@ pub fn local_branch_ref(repo: &Path, rev: &str) -> Result<Option<String>, GitErr
 /// no `origin` remote declares one (no remote, unfetched HEAD, or a remote under
 /// another name) — callers fall back to the current branch.
 pub fn default_branch(repo: &Path) -> Result<Option<String>, GitError> {
-    match run_git(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
+    match run_git(repo, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
         Ok(out) => Ok(out.trim().strip_prefix("origin/").map(str::to_string)),
         // Non-zero = the symbolic ref isn't set; that's an answer, not an error.
         Err(GitError::Command { .. }) => Ok(None),
@@ -141,7 +141,7 @@ pub fn branch_created_at(repo: &Path, branch: &str) -> Result<Option<String>, Gi
 
 /// The current branch name, or `None` when `HEAD` is detached.
 pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
-    let out = run_git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let out = run_git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])?;
     let name = out.trim();
     Ok(if name == "HEAD" {
         None
@@ -161,7 +161,7 @@ pub fn current_branch(repo: &Path) -> Result<Option<String>, GitError> {
 pub fn list_branches(repo: &Path) -> Result<Vec<String>, GitError> {
     let out = run_git(
         repo,
-        &["for-each-ref", "refs/heads", "--format=%(refname:short)"],
+        ["for-each-ref", "refs/heads", "--format=%(refname:short)"],
     )?;
     Ok(out
         .lines()
@@ -173,7 +173,7 @@ pub fn list_branches(repo: &Path) -> Result<Vec<String>, GitError> {
 /// Whether a local branch named `name` already exists in `repo`.
 pub fn branch_exists(repo: &Path, name: &str) -> Result<bool, GitError> {
     let reference = format!("refs/heads/{name}");
-    match run_git(repo, &["show-ref", "--verify", "--quiet", &reference]) {
+    match run_git(repo, ["show-ref", "--verify", "--quiet", &reference]) {
         Ok(_) => Ok(true),
         // `--quiet` exits non-zero (no output) when the ref is absent.
         Err(GitError::Command { .. }) => Ok(false),

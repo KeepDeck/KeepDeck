@@ -458,3 +458,114 @@ describe("file-open handlers over the RPC seam", () => {
     dispatch.dispose();
   });
 });
+
+describe("sessions over the RPC seam", () => {
+  it("a PTY landing after dispose is closed, not stored", async () => {
+    const close = vi.fn(async () => {});
+    let releaseSpawn!: () => void;
+    const spawn = vi.fn(
+      () =>
+        new Promise<{ id: string; write: () => void; resize: () => void; close: typeof close }>(
+          (resolve) => {
+            releaseSpawn = () =>
+              resolve({ id: "s-1", write: vi.fn(), resize: vi.fn(), close });
+          },
+        ),
+    );
+    const ctx = {
+      services: { sessions: { spawn } },
+    } as unknown as PluginContext;
+    const dispatch = createHostDispatch(ctx, () => {});
+
+    const starting = dispatch.call("services.sessions.spawn", [{ command: "x" }]);
+    // The realm dies while the PTY is spawning: the sweep already ran over a
+    // map the handle isn't in yet. Storing it would orphan a live process
+    // group — the exact leak the speech guard closed one handler over.
+    dispatch.dispose();
+    releaseSpawn();
+    await expect(starting).rejects.toThrow("disposed");
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("speech captures over the RPC seam", () => {
+  function speechHarness() {
+    const cancel = vi.fn(async () => {});
+    const stop = vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 }));
+    let releaseStart!: () => void;
+    const startCapture = vi.fn(
+      () =>
+        new Promise<{ stop: typeof stop; cancel: typeof cancel }>((resolve) => {
+          releaseStart = () => resolve({ stop, cancel });
+        }),
+    );
+    const ctx = {
+      services: { speech: { startCapture } },
+    } as unknown as PluginContext;
+    const dispatch = createHostDispatch(ctx, () => {});
+    return { dispatch, cancel, stop, releaseStart: () => releaseStart() };
+  }
+
+  it("a capture landing after dispose is cancelled, not stored", async () => {
+    const h = speechHarness();
+    const starting = h.dispatch.call("services.speech.start", [1]);
+    // The realm dies while the device is opening: the dispose sweep runs over
+    // a map this capture isn't in yet. The app holds ONE capture slot
+    // process-wide, so storing it here would park a live microphone where
+    // nothing can ever cancel it.
+    h.dispatch.dispose();
+    h.releaseStart();
+    await expect(starting).rejects.toThrow("disposed");
+    expect(h.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("a throwing registration disposer cannot strand the rest of the sweep", async () => {
+    const cancel = vi.fn(async () => {});
+    const goodDispose = vi.fn();
+    const warns: string[] = [];
+    const ctx = {
+      log: { warn: (m: string) => warns.push(m), info: vi.fn(), error: vi.fn() },
+      services: {
+        speech: {
+          startCapture: vi.fn(async () => ({
+            stop: vi.fn(),
+            cancel,
+          })),
+        },
+      },
+      settings: {
+        registerSection: vi
+          .fn()
+          .mockReturnValueOnce({
+            dispose: () => {
+              throw new Error("broken brace");
+            },
+          })
+          .mockReturnValueOnce({ dispose: goodDispose }),
+      },
+    } as unknown as PluginContext;
+    const dispatch = createHostDispatch(ctx, () => {});
+
+    await dispatch.call("services.speech.start", [1]);
+    await dispatch.call("settings.registerSection", [1, { label: "a", fields: [] }]);
+    await dispatch.call("settings.registerSection", [2, { label: "b", fields: [] }]);
+
+    // The first registration's disposer throws. The sweep must reach the
+    // second one anyway — and the mic, the scarcest resource here, is
+    // cancelled before any third-party brace gets a chance to throw.
+    dispatch.dispose();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(goodDispose).toHaveBeenCalledTimes(1);
+    expect(warns.some((w) => w.includes("broken brace"))).toBe(true);
+  });
+
+  it("a capture landing before dispose is stored, and dispose cancels it", async () => {
+    const h = speechHarness();
+    const starting = h.dispatch.call("services.speech.start", [1]);
+    h.releaseStart();
+    await starting;
+    expect(h.cancel).not.toHaveBeenCalled();
+    h.dispatch.dispose();
+    expect(h.cancel).toHaveBeenCalledTimes(1);
+  });
+});

@@ -15,6 +15,7 @@ import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { usePaneSessionState } from "../../app/usePaneSessionState";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { noAutoCorrect } from "../../ui/inputProps";
+import { useInlineRename } from "../../ui/useInlineRename";
 import {
   ChevronDownIcon,
   MaximizeIcon,
@@ -263,13 +264,8 @@ export function AgentPane({
     setRestarting(false);
     setRestartFailed(false);
   }, [idle]);
-  // Inline rename of the header title ([F11]).
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const commitRename = () => {
-    onRename(draft.trim());
-    setEditing(false);
-  };
+  // Inline rename of the header title ([F11]); empty commit = back to auto.
+  const rename = useInlineRename((_key, name) => onRename(name));
   // The context meter belongs on a LIVE pane only — a frozen, undimmed ctx% on
   // an exited / idle / unavailable / provisioning pane would read as live
   // (its last usage report lingers in the store until the pane leaves the deck).
@@ -315,29 +311,20 @@ export function AgentPane({
           <span className="pane__agent" title={agentLabel}>
             <AgentGlyph icon={agentIcon} />
           </span>
-          {editing ? (
+          {rename.editing !== null ? (
             <input
               {...noAutoCorrect}
+              {...rename.inputProps}
               className="pane__rename"
-              value={draft}
               autoFocus
               aria-label="Rename agent"
               onMouseDown={(e) => e.stopPropagation()}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commitRename}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitRename();
-                else if (e.key === "Escape") setEditing(false);
-              }}
             />
           ) : (
             <span
               className="pane__title"
               title="Double-click to rename"
-              onDoubleClick={() => {
-                setDraft(title);
-                setEditing(true);
-              }}
+              onDoubleClick={() => rename.start(paneId, title)}
             >
               {title}
             </span>

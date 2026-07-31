@@ -24,29 +24,54 @@ export interface DiffHunk {
   lines: DiffLine[];
 }
 
+/** A non-textual change from the diff preamble — kind-tagged like every
+ * other model here (`DiffLineKind`, `ChangeKind`), so the view can style,
+ * link or word each kind without re-parsing prose out of a string. */
+export type DiffNote =
+  | { kind: "mode"; from: string; to: string }
+  | { kind: "rename"; from: string; to: string }
+  | { kind: "copy"; from: string; to: string };
+
 export interface FileDiff {
   hunks: DiffHunk[];
   /** Git printed "Binary files … differ" instead of hunks. */
   binary: boolean;
+  /** Non-textual changes from the preamble (a mode flip, a rename, a copy).
+   * A pure one has REAL changes and zero hunks — without these the peek
+   * called such a file empty while the list right beside it said Modified. */
+  notes: DiffNote[];
+}
+
+/** A binary file's "diff": nothing to parse, nothing textual to show. The
+ * one place this shape is stated — a view assembling it by hand had to be
+ * edited when the model grew a field. */
+export function binaryFileDiff(): FileDiff {
+  return { binary: true, hunks: [], notes: [] };
 }
 
 /** Whether a parsed diff has nothing to show. */
 export function isEmptyDiff(diff: FileDiff): boolean {
-  return !diff.binary && diff.hunks.length === 0;
+  return !diff.binary && diff.hunks.length === 0 && diff.notes.length === 0;
 }
 
 /** Parse `git diff` output. Preamble lines (`diff --git`, `index`, `---`,
- * `+++`, rename/mode notes) are dropped — the peek's own header names the
- * file; `\ No newline at end of file` stays, as a dim meta line. */
+ * `+++`) are dropped — the peek's own header names the file — except the
+ * mode/rename pairs, which surface as `notes`; `\ No newline at end of
+ * file` stays, as a dim meta line. */
 export function parseDiff(raw: string): FileDiff {
   const lines = raw.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
 
   const hunks: DiffHunk[] = [];
+  const notes: DiffNote[] = [];
   let binary = false;
   let current: DiffHunk | null = null;
   let oldNo = 0;
   let newNo = 0;
+  // Each pair's first half, held until its second half completes the note.
+  let oldMode: string | null = null;
+  let renameFrom: string | null = null;
+  let copyFrom: string | null = null;
 
   for (const line of lines) {
     if (line.startsWith("@@")) {
@@ -60,6 +85,24 @@ export function parseDiff(raw: string): FileDiff {
     if (!current) {
       if (line.startsWith("Binary files ") && line.endsWith(" differ")) {
         binary = true;
+      } else if (line.startsWith("old mode ")) {
+        oldMode = line.slice("old mode ".length);
+      } else if (line.startsWith("new mode ") && oldMode !== null) {
+        notes.push({ kind: "mode", from: oldMode, to: line.slice("new mode ".length) });
+        oldMode = null;
+      } else if (line.startsWith("rename from ")) {
+        renameFrom = line.slice("rename from ".length);
+      } else if (line.startsWith("rename to ") && renameFrom !== null) {
+        notes.push({ kind: "rename", from: renameFrom, to: line.slice("rename to ".length) });
+        renameFrom = null;
+      } else if (line.startsWith("copy from ")) {
+        // A user's `diff.renames = copies` git config detects copies in
+        // EVERY diff — a pure copy is a real change with zero hunks, the
+        // same class the rename pair covers.
+        copyFrom = line.slice("copy from ".length);
+      } else if (line.startsWith("copy to ") && copyFrom !== null) {
+        notes.push({ kind: "copy", from: copyFrom, to: line.slice("copy to ".length) });
+        copyFrom = null;
       }
       continue;
     }
@@ -88,7 +131,7 @@ export function parseDiff(raw: string): FileDiff {
       });
     }
   }
-  return { hunks, binary };
+  return { hunks, binary, notes };
 }
 
 /** Every hunk's lines flattened in render order — the text the syntax
@@ -122,6 +165,7 @@ export function newFileDiff(text: string): FileDiff {
   if (lines[lines.length - 1] === "") lines.pop();
   return {
     binary: false,
+    notes: [],
     hunks: [
       {
         header: "",

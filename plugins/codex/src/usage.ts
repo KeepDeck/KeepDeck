@@ -1,4 +1,6 @@
 import {
+  allowanceWindow,
+  asCount,
   asFiniteNumber,
   asNonEmptyString,
   clampPercent,
@@ -63,6 +65,49 @@ function appServerSnapshot(response: Record<string, unknown>): unknown {
   return Object.values(response.rateLimitsByLimitId).find(isJsonRecord) ?? null;
 }
 
+/**
+ * The plan's absolute credit allowance, for accounts whose quota lives
+ * nowhere else. `primary`/`secondary` are the rolling 5h/weekly windows
+ * only Plus/Pro plans get; a business/Enterprise account reports both as
+ * null and carries a monthly allowance in `individualLimit` instead —
+ * `{limit:"16000", used:"5532.9…", remainingPercent:65, resetsAt:<secs>}`,
+ * measured live. Reading only the two positions left that whole class of
+ * accounts on "waiting for the first report" forever: this poll is their
+ * SOLE source (the on-disk rollout events carry nulls too), so nothing
+ * downstream could ever recover.
+ *
+ * The counts (shared math, strings and all) beat the integer-rounded
+ * `remainingPercent`, which stays as the fallback for a shape carrying
+ * only the percentage. `windowMinutes` stays null — nothing in the payload
+ * states the duration, and inventing "month" would be the same
+ * position-guessing this fixes; the domain labels a duration-less window
+ * "plan". No scope, deliberately: this is the account's only limit, and a
+ * scope would hide it from the chip.
+ *
+ * `credits` (prepaid balance) is left unread: no such account has been
+ * observed, and a balance without a limit makes no percentage.
+ */
+function planAllowanceWindow(value: unknown): UsageWindow | null {
+  if (!isJsonRecord(value)) return null;
+  // A limit that is PRESENT but zero (or negative) is an account with no
+  // usable quota — kimi's sibling reads the same shape as null, and a
+  // percentage of nothing is not a reading. Only a limit that is genuinely
+  // ABSENT may fall through to the percentage the provider computed itself.
+  const limit = asCount(value.limit);
+  if (limit !== undefined && limit <= 0) return null;
+  const resetsSeconds = asCount(value.resetsAt);
+  const resetsAt = resetsSeconds !== undefined ? resetsSeconds * 1000 : null;
+  const window = allowanceWindow(value, { resetsAt, windowMinutes: null });
+  if (window) return window;
+  const remainingPct = asCount(value.remainingPercent);
+  if (remainingPct === undefined) return null;
+  return {
+    usedPct: clampPercent(100 - remainingPct),
+    resetsAt,
+    windowMinutes: null,
+  };
+}
+
 /** Official `account/rateLimits/read` response → the same account domain
  * shape rollout events already produce. The app-server schema is generated
  * per installed Codex version, so malformed/unsupported shapes are a quiet
@@ -80,7 +125,14 @@ export const normalizeCodexRateLimits: LimitsNormalizer = (body, at) => {
   const windows = [snapshot.primary, snapshot.secondary]
     .map(appServerWindow)
     .filter((candidate): candidate is UsageWindow => candidate !== null);
-  if (windows.length === 0) return null;
+  if (windows.length === 0) {
+    // Rolling windows absent — the plan-allowance account. Only reached
+    // when both positions yield nothing, so an allowance can never crowd a
+    // Plus/Pro chip (the duration-less window would sort last there).
+    const plan = planAllowanceWindow(snapshot.individualLimit);
+    if (!plan) return null;
+    return { kind: "reported", windows: [plan], reportedAt: at, sourcePaneId: "" };
+  }
   return {
     kind: "reported",
     windows,

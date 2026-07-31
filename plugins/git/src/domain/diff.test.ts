@@ -70,6 +70,42 @@ describe("parseDiff", () => {
     expect(diff.hunks).toHaveLength(0);
     expect(isEmptyDiff(diff)).toBe(true);
   });
+
+  it("a pure mode change is a note, not an empty diff", () => {
+    // Real change, zero hunks — calling it empty contradicted the list's own
+    // Modified badge one click away.
+    const diff = parseDiff(
+      "diff --git a/run.sh b/run.sh\nold mode 100644\nnew mode 100755\n",
+    );
+    expect(diff.notes).toEqual([{ kind: "mode", from: "100644", to: "100755" }]);
+    expect(isEmptyDiff(diff)).toBe(false);
+  });
+
+  it("a pure rename is a note, not an empty diff", () => {
+    const diff = parseDiff(
+      "diff --git a/old.ts b/new.ts\nsimilarity index 100%\nrename from old.ts\nrename to new.ts\n",
+    );
+    expect(diff.notes).toEqual([{ kind: "rename", from: "old.ts", to: "new.ts" }]);
+    expect(isEmptyDiff(diff)).toBe(false);
+  });
+
+  it("a pure copy is a note, not an empty diff", () => {
+    // `diff.renames = copies` in a user's git config turns copy detection on
+    // for every diff — the same real-change-zero-hunks class as a rename.
+    const diff = parseDiff(
+      "diff --git a/base.ts b/derived.ts\nsimilarity index 100%\ncopy from base.ts\ncopy to derived.ts\n",
+    );
+    expect(diff.notes).toEqual([{ kind: "copy", from: "base.ts", to: "derived.ts" }]);
+    expect(isEmptyDiff(diff)).toBe(false);
+  });
+
+  it("mode notes ride alongside content hunks without disturbing them", () => {
+    const diff = parseDiff(
+      "old mode 100644\nnew mode 100755\n@@ -1 +1 @@\n-a\n+b\n",
+    );
+    expect(diff.notes).toEqual([{ kind: "mode", from: "100644", to: "100755" }]);
+    expect(diff.hunks).toHaveLength(1);
+  });
 });
 
 describe("flatLines / hunkOffsets", () => {

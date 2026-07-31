@@ -30,7 +30,7 @@ pub enum Head {
 /// itself (one shell-out at watch-registration time), so exotic layouts
 /// (`--separate-git-dir`, nested worktrees) resolve correctly too.
 pub fn git_dir(worktree: &Path) -> Result<PathBuf, GitError> {
-    let out = run_git(worktree, &["rev-parse", "--absolute-git-dir"])?;
+    let out = run_git(worktree, ["rev-parse", "--absolute-git-dir"])?;
     Ok(PathBuf::from(out.trim()))
 }
 
@@ -42,7 +42,7 @@ pub fn git_dir(worktree: &Path) -> Result<PathBuf, GitError> {
 pub fn git_common_dir(worktree: &Path) -> Result<PathBuf, GitError> {
     let out = run_git(
         worktree,
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
     )?;
     Ok(PathBuf::from(out.trim()))
 }

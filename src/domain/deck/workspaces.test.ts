@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
 import {
   addAgentPane,
+  autoWorkspaceName,
   closeAgent,
   closeWorkspace,
   findWorkspace,
@@ -79,6 +80,20 @@ describe("closeWorkspace", () => {
 });
 
 describe("renameWorkspace", () => {
+  it("autoWorkspaceName: one derivation for birth and reset, id fallback outside the scheme", () => {
+    expect(autoWorkspaceName("ws-3")).toBe("workspace-3");
+    // A hand-edited or migrated deck can hold an id outside `ws-N` — the id
+    // itself is the least-wrong name that still identifies the row.
+    expect(autoWorkspaceName("imported-deck")).toBe("imported-deck");
+  });
+
+  it("an empty name reverts to the auto name from the workspace's slot", () => {
+    // The reset-on-empty contract renamePane already has — a workspace has no
+    // render-time fallback, so the revert happens in the domain op itself.
+    const after = renameWorkspace([ws("ws-3", [1])], "ws-3", "   ");
+    expect(after[0].name).toBe("workspace-3");
+  });
+
   it("renames the target workspace only", () => {
     const after = renameWorkspace([ws("a", [1]), ws("b", [2])], "a", "my-api");
     expect(after[0].name).toBe("my-api");
@@ -209,14 +224,20 @@ describe("worktreeTargets", () => {
     expect(worktreeTargets(plain, "b-p1")).toEqual([]);
   });
 
-  it("uses runtime current branch for owned worktrees, without targeting detached heads", () => {
+  it("uses runtime current branch for owned worktrees; a detached head offers the dir alone", () => {
     const heads = new Map([
       ["/wt/kd-a-1", { branch: "feature/x" }],
       ["/wt/kd-a-2", { head: "a".repeat(40) }],
     ]);
 
+    // The detached pane's target carries NO branch — not even the pane's
+    // durable one, which the observed bare commit has superseded. Deleting a
+    // branch would be ambiguous there; skipping the whole target (as this
+    // once did) stranded the directory with the delete checkbox gone, against
+    // the WorktreeTarget contract.
     expect(worktreeTargets(wtWs, undefined, heads)).toEqual([
       { repo: "/repo", path: "/wt/kd-a-1", branch: "feature/x" },
+      { repo: "/repo", path: "/wt/kd-a-2", branch: undefined },
     ]);
   });
 

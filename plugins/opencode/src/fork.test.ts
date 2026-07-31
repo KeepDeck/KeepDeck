@@ -34,7 +34,11 @@ interface Behavior {
 
 interface Fx {
   ctx: PluginContext;
+  /** The LATEST content per path — what a later reader would find on disk. */
   writes: Map<string, string>;
+  /** Every write in order: the scratch is written twice (content, then the
+   * clearing), and the difference is the point. */
+  writeLog: { path: string; text: string }[];
   spawns: { args: string[]; cwd?: string }[];
   warns: string[];
   notifies: { title: string; severity?: string; tag?: string }[];
@@ -44,6 +48,7 @@ interface Fx {
 function fixture(opts?: { targetMissing?: boolean; behavior?: Behavior }): Fx {
   const b = opts?.behavior ?? {};
   const writes = new Map<string, string>();
+  const writeLog: { path: string; text: string }[] = [];
   const spawns: { args: string[]; cwd?: string }[] = [];
   const warns: string[] = [];
   const notifies: { title: string; severity?: string; tag?: string }[] = [];
@@ -59,7 +64,12 @@ function fixture(opts?: { targetMissing?: boolean; behavior?: Behavior }): Fx {
           return [];
         },
       },
-      fsWrite: { writeFile: async (p: string, t: string) => void writes.set(p, t) },
+      fsWrite: {
+        writeFile: async (p: string, t: string) => {
+          writeLog.push({ path: p, text: t });
+          writes.set(p, t);
+        },
+      },
       sessions: {
         spawn: async (o: { args: string[]; cwd?: string }, onEvent: (e: SpawnEvent) => void) => {
           spawns.push({ args: o.args, cwd: o.cwd });
@@ -89,7 +99,7 @@ function fixture(opts?: { targetMissing?: boolean; behavior?: Behavior }): Fx {
       },
     },
   } as unknown as PluginContext;
-  return { ctx, writes, spawns, warns, notifies, get closes() { return state.closes; } };
+  return { ctx, writes, writeLog, spawns, warns, notifies, get closes() { return state.closes; } };
 }
 
 const forkInput = (cwd: string): ForkPlanInput => ({
@@ -107,7 +117,7 @@ describe("opencodeForkPlan", () => {
     expect(newId).not.toBe(SRC);
 
     expect(fx.writes.size).toBe(1);
-    const [path, text] = [...fx.writes.entries()][0];
+    const { path, text } = fx.writeLog[0];
     // Bounded name (per pane), not an unbounded uuid pile.
     expect(path).toBe("/tmp/keepdeck-opencode/fork-pane-7.json");
     const clone = JSON.parse(text) as OpencodeExport;
@@ -125,6 +135,24 @@ describe("opencodeForkPlan", () => {
     expect(exportSpawn?.cwd).toBe("/new/target"); // export uses the target cwd too
     expect(importSpawn?.cwd).toBe("/new/target"); // this is what relocates the session
     expect(importSpawn?.args[1]).toBe("/tmp/keepdeck-opencode/fork-pane-7.json");
+  });
+
+  it("does not leave the conversation in the scratch file — success or failure", async () => {
+    const scratch = "/tmp/keepdeck-opencode/fork-pane-7.json";
+
+    const ok = fixture();
+    await opencodeForkPlan(ok.ctx, forkInput("/new/target"));
+    // The import read the real export…
+    expect(ok.writeLog[0].text).toContain("msg_");
+    // …and nothing of it is left behind afterwards. /tmp outlives the fork and
+    // is only reaped by the OS.
+    expect(ok.writes.get(scratch)).toBe("{}");
+
+    const failed = fixture({ behavior: { importCode: 1 } });
+    await expect(opencodeForkPlan(failed.ctx, forkInput("/new/target"))).rejects.toThrow(
+      "import failed",
+    );
+    expect(failed.writes.get(scratch)).toBe("{}");
   });
 
   it("import with a null exit code: id echo decides (succeeds with it, fails without)", async () => {
@@ -169,6 +197,29 @@ describe("opencodeForkPlan", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await expect(p).rejects.toThrow("timed out");
       expect(fx.closes).toBe(1); // the orphaned PTY was killed, not leaked
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an import timeout kills the process, then clears the scratch — in that order", async () => {
+    // The fixture declared importHang from day one and no test ever set it:
+    // the one path where the finally-clear could race a still-reading child
+    // had zero coverage.
+    vi.useFakeTimers();
+    try {
+      const fx = fixture({ behavior: { importHang: true } });
+      const p = opencodeForkPlan(fx.ctx, forkInput("/t"));
+      p.catch(() => {});
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(p).rejects.toThrow("import timed out");
+      // The kill settled before the rejection — so before the caller's
+      // finally overwrote the file the child may have been reading. (Not a
+      // strict closes===1: fake-timer advancement can fire the export's
+      // 60s timer before its exit microtask drains — a schedule real timers
+      // cannot produce; the settled guard plus .catch make it a no-op kill.)
+      expect(fx.closes).toBeGreaterThanOrEqual(1);
+      expect(fx.writes.get("/tmp/keepdeck-opencode/fork-pane-7.json")).toBe("{}");
     } finally {
       vi.useRealTimers();
     }

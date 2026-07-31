@@ -210,33 +210,107 @@ describe("usePagedSessionSearch", () => {
     expect(api.rows).toHaveLength(70);
   });
 
-  it("a rejected page zero leaves the loaded rows intact and freezes paging until a fresh page lands", async () => {
+  it("a rejected page zero settles its generation: rows cleared, error surfaced, paging alive", async () => {
     await mount();
     act(() => api.refresh());
     await act(async () => resolvers[0]({ rows: mkRows(0, 50), total: 200 }));
     expect(api.rows).toHaveLength(50);
 
-    // A new query whose page zero REJECTS: the old rows must NOT be corrupted,
-    // and loadMore must NOT splice the new query's page onto them — advancing
-    // loadedSeqRef on the reject would do exactly that, so paging stays frozen.
+    // A new query whose page zero REJECTS. The failure must SETTLE the
+    // generation like a success would — leaving it unsettled kept the OLD
+    // query's rows on screen under the new query's label, and the
+    // loadedSeq !== searchSeq guard then refused loadMore forever.
     fetchPage.mockImplementationOnce(() => Promise.reject(new Error("boom")));
     act(() => api.search("x"));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150); // the page-zero fetch rejects
     });
-    expect(api.rows).toHaveLength(50); // untouched — no foreign rows spliced
+    // Not the previous query's answer mislabelled — an honest empty + error.
+    expect(api.rows).toHaveLength(0);
+    expect(api.error).toContain("boom");
+    // No splice is possible either: the settled generation holds zero rows,
+    // so loadMore has nothing beyond total to fetch.
     const afterReject = fetchPage.mock.calls.length;
     act(() => api.loadMore());
-    expect(fetchPage.mock.calls.length).toBe(afterReject); // frozen, no fetch
+    expect(fetchPage.mock.calls.length).toBe(afterReject);
 
-    // A later successful page zero recovers paging cleanly.
+    // A later successful page zero clears the error and restores paging —
+    // no wedged state survives.
     act(() => api.search("x"));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
     });
     await act(async () => resolvers[1]({ rows: mkRows(0, 50), total: 200 }));
+    expect(api.error).toBeNull();
     act(() => api.loadMore());
     expect(fetchPage).toHaveBeenLastCalledWith("x", NEXT_PAGE, 50);
+  });
+
+  it("a failed background refresh keeps the walked span", async () => {
+    await mount();
+    act(() => api.refresh());
+    await act(async () => resolvers[0]({ rows: mkRows(0, 50), total: 200 }));
+    act(() => api.loadMore());
+    await act(async () => resolvers[1]({ rows: mkRows(50, 20), total: 200 }));
+    expect(api.rows).toHaveLength(70);
+
+    // A scan-driven refresh rejects. The 70 rows on screen are a real,
+    // correctly-labelled answer — a transient hiccup must not collapse them
+    // (the next refresh would then widen by rows.length = 0 and re-fetch
+    // only page one).
+    fetchPage.mockImplementationOnce(() => Promise.reject(new Error("hiccup")));
+    act(() => api.refresh());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api.rows).toHaveLength(70);
+    expect(api.error).toBeNull();
+
+    // And the failed generation is settled — paging is alive, not wedged.
+    act(() => api.loadMore());
+    expect(fetchPage).toHaveBeenLastCalledWith("", NEXT_PAGE, 70);
+  });
+
+  it("a retype clears the previous failure immediately, not after the debounce", async () => {
+    await mount();
+    fetchPage.mockImplementationOnce(() => Promise.reject(new Error("boom")));
+    act(() => api.search("a"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    expect(api.error).toContain("boom");
+
+    // The user typed a NEW query: the old failure is not its verdict. It
+    // must vanish now — for the whole debounce window otherwise, the screen
+    // pairs the new query with the old error.
+    act(() => api.search("ab"));
+    expect(api.error).toBeNull();
+  });
+
+  it("a rejection landing after the query moved on cannot clobber the newer answer", async () => {
+    await mount();
+    // Query "a"'s page zero hangs, rejectable by hand; query "b" supersedes
+    // it and lands.
+    let rejectA!: (e: Error) => void;
+    fetchPage.mockImplementationOnce(
+      () => new Promise<Page<Row>>((_, reject) => (rejectA = reject)),
+    );
+    act(() => api.search("a"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    act(() => api.search("b"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    await act(async () => resolvers[0]({ rows: mkRows(0, 5), total: 5 }));
+    expect(api.rows).toHaveLength(5);
+
+    // The stale rejection arrives — it belongs to a superseded generation
+    // and must neither clear "b"'s rows nor raise its error.
+    await act(async () => rejectA(new Error("stale boom")));
+    expect(api.rows).toHaveLength(5);
+    expect(api.error).toBeNull();
   });
 
   it("a search that lands empty clears rows and total", async () => {

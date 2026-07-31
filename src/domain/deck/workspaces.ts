@@ -157,9 +157,12 @@ export interface WorktreeTarget {
   repo: string;
   /** The worktree directory to remove. */
   path: string;
-  /** The branch to delete once the worktree is gone, when the pane still tracks
-   * one. Absent for a detached-HEAD worktree — the dir is still removed, the
-   * (now-unknown) branch is left intact rather than skipping the whole target. */
+  /** The branch to delete BY NAME once the worktree is gone, when the pane
+   * still tracks one. Absent for a detached-HEAD worktree — the dir is still
+   * removed, and no branch is named here. Naming is not the whole story:
+   * the delete flow also reaps branches BORN in the worktree (the user's
+   * checkbox says "and its branches"), so absence means "nothing to name",
+   * never "no branch will be touched". */
   branch?: string;
 }
 
@@ -177,13 +180,17 @@ export interface GitPosition {
  * (the main repo) has no worktree of its own, and a non-worktree workspace owns
  * nothing — an empty result is the signal that there's nothing to offer deleting.
  *
- * The branch to delete depends on what's known about the worktree's HEAD:
- * - runtime HEAD observed on a branch → target that currently checked-out branch;
- * - runtime HEAD observed but DETACHED → not a delete target (you're on a bare
- *   commit, not a branch — deleting is ambiguous, so leave it alone);
- * - HEAD not observed → fall back to the pane's durable owned branch, and still
- *   offer the worktree dir even when that's absent (a detached worktree whose
- *   branch is unknown here) so its directory isn't stranded on disk undeletable.
+ * The directory is ALWAYS offered; only the NAMED branch varies with what's
+ * known about the worktree's HEAD:
+ * - runtime HEAD observed on a branch → that currently checked-out branch;
+ * - runtime HEAD observed but DETACHED → none named (naming one would be
+ *   ambiguous on a bare commit — the dir is not: skipping it, as this once
+ *   did, stranded the directory on disk with the delete checkbox gone);
+ * - HEAD not observed → the pane's durable owned branch, when it has one.
+ *
+ * Naming is only the explicit half: the delete flow additionally reaps
+ * branches born in the worktree (`reapCreatedBranches`) — see
+ * [`WorktreeTarget.branch`].
  */
 export function worktreeTargets(
   ws: Workspace,
@@ -194,12 +201,9 @@ export function worktreeTargets(
   return panes.flatMap((p) => {
     if (!p.cwd) return [];
     const observed = gitPositions?.get(p.cwd);
-    if (observed) {
-      return observed.branch
-        ? [{ repo: ws.cwd, path: p.cwd, branch: observed.branch }]
-        : [];
-    }
-    return [{ repo: ws.cwd, path: p.cwd, branch: p.branch }];
+    return [
+      { repo: ws.cwd, path: p.cwd, branch: observed ? observed.branch : p.branch },
+    ];
   });
 }
 
@@ -234,13 +238,31 @@ export function setWorkspacePluginSlot(
   });
 }
 
-/** Rename one workspace, leaving the rest untouched. */
+/** The name a workspace is born with when the user leaves the field blank —
+ * and the one an empty rename resets to. ONE derivation for both moments:
+ * creation and reset used to derive it separately (sequence template vs an
+ * id regex), agreeing only because the two templates happened to share a
+ * number. An id outside the `ws-N` scheme (a hand-edited or migrated deck)
+ * falls back to the id itself — the least-wrong name that still identifies
+ * the row. */
+export function autoWorkspaceName(id: string): string {
+  const slot = /^ws-(\d+)$/.exec(id);
+  return slot ? `workspace-${slot[1]}` : id;
+}
+
+/** Rename one workspace, leaving the rest untouched. An empty name reverts
+ * to [`autoWorkspaceName`] — the same reset-on-empty contract `renamePane`
+ * has, so the two inline-rename surfaces behave alike ([F11]). A workspace
+ * has no render-time fallback the way a pane does, so the revert happens
+ * here. */
 export function renameWorkspace(
   workspaces: Workspace[],
   id: string,
   name: string,
 ): Workspace[] {
-  return workspaces.map((ws) => (ws.id === id ? { ...ws, name } : ws));
+  return workspaces.map((ws) =>
+    ws.id === id ? { ...ws, name: name.trim() || autoWorkspaceName(ws.id) } : ws,
+  );
 }
 
 /** Set a pane's manual display name; an empty name clears it, reverting to the

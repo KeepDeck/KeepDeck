@@ -54,10 +54,30 @@ export function installPttHotkeys(
     void controller.stop();
   };
 
+  // A hold ends on keyup — but Cmd-Tab, Spotlight and the screen lock eat
+  // the keyup, leaving `heldChord` set and the microphone recording in the
+  // background. Losing the window mid-hold CANCELS (the dragManager rule for
+  // this class of loss): the utterance is truncated at an arbitrary point,
+  // and transcribing half a command could execute something the user never
+  // said. A toggle session (`heldChord` null) is deliberately untouched —
+  // it was started by a click, not a key the window just lost.
+  const onWindowLost = (): void => {
+    if (!heldChord) return;
+    heldChord = null;
+    void controller.cancel();
+  };
+  const onVisibilityChange = (): void => {
+    if (document.visibilityState === "hidden") onWindowLost();
+  };
+
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("keyup", onKeyUp, true);
+  window.addEventListener("blur", onWindowLost);
+  document.addEventListener("visibilitychange", onVisibilityChange);
   return () => {
     window.removeEventListener("keydown", onKeyDown, true);
     window.removeEventListener("keyup", onKeyUp, true);
+    window.removeEventListener("blur", onWindowLost);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
   };
 }

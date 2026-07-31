@@ -268,6 +268,43 @@ describe("PluginHost", () => {
     }
   });
 
+  it("reports every landing on failed through onPluginFailed", async () => {
+    const { deps } = fakeDeps();
+    const onPluginFailed = vi.fn();
+    const host = new PluginHost(
+      { ...deps, onPluginFailed },
+      createContributionRegistries(),
+    );
+
+    // Route 1: refused before any code runs (API floor too new).
+    host.install(
+      { manifest: manifest("floor", { minApiVersion: 99 }), load: async () => registrar() },
+      "external",
+    );
+    await host.activate("floor");
+
+    // Route 2: the plugin's own activate throws.
+    host.install(
+      {
+        manifest: manifest("thrower"),
+        load: async () => ({
+          activate: () => {
+            throw new Error("activate blew up");
+          },
+        }),
+      },
+      "builtin",
+    );
+    await host.activate("thrower");
+
+    // A log line and a settings hint are where a failure hides; this hook is
+    // how the owner shows it. Both routes go through the one fail() path.
+    expect(onPluginFailed).toHaveBeenCalledTimes(2);
+    expect(onPluginFailed.mock.calls[0][0].id).toBe("floor");
+    expect(onPluginFailed.mock.calls[1][0].id).toBe("thrower");
+    expect(onPluginFailed.mock.calls[1][1]).toBe("activate blew up");
+  });
+
   it("never activates a disabled plugin", async () => {
     const { deps, isEnabled } = fakeDeps();
     isEnabled.mockReturnValue(false);

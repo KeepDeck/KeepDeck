@@ -70,6 +70,22 @@ describe("claude history", () => {
     ]);
   });
 
+  it("an unreadable project dir fails the list — a partial answer prunes the index", async () => {
+    // The store EXISTS; one project dir doesn't read. Degrading it to []
+    // made the listing look like those sessions were deleted, and the index
+    // prune deletes what the listing omits. A throw reaches the scanner's
+    // per-agent catch instead: logged, nothing pruned.
+    const history = claudeHistory(
+      ctx({}, {
+        "~/.claude/projects": [
+          { name: "-repo-wt", path: "/h/p/-repo-wt", kind: "dir" },
+        ],
+        // "/h/p/-repo-wt" deliberately absent → readDir throws.
+      }),
+    );
+    await expect(history.list()).rejects.toThrow();
+  });
+
   it("describe pulls cwd from the lines and titles by the first REAL user turn — skill/tag preambles don't name a conversation", async () => {
     const history = claudeHistory(ctx({ "/f.jsonl": LINES }, {}));
     expect(await history.describe("/f.jsonl")).toEqual({

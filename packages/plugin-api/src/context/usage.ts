@@ -162,6 +162,56 @@ export function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
+/** A count as quota documents actually spell one — a number, or a numeric
+ * STRING. Two providers send strings ("used":"7", "limit":"16000"): kimi's
+ * usages endpoint and codex's `individualLimit`. `asFiniteNumber` rejects
+ * those, which is exactly how codex's plan quota went unread. */
+export function asCount(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * An absolute allowance — `{limit, used?, remaining?}` counts — as one
+ * normalized window. The shape plans that meter credits share (kimi's
+ * quota document, codex's business/Enterprise `individualLimit`), distinct
+ * from the rolling-window shape that already arrives as a percentage.
+ * `null` without a positive limit or any consumed/remaining count — a
+ * percentage cannot be made from less. The reset instant and window length
+ * stay the caller's: providers disagree on where and in what unit they live.
+ */
+export function allowanceWindow(
+  value: unknown,
+  opts: {
+    resetsAt?: number | null;
+    windowMinutes: number | null;
+    scope?: string;
+  },
+): UsageWindow | null {
+  if (!isJsonRecord(value)) return null;
+  const limit = asCount(value.limit);
+  if (limit === undefined || limit <= 0) return null;
+  const used = asCount(value.used);
+  const remaining = asCount(value.remaining);
+  const usedPct =
+    used !== undefined
+      ? (used / limit) * 100
+      : remaining !== undefined
+        ? ((limit - remaining) / limit) * 100
+        : undefined;
+  if (usedPct === undefined) return null;
+  return {
+    usedPct: clampPercent(usedPct),
+    resetsAt: opts.resetsAt ?? null,
+    windowMinutes: opts.windowMinutes,
+    ...(opts.scope ? { scope: opts.scope } : {}),
+  };
+}
+
 /** Collect present token fields; undefined when none are — an empty counts
  * object would read as "reported zero of everything". */
 export function collectTokenCounts(

@@ -3,12 +3,15 @@ import type { Capability } from "@keepdeck/plugin-api";
 /**
  * Whether a declared `exec` capability covers `subject` — the program a
  * session is about to spawn (or the literal `"$SHELL"`, see `gate.ts`, for
- * the user's shell). An entry covers `subject` three ways: an exact string
- * match, a basename match (declaring `"git"` covers a spawn of
+ * the user's shell). An entry covers `subject` two ways: an exact string
+ * match, or a basename match (declaring `"git"` covers a spawn of
  * `/usr/bin/git` — a manifest author shouldn't have to guess the host's
- * install path), or the `"*"` wildcard, which covers anything by design
- * (reserved for built-ins by convention; this function does not special-case
- * or restrict it — that judgment lives at consent time, not here).
+ * install path).
+ *
+ * There is no wildcard. `readManifest` rejects a bare `"*"` outright, so an
+ * entry meaning "any program" cannot reach this function from a manifest —
+ * and honouring one here anyway would only re-open the hole by a second
+ * route.
  *
  * Exported standalone (not folded into the gate) because the consent UI
  * needs the exact same rule to preview, at install time, what a capability
@@ -20,7 +23,7 @@ export function execCovers(capabilities: Capability[], subject: string): boolean
     (capability) =>
       capability.kind === "exec" &&
       capability.commands.some(
-        (command) => command === "*" || command === subject || command === base,
+        (command) => command === subject || command === base,
       ),
   );
 }

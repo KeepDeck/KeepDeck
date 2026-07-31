@@ -242,7 +242,7 @@ mod tests {
     fn finds_an_executable_on_the_path() {
         let resolved = resolve_program("sh", OsStr::new("/usr/bin:/bin"));
         assert!(
-            resolved == OsString::from("/bin/sh") || resolved == OsString::from("/usr/bin/sh"),
+            resolved == OsStr::new("/bin/sh") || resolved == OsStr::new("/usr/bin/sh"),
             "expected an absolute /bin/sh-ish path, got {resolved:?}",
         );
     }

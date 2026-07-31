@@ -63,6 +63,7 @@ const browser = {
   hasMore: false,
   loadingMore: false,
   query: "",
+  error: null,
   scanning: false,
   search: vi.fn(),
   loadMore: vi.fn(),

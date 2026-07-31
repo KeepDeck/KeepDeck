@@ -32,6 +32,9 @@ export interface PagedSearch<T> {
   loadingMore: boolean;
   /** The query the rows answer. */
   query: string;
+  /** Page zero failed for the current query — `rows` is empty, not stale.
+   * Cleared by the next landing (a retype, a refresh, a scan refresh). */
+  error: string | null;
   /** Run the debounced search; resets paging to page zero. */
   search(query: string): void;
   /** Append the next page for the current query. */
@@ -65,6 +68,7 @@ export function usePagedSessionSearch<T>(
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const queryRef = useRef("");
   const rowsRef = useRef<T[]>([]);
@@ -105,11 +109,29 @@ export function usePagedSessionSearch<T>(
         .then((page) => {
           if (searchSeq.current !== seq) return;
           loadedSeqRef.current = seq;
+          setError(null);
           apply(page.rows, page.total);
         })
-        .catch((e) =>
-          log.warn("web:history", `search failed: ${describeError(e)}`),
-        );
+        .catch((e) => {
+          log.warn("web:history", `search failed: ${describeError(e)}`);
+          if (searchSeq.current !== seq) return;
+          // The failure SETTLES this generation — the same landing a success
+          // performs. Leaving it unsettled kept the previous query's rows on
+          // screen under the new query's label, and `loadMore`'s generation
+          // guard (loaded !== requested) then refused forever: dead paging
+          // as a side effect of the guard working as designed.
+          loadedSeqRef.current = seq;
+          // What the failure MEANS depends on what it was refreshing.
+          // `atLeast > 0` is a background refresh of a span the user already
+          // walked: the rows on screen are a real, correctly-labelled answer
+          // — one transient IPC hiccup must not collapse 300 scrolled rows
+          // to zero (and the next refresh would then re-fetch only page
+          // one). A failed page zero of a NEW search has no honest rows to
+          // keep: clear them and say why.
+          if (atLeast > 0 && rowsRef.current.length > 0) return;
+          setError(describeError(e));
+          apply([], 0);
+        });
     },
     [apply],
   );
@@ -118,6 +140,10 @@ export function usePagedSessionSearch<T>(
     (q: string) => {
       queryRef.current = q;
       setQuery(q);
+      // A retype starts a new question — the previous failure stops being
+      // the answer NOW, not when the debounced fetch lands, or the old
+      // error reads as the new query's verdict for a debounce window.
+      setError(null);
       // Advance the generation NOW, not when the debounced fetch fires: it
       // marks the loaded rows stale immediately, so a `loadMore` fired during
       // the debounce window can't splice the new query's (or new agent's) page
@@ -179,6 +205,7 @@ export function usePagedSessionSearch<T>(
     hasMore: rows.length < total,
     loadingMore,
     query,
+    error,
     search,
     loadMore,
     refresh,

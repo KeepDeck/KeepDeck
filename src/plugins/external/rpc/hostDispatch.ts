@@ -188,6 +188,12 @@ export function createHostDispatch(
     });
   }
 
+  // Flipped by dispose(). Guards the speech capture — an async acquisition
+  // whose resource can land AFTER the sweep already ran. Sessions have the
+  // same shape and carry their own guard (`hostSessions.spawn`); any NEW
+  // handler that awaits a resource into existence and then stores it needs
+  // one too.
+  let disposed = false;
   // Registrations retained by the guest-minted id that will later dispose them.
   const registrations = new Map<number, Disposable>();
   // Directory watches, retained by the guest-minted id that will unwatch them.
@@ -569,6 +575,15 @@ export function createHostDispatch(
       const capture = await ctx.services.speech.startCapture((level) =>
         push(speechLevelChannel(key), level),
       );
+      // The realm may have been disposed while the device was opening — its
+      // sweep already ran over a map this capture wasn't in yet. Storing it
+      // now would park a live microphone where nothing can ever cancel it
+      // (the built-in controller guards this same race; the RPC tier must
+      // too, since the app holds ONE capture slot process-wide).
+      if (disposed) {
+        void capture.cancel().catch(() => {});
+        throw new Error("plugin bridge disposed");
+      }
       activeSpeechCaptures.set(key, capture);
     },
     "services.speech.stop": ([id, opts]) => {
@@ -612,6 +627,15 @@ export function createHostDispatch(
       return await handler(args);
     },
     dispose() {
+      disposed = true;
+      // The microphone first: the app holds ONE capture slot process-wide,
+      // and it was swept LAST — behind four unguarded loops, any of whose
+      // disposers could throw and strand exactly the resource this sweep
+      // most needs to release.
+      for (const capture of activeSpeechCaptures.values()) {
+        void capture.cancel().catch(() => {});
+      }
+      activeSpeechCaptures.clear();
       for (const settle of pendingHooks.values()) {
         settle({ ok: false, error: "plugin bridge disposed" });
       }
@@ -624,20 +648,29 @@ export function createHostDispatch(
         settle({ ok: false, error: "plugin bridge disposed" });
       }
       pendingOpens.clear();
-      subscriptions.disposeAll();
-      sessions.disposeAll();
-      for (const disposable of registrations.values()) disposable.dispose();
+      // Third-party braces from here down. One bad disposer must not abort
+      // the sweep — the same per-item tolerance context.disposeAll applies.
+      const swept = (label: string, run: () => void) => {
+        try {
+          run();
+        } catch (error) {
+          ctx.log.warn(`realm teardown: ${label} failed: ${String(error)}`);
+        }
+      };
+      swept("subscriptions", () => subscriptions.disposeAll());
+      swept("sessions", () => sessions.disposeAll());
+      for (const disposable of registrations.values()) {
+        swept("registration", () => disposable.dispose());
+      }
       registrations.clear();
-      for (const watcher of watches.values()) watcher.dispose();
+      for (const watcher of watches.values()) {
+        swept("watch", () => watcher.dispose());
+      }
       watches.clear();
       for (const id of activeDownloads) {
         void ctx.services.downloads.cancel(id).catch(() => {});
       }
       activeDownloads.clear();
-      for (const capture of activeSpeechCaptures.values()) {
-        void capture.cancel().catch(() => {});
-      }
-      activeSpeechCaptures.clear();
     },
   };
 }

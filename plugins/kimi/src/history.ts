@@ -99,9 +99,16 @@ export function kimiHistory(ctx: PluginContext): AgentHistory {
       }
       for (const wd of wdDirs) {
         if (wd.kind !== "dir" || !wd.name.startsWith("wd_")) continue;
-        const sessions = await ctx.services.fs.readDir(wd.path).catch(() => []);
+        // No catch: the store exists, so an unreadable working-dir folder is
+        // a failure — a partial listing reads as "those sessions were
+        // deleted" and the index prune acts on it. The scanner's per-agent
+        // catch logs it and prunes nothing.
+        const sessions = await ctx.services.fs.readDir(wd.path);
         for (const session of sessions) {
           if (session.kind !== "dir" || !session.name.startsWith("session_")) continue;
+          // This catch STAYS: a session dir without agents/main is a normal
+          // shape (created, never spawned), and the fs service reports
+          // absent and unreadable with one message — nothing to tell apart.
           const main = await ctx.services.fs
             .readDir(`${session.path}/agents/main`)
             .catch(() => []);

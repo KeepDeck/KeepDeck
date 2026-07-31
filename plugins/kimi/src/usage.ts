@@ -1,7 +1,8 @@
 import {
+  allowanceWindow,
+  asCount,
   asFiniteNumber,
   asNonEmptyString,
-  clampPercent,
   collectTokenCounts,
   isJsonRecord,
   type LimitsNormalizer,
@@ -99,43 +100,23 @@ export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
   };
 };
 
-/** Quota numbers in the usages document are JSON STRINGS ("used":"7") —
- * read both spellings of a count. */
-function asCount(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value !== "") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-  return undefined;
-}
-
-/** One window from {limit, used?, remaining?, resetTime?} counts. */
+/** One window from {limit, used?, remaining?, resetTime?} counts. The
+ * count-math lives in plugin-api's [`allowanceWindow`] (codex's plan quota
+ * shares the shape, strings and all); kimi's part is only where its reset
+ * instant lives — an ISO string on the same record. */
 function quotaWindow(
   value: unknown,
   windowMinutes: number | null,
   scope?: string,
 ): UsageWindow | null {
   if (!isJsonRecord(value)) return null;
-  const limit = asCount(value.limit);
-  if (limit === undefined || limit <= 0) return null;
-  const used = asCount(value.used);
-  const remaining = asCount(value.remaining);
-  const usedPct =
-    used !== undefined
-      ? (used / limit) * 100
-      : remaining !== undefined
-        ? ((limit - remaining) / limit) * 100
-        : undefined;
-  if (usedPct === undefined) return null;
   const resetsAt =
     typeof value.resetTime === "string" ? Date.parse(value.resetTime) : NaN;
-  return {
-    usedPct: clampPercent(usedPct),
+  return allowanceWindow(value, {
     resetsAt: Number.isFinite(resetsAt) ? resetsAt : null,
     windowMinutes,
     ...(scope ? { scope } : {}),
-  };
+  });
 }
 
 function windowMinutesOf(window: unknown): number | null {

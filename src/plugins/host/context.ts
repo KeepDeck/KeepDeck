@@ -68,6 +68,31 @@ export function buildPluginContext(
     }
   }
 
+  /**
+   * `ctx.services` passes through as the gate built it, with one exception:
+   * the two `watch` calls hand back a Disposable that owns an OS watcher, and
+   * every other Disposable this context produces is tracked. A built-in that
+   * watches directly would otherwise keep its watcher — and the callback
+   * behind it — alive past `deactivate`, with nothing left holding the handle.
+   * (The external tier comes through here too — `hostDispatch` stores these
+   * TRACKED braces in its own watches map, so a realm's watches end up
+   * covered twice, idempotently: both routes funnel through the same
+   * `disposers.delete` gate, like every other external registration.)
+   */
+  function withTrackedWatches(services: PluginContext["services"]): PluginContext["services"] {
+    return {
+      ...services,
+      fs: {
+        ...services.fs,
+        watch: (path, onChange) => track(services.fs.watch(path, onChange)),
+      },
+      git: {
+        ...services.git,
+        watch: (repo, onChange) => track(services.git.watch(repo, onChange)),
+      },
+    };
+  }
+
   // Registration is bounded by the manifest: only DECLARED contributions may
   // register (the same fail-closed idiom the capability gate applies to
   // services). A mismatch throws — activation catches it, the plugin lands
@@ -170,6 +195,19 @@ export function buildPluginContext(
             `agent "${agent.id}": detect.bin "${agent.detect.bin}" does not match the manifest's declared bin "${declaredBin}"`,
           );
         }
+        // Agent ids are a global namespace: pickers list by id and spawn
+        // resolution is `find(id === …)`, so a second registration would
+        // silently ride the first-activated one's identity. A wiring bug in
+        // whichever plugin came second — refuse it there, like every check
+        // above; activation lands that plugin `failed` with this reason.
+        const taken = registries.agents
+          .list()
+          .find((c) => c.entry.id === agent.id);
+        if (taken) {
+          throw new Error(
+            `agent "${agent.id}": already registered by plugin "${taken.pluginId}"`,
+          );
+        }
         return track(registries.agents.add(pluginId, agent));
       },
     },
@@ -180,7 +218,7 @@ export function buildPluginContext(
       onPaneSelected: (cb) => track(deps.events.onPaneSelected(cb)),
       onDeckChanged: (cb) => track(deps.events.onDeckChanged(cb)),
     },
-    services: deps.services(manifest, source),
+    services: withTrackedWatches(deps.services(manifest, source)),
     host: deps.hostFacts,
     log,
     notify: deps.notifications(manifest, source),

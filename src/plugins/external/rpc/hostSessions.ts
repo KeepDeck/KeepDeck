@@ -31,6 +31,11 @@ export function createHostSessions(
   push: (channel: string, payload: unknown) => void,
 ): HostSessions {
   const handles = new Map<string, PluginSessionHandle>();
+  // Flipped by disposeAll. `spawn` awaits a real PTY into existence — a realm
+  // disposed during that await has already swept a map the handle isn't in
+  // yet, and storing it then would orphan a live process group with nothing
+  // left holding a reference.
+  let disposed = false;
 
   function handleOf(id: string): PluginSessionHandle {
     const handle = handles.get(id);
@@ -59,6 +64,17 @@ export function createHostSessions(
         else push(sessionChannel(sessionId), toWire(event));
       };
       const handle = await ctx.services.sessions.spawn(opts, onEvent);
+      // The realm died while the PTY was spawning: the sweep has already
+      // run. Close what just came alive instead of parking it where nothing
+      // can ever reach it — the same guard the speech capture has.
+      if (disposed) {
+        try {
+          void handle.close();
+        } catch {
+          /* the session is already unreachable — nothing to salvage */
+        }
+        throw new Error("plugin bridge disposed");
+      }
       sessionId = handle.id;
       handles.set(sessionId, handle);
       for (const event of buffer) push(sessionChannel(sessionId), toWire(event));
@@ -76,6 +92,7 @@ export function createHostSessions(
       return handle.close();
     },
     disposeAll() {
+      disposed = true;
       for (const handle of handles.values()) {
         // The realm is gone; the process group must not outlive it. A close that
         // throws is swallowed — there is nothing left to report it to.

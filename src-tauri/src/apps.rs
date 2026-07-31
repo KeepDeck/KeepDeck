@@ -42,7 +42,7 @@ fn collect_apps(roots: &[PathBuf]) -> Vec<String> {
             }
         }
     }
-    names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    names.sort_by_key(|name| name.to_lowercase());
     names.dedup();
     names
 }

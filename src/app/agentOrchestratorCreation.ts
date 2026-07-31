@@ -1,4 +1,5 @@
 import {
+  autoWorkspaceName,
   findPane,
   findWorkspace,
   findWorkspaceByRef,
@@ -102,9 +103,12 @@ export function createAgentOrchestratorCreation({
   const createWorkspace: AgentOrchestrator["createWorkspace"] = (config) => {
     const setup = config.setup?.trim() || undefined;
     const created = actions.createWorkspaceFromSequence((sequence): Workspace => {
-      const name = config.name.trim() || `workspace-${sequence}`;
+      const id = `ws-${sequence}`;
+      // The same derivation an empty rename resets to — one home, so the
+      // birth name and the reset name cannot drift apart.
+      const name = config.name.trim() || autoWorkspaceName(id);
       return {
-        id: `ws-${sequence}`,
+        id,
         instance: createWorkspaceInstance(),
         name,
         cwd: config.cwd,

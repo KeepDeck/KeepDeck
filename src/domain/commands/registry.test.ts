@@ -107,7 +107,7 @@ describe("createCommandRegistry", () => {
     reg.register(spawnSpec());
     await reg.execute("agent.spawn", { workspace: "web" }, HOST);
     await reg.execute("nope.nope", {}, { kind: "plugin", pluginId: "voice" });
-    await reg.execute("agent.spawn", {}, { kind: "external", client: "mcp" });
+    await reg.execute("agent.spawn", {}, { kind: "plugin", pluginId: "mcp" });
 
     const entries = reg.journal();
     expect(entries.map((e) => [e.seq, e.at, e.outcome])).toEqual([
@@ -138,5 +138,42 @@ describe("createCommandRegistry", () => {
     await reg.execute("agent.spawn", { workspace: "web" }, HOST);
     expect(seen).toHaveLength(1);
     expect(seen[0].commandId).toBe("agent.spawn");
+  });
+
+  it("a throwing listener cannot flip a succeeded command's outcome", async () => {
+    const reported: unknown[] = [];
+    const reg = createCommandRegistry({
+      onListenerError: (error) => reported.push(error),
+    });
+    reg.register(spawnSpec());
+    const seen: JournalEntry[] = [];
+    reg.onDidExecute(() => {
+      throw new Error("broken subscriber");
+    });
+    reg.onDidExecute((e) => seen.push(e));
+
+    // The command's side effects already happened by the time listeners run —
+    // an {ok:false} here would invite the caller to re-run a done (possibly
+    // destructive) action.
+    const result = await reg.execute("agent.spawn", { workspace: "web" }, HOST);
+    expect(result.ok).toBe(true);
+    // One journal entry, outcome "ok" — not a second "error" re-record.
+    expect(reg.journal().map((e) => e.outcome)).toEqual(["ok"]);
+    // The broken listener doesn't starve the one after it, and is reported.
+    expect(seen).toHaveLength(1);
+    expect(reported).toHaveLength(1);
+  });
+
+  it("a throwing listener cannot turn a refusal into a rejection", async () => {
+    const reg = createCommandRegistry();
+    reg.onDidExecute(() => {
+      throw new Error("broken subscriber");
+    });
+
+    // Refusal paths record outside execute's try — unguarded, the throw would
+    // escape and break the documented "returns a result" contract that RPC
+    // callers rely on.
+    const result = await reg.execute("nope.nope", {}, HOST);
+    expect(result).toMatchObject({ ok: false, error: { code: "unknown-command" } });
   });
 });

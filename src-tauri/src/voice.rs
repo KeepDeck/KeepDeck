@@ -100,6 +100,30 @@ pub struct VoiceState {
     reaper: Arc<AtomicBool>,
 }
 
+/// How a taken capture slot is reported — one wording for the fast-path check
+/// and the claim, so the two can never drift apart.
+const CAPTURE_BUSY: &str = "a capture is already running";
+
+impl VoiceState {
+    /// Whether a capture holds the slot right now.
+    fn is_capturing(&self) -> bool {
+        self.capture.lock().expect("poisoned").is_some()
+    }
+
+    /// Claim the single capture slot. A taken slot hands the capture BACK
+    /// instead of dropping it: it owns a live recorder holding the
+    /// microphone, and the caller that built it is the only one that can
+    /// still tear it down.
+    fn claim(&self, capture: ActiveCapture) -> Result<(), ActiveCapture> {
+        let mut slot = self.capture.lock().expect("poisoned");
+        if slot.is_some() {
+            return Err(capture);
+        }
+        *slot = Some(capture);
+        Ok(())
+    }
+}
+
 /// Start the idle reaper once: every 30s it drops the cached engine if it has
 /// gone `ENGINE_IDLE_TIMEOUT` unused, freeing the model's memory.
 fn ensure_reaper(state: &VoiceState) {
@@ -148,12 +172,14 @@ pub async fn voice_capture_start(
         );
     }
 
-    let mut slot = state.capture.lock().expect("poisoned");
     if capture_id.trim().is_empty() {
         return Err("capture id must not be empty".into());
     }
-    if slot.is_some() {
-        return Err("a capture is already running".into());
+    // The fast path only: a start that is obviously doomed fails before it
+    // opens a device. The slot is not RESERVED here — `claim` below is the
+    // authority, because the lock is deliberately not held across the wait.
+    if state.is_capturing() {
+        return Err(CAPTURE_BUSY.into());
     }
 
     let (cmd_tx, cmd_rx) = channel::<CaptureCmd>();
@@ -202,15 +228,25 @@ pub async fn voice_capture_start(
         }
     });
 
+    // Opening the device takes as long as CoreAudio takes. This wait runs
+    // under NO lock: holding the capture slot across it would park a tokio
+    // worker and serialize every other capture operation behind a wait that
+    // has nothing to do with them.
     ready_rx
         .recv()
         .map_err(|_| "capture thread died".to_string())??;
-    *slot = Some(ActiveCapture {
+    if let Err(orphan) = state.claim(ActiveCapture {
         id: capture_id,
         plugin_id,
         cmd_tx,
         out_rx,
-    });
+    }) {
+        // Another start claimed the slot while this one was opening its
+        // device. Discard OUR recorder — an unclaimed capture still holds the
+        // microphone, and nothing else knows about it to release it later.
+        let _ = orphan.cmd_tx.send(CaptureCmd::Cancel);
+        return Err(CAPTURE_BUSY.into());
+    }
     Ok(())
 }
 
@@ -411,6 +447,53 @@ fn take_capture(state: &VoiceState, capture_id: &str) -> Result<ActiveCapture, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A capture plus the command receiver its recorder thread would hold, so
+    /// a send on the capture proves the recorder is still reachable.
+    fn capture(id: &str) -> (ActiveCapture, Receiver<CaptureCmd>) {
+        let (cmd_tx, cmd_rx) = channel();
+        let (_out_tx, out_rx) = channel();
+        (
+            ActiveCapture {
+                id: id.into(),
+                plugin_id: "plugin-a".into(),
+                cmd_tx,
+                out_rx,
+            },
+            cmd_rx,
+        )
+    }
+
+    #[test]
+    fn a_losing_claim_hands_its_capture_back_so_the_device_can_be_released() {
+        let state = VoiceState::default();
+        let (first, _first_cmds) = capture("capture-a");
+        let (second, second_cmds) = capture("capture-b");
+
+        assert!(!state.is_capturing());
+        assert!(state.claim(first).is_ok(), "the slot was free");
+        assert!(state.is_capturing());
+
+        // The slot was taken while this capture's device was opening. It must
+        // come back to its builder — dropping it here would strand a live
+        // recorder on the microphone with nothing left to cancel it.
+        let orphan = match state.claim(second) {
+            Ok(()) => panic!("the slot was already taken"),
+            Err(orphan) => orphan,
+        };
+        assert_eq!(orphan.id, "capture-b");
+        orphan
+            .cmd_tx
+            .send(CaptureCmd::Cancel)
+            .expect("the returned capture can still be torn down");
+        assert!(matches!(second_cmds.recv(), Ok(CaptureCmd::Cancel)));
+
+        // The winner keeps the slot.
+        assert_eq!(
+            state.capture.lock().unwrap().as_ref().unwrap().id,
+            "capture-a"
+        );
+    }
 
     #[test]
     fn capture_handle_cannot_take_another_capture() {
