@@ -458,3 +458,45 @@ describe("file-open handlers over the RPC seam", () => {
     dispatch.dispose();
   });
 });
+
+describe("speech captures over the RPC seam", () => {
+  function speechHarness() {
+    const cancel = vi.fn(async () => {});
+    const stop = vi.fn(async () => ({ text: "", silence: true, seconds: 0, level: 0 }));
+    let releaseStart!: () => void;
+    const startCapture = vi.fn(
+      () =>
+        new Promise<{ stop: typeof stop; cancel: typeof cancel }>((resolve) => {
+          releaseStart = () => resolve({ stop, cancel });
+        }),
+    );
+    const ctx = {
+      services: { speech: { startCapture } },
+    } as unknown as PluginContext;
+    const dispatch = createHostDispatch(ctx, () => {});
+    return { dispatch, cancel, stop, releaseStart: () => releaseStart() };
+  }
+
+  it("a capture landing after dispose is cancelled, not stored", async () => {
+    const h = speechHarness();
+    const starting = h.dispatch.call("services.speech.start", [1]);
+    // The realm dies while the device is opening: the dispose sweep runs over
+    // a map this capture isn't in yet. The app holds ONE capture slot
+    // process-wide, so storing it here would park a live microphone where
+    // nothing can ever cancel it.
+    h.dispatch.dispose();
+    h.releaseStart();
+    await expect(starting).rejects.toThrow("disposed");
+    expect(h.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("a capture landing before dispose is stored, and dispose cancels it", async () => {
+    const h = speechHarness();
+    const starting = h.dispatch.call("services.speech.start", [1]);
+    h.releaseStart();
+    await starting;
+    expect(h.cancel).not.toHaveBeenCalled();
+    h.dispatch.dispose();
+    expect(h.cancel).toHaveBeenCalledTimes(1);
+  });
+});
