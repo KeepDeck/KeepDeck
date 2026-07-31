@@ -228,8 +228,24 @@ describe("readManifest", () => {
       [{ kind: "fs", scope: "disk" }, '"workspace" or "everywhere"'],
       [{ kind: "fsWrite", paths: [] }, "non-empty"],
       [{ kind: "fsWrite" }, "non-empty"],
+      // A root of "/" (or the whole home) clears the write containment for
+      // every absolute target — and each agent's on-disk config can define
+      // hook commands, so unbounded write is execution without `exec`.
+      // Consent showed it as "write inside /": honest and useless.
+      [{ kind: "fsWrite", paths: ["/"] }, 'bare "/"'],
+      [{ kind: "fsWrite", paths: ["~/"] }, 'bare "/"'],
+      [{ kind: "fsWrite", paths: ["~"] }, 'bare "/"'],
+      // The trivial spellings canonicalize to the same roots — a literal
+      // comparison would wave them through.
+      [{ kind: "fsWrite", paths: ["//"] }, 'bare "/"'],
+      [{ kind: "fsWrite", paths: ["~//"] }, 'bare "/"'],
+      // One bad root poisons the list — narrowing to the good entries would
+      // silently grant less than declared (and consented).
+      [{ kind: "fsWrite", paths: ["~/.claude/projects", "/"] }, 'bare "/"'],
       [{ kind: "sqliteReadonly", paths: [] }, "non-empty"],
       [{ kind: "sqliteReadonly" }, "non-empty"],
+      [{ kind: "sqliteReadonly", paths: ["/"] }, 'bare "/"'],
+      [{ kind: "sqliteReadonly", paths: ["~/"] }, 'bare "/"'],
       [{ kind: "git", scope: "disk" }, '"workspace" or "everywhere"'],
       [{ kind: "git" }, '"workspace" or "everywhere"'],
       [{ kind: "net", domains: ["*.evil.com"] }, "bare hostnames"],

@@ -150,6 +150,14 @@ function safeRelativePath(value: string): boolean {
  * registry key. No dots/slashes/whitespace. */
 const CONTRIB_ID = /^[a-zA-Z0-9_-]+$/;
 
+/** A declared path that is nothing but the filesystem root or the whole
+ * home: "/", "~", "~/" — and their trivial spellings ("//", "~//"), which
+ * canonicalize to the same roots and would slip a literal comparison. Such
+ * a root bounds nothing: the containment proof passes for every target
+ * under it. Deeper prefixes ("/Users", "/private") are a policy question
+ * (which stores are legitimate?), deliberately not decided here. */
+const UNBOUNDED_PATH = /^~?\/*$/;
+
 /** A `commands` execute pattern: a full dotted registry id, or a namespace
  * with a trailing `.*`. Mirrors the registry's own id grammar (lowercase
  * first character per segment, hyphens allowed) so a declared pattern can
@@ -280,11 +288,26 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
       case "fsWrite":
         if (!isStringArray(cap.paths) || cap.paths.length === 0)
           errors.push(`${at}: fsWrite needs a non-empty "paths" string array`);
+        // The same rule `exec` and `commands` already enforce, for the most
+        // dangerous capability of the three: a root of "/" (or the whole
+        // home) clears the containment proof for EVERY absolute target, and
+        // consent renders it as "write inside /" — honest and useless,
+        // nothing named for the user to weigh. Every supported agent reads
+        // an on-disk config that can define hook commands, so unbounded
+        // write is arbitrary execution without declaring `exec`.
+        else if (cap.paths.some((path) => UNBOUNDED_PATH.test(path)))
+          errors.push(
+            `${at}: fsWrite paths must name a directory (a bare "/" or "~/" is not allowed)`,
+          );
         else out.push({ kind: "fsWrite", paths: cap.paths });
         break;
       case "sqliteReadonly":
         if (!isStringArray(cap.paths) || cap.paths.length === 0)
           errors.push(`${at}: sqliteReadonly needs a non-empty "paths" string array`);
+        else if (cap.paths.some((path) => UNBOUNDED_PATH.test(path)))
+          errors.push(
+            `${at}: sqliteReadonly paths must name a store location (a bare "/" or "~/" is not allowed)`,
+          );
         else out.push({ kind: "sqliteReadonly", paths: cap.paths });
         break;
       case "git":
