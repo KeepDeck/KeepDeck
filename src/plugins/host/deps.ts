@@ -92,6 +92,13 @@ export interface PluginHostDeps {
    * persist it. The core keeps no store of its own. */
   onEnabledChanged?(pluginId: string, enabled: boolean): void;
   /**
+   * A plugin just landed `failed` (the host's single path to that status).
+   * The owner surfaces it to the USER — a log line and a settings hint are
+   * where a failure hides, not where it is seen. Optional like the other
+   * owner-side hooks: the host works without an owner listening.
+   */
+  onPluginFailed?(manifest: PluginManifest, reason: string): void;
+  /**
    * Whether an agent plugin's statically-declared binary is installed on this
    * machine — the single availability read behind the activation gate. Sync
    * (it serves a cache the owner keeps warm); an absent dep or an unknown bin

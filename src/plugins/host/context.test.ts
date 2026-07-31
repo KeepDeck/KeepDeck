@@ -265,6 +265,40 @@ describe("buildPluginContext", () => {
     ).toThrow('agents "codex"');
   });
 
+  it("refuses an agent id another plugin already registered", () => {
+    const registries = createContributionRegistries();
+    const { deps } = fakeDeps();
+    const cliManifest = (id: string) =>
+      manifest(id, {
+        category: "cli",
+        capabilities: [{ kind: "exec", commands: ["claude"] }],
+        contributes: { agents: [{ id: "claude", label: "Claude Code" }] },
+      });
+    const agent = {
+      id: "claude",
+      label: "Claude Code",
+      detect: { bin: "claude" },
+      hooks: {},
+    };
+
+    const first = buildPluginContext(cliManifest("first"), "builtin", registries, deps);
+    first.ctx.agents.register(agent);
+
+    // Agent ids are a global namespace — pickers and spawn resolution go by
+    // id, so a silent duplicate would ride the first plugin's identity. The
+    // throw lands the SECOND plugin `failed`, naming who holds the id.
+    const second = buildPluginContext(cliManifest("second"), "external", registries, deps);
+    expect(() => second.ctx.agents.register({ ...agent })).toThrow(
+      'already registered by plugin "first"',
+    );
+    expect(registries.agents.list()).toHaveLength(1);
+
+    // The holder deactivating frees the id — re-registration is not blocked
+    // by a plugin that no longer owns anything.
+    first.disposeAll();
+    expect(() => second.ctx.agents.register({ ...agent })).not.toThrow();
+  });
+
   it("threads storage/services/settings through the ports, namespaced by id", async () => {
     const { deps, storage, services, settingsView } = fakeDeps();
     const m = manifest("p");

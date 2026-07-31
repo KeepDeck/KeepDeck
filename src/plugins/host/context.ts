@@ -193,6 +193,19 @@ export function buildPluginContext(
             `agent "${agent.id}": detect.bin "${agent.detect.bin}" does not match the manifest's declared bin "${declaredBin}"`,
           );
         }
+        // Agent ids are a global namespace: pickers list by id and spawn
+        // resolution is `find(id === …)`, so a second registration would
+        // silently ride the first-activated one's identity. A wiring bug in
+        // whichever plugin came second — refuse it there, like every check
+        // above; activation lands that plugin `failed` with this reason.
+        const taken = registries.agents
+          .list()
+          .find((c) => c.entry.id === agent.id);
+        if (taken) {
+          throw new Error(
+            `agent "${agent.id}": already registered by plugin "${taken.pluginId}"`,
+          );
+        }
         return track(registries.agents.add(pluginId, agent));
       },
     },

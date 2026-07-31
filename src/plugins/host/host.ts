@@ -334,6 +334,7 @@ export class PluginHost {
     entry.disposeAll = null;
     entry.status = { kind: "failed", reason };
     this.deps.log(entry.manifest.id).error(`activation failed: ${reason}`);
+    this.deps.onPluginFailed?.(entry.manifest, reason);
     this.notify();
   }
 
