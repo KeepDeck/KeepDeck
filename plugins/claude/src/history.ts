@@ -140,7 +140,12 @@ export function claudeHistory(ctx: PluginContext): AgentHistory {
       }
       for (const slug of slugs) {
         if (slug.kind !== "dir") continue;
-        const files = await ctx.services.fs.readDir(slug.path).catch(() => []);
+        // No catch: the store EXISTS, so a project dir that fails to read is
+        // a failure, not an absence. Degrading it to [] made a partial
+        // listing indistinguishable from "those sessions were deleted" — and
+        // the index prune deletes what the listing omits. A throw lands in
+        // the scanner's per-agent catch: logged, no upsert, no prune.
+        const files = await ctx.services.fs.readDir(slug.path);
         for (const file of files) {
           if (file.kind !== "file" || !file.name.endsWith(".jsonl")) continue;
           stubs.push({
