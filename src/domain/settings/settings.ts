@@ -154,6 +154,11 @@ export interface Settings {
    * come back parked and each starts on its own card. Applies at launch only:
    * flipping it never touches panes that are already running. */
   parkAgentsOnLaunch: boolean;
+  /** MCP server ([F6] → Experimental): expose the command registry to MCP
+   * clients over the local socket. A live switch, not a launch flag: On
+   * brings the socket up, Off tears it down and disconnects its clients.
+   * Default off; opt-in only while the feature is experimental. */
+  mcpServer: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -169,6 +174,7 @@ export const DEFAULT_SETTINGS: Settings = {
   usageDisplay: "used",
   remoteAgents: false,
   parkAgentsOnLaunch: false,
+  mcpServer: false,
 };
 
 /** Scrollback bounds: below ~1k the terminal is useless with verbose agents;
@@ -356,6 +362,9 @@ export function hydrateSettings(json: string): SettingsDocument | null {
   }
   if (typeof doc.parkAgentsOnLaunch === "boolean") {
     settings.parkAgentsOnLaunch = doc.parkAgentsOnLaunch;
+  }
+  if (typeof doc.mcpServer === "boolean") {
+    settings.mcpServer = doc.mcpServer;
   }
   const plugins = readPlugins(doc.plugins);
   // Only replace the default's object reference when there's genuinely

@@ -44,6 +44,7 @@ describe("hydrateSettings", () => {
         notifications: { enabled: false, mode: "system" },
         usageDisplay: "left",
         parkAgentsOnLaunch: true,
+        mcpServer: true,
       }),
     );
     expect(doc?.settings).toEqual({
@@ -59,6 +60,7 @@ describe("hydrateSettings", () => {
       usageDisplay: "left",
       remoteAgents: false,
       parkAgentsOnLaunch: true,
+      mcpServer: true,
     });
   });
 
@@ -104,6 +106,20 @@ describe("hydrateSettings", () => {
     expect(hydrateSettings('{"remoteAgents":"yes"}')!.settings.remoteAgents).toBe(false);
     expect(hydrateSettings('{"remoteAgents":1}')!.settings.remoteAgents).toBe(false);
     expect(hydrateSettings('{"remoteAgents":null}')!.settings.remoteAgents).toBe(false);
+  });
+
+  it("reads mcpServer and stays sparse when off", () => {
+    const on = hydrateSettings('{"mcpServer":true}')!.settings;
+    expect(on.mcpServer).toBe(true);
+    // Off is the default → never written.
+    const offJson = serializeSettings(hydrateSettings('{"mcpServer":false}')!);
+    expect(offJson).not.toContain("mcpServer");
+  });
+
+  it("snaps a malformed mcpServer back to the default (off)", () => {
+    expect(hydrateSettings('{"mcpServer":"yes"}')!.settings.mcpServer).toBe(false);
+    expect(hydrateSettings('{"mcpServer":1}')!.settings.mcpServer).toBe(false);
+    expect(hydrateSettings('{"mcpServer":null}')!.settings.mcpServer).toBe(false);
   });
 
   it("snaps a malformed usageDisplay back to the default", () => {
