@@ -116,12 +116,19 @@ export function usePagedSessionSearch<T>(
           log.warn("web:history", `search failed: ${describeError(e)}`);
           if (searchSeq.current !== seq) return;
           // The failure SETTLES this generation — the same landing a success
-          // performs, with an error for a payload. Leaving it unsettled kept
-          // the previous query's rows on screen under the new query's label,
-          // and `loadMore`'s generation guard (loaded !== requested) then
-          // refused forever: dead paging as a side effect of the guard
-          // working as designed.
+          // performs. Leaving it unsettled kept the previous query's rows on
+          // screen under the new query's label, and `loadMore`'s generation
+          // guard (loaded !== requested) then refused forever: dead paging
+          // as a side effect of the guard working as designed.
           loadedSeqRef.current = seq;
+          // What the failure MEANS depends on what it was refreshing.
+          // `atLeast > 0` is a background refresh of a span the user already
+          // walked: the rows on screen are a real, correctly-labelled answer
+          // — one transient IPC hiccup must not collapse 300 scrolled rows
+          // to zero (and the next refresh would then re-fetch only page
+          // one). A failed page zero of a NEW search has no honest rows to
+          // keep: clear them and say why.
+          if (atLeast > 0 && rowsRef.current.length > 0) return;
           setError(describeError(e));
           apply([], 0);
         });
@@ -133,6 +140,10 @@ export function usePagedSessionSearch<T>(
     (q: string) => {
       queryRef.current = q;
       setQuery(q);
+      // A retype starts a new question — the previous failure stops being
+      // the answer NOW, not when the debounced fetch lands, or the old
+      // error reads as the new query's verdict for a debounce window.
+      setError(null);
       // Advance the generation NOW, not when the debounced fetch fires: it
       // marks the loaded rows stale immediately, so a `loadMore` fired during
       // the debounce window can't splice the new query's (or new agent's) page

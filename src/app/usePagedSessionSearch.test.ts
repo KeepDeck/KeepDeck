@@ -246,6 +246,47 @@ describe("usePagedSessionSearch", () => {
     expect(fetchPage).toHaveBeenLastCalledWith("x", NEXT_PAGE, 50);
   });
 
+  it("a failed background refresh keeps the walked span", async () => {
+    await mount();
+    act(() => api.refresh());
+    await act(async () => resolvers[0]({ rows: mkRows(0, 50), total: 200 }));
+    act(() => api.loadMore());
+    await act(async () => resolvers[1]({ rows: mkRows(50, 20), total: 200 }));
+    expect(api.rows).toHaveLength(70);
+
+    // A scan-driven refresh rejects. The 70 rows on screen are a real,
+    // correctly-labelled answer — a transient hiccup must not collapse them
+    // (the next refresh would then widen by rows.length = 0 and re-fetch
+    // only page one).
+    fetchPage.mockImplementationOnce(() => Promise.reject(new Error("hiccup")));
+    act(() => api.refresh());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api.rows).toHaveLength(70);
+    expect(api.error).toBeNull();
+
+    // And the failed generation is settled — paging is alive, not wedged.
+    act(() => api.loadMore());
+    expect(fetchPage).toHaveBeenLastCalledWith("", NEXT_PAGE, 70);
+  });
+
+  it("a retype clears the previous failure immediately, not after the debounce", async () => {
+    await mount();
+    fetchPage.mockImplementationOnce(() => Promise.reject(new Error("boom")));
+    act(() => api.search("a"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    expect(api.error).toContain("boom");
+
+    // The user typed a NEW query: the old failure is not its verdict. It
+    // must vanish now — for the whole debounce window otherwise, the screen
+    // pairs the new query with the old error.
+    act(() => api.search("ab"));
+    expect(api.error).toBeNull();
+  });
+
   it("a rejection landing after the query moved on cannot clobber the newer answer", async () => {
     await mount();
     // Query "a"'s page zero hangs, rejectable by hand; query "b" supersedes
