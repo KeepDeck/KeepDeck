@@ -518,4 +518,19 @@ describe("SessionsBrowser journal section", () => {
       "No sessions match",
     );
   });
+
+  it("a failed search is named even while journal rows are on screen", async () => {
+    // The error row must not hide behind the empty-state gate: that gate
+    // also requires the journal to be empty, so a workspace WITH journal
+    // rows would show a failed search as a quietly shorter list — the wrong
+    // answer with no indication anywhere.
+    await mount(api([], { query: "auth", error: "index unavailable" }), [
+      closed({ title: "auth bug" }),
+    ]);
+    expect(document.body.textContent).toContain("Search failed: index unavailable");
+    // The journal section is still there — the failure didn't eat the page.
+    expect(document.body.textContent).toContain("auth bug");
+    // And the misleading "No sessions match" is not shown alongside it.
+    expect(document.body.textContent).not.toContain("No sessions match");
+  });
 });
