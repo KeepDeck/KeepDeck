@@ -107,7 +107,7 @@ describe("createCommandRegistry", () => {
     reg.register(spawnSpec());
     await reg.execute("agent.spawn", { workspace: "web" }, HOST);
     await reg.execute("nope.nope", {}, { kind: "plugin", pluginId: "voice" });
-    await reg.execute("agent.spawn", {}, { kind: "external", client: "mcp" });
+    await reg.execute("agent.spawn", {}, { kind: "plugin", pluginId: "mcp" });
 
     const entries = reg.journal();
     expect(entries.map((e) => [e.seq, e.at, e.outcome])).toEqual([

@@ -39,11 +39,13 @@ export interface CommandInfo {
 }
 
 /** Who asked. Journaled with every call — the voice history reads it, and
- * an audit trail needs it verbatim. */
+ * an audit trail needs it verbatim. An `external` arm (MCP, a control
+ * socket) arrives WITH its transport: it needs a per-client gate at that
+ * transport, and declaring it before one exists would only invite callers
+ * to mint unvetted sources. */
 export type CommandSource =
   | { kind: "host" }
-  | { kind: "plugin"; pluginId: string }
-  | { kind: "external"; client: string };
+  | { kind: "plugin"; pluginId: string };
 
 export type CommandError =
   | { code: "unknown-command"; message: string }
