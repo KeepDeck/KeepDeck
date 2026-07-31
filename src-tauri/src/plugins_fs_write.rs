@@ -18,7 +18,7 @@ use crate::containment::expand_home;
 #[tauri::command(async)]
 pub fn plugins_fs_write_mkdir(path: String, roots: Vec<String>) -> Result<(), String> {
     let target = resolve_write(&path, &roots)?;
-    create_dir_owner_only(&target)
+    create_dirs_owner_only(&target.path, &target.root)
 }
 
 #[tauri::command(async)]
@@ -31,13 +31,13 @@ pub fn plugins_fs_write_copy(
     // file into the store would smuggle data past the read capability.
     let from = resolve_write(&src, &roots)?;
     let to = resolve_write(&dst, &roots)?;
-    if let Some(dir) = to.parent() {
-        create_dir_owner_only(dir)?;
+    if let Some(dir) = to.path.parent() {
+        create_dirs_owner_only(dir, &to.root)?;
     }
-    fs::copy(&from, &to).map_err(|e| e.to_string())?;
+    fs::copy(&from.path, &to.path).map_err(|e| e.to_string())?;
     // The copy inherits the SOURCE's mode, which says nothing about where it
     // is landing.
-    restrict_file(&to);
+    restrict_file(&to.path);
     Ok(())
 }
 
@@ -48,10 +48,10 @@ pub fn plugins_fs_write_file(
     roots: Vec<String>,
 ) -> Result<(), String> {
     let target = resolve_write(&path, &roots)?;
-    if let Some(dir) = target.parent() {
-        create_dir_owner_only(dir)?;
+    if let Some(dir) = target.path.parent() {
+        create_dirs_owner_only(dir, &target.root)?;
     }
-    crate::state::write_atomic_mode(&target, text.as_bytes(), Some(FILE_MODE))
+    crate::state::write_atomic_mode(&target.path, text.as_bytes(), Some(FILE_MODE))
         .map_err(|e| e.to_string())
 }
 
@@ -65,9 +65,10 @@ pub fn plugins_fs_write_append(
         return Err("appendLine: the line must not contain a newline".into());
     }
     let target = resolve_write(&path, &roots)?;
-    if let Some(dir) = target.parent() {
-        create_dir_owner_only(dir)?;
+    if let Some(dir) = target.path.parent() {
+        create_dirs_owner_only(dir, &target.root)?;
     }
+    let target = target.path;
     let existed = target.exists();
     let mut file = OpenOptions::new()
         .create(true)
@@ -93,23 +94,40 @@ pub fn plugins_fs_write_append(
 const DIR_MODE: u32 = 0o700;
 const FILE_MODE: u32 = 0o600;
 
-/// Create `dir` and its missing ancestors, restricting ONLY the ones this
-/// call actually creates. A directory that already existed belongs to the
-/// user or the agent — an agent store like `~/.claude/projects` is theirs to
-/// share, and silently narrowing it would be a side effect of writing a file.
-fn create_dir_owner_only(dir: &Path) -> Result<(), String> {
-    let mut created = Vec::new();
+/// Create `dir` and its missing ancestors, restricting ONLY what this call
+/// creates AT OR BELOW the declared root.
+///
+/// Two rules, each with a reason:
+/// - A directory that already existed belongs to the user or the agent — an
+///   agent store like `~/.claude/projects` is theirs to share. Ownership is
+///   proven by `create_dir` SUCCEEDING, not by an exists() probe: the probe
+///   left a window where a directory another process created in between was
+///   narrowed as if it were ours.
+/// - Ancestors ABOVE the root are outside the capability's scope entirely
+///   (a shared `/tmp/foo` above a declared `/tmp/foo/bar`): create them if
+///   missing, never touch their modes.
+fn create_dirs_owner_only(dir: &Path, root: &Path) -> Result<(), String> {
+    if let Some(parent) = root.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut levels = Vec::new();
     let mut cursor = Some(dir);
     while let Some(path) = cursor {
-        if path.exists() {
+        if !path.starts_with(root) {
             break;
         }
-        created.push(path.to_path_buf());
+        levels.push(path.to_path_buf());
+        if path == root {
+            break;
+        }
         cursor = path.parent();
     }
-    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    for path in created {
-        restrict_dir(&path);
+    for level in levels.iter().rev() {
+        match fs::create_dir(level) {
+            Ok(()) => restrict_dir(level),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e.to_string()),
+        }
     }
     Ok(())
 }
@@ -160,6 +178,17 @@ fn realize(path: &Path) -> Result<PathBuf, String> {
                 return Ok(real);
             }
             Err(e) if e.kind() == ErrorKind::NotFound => {
+                // A DANGLING symlink also canonicalizes to NotFound — but it
+                // exists, and creating "through" it follows the link to
+                // wherever it points, outside the proof this function is.
+                // (The atomic write path replaced the link itself, by
+                // accident of its temp-rename; append followed it.)
+                if fs::symlink_metadata(&existing).is_ok() {
+                    return Err(format!(
+                        "path passes through a broken symlink: {}",
+                        existing.display()
+                    ));
+                }
                 let Some(parent) = existing.parent() else {
                     return Err("path has no existing ancestor".into());
                 };
@@ -173,7 +202,14 @@ fn realize(path: &Path) -> Result<PathBuf, String> {
     }
 }
 
-fn resolve_write(path: &str, roots: &[String]) -> Result<PathBuf, String> {
+/// A containment-proven write target together with the declared root that
+/// admitted it — the boundary `create_dirs_owner_only` restricts within.
+struct WriteTarget {
+    path: PathBuf,
+    root: PathBuf,
+}
+
+fn resolve_write(path: &str, roots: &[String]) -> Result<WriteTarget, String> {
     let real = realize(&PathBuf::from(expand_home(path)?))?;
     for root in roots {
         let expanded = PathBuf::from(expand_home(root)?);
@@ -186,7 +222,10 @@ fn resolve_write(path: &str, roots: &[String]) -> Result<PathBuf, String> {
             continue;
         }
         if real.starts_with(&root_real) {
-            return Ok(real);
+            return Ok(WriteTarget {
+                path: real,
+                root: root_real,
+            });
         }
     }
     Err(format!("path is outside the declared write prefixes: {path}"))
@@ -264,6 +303,88 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn a_dangling_symlink_is_refused_not_followed() {
+        let (dir, roots) = root();
+        // A dangling link canonicalizes to NotFound, exactly like a missing
+        // file — but it EXISTS, and creating "through" it follows the link
+        // out of the root: append used to land in the link's target.
+        let outside = dir.path().join("outside-marker");
+        let link = dir.path().join("notes.log");
+        std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+        let err = plugins_fs_write_append(
+            link.to_string_lossy().into_owned(),
+            "stolen line".into(),
+            roots.clone(),
+        )
+        .unwrap_err();
+        assert!(err.contains("broken symlink"), "{err}");
+        assert!(!outside.exists(), "the write followed the link");
+
+        let err = plugins_fs_write_file(
+            link.to_string_lossy().into_owned(),
+            "content".into(),
+            roots,
+        )
+        .unwrap_err();
+        assert!(err.contains("broken symlink"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ancestors_above_the_declared_root_are_never_restricted() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        // Canonical base: a NOT-yet-existing root keeps its literal spelling
+        // (documented fallback), so under macOS's symlinked /var tempdir the
+        // literal would never match the canonicalized target.
+        let base = fs::canonicalize(temp.path()).unwrap();
+        // The declared root sits two levels down; the level between —
+        // outside the capability's scope — is created by someone else at a
+        // shared mode.
+        let shared = base.join("shared");
+        fs::create_dir_all(&shared).unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o755)).unwrap();
+        let declared = shared.join("kd-exports");
+        let roots = vec![declared.to_string_lossy().into_owned()];
+
+        plugins_fs_write_file(
+            declared.join("deep/a.json").to_string_lossy().into_owned(),
+            "x".into(),
+            roots,
+        )
+        .unwrap();
+
+        // Inside the declaration: ours, restricted.
+        assert_eq!(mode_of(&declared), DIR_MODE);
+        assert_eq!(mode_of(&declared.join("deep")), DIR_MODE);
+        // Outside it: not ours to narrow, whoever creates or owns it.
+        assert_eq!(mode_of(&shared), 0o755);
+
+        // The sharper half: the above-root ancestor MISSING. It must come
+        // out at whatever mode the platform gives a fresh directory — the
+        // probe dir reads that answer — never our 0700. (When the umask
+        // itself yields 0700 the two are indistinguishable; the probe guard
+        // keeps the assert honest instead of flaky.)
+        let probe = base.join("umask-probe");
+        fs::create_dir(&probe).unwrap();
+        let platform_mode = mode_of(&probe);
+        let above = base.join("shared-missing");
+        let declared = above.join("kd-exports");
+        plugins_fs_write_file(
+            declared.join("b.json").to_string_lossy().into_owned(),
+            "x".into(),
+            vec![declared.to_string_lossy().into_owned()],
+        )
+        .unwrap();
+        assert_eq!(mode_of(&declared), DIR_MODE);
+        if platform_mode != DIR_MODE {
+            assert_eq!(mode_of(&above), platform_mode);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn an_existing_directory_keeps_the_mode_its_owner_chose() {
         use std::os::unix::fs::PermissionsExt;
         let (dir, roots) = root();
@@ -291,6 +412,9 @@ mod tests {
         // spelling denylist, yet canonicalizes to exactly the root the guard
         // exists to refuse.
         let home = std::env::var("HOME").unwrap();
+        // A prior run (or a deliberately-broken build under RED-check) may
+        // have left the probe behind — the final assert must judge THIS run.
+        let _ = fs::remove_file("/tmp/kd-unbounded-root-probe.txt");
         for root in ["/".to_string(), home.clone(), format!("{home}/../..")] {
             let err = plugins_fs_write_file(
                 "/tmp/kd-unbounded-root-probe.txt".into(),
