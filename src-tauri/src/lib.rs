@@ -12,6 +12,7 @@ mod head_watch;
 mod kimi_usage;
 mod links;
 mod logging;
+mod mcp_server;
 mod menu;
 mod migration;
 mod paths;
@@ -98,6 +99,7 @@ pub fn run() {
         .manage(downloads::DownloadRegistry::default())
         .manage(app_updater::AppUpdaterState::default())
         .manage(voice::VoiceState::default())
+        .manage(mcp_server::McpServer::default())
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();
@@ -143,6 +145,8 @@ pub fn run() {
             links::open_url,
             links::open_path,
             links::open_path_with,
+            mcp_server::mcp_enable,
+            mcp_server::mcp_disable,
             session::session_spawn,
             session::session_write,
             session::session_resize,
