@@ -3,11 +3,13 @@ import { Peek } from "@keepdeck/ui-kit/Peek";
 import { langFor, TokenLine, useHighlight } from "@keepdeck/code-kit";
 import { getRuntime } from "../runtime";
 import {
+  binaryFileDiff,
   flatLines,
   hunkOffsets,
   isEmptyDiff,
   newFileDiff,
   parseDiff,
+  type DiffNote,
   type FileDiff,
 } from "../domain/diff";
 import { baseName, codeLabel, type ChangeRow } from "../domain/status";
@@ -119,7 +121,7 @@ export function DiffPeek({
             .readFile(`${repo.replace(/\/+$/, "")}/${row.path}`)
             .then((file) =>
               file.isBinary || file.text === null
-                ? { binary: true, hunks: [], notes: [] }
+                ? binaryFileDiff()
                 : newFileDiff(file.text),
             )
         : services.git
@@ -197,13 +199,13 @@ export function DiffPeek({
       {view.kind === "file" && diff?.binary && (
         <p className="peek__note">Binary file — no text diff.</p>
       )}
-      {/* Non-textual changes (a mode flip, a rename) — REAL changes with zero
-          hunks. Before these were surfaced, a pure chmod read "No changes
-          here anymore." while the list beside it said Modified. */}
+      {/* Non-textual changes (a mode flip, a rename, a copy) — REAL changes
+          with zero hunks. Before these were surfaced, a pure chmod read "No
+          changes here anymore." while the list beside it said Modified. */}
       {view.kind === "file" &&
         diff?.notes.map((note) => (
-          <p className="peek__note" key={note}>
-            {note}
+          <p className="peek__note" key={`${note.kind}:${note.from}:${note.to}`}>
+            {noteText(note)}
           </p>
         ))}
       {view.kind === "file" && diff && isEmptyDiff(diff) && (
@@ -251,4 +253,17 @@ export function DiffPeek({
       )}
     </Peek>
   );
+}
+
+/** The wording is presentation, so it lives with the render — the domain
+ * hands over kinds and paths, never English. */
+function noteText(note: DiffNote): string {
+  switch (note.kind) {
+    case "mode":
+      return `File mode changed ${note.from} → ${note.to}`;
+    case "rename":
+      return `Renamed ${note.from} → ${note.to}`;
+    case "copy":
+      return `Copied from ${note.from}`;
+  }
 }
