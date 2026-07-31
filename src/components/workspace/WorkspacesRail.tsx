@@ -70,7 +70,7 @@ export function WorkspacesRail({
   onReorder,
 }: WorkspacesRailProps) {
   // Empty commit = back to the auto name; the domain rename implements it.
-  const rename = useInlineRename<string>(onRename);
+  const rename = useInlineRename(onRename);
   const [ghost, setGhost] = useState<DragGhost | null>(null);
 
   const listRef = useRef<HTMLUListElement>(null);

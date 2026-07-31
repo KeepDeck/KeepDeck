@@ -132,7 +132,12 @@ export function createCommandRegistry(
       try {
         cb(entry);
       } catch (error) {
-        onListenerError(error);
+        try {
+          onListenerError(error);
+        } catch {
+          // A reporter that throws reports nothing — but it must not re-open
+          // the very hole this guard closes.
+        }
       }
     }
   }

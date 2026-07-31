@@ -221,10 +221,10 @@ describe("readManifest", () => {
     const cases: [unknown, string][] = [
       [{ kind: "exec", commands: [] }, "non-empty"],
       [{ kind: "exec" }, "non-empty"],
-      // A bare wildcard grants arbitrary execution while showing the user
+      // A wildcard grants arbitrary execution while showing the user
       // nothing to approve — the same reason `commands` refuses one.
-      [{ kind: "exec", commands: ["*"] }, 'bare "*"'],
-      [{ kind: "exec", commands: ["git", "*"] }, 'bare "*"'],
+      [{ kind: "exec", commands: ["*"] }, '"*" wildcard'],
+      [{ kind: "exec", commands: ["git", "*"] }, '"*" wildcard'],
       [{ kind: "fs", scope: "disk" }, '"workspace" or "everywhere"'],
       [{ kind: "fsWrite", paths: [] }, "non-empty"],
       [{ kind: "fsWrite" }, "non-empty"],
@@ -232,20 +232,25 @@ describe("readManifest", () => {
       // every absolute target — and each agent's on-disk config can define
       // hook commands, so unbounded write is execution without `exec`.
       // Consent showed it as "write inside /": honest and useless.
-      [{ kind: "fsWrite", paths: ["/"] }, 'bare "/"'],
-      [{ kind: "fsWrite", paths: ["~/"] }, 'bare "/"'],
-      [{ kind: "fsWrite", paths: ["~"] }, 'bare "/"'],
+      [{ kind: "fsWrite", paths: ["/"] }, 'root "/"'],
+      [{ kind: "fsWrite", paths: ["~/"] }, 'root "/"'],
+      [{ kind: "fsWrite", paths: ["~"] }, 'root "/"'],
       // The trivial spellings canonicalize to the same roots — a literal
       // comparison would wave them through.
-      [{ kind: "fsWrite", paths: ["//"] }, 'bare "/"'],
-      [{ kind: "fsWrite", paths: ["~//"] }, 'bare "/"'],
+      [{ kind: "fsWrite", paths: ["//"] }, 'root "/"'],
+      [{ kind: "fsWrite", paths: ["~//"] }, 'root "/"'],
       // One bad root poisons the list — narrowing to the good entries would
       // silently grant less than declared (and consented).
-      [{ kind: "fsWrite", paths: ["~/.claude/projects", "/"] }, 'bare "/"'],
+      [{ kind: "fsWrite", paths: ["~/.claude/projects", "/"] }, 'root "/"'],
+      // An empty entry earns its own message: "a root is not allowed" about
+      // "" sends the author hunting for a slash that isn't there.
+      [{ kind: "fsWrite", paths: [""] }, "empty entry"],
+      [{ kind: "fsWrite", paths: ["  "] }, "empty entry"],
       [{ kind: "sqliteReadonly", paths: [] }, "non-empty"],
       [{ kind: "sqliteReadonly" }, "non-empty"],
-      [{ kind: "sqliteReadonly", paths: ["/"] }, 'bare "/"'],
-      [{ kind: "sqliteReadonly", paths: ["~/"] }, 'bare "/"'],
+      [{ kind: "sqliteReadonly", paths: ["/"] }, 'root "/"'],
+      [{ kind: "sqliteReadonly", paths: ["~/"] }, 'root "/"'],
+      [{ kind: "sqliteReadonly", paths: [""] }, "empty entry"],
       [{ kind: "git", scope: "disk" }, '"workspace" or "everywhere"'],
       [{ kind: "git" }, '"workspace" or "everywhere"'],
       [{ kind: "net", domains: ["*.evil.com"] }, "bare hostnames"],

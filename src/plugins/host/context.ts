@@ -74,8 +74,10 @@ export function buildPluginContext(
    * every other Disposable this context produces is tracked. A built-in that
    * watches directly would otherwise keep its watcher — and the callback
    * behind it — alive past `deactivate`, with nothing left holding the handle.
-   * (The external tier does not come through here: `hostDispatch` tracks and
-   * disposes a realm's watches itself.)
+   * (The external tier comes through here too — `hostDispatch` stores these
+   * TRACKED braces in its own watches map, so a realm's watches end up
+   * covered twice, idempotently: both routes funnel through the same
+   * `disposers.delete` gate, like every other external registration.)
    */
   function withTrackedWatches(services: PluginContext["services"]): PluginContext["services"] {
     return {

@@ -271,12 +271,12 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
         if (!isStringArray(cap.commands) || cap.commands.length === 0)
           errors.push(`${at}: exec needs a non-empty "commands" string array`);
         // The same rule `commands` already applies, for the same reason: a
-        // bare wildcard makes consent meaningless — the user is asked to
-        // approve "run programs" with nothing named. `exec` is the more
-        // dangerous of the two and had no guard at all.
+        // wildcard makes consent meaningless — the user is asked to approve
+        // "run programs" with nothing named. `exec` is the more dangerous of
+        // the two and had no guard at all.
         else if (cap.commands.some((command) => command === "*"))
           errors.push(
-            `${at}: exec commands must name programs (a bare "*" is not allowed)`,
+            `${at}: exec "commands" must name programs — the "*" wildcard is not allowed`,
           );
         else out.push({ kind: "exec", commands: cap.commands });
         return;
@@ -288,6 +288,12 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
       case "fsWrite":
         if (!isStringArray(cap.paths) || cap.paths.length === 0)
           errors.push(`${at}: fsWrite needs a non-empty "paths" string array`);
+        // A path that is only whitespace deserves its own message — the
+        // root guard's regex happens to catch "", but "a root is not
+        // allowed" about an empty string sends the author hunting for a
+        // slash that isn't there.
+        else if (cap.paths.some((path) => path.trim() === ""))
+          errors.push(`${at}: fsWrite "paths" must not contain an empty entry`);
         // The same rule `exec` and `commands` already enforce, for the most
         // dangerous capability of the three: a root of "/" (or the whole
         // home) clears the containment proof for EVERY absolute target, and
@@ -297,16 +303,20 @@ function readCapabilities(value: unknown, errors: string[]): Capability[] {
         // write is arbitrary execution without declaring `exec`.
         else if (cap.paths.some((path) => UNBOUNDED_PATH.test(path)))
           errors.push(
-            `${at}: fsWrite paths must name a directory (a bare "/" or "~/" is not allowed)`,
+            `${at}: fsWrite "paths" must name directory prefixes — a root "/" or "~/" is not allowed`,
           );
         else out.push({ kind: "fsWrite", paths: cap.paths });
         break;
       case "sqliteReadonly":
         if (!isStringArray(cap.paths) || cap.paths.length === 0)
           errors.push(`${at}: sqliteReadonly needs a non-empty "paths" string array`);
+        else if (cap.paths.some((path) => path.trim() === ""))
+          errors.push(
+            `${at}: sqliteReadonly "paths" must not contain an empty entry`,
+          );
         else if (cap.paths.some((path) => UNBOUNDED_PATH.test(path)))
           errors.push(
-            `${at}: sqliteReadonly paths must name a store location (a bare "/" or "~/" is not allowed)`,
+            `${at}: sqliteReadonly "paths" must name directory prefixes — a root "/" or "~/" is not allowed`,
           );
         else out.push({ kind: "sqliteReadonly", paths: cap.paths });
         break;

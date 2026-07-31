@@ -2,12 +2,14 @@ import { useState } from "react";
 
 /** What `useInlineRename` hands the widget: the subject under edit (null =
  * not editing), plus the controlled-input wiring. Presentation (className,
- * aria-label, autoFocus, the no-autocorrect spread) stays the widget's. */
-export interface InlineRename<K> {
+ * aria-label, autoFocus, the no-autocorrect spread) stays the widget's.
+ * Keys are plain strings — both consumers compare them against string ids,
+ * and a type parameter here bought two annotations and nothing else. */
+export interface InlineRename {
   /** The subject being edited, or null when the widget shows plain text. */
-  editing: K | null;
+  editing: string | null;
   /** Enter edit mode on `key`, seeding the draft with the current name. */
-  start(key: K, current: string): void;
+  start(key: string, current: string): void;
   /** The editable input's behavior: controlled value, blur/Enter commit,
    * Escape cancels without committing. */
   inputProps: {
@@ -28,10 +30,10 @@ export interface InlineRename<K> {
  * implements (both rename domain ops revert to their derived name on "").
  * Escape leaves edit mode without committing anything.
  */
-export function useInlineRename<K>(
-  commit: (key: K, name: string) => void,
-): InlineRename<K> {
-  const [editing, setEditing] = useState<K | null>(null);
+export function useInlineRename(
+  commit: (key: string, name: string) => void,
+): InlineRename {
+  const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
   const commitDraft = () => {

@@ -7,11 +7,11 @@ import { useInlineRename, type InlineRename } from "./useInlineRename";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
-let api: InlineRename<string>;
+let api: InlineRename;
 let commit: ReturnType<typeof vi.fn>;
 
 function Probe() {
-  api = useInlineRename<string>(commit as (key: string, name: string) => void);
+  api = useInlineRename(commit as (key: string, name: string) => void);
   return null;
 }
 

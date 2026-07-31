@@ -265,7 +265,7 @@ export function AgentPane({
     setRestartFailed(false);
   }, [idle]);
   // Inline rename of the header title ([F11]); empty commit = back to auto.
-  const rename = useInlineRename<string>((_key, name) => onRename(name));
+  const rename = useInlineRename((_key, name) => onRename(name));
   // The context meter belongs on a LIVE pane only — a frozen, undimmed ctx% on
   // an exited / idle / unavailable / provisioning pane would read as live
   // (its last usage report lingers in the store until the pane leaves the deck).
