@@ -89,6 +89,12 @@ function appServerSnapshot(response: Record<string, unknown>): unknown {
  */
 function planAllowanceWindow(value: unknown): UsageWindow | null {
   if (!isJsonRecord(value)) return null;
+  // A limit that is PRESENT but zero (or negative) is an account with no
+  // usable quota — kimi's sibling reads the same shape as null, and a
+  // percentage of nothing is not a reading. Only a limit that is genuinely
+  // ABSENT may fall through to the percentage the provider computed itself.
+  const limit = asCount(value.limit);
+  if (limit !== undefined && limit <= 0) return null;
   const resetsSeconds = asCount(value.resetsAt);
   const resetsAt = resetsSeconds !== undefined ? resetsSeconds * 1000 : null;
   const window = allowanceWindow(value, { resetsAt, windowMinutes: null });

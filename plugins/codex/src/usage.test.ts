@@ -295,11 +295,29 @@ describe("normalizeCodexRateLimits", () => {
     ]);
   });
 
-  it("an empty individualLimit still normalizes to null", () => {
+  it("a null individualLimit still normalizes to null", () => {
     expect(
       normalizeCodexRateLimits(
         JSON.stringify({
           rateLimits: { primary: null, secondary: null, individualLimit: null },
+        }),
+        AT,
+      ),
+    ).toBeNull();
+  });
+
+  it("a present-but-zero limit is no quota, not a percentage of nothing", () => {
+    // kimi reads the same shape as null; falling through to remainingPercent
+    // here would paint a plausible-looking chip for an account that reports
+    // no usable allowance at all.
+    expect(
+      normalizeCodexRateLimits(
+        JSON.stringify({
+          rateLimits: {
+            primary: null,
+            secondary: null,
+            individualLimit: { limit: "0", remainingPercent: 65, resetsAt: 1 },
+          },
         }),
         AT,
       ),
