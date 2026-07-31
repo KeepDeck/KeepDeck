@@ -89,6 +89,20 @@ export async function scanAgentHistories(
           onProgress?.();
         }
       }
+      // An empty listing over a NON-empty index is ambiguous: every agent's
+      // `list()` degrades a read failure (permissions, a detached volume, a
+      // moved store) to [], which reads exactly like "the CLI deleted every
+      // session". Pruning on that would wipe the agent's whole history from
+      // the browser until a full re-scan rebuilds it session by session.
+      // Skip — a real store this size going to zero is rare enough that one
+      // stale listing until the next scan is the cheaper wrong answer.
+      if (stubs.length === 0 && stored.size > 0) {
+        log.warn(
+          "web:history",
+          `${agentId}: empty listing over ${stored.size} indexed sessions — prune skipped (unreadable store?)`,
+        );
+        continue;
+      }
       const dropped = await ops.prune(
         agentId,
         stubs.map((stub) => stub.ref),

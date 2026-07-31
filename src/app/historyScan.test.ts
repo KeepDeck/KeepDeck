@@ -64,6 +64,29 @@ describe("scanAgentHistories", () => {
     expect(prunes).toEqual([["/s/a", "/s/b"]]);
   });
 
+  it("an empty listing over a non-empty index skips the prune", async () => {
+    // Every agent's list() degrades a read failure to [] — indistinguishable
+    // from "the CLI deleted every session". Pruning on it would wipe the
+    // agent's whole history from the browser.
+    const { mock, prunes } = ops([{ reference: "/s/a", mtime: 5, size: 10 }]);
+    await scanAgentHistories(
+      [{ agentId: "claude", history: history({ list: async () => [] }) }],
+      mock,
+    );
+    expect(prunes).toEqual([]);
+  });
+
+  it("an empty listing over an empty index still prunes (a genuinely new agent)", async () => {
+    const { mock, prunes } = ops([]);
+    await scanAgentHistories(
+      [{ agentId: "claude", history: history({ list: async () => [] }) }],
+      mock,
+    );
+    // Nothing indexed, nothing to lose — the ordinary path stays exercised
+    // so the guard can't silently widen.
+    expect(prunes).toEqual([[]]);
+  });
+
   it("a failing session skips; a failing agent doesn't sink the others", async () => {
     const { mock, upserts } = ops([]);
     await scanAgentHistories(
