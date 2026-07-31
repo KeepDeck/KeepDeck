@@ -59,6 +59,17 @@ describe("Kimi setup server access", () => {
       extractServerAccess(`http://localhost:64999/#token=x`),
     ).toBeNull();
   });
+
+  it("skips a tokenless URL printed ahead of the tokenized one", () => {
+    // A non-global match stops at the first hit — with the token group
+    // optional, the bare URL ate the only match and the tokenized line one
+    // row below was never read: the pane reported the server never ready.
+    expect(
+      extractServerAccess(
+        `Serving at http://127.0.0.1:64999/\r\nOpen http://127.0.0.1:64999/#token=secret\r\n`,
+      ),
+    ).toEqual({ origin: "http://127.0.0.1:64999", token: "secret" });
+  });
 });
 
 describe("describeStartupOutput", () => {

@@ -311,9 +311,11 @@ export function extractServerAccess(
   output: string,
 ): KimiServerAccess | null {
   const plain = stripTerminalControls(output);
-  const match = plain.match(
-    /http:\/\/127\.0\.0\.1:\d+\/(?:#token=[^\s]+)?/,
-  );
+  // The token is REQUIRED in the pattern: a match without one is discarded
+  // below anyway, and a non-global `match` stops at the first hit — so an
+  // optional group let a bare loopback URL printed ahead of the tokenized
+  // one eat the only match and report the server as never ready.
+  const match = plain.match(/http:\/\/127\.0\.0\.1:\d+\/#token=[^\s]+/);
   if (!match) return null;
   try {
     const url = new URL(match[0]);
