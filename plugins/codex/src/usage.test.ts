@@ -210,4 +210,99 @@ describe("normalizeCodexRateLimits", () => {
       ),
     ).toBeNull();
   });
+
+  it("reads a business plan's credit allowance when the rolling windows are null", () => {
+    // The exact payload a live `codex app-server` (0.145.0) returns for a
+    // business account: primary/secondary — the only fields read before —
+    // are null, and the quota is a monthly allowance in individualLimit,
+    // with the counts as JSON STRINGS. This poll is such an account's sole
+    // source (its on-disk rollout events carry nulls too), so a null here
+    // was a permanently blank limits panel.
+    const result = normalizeCodexRateLimits(
+      JSON.stringify({
+        rateLimits: {
+          limitId: "codex",
+          primary: null,
+          secondary: null,
+          credits: { hasCredits: false, unlimited: false, balance: null },
+          individualLimit: {
+            limit: "16000",
+            used: "5532.926625013351",
+            remainingPercent: 65,
+            resetsAt: 1_785_542_401,
+          },
+          spendControlReached: false,
+          planType: "business",
+          rateLimitReachedType: null,
+        },
+      }),
+      AT,
+    );
+    expect(result).toEqual({
+      kind: "reported",
+      reportedAt: AT,
+      sourcePaneId: "",
+      windows: [
+        {
+          // From the counts (5532.93 / 16000), not the integer-rounded
+          // remainingPercent. windowMinutes stays null — the payload states
+          // no duration, and the domain labels a duration-less window
+          // "plan". No scope: this is the account's only limit, and a scope
+          // would hide it from the chip.
+          usedPct: (5532.926625013351 / 16000) * 100,
+          resetsAt: 1_785_542_401_000,
+          windowMinutes: null,
+        },
+      ],
+    });
+  });
+
+  it("falls back to remainingPercent when the allowance counts are absent", () => {
+    const result = normalizeCodexRateLimits(
+      JSON.stringify({
+        rateLimits: {
+          primary: null,
+          secondary: null,
+          individualLimit: { remainingPercent: 65, resetsAt: 1_785_542_401 },
+        },
+      }),
+      AT,
+    );
+    expect(result?.kind).toBe("reported");
+    if (result?.kind !== "reported") throw new Error("expected reported limits");
+    expect(result.windows).toEqual([
+      { usedPct: 35, resetsAt: 1_785_542_401_000, windowMinutes: null },
+    ]);
+  });
+
+  it("never lets an allowance crowd a plan that reports rolling windows", () => {
+    // Reached ONLY when primary/secondary yield nothing — a Plus/Pro chip
+    // keeps its two rolling windows even if a future payload carries both.
+    const result = normalizeCodexRateLimits(
+      JSON.stringify({
+        rateLimits: {
+          primary: { usedPercent: 51, windowDurationMins: 10_080 },
+          secondary: null,
+          individualLimit: { limit: "100", used: "50" },
+        },
+      }),
+      AT,
+    );
+    expect(result?.kind).toBe("reported");
+    if (result?.kind !== "reported") throw new Error("expected reported limits");
+    expect(result.windows).toEqual([
+      { usedPct: 51, windowMinutes: 10_080, resetsAt: null },
+    ]);
+  });
+
+  it("an empty individualLimit still normalizes to null", () => {
+    expect(
+      normalizeCodexRateLimits(
+        JSON.stringify({
+          rateLimits: { primary: null, secondary: null, individualLimit: null },
+        }),
+        AT,
+      ),
+    ).toBeNull();
+  });
 });
