@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_PANES } from "./layout";
 import {
   addAgentPane,
+  autoWorkspaceName,
   closeAgent,
   closeWorkspace,
   findWorkspace,
@@ -79,6 +80,13 @@ describe("closeWorkspace", () => {
 });
 
 describe("renameWorkspace", () => {
+  it("autoWorkspaceName: one derivation for birth and reset, id fallback outside the scheme", () => {
+    expect(autoWorkspaceName("ws-3")).toBe("workspace-3");
+    // A hand-edited or migrated deck can hold an id outside `ws-N` — the id
+    // itself is the least-wrong name that still identifies the row.
+    expect(autoWorkspaceName("imported-deck")).toBe("imported-deck");
+  });
+
   it("an empty name reverts to the auto name from the workspace's slot", () => {
     // The reset-on-empty contract renamePane already has — a workspace has no
     // render-time fallback, so the revert happens in the domain op itself.

@@ -231,20 +231,30 @@ export function setWorkspacePluginSlot(
   });
 }
 
+/** The name a workspace is born with when the user leaves the field blank —
+ * and the one an empty rename resets to. ONE derivation for both moments:
+ * creation and reset used to derive it separately (sequence template vs an
+ * id regex), agreeing only because the two templates happened to share a
+ * number. An id outside the `ws-N` scheme (a hand-edited or migrated deck)
+ * falls back to the id itself — the least-wrong name that still identifies
+ * the row. */
+export function autoWorkspaceName(id: string): string {
+  const slot = /^ws-(\d+)$/.exec(id);
+  return slot ? `workspace-${slot[1]}` : id;
+}
+
 /** Rename one workspace, leaving the rest untouched. An empty name reverts
- * to the auto name the workspace was born with (`workspace-N` from its
- * `ws-N` slot) — the same reset-on-empty contract `renamePane` has, so the
- * two inline-rename surfaces behave alike ([F11]). A workspace has no
- * render-time fallback the way a pane does, so the revert happens here. */
+ * to [`autoWorkspaceName`] — the same reset-on-empty contract `renamePane`
+ * has, so the two inline-rename surfaces behave alike ([F11]). A workspace
+ * has no render-time fallback the way a pane does, so the revert happens
+ * here. */
 export function renameWorkspace(
   workspaces: Workspace[],
   id: string,
   name: string,
 ): Workspace[] {
   return workspaces.map((ws) =>
-    ws.id === id
-      ? { ...ws, name: name.trim() || ws.id.replace(/^ws-/, "workspace-") }
-      : ws,
+    ws.id === id ? { ...ws, name: name.trim() || autoWorkspaceName(ws.id) } : ws,
   );
 }
 
