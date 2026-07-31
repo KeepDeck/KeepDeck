@@ -119,7 +119,7 @@ export function DiffPeek({
             .readFile(`${repo.replace(/\/+$/, "")}/${row.path}`)
             .then((file) =>
               file.isBinary || file.text === null
-                ? { binary: true, hunks: [] }
+                ? { binary: true, hunks: [], notes: [] }
                 : newFileDiff(file.text),
             )
         : services.git
@@ -197,6 +197,15 @@ export function DiffPeek({
       {view.kind === "file" && diff?.binary && (
         <p className="peek__note">Binary file — no text diff.</p>
       )}
+      {/* Non-textual changes (a mode flip, a rename) — REAL changes with zero
+          hunks. Before these were surfaced, a pure chmod read "No changes
+          here anymore." while the list beside it said Modified. */}
+      {view.kind === "file" &&
+        diff?.notes.map((note) => (
+          <p className="peek__note" key={note}>
+            {note}
+          </p>
+        ))}
       {view.kind === "file" && diff && isEmptyDiff(diff) && (
         <p className="peek__note">No changes here anymore.</p>
       )}

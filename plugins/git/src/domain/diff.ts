@@ -28,25 +28,35 @@ export interface FileDiff {
   hunks: DiffHunk[];
   /** Git printed "Binary files … differ" instead of hunks. */
   binary: boolean;
+  /** Human-readable non-textual changes from the preamble (a mode flip, a
+   * rename). A pure chmod or pure rename has REAL changes and zero hunks —
+   * without these the peek called such a file empty while the list right
+   * beside it said Modified. */
+  notes: string[];
 }
 
 /** Whether a parsed diff has nothing to show. */
 export function isEmptyDiff(diff: FileDiff): boolean {
-  return !diff.binary && diff.hunks.length === 0;
+  return !diff.binary && diff.hunks.length === 0 && diff.notes.length === 0;
 }
 
 /** Parse `git diff` output. Preamble lines (`diff --git`, `index`, `---`,
- * `+++`, rename/mode notes) are dropped — the peek's own header names the
- * file; `\ No newline at end of file` stays, as a dim meta line. */
+ * `+++`) are dropped — the peek's own header names the file — except the
+ * mode/rename pairs, which surface as `notes`; `\ No newline at end of
+ * file` stays, as a dim meta line. */
 export function parseDiff(raw: string): FileDiff {
   const lines = raw.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
 
   const hunks: DiffHunk[] = [];
+  const notes: string[] = [];
   let binary = false;
   let current: DiffHunk | null = null;
   let oldNo = 0;
   let newNo = 0;
+  // Each pair's first half, held until its second half completes the note.
+  let oldMode: string | null = null;
+  let renameFrom: string | null = null;
 
   for (const line of lines) {
     if (line.startsWith("@@")) {
@@ -60,6 +70,16 @@ export function parseDiff(raw: string): FileDiff {
     if (!current) {
       if (line.startsWith("Binary files ") && line.endsWith(" differ")) {
         binary = true;
+      } else if (line.startsWith("old mode ")) {
+        oldMode = line.slice("old mode ".length);
+      } else if (line.startsWith("new mode ") && oldMode !== null) {
+        notes.push(`File mode changed ${oldMode} → ${line.slice("new mode ".length)}`);
+        oldMode = null;
+      } else if (line.startsWith("rename from ")) {
+        renameFrom = line.slice("rename from ".length);
+      } else if (line.startsWith("rename to ") && renameFrom !== null) {
+        notes.push(`Renamed ${renameFrom} → ${line.slice("rename to ".length)}`);
+        renameFrom = null;
       }
       continue;
     }
@@ -88,7 +108,7 @@ export function parseDiff(raw: string): FileDiff {
       });
     }
   }
-  return { hunks, binary };
+  return { hunks, binary, notes };
 }
 
 /** Every hunk's lines flattened in render order — the text the syntax
@@ -122,6 +142,7 @@ export function newFileDiff(text: string): FileDiff {
   if (lines[lines.length - 1] === "") lines.pop();
   return {
     binary: false,
+    notes: [],
     hunks: [
       {
         header: "",
