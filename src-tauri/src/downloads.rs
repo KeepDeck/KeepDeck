@@ -464,14 +464,16 @@ fn run_download(
         // files) is the dead end instead: `download_exists` reports it
         // not-installed, so the UI offers a download — and the Delete button
         // that would clear it renders only for an installed artifact. Replace
-        // it rather than refusing forever.
+        // it rather than refusing forever — but do NOT clear it here: the
+        // stale artifact must survive until a verified replacement is staged
+        // (the promote below), or a failed or cancelled transfer costs the
+        // user the working artifact they had.
         if installed_at(target, &request.target, request.integrity.as_ref())? {
             return Err(format!(
                 "download target already exists: {}",
                 request.target.path()
             ));
         }
-        remove_path(target)?;
     }
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -504,6 +506,13 @@ fn run_download(
 
     match &request.target {
         DownloadTarget::File { .. } => {
+            // rename(2) replaces a plain file atomically, so a stale artifact
+            // needs no clearing at all — only a type-changed target (a
+            // directory sitting where a file will land) does, and by now the
+            // verified replacement exists on disk.
+            if target.is_dir() {
+                remove_target_only(target)?;
+            }
             fs::rename(&part, target).map_err(|e| e.to_string())?;
         }
         DownloadTarget::TarGz {
@@ -988,11 +997,30 @@ fn unpack_tar_gz(
         return Err("archive does not contain the expected files".into());
     };
     check_cancelled(cancelled)?;
+    // The stale artifact this download replaces survives all the way to
+    // HERE: the verified replacement is fully staged, so the exposure is
+    // one clear + one rename instead of the whole transfer.
+    if target.exists() {
+        remove_target_only(target)?;
+    }
     fs::rename(&publish, target).map_err(|e| e.to_string())?;
     if publish != staging {
         let _ = fs::remove_dir_all(staging);
     }
     Ok(())
+}
+
+/// Remove exactly `path` — file or directory — leaving its sidecars alone.
+/// The promote-time clear must not touch `.part`: that IS the downloaded
+/// replacement it is clearing the way for.
+fn remove_target_only(path: &Path) -> Result<(), String> {
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|e| e.to_string())
+    } else if path.symlink_metadata().is_ok() {
+        fs::remove_file(path).map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    }
 }
 
 fn reject_symlinks(root: &Path) -> Result<(), String> {
@@ -1306,6 +1334,104 @@ mod tests {
             None,
         )
         .expect("a target failing this request's integrity is replaced");
+
+        assert_eq!(fs::read(&target).unwrap(), b"good");
+    }
+
+    #[test]
+    fn a_failed_replacement_leaves_the_existing_artifact_in_place() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("model.bin");
+        fs::write(&target, b"old-but-working").unwrap();
+
+        // The server refuses — the transfer fails after the conflict check
+        // decided this stale artifact may be replaced. What the user HAD must
+        // survive a replacement that never arrived.
+        let (url, _captured) = serve_once("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        let mut request = request(url);
+        request.integrity = Some(DownloadIntegrity::Sha256 {
+            digest: format!("{:x}", Sha256::digest(b"good")),
+            bytes: None,
+        });
+
+        run_download(
+            &request,
+            &target,
+            &AtomicBool::new(false),
+            &Channel::new(|_| Ok(())),
+            &mut Progress {
+                received: 0,
+                total: None,
+            },
+            None,
+        )
+        .expect_err("the transfer failed");
+
+        assert_eq!(fs::read(&target).unwrap(), b"old-but-working");
+    }
+
+    #[test]
+    fn a_cancel_during_the_precheck_never_costs_the_artifact() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("model.bin");
+        fs::write(&target, b"old-but-working").unwrap();
+
+        let mut request = request("http://127.0.0.1:1/never-reached".into());
+        request.integrity = Some(DownloadIntegrity::Sha256 {
+            digest: format!("{:x}", Sha256::digest(b"good")),
+            bytes: None,
+        });
+
+        // The integrity pre-check is deliberately not cancellable ("is this
+        // the artifact" must never read as "integrity failed"), so a cancel
+        // lands at the transfer's first gate. It must find the artifact
+        // untouched — the user cancelled a download, not their model.
+        let error = run_download(
+            &request,
+            &target,
+            &AtomicBool::new(true),
+            &Channel::new(|_| Ok(())),
+            &mut Progress {
+                received: 0,
+                total: None,
+            },
+            None,
+        )
+        .expect_err("the cancel surfaced");
+        assert_eq!(error, CANCELLED);
+        assert_eq!(fs::read(&target).unwrap(), b"old-but-working");
+    }
+
+    #[test]
+    fn a_type_changed_target_is_cleared_only_after_the_bytes_are_verified() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = temp.path().join("model");
+        fs::create_dir_all(target.join("nested")).unwrap();
+        fs::write(target.join("nested/weights.onnx"), b"old dir artifact").unwrap();
+
+        // A catalog that re-publishes a dir artifact as a single file: the
+        // dir reads not-installed, and the promote — not the pre-check —
+        // clears it, so a failed transfer would have left it whole.
+        let (url, _captured) =
+            serve_once("HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ngood");
+        let mut request = request(url);
+        request.integrity = Some(DownloadIntegrity::Sha256 {
+            digest: format!("{:x}", Sha256::digest(b"good")),
+            bytes: None,
+        });
+
+        run_download(
+            &request,
+            &target,
+            &AtomicBool::new(false),
+            &Channel::new(|_| Ok(())),
+            &mut Progress {
+                received: 0,
+                total: None,
+            },
+            None,
+        )
+        .expect("the replacement landed");
 
         assert_eq!(fs::read(&target).unwrap(), b"good");
     }
