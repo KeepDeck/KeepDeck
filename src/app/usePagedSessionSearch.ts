@@ -32,6 +32,9 @@ export interface PagedSearch<T> {
   loadingMore: boolean;
   /** The query the rows answer. */
   query: string;
+  /** Page zero failed for the current query — `rows` is empty, not stale.
+   * Cleared by the next landing (a retype, a refresh, a scan refresh). */
+  error: string | null;
   /** Run the debounced search; resets paging to page zero. */
   search(query: string): void;
   /** Append the next page for the current query. */
@@ -65,6 +68,7 @@ export function usePagedSessionSearch<T>(
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const queryRef = useRef("");
   const rowsRef = useRef<T[]>([]);
@@ -105,11 +109,22 @@ export function usePagedSessionSearch<T>(
         .then((page) => {
           if (searchSeq.current !== seq) return;
           loadedSeqRef.current = seq;
+          setError(null);
           apply(page.rows, page.total);
         })
-        .catch((e) =>
-          log.warn("web:history", `search failed: ${describeError(e)}`),
-        );
+        .catch((e) => {
+          log.warn("web:history", `search failed: ${describeError(e)}`);
+          if (searchSeq.current !== seq) return;
+          // The failure SETTLES this generation — the same landing a success
+          // performs, with an error for a payload. Leaving it unsettled kept
+          // the previous query's rows on screen under the new query's label,
+          // and `loadMore`'s generation guard (loaded !== requested) then
+          // refused forever: dead paging as a side effect of the guard
+          // working as designed.
+          loadedSeqRef.current = seq;
+          setError(describeError(e));
+          apply([], 0);
+        });
     },
     [apply],
   );
@@ -179,6 +194,7 @@ export function usePagedSessionSearch<T>(
     hasMore: rows.length < total,
     loadingMore,
     query,
+    error,
     search,
     loadMore,
     refresh,

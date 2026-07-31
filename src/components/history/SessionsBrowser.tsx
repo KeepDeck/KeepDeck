@@ -364,11 +364,15 @@ export function SessionsBrowser({
         )}
         {emptyList && (
           <li className="history__row browser__empty">
-            {api.scanning
-              ? "Indexing the stores…"
-              : query !== "" || rows.length > 0
-                ? "No sessions match"
-                : 'No sessions yet — add an agent with "+ Agent"'}
+            {api.error
+              ? // A failed page zero cleared the rows on purpose — naming the
+                // failure beats a truthless "No sessions match".
+                `Search failed: ${api.error}`
+              : api.scanning
+                ? "Indexing the stores…"
+                : query !== "" || rows.length > 0
+                  ? "No sessions match"
+                  : 'No sessions yet — add an agent with "+ Agent"'}
           </li>
         )}
       </ul>

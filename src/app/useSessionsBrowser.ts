@@ -19,6 +19,9 @@ export interface SessionsBrowserApi {
    * of the browser shows box and results in agreement (hits are shared;
    * per-instance query state desynced them). */
   query: string;
+  /** Page zero failed for the current query — `hits` is empty, not stale.
+   * The browser names it instead of claiming "No sessions match". */
+  error: string | null;
   scanning: boolean;
   /** Run the debounced search; called on every keystroke. Resets paging. */
   search(query: string): void;
@@ -104,6 +107,7 @@ export function useSessionsBrowser(): SessionsBrowserApi {
     hasMore: paged.hasMore,
     loadingMore: paged.loadingMore,
     query: paged.query,
+    error: paged.error,
     scanning,
     search: paged.search,
     loadMore: paged.loadMore,
