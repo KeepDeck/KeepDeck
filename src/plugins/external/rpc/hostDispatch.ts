@@ -628,6 +628,14 @@ export function createHostDispatch(
     },
     dispose() {
       disposed = true;
+      // The microphone first: the app holds ONE capture slot process-wide,
+      // and it was swept LAST — behind four unguarded loops, any of whose
+      // disposers could throw and strand exactly the resource this sweep
+      // most needs to release.
+      for (const capture of activeSpeechCaptures.values()) {
+        void capture.cancel().catch(() => {});
+      }
+      activeSpeechCaptures.clear();
       for (const settle of pendingHooks.values()) {
         settle({ ok: false, error: "plugin bridge disposed" });
       }
@@ -640,20 +648,29 @@ export function createHostDispatch(
         settle({ ok: false, error: "plugin bridge disposed" });
       }
       pendingOpens.clear();
-      subscriptions.disposeAll();
-      sessions.disposeAll();
-      for (const disposable of registrations.values()) disposable.dispose();
+      // Third-party braces from here down. One bad disposer must not abort
+      // the sweep — the same per-item tolerance context.disposeAll applies.
+      const swept = (label: string, run: () => void) => {
+        try {
+          run();
+        } catch (error) {
+          ctx.log.warn(`realm teardown: ${label} failed: ${String(error)}`);
+        }
+      };
+      swept("subscriptions", () => subscriptions.disposeAll());
+      swept("sessions", () => sessions.disposeAll());
+      for (const disposable of registrations.values()) {
+        swept("registration", () => disposable.dispose());
+      }
       registrations.clear();
-      for (const watcher of watches.values()) watcher.dispose();
+      for (const watcher of watches.values()) {
+        swept("watch", () => watcher.dispose());
+      }
       watches.clear();
       for (const id of activeDownloads) {
         void ctx.services.downloads.cancel(id).catch(() => {});
       }
       activeDownloads.clear();
-      for (const capture of activeSpeechCaptures.values()) {
-        void capture.cancel().catch(() => {});
-      }
-      activeSpeechCaptures.clear();
     },
   };
 }

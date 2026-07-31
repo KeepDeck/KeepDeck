@@ -93,9 +93,14 @@ export function makeExternalPlugin(
     },
 
     deactivate(): void {
-      live?.disposeBridge();
-      live?.close();
-      live = null;
+      // finally, not sequence: a throw out of the bridge teardown must not
+      // leave the realm's hidden iframe parked in the DOM forever.
+      try {
+        live?.disposeBridge();
+      } finally {
+        live?.close();
+        live = null;
+      }
     },
   };
 }

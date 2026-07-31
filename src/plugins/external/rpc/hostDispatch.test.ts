@@ -519,6 +519,46 @@ describe("speech captures over the RPC seam", () => {
     expect(h.cancel).toHaveBeenCalledTimes(1);
   });
 
+  it("a throwing registration disposer cannot strand the rest of the sweep", async () => {
+    const cancel = vi.fn(async () => {});
+    const goodDispose = vi.fn();
+    const warns: string[] = [];
+    const ctx = {
+      log: { warn: (m: string) => warns.push(m), info: vi.fn(), error: vi.fn() },
+      services: {
+        speech: {
+          startCapture: vi.fn(async () => ({
+            stop: vi.fn(),
+            cancel,
+          })),
+        },
+      },
+      settings: {
+        registerSection: vi
+          .fn()
+          .mockReturnValueOnce({
+            dispose: () => {
+              throw new Error("broken brace");
+            },
+          })
+          .mockReturnValueOnce({ dispose: goodDispose }),
+      },
+    } as unknown as PluginContext;
+    const dispatch = createHostDispatch(ctx, () => {});
+
+    await dispatch.call("services.speech.start", [1]);
+    await dispatch.call("settings.registerSection", [1, { label: "a", fields: [] }]);
+    await dispatch.call("settings.registerSection", [2, { label: "b", fields: [] }]);
+
+    // The first registration's disposer throws. The sweep must reach the
+    // second one anyway — and the mic, the scarcest resource here, is
+    // cancelled before any third-party brace gets a chance to throw.
+    dispatch.dispose();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(goodDispose).toHaveBeenCalledTimes(1);
+    expect(warns.some((w) => w.includes("broken brace"))).toBe(true);
+  });
+
   it("a capture landing before dispose is stored, and dispose cancels it", async () => {
     const h = speechHarness();
     const starting = h.dispatch.call("services.speech.start", [1]);
