@@ -57,9 +57,16 @@ async function runOpencode(
       fn();
     };
     const timer = setTimeout(() => {
-      void handle?.close().catch(() => {});
-      finish(() =>
-        reject(new Error(`opencode ${args[0] ?? ""} timed out after ${RUN_TIMEOUT_MS}ms`)),
+      // A settled run has nothing to kill — its exit beat the timer.
+      if (settled) return;
+      // Settle the kill BEFORE rejecting: the caller's finally overwrites
+      // the scratch file this very process may still be reading, so the
+      // rejection must not outrun the close.
+      const killed = handle?.close().catch(() => {}) ?? Promise.resolve();
+      void killed.then(() =>
+        finish(() =>
+          reject(new Error(`opencode ${args[0] ?? ""} timed out after ${RUN_TIMEOUT_MS}ms`)),
+        ),
       );
     }, RUN_TIMEOUT_MS);
     ctx.services.sessions

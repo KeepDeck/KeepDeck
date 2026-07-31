@@ -201,6 +201,29 @@ describe("opencodeForkPlan", () => {
       vi.useRealTimers();
     }
   });
+
+  it("an import timeout kills the process, then clears the scratch — in that order", async () => {
+    // The fixture declared importHang from day one and no test ever set it:
+    // the one path where the finally-clear could race a still-reading child
+    // had zero coverage.
+    vi.useFakeTimers();
+    try {
+      const fx = fixture({ behavior: { importHang: true } });
+      const p = opencodeForkPlan(fx.ctx, forkInput("/t"));
+      p.catch(() => {});
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(p).rejects.toThrow("import timed out");
+      // The kill settled before the rejection — so before the caller's
+      // finally overwrote the file the child may have been reading. (Not a
+      // strict closes===1: fake-timer advancement can fire the export's
+      // 60s timer before its exit microtask drains — a schedule real timers
+      // cannot produce; the settled guard plus .catch make it a no-op kill.)
+      expect(fx.closes).toBeGreaterThanOrEqual(1);
+      expect(fx.writes.get("/tmp/keepdeck-opencode/fork-pane-7.json")).toBe("{}");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("relocatingForkId", () => {
