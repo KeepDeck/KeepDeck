@@ -79,6 +79,13 @@ describe("closeWorkspace", () => {
 });
 
 describe("renameWorkspace", () => {
+  it("an empty name reverts to the auto name from the workspace's slot", () => {
+    // The reset-on-empty contract renamePane already has — a workspace has no
+    // render-time fallback, so the revert happens in the domain op itself.
+    const after = renameWorkspace([ws("ws-3", [1])], "ws-3", "   ");
+    expect(after[0].name).toBe("workspace-3");
+  });
+
   it("renames the target workspace only", () => {
     const after = renameWorkspace([ws("a", [1]), ws("b", [2])], "a", "my-api");
     expect(after[0].name).toBe("my-api");

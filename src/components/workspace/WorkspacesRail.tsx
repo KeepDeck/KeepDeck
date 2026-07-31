@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { noAutoCorrect } from "../../ui/inputProps";
+import { useInlineRename } from "../../ui/useInlineRename";
 import { collectRailItemRects } from "../../app/railDnd";
 import {
   animateElementReorder,
@@ -68,8 +69,8 @@ export function WorkspacesRail({
   onRename,
   onReorder,
 }: WorkspacesRailProps) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
+  // Empty commit = back to the auto name; the domain rename implements it.
+  const rename = useInlineRename<string>(onRename);
   const [ghost, setGhost] = useState<DragGhost | null>(null);
 
   const listRef = useRef<HTMLUListElement>(null);
@@ -101,18 +102,6 @@ export function WorkspacesRail({
     },
     [],
   );
-
-  const startEdit = (item: WorkspaceItem) => {
-    setEditingId(item.id);
-    setDraft(item.name);
-  };
-  const commitEdit = () => {
-    if (editingId) {
-      const name = draft.trim();
-      if (name) onRename(editingId, name);
-    }
-    setEditingId(null);
-  };
 
   const settleGhost = (id: string) => {
     const ghostEl = ghostRef.current;
@@ -176,7 +165,7 @@ export function WorkspacesRail({
     ws: WorkspaceItem,
   ) => {
     // Primary button only; never start a drag from the × or while renaming.
-    if (e.button !== 0 || editingId) return;
+    if (e.button !== 0 || rename.editing !== null) return;
     if ((e.target as HTMLElement).closest(".rail__close")) return;
     const r = e.currentTarget.getBoundingClientRect();
     drag.startPointerDrag(e.nativeEvent, {
@@ -208,21 +197,15 @@ export function WorkspacesRail({
       >
         {workspaces.map((ws) => {
           const active = ws.id === activeId;
-          if (ws.id === editingId) {
+          if (ws.id === rename.editing) {
             return (
               <li key={ws.id} className="rail__item">
                 <input
                   {...noAutoCorrect}
+                  {...rename.inputProps}
                   className="rail__rename"
-                  value={draft}
                   autoFocus
                   aria-label="Workspace name"
-                  onChange={(e) => setDraft(e.target.value)}
-                  onBlur={commitEdit}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitEdit();
-                    else if (e.key === "Escape") setEditingId(null);
-                  }}
                 />
               </li>
             );
@@ -240,7 +223,7 @@ export function WorkspacesRail({
                 type="button"
                 className="rail__select"
                 onClick={() => onSelect(ws.id)}
-                onDoubleClick={() => startEdit(ws)}
+                onDoubleClick={() => rename.start(ws.id, ws.name)}
                 aria-current={active}
               >
                 <span className="rail__dot" />

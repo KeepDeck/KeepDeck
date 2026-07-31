@@ -231,13 +231,21 @@ export function setWorkspacePluginSlot(
   });
 }
 
-/** Rename one workspace, leaving the rest untouched. */
+/** Rename one workspace, leaving the rest untouched. An empty name reverts
+ * to the auto name the workspace was born with (`workspace-N` from its
+ * `ws-N` slot) — the same reset-on-empty contract `renamePane` has, so the
+ * two inline-rename surfaces behave alike ([F11]). A workspace has no
+ * render-time fallback the way a pane does, so the revert happens here. */
 export function renameWorkspace(
   workspaces: Workspace[],
   id: string,
   name: string,
 ): Workspace[] {
-  return workspaces.map((ws) => (ws.id === id ? { ...ws, name } : ws));
+  return workspaces.map((ws) =>
+    ws.id === id
+      ? { ...ws, name: name.trim() || ws.id.replace(/^ws-/, "workspace-") }
+      : ws,
+  );
 }
 
 /** Set a pane's manual display name; an empty name clears it, reverting to the
