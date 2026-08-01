@@ -1,11 +1,26 @@
 import { useState } from "react";
+import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
-import { formatAge, formatTokens } from "../../domain/usage";
+import {
+  formatAge,
+  formatPct,
+  formatTokens,
+  windowLabel,
+  windowResetCaption,
+  type AccountUsage,
+  type UsageWindow,
+} from "../../domain/usage";
 import {
   queryUsageStats,
+  type UsageEventV2,
   type UsageStatsPeriod,
   type UsageStatsRow,
 } from "../../domain/usage/history";
+import {
+  providerWindowRows,
+  type ProviderWindowLedger,
+  type ProviderWindowRow,
+} from "../../domain/usage/providerWindows";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
@@ -51,6 +66,7 @@ export function StatsDialog({ onClose }: { onClose(): void }) {
  * in the top-bar popover; this view consumes only the durable pane ledger. */
 export function UsageStats() {
   const history = useUsageHistorySnapshot();
+  const { accounts } = useUsage();
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
   const now = Date.now();
   const stats = queryUsageStats(history.events, period, now);
@@ -110,11 +126,72 @@ export function UsageStats() {
             )}
           </p>
 
+          <Providers accounts={accounts} events={history.events} now={now} />
           <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
           <StatsTable title="Sessions" rows={stats.sessions} now={now} mode="session" />
         </>
       )}
     </div>
+  );
+}
+
+/** Per-provider rate-limit windows joined with ledger spend inside each
+ * window's current interval. Provider %, reset countdown and the ledger
+ * numbers keep separate sources — the section never derives one from the
+ * other. Period-independent by design: a subscription window is the
+ * provider's clock, not the user's selected range. */
+function Providers({
+  accounts,
+  events,
+  now,
+}: {
+  accounts: ReadonlyMap<string, AccountUsage>;
+  events: readonly UsageEventV2[];
+  now: number;
+}) {
+  const rows = providerWindowRows(accounts, events, now);
+  if (rows.length === 0) return null;
+  return (
+    <section className="stats__section">
+      <h3>Providers</h3>
+      <div className="stats__table" role="table" aria-label="Providers">
+        {rows.map((row) => (
+          <div className="stats__row" role="row" key={providerRowKey(row)}>
+            <span className="stats__identity" role="cell">
+              <b>{row.agent}</b>
+              <small>{providerWindowCaption(row.window)}</small>
+            </span>
+            <span className="stats__tokens" role="cell">
+              {row.ledger ? formatTokens(row.ledger.totalTokens) : "—"}
+              <small>{row.ledger ? ledgerCaption(row.ledger) : ""}</small>
+            </span>
+            <span className="stats__cost" role="cell">
+              {formatPct(row.window.usedPct, "used")}
+              <small>{windowResetCaption(row.window, now)}</small>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function providerWindowCaption(window: UsageWindow): string {
+  const label = windowLabel(window, "long");
+  return window.windowMinutes !== null ? `${label} window` : label;
+}
+
+function ledgerCaption(ledger: ProviderWindowLedger): string {
+  const sessions = `${ledger.sessionCount} session${
+    ledger.sessionCount === 1 ? "" : "s"
+  }`;
+  const cost = displayCost(ledger.providerCostUsd, ledger.costEvents);
+  return cost === "—" ? sessions : `${sessions} · ${cost}`;
+}
+
+function providerRowKey(row: ProviderWindowRow): string {
+  return [row.agent, row.window.windowMinutes ?? "", row.window.scope ?? ""].join(
+    "\0",
   );
 }
 

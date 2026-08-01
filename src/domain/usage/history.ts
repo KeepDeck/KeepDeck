@@ -461,7 +461,9 @@ function addEvent(
   }
 }
 
-function addMoney(left: number, right: number): number {
+/** Decimal-currency addition on binary floats — one rounding rule for every
+ * aggregator that sums provider cost. */
+export function addMoney(left: number, right: number): number {
   return Math.round((left + right) * 1_000_000_000_000) / 1_000_000_000_000;
 }
 

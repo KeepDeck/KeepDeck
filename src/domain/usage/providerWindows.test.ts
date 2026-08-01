@@ -1,0 +1,130 @@
+import { describe, expect, it } from "vitest";
+import type { UsageEventV2 } from "./history";
+import { providerWindowRows } from "./providerWindows";
+import type { AccountUsage, UsageWindow } from "./usage";
+
+const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+const HOUR = 3_600_000;
+
+const reported = (windows: UsageWindow[]): AccountUsage => ({
+  kind: "reported",
+  windows,
+  reportedAt: NOW - 60_000,
+  sourcePaneId: "pane-1",
+});
+
+let seq = 0;
+const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
+  ({
+    schemaVersion: 2,
+    eventId: `event-${(seq += 1)}`,
+    occurredAt: NOW - 1_000,
+    capturedAt: NOW - 1_000,
+    agent: "codex",
+    workspaceId: "ws-1",
+    workspaceName: "KeepDeck",
+    workspaceCwd: "/repo",
+    paneId: "pane-1",
+    paneName: "Agent 1",
+    sessionId: "s1",
+    rootSessionId: "s1",
+    tokens: { input: 100 },
+    costSource: "unavailable",
+    observation: { tokens: { input: 100 } },
+    ...over,
+  }) as UsageEventV2;
+
+describe("providerWindowRows", () => {
+  it("sums the ledger inside an active window's interval only", () => {
+    // 5h window resetting in 2h: interval opened 3h ago.
+    const accounts = new Map([
+      ["codex", reported([{ usedPct: 34, resetsAt: NOW + 2 * HOUR, windowMinutes: 300 }])],
+    ]);
+    const rows = providerWindowRows(
+      accounts,
+      [
+        event({ occurredAt: NOW - HOUR, tokens: { input: 100 } }),
+        event({
+          occurredAt: NOW - 2 * HOUR,
+          sessionId: "s2",
+          rootSessionId: "s2",
+          tokens: { output: 50 },
+          costSource: "provider",
+          costUsd: 0.5,
+        }),
+        event({ occurredAt: NOW - 4 * HOUR, tokens: { input: 9_999 } }), // before the window opened
+        event({ agent: "claude", occurredAt: NOW - HOUR, tokens: { input: 7_777 } }), // other provider
+      ],
+      NOW,
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agent).toBe("codex");
+    expect(rows[0].ledger).toEqual({
+      totalTokens: 150,
+      providerCostUsd: 0.5,
+      costEvents: 1,
+      sessionCount: 2,
+    });
+  });
+
+  it("counts spend since the reset once a window has expired", () => {
+    const accounts = new Map([
+      ["codex", reported([{ usedPct: 90, resetsAt: NOW - HOUR, windowMinutes: 300 }])],
+    ]);
+    const rows = providerWindowRows(
+      accounts,
+      [
+        event({ occurredAt: NOW - 30 * 60_000 }), // after the reset → successor window
+        event({ occurredAt: NOW - 2 * HOUR, tokens: { input: 9_999 } }), // before it
+      ],
+      NOW,
+    );
+    expect(rows[0].ledger?.totalTokens).toBe(100);
+  });
+
+  it("declines the join when the interval is unknowable or scoped", () => {
+    const accounts = new Map([
+      [
+        "kimi",
+        reported([
+          { usedPct: 10, resetsAt: null, windowMinutes: 300 }, // no reset instant
+          { usedPct: 20, resetsAt: NOW + HOUR, windowMinutes: null }, // no duration
+          { usedPct: 30, resetsAt: null, windowMinutes: null, scope: "quota" },
+        ]),
+      ],
+    ]);
+    const rows = providerWindowRows(accounts, [event({ agent: "kimi" })], NOW);
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.ledger)).toEqual([null, null, null]);
+  });
+
+  it("orders providers alphabetically, windows account-wide first then shortest", () => {
+    const accounts = new Map<string, AccountUsage>([
+      [
+        "kimi",
+        reported([
+          { usedPct: 1, resetsAt: null, windowMinutes: null, scope: "quota" },
+          { usedPct: 2, resetsAt: null, windowMinutes: 10_080 },
+        ]),
+      ],
+      [
+        "claude",
+        reported([
+          { usedPct: 3, resetsAt: null, windowMinutes: 10_080 },
+          { usedPct: 4, resetsAt: null, windowMinutes: 300 },
+        ]),
+      ],
+      ["opencode", { kind: "unavailable", reason: "api-key", reportedAt: NOW }],
+    ]);
+    const rows = providerWindowRows(accounts, [], NOW);
+    expect(
+      rows.map((row) => [row.agent, row.window.windowMinutes, row.window.scope]),
+    ).toEqual([
+      ["claude", 300, undefined],
+      ["claude", 10_080, undefined],
+      ["kimi", 10_080, undefined],
+      ["kimi", null, "quota"],
+    ]);
+  });
+});
