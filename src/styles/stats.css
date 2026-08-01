@@ -19,8 +19,10 @@
 }
 
 .stats-dialog__body {
-  min-height: 240px;
-  max-height: min(640px, 70vh);
+  /* FIXED height, not a range: tabs carry different amounts of content, and
+     a dialog that resizes on every tab switch reads as jumping. Short tabs
+     keep the air; long ones scroll. */
+  height: min(640px, 70vh);
   margin-bottom: 8px;
   /* Gutter for the native overlay scrollbar (deliberately unstyled, see
      base.css): without it the thumb rides ON the right-aligned numbers. */
@@ -115,6 +117,9 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  /* The cards are not a .stats__section, so the section spacing rule never
+     reaches them — without this the chart heading sits ON the cards. */
+  margin-bottom: 18px;
 }
 
 .stats__card {
