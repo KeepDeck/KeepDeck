@@ -33,7 +33,7 @@ import {
 } from "./ptyManager";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
-import { getSettings, subscribeSettings } from "./settingsManager";
+import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
 import { createUsageChannel } from "./usageChannel";
 import {
@@ -149,6 +149,7 @@ export function createAppRuntime(
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,
         saveNotified: saveNotifiedAchievements,
+        settingsReady: initSettings,
         notify,
         history: {
           getSnapshot: getUsageHistorySnapshot,

@@ -89,9 +89,9 @@ export function notify(input: NotifyInput): boolean {
     tag: input.tag,
     at: now,
   };
-  // Honest delivery accounting: in "system" mode with the banner suppressed
-  // (which only happens when the SOURCE IS ON SCREEN), nothing lands in any
-  // channel — the return value must say so, not assume so.
+  // Honest delivery accounting: the return value states whether the user
+  // was actually reached, channel by channel — callers that PERSIST a
+  // delivery decision (the achievement notifier) depend on it.
   let delivered = false;
   if (prefs.mode !== "system") {
     items = addNotification(items, notification);
@@ -99,9 +99,11 @@ export function notify(input: NotifyInput): boolean {
     delivered = true;
   }
   if (prefs.mode !== "app") {
+    const windowFocused = isWindowFocused();
+    const visible = sourceVisible?.(notification.source) ?? false;
     const allowed = shouldBanner({
-      windowFocused: isWindowFocused(),
-      sourceVisible: sourceVisible?.(notification.source) ?? false,
+      windowFocused,
+      sourceVisible: visible,
       now,
       // A miss is undefined — exactly shouldBanner's "never bannered".
       lastBannerAt:
@@ -109,6 +111,14 @@ export function notify(input: NotifyInput): boolean {
           ? lastBannerAt.get(notification.tag)
           : undefined,
     });
+    if (!allowed && windowFocused && visible) {
+      // Suppressed BECAUSE the user is looking at the source surface: the
+      // event announced itself in place, so it counts as delivered —
+      // otherwise system mode would re-banner an award the user watched
+      // land. Cooldown suppression stays undelivered: nothing reached the
+      // user THIS time.
+      delivered = true;
+    }
     if (allowed) {
       if (notification.tag !== undefined) {
         lastBannerAt.delete(notification.tag); // re-set → back of the order

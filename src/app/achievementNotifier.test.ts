@@ -41,6 +41,7 @@ function fakeDeps(over: Partial<AchievementNotifierDeps> = {}) {
     saveNotified: async (json) => {
       saved.push(json);
     },
+    settingsReady: async () => {},
     notify,
     history,
     ...over,
@@ -265,6 +266,27 @@ describe("createAchievementNotifier", () => {
     });
     history.set({ ready: true, events: [event()], error: null });
     const notifier = createAchievementNotifier(deps);
+    await settle();
+    expect(notify).toHaveBeenCalledTimes(1);
+    notifier.dispose();
+  });
+
+  it("announces nothing until settings load — a default-prefs banner would persist", async () => {
+    let resolveSettings!: () => void;
+    const { deps, notify, history } = fakeDeps({
+      settingsReady: () =>
+        new Promise<void>((resolve) => {
+          resolveSettings = resolve;
+        }),
+    });
+    history.set({ ready: true, events: [event()], error: null });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    // notify() would fall back to DEFAULT prefs here; a delivery recorded
+    // against them can never be re-announced once real prefs land.
+    expect(notify).not.toHaveBeenCalled();
+
+    resolveSettings();
     await settle();
     expect(notify).toHaveBeenCalledTimes(1);
     notifier.dispose();

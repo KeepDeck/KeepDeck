@@ -24,6 +24,12 @@ import type { UsageHistorySnapshot } from "./usageHistoryManager";
 export interface AchievementNotifierDeps {
   loadNotified(): Promise<string | null>;
   saveNotified(json: string): Promise<void>;
+  /** Resolves when user settings are loaded. Announcing is gated on it:
+   * notify() falls back to DEFAULT prefs while settings are in flight, and
+   * a delivery decision here is the one that gets PERSISTED — racing the
+   * settings load could banner past a user who disabled notifications and
+   * then never announce those awards again. */
+  settingsReady(): Promise<void>;
   /** Returns whether a delivery channel accepted it (see
    * [`notificationCenter.notify`]). */
   notify(input: NotifyInput): boolean;
@@ -104,20 +110,16 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
   };
 
   const unsubscribe = deps.history.subscribe(check);
-  void deps
-    .loadNotified()
-    .then((json) => {
-      if (disposed) return;
-      congratulated = decode(json);
-      check();
-    })
-    .catch(() => {
-      if (disposed) return;
-      // An unreadable baseline congratulates from scratch rather than
-      // staying silent forever.
-      congratulated = new Set();
-      check();
-    });
+  // An unreadable baseline congratulates from scratch rather than staying
+  // silent forever; a failed settings load proceeds on defaults — at that
+  // point defaults ARE the app's real prefs, not a race artifact.
+  const baseline = deps.loadNotified().catch(() => null);
+  const settings = deps.settingsReady().catch(() => undefined);
+  void Promise.all([baseline, settings]).then(([json]) => {
+    if (disposed) return;
+    congratulated = decode(json);
+    check();
+  });
 
   return {
     dispose() {
