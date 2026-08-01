@@ -121,16 +121,14 @@ export async function handleMcpLine(
 
   switch (method) {
     case "initialize": {
-      // Echo the client's requested revision when it names one: the shapes
-      // this projection emits are stable across the revisions in the wild,
-      // and refusing a version negotiation the transport doesn't need would
-      // only strand older clients.
-      const requested = params.protocolVersion;
+      // Version negotiation per spec: echo the requested revision IF this
+      // projection supports it, else answer with one it does — and it
+      // implements exactly one (2025-06-18 semantics; e.g. the JSON-RPC
+      // batching that 2025-03-26 requires is deliberately absent here), so
+      // the honest reply is constant. Claiming an arbitrary requested
+      // string would promise semantics this code refuses to speak.
       return resultReply(line, {
-        protocolVersion:
-          typeof requested === "string" && requested
-            ? requested
-            : MCP_PROTOCOL_VERSION,
+        protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: { listChanged: false } },
         serverInfo: identity(),
       });

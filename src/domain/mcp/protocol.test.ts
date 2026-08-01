@@ -43,19 +43,30 @@ const parse = async (reply: Promise<string | null>) =>
   JSON.parse((await reply) ?? "null");
 
 describe("handleMcpLine — session plumbing", () => {
-  it("initialize reports identity and echoes the client's revision", async () => {
+  it("initialize reports identity and echoes a supported revision", async () => {
     const reply = await parse(
-      handleMcpLine(port(), IDENTITY, request(1, "initialize", { protocolVersion: "2024-11-05" })),
+      handleMcpLine(port(), IDENTITY, request(1, "initialize", {
+        protocolVersion: MCP_PROTOCOL_VERSION,
+      })),
     );
     expect(reply.id).toBe(1);
-    expect(reply.result.protocolVersion).toBe("2024-11-05");
+    expect(reply.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
     expect(reply.result.serverInfo).toEqual({ name: "KeepDeck", version: "1.2.3" });
     expect(reply.result.capabilities.tools).toEqual({ listChanged: false });
   });
 
-  it("initialize without a requested revision answers with our own", async () => {
-    const reply = await parse(handleMcpLine(port(), IDENTITY, request(1, "initialize")));
-    expect(reply.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
+  it("initialize never claims a revision the projection does not implement", async () => {
+    // Spec MUST: echo the requested version only if supported, else answer
+    // with one the server supports. 2025-03-26 requires batching this
+    // projection refuses, so claiming it would be a lie.
+    const requested = await parse(
+      handleMcpLine(port(), IDENTITY, request(1, "initialize", {
+        protocolVersion: "2025-03-26",
+      })),
+    );
+    expect(requested.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
+    const omitted = await parse(handleMcpLine(port(), IDENTITY, request(1, "initialize")));
+    expect(omitted.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
   });
 
   it("notifications are consumed silently, known or not", async () => {
