@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { usageAchievements } from "./achievements";
+import {
+  achievementProgress,
+  achievementRequirement,
+  earnedAchievements,
+  nextAchievements,
+  usageAchievementLadders,
+  type UsageAchievementLadder,
+} from "./achievements";
 import type { UsageEventV2 } from "./history";
 
 const DAY = 24 * 60 * 60 * 1_000;
@@ -13,6 +20,7 @@ const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
     occurredAt: NOW - 1_000,
     capturedAt: NOW - 1_000,
     agent: "codex",
+    model: "gpt-5.6-terra",
     workspaceId: "ws-1",
     workspaceName: "KeepDeck",
     workspaceCwd: "/repo",
@@ -26,65 +34,149 @@ const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
     ...over,
   }) as UsageEventV2;
 
-describe("usageAchievements", () => {
-  it("returns the full catalog with locked entries carrying progress", () => {
-    const achievements = usageAchievements([
-      event({ tokens: { input: 2_000_000 } }),
-    ]);
+const ladder = (
+  ladders: UsageAchievementLadder[],
+  metric: string,
+): UsageAchievementLadder =>
+  ladders.find((candidate) => candidate.metric === metric)!;
 
-    expect(achievements).toHaveLength(11); // 7 token + 4 session tiers
-    const first = achievements[0];
-    expect(first).toMatchObject({
-      id: "tokens-1000000",
-      title: "First Million",
-      achievedAt: NOW - 1_000,
-    });
-    const second = achievements[1];
-    expect(second).toMatchObject({
-      title: "Picking Up Steam",
-      achievedAt: null,
-      progress: 2_000_000,
-      threshold: 1e7,
-    });
-    const sessions = achievements[7];
-    expect(sessions).toMatchObject({
-      id: "sessions-10",
-      achievedAt: null,
-      progress: 1,
-    });
-  });
-
-  it("dates each crossing at the ledger instant that crossed it, sorting first", () => {
-    const achievements = usageAchievements([
+describe("usageAchievementLadders", () => {
+  it("dates token crossings at the ledger instant that crossed them, sorting first", () => {
+    const ladders = usageAchievementLadders([
       // Deliberately unsorted: crossing math must order by occurredAt.
       event({ occurredAt: NOW - 1 * DAY, tokens: { input: 9_500_000 } }),
       event({ occurredAt: NOW - 3 * DAY, tokens: { input: 900_000 } }),
       event({ occurredAt: NOW - 2 * DAY, tokens: { input: 200_000 } }),
     ]);
-    expect(achievements[0].achievedAt).toBe(NOW - 2 * DAY); // 1M
-    expect(achievements[1].achievedAt).toBe(NOW - 1 * DAY); // 10M
-    expect(achievements[2].achievedAt).toBeNull(); // 100M still locked
+    const tokens = ladder(ladders, "tokens").tiers;
+    expect(tokens[0].achievedAt).toBe(NOW - 2 * DAY); // 1M
+    expect(tokens[1].achievedAt).toBe(NOW - 1 * DAY); // 10M
+    expect(tokens[2].achievedAt).toBeNull(); // 100M locked
+    expect(tokens[2].progress).toBe(10_600_000);
   });
 
-  it("counts distinct sessions, not events, toward session tiers", () => {
-    const events = Array.from({ length: 12 }, (_, index) =>
-      event({
-        occurredAt: NOW - (12 - index) * 60_000,
-        sessionId: `session-${index % 10}`,
-        rootSessionId: `session-${index % 10}`,
-      }),
-    );
-    const achievements = usageAchievements(events);
-    const firstSteps = achievements.find((item) => item.id === "sessions-10")!;
-    expect(firstSteps.achievedAt).toBe(NOW - 3 * 60_000);
-    const century = achievements.find((item) => item.id === "sessions-100")!;
-    expect(century).toMatchObject({ achievedAt: null, progress: 10 });
+  it("accumulates provider-reported spend toward the dollar ladder", () => {
+    const ladders = usageAchievementLadders([
+      event({ costSource: "provider", costUsd: 0.6 }),
+      event({ costSource: "unavailable", costUsd: undefined }),
+      event({ occurredAt: NOW - 500, costSource: "provider", costUsd: 0.6 }),
+    ]);
+    const spend = ladder(ladders, "spendUsd").tiers;
+    expect(spend[0]).toMatchObject({
+      title: "First Dollar",
+      achievedAt: NOW - 500,
+      progress: 1.2,
+    });
+    expect(spend[1].achievedAt).toBeNull();
   });
 
-  it("keeps the whole catalog locked at zero progress on an empty ledger", () => {
-    const achievements = usageAchievements([]);
-    expect(achievements).toHaveLength(11);
-    expect(achievements.every((item) => item.achievedAt === null)).toBe(true);
-    expect(achievements.every((item) => item.progress === 0)).toBe(true);
+  it("tracks the busiest single day and consecutive-day streaks", () => {
+    const ladders = usageAchievementLadders([
+      event({ occurredAt: NOW - 3 * DAY, tokens: { input: 600_000 } }),
+      event({ occurredAt: NOW - 3 * DAY + 1_000, tokens: { input: 500_000 } }),
+      event({ occurredAt: NOW - 2 * DAY, tokens: { input: 10 } }),
+      event({ occurredAt: NOW - 1 * DAY, tokens: { input: 10 } }),
+      // A gap: NOW-1d → NOW is consecutive, so streak reaches 4 in total.
+    ]);
+    const day = ladder(ladders, "dayTokens").tiers;
+    // 1.1M inside one UTC day, crossed by the second event of that day.
+    expect(day[0]).toMatchObject({
+      title: "Warm Afternoon",
+      achievedAt: NOW - 3 * DAY + 1_000,
+    });
+    const streak = ladder(ladders, "streakDays").tiers;
+    expect(streak[0]).toMatchObject({
+      title: "Hat-Trick",
+      achievedAt: NOW - 1 * DAY, // third consecutive day
+      progress: 3,
+    });
+  });
+
+  it("resets a streak across a silent day", () => {
+    const ladders = usageAchievementLadders([
+      event({ occurredAt: NOW - 5 * DAY }),
+      event({ occurredAt: NOW - 4 * DAY }),
+      // NOW-3d is silent — the streak restarts.
+      event({ occurredAt: NOW - 2 * DAY }),
+      event({ occurredAt: NOW - 1 * DAY }),
+    ]);
+    const streak = ladder(ladders, "streakDays").tiers;
+    expect(streak[0].achievedAt).toBeNull();
+    expect(streak[0].progress).toBe(2); // longest run so far
+  });
+
+  it("counts distinct providers and models", () => {
+    const ladders = usageAchievementLadders([
+      event({ agent: "codex", model: "gpt-5.6-terra" }),
+      event({ agent: "claude", model: "Opus 5", occurredAt: NOW - 900 }),
+      event({ agent: "claude", model: "Fable 5", occurredAt: NOW - 800 }),
+    ]);
+    expect(ladder(ladders, "providers").tiers[0]).toMatchObject({
+      title: "Two-Timer",
+      achievedAt: NOW - 900,
+    });
+    const models = ladder(ladders, "models").tiers;
+    expect(models[0]).toMatchObject({ title: "Curious", achievedAt: NOW - 800 });
+  });
+
+  it("keeps every ladder locked at zero on an empty ledger", () => {
+    const ladders = usageAchievementLadders([]);
+    expect(ladders).toHaveLength(7);
+    expect(earnedAchievements(ladders)).toEqual([]);
+    for (const entry of ladders) {
+      expect(entry.tiers.every((tier) => tier.achievedAt === null)).toBe(true);
+    }
+    // Every ladder still offers its first goal.
+    expect(nextAchievements(ladders)).toHaveLength(7);
+  });
+});
+
+describe("earned and next views", () => {
+  it("orders the trophy case freshest first", () => {
+    const ladders = usageAchievementLadders([
+      event({ occurredAt: NOW - 2 * DAY, tokens: { input: 1_500_000 } }),
+      event({ occurredAt: NOW - 1 * DAY, sessionId: "s2", rootSessionId: "s2" }),
+    ]);
+    const earned = earnedAchievements(ladders);
+    expect(earned.length).toBeGreaterThan(1);
+    for (let i = 1; i < earned.length; i += 1) {
+      expect(earned[i - 1].achievedAt! >= earned[i].achievedAt!).toBe(true);
+    }
+  });
+
+  it("offers exactly one next goal per unfinished ladder", () => {
+    const ladders = usageAchievementLadders([
+      event({ tokens: { input: 15_000_000 } }),
+    ]);
+    const next = nextAchievements(ladders);
+    expect(next.every((tier) => tier.achievedAt === null)).toBe(true);
+    const tokensNext = next.find((tier) => tier.metric === "tokens")!;
+    expect(tokensNext.title).toBe("Heavy Rotation"); // 1M and 10M are earned
+    expect(next.filter((tier) => tier.metric === "tokens")).toHaveLength(1);
+  });
+
+  it("contributes nothing from a completed ladder", () => {
+    const ladders = usageAchievementLadders([
+      event({ tokens: { input: 2e12 } }),
+    ]);
+    expect(
+      nextAchievements(ladders).find((tier) => tier.metric === "tokens"),
+    ).toBeUndefined();
+  });
+});
+
+describe("captions", () => {
+  it("phrases requirements and progress per metric", () => {
+    const ladders = usageAchievementLadders([
+      event({ costSource: "provider", costUsd: 0.25 }),
+    ]);
+    const spend = ladder(ladders, "spendUsd").tiers[0];
+    expect(achievementRequirement(spend)).toBe("$1 provider-reported spend");
+    expect(achievementProgress(spend)).toBe("$0.25 / $1");
+    const streak = ladder(ladders, "streakDays").tiers[0];
+    expect(achievementRequirement(streak)).toBe("3 active days in a row");
+    expect(achievementProgress(streak)).toBe("1 / 3");
+    const tokens = ladder(ladders, "tokens").tiers[0];
+    expect(achievementRequirement(tokens)).toBe("1M tokens all-time");
   });
 });

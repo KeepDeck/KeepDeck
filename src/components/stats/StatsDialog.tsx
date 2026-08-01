@@ -23,7 +23,11 @@ import {
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
 import {
-  usageAchievements,
+  achievementProgress,
+  achievementRequirement,
+  earnedAchievements,
+  nextAchievements,
+  usageAchievementLadders,
   type UsageAchievement,
 } from "../../domain/usage/achievements";
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
@@ -42,8 +46,15 @@ const PERIODS: readonly { period: UsageStatsPeriod; label: string }[] = [
 ];
 
 /** Global usage analytics has its own app surface: it is observational data,
- * not a setting, and it spans every workspace and CLI. */
-export function StatsDialog({ onClose }: { onClose(): void }) {
+ * not a setting, and it spans every workspace and CLI. `initialTab` is the
+ * deep-link entry — an achievement notification opens the trophy case. */
+export function StatsDialog({
+  initialTab,
+  onClose,
+}: {
+  initialTab?: string;
+  onClose(): void;
+}) {
   useEscape(onClose);
   return (
     <ModalOverlay>
@@ -58,7 +69,7 @@ export function StatsDialog({ onClose }: { onClose(): void }) {
           <CloseButton label="Close usage statistics" onClick={onClose} />
         </div>
         <div className="stats-dialog__body">
-          <UsageStats />
+          <UsageStats initialTab={initialTab} />
         </div>
         <div className="confirm__actions">
           <button type="button" className="form__create" onClick={onClose} autoFocus>
@@ -70,27 +81,39 @@ export function StatsDialog({ onClose }: { onClose(): void }) {
   );
 }
 
-type StatsTab = "overview" | "providers" | "models" | "sessions";
+type StatsTab = "overview" | "providers" | "models" | "sessions" | "achievements";
 
 const TABS: readonly { id: StatsTab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "providers", label: "Providers" },
   { id: "models", label: "Models" },
   { id: "sessions", label: "Sessions" },
+  { id: "achievements", label: "Achievements" },
 ];
+
+/** Tabs the period switcher cannot touch: providers run on the provider's
+ * clock, achievements are all-time by definition. */
+const PERIODLESS_TABS: readonly StatsTab[] = ["providers", "achievements"];
+
+function isStatsTab(value: string | undefined): value is StatsTab {
+  return TABS.some((candidate) => candidate.id === value);
+}
 
 /** Detailed local usage analytics. Account-limit windows deliberately remain
  * in the top-bar popover; this view consumes the durable pane ledger plus
  * the live account snapshot for the Providers tab. The period switcher is
  * global; the Providers tab ignores it (subscription windows run on the
  * provider's clock) and Milestones are all-time by definition. */
-export function UsageStats() {
+export function UsageStats({ initialTab }: { initialTab?: string }) {
   const history = useUsageHistorySnapshot();
   const { accounts } = useUsage();
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
-  const [tab, setTab] = useState<StatsTab>("overview");
+  const [tab, setTab] = useState<StatsTab>(
+    isStatsTab(initialTab) ? initialTab : "overview",
+  );
   const now = Date.now();
   const stats = queryUsageStats(history.events, period, now);
+  const periodless = PERIODLESS_TABS.includes(tab);
   const periodEmpty = (
     <p className="stats__empty">No usage recorded in this period yet.</p>
   );
@@ -103,12 +126,12 @@ export function UsageStats() {
           and workspace.
         </p>
         <div
-          className={`stats__period${tab === "providers" ? " stats__period--idle" : ""}`}
+          className={`stats__period${periodless ? " stats__period--idle" : ""}`}
           aria-label="Statistics period"
-          // Providers run on the provider's clock — the period doesn't
-          // apply there, and a switcher that silently does nothing reads
-          // as broken. Disabled, not hidden: hiding would jump the layout.
-          aria-disabled={tab === "providers"}
+          // A switcher that silently does nothing reads as broken, so it
+          // disables on period-independent tabs. Disabled, not hidden:
+          // hiding would jump the header layout.
+          aria-disabled={periodless}
         >
           {PERIODS.map((candidate) => (
             <button
@@ -116,7 +139,7 @@ export function UsageStats() {
               type="button"
               className={candidate.period === period ? "stats__period--active" : ""}
               aria-pressed={candidate.period === period}
-              disabled={tab === "providers"}
+              disabled={periodless}
               onClick={() => setPeriod(candidate.period)}
             >
               {candidate.label}
@@ -152,42 +175,38 @@ export function UsageStats() {
               Some history could not be loaded: {history.error}
             </p>
           )}
-          {tab === "overview" && (
-            <>
-              {stats.eventCount === 0 ? (
-                periodEmpty
-              ) : (
-                <>
-                  <div className="stats__summary">
-                    <Summary
-                      label="Tokens"
-                      value={formatTokens(stats.totals.totalTokens)}
-                    />
-                    <Summary
-                      label="Cost"
-                      value={displayCost(
-                        stats.totals.providerCostUsd,
-                        stats.totals.costEvents,
-                      )}
-                    />
-                    <Summary label="Sessions" value={String(stats.sessionCount)} />
-                  </div>
-                  <UsageChart events={history.events} period={period} now={now} />
-                  <Highlights
-                    recap={usageRecap(history.events, period, now)}
-                    period={period}
+          {tab === "overview" &&
+            (stats.eventCount === 0 ? (
+              periodEmpty
+            ) : (
+              <>
+                <div className="stats__summary">
+                  <Summary
+                    label="Tokens"
+                    value={formatTokens(stats.totals.totalTokens)}
                   />
-                  <p className="stats__coverage">
-                    {costCoverage(
-                      stats.sessions.filter((row) => row.costEvents > 0).length,
-                      stats.sessionCount,
+                  <Summary
+                    label="Cost"
+                    value={displayCost(
+                      stats.totals.providerCostUsd,
+                      stats.totals.costEvents,
                     )}
-                  </p>
-                </>
-              )}
-              <Achievements events={history.events} />
-            </>
-          )}
+                  />
+                  <Summary label="Sessions" value={String(stats.sessionCount)} />
+                </div>
+                <UsageChart events={history.events} period={period} now={now} />
+                <Highlights
+                  recap={usageRecap(history.events, period, now)}
+                  period={period}
+                />
+                <p className="stats__coverage">
+                  {costCoverage(
+                    stats.sessions.filter((row) => row.costEvents > 0).length,
+                    stats.sessionCount,
+                  )}
+                </p>
+              </>
+            ))}
           {tab === "providers" && (
             <Providers accounts={accounts} events={history.events} now={now} />
           )}
@@ -208,6 +227,7 @@ export function UsageStats() {
                 mode="session"
               />
             ))}
+          {tab === "achievements" && <Achievements events={history.events} />}
         </>
       )}
     </div>
@@ -326,63 +346,74 @@ function providerRowKey(row: ProviderWindowRow): string {
   );
 }
 
-/** The full achievements catalog — earned badges dated, locked ones shown
- * with progress toward their threshold, so "what can I still earn" is
- * always on screen. */
+/** The achievements tab, Steam-style: the trophy case of earned badges
+ * (freshest first) above, the still-earnable goals below — one next goal
+ * per ladder with progress; distant tiers stay hidden until the previous
+ * one is won. */
 function Achievements({ events }: { events: readonly UsageEventV2[] }) {
-  const achievements = usageAchievements(events);
+  const ladders = usageAchievementLadders(events);
+  const earned = earnedAchievements(ladders);
+  const upNext = nextAchievements(ladders);
   return (
-    <section className="stats__section">
-      <h3>Achievements</h3>
-      <div className="stats__achievements">
-        {achievements.map((item) => (
-          <article
-            key={item.id}
-            className={`stats__achievement${
-              item.achievedAt === null ? " stats__achievement--locked" : ""
-            }`}
-          >
-            <span className="stats__achievement-icon" aria-hidden>
-              {item.icon}
-            </span>
-            <b>{item.title}</b>
-            <small>{requirementCaption(item)}</small>
-            {item.achievedAt !== null ? (
-              <small className="stats__achievement-earned">
-                earned {formatUtcDay(item.achievedAt, true)}
-              </small>
-            ) : (
-              <>
-                <span className="stats__achievement-progress" aria-hidden>
-                  <i
-                    style={{
-                      width: `${Math.min(
-                        100,
-                        (item.progress / item.threshold) * 100,
-                      )}%`,
-                    }}
-                  />
-                </span>
-                <small>{progressCaption(item)}</small>
-              </>
-            )}
-          </article>
-        ))}
-      </div>
-    </section>
+    <>
+      <section className="stats__section">
+        <h3>Earned</h3>
+        {earned.length === 0 ? (
+          <p className="stats__empty">
+            Nothing earned yet — the goals below are waiting.
+          </p>
+        ) : (
+          <div className="stats__achievements">
+            {earned.map((item) => (
+              <AchievementCard key={item.id} item={item} />
+            ))}
+          </div>
+        )}
+      </section>
+      {upNext.length > 0 && (
+        <section className="stats__section">
+          <h3>Up next</h3>
+          <div className="stats__achievements">
+            {upNext.map((item) => (
+              <AchievementCard key={item.id} item={item} />
+            ))}
+          </div>
+        </section>
+      )}
+    </>
   );
 }
 
-function requirementCaption(item: UsageAchievement): string {
-  return item.kind === "tokens"
-    ? `${formatTokens(item.threshold)} tokens all-time`
-    : `${item.threshold} sessions all-time`;
-}
-
-function progressCaption(item: UsageAchievement): string {
-  return item.kind === "tokens"
-    ? `${formatTokens(item.progress)} / ${formatTokens(item.threshold)}`
-    : `${item.progress} / ${item.threshold}`;
+function AchievementCard({ item }: { item: UsageAchievement }) {
+  return (
+    <article
+      className={`stats__achievement${
+        item.achievedAt === null ? " stats__achievement--locked" : ""
+      }`}
+    >
+      <span className="stats__achievement-icon" aria-hidden>
+        {item.icon}
+      </span>
+      <b>{item.title}</b>
+      <small>{achievementRequirement(item)}</small>
+      {item.achievedAt !== null ? (
+        <small className="stats__achievement-earned">
+          earned {formatUtcDay(item.achievedAt, true)}
+        </small>
+      ) : (
+        <>
+          <span className="stats__achievement-progress" aria-hidden>
+            <i
+              style={{
+                width: `${Math.min(100, (item.progress / item.threshold) * 100)}%`,
+              }}
+            />
+          </span>
+          <small>{achievementProgress(item)}</small>
+        </>
+      )}
+    </article>
+  );
 }
 
 /** The period's numbers with their context — movement against the prior

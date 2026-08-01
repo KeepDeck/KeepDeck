@@ -173,7 +173,7 @@ describe("UsageStats", () => {
     expect(card.querySelectorAll(".usage-bar")).toHaveLength(2);
   });
 
-  it("shows the full achievements catalog: earned dated, locked with progress", () => {
+  it("splits the achievements tab into Earned and Up next, hiding distant tiers", () => {
     history.snapshot = {
       ready: true,
       events: [
@@ -182,22 +182,39 @@ describe("UsageStats", () => {
       error: null,
     };
     act(() => root.render(createElement(UsageStats)));
+    clickTab("Achievements");
 
-    const gallery = host.querySelector(".stats__achievements")!;
-    expect(gallery.querySelectorAll(".stats__achievement")).toHaveLength(11);
-    expect(gallery.querySelectorAll(".stats__achievement--locked")).toHaveLength(10);
-
-    const earned = gallery.querySelector(
-      ".stats__achievement:not(.stats__achievement--locked)",
+    const sections = [...host.querySelectorAll(".stats__section")];
+    const earned = sections.find(
+      (section) => section.querySelector("h3")?.textContent === "Earned",
     )!;
+    const upNext = sections.find(
+      (section) => section.querySelector("h3")?.textContent === "Up next",
+    )!;
+
     expect(earned.textContent).toContain("First Million");
     expect(earned.textContent).toContain("earned Jul 22, 2026");
+    expect(earned.textContent).toContain("Hello, Agent");
 
-    // Locked entries stay visible and show progress toward their threshold.
-    expect(gallery.textContent).toContain("Picking Up Steam");
-    expect(gallery.textContent).toContain("2M / 10M");
-    expect(gallery.textContent).toContain("Trillionaire");
-    expect(gallery.textContent).toContain("1 / 10");
+    // One next goal per ladder, with progress…
+    expect(upNext.textContent).toContain("Picking Up Steam");
+    expect(upNext.textContent).toContain("2M / 10M");
+    expect(upNext.textContent).toContain("First Dollar");
+    expect(upNext.textContent).toContain("$0.25 / $1");
+    expect(upNext.textContent).toContain("Hat-Trick");
+    // …and the tiers beyond stay hidden until the previous one is won.
+    expect(host.textContent).not.toContain("Heavy Rotation");
+    expect(host.textContent).not.toContain("Trillionaire");
+  });
+
+  it("opens directly on a deep-linked tab", () => {
+    act(() =>
+      root.render(createElement(UsageStats, { initialTab: "achievements" })),
+    );
+    expect(host.textContent).toContain("Up next");
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toBe(
+      "Achievements",
+    );
   });
 
   it("disables the period switcher on the period-independent Providers tab", () => {
@@ -209,6 +226,9 @@ describe("UsageStats", () => {
     clickTab("Providers");
     expect(periodButton().disabled).toBe(true);
     expect(host.querySelector(".stats__period--idle")).not.toBeNull();
+
+    clickTab("Achievements");
+    expect(periodButton().disabled).toBe(true);
 
     clickTab("Overview");
     expect(periodButton().disabled).toBe(false);
