@@ -3,6 +3,7 @@ import {
   chipWindows,
   contextLevel,
   formatAge,
+  formatBucket,
   formatCountdown,
   formatPct,
   formatTokens,
@@ -181,6 +182,24 @@ describe("staleness and age", () => {
     expect(formatAge(NOW - 5000, NOW)).toBe("now");
     expect(formatAge(NOW - 3 * 60_000, NOW)).toBe("3m ago");
     expect(formatAge(NOW - 2 * 3_600_000, NOW)).toBe("2h ago");
+  });
+});
+
+describe("formatBucket", () => {
+  const AT = Date.parse("2026-07-22T14:00:00.000Z");
+  it("labels hour buckets in UTC — the buckets themselves are UTC-aligned", () => {
+    // In a :30/:45-offset zone a local rendering would read "19:30" for a
+    // UTC-hour bucket; the label speaks the bucket's own clock instead.
+    expect(formatBucket(AT, "hour")).toBe("14:00");
+    expect(formatBucket(AT, "hour", "long")).toBe("Jul 22, 14:00 UTC");
+    expect(formatBucket(Date.parse("2026-07-22T00:00:00.000Z"), "hour")).toBe(
+      "00:00",
+    );
+  });
+
+  it("labels day buckets as UTC days, dated fully in the long form", () => {
+    expect(formatBucket(AT, "day")).toBe("Jul 22");
+    expect(formatBucket(AT, "day", "long")).toBe("Jul 22, 2026");
   });
 });
 

@@ -9,7 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { formatTokens, formatUtcDay } from "../../domain/usage";
+import { formatBucket, formatTokens } from "../../domain/usage";
 import {
   agentSeriesColors,
   CHART_AXIS,
@@ -51,28 +51,6 @@ const TITLES: Record<Granularity, string> = {
   day: "Daily tokens",
 };
 
-/** Hour buckets are absolute instants, so their labels speak the user's
- * LOCAL clock — a "last 24h" axis in UTC hours would genuinely mislead.
- * Day buckets stay UTC-labeled to match their UTC boundaries. */
-function bucketLabel(
-  start: number,
-  granularity: Granularity,
-  long = false,
-): string {
-  if (granularity === "day") return formatUtcDay(start, long);
-  const time = new Date(start).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  if (!long) return time;
-  const day = new Date(start).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-  return `${day}, ${time}`;
-}
-
 export function UsageChart({
   events,
   period,
@@ -104,7 +82,7 @@ export function UsageChart({
           <XAxis
             dataKey="start"
             tickFormatter={(value: number) =>
-              bucketLabel(value, timeline.granularity)
+              formatBucket(value, timeline.granularity)
             }
             tick={{ fill: CHART_TICK_INK, fontSize: 10 }}
             axisLine={{ stroke: CHART_AXIS }}
@@ -133,7 +111,7 @@ export function UsageChart({
             labelStyle={{ color: CHART_LABEL_INK, marginBottom: 4 }}
             formatter={(value) => formatTokens(Number(value))}
             labelFormatter={(value) =>
-              bucketLabel(Number(value), timeline.granularity, true)
+              formatBucket(Number(value), timeline.granularity, "long")
             }
           />
           <Legend
