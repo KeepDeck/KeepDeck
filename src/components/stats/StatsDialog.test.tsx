@@ -173,7 +173,7 @@ describe("UsageStats", () => {
     expect(card.querySelectorAll(".usage-bar")).toHaveLength(2);
   });
 
-  it("shows earned milestones with dates and the next one with progress", () => {
+  it("shows the full achievements catalog: earned dated, locked with progress", () => {
     history.snapshot = {
       ready: true,
       events: [
@@ -183,11 +183,21 @@ describe("UsageStats", () => {
     };
     act(() => root.render(createElement(UsageStats)));
 
-    const milestones = host.querySelector(".stats__milestones")!;
-    expect(milestones.textContent).toContain("1M tokens");
-    expect(milestones.textContent).toContain("Jul 22, 2026");
-    expect(milestones.textContent).toContain("next: 10M tokens");
-    expect(milestones.textContent).toContain("2M all-time so far");
+    const gallery = host.querySelector(".stats__achievements")!;
+    expect(gallery.querySelectorAll(".stats__achievement")).toHaveLength(11);
+    expect(gallery.querySelectorAll(".stats__achievement--locked")).toHaveLength(10);
+
+    const earned = gallery.querySelector(
+      ".stats__achievement:not(.stats__achievement--locked)",
+    )!;
+    expect(earned.textContent).toContain("First Million");
+    expect(earned.textContent).toContain("earned Jul 22, 2026");
+
+    // Locked entries stay visible and show progress toward their threshold.
+    expect(gallery.textContent).toContain("Picking Up Steam");
+    expect(gallery.textContent).toContain("2M / 10M");
+    expect(gallery.textContent).toContain("Trillionaire");
+    expect(gallery.textContent).toContain("1 / 10");
   });
 
   it("demotes expired and stale provider windows instead of joining them", () => {

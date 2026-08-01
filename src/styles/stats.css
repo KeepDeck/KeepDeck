@@ -281,32 +281,68 @@
   font-size: 10px;
 }
 
-.stats__milestones {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+/* Achievements — badge cards; locked ones go dashed with a grayscale icon
+   and a progress bar, so the earnable tail is always on screen. */
+.stats__achievements {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
 }
 
-.stats__milestone {
+.stats__achievement {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 10px;
+  gap: 4px;
+  padding: 10px 12px;
   border: 1px solid #1c2230;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #0b0e14;
-  color: #c5c8c6;
-  font-size: 11px;
 }
 
-.stats__milestone small {
+.stats__achievement-icon {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.stats__achievement b {
+  color: #c5c8c6;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stats__achievement small {
   color: #596273;
   font-size: 10px;
 }
 
-.stats__milestone--next {
-  border-style: dashed;
+.stats__achievement-earned {
   color: #9aa3af;
+}
+
+.stats__achievement--locked {
+  border-style: dashed;
+}
+
+.stats__achievement--locked .stats__achievement-icon {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.stats__achievement-progress {
+  position: relative;
+  display: block;
+  height: 3px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: #1c2230;
+  overflow: hidden;
+}
+
+.stats__achievement-progress i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: #58b368;
 }
 
 @media (max-width: 720px) {

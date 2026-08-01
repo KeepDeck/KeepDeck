@@ -23,9 +23,9 @@ import {
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
 import {
-  usageMilestones,
-  type UsageMilestone,
-} from "../../domain/usage/milestones";
+  usageAchievements,
+  type UsageAchievement,
+} from "../../domain/usage/achievements";
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { UsageChart } from "./UsageChart";
@@ -177,7 +177,7 @@ export function UsageStats() {
                   </p>
                 </>
               )}
-              <Milestones events={history.events} />
+              <Achievements events={history.events} />
             </>
           )}
           {tab === "providers" && (
@@ -318,43 +318,63 @@ function providerRowKey(row: ProviderWindowRow): string {
   );
 }
 
-/** All-time achievements recomputed from the full ledger — earned badges
- * newest-first, led by the progress toward the next token milestone. */
-function Milestones({ events }: { events: readonly UsageEventV2[] }) {
-  const milestones = usageMilestones(events);
-  if (milestones.earned.length === 0 && milestones.nextTokens === null) {
-    return null;
-  }
+/** The full achievements catalog — earned badges dated, locked ones shown
+ * with progress toward their threshold, so "what can I still earn" is
+ * always on screen. */
+function Achievements({ events }: { events: readonly UsageEventV2[] }) {
+  const achievements = usageAchievements(events);
   return (
     <section className="stats__section">
-      <h3>Milestones</h3>
-      <div className="stats__milestones">
-        {milestones.nextTokens && (
-          <span className="stats__milestone stats__milestone--next">
-            next: {formatTokens(milestones.nextTokens.threshold)} tokens
-            <small>
-              {formatTokens(milestones.nextTokens.totalTokens)} all-time so far
-            </small>
-          </span>
-        )}
-        {[...milestones.earned].reverse().map((milestone) => (
-          <span
-            className="stats__milestone"
-            key={`${milestone.kind}-${milestone.threshold}`}
+      <h3>Achievements</h3>
+      <div className="stats__achievements">
+        {achievements.map((item) => (
+          <article
+            key={item.id}
+            className={`stats__achievement${
+              item.achievedAt === null ? " stats__achievement--locked" : ""
+            }`}
           >
-            {milestoneLabel(milestone)}
-            <small>{formatUtcDay(milestone.achievedAt, true)}</small>
-          </span>
+            <span className="stats__achievement-icon" aria-hidden>
+              {item.icon}
+            </span>
+            <b>{item.title}</b>
+            <small>{requirementCaption(item)}</small>
+            {item.achievedAt !== null ? (
+              <small className="stats__achievement-earned">
+                earned {formatUtcDay(item.achievedAt, true)}
+              </small>
+            ) : (
+              <>
+                <span className="stats__achievement-progress" aria-hidden>
+                  <i
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        (item.progress / item.threshold) * 100,
+                      )}%`,
+                    }}
+                  />
+                </span>
+                <small>{progressCaption(item)}</small>
+              </>
+            )}
+          </article>
         ))}
       </div>
     </section>
   );
 }
 
-function milestoneLabel(milestone: UsageMilestone): string {
-  return milestone.kind === "tokens"
-    ? `${formatTokens(milestone.threshold)} tokens`
-    : `${milestone.threshold} sessions`;
+function requirementCaption(item: UsageAchievement): string {
+  return item.kind === "tokens"
+    ? `${formatTokens(item.threshold)} tokens all-time`
+    : `${item.threshold} sessions all-time`;
+}
+
+function progressCaption(item: UsageAchievement): string {
+  return item.kind === "tokens"
+    ? `${formatTokens(item.progress)} / ${formatTokens(item.threshold)}`
+    : `${item.progress} / ${item.threshold}`;
 }
 
 /** The period's numbers with their context — movement against the prior
