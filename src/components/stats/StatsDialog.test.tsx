@@ -153,17 +153,24 @@ describe("UsageStats", () => {
     act(() => root.render(createElement(UsageStats)));
     clickTab("Providers");
 
-    const providers = host.querySelector('[aria-label="Providers"]')!;
-    expect(providers.textContent).toContain("codex");
-    expect(providers.textContent).toContain("5h window");
-    expect(providers.textContent).toContain("34%");
-    expect(providers.textContent).toContain("resets in 2h 0m");
-    expect(providers.textContent).toContain("1.6k");
-    expect(providers.textContent).toContain("1 session · ≈$0.25");
+    // One card per provider: the name and report age appear exactly once.
+    const cards = host.querySelectorAll(".stats__provider");
+    expect(cards).toHaveLength(1);
+    const card = cards[0];
+    expect(card.querySelector(".stats__provider-head")!.textContent).toBe(
+      "codexupdated 1m ago",
+    );
+    expect(card.querySelectorAll(".stats__window")).toHaveLength(2);
+    expect(card.textContent).toContain("5h");
+    expect(card.textContent).toContain("34%");
+    expect(card.textContent).toContain("resets in 2h 0m");
+    expect(card.textContent).toContain("1.6k · 1 session · ≈$0.25 this window");
     // The weekly window has no reset instant: percentage without a join.
-    expect(providers.textContent).toContain("week window");
-    expect(providers.textContent).toContain("51%");
-    expect(providers.textContent).toContain("reset unknown");
+    expect(card.textContent).toContain("week");
+    expect(card.textContent).toContain("51%");
+    expect(card.textContent).toContain("reset unknown");
+    // Both windows draw the shared popover fill bar.
+    expect(card.querySelectorAll(".usage-bar")).toHaveLength(2);
   });
 
   it("shows earned milestones with dates and the next one with progress", () => {
@@ -198,16 +205,19 @@ describe("UsageStats", () => {
     act(() => root.render(createElement(UsageStats)));
     clickTab("Providers");
 
-    const providers = host.querySelector('[aria-label="Providers"]')!;
-    const rows = [...providers.querySelectorAll(".stats__row")];
-    // Expired 5h window: no ledger numbers, an explicit reason instead.
-    expect(rows[0].textContent).toContain("reset passed");
-    expect(rows[0].textContent).toContain("—");
-    expect(rows[0].textContent).not.toContain("1.6k");
-    // Live weekly window: joined, but demoted as stale.
-    expect(rows[1].textContent).toContain("1.6k");
-    expect(rows[1].textContent).toContain("updated 2h ago");
-    expect(rows[1].className).toContain("stats__row--muted");
+    const card = host.querySelector(".stats__provider")!;
+    // The stale report age is announced once, in the card header.
+    expect(card.querySelector(".stats__provider-head")!.textContent).toContain(
+      "updated 2h ago",
+    );
+    const windows = [...card.querySelectorAll(".stats__window")];
+    // Expired 5h window: no ledger numbers, an explicit reason, demoted look.
+    expect(windows[0].textContent).toContain("reset passed");
+    expect(windows[0].textContent).not.toContain("1.6k");
+    expect(windows[0].className).toContain("stats__window--expired");
+    // Live weekly window: joined despite the stale report.
+    expect(windows[1].textContent).toContain("1.6k");
+    expect(windows[1].className).not.toContain("stats__window--expired");
   });
 
   it("labels a live window with zero ledger activity honestly", () => {

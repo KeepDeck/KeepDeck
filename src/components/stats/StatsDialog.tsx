@@ -6,10 +6,10 @@ import {
   formatPct,
   formatTokens,
   formatUtcDay,
+  limitLevel,
   windowLabel,
   windowResetCaption,
   type AccountUsage,
-  type UsageWindow,
 } from "../../domain/usage";
 import {
   queryUsageStats,
@@ -27,6 +27,7 @@ import {
   type UsageMilestone,
 } from "../../domain/usage/milestones";
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
+import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { UsageChart } from "./UsageChart";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -206,10 +207,12 @@ export function UsageStats() {
 }
 
 /** Per-provider rate-limit windows joined with ledger spend inside each
- * window's current interval. Provider %, reset countdown and the ledger
- * numbers keep separate sources — the section never derives one from the
- * other. Period-independent by design: a subscription window is the
- * provider's clock, not the user's selected range. */
+ * window's current interval — one card per provider, so the name and the
+ * report age appear once instead of repeating on every window. Provider %,
+ * reset countdown and the ledger numbers keep separate sources — the
+ * section never derives one from the other. Period-independent by design:
+ * a subscription window is the provider's clock, not the user's selected
+ * range. */
 function Providers({
   accounts,
   events,
@@ -228,51 +231,77 @@ function Providers({
       </p>
     );
   }
+  const groups: {
+    agent: string;
+    reportedAt: number;
+    stale: boolean;
+    rows: ProviderWindowRow[];
+  }[] = [];
+  for (const row of rows) {
+    const last = groups[groups.length - 1];
+    if (last?.agent === row.agent) last.rows.push(row);
+    else {
+      groups.push({
+        agent: row.agent,
+        reportedAt: row.reportedAt,
+        stale: row.stale,
+        rows: [row],
+      });
+    }
+  }
   return (
     <section className="stats__section">
       <h3>Providers</h3>
-      <div className="stats__table" role="table" aria-label="Providers">
-        {rows.map((row) => (
-          <div
-            className={`stats__row${
-              row.expired || row.stale ? " stats__row--muted" : ""
-            }`}
-            role="row"
-            key={providerRowKey(row)}
-          >
-            <span className="stats__identity" role="cell">
-              <b>{row.agent}</b>
-              <small>{providerWindowCaption(row.window)}</small>
-            </span>
-            <span className="stats__tokens" role="cell">
-              {row.ledger && row.ledger.sessionCount > 0
-                ? formatTokens(row.ledger.totalTokens)
-                : "—"}
-              <small>
-                {row.ledger
-                  ? row.ledger.sessionCount > 0
-                    ? ledgerCaption(row.ledger)
-                    : "no usage this window"
-                  : ""}
+      <div className="stats__providers" aria-label="Providers">
+        {groups.map((group) => (
+          <article className="stats__provider" key={group.agent}>
+            <header className="stats__provider-head">
+              <b>{group.agent}</b>
+              <small className={group.stale ? "usage-level--warn" : ""}>
+                updated {formatAge(group.reportedAt, now)}
               </small>
-            </span>
-            <span className="stats__cost" role="cell">
-              {formatPct(row.window.usedPct, "used")}
-              <small>
-                {row.expired ? "reset passed" : windowResetCaption(row.window, now)}
-              </small>
-              {row.stale && <small>updated {formatAge(row.reportedAt, now)}</small>}
-            </span>
-          </div>
+            </header>
+            {group.rows.map((row) => (
+              <ProviderWindow key={providerRowKey(row)} row={row} now={now} />
+            ))}
+          </article>
         ))}
       </div>
     </section>
   );
 }
 
-function providerWindowCaption(window: UsageWindow): string {
-  const label = windowLabel(window, "long");
-  return window.windowMinutes !== null ? `${label} window` : label;
+function ProviderWindow({ row, now }: { row: ProviderWindowRow; now: number }) {
+  const level = limitLevel(row.window.usedPct);
+  return (
+    <div
+      className={`stats__window${row.expired ? " stats__window--expired" : ""}`}
+    >
+      <div className="stats__window-head">
+        <span>{windowLabel(row.window, "long")}</span>
+        <span
+          className={
+            !row.expired && level !== "ok" ? `usage-level--${level}` : ""
+          }
+        >
+          {formatPct(row.window.usedPct, "used")}
+        </span>
+      </div>
+      <UsageWindowBar window={row.window} now={now} />
+      <small>
+        {row.expired ? "reset passed" : windowResetCaption(row.window, now)}
+      </small>
+      {row.ledger && (
+        <small>
+          {row.ledger.sessionCount > 0
+            ? `${formatTokens(row.ledger.totalTokens)} · ${ledgerCaption(
+                row.ledger,
+              )} this window`
+            : "no usage this window"}
+        </small>
+      )}
+    </div>
+  );
 }
 
 function ledgerCaption(ledger: ProviderWindowLedger): string {

@@ -23,6 +23,7 @@ import { useSettings } from "../../app/useSettings";
 import { useUsage } from "../../app/useUsage";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
+import { UsageWindowBar } from "./UsageWindowBar";
 
 /**
  * The top-bar usage cluster: one chip per ACCOUNT-LIMIT-capable agent with a
@@ -60,22 +61,11 @@ function WindowValue({
   );
 }
 
-/** The panel's fill bar. Chips deliberately carry NONE: a bar next to one
- * number but not its neighbor read as noise (field report) — the chip is
- * numbers only, the panel visualizes. */
-function Bar({ window, now }: { window: UsageWindow; now: number }) {
-  const level = limitLevel(window.usedPct);
-  return (
-    <span className="usage-bar" aria-hidden>
-      <i
-        className={
-          windowExpired(window, now) || level === "ok" ? "" : `usage-level--${level}`
-        }
-        style={{ width: `${Math.round(window.usedPct)}%` }}
-      />
-    </span>
-  );
-}
+/** The panel's fill bar — shared with the Stats Providers cards. Chips
+ * deliberately carry NONE: a bar next to one number but not its neighbor
+ * read as noise (field report) — the chip is numbers only, the panel
+ * visualizes. */
+const Bar = UsageWindowBar;
 
 function UsageChip({
   agent,

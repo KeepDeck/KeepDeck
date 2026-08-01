@@ -222,11 +222,63 @@
   text-align: right;
 }
 
-/* An expired or stale provider window: the numbers demote instead of lying
-   confidently; the identity stays readable so the row remains findable. */
-.stats__row--muted .stats__tokens,
-.stats__row--muted .stats__cost {
+/* Providers — one card per provider, windows stacked inside with the
+   popover's shared usage-bar fills. */
+.stats__providers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 8px;
+}
+
+.stats__provider {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background: #0b0e14;
+}
+
+.stats__provider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.stats__provider-head b {
+  color: #c5c8c6;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.stats__provider-head small {
+  color: #596273;
+  font-size: 10px;
+}
+
+.stats__window {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* An expired window: the numbers demote instead of lying confidently. */
+.stats__window--expired {
   opacity: 0.55;
+}
+
+.stats__window-head {
+  display: flex;
+  justify-content: space-between;
+  color: #9aa3af;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats__window small {
+  color: #596273;
+  font-size: 10px;
 }
 
 .stats__milestones {
