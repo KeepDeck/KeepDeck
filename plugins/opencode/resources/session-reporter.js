@@ -198,7 +198,72 @@ export default async (input = {}) => {
     return windowByModel.get(modelKey(providerID, modelID));
   };
 
+  /** One turn-lifecycle edge for the pane — `agent.status` protocol. Only
+   * the fields the status normalizer reads travel; the raw bus event stays
+   * in this process. */
+  const reportStatus = (type, extra = {}) =>
+    publish({
+      v: 1,
+      type: "agent.status",
+      paneId: pane,
+      token,
+      payload: { agent: "opencode", event: { type, ...extra } },
+    });
+
+  /** Whether a session-scoped event describes the PANE's conversation: the
+   * active root itself — never a subagent child (a child going busy/idle is
+   * not the pane's turn boundary) — and any non-child session before a root
+   * is known, because a status edge beating `session.created` should still
+   * land rather than strand the pane. */
+  const concernsPane = (sessionID) => {
+    if (!sessionID || childRoots.has(sessionID)) return false;
+    return !activeRoot || sessionID === activeRoot;
+  };
+
   const handle = async (event) => {
+    if (event?.type === "session.status") {
+      const props = event.properties ?? {};
+      const status =
+        typeof props.status === "object" ? props.status?.type : props.status;
+      // Only `busy` marks a turn starting; the idle STATUS is redundant with
+      // the explicit session.idle event below.
+      if (status === "busy" && concernsPane(props.sessionID)) {
+        reportStatus("session.status");
+      }
+      return;
+    }
+    if (event?.type === "session.idle") {
+      // Fires on completion AND on a user interrupt — either way the turn
+      // is over, which is why opencode needs no transcript-marker recovery.
+      if (concernsPane(event.properties?.sessionID)) {
+        reportStatus("session.idle");
+      }
+      return;
+    }
+    if (event?.type === "session.error") {
+      const props = event.properties ?? {};
+      if (concernsPane(props.sessionID)) {
+        const name = props.error?.name;
+        reportStatus(
+          "session.error",
+          typeof name === "string" && name !== "" ? { error: name } : {},
+        );
+      }
+      return;
+    }
+    // Permission prompts park the whole TUI regardless of which session
+    // asked — no root filter.
+    if (event?.type === "permission.asked") {
+      reportStatus("permission.asked");
+      return;
+    }
+    if (event?.type === "permission.replied") {
+      // Even a REJECT keeps the turn in flight (the model receives the
+      // denial, produces text, then idles) — every reply reads as resumed.
+      reportStatus("permission.replied");
+      return;
+    }
+
     if (event?.type === "session.created") {
       // Root sessions only. opencode's task/subagent tool creates CHILD
       // sessions in this same process, each firing `session.created` with
