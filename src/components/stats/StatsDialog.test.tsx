@@ -233,7 +233,7 @@ describe("UsageStats", () => {
     expect(earnedTip.textContent).toContain("Earned Jul 22, 2026");
   });
 
-  it("shows the live streak chip with its heat tier", () => {
+  it("shows the live streak chip at the tab row's edge with its heat tier", () => {
     const DAY = 24 * 60 * 60 * 1_000;
     history.snapshot = {
       ready: true,
@@ -244,7 +244,8 @@ describe("UsageStats", () => {
     };
     act(() => root.render(createElement(UsageStats)));
 
-    const chip = host.querySelector(".stats__streak")!;
+    const row = host.querySelector(".stats__tabrow")!;
+    const chip = row.querySelector(".stats__streak")!;
     expect(chip.getAttribute("aria-label")).toBe("4-day streak");
     expect(chip.className).toContain("stats__streak--ember");
     expect(chip.querySelector(".stats__streak-flame")).not.toBeNull();

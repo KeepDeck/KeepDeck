@@ -127,7 +127,6 @@ export function UsageStats({ initialTab }: { initialTab?: string }) {
           Local token history and provider-reported cost estimates across every CLI
           and workspace.
         </p>
-        <StreakBadge events={history.events} now={now} />
         <div
           className={`stats__period${periodless ? " stats__period--idle" : ""}`}
           aria-label="Statistics period"
@@ -150,19 +149,22 @@ export function UsageStats({ initialTab }: { initialTab?: string }) {
           ))}
         </div>
       </div>
-      <div className="stats__tabs" role="tablist" aria-label="Statistics sections">
-        {TABS.map((candidate) => (
-          <button
-            key={candidate.id}
-            type="button"
-            role="tab"
-            aria-selected={candidate.id === tab}
-            className={`stats__tab${candidate.id === tab ? " stats__tab--active" : ""}`}
-            onClick={() => setTab(candidate.id)}
-          >
-            {candidate.label}
-          </button>
-        ))}
+      <div className="stats__tabrow">
+        <div className="stats__tabs" role="tablist" aria-label="Statistics sections">
+          {TABS.map((candidate) => (
+            <button
+              key={candidate.id}
+              type="button"
+              role="tab"
+              aria-selected={candidate.id === tab}
+              className={`stats__tab${candidate.id === tab ? " stats__tab--active" : ""}`}
+              onClick={() => setTab(candidate.id)}
+            >
+              {candidate.label}
+            </button>
+          ))}
+        </div>
+        <StreakBadge />
       </div>
 
       {!history.ready ? (

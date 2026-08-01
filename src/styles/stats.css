@@ -72,13 +72,15 @@
 }
 
 /* The active tab doesn't consume the period (Providers): the switcher goes
-   quiet instead of pretending to work. */
+   quiet instead of pretending to work — including the hover highlight,
+   which pointer-events kills on the disabled buttons. */
 .stats__period--idle {
   opacity: 0.4;
 }
 
 .stats__period--idle button {
   cursor: default;
+  pointer-events: none;
 }
 
 /* The streak chip — heat tiers escalate the look as the streak grows. */
@@ -86,15 +88,18 @@
   position: relative;
   display: inline-flex;
   flex: none;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
-  align-self: flex-start;
   padding: 5px 12px;
   border: 1px solid #1c2230;
   border-radius: 999px;
   background: #0b0e14;
   color: #9aa3af;
   font-size: 12px;
+  line-height: 1;
+  /* A badge, not text: arrow cursor, no accidental selection. */
+  cursor: default;
+  user-select: none;
 }
 
 .stats__streak b {
@@ -198,12 +203,24 @@
 }
 
 /* Tab strip — the dock panel's pattern: quiet labels, an underline carries
-   the selection. */
+   the selection. The row also carries the streak chip at its right edge:
+   period-independent, visible from every tab, competing with nothing. */
+.stats__tabrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid #1c2230;
+}
+
+.stats__tabrow .stats__streak {
+  margin-bottom: 6px;
+}
+
 .stats__tabs {
   display: flex;
   gap: 2px;
-  margin-bottom: 14px;
-  border-bottom: 1px solid #1c2230;
 }
 
 .stats__tab {

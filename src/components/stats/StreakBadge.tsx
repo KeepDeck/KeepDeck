@@ -1,21 +1,19 @@
+import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { currentStreakDays, streakHeat } from "../../domain/usage/streak";
-import type { UsageEventV2 } from "../../domain/usage/history";
 
 /**
  * The live streak chip — Duolingo-style escalation: the longer the streak,
  * the louder the look. Tiers (from `streakHeat`): a plain count, a still
- * ember from 3 days, a flickering flame from 7, a glowing gradient number
+ * ember from 3 days, a flickering flame from 7, a molten gradient number
  * from 30, and sparks rising off the chip from 100. All CSS; animations
  * bow out under prefers-reduced-motion.
+ *
+ * Self-sufficient (reads the ledger itself) so it can sit in the dialog's
+ * corner, outside the tab body.
  */
-export function StreakBadge({
-  events,
-  now,
-}: {
-  events: readonly UsageEventV2[];
-  now: number;
-}) {
-  const days = currentStreakDays(events, now);
+export function StreakBadge() {
+  const history = useUsageHistorySnapshot();
+  const days = currentStreakDays(history.events, Date.now());
   if (days === 0) return null;
   const heat = streakHeat(days);
   return (
