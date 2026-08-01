@@ -18,6 +18,7 @@ import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useMinimizeMode } from "./useMinimizeMode";
 import { useModalRouter } from "./useModalRouter";
 import { setSourceVisibilityProbe } from "./notificationCenter";
+import { initActivityNotifications } from "./notificationProducers";
 import { workspaceForNotification } from "./notificationNavigation";
 import { useNotifications } from "./useNotifications";
 import { usePaneDrag } from "./usePaneDrag";
@@ -257,6 +258,15 @@ export function useAppController() {
     });
     return () => setSourceVisibilityProbe(null);
   }, []);
+  // Announce the transitions worth leaving the app for: needs-you, finished,
+  // failed. A ref, not a dependency — the subscription mounts once and reads
+  // the deck facts at announce time.
+  const activityFactsRef = useRef({ workspaces: deck.workspaces, agents });
+  activityFactsRef.current = { workspaces: deck.workspaces, agents };
+  useEffect(
+    () => initActivityNotifications(() => activityFactsRef.current),
+    [],
+  );
   useMenuHotkeys({
     newWorkspace: () => {
       if (modalOpen) return;

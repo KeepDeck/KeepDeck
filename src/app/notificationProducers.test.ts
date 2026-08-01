@@ -1,13 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import {
+  initActivityNotifications,
   initUpdateNotifications,
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
   pluginNotificationSource,
   resetUpdateNotifications,
 } from "./notificationProducers";
+import { agentStatusTracker } from "./agentStatusTracker";
 
 const center = vi.hoisted(() => ({
   notify: vi.fn(),
@@ -200,5 +202,97 @@ describe("update producer", () => {
     updates.fire("downloading", "1.2.3");
     expect(center.notify).not.toHaveBeenCalled();
     stop();
+  });
+});
+
+describe("activity notifications", () => {
+  const edgeNormalizer = (payload: unknown) =>
+    (payload as { edge?: import("@keepdeck/plugin-api").AgentStatusEvent })
+      .edge ?? null;
+  let stop: () => void;
+  let dispose: () => void;
+
+  beforeEach(() => {
+    center.notify.mockClear();
+    // The tracker is the app singleton with no reset by design — each test
+    // drives it through the public surface and clears its own pane.
+    dispose = agentStatusTracker.registerNormalizer("claude", edgeNormalizer);
+    stop = initActivityNotifications(() => ({
+      workspaces: deckWith(),
+      agents,
+    }));
+  });
+
+  afterEach(() => {
+    stop();
+    dispose();
+    agentStatusTracker.clear("pane-1");
+  });
+
+  const edge = (e: Record<string, unknown>) =>
+    agentStatusTracker.report("pane-1", { agent: "claude", edge: e });
+
+  it("announces a wait once — re-assertions do not stack banners", () => {
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    expect(center.notify).toHaveBeenCalledWith({
+      title: "Claude 1 — needs approval",
+      body: "Alpha",
+      severity: "warning",
+      source: {
+        type: "pane",
+        workspace: { id: "ws-1", instance: workspaceInstance },
+        paneId: "pane-1",
+      },
+      tag: "pane:pane-1:activity",
+    });
+    edge({ kind: "waiting", at: 200, reason: "question" });
+    expect(center.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces a finished turn, but never one the user cut themselves", () => {
+    edge({ kind: "turn-start", at: 100 });
+    edge({ kind: "turn-end", at: 200 });
+    expect(center.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Claude 1 finished",
+        body: "Alpha",
+        tag: "pane:pane-1:activity",
+      }),
+    );
+
+    center.notify.mockClear();
+    edge({ kind: "turn-start", at: 300 });
+    edge({ kind: "interrupted", at: 400 });
+    expect(center.notify).not.toHaveBeenCalled();
+  });
+
+  it("a done with no running turn behind it announces nothing", () => {
+    edge({ kind: "turn-end", at: 100 });
+    expect(center.notify).not.toHaveBeenCalled();
+  });
+
+  it("announces a failed turn with its prose", () => {
+    edge({ kind: "turn-start", at: 100 });
+    center.notify.mockClear();
+    edge({
+      kind: "turn-failed",
+      at: 200,
+      error: "rate_limit",
+      detail: "Weekly limit reached",
+    });
+    expect(center.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Claude 1 — rate limited",
+        body: "Weekly limit reached · Alpha",
+        severity: "error",
+      }),
+    );
+  });
+
+  it("stays silent for a pane the deck no longer names", () => {
+    stop();
+    stop = initActivityNotifications(() => ({ workspaces: [], agents }));
+    edge({ kind: "waiting", at: 100, reason: "permission" });
+    expect(center.notify).not.toHaveBeenCalled();
   });
 });

@@ -6,8 +6,10 @@ import {
 } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
 import type { NotificationSource } from "../domain/notifications";
+import { activityBadge, type PaneActivity } from "../domain/status";
 import type { WorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
+import { agentStatusTracker } from "./agentStatusTracker";
 import { notify } from "./notificationCenter";
 import { getSettings } from "./settingsManager";
 import { getUpdateState, subscribeUpdates } from "./updateManager";
@@ -99,6 +101,102 @@ export function notifyAgentSpawnFailed(
     source: { type: "pane", workspace: ctx.workspace, paneId },
     tag: `pane:${paneId}:spawn`,
   });
+}
+
+/** [`paneContext`] when only the pane id is known (the status tracker keys
+ * by pane alone) — the deck is scanned for the owning workspace. */
+function paneContextById(
+  workspaces: Workspace[],
+  paneId: string,
+  agents: AgentInfo[],
+) {
+  for (const ws of workspaces) {
+    if (ws.panes.some((p) => p.id === paneId)) {
+      return paneContext(workspaces, ws.id, paneId, agents);
+    }
+  }
+  return null;
+}
+
+/**
+ * Watch the activity tracker and announce the transitions worth leaving the
+ * app for: the agent needs the user (approval or a question), finished a
+ * turn, or died on an API error. One tag per pane, replace-not-stack — a
+ * "needs approval" banner is superseded by the "finished" that follows it,
+ * never stacked under it. Suppression while the pane is on screen is the
+ * center's own rule ([`shouldBanner`]), not re-derived here.
+ *
+ * `read` supplies the deck facts a message needs (names change and panes
+ * close while this subscription lives) — the composition root binds it.
+ */
+export function initActivityNotifications(
+  read: () => { workspaces: Workspace[]; agents: AgentInfo[] },
+): () => void {
+  let prev: ReadonlyMap<string, PaneActivity> =
+    agentStatusTracker.getSnapshot().panes;
+  return agentStatusTracker.subscribe(() => {
+    const next = agentStatusTracker.getSnapshot().panes;
+    const { workspaces, agents } = read();
+    for (const [paneId, activity] of next) {
+      const before = prev.get(paneId);
+      if (before === activity) continue;
+      announceActivity(workspaces, paneId, before, activity, agents);
+    }
+    prev = next;
+  });
+}
+
+function announceActivity(
+  workspaces: Workspace[],
+  paneId: string,
+  before: PaneActivity | undefined,
+  activity: PaneActivity,
+  agents: AgentInfo[],
+): void {
+  const badge = activityBadge(activity);
+  const tag = `pane:${paneId}:activity`;
+  const ctx = () => paneContextById(workspaces, paneId, agents);
+  if (activity.state === "waiting" && before?.state !== "waiting") {
+    const c = ctx();
+    if (!c) return;
+    notify({
+      title: `${c.title} — ${badge.label.toLowerCase()}`,
+      body: c.wsName,
+      severity: "warning",
+      source: { type: "pane", workspace: c.workspace, paneId },
+      tag,
+    });
+    return;
+  }
+  if (activity.state === "failed") {
+    const c = ctx();
+    if (!c) return;
+    notify({
+      title: `${c.title} — ${badge.label.toLowerCase()}`,
+      body: activity.detail ? `${activity.detail} · ${c.wsName}` : c.wsName,
+      severity: "error",
+      source: { type: "pane", workspace: c.workspace, paneId },
+      tag,
+    });
+    return;
+  }
+  // Finished — but only a turn that was actually RUNNING here, and only one
+  // the agent ended itself: an interrupt is the user's own hand, they are
+  // looking at the pane.
+  if (
+    activity.state === "done" &&
+    !activity.interrupted &&
+    (before?.state === "working" || before?.state === "waiting")
+  ) {
+    const c = ctx();
+    if (!c) return;
+    notify({
+      title: `${c.title} finished`,
+      body: c.wsName,
+      source: { type: "pane", workspace: c.workspace, paneId },
+      tag,
+    });
+  }
 }
 
 let notifiedUpdateVersion: string | null = null;
