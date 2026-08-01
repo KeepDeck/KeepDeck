@@ -150,6 +150,14 @@ export interface SessionRegistryPort {
   ): Promise<{ ok: boolean; tail: string }>;
 }
 
+/** Retire a pane's telemetry (usage + activity) when its process retires —
+ * an injected port like every other collaborator, so orchestrator tests
+ * hand in a fake instead of mocking a module that writes to the app's
+ * live stores. */
+export interface TelemetryPort {
+  retire(paneId: string): void;
+}
+
 export interface AgentOrchestratorDeps {
   deck: DeckStore;
   spawnContext: SpawnContextSource;
@@ -161,6 +169,7 @@ export interface AgentOrchestratorDeps {
   probe: WorktreeProbePort;
   /** Narrow role owning pane worktree creation, teardown and staged skills. */
   worktrees: WorktreeProvisioner;
+  telemetry: TelemetryPort;
 }
 
 export function createAgentOrchestrator(

@@ -10,11 +10,11 @@ import type {
   AgentOrchestrator,
   SessionRegistryPort,
   SuspendPolicyPort,
+  TelemetryPort,
 } from "./agentOrchestrator";
 import type { DeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 import { dropPaneSpawnSpec } from "./spawnSpecs";
-import { retirePaneTelemetry } from "./paneTelemetry";
 import type { WorktreeProvisioner } from "./worktrees";
 
 interface ClosingDeps {
@@ -24,6 +24,7 @@ interface ClosingDeps {
   suspendPolicy: SuspendPolicyPort;
   worktrees: WorktreeProvisioner;
   blocked: ReadonlyMap<string, string>;
+  telemetry: TelemetryPort;
 }
 
 export interface AgentOrchestratorClosing {
@@ -46,6 +47,7 @@ export function createAgentOrchestratorClosing({
   suspendPolicy,
   worktrees,
   blocked,
+  telemetry,
 }: ClosingDeps): AgentOrchestratorClosing {
   const suspending = new Set<string>();
 
@@ -60,7 +62,7 @@ export function createAgentOrchestratorClosing({
       log.info("web:orchestrator", `${paneId}: suspending`);
       actions.suspendPane(wsId, paneId, suspendPolicy.moveToTray());
       dropPaneSpawnSpec(paneId);
-      retirePaneTelemetry(paneId);
+      telemetry.retire(paneId);
       await sessions.close(paneId);
       return "suspended";
     } finally {
@@ -79,7 +81,7 @@ export function createAgentOrchestratorClosing({
         : (workspace?.panes.map((pane) => pane.id) ?? []);
     for (const paneId of paneIds) {
       dropPaneSpawnSpec(paneId);
-      retirePaneTelemetry(paneId);
+      telemetry.retire(paneId);
       worktrees.clearPostProvision(paneId);
     }
     const created = (

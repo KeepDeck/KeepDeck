@@ -181,10 +181,10 @@ vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
  *  suspended card keeps showing the dead conversation's ctx% and cost and a
  *  restarted pane accumulates on top of the old baseline. One owner call per
  *  site (usage + activity retire together — the pair diverging is how a
- *  /clear once kept the dead conversation's badge), and mocking the owner
- *  keeps these tests off the app's live tracker singleton. */
-const telemetry = vi.hoisted(() => ({ retirePaneTelemetry: vi.fn() }));
-vi.mock("./paneTelemetry", () => telemetry);
+ *  /clear once kept the dead conversation's badge). A fake handed in through
+ *  the orchestrator's telemetry port — not a module mock — so these tests
+ *  never touch the app's live stores. */
+const telemetry = { retire: vi.fn() };
 
 /** What each pane's create has put on disk, as `provisioning` publishes it the
  *  moment `git worktree add` returns. */
@@ -385,6 +385,7 @@ export function Probe() {
         },
         plugins: {} as SpawnPluginAccess,
         probe: ipc.probeWorktree,
+        telemetry,
         worktrees: {
           provision: (panes, _report, setup) => {
             asked.push({ panes, setup });

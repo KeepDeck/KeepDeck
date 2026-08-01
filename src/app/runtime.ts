@@ -35,6 +35,7 @@ import {
 } from "./ptyManager";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
+import { retirePaneTelemetry } from "./paneTelemetry";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
 import { createUsageChannel } from "./usageChannel";
@@ -125,6 +126,7 @@ export function createAppRuntime(
     plugins,
     probe: probeWorktree,
     worktrees,
+    telemetry: { retire: retirePaneTelemetry },
   });
   const application = createApplicationController(
     deckStore,

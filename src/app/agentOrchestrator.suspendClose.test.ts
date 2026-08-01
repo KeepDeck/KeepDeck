@@ -30,7 +30,7 @@ describe("agent orchestrator —suspending an agent", () => {
   beforeEach(() => {
     resetPaneSpawnSpecs();
     vi.mocked(dropPaneSpawnSpec).mockClear();
-    telemetry.retirePaneTelemetry.mockClear();
+    telemetry.retire.mockClear();
     ipc.probeWorktree.mockReset().mockResolvedValue({
       exists: true,
       isWorktree: false,
@@ -120,7 +120,7 @@ describe("agent orchestrator —suspending an agent", () => {
     seed();
     await act(async () => agentRun.suspend("ws-1", "pane-1"));
     expect(vi.mocked(dropPaneSpawnSpec)).toHaveBeenCalledWith("pane-1");
-    expect(telemetry.retirePaneTelemetry).toHaveBeenCalledWith("pane-1");
+    expect(telemetry.retire).toHaveBeenCalledWith("pane-1");
   });
 
   it("reports the in-flight refusal apart from every other one", async () => {
@@ -254,7 +254,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
   beforeEach(() => {
     resetPaneSpawnSpecs();
     vi.mocked(dropPaneSpawnSpec).mockClear();
-    telemetry.retirePaneTelemetry.mockClear();
+    telemetry.retire.mockClear();
     steps.clear.mockClear();
     setDiscardFailures([]);
     ipc.probeWorktree.mockReset().mockResolvedValue({
@@ -304,7 +304,7 @@ describe("agent orchestrator —closing panes and workspaces", () => {
     expect(deck.workspaces[0].panes.map((p) => p.id)).toEqual(["pane-2"]);
     expect(pty.closed).toEqual(["pane-1"]);
     expect(vi.mocked(dropPaneSpawnSpec)).toHaveBeenCalledWith("pane-1");
-    expect(telemetry.retirePaneTelemetry).toHaveBeenCalledWith("pane-1");
+    expect(telemetry.retire).toHaveBeenCalledWith("pane-1");
     // An abandoned fork card's post-provision step goes too: no Retry is
     // coming for a pane that is gone.
     expect(steps.clear).toHaveBeenCalledWith("pane-1");
