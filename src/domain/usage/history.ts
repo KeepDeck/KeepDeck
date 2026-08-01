@@ -291,7 +291,14 @@ function readCommonEvent(
   ]) {
     if (typeof value[key] !== "string" || value[key] === "") return null;
   }
-  if (!finiteNonNegative(value.occurredAt) || !finiteNonNegative(value.capturedAt)) {
+  // capturedAt must be POSITIVE, not merely non-negative: the occurredAt
+  // clamp heals TOWARD capturedAt, so an epoch capture would launder an
+  // epoch observation straight past it — reject the line instead.
+  if (
+    !finiteNonNegative(value.occurredAt) ||
+    !finiteNonNegative(value.capturedAt) ||
+    value.capturedAt === 0
+  ) {
     return null;
   }
   if (!record(value.tokens) || !record(value.observation)) return null;

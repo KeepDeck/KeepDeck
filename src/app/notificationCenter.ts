@@ -89,9 +89,14 @@ export function notify(input: NotifyInput): boolean {
     tag: input.tag,
     at: now,
   };
+  // Honest delivery accounting: in "system" mode with the banner suppressed
+  // (which only happens when the SOURCE IS ON SCREEN), nothing lands in any
+  // channel — the return value must say so, not assume so.
+  let delivered = false;
   if (prefs.mode !== "system") {
     items = addNotification(items, notification);
     emit();
+    delivered = true;
   }
   if (prefs.mode !== "app") {
     const allowed = shouldBanner({
@@ -119,9 +124,10 @@ export function notify(input: NotifyInput): boolean {
           : notification.title,
         notification.body,
       );
+      delivered = true;
     }
   }
-  return true;
+  return delivered;
 }
 
 /** The live list, newest first (stable between changes — the

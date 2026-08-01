@@ -171,6 +171,36 @@ describe("createAchievementNotifier", () => {
     notifier.dispose();
   });
 
+  it("refolds on a same-or-longer wholesale replacement, not just a shrink", async () => {
+    const { deps, notify, history } = fakeDeps();
+    // $0.90 folded — no First Dollar.
+    history.set({
+      ready: true,
+      events: [event({ costSource: "provider", costUsd: 0.9 })],
+      error: null,
+    });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    const titles = () =>
+      notify.mock.calls.map((call) => (call[0] as { title: string }).title);
+    expect(titles()).not.toContain("Achievement unlocked: First Dollar");
+
+    // Replace WHOLESALE with a longer array totaling only $0.25. A
+    // length-only guard would keep the old $0.90 fold and add the new
+    // tail's $0.20 → a false First Dollar; the head-identity guard refolds.
+    history.set({
+      ready: true,
+      events: [
+        event({ costSource: "provider", costUsd: 0.05 }),
+        event({ costSource: "provider", costUsd: 0.2 }),
+      ],
+      error: null,
+    });
+    await settle();
+    expect(titles()).not.toContain("Achievement unlocked: First Dollar");
+    notifier.dispose();
+  });
+
   it("keeps undelivered awards unrecorded so re-enabling announces them", async () => {
     const { deps, saved, notify, history } = fakeDeps();
     notify.mockReturnValue(false); // notifications disabled

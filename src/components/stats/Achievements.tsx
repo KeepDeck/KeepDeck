@@ -73,7 +73,7 @@ function AchievementCard({
       <small>{achievementRequirement(item)}</small>
       {!locked ? (
         <small className="stats__achievement-earned">
-          earned {formatUtcDay(item.achievedAt ?? 0, true)}
+          earned {earnedDate(item)}
         </small>
       ) : future ? null : (
         <>
@@ -101,11 +101,17 @@ function AchievementCard({
   );
 }
 
+/** One home for the earned-date rendering — the card and its own tooltip
+ * must never disagree on how a trophy's date reads. */
+function earnedDate(item: UsageAchievement): string {
+  return formatUtcDay(item.achievedAt ?? 0, true);
+}
+
 /** The hover tooltip's status line — exact numbers, not the card's compact
  * abbreviations. The per-metric formatting lives with the metric specs. */
 function achievementTipStatus(item: UsageAchievement): string {
   if (item.achievedAt !== null) {
-    return `Earned ${formatUtcDay(item.achievedAt, true)}`;
+    return `Earned ${earnedDate(item)}`;
   }
   return achievementExact(item);
 }

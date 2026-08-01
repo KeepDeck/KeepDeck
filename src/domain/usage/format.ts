@@ -184,17 +184,23 @@ export function costCoverage(costSessions: number, sessionCount: number): string
 
 /** Dollars, the ONE way: four decimals while sub-cent amounts would vanish,
  * cents while they matter, whole grouped dollars once they don't. `approx`
- * prefixes "≈" — provider costs are estimates, not invoices. */
+ * prefixes "≈" — provider costs are estimates, not invoices. The display
+ * value is rounded BEFORE its format branch is chosen: toFixed can promote
+ * 999.995 across the grouping boundary the branch is gated on, rendering
+ * an ungrouped "1000.00". A positive amount too small for four decimals
+ * shows a floor ("<$0.0001") instead of a "$0.0000" that reads as free. */
 export function formatUsd(value: number, opts: { approx?: boolean } = {}): string {
-  const magnitude =
-    value === 0
-      ? "0.00"
-      : value < 0.01
-        ? value.toFixed(4)
-        : value < 1_000
-          ? value.toFixed(2)
-          : Math.round(value).toLocaleString("en-US");
-  return `${opts.approx === true ? "≈" : ""}$${magnitude}`;
+  const prefix = opts.approx === true ? "≈" : "";
+  if (value === 0) return `${prefix}$0.00`;
+  if (value < 0.01) {
+    return value < 0.00005
+      ? `${prefix}<$0.0001`
+      : `${prefix}$${value.toFixed(4)}`;
+  }
+  const cents = Math.round(value * 100) / 100;
+  return cents < 1_000
+    ? `${prefix}$${cents.toFixed(2)}`
+    : `${prefix}$${Math.round(value).toLocaleString("en-US")}`;
 }
 
 /** A provider-cost aggregate: "—" until at least one event carried a cost —

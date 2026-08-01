@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeUsageEvent, type UsageEventV2 } from "../domain/usage/history";
-import { usageEvent } from "../domain/usage/history.testSupport";
+import { TEST_NOW, usageEvent } from "../domain/usage/history.testSupport";
 
 const ipc = vi.hoisted(() => ({
   loadUsageHistory: vi.fn<() => Promise<string[]>>(),
@@ -16,7 +16,7 @@ import {
   resetUsageHistoryManager,
 } from "./usageHistoryManager";
 
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+const NOW = TEST_NOW;
 const context = {
   workspaceId: "ws-1",
   workspaceName: "KeepDeck",

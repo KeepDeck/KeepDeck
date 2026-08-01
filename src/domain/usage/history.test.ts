@@ -231,6 +231,16 @@ describe("usage event codec", () => {
     observation: { tokens: { input: 50, output: 8 }, costUsd: 0.4 },
   };
 
+  it("rejects a line whose capture instant is itself epoch", () => {
+    // The clamp heals TOWARD capturedAt; a zero capture would launder an
+    // epoch observation straight past it and poison every all-time view.
+    expect(
+      decodeUsageEventLine(
+        JSON.stringify({ ...event, occurredAt: 0, capturedAt: 0 }),
+      ),
+    ).toBeNull();
+  });
+
   it("clamps epoch and future occurredAt to capturedAt, marking the line for compaction", () => {
     const epoch = JSON.stringify({ ...event, occurredAt: 0 });
     const decodedEpoch = decodeUsageEventLine(epoch)!;

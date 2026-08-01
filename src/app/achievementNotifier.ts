@@ -3,6 +3,7 @@ import {
   achievementRequirement,
   createAchievementEngine,
 } from "../domain/usage/achievements";
+import type { UsageEventV2 } from "../domain/usage/history";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 
@@ -40,6 +41,11 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
   const catalog = achievementCatalog();
   let engine = createAchievementEngine();
   let processed = 0;
+  /** Identity of the first folded event — the wholesale-replacement guard.
+   * Length alone cannot detect a same-or-longer replacement with different
+   * content; the array is append-only in production, but correctness must
+   * not rest on an invariant nothing here asserts. */
+  let firstFolded: UsageEventV2 | undefined;
   /** Null until the persisted baseline loads; checks wait for it. */
   let congratulated: Set<string> | null = null;
   let writes: Promise<void> = Promise.resolve();
@@ -58,13 +64,20 @@ export function createAchievementNotifier(deps: AchievementNotifierDeps): {
     if (disposed || congratulated === null) return;
     const snapshot = deps.history.getSnapshot();
     if (!snapshot.ready) return;
-    if (snapshot.events.length < processed) {
-      // The array was replaced wholesale (compaction rewrite) — refold.
+    if (
+      snapshot.events.length < processed ||
+      (processed > 0 && snapshot.events[0] !== firstFolded)
+    ) {
+      // The array was replaced wholesale — refold from scratch.
       engine = createAchievementEngine();
       processed = 0;
+      firstFolded = undefined;
     }
     for (let index = processed; index < snapshot.events.length; index += 1) {
       engine.ingest(snapshot.events[index]);
+    }
+    if (processed === 0 && snapshot.events.length > 0) {
+      firstFolded = snapshot.events[0];
     }
     processed = snapshot.events.length;
 

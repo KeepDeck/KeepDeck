@@ -6,6 +6,7 @@ import {
   formatCountdown,
   formatPct,
   formatTokens,
+  formatUsd,
   limitLevel,
   panelWindows,
   usageStale,
@@ -180,6 +181,22 @@ describe("staleness and age", () => {
     expect(formatAge(NOW - 5000, NOW)).toBe("now");
     expect(formatAge(NOW - 3 * 60_000, NOW)).toBe("3m ago");
     expect(formatAge(NOW - 2 * 3_600_000, NOW)).toBe("2h ago");
+  });
+});
+
+describe("formatUsd", () => {
+  it("rounds before choosing the format, so the grouping boundary holds", () => {
+    expect(formatUsd(999.99)).toBe("$999.99");
+    expect(formatUsd(999.995)).toBe("$1,000"); // toFixed would say "1000.00"
+    expect(formatUsd(1_000)).toBe("$1,000");
+    expect(formatUsd(5258.27)).toBe("$5,258");
+  });
+
+  it("never renders a positive amount as free", () => {
+    expect(formatUsd(0)).toBe("$0.00");
+    expect(formatUsd(0.00004)).toBe("<$0.0001"); // toFixed(4) would say $0.0000
+    expect(formatUsd(0.0004)).toBe("$0.0004");
+    expect(formatUsd(0.25, { approx: true })).toBe("≈$0.25");
   });
 });
 

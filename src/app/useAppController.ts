@@ -158,6 +158,9 @@ export function useAppController() {
     setStatsOpen(false);
     setStatsTab("overview");
   };
+  /** The third verb of the sequence gets a function too — future tab-change
+   * policy (analytics, prefetch) has a seam instead of a raw setter. */
+  const selectStatsTab = (tab: StatsTab) => setStatsTab(tab);
   const applicationUi = useRef({
     agents,
     canOpenDialog,
@@ -238,6 +241,7 @@ export function useAppController() {
     dockCovers,
     statsOpen,
     statsTab,
+    statsCovered: dialogOpen || showForm,
   });
   visibilityRef.current = {
     activeId: deck.activeId,
@@ -249,15 +253,22 @@ export function useAppController() {
     dockCovers,
     statsOpen,
     statsTab,
+    // What can paint OVER the Stats dialog: transaction confirms and the
+    // create form. Deliberately NOT modalOpen — that term contains
+    // statsOpen itself and would make the stats branch always false.
+    statsCovered: dialogOpen || showForm,
   };
   useEffect(() => {
     setSourceVisibilityProbe((source) => {
       if (source.type === "stats") {
         // The Stats dialog counts as "on screen" for its own deep links —
-        // no OS banner while the user is looking at the tab that just lit up.
+        // no OS banner while the user is looking at the tab that just lit
+        // up — unless a confirm dialog is painted over it.
         const now = visibilityRef.current;
         return (
-          now.statsOpen && (source.tab === undefined || now.statsTab === source.tab)
+          now.statsOpen &&
+          !now.statsCovered &&
+          (source.tab === undefined || now.statsTab === source.tab)
         );
       }
       if (source.type !== "pane") return false;
@@ -403,7 +414,7 @@ export function useAppController() {
     setSkillsOpen,
     openStats,
     closeStats,
-    selectStatsTab: setStatsTab,
+    selectStatsTab,
     settings,
     settingsOpen,
     settingsSection,
