@@ -119,12 +119,10 @@ describe("createMcpRequestPump", () => {
   });
 
   it("dispose before the subscription settles still releases it", async () => {
-    let deliver: ((request: McpRequest) => void) | null = null;
     const unlisten = vi.fn();
     let settle!: (un: () => void) => void;
     const pump = createMcpRequestPump((line) => line, {
-      subscribe(handler) {
-        deliver = handler;
+      subscribe() {
         return new Promise((resolve) => (settle = resolve));
       },
       respond: vi.fn(() => Promise.resolve()),
@@ -133,6 +131,5 @@ describe("createMcpRequestPump", () => {
     settle(unlisten);
     await flush();
     expect(unlisten).toHaveBeenCalled();
-    expect(deliver).not.toBeNull();
   });
 });

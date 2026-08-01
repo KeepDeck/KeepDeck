@@ -13,6 +13,12 @@ vi.mock("../../app/settingsManager", () => ({
   subscribeSettings: () => () => {},
   updateSettings: settingsManager.updateSettings,
 }));
+const mcpStatus = vi.hoisted(() => ({
+  current: { socket: null as string | null, error: null as string | null },
+}));
+vi.mock("../../app/useMcpStatus", () => ({
+  useMcpStatus: () => mcpStatus.current,
+}));
 const mcpIpc = vi.hoisted(() => ({
   mcpConnectionCommand: vi.fn(() =>
     Promise.resolve({ command: "/Applications/KeepDeck", args: ["--mcp-shim"] }),
@@ -29,7 +35,9 @@ describe("ExperimentalSection", () => {
 
   beforeEach(() => {
     settingsManager.updateSettings.mockReset();
+    mcpIpc.mcpConnectionCommand.mockClear();
     settings.current = { ...DEFAULT_SETTINGS };
+    mcpStatus.current = { socket: null, error: null };
     document.body.innerHTML = "";
     host = document.body.appendChild(document.createElement("div"));
     root = createRoot(host);
@@ -37,6 +45,7 @@ describe("ExperimentalSection", () => {
   afterEach(() => act(() => root.unmount()));
 
   const mount = () => act(() => root.render(createElement(ExperimentalSection)));
+  const settle = () => act(() => Promise.resolve());
 
   /** The On/Off pair under the row labelled `label`. Both rows carry the same
    * button captions, so selection must go through the row label. */
@@ -51,7 +60,10 @@ describe("ExperimentalSection", () => {
     return buttons;
   };
 
-  it("each toggle writes its own settings key", () => {
+  const connectInput = () =>
+    host.querySelector<HTMLInputElement>("input.form__input");
+
+  it("each toggle writes its own settings key", async () => {
     mount();
     act(() => rowButtons("MCP server").get("On")!.click());
     expect(settingsManager.updateSettings).toHaveBeenCalledWith({
@@ -63,17 +75,6 @@ describe("ExperimentalSection", () => {
     });
   });
 
-  it("shows the connect command only while the server is on", async () => {
-    mount();
-    expect(host.querySelector("input.form__input")).toBeNull();
-    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
-    mount();
-    await act(() => Promise.resolve()); // the command fetch settles
-    const input = host.querySelector<HTMLInputElement>("input.form__input");
-    expect(input?.value).toBe("/Applications/KeepDeck --mcp-shim");
-    expect(input?.readOnly).toBe(true);
-  });
-
   it("marks the stored value active per row, not shared across rows", () => {
     settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
     mount();
@@ -83,5 +84,56 @@ describe("ExperimentalSection", () => {
     expect(rowButtons("Remote agents").get("Off")!.className).toContain(
       "form__type--active",
     );
+  });
+
+  it("the connect row keys on the CONFIRMED status, not the setting", async () => {
+    // Setting on, transport not confirmed (refused enable, other instance):
+    // advertising a command here would point at someone else's deck.
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mount();
+    await settle();
+    expect(connectInput()).toBeNull();
+    expect(mcpIpc.mcpConnectionCommand).not.toHaveBeenCalled();
+
+    mcpStatus.current = { socket: "/home/mcp.sock", error: null };
+    mount();
+    await settle();
+    const input = connectInput();
+    expect(input?.value).toBe("/Applications/KeepDeck --mcp-shim");
+    expect(input?.readOnly).toBe(true);
+  });
+
+  it("the row leaves with the served status (live Off)", async () => {
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: null };
+    mount();
+    await settle();
+    expect(connectInput()).not.toBeNull();
+    mcpStatus.current = { socket: null, error: null };
+    mount();
+    await settle();
+    expect(connectInput()).toBeNull();
+  });
+
+  it("a failed enable surfaces as a message, not a silently missing row", async () => {
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mcpStatus.current = { socket: null, error: "already served by another process" };
+    mount();
+    await settle();
+    expect(host.textContent).toContain("could not start");
+    expect(host.textContent).toContain("already served by another process");
+  });
+
+  it("a failed command fetch says so — the server IS serving", async () => {
+    settings.current = { ...DEFAULT_SETTINGS, mcpServer: true };
+    mcpStatus.current = { socket: "/home/mcp.sock", error: null };
+    mcpIpc.mcpConnectionCommand.mockRejectedValueOnce(
+      new Error("path contains a symlink"),
+    );
+    mount();
+    await settle();
+    expect(connectInput()).toBeNull();
+    expect(host.textContent).toContain("connect command could not be determined");
+    expect(host.textContent).toContain("path contains a symlink");
   });
 });

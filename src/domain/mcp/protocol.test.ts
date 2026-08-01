@@ -162,6 +162,31 @@ describe("handleMcpLine — tools", () => {
     expect(p.execute).not.toHaveBeenCalled();
   });
 
+  it("a throwing port is an internal error, not silence", async () => {
+    const p = port();
+    p.execute.mockImplementationOnce(() => {
+      throw new Error("port exploded");
+    });
+    const reply = await parse(
+      handleMcpLine(p, IDENTITY, request(10, "tools/call", { name: "agent_spawn" })),
+    );
+    expect(reply.id).toBe(10);
+    expect(reply.error.code).toBe(-32603);
+    expect(reply.error.message).toContain("port exploded");
+  });
+
+  it("every wire reply is one line — the framing is newline-delimited", async () => {
+    // The tool result's text is PRETTY-printed JSON (embedded newlines);
+    // the envelope serialization must escape them. Guards the framing
+    // against a refactor that builds the reply by concatenation.
+    const raw = await handleMcpLine(
+      port(),
+      IDENTITY,
+      request(11, "tools/call", { name: "agent_spawn" }),
+    );
+    expect(raw).not.toContain("\n");
+  });
+
   it("non-object arguments are refused before execution", async () => {
     const p = port();
     const reply = await parse(

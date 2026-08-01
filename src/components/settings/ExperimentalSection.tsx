@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { updateSettings } from "../../app/settingsManager";
+import { useMcpStatus } from "../../app/useMcpStatus";
 import { useSettings } from "../../app/useSettings";
 import { DEFAULT_SETTINGS } from "../../domain/settings";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
@@ -25,19 +26,28 @@ function shellLine({ command, args }: McpConnection): string {
  * their endpoint until closed. MCP server is a LIVE switch in both
  * directions: On brings the deck's command socket up, Off tears it down and
  * disconnects its clients.
+ *
+ * The connect row keys on the CONFIRMED transport status, not the setting:
+ * the setting is a wish, and the two differ exactly when the user most needs
+ * to know (another instance already holds the socket, enable failed) — so a
+ * failed transition renders its error where the command would be.
  */
 export function ExperimentalSection() {
   const settings = useSettings();
   const remoteAgents =
     settings?.remoteAgents ?? DEFAULT_SETTINGS.remoteAgents;
   const mcpServer = settings?.mcpServer ?? DEFAULT_SETTINGS.mcpServer;
-  // The connect command is fetched, not computed: only the backend knows
-  // where this install's binary lives. Absent until it answers (or when the
-  // server is off) — the row simply doesn't render.
+  const mcpStatus = useMcpStatus();
+  // The command is fetched, not computed: only the backend knows where this
+  // install's binary lives. A fetch failure is a message, never a silently
+  // missing row — the server IS serving.
   const [connect, setConnect] = useState<string | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const served = mcpStatus.socket !== null;
   useEffect(() => {
-    if (!mcpServer) {
+    if (!served) {
       setConnect(null);
+      setConnectError(null);
       return;
     }
     let stale = false;
@@ -45,11 +55,14 @@ export function ExperimentalSection() {
       .then((connection) => {
         if (!stale) setConnect(shellLine(connection));
       })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        if (!stale)
+          setConnectError(e instanceof Error ? e.message : String(e));
+      });
     return () => {
       stale = true;
     };
-  }, [mcpServer]);
+  }, [served]);
 
   return (
     <>
@@ -93,7 +106,13 @@ export function ExperimentalSection() {
         experimental.
       </span>
 
-      {connect !== null && (
+      {mcpServer && mcpStatus.error !== null && (
+        <span className="settings__hint">
+          The MCP server could not start: {mcpStatus.error}
+        </span>
+      )}
+
+      {served && connect !== null && (
         <>
           <span className="form__label">MCP connect</span>
           <input
@@ -107,6 +126,13 @@ export function ExperimentalSection() {
             to any client as a stdio server.
           </span>
         </>
+      )}
+
+      {served && connectError !== null && (
+        <span className="settings__hint">
+          The server is up, but the connect command could not be determined:{" "}
+          {connectError}
+        </span>
       )}
     </>
   );

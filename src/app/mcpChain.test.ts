@@ -4,22 +4,17 @@ vi.mock("../ipc/log", () => ({
   log: { warn: vi.fn() },
   describeError: (e: unknown) => String(e),
 }));
-vi.mock("../ipc/app", () => ({
-  fetchAppInfo: () =>
-    Promise.resolve({ name: "KeepDeck", version: "1.0.0", updater: false }),
-}));
 
 import { createCommandRegistry } from "../domain/commands";
 import type { McpRequest } from "../ipc/mcpBridge";
-import { createMcpLineHandler } from "./mcpProjection";
-import { createMcpRequestPump, type McpPumpPorts } from "./mcpRequestPump";
+import { createMcpService } from "./mcpService";
 
 /**
- * The webview chain assembled exactly as runtime.ts wires it — pump feeding
- * the registry projection — against fake bridge ports. Each unit is tested
- * on its own; this pins that the seams actually compose: transport ids and
- * JSON-RPC ids travel independently, and notifications cross without a
- * reply.
+ * The webview chain assembled through its one front door — createMcpService,
+ * exactly what runtime.ts holds — against fake bridge ports. Each unit is
+ * tested on its own; this pins that the seams actually compose: transport
+ * ids and JSON-RPC ids travel independently, and notifications cross under
+ * the transport's id-0 sentinel without a reply.
  */
 describe("mcp webview chain", () => {
   function chain() {
@@ -34,14 +29,25 @@ describe("mcp webview chain", () => {
     });
     let deliver: ((request: McpRequest) => void) | null = null;
     const respond = vi.fn((_id: number, _reply: string) => Promise.resolve());
-    const ports: McpPumpPorts = {
-      subscribe(handler) {
-        deliver = handler;
-        return Promise.resolve(() => {});
+    createMcpService(
+      { mcpServer: () => null, subscribe: () => () => {} },
+      {
+        registry,
+        transport: {
+          enable: vi.fn(() => Promise.resolve("/sock")),
+          disable: vi.fn(() => Promise.resolve()),
+        },
+        pumpPorts: {
+          subscribe(handler) {
+            deliver = handler;
+            return Promise.resolve(() => {});
+          },
+          respond,
+        },
+        identitySource: () =>
+          Promise.resolve({ name: "KeepDeck", version: "1.0.0" }),
       },
-      respond,
-    };
-    createMcpRequestPump(createMcpLineHandler(registry), ports);
+    );
     return {
       registry,
       respond,
@@ -71,7 +77,9 @@ describe("mcp webview chain", () => {
     const byTransport = new Map(
       c.respond.mock.calls.map(([id, reply]) => [id, JSON.parse(reply)]),
     );
-    expect(byTransport.get(1)?.result.serverInfo.name).toBe("KeepDeck");
+    // The fetched identity, by its distinguishing field — the fallback is
+    // {version: "unknown"}, so this fails if the fetch never landed.
+    expect(byTransport.get(1)?.result.serverInfo.version).toBe("1.0.0");
     expect(byTransport.get(3)?.result.tools[0].name).toBe("workspace_switch");
     const call = byTransport.get(4);
     expect(call?.id).toBe(3); // JSON-RPC id, not the transport's 4

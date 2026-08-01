@@ -29,6 +29,13 @@ const ipc = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/settings", () => ipc);
 
+// The Experimental section reads the MCP transport's confirmed status from
+// the app runtime; the dialog tests run without a runtime provider, so the
+// hook is answered directly — transport off, no error.
+vi.mock("../../app/useMcpStatus", () => ({
+  useMcpStatus: () => ({ socket: null, error: null }),
+}));
+
 // The General section assembles the agent catalog from the plugin registry
 // (seeded with the three built-in cli agents) plus per-mount detection —
 // detectBins is the refetch tripwire.

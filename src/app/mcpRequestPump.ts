@@ -1,4 +1,4 @@
-import { INTERNAL_ERROR, errorReply } from "../domain/mcp/jsonrpc";
+import { INTERNAL_ERROR, errorReply } from "../domain/mcp";
 import { describeError, log } from "../ipc/log";
 import { onMcpRequest, respondMcp, type McpRequest } from "../ipc/mcpBridge";
 
