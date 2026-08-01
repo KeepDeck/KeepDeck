@@ -84,9 +84,16 @@ describe("UsageStats", () => {
     act(() => tab.click());
   };
 
-  it("renders as its own global dialog, not a settings section", () => {
+  it("renders as its own global dialog, not a settings section", async () => {
     const close = vi.fn();
-    act(() => root.render(createElement(DialogHost, { onClose: close })));
+    // First render in the file: the lazy chart chunk resolves HERE, inside
+    // an async act, so the Suspense re-render is adopted instead of firing
+    // React's suspended-resource act warning in whichever later test the
+    // event loop happens to land it.
+    await act(async () => {
+      root.render(createElement(DialogHost, { onClose: close }));
+      await import("./UsageChart");
+    });
 
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(dialog.getAttribute("aria-label")).toBe("Statistics");
@@ -104,8 +111,13 @@ describe("UsageStats", () => {
     expect(host.textContent).toContain("1.6k");
     expect(host.textContent).toContain("≈$0.25");
     expect(host.textContent).toContain("API estimates");
-    // The chart rides a lazy chunk — poll until the import lands.
-    await vi.waitFor(() => {
+    // The chart rides a lazy chunk — poll until the import lands. Each
+    // poll flushes the pending chunk resolution INSIDE act() (an empty
+    // async act adopts the Suspense re-render), then asserts on settled
+    // DOM: asserting alone trips React's act warnings on every run, and
+    // asserting inside one big act() never sees the flush at all.
+    await vi.waitFor(async () => {
+      await act(async () => {});
       expect(host.querySelector('[aria-label="Daily tokens"]')).not.toBeNull();
     });
 
