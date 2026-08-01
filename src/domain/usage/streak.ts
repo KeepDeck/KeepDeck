@@ -1,4 +1,4 @@
-import type { UsageEventV2 } from "./history";
+import type { UsageEventV2 } from "./history/event";
 import { DAY_MS } from "./time";
 
 /**

@@ -30,7 +30,8 @@ import {
   type TimelineBucket,
   type UsageTimeline,
 } from "../../domain/usage/daily";
-import type { UsageEventV2, UsageStatsPeriod } from "../../domain/usage/history";
+import type { UsageEventV2 } from "../../domain/usage/history/event";
+import type { UsageStatsPeriod } from "../../domain/usage/history/query";
 
 /**
  * Tokens over time, stacked by provider. Colors come from the domain's

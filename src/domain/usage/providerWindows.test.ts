@@ -7,7 +7,7 @@ const flatRows = (
 ) => providerWindowGroups(...args).flatMap((group) => group.rows);
 import type { AccountUsage, UsageWindow } from "./usage";
 
-import { TEST_NOW, usageEvent as event } from "./history.testSupport";
+import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
 
 const NOW = TEST_NOW;
 const HOUR = 3_600_000;

@@ -3,7 +3,7 @@ import { usageAgents, usageTimeline } from "./daily";
 
 const HOUR = 60 * 60 * 1_000;
 const DAY = 24 * HOUR;
-import { TEST_NOW, usageEvent as event } from "./history.testSupport";
+import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
 
 const NOW = TEST_NOW;
 const TODAY = Date.parse("2026-07-22T00:00:00.000Z");

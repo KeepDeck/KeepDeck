@@ -3,7 +3,7 @@ import {
   formatAge,
   formatTokens,
 } from "../../domain/usage";
-import type { UsageStatsRow } from "../../domain/usage/history";
+import type { UsageStatsRow } from "../../domain/usage/history/query";
 
 /** The Models/Sessions drill-down table — identity, tokens with an in/out
  * breakdown, provider cost with the row's last-seen age. */

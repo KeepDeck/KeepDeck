@@ -10,7 +10,7 @@ import {
   type UsageAchievement,
 } from "../../domain/usage/achievements";
 import { formatUtcDay } from "../../domain/usage";
-import type { UsageEventV2 } from "../../domain/usage/history";
+import type { UsageEventV2 } from "../../domain/usage/history/event";
 
 /** The achievements tab in three sections: the goals being walked toward
  * (one per ladder, with progress) first — they are the pull; the trophy

@@ -6,7 +6,7 @@ import {
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 
-import { usageEvent as event } from "../domain/usage/history.testSupport";
+import { usageEvent as event } from "../domain/usage/history/event.testSupport";
 
 
 // 2M tokens + provider cost earns: First Million, Warm Afternoon,

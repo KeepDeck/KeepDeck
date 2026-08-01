@@ -3,7 +3,7 @@ import {
   achievementRequirement,
   createAchievementEngine,
 } from "../domain/usage/achievements";
-import type { UsageEventV2 } from "../domain/usage/history";
+import type { UsageEventV2 } from "../domain/usage/history/event";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";
 

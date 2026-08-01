@@ -1,5 +1,11 @@
-import type { PaneUsage, TokenCounts } from "@keepdeck/plugin-api";
-import { DAY_MS } from "./time";
+import type { TokenCounts } from "@keepdeck/plugin-api";
+
+/**
+ * The durable usage event — its schema and its wire codec. Provider payloads
+ * remain plugin-owned; this is the stable host record the append-only JSONL
+ * ledger stores and every stats consumer reads. Deltas are produced by
+ * `./delta`, aggregation lives in `./query`.
+ */
 
 export const USAGE_EVENT_SCHEMA_VERSION = 2 as const;
 
@@ -12,8 +18,7 @@ export interface UsageObservation {
   costUsd?: number;
 }
 
-/** One canonical usage delta. Provider payloads remain plugin-owned; this is
- * the stable host record consumed by the global Usage statistics screen. */
+/** One canonical usage delta. */
 interface UsageEventV2Base {
   schemaVersion: typeof USAGE_EVENT_SCHEMA_VERSION;
   eventId: string;
@@ -43,25 +48,7 @@ export type UsageEventV2 = UsageEventV2Base &
     | { costSource: "unavailable"; costUsd?: never }
   );
 
-interface UsageDeltaBase {
-  tokens: TokenCounts;
-  observation: UsageObservation;
-}
-
-export type UsageDelta = UsageDeltaBase &
-  (
-    | { cost: { source: "provider"; usd: number } }
-    | { cost: { source: "unavailable" } }
-  );
-
-export interface UsageDeltaOptions {
-  /** Seed each previously unseen cumulative dimension of a resumed session
-   * without attributing its lifetime counters/cost to the current period.
-   * Token totals and provider cost may arrive in separate reports. */
-  baselineOnly?: boolean;
-}
-
-const TOKEN_KEYS: readonly (keyof TokenCounts)[] = [
+export const TOKEN_KEYS: readonly (keyof TokenCounts)[] = [
   "input",
   "output",
   "cacheRead",
@@ -69,67 +56,6 @@ const TOKEN_KEYS: readonly (keyof TokenCounts)[] = [
   "reasoning",
   "total",
 ];
-
-/** Convert a cumulative pane snapshot into a non-negative durable delta.
- * A dropped counter/cost is a source reset, never negative usage. */
-export function usageDelta(
-  current: Pick<PaneUsage, "totalTokens" | "costUsd">,
-  previous?: UsageObservation,
-  options: UsageDeltaOptions = {},
-): UsageDelta {
-  const seedResumed = options.baselineOnly === true;
-  const observationTokens: TokenCounts = { ...(previous?.tokens ?? {}) };
-  const deltaTokens: TokenCounts = {};
-
-  let providerCostUsd: number | undefined;
-  let observedCost = previous?.costUsd;
-  if (finiteNonNegative(current.costUsd)) {
-    const previousCost = previous?.costUsd;
-    const hasPreviousCost = finiteNonNegative(previousCost);
-    const seedCost = seedResumed && !hasPreviousCost;
-    if (!seedCost) {
-      const rawDelta =
-        hasPreviousCost && current.costUsd >= previousCost
-          ? current.costUsd - previousCost
-          : current.costUsd;
-      // Provider totals are decimal currency but arrive as binary floats.
-      if (!hasPreviousCost || rawDelta > 0) {
-        providerCostUsd =
-          Math.round(rawDelta * 1_000_000_000_000) / 1_000_000_000_000;
-      }
-    }
-    observedCost = current.costUsd;
-  }
-
-  for (const key of TOKEN_KEYS) {
-    const value = current.totalTokens?.[key];
-    if (!finiteNonNegative(value)) continue;
-    const before = previous?.tokens[key];
-    const seedToken = seedResumed && !finiteNonNegative(before);
-    const delta =
-      finiteNonNegative(before) && value >= before ? value - before : value;
-    observationTokens[key] = value;
-    if (!seedToken && delta > 0) deltaTokens[key] = delta;
-  }
-
-  const base: UsageDeltaBase = {
-    tokens: deltaTokens,
-    observation: {
-      tokens: observationTokens,
-      ...(observedCost !== undefined ? { costUsd: observedCost } : {}),
-    },
-  };
-  return providerCostUsd !== undefined
-    ? { ...base, cost: { source: "provider", usd: providerCostUsd } }
-    : { ...base, cost: { source: "unavailable" } };
-}
-
-export function usageDeltaEmpty(delta: UsageDelta): boolean {
-  return (
-    Object.keys(delta.tokens).length === 0 &&
-    delta.cost.source === "unavailable"
-  );
-}
 
 export function encodeUsageEvent(event: UsageEventV2): string {
   return JSON.stringify(event);
@@ -357,150 +283,10 @@ export function tokenTotal(tokens: TokenCounts): number {
   );
 }
 
-export type UsageStatsPeriodDays = 1 | 7 | 30 | 90;
-
-/** A Stats aggregation window: a rolling day count ending at `now`, or the
- * entire ledger — history is never pruned, so "all" is genuinely all-time. */
-export type UsageStatsPeriod = UsageStatsPeriodDays | "all";
-
-export interface UsageStatsTotals {
-  tokens: TokenCounts;
-  totalTokens: number;
-  providerCostUsd: number;
-  costEvents: number;
-}
-
-export interface UsageStatsRow extends UsageStatsTotals {
-  key: string;
-  agent: string;
-  model?: string;
-  workspaceName?: string;
-  paneName?: string;
-  sessionId?: string;
-  lastOccurredAt: number;
-}
-
-export interface UsageStats {
-  period: UsageStatsPeriod;
-  eventCount: number;
-  sessionCount: number;
-  /** Sessions with at least one provider-reported cost event — the cost
-   * coverage the disclaimer under the cards is phrased from. */
-  costSessionCount: number;
-  totals: UsageStatsTotals;
-  byModel: UsageStatsRow[];
-  sessions: UsageStatsRow[];
-}
-
-/** The inclusive lower bound of a period ending at `now`. */
-export function periodCutoff(period: UsageStatsPeriod, now: number): number {
-  return period === "all" ? -Infinity : now - period * DAY_MS;
-}
-
-/** Aggregate immutable deltas for the Stats screen. `now` is injected so
- * period boundaries and tests stay deterministic. */
-export function queryUsageStats(
-  events: readonly UsageEventV2[],
-  period: UsageStatsPeriod,
-  now = Date.now(),
-): UsageStats {
-  const cutoff = periodCutoff(period, now);
-  const selected = events.filter(
-    (event) => event.occurredAt >= cutoff && event.occurredAt <= now,
-  );
-  const modelRows = new Map<string, UsageStatsRow>();
-  const sessionRows = new Map<string, UsageStatsRow>();
-  const totals = emptyTotals();
-
-  for (const event of selected) {
-    addEvent(totals, event);
-    const modelKey = [event.agent, event.model ?? "unknown"].join("\0");
-    const model = rowFor(modelRows, modelKey, event);
-    addEvent(model, event);
-
-    const sessionKey = usageSessionKey(event);
-    const session = rowFor(sessionRows, sessionKey, event);
-    if (event.occurredAt >= session.lastOccurredAt) {
-      session.workspaceName = event.workspaceName;
-      session.paneName = event.paneName;
-      session.model = event.model;
-    }
-    addEvent(session, event);
-  }
-
-  const ranked = (rows: Map<string, UsageStatsRow>) =>
-    [...rows.values()].sort(
-      (left, right) =>
-        right.providerCostUsd - left.providerCostUsd ||
-        right.totalTokens - left.totalTokens ||
-        right.lastOccurredAt - left.lastOccurredAt,
-    );
-  return {
-    period,
-    eventCount: selected.length,
-    sessionCount: sessionRows.size,
-    costSessionCount: [...sessionRows.values()].filter(
-      (row) => row.costEvents > 0,
-    ).length,
-    totals,
-    byModel: ranked(modelRows),
-    sessions: ranked(sessionRows),
-  };
-}
-
-function emptyTotals(): UsageStatsTotals {
-  return {
-    tokens: {},
-    totalTokens: 0,
-    providerCostUsd: 0,
-    costEvents: 0,
-  };
-}
-
-function rowFor(
-  rows: Map<string, UsageStatsRow>,
-  key: string,
-  event: UsageEventV2,
-): UsageStatsRow {
-  let row = rows.get(key);
-  if (!row) {
-    row = {
-      key,
-      agent: event.agent,
-      ...(event.model ? { model: event.model } : {}),
-      ...(event.workspaceName ? { workspaceName: event.workspaceName } : {}),
-      ...(event.paneName ? { paneName: event.paneName } : {}),
-      sessionId: event.sessionId,
-      lastOccurredAt: event.occurredAt,
-      ...emptyTotals(),
-    };
-    rows.set(key, row);
-  }
-  return row;
-}
-
-function addEvent(
-  target: UsageStatsTotals & { lastOccurredAt?: number },
-  event: UsageEventV2,
-) {
-  for (const key of TOKEN_KEYS) {
-    const value = event.tokens[key];
-    if (value !== undefined) target.tokens[key] = (target.tokens[key] ?? 0) + value;
-  }
-  target.totalTokens += tokenTotal(event.tokens);
-  if (event.costSource === "provider") {
-    target.providerCostUsd = addMoney(target.providerCostUsd, event.costUsd);
-    target.costEvents += 1;
-  }
-  if ("lastOccurredAt" in target) {
-    target.lastOccurredAt = Math.max(target.lastOccurredAt ?? 0, event.occurredAt);
-  }
-}
-
-/** Decimal-currency addition on binary floats — one rounding rule for every
- * aggregator that sums provider cost. */
-export function addMoney(left: number, right: number): number {
-  return Math.round((left + right) * 1_000_000_000_000) / 1_000_000_000_000;
+/** The numeric guard the whole schema is phrased in: token counters and
+ * costs are finite, non-negative numbers or absent — never anything else. */
+export function finiteNonNegative(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function readTokens(value: Record<string, unknown>): TokenCounts | null {
@@ -512,10 +298,6 @@ function readTokens(value: Record<string, unknown>): TokenCounts | null {
     result[key] = item;
   }
   return result;
-}
-
-function finiteNonNegative(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function record(value: unknown): value is Record<string, unknown> {

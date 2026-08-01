@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { queryUsageStats } from "./history";
+import { queryUsageStats } from "./history/query";
 import { usageRecap } from "./recap";
 
 /** The production call shape: recap describes an already-aggregated period. */
@@ -10,7 +10,7 @@ const recapOf = (
 ) => usageRecap(events, period, now, queryUsageStats(events, period, now));
 
 const DAY = 24 * 60 * 60 * 1_000;
-import { TEST_NOW, usageEvent as event } from "./history.testSupport";
+import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
 
 const NOW = TEST_NOW;
 

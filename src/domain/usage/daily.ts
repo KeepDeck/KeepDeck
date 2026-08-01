@@ -1,9 +1,5 @@
-import {
-  periodCutoff,
-  tokenTotal,
-  type UsageEventV2,
-  type UsageStatsPeriod,
-} from "./history";
+import { tokenTotal, type UsageEventV2 } from "./history/event";
+import { periodCutoff, type UsageStatsPeriod } from "./history/query";
 import { DAY_MS, HOUR_MS } from "./time";
 
 /**

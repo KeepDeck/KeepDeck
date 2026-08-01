@@ -1,4 +1,4 @@
-import type { UsageEventV2 } from "./history";
+import type { UsageEventV2 } from "./event";
 
 /**
  * The shared UsageEventV2 builder for tests — replaces eight hand-copied

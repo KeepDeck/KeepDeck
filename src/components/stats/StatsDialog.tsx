@@ -12,7 +12,7 @@ import {
 import {
   queryUsageStats,
   type UsageStatsPeriod,
-} from "../../domain/usage/history";
+} from "../../domain/usage/history/query";
 import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
 import { CloseButton } from "../../ui/CloseButton";

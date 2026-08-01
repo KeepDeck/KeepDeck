@@ -1,15 +1,14 @@
 import type { PaneUsage } from "@keepdeck/plugin-api";
+import { usageDelta, usageDeltaEmpty } from "../domain/usage/history/delta";
 import {
   clampOccurredAt,
   decodeUsageEventLine,
   encodeUsageEvent,
   USAGE_EVENT_SCHEMA_VERSION,
-  usageDelta,
-  usageDeltaEmpty,
   usageSessionKey,
   type UsageEventV2,
   type UsageObservation,
-} from "../domain/usage/history";
+} from "../domain/usage/history/event";
 import {
   appendUsageHistory,
   compactUsageHistory,

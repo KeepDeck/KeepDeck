@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { encodeUsageEvent, type UsageEventV2 } from "../domain/usage/history";
-import { TEST_NOW, usageEvent } from "../domain/usage/history.testSupport";
+import { encodeUsageEvent, type UsageEventV2 } from "../domain/usage/history/event";
+import { TEST_NOW, usageEvent } from "../domain/usage/history/event.testSupport";
 
 const ipc = vi.hoisted(() => ({
   loadUsageHistory: vi.fn<() => Promise<string[]>>(),

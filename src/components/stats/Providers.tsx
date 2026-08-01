@@ -9,7 +9,7 @@ import {
   windowResetCaption,
   type AccountUsage,
 } from "../../domain/usage";
-import type { UsageEventV2 } from "../../domain/usage/history";
+import type { UsageEventV2 } from "../../domain/usage/history/event";
 import {
   providerWindowGroups,
   type ProviderWindowLedger,

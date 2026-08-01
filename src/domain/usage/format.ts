@@ -1,4 +1,4 @@
-import type { UsageStatsPeriod } from "./history";
+import type { UsageStatsPeriod } from "./history/query";
 import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 
 /**

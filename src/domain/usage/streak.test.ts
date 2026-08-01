@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TEST_NOW, usageEvent } from "./history.testSupport";
+import { TEST_NOW, usageEvent } from "./history/event.testSupport";
 import { currentStreakDays, streakHeat } from "./streak";
 
 const DAY = 24 * 60 * 60 * 1_000;

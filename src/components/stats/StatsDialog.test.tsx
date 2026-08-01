@@ -2,7 +2,7 @@
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UsageEventV2 } from "../../domain/usage/history";
+import type { UsageEventV2 } from "../../domain/usage/history/event";
 
 const history = vi.hoisted(() => ({
   snapshot: { ready: true, events: [] as UsageEventV2[], error: null as string | null },
@@ -22,7 +22,7 @@ import type { AccountUsage } from "../../domain/usage";
 import {
   TEST_NOW,
   usageEvent as baseEvent,
-} from "../../domain/usage/history.testSupport";
+} from "../../domain/usage/history/event.testSupport";
 import { StatsDialog, UsageStats } from "./StatsDialog";
 import type { StatsTab } from "./tabs";
 

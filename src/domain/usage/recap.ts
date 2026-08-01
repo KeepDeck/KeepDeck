@@ -1,11 +1,10 @@
+import { tokenTotal, type UsageEventV2 } from "./history/event";
 import {
   periodCutoff,
   queryUsageStats,
-  tokenTotal,
-  type UsageEventV2,
   type UsageStats,
   type UsageStatsPeriod,
-} from "./history";
+} from "./history/query";
 import { DAY_MS, utcDayStart } from "./time";
 
 /**

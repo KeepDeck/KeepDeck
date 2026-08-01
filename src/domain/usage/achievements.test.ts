@@ -10,7 +10,7 @@ import {
 } from "./achievements";
 
 const DAY = 24 * 60 * 60 * 1_000;
-import { TEST_NOW, usageEvent as event } from "./history.testSupport";
+import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
 
 const NOW = TEST_NOW;
 
