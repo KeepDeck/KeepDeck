@@ -22,7 +22,9 @@
   min-height: 240px;
   max-height: min(640px, 70vh);
   margin-bottom: 8px;
-  padding-right: 4px;
+  /* Gutter for the native overlay scrollbar (deliberately unstyled, see
+     base.css): without it the thumb rides ON the right-aligned numbers. */
+  padding-right: 12px;
   overflow-y: auto;
 }
 
