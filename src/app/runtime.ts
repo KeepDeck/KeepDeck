@@ -11,6 +11,7 @@ import {
   createAgentOrchestrator,
   type AgentCatalogPort,
 } from "./agentOrchestrator";
+import { createAgentStatusChannel } from "./agentStatusChannel";
 import { createApplicationController } from "./applicationController";
 import { createDeckPersistence } from "./deckPersistence";
 import { createDeckStore } from "./deckStore";
@@ -139,6 +140,7 @@ export function createAppRuntime(
   );
   const pluginDeckBridge = createPluginDeckBridge(deckStore, plugins);
   let usageChannel: ReturnType<typeof createUsageChannel> | null = null;
+  let statusChannel: ReturnType<typeof createAgentStatusChannel> | null = null;
   let achievementNotifier: ReturnType<typeof createAchievementNotifier> | null =
     null;
   let disposed = false;
@@ -158,6 +160,10 @@ export function createAppRuntime(
       if (disposed) return;
       sessionBinding ??= createSessionBinding(deckStore);
       usageChannel ??= createUsageChannel(
+        deckStore,
+        plugins.pluginRegistries.agents,
+      );
+      statusChannel ??= createAgentStatusChannel(
         deckStore,
         plugins.pluginRegistries.agents,
       );
@@ -182,6 +188,7 @@ export function createAppRuntime(
       windowReportJournal.dispose();
       achievementNotifier?.dispose();
       usageChannel?.dispose();
+      statusChannel?.dispose();
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       minimizePolicy.dispose();

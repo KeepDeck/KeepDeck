@@ -25,6 +25,7 @@ import {
   resumeDiedSilently,
   type SpawnPluginAccess,
 } from "./spawnSpecs";
+import { agentStatusTracker } from "./agentStatusTracker";
 import { clearPaneUsage } from "./usageManager";
 
 interface RestartTarget {
@@ -123,6 +124,7 @@ export function createAgentOrchestratorRestart({
   ): Promise<RestartOutcome> {
     dropPaneSpawnSpec(target.paneId);
     clearPaneUsage(target.paneId);
+    agentStatusTracker.clear(target.paneId);
     await sessions.close(target.paneId);
     if (!targetOf(target.workspace, target.paneId)) return "gone";
     if (stoppedNow(target)) return "stopped";
@@ -176,6 +178,7 @@ export function createAgentOrchestratorRestart({
     }
 
     clearPaneUsage(target.paneId);
+    agentStatusTracker.clear(target.paneId);
     await sessions.close(target.paneId);
     if (!targetOf(target.workspace, target.paneId)) {
       dropPaneSpawnSpec(target.paneId);
@@ -244,6 +247,7 @@ export function createAgentOrchestratorRestart({
     actions.setPaneSession(target.workspace.id, paneId, null);
     dropPaneSpawnSpec(paneId);
     clearPaneUsage(paneId);
+    agentStatusTracker.clear(paneId);
     void sessions
       .close(paneId)
       .then(() => {
