@@ -66,7 +66,10 @@ export function UsageChart({
     [events, period, now],
   );
   const colors = useMemo(() => agentSeriesColors(usageAgents(events)), [events]);
-  if (timeline.buckets.length === 0) return null;
+  // Nothing recorded, or recorded only in the leading sliver the full-bucket
+  // axis excludes (agents lists the EMITTED buckets' roster) — an all-zero
+  // plot with an empty legend reads as broken, not as quiet.
+  if (timeline.buckets.length === 0 || timeline.agents.length === 0) return null;
   const title = TITLES[timeline.granularity];
 
   return (

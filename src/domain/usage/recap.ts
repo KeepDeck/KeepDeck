@@ -108,25 +108,24 @@ function topModel(current: UsageStats): UsageRecap["topModel"] {
   return top;
 }
 
-/** Heaviest UTC day of the period. UTC buckets keep the answer deterministic
- * everywhere; the display labels the day in UTC to match. Only days FULLY
- * inside the window compete: the partial leading day would run against
- * whole days with a sliced total and could crown the wrong day (the same
- * full-bucket rule the timeline axis applies). The trailing day competes
- * honestly as today-so-far. */
+/** Heaviest UTC day of the period, by IN-WINDOW totals. UTC buckets keep
+ * the answer deterministic everywhere; the display labels the day in UTC
+ * to match. Deliberately the same accounting as every number beside it —
+ * the cards and the delta count the window, so the crown must too. (A
+ * "full days only" variant was tried and verified worse: it crowned a
+ * 5-token blip over a 900k session sitting in the leading partial day,
+ * making the caption contradict its own top-model line, and for the 24h
+ * period it discarded almost the whole window.) */
 function busiestDay(
   events: readonly UsageEventV2[],
   period: UsageStatsPeriod,
   now: number,
 ): UsageRecap["busiestDay"] {
   const cutoff = periodCutoff(period, now);
-  const firstFullDay =
-    period === "all" ? -Infinity : Math.ceil(cutoff / DAY_MS) * DAY_MS;
   const days = new Map<number, number>();
   for (const event of events) {
     if (event.occurredAt < cutoff || event.occurredAt > now) continue;
     const dayStart = utcDayStart(event.occurredAt);
-    if (dayStart < firstFullDay) continue;
     days.set(dayStart, (days.get(dayStart) ?? 0) + tokenTotal(event.tokens));
   }
   let top: UsageRecap["busiestDay"] = null;

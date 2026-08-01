@@ -89,9 +89,12 @@ describe("usageRecap", () => {
     });
   });
 
-  it("never crowns the partial leading day, even when it leads in-window", () => {
-    // Jul 15 is half-covered by the 7d window; its in-window slice out-earns
-    // every full day but must not wear the crown with a sliced total.
+  it("crowns by in-window totals — the same accounting as the cards beside it", () => {
+    // Jul 15 is half-covered by the 7d window; its in-window slice leads,
+    // and it wins with exactly that slice: every recap number describes
+    // the window, so a filtered crown would contradict the top-model line
+    // (verified: a full-days-only rule crowned a 5-token blip over a 900k
+    // session).
     const recap = recapOf(
       [
         event({ occurredAt: NOW - 7 * DAY + 1_000, tokens: { input: 9_999 } }),
@@ -101,8 +104,8 @@ describe("usageRecap", () => {
       NOW,
     );
     expect(recap.busiestDay).toEqual({
-      dayStart: Date.parse("2026-07-20T00:00:00.000Z"),
-      totalTokens: 400,
+      dayStart: Date.parse("2026-07-15T00:00:00.000Z"),
+      totalTokens: 9_999,
     });
   });
 
