@@ -170,6 +170,47 @@ describe("UsageStats", () => {
     expect(milestones.textContent).toContain("2M all-time so far");
   });
 
+  it("demotes expired and stale provider windows instead of joining them", () => {
+    const account: AccountUsage = {
+      kind: "reported",
+      reportedAt: NOW - 2 * 3_600_000, // stale: 2h old
+      sourcePaneId: "pane-1",
+      windows: [
+        { usedPct: 10, resetsAt: NOW - 3_600_000, windowMinutes: 300 }, // expired
+        { usedPct: 81, resetsAt: NOW + 3 * 24 * 3_600_000, windowMinutes: 10_080 },
+      ],
+    };
+    usage.snapshot = { accounts: new Map([["claude", account]]), panes: new Map() };
+    history.snapshot = { ready: true, events: [usageEvent({ agent: "claude" })], error: null };
+    act(() => root.render(createElement(UsageStats)));
+
+    const providers = host.querySelector('[aria-label="Providers"]')!;
+    const rows = [...providers.querySelectorAll(".stats__row")];
+    // Expired 5h window: no ledger numbers, an explicit reason instead.
+    expect(rows[0].textContent).toContain("reset passed");
+    expect(rows[0].textContent).toContain("—");
+    expect(rows[0].textContent).not.toContain("1.6k");
+    // Live weekly window: joined, but demoted as stale.
+    expect(rows[1].textContent).toContain("1.6k");
+    expect(rows[1].textContent).toContain("updated 2h ago");
+    expect(rows[1].className).toContain("stats__row--muted");
+  });
+
+  it("labels a live window with zero ledger activity honestly", () => {
+    const account: AccountUsage = {
+      kind: "reported",
+      reportedAt: NOW - 60_000,
+      sourcePaneId: "pane-1",
+      windows: [{ usedPct: 0, resetsAt: NOW + 3 * 24 * 3_600_000, windowMinutes: 10_080 }],
+    };
+    usage.snapshot = { accounts: new Map([["kimi", account]]), panes: new Map() };
+    act(() => root.render(createElement(UsageStats)));
+
+    const providers = host.querySelector('[aria-label="Providers"]')!;
+    expect(providers.textContent).toContain("no usage this window");
+    expect(providers.textContent).not.toContain("0 sessions");
+  });
+
   it("reaches arbitrarily old events through the All period", () => {
     history.snapshot = {
       ready: true,

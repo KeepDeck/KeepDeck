@@ -193,6 +193,13 @@
   text-align: right;
 }
 
+/* An expired or stale provider window: the numbers demote instead of lying
+   confidently; the identity stays readable so the row remains findable. */
+.stats__row--muted .stats__tokens,
+.stats__row--muted .stats__cost {
+  opacity: 0.55;
+}
+
 .stats__milestones {
   display: flex;
   flex-wrap: wrap;

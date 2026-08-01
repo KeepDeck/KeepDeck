@@ -6,10 +6,13 @@ import type { AccountUsage, UsageWindow } from "./usage";
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
 const HOUR = 3_600_000;
 
-const reported = (windows: UsageWindow[]): AccountUsage => ({
+const reported = (
+  windows: UsageWindow[],
+  reportedAt = NOW - 60_000,
+): AccountUsage => ({
   kind: "reported",
   windows,
-  reportedAt: NOW - 60_000,
+  reportedAt,
   sourcePaneId: "pane-1",
 });
 
@@ -60,6 +63,8 @@ describe("providerWindowRows", () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0].agent).toBe("codex");
+    expect(rows[0].expired).toBe(false);
+    expect(rows[0].stale).toBe(false);
     expect(rows[0].ledger).toEqual({
       totalTokens: 150,
       providerCostUsd: 0.5,
@@ -68,18 +73,35 @@ describe("providerWindowRows", () => {
     });
   });
 
-  it("counts spend since the reset once a window has expired", () => {
+  // A long-passed reset once rendered a week of usage as a 5h window's own.
+  it("marks an expired window and refuses its join", () => {
     const accounts = new Map([
       ["codex", reported([{ usedPct: 90, resetsAt: NOW - HOUR, windowMinutes: 300 }])],
     ]);
     const rows = providerWindowRows(
       accounts,
-      [
-        event({ occurredAt: NOW - 30 * 60_000 }), // after the reset → successor window
-        event({ occurredAt: NOW - 2 * HOUR, tokens: { input: 9_999 } }), // before it
-      ],
+      [event({ occurredAt: NOW - 30 * 60_000 })],
       NOW,
     );
+    expect(rows[0].expired).toBe(true);
+    expect(rows[0].ledger).toBeNull();
+  });
+
+  it("flags a stale report but keeps the join while the window is alive", () => {
+    // Report is 2h old, yet the weekly reset instant is still ahead: the
+    // interval stays trustworthy, only the percentage deserves demotion.
+    const accounts = new Map([
+      [
+        "codex",
+        reported(
+          [{ usedPct: 40, resetsAt: NOW + 3 * 24 * HOUR, windowMinutes: 10_080 }],
+          NOW - 2 * HOUR,
+        ),
+      ],
+    ]);
+    const rows = providerWindowRows(accounts, [event()], NOW);
+    expect(rows[0].stale).toBe(true);
+    expect(rows[0].expired).toBe(false);
     expect(rows[0].ledger?.totalTokens).toBe(100);
   });
 

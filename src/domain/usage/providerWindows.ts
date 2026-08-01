@@ -1,11 +1,11 @@
-import { panelWindows } from "./format";
+import { panelWindows, usageStale } from "./format";
 import {
   addMoney,
   tokenTotal,
   usageSessionKey,
   type UsageEventV2,
 } from "./history";
-import type { AccountUsage, UsageWindow } from "./usage";
+import { windowExpired, type AccountUsage, type UsageWindow } from "./usage";
 
 /**
  * The Stats "Providers" view — one row per provider rate-limit window,
@@ -27,11 +27,18 @@ export interface ProviderWindowRow {
   window: UsageWindow;
   /** When the account report carrying this window arrived. */
   reportedAt: number;
+  /** The reset instant has passed: the report describes the PREVIOUS
+   * window, and the current one's boundaries are unknown. */
+  expired: boolean;
+  /** The report aged past the trust threshold — numbers render demoted. */
+  stale: boolean;
   /** Ledger spend inside the window's current interval — null when the
-   * interval is unknowable: no reset instant, an unstated duration, or a
-   * scoped window (a model- or bucket-scoped limit cannot be joined to
-   * unscoped ledger events without claiming other models' spend as its
-   * own). */
+   * interval is unknowable: an expired window, no reset instant, an
+   * unstated duration, or a scoped window (a model- or bucket-scoped limit
+   * cannot be joined to unscoped ledger events without claiming other
+   * models' spend as its own). A field report proved "spend since the last
+   * known reset" is NOT an acceptable fallback: a long-expired 5h window
+   * rendered a week of usage as its own. */
   ledger: ProviderWindowLedger | null;
 }
 
@@ -52,22 +59,13 @@ export function providerWindowRows(
         agent,
         window,
         reportedAt: account.reportedAt,
+        expired: windowExpired(window, now),
+        stale: usageStale(account.reportedAt, now),
         ledger: windowLedger(agent, window, events, now),
       });
     }
   }
   return rows;
-}
-
-/** Where the window's CURRENT interval starts. A passed reset instant is
- * still useful: everything after it belongs to the successor window, so
- * "spend since the last known reset" stays honest while the account waits
- * for a fresh report. */
-function windowStart(window: UsageWindow, now: number): number | null {
-  if (window.resetsAt === null) return null;
-  if (window.resetsAt <= now) return window.resetsAt;
-  if (window.windowMinutes === null) return null;
-  return window.resetsAt - window.windowMinutes * 60_000;
 }
 
 function windowLedger(
@@ -77,8 +75,9 @@ function windowLedger(
   now: number,
 ): ProviderWindowLedger | null {
   if (window.scope !== undefined) return null;
-  const start = windowStart(window, now);
-  if (start === null) return null;
+  if (windowExpired(window, now)) return null;
+  if (window.resetsAt === null || window.windowMinutes === null) return null;
+  const start = window.resetsAt - window.windowMinutes * 60_000;
   let totalTokens = 0;
   let providerCostUsd = 0;
   let costEvents = 0;

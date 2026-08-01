@@ -166,18 +166,35 @@ function Providers({
       <h3>Providers</h3>
       <div className="stats__table" role="table" aria-label="Providers">
         {rows.map((row) => (
-          <div className="stats__row" role="row" key={providerRowKey(row)}>
+          <div
+            className={`stats__row${
+              row.expired || row.stale ? " stats__row--muted" : ""
+            }`}
+            role="row"
+            key={providerRowKey(row)}
+          >
             <span className="stats__identity" role="cell">
               <b>{row.agent}</b>
               <small>{providerWindowCaption(row.window)}</small>
             </span>
             <span className="stats__tokens" role="cell">
-              {row.ledger ? formatTokens(row.ledger.totalTokens) : "—"}
-              <small>{row.ledger ? ledgerCaption(row.ledger) : ""}</small>
+              {row.ledger && row.ledger.sessionCount > 0
+                ? formatTokens(row.ledger.totalTokens)
+                : "—"}
+              <small>
+                {row.ledger
+                  ? row.ledger.sessionCount > 0
+                    ? ledgerCaption(row.ledger)
+                    : "no usage this window"
+                  : ""}
+              </small>
             </span>
             <span className="stats__cost" role="cell">
               {formatPct(row.window.usedPct, "used")}
-              <small>{windowResetCaption(row.window, now)}</small>
+              <small>
+                {row.expired ? "reset passed" : windowResetCaption(row.window, now)}
+              </small>
+              {row.stale && <small>updated {formatAge(row.reportedAt, now)}</small>}
             </span>
           </div>
         ))}
