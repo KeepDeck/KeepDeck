@@ -11,6 +11,8 @@ import {
 // formatters; the idle card dates itself with the same wording the usage
 // popover uses, rather than growing a second one.
 import { contextLevel, formatAge } from "../../domain/usage";
+import { activityBadge } from "../../domain/status";
+import { usePaneActivity } from "../../app/usePaneActivity";
 import { usePaneContextPct } from "../../app/usePaneContextPct";
 import { usePaneSessionState } from "../../app/usePaneSessionState";
 import { TerminalPane } from "../terminal/TerminalPane";
@@ -191,6 +193,9 @@ export function AgentPane({
   // to track. A narrow selector: only this pane re-renders when its own ctx%
   // changes.
   const ctxPct = usePaneContextPct(paneId);
+  // What the agent is doing right now (working / waiting / done / failed) —
+  // a settled fact from the status tracker; the view only renders it.
+  const activity = usePaneActivity(paneId);
   const canResume = !!resumeSessionId;
   // Asked, not re-derived: the deck asks the same question about the same
   // pane for the tray's marker, and the two must not be able to disagree.
@@ -334,6 +339,27 @@ export function AgentPane({
           )}
         </div>
         <div className="pane__actions">
+          {activity && paneLive && (() => {
+            const badge = activityBadge(activity);
+            // Density: the two attention states spell their label; the
+            // common working/done states stay a dot with the label in the
+            // tooltip (the header-badge idiom — icon chips, words only when
+            // the user must act).
+            const spelled =
+              badge.tone === "waiting" || badge.tone === "failed";
+            return (
+              <Chip
+                className={`pane__activity pane__activity--${badge.tone}`}
+                role="img"
+                aria-label={badge.label}
+                title={
+                  badge.detail ? `${badge.label} — ${badge.detail}` : badge.label
+                }
+                icon={<span className="pane__activity-dot" />}
+                {...(spelled ? { label: badge.label } : {})}
+              />
+            );
+          })()}
           {ctxPct !== undefined && paneLive && (
             <Chip
               className={`pane__ctx${

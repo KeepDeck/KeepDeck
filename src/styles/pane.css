@@ -140,6 +140,52 @@
   outline: none;
 }
 
+/* Live activity badge: what the agent is doing right now. A dot for the
+   common states (working pulses, done sits still); the label is spelled only
+   for the two ATTENTION states (waiting, failed) — words appear exactly when
+   the user must act, the density rule the header chips already follow. */
+.pane__activity {
+  flex: none;
+  font-size: 12px;
+}
+
+.pane__activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.pane__activity--working {
+  color: #7aa2f7;
+}
+
+.pane__activity--working .pane__activity-dot {
+  animation: pane-activity-pulse 1.6s ease-in-out infinite;
+}
+
+.pane__activity--waiting {
+  color: #e0af68;
+}
+
+.pane__activity--done {
+  color: #6b7c62;
+}
+
+.pane__activity--failed {
+  color: #f7768e;
+}
+
+@keyframes pane-activity-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
 /* Standing YOLO warning dot: the shared ui-kit YoloBadge (squared in
    chip.css); this hook owns only its flex place and its spot in the
    narrow-header cascade below (gone at ≤150px so maximize/close keep their
@@ -185,6 +231,19 @@
     display: none;
   }
 
+  /* The activity label collapses to its dot the same way — the tone colour
+     still says waiting/failed, the tooltip still names it. */
+  .pane__activity {
+    flex: none;
+    width: 22px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .pane__activity .chip__label {
+    display: none;
+  }
+
   /* The ctx meter is text with no icon to collapse to — it yields here rather
      than staying full-width and clipping the window controls. */
   .pane__ctx {
@@ -205,7 +264,8 @@
    want to maximize or close. */
 @container (max-width: 150px) {
   .pane__action--minimize,
-  .pane__yolo {
+  .pane__yolo,
+  .pane__activity {
     display: none;
   }
 }

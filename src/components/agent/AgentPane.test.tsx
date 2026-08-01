@@ -37,7 +37,7 @@ vi.mock("../../app/ptyManager", () => ({
   subscribeSessions: sessions.subscribe,
 }));
 
-import type { NormalizedUsage } from "@keepdeck/plugin-api";
+import type { AgentStatusEvent, NormalizedUsage } from "@keepdeck/plugin-api";
 import type { PaneIdle } from "../../domain/deck";
 import { TerminalPane } from "../terminal/TerminalPane";
 import {
@@ -45,6 +45,7 @@ import {
   reportUsage,
   resetUsageManager,
 } from "../../app/usageManager";
+import { agentStatusTracker } from "../../app/agentStatusTracker";
 import { AgentPane, type AgentPaneProps } from "./AgentPane";
 import { paneBody, type PaneBody } from "../../domain/deck";
 
@@ -287,6 +288,81 @@ describe("AgentPane — header badges", () => {
     expect(pane.tabIndex).toBe(-1);
     act(() => pane.focus());
     expect(document.activeElement).toBe(pane);
+  });
+});
+
+describe("AgentPane — activity badge", () => {
+  let host: HTMLElement;
+  let root: Root;
+  let dispose: () => void;
+
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    // The tracker is the app singleton with no reset by design — each test
+    // registers its normalizer and clears its own pane through the public
+    // surface instead.
+    dispose = agentStatusTracker.registerNormalizer(
+      "claude",
+      (payload) =>
+        (payload as { edge?: AgentStatusEvent }).edge ?? null,
+    );
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    dispose();
+    agentStatusTracker.clear("ws:1");
+  });
+
+  const reportEdge = (edge: AgentStatusEvent) =>
+    act(() => agentStatusTracker.report("ws:1", { agent: "claude", edge }));
+
+  it("shows a quiet working dot — label in the tooltip only", () => {
+    act(() => root.render(createElement(PaneUnderTest, baseProps)));
+    reportEdge({ kind: "turn-start", at: 100 });
+
+    const badge = document.querySelector<HTMLElement>(".pane__activity");
+    expect(badge).not.toBeNull();
+    expect(badge!.className).toContain("pane__activity--working");
+    expect(badge!.title).toBe("Working");
+    expect(badge!.textContent).toBe("");
+  });
+
+  it("spells out the attention states", () => {
+    act(() => root.render(createElement(PaneUnderTest, baseProps)));
+    reportEdge({ kind: "waiting", at: 100, reason: "permission" });
+
+    let badge = document.querySelector<HTMLElement>(".pane__activity");
+    expect(badge!.className).toContain("pane__activity--waiting");
+    expect(badge!.textContent).toBe("Needs approval");
+
+    reportEdge({
+      kind: "turn-failed",
+      at: 200,
+      error: "rate_limit",
+      detail: "Weekly limit reached",
+    });
+    badge = document.querySelector<HTMLElement>(".pane__activity");
+    expect(badge!.className).toContain("pane__activity--failed");
+    expect(badge!.textContent).toBe("Rate limited");
+    // The prose rides the tooltip, not the header.
+    expect(badge!.title).toBe("Rate limited — Weekly limit reached");
+  });
+
+  it("shows nothing before the first edge, and nothing on a stopped pane", () => {
+    act(() => root.render(createElement(PaneUnderTest, baseProps)));
+    expect(document.querySelector(".pane__activity")).toBeNull();
+
+    // A stopped pane's card owns the story; a stale "Working" would lie.
+    reportEdge({ kind: "turn-start", at: 100 });
+    const idle: PaneIdle = { reason: "suspended", at: "2026-08-01T00:00:00Z" };
+    act(() =>
+      root.render(createElement(PaneUnderTest, { ...baseProps, idle })),
+    );
+    expect(document.querySelector(".pane__activity")).toBeNull();
   });
 });
 
