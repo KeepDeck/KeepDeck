@@ -28,8 +28,7 @@ describe("normalizeKimiStatus", () => {
     ).toEqual({ kind: "interrupted", at: 500 });
   });
 
-  it("reads StopFailure's error class in either engine spelling", () => {
-    // agent-core v1: snake_case.
+  it("reads StopFailure's snake_cased error class — the only spelling kimi emits", () => {
     expect(
       normalizeKimiStatus(
         wrap({
@@ -45,14 +44,7 @@ describe("normalizeKimiStatus", () => {
       error: "ChatProviderError",
       detail: "rate limited",
     });
-    // agent-core v2: camelCase.
-    expect(
-      normalizeKimiStatus(
-        wrap({ hook_event_name: "StopFailure", errorType: "ChatProviderError" }),
-        600,
-      ),
-    ).toEqual({ kind: "turn-failed", at: 600, error: "ChatProviderError" });
-    // Neither spelling present degrades to "unknown", never to a crash.
+    // A missing class degrades to "unknown", never to a crash.
     expect(
       normalizeKimiStatus(wrap({ hook_event_name: "StopFailure" }), 600),
     ).toEqual({ kind: "turn-failed", at: 600, error: "unknown" });

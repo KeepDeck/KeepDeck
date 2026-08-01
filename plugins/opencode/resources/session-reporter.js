@@ -242,7 +242,10 @@ export default async (input = {}) => {
     }
     if (event?.type === "session.error") {
       const props = event.properties ?? {};
-      if (concernsPane(props.sessionID)) {
+      // opencode declares sessionID OPTIONAL on this event. A session-less
+      // error still concerns the pane — this process serves exactly one —
+      // so only an error attributed to some OTHER session is filtered.
+      if (!props.sessionID || concernsPane(props.sessionID)) {
         const name = props.error?.name;
         reportStatus(
           "session.error",

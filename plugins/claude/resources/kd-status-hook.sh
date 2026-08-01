@@ -47,7 +47,11 @@ if [ "$bytes" -gt 131072 ]; then
 fi
 
 # mktemp = the unique name AND the tmp stage; the rename to .json publishes.
+# The trap reaps the staging file if this process is killed mid-write (kimi
+# enforces a hook timeout with a signal) — after a successful mv there is
+# nothing at $f and the rm is a no-op. The inbox never sweeps strays itself.
 f=$(mktemp "$dir/agent.status-XXXXXXXX") || exit 0
+trap 'rm -f "$f"' EXIT INT TERM
 printf '{"v":1,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s","event":%s}}' \
   "$pane" "$token" "$agent" "$payload" > "$f" && mv "$f" "$f.json"
 exit 0

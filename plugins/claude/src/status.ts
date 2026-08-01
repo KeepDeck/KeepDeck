@@ -17,9 +17,12 @@ import {
  *   typed reason (`rate_limit`, `authentication_failed`, …), verified to
  *   ride in the payload — no per-matcher fan-out needed.
  * - `Notification` → waiting, but only the two types that mean "parked on
- *   the user": `permission_prompt` (approval dialog) and
- *   `agent_needs_input` (the agent asked). `idle_prompt` and the rest are
- *   not turn states — dropped.
+ *   the user": `permission_prompt` and `agent_needs_input`. Binary-verified
+ *   caveat (2.1.220): these are 6-second IDLE NUDGES, not dialog-open
+ *   events — while the user keeps typing they may never fire, and even
+ *   idle they run ≥6s late. The waiting edge is therefore best-effort for
+ *   claude; `Stop` still settles the turn either way. `idle_prompt` and
+ *   the rest are not turn states — dropped.
  *
  * A user interrupt (Esc) pushes NO hook — that edge arrives from the
  * host's transcript tailer as a `kind: "session.interrupt"` payload

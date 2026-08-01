@@ -72,6 +72,20 @@ describe("agentStatusTracker", () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  it("a report after clear() starts genuinely fresh", () => {
+    // Pins the clear-is-total contract against a future soft-clear /
+    // tombstone: the fold after a clear must see NO prior state.
+    const tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", literal);
+    tracker.report("pane-1", { agent: "claude", event: { kind: "end" } }, 100);
+    tracker.clear("pane-1");
+    tracker.report("pane-1", { agent: "claude", event: { kind: "start" } }, 200);
+    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
+      state: "working",
+      since: 200,
+    });
+  });
+
   it("retain() drops only panes that no longer exist", () => {
     const tracker = createAgentStatusTracker();
     tracker.registerNormalizer("claude", literal);

@@ -78,9 +78,10 @@ const plugin: KeepDeckPlugin = {
       usage: {
         normalize: normalizeOpencodeUsage,
       },
-      // Turn lifecycle from the same reporter's bus subscription. The
-      // richest surface of the four: session.idle fires on interrupt too,
-      // and permission.replied is the approval-resolution edge.
+      // Turn lifecycle from the same reporter's bus subscription.
+      // session.idle fires on interrupt too (no transcript recovery
+      // needed), and permission.replied is the approval-resolution edge
+      // claude and codex lack.
       status: { normalize: normalizeOpencodeStatus },
       hooks: {
         "spawn.plan": async (input, output) => {

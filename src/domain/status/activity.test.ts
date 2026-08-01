@@ -25,6 +25,13 @@ describe("reduceActivity", () => {
     ).toEqual({ state: "waiting", since: 50, reason: "permission" });
   });
 
+  it("a resolution with no wait seen still reads as working (pane adopted mid-session)", () => {
+    expect(reduceActivity(null, { kind: "resumed", at: 50 })).toEqual({
+      state: "working",
+      since: 50,
+    });
+  });
+
   it("returns to working when the wait resolves, aging from the resolution", () => {
     const waiting: PaneActivity = {
       state: "waiting",

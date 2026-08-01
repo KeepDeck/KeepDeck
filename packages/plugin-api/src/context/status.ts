@@ -39,9 +39,14 @@ export type AgentStatusEvent =
 /** A per-agent normalizer: raw bridge status payload → one edge, or null
  * when the payload is not a tracked event. Pure; time is injected.
  *
- * One payload key is HOST-owned transport metadata, not agent schema:
- * `agent` (the dispatch key). The CLI's own event rides under `event`,
- * verbatim as the reporter captured it. */
+ * HOST-owned payload keys, not agent schema: `agent` (the dispatch key);
+ * and on the transcript tailer's recovered markers `kind`
+ * ("session.interrupt"), `reason` (the CLI's abort reason — only
+ * "interrupted" is the user's hand), `sourceAt`/`sourceMtimeMs` (the
+ * marker's own time — see [`statusSourceInstant`]). A hook reporter's
+ * payload instead rides verbatim under `event`. An agent whose interrupts
+ * the tailer recovers (claude, codex) must map the marker; the rest never
+ * receive one. */
 export type StatusNormalizer = (
   payload: unknown,
   at: number,

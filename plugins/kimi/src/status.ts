@@ -15,8 +15,10 @@ import {
  * - a DEDICATED `Interrupt` event ("Stop does not fire on interrupts, so
  *   this event fires instead") — no transcript recovery needed;
  * - `PermissionResult` — the approval-resolution edge claude/codex lack;
- * - `StopFailure` with the error class IN the payload (`error_type` in
- *   agent-core v1, `errorType` in v2 — both read here).
+ * - `StopFailure` with the error class IN the payload. Binary-verified:
+ *   kimi's `toHookInputData` snake-cases EVERY key in both engine
+ *   generations, so `error_type`/`error_message` are the only spellings
+ *   that reach a hook.
  */
 export const normalizeKimiStatus: StatusNormalizer = (
   payload,
@@ -32,16 +34,11 @@ export const normalizeKimiStatus: StatusNormalizer = (
     case "Interrupt":
       return { kind: "interrupted", at };
     case "StopFailure": {
-      const detail =
-        asNonEmptyString(event.error_message) ??
-        asNonEmptyString(event.errorMessage);
+      const detail = asNonEmptyString(event.error_message);
       return {
         kind: "turn-failed",
         at,
-        error:
-          asNonEmptyString(event.error_type) ??
-          asNonEmptyString(event.errorType) ??
-          "unknown",
+        error: asNonEmptyString(event.error_type) ?? "unknown",
         ...(detail !== undefined ? { detail } : {}),
       };
     }
