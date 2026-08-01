@@ -86,15 +86,18 @@ function StreakMark({ heat }: { heat: StreakHeat }) {
         height={size + 1}
         viewBox="0 0 24 26"
       >
+        {/* Gradient STRUCTURE only — every color of the fire lives in
+            stats-streak.css (stop-color/fill are CSS-styleable), so the
+            planned design pass recolors one file, not two. */}
         <defs>
           <linearGradient id={`${id}-flame`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#e0501e" />
-            <stop offset="0.55" stopColor="#f08c34" />
-            <stop offset="1" stopColor="#ffcf6f" />
+            <stop offset="0" className="stats__streak-stop-flame-top" />
+            <stop offset="0.55" className="stats__streak-stop-flame-mid" />
+            <stop offset="1" className="stats__streak-stop-flame-base" />
           </linearGradient>
           <linearGradient id={`${id}-core`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#ffb84d" />
-            <stop offset="1" stopColor="#fff3c4" />
+            <stop offset="0" className="stats__streak-stop-core-top" />
+            <stop offset="1" className="stats__streak-stop-core-base" />
           </linearGradient>
         </defs>
         <path
@@ -109,7 +112,6 @@ function StreakMark({ heat }: { heat: StreakHeat }) {
         {heat === "inferno" && (
           <path
             className="stats__streak-hot"
-            fill="#fff7d6"
             d="M12 15 C12.9 16.2 13.7 16.9 13.7 18.3 C13.7 19.7 13 20.6 12 20.6 C11 20.6 10.3 19.7 10.3 18.3 C10.3 16.9 11.1 16.2 12 15 Z"
           />
         )}

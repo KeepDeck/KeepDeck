@@ -65,6 +65,29 @@
   animation: streak-coal 2.8s ease-in-out infinite;
 }
 
+/* THE flame ramp — every color of the fire, in one place. The SVG defines
+   gradient structure only and references these classes (stop-color and
+   fill are CSS-styleable), so a recolor never has to find hexes in TSX. */
+.stats__streak-stop-flame-top {
+  stop-color: #e0501e;
+}
+
+.stats__streak-stop-flame-mid {
+  stop-color: #f08c34;
+}
+
+.stats__streak-stop-flame-base {
+  stop-color: #ffcf6f;
+}
+
+.stats__streak-stop-core-top {
+  stop-color: #ffb84d;
+}
+
+.stats__streak-stop-core-base {
+  stop-color: #fff3c4;
+}
+
 /* flame (7+): the fire sways from its base; the core flickers on its own. */
 .stats__streak-fire {
   position: relative;
@@ -81,6 +104,7 @@
 }
 
 .stats__streak-hot {
+  fill: #fff7d6;
   animation: streak-core 0.72s ease-in-out infinite alternate-reverse;
   transform-origin: 50% 90%;
   transform-box: fill-box;

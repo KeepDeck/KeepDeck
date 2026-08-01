@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { providerWindowGroups, providerWindowRows } from "./providerWindows";
+import { providerWindowGroups } from "./providerWindows";
+
+/** The production shape IS groups; tests reach rows through them. */
+const flatRows = (
+  ...args: Parameters<typeof providerWindowGroups>
+) => providerWindowGroups(...args).flatMap((group) => group.rows);
 import type { AccountUsage, UsageWindow } from "./usage";
 
 import { TEST_NOW, usageEvent as event } from "./history.testSupport";
@@ -24,7 +29,7 @@ describe("providerWindowRows", () => {
     const accounts = new Map([
       ["codex", reported([{ usedPct: 34, resetsAt: NOW + 2 * HOUR, windowMinutes: 300 }])],
     ]);
-    const rows = providerWindowRows(
+    const rows = flatRows(
       accounts,
       [
         event({ occurredAt: NOW - HOUR, tokens: { input: 100 } }),
@@ -59,7 +64,7 @@ describe("providerWindowRows", () => {
     const accounts = new Map([
       ["codex", reported([{ usedPct: 90, resetsAt: NOW - HOUR, windowMinutes: 300 }])],
     ]);
-    const rows = providerWindowRows(
+    const rows = flatRows(
       accounts,
       [event({ occurredAt: NOW - 30 * 60_000 })],
       NOW,
@@ -80,7 +85,7 @@ describe("providerWindowRows", () => {
         ),
       ],
     ]);
-    const rows = providerWindowRows(accounts, [event()], NOW);
+    const rows = flatRows(accounts, [event()], NOW);
     expect(rows[0].stale).toBe(true);
     expect(rows[0].expired).toBe(false);
     expect(rows[0].ledger?.totalTokens).toBe(100);
@@ -97,7 +102,7 @@ describe("providerWindowRows", () => {
         ]),
       ],
     ]);
-    const rows = providerWindowRows(accounts, [event({ agent: "kimi" })], NOW);
+    const rows = flatRows(accounts, [event({ agent: "kimi" })], NOW);
     expect(rows).toHaveLength(3);
     expect(rows.map((row) => row.ledger)).toEqual([null, null, null]);
   });
@@ -140,7 +145,7 @@ describe("providerWindowRows", () => {
         ]),
       ],
     ]);
-    const rows = providerWindowRows(accounts, [], NOW);
+    const rows = flatRows(accounts, [], NOW);
     expect(rows).toHaveLength(2);
     expect(new Set(rows.map((row) => row.id)).size).toBe(2);
   });
@@ -163,7 +168,7 @@ describe("providerWindowRows", () => {
       ],
       ["opencode", { kind: "unavailable", reason: "api-key", reportedAt: NOW }],
     ]);
-    const rows = providerWindowRows(accounts, [], NOW);
+    const rows = flatRows(accounts, [], NOW);
     expect(
       rows.map((row) => [row.agent, row.window.windowMinutes, row.window.scope]),
     ).toEqual([

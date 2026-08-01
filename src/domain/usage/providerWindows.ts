@@ -87,17 +87,6 @@ export function providerWindowGroups(
   return groups;
 }
 
-/** The flat view of [`providerWindowGroups`] — kept for consumers that need
- * rows without card structure; one derivation, never a second grouping. */
-export function providerWindowRows(
-  accounts: ReadonlyMap<string, AccountUsage>,
-  events: readonly UsageEventV2[],
-  now: number,
-): ProviderWindowRow[] {
-  return providerWindowGroups(accounts, events, now).flatMap(
-    (group) => group.rows,
-  );
-}
 
 function windowLedger(
   agent: string,
