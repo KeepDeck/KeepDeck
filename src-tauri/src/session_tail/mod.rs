@@ -1,17 +1,11 @@
 //! Usage tailer — per-pane session-file followers (Claude transcripts,
-//! Codex rollouts, Kimi wire logs).
-//!
-//! Claude appends assistant-message usage to its transcript (with repeated
-//! rows sharing a message id); Codex embeds rate-limit and token data in its
-//! session rollout file (one
-//! `token_count` event per turn, a `turn_context` per turn for the model);
-//! kimi appends a `usage.record` per LLM request to its wire.jsonl (window
-//! size rides the `llm.request` before it). No hook carries usage in either
-//! CLI. The webview learns a pane's session file from the binding
-//! (`transcriptPath`) and arms a tail here with the FORMAT its agent
-//! speaks; every matching event is wrapped into the same [`Report`]
-//! the bridge emits for other agents — one wire shape, the TS normalizers
-//! own the payload schema.
+//! Codex rollouts, Kimi wire logs), and the ROUTER of what they yield:
+//! usage events to the usage channel, recovered interrupt markers to the
+//! status channel. The concerns live in submodules — `dialects` (which
+//! lines matter per CLI), `reader` (incremental byte draining), `totals`
+//! (running token cumulatives), `route` (wire shapes and the two-channel
+//! decision), `rollouts` (cold codex-store discovery) — this module owns
+//! the followed STATE and the poll/arm lifecycle around them.
 //!
 //! Three deliberate choices:
 //! - Session files are POLLED (a 2s stat + drain-on-growth thread), not
@@ -32,157 +26,31 @@
 //!   a torn multi-byte character or half-written line never breaks parsing;
 //!   it completes on the next poll).
 
-use std::cmp::Reverse;
+mod dialects;
+mod reader;
+mod rollouts;
+mod route;
+mod totals;
+
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::bridge::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 use crate::fswatch;
 
-/// Which session-file dialect a tail parses. Chosen by the webview (it
-/// knows the pane's agent); each format owns its line filter, its catch-up
-/// order and the `agent` tag its payloads carry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum TailFormat {
-    /// Claude transcript `.jsonl`: deduplicated assistant-message usage.
-    Claude,
-    /// Codex rollout `.jsonl`: `token_count` + `turn_context`.
-    Codex,
-    /// Kimi wire `.jsonl`: `usage.record` + trimmed `llm.request`.
-    KimiWire,
-}
+use dialects::{claude_subagent_paths, last_of_each, TailedEvent};
+use reader::{drain_file, TailCursor};
+use route::{route, wrap, Routed};
+use totals::{accumulate_session_totals, SessionTotals};
 
-impl TailFormat {
-    fn agent(self) -> &'static str {
-        match self {
-            TailFormat::Claude => "claude",
-            TailFormat::Codex => "codex",
-            TailFormat::KimiWire => "kimi",
-        }
-    }
-
-    /// Catch-up kinds, context first so the model/window lands before the
-    /// numbers it qualifies.
-    fn catch_up_order(self) -> &'static [&'static str] {
-        match self {
-            TailFormat::Claude => &["assistant.usage"],
-            TailFormat::Codex => &["turn_context", "token_count"],
-            TailFormat::KimiWire => &["llm.request", "usage.record"],
-        }
-    }
-
-    fn event(self, line: &[u8]) -> Option<TailedEvent> {
-        match self {
-            TailFormat::Claude => claude_event(line),
-            TailFormat::Codex => rollout_event(line),
-            TailFormat::KimiWire => wire_event(line),
-        }
-    }
-}
-
-/// Honest time carried by the source event. Codex writes an ISO timestamp on
-/// each rollout line; Kimi uses unix milliseconds. The file mtime travels
-/// separately as a fallback because parsing and wall-clock validation belong
-/// at the application freshness boundary.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(untagged)]
-enum SourceTimestamp {
-    Iso(String),
-    UnixMillis(u64),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct TailedEvent {
-    payload: Value,
-    source_at: Option<SourceTimestamp>,
-    source_mtime_ms: Option<u64>,
-    /// From the session's ROOT file (false = a claude subagent transcript).
-    /// An interrupt marker is pane-level only when the ROOT turn was
-    /// aborted; a subagent's own abort must not relabel the pane.
-    root: bool,
-}
-
-/// Kimi's running per-tail token cumulative. Kimi writes only per-request
-/// counts (`usage.record`), never a session total, and catch-up collapses to
-/// the last record — so the sum is held here and stamped onto each event as
-/// `sessionTotals`. Each bucket sums SEPARATELY: `inputCacheRead` is the
-/// re-read context prefix (occupancy), NOT fresh input, so it never joins the
-/// fresh-input total. Stays zero for codex, which carries its own cumulative.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct KimiTotals {
-    input_other: u64,
-    output: u64,
-    input_cache_read: u64,
-    input_cache_creation: u64,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct ClaudeUsage {
-    input: u64,
-    output: u64,
-    cache_read: u64,
-    cache_creation: u64,
-}
-
-impl ClaudeUsage {
-    fn max(self, other: Self) -> Self {
-        Self {
-            input: self.input.max(other.input),
-            output: self.output.max(other.output),
-            cache_read: self.cache_read.max(other.cache_read),
-            cache_creation: self.cache_creation.max(other.cache_creation),
-        }
-    }
-
-    fn add_assign(&mut self, other: Self) {
-        self.input += other.input;
-        self.output += other.output;
-        self.cache_read += other.cache_read;
-        self.cache_creation += other.cache_creation;
-    }
-
-    fn subtract(self, other: Self) -> Self {
-        Self {
-            input: self.input.saturating_sub(other.input),
-            output: self.output.saturating_sub(other.output),
-            cache_read: self.cache_read.saturating_sub(other.cache_read),
-            cache_creation: self.cache_creation.saturating_sub(other.cache_creation),
-        }
-    }
-}
-
-/// Claude repeats one assistant message id across content/tool rows. Keep the
-/// per-id maxima (the CLI's documented dedup rule) and a running session sum.
-#[derive(Debug, Default, PartialEq, Eq)]
-struct ClaudeTotals {
-    by_message: HashMap<String, ClaudeUsage>,
-    sum: ClaudeUsage,
-}
-
-#[derive(Debug, Default, PartialEq, Eq)]
-struct SessionTotals {
-    kimi: KimiTotals,
-    claude: ClaudeTotals,
-}
-
-#[derive(Default)]
-struct TailCursor {
-    offset: u64,
-    partial: Vec<u8>,
-    /// Inside an abandoned oversized line — drop bytes until its newline.
-    skipping: bool,
-}
+pub use dialects::TailFormat;
+pub use rollouts::LatestRollout;
 
 /// One followed session: where every source file is up to and how to
 /// attribute what it yields. Claude owns a root transcript plus lazily
@@ -200,11 +68,6 @@ struct TailState {
     /// rows rather than a native session total.
     totals: SessionTotals,
 }
-
-/// A pathological line (megabytes with no newline yet) must not buffer
-/// forever — past this cap the line is abandoned and the tail resyncs at
-/// the next newline. Generous: real usage lines are a few KB.
-const MAX_PARTIAL_BYTES: usize = 8 * 1024 * 1024;
 
 /// The live session-file tails, keyed by pane id — a shared
 /// [`fswatch::WatchRegistry`] like every other watcher family
@@ -230,288 +93,6 @@ impl Drop for TailPoller {
     }
 }
 
-/// One Claude transcript line → a content-free assistant usage event. The
-/// transcript can repeat the same message id as tool/content blocks arrive;
-/// deduplication happens while accumulating session totals below.
-fn claude_event(line: &[u8]) -> Option<TailedEvent> {
-    let value: Value = serde_json::from_slice(line).ok()?;
-    let kind = value.get("type")?.as_str()?;
-    // The interrupt marker: claude pushes NO hook when the user aborts a
-    // turn (Esc) — the transcript is the only witness. Keyed on the
-    // STRUCTURED `interruptedMessageId` field of the appended user record,
-    // never on the "[Request interrupted…]" text, so an assistant merely
-    // quoting the phrase cannot trip it.
-    if kind == "user" {
-        let interrupted = value
-            .get("interruptedMessageId")
-            .and_then(Value::as_str)
-            .is_some_and(|id| !id.is_empty());
-        if !interrupted {
-            return None;
-        }
-        let source_at = value
-            .get("timestamp")
-            .and_then(Value::as_str)
-            .map(|at| SourceTimestamp::Iso(at.to_string()));
-        return Some(TailedEvent {
-            // claude's marker exists only for the user's own Esc — the
-            // reason is fixed, spelled out for one wire shape with codex.
-            payload: json!({ "type": "session.interrupt", "reason": "interrupted" }),
-            source_at,
-            source_mtime_ms: None,
-            root: true,
-        });
-    }
-    if kind != "assistant" {
-        return None;
-    }
-    let message = value.get("message")?.as_object()?;
-    if message.get("model").and_then(Value::as_str) == Some("<synthetic>") {
-        return None;
-    }
-    let message_id = message.get("id")?.as_str()?;
-    if message_id.is_empty() {
-        return None;
-    }
-    let usage = message.get("usage")?.as_object()?;
-    let mut trimmed_usage = serde_json::Map::new();
-    for key in [
-        "input_tokens",
-        "output_tokens",
-        "cache_read_input_tokens",
-        "cache_creation_input_tokens",
-    ] {
-        if let Some(value) = usage.get(key).and_then(Value::as_u64) {
-            trimmed_usage.insert(key.to_string(), value.into());
-        }
-    }
-    if trimmed_usage.is_empty() {
-        return None;
-    }
-
-    let source_at = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .map(|at| SourceTimestamp::Iso(at.to_string()));
-    Some(TailedEvent {
-        payload: json!({
-            "type": "assistant.usage",
-            "messageId": message_id,
-            "usage": Value::Object(trimmed_usage),
-        }),
-        source_at,
-        source_mtime_ms: None,
-        root: true,
-    })
-}
-
-/// One rollout line → the payload event worth forwarding, if any:
-/// `token_count` (usage + rate limits) and `turn_context` (model). Anything
-/// else — user messages, tool calls, garbage — is `None`.
-fn rollout_event(line: &[u8]) -> Option<TailedEvent> {
-    let value: Value = serde_json::from_slice(line).ok()?;
-    let source_at = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .map(|at| SourceTimestamp::Iso(at.to_string()));
-    let payload = match value.get("type")?.as_str()? {
-        "event_msg" => {
-            let payload = value.get("payload")?;
-            match payload.get("type")?.as_str()? {
-                "token_count" => payload.clone(),
-                // codex pushes NO hook on a user interrupt; the rollout's
-                // `turn_aborted` record is the witness. The record TYPE is
-                // the marker (assistant text can't trip it). The reason
-                // rides along: only "interrupted" is the user's hand — the
-                // other aborts still END the turn, but labelling them
-                // "Interrupted" would claim an Esc nobody pressed.
-                "turn_aborted" => json!({
-                    "type": "session.interrupt",
-                    "reason": payload.get("reason").and_then(Value::as_str).unwrap_or("interrupted"),
-                }),
-                _ => return None,
-            }
-        }
-        "turn_context" => {
-            let mut payload = value.get("payload")?.as_object()?.clone();
-            payload.insert("type".into(), "turn_context".into());
-            Value::Object(payload)
-        }
-        _ => return None,
-    };
-    Some(TailedEvent {
-        payload,
-        source_at,
-        source_mtime_ms: None,
-        root: true,
-    })
-}
-
-/// One kimi wire line → the payload event worth forwarding. `usage.record`
-/// is small and rides verbatim; `llm.request` is TRIMMED to the two scalars
-/// the normalizer needs (model, maxTokens) — the full event carries prompt
-/// content, which must never ride the app's event bus.
-fn wire_event(line: &[u8]) -> Option<TailedEvent> {
-    let value: Value = serde_json::from_slice(line).ok()?;
-    let source_at = value
-        .get("time")
-        .and_then(Value::as_u64)
-        .map(SourceTimestamp::UnixMillis);
-    let payload = match value.get("type")?.as_str()? {
-        "usage.record" => value,
-        "llm.request" => {
-            let mut trimmed = serde_json::Map::new();
-            trimmed.insert("type".into(), "llm.request".into());
-            for key in ["model", "maxTokens"] {
-                if let Some(v) = value.get(key) {
-                    trimmed.insert(key.into(), v.clone());
-                }
-            }
-            Value::Object(trimmed)
-        }
-        _ => return None,
-    };
-    Some(TailedEvent {
-        payload,
-        source_at,
-        source_mtime_ms: None,
-        root: true,
-    })
-}
-
-/// Read appended bytes in fixed-size chunks, returning events from complete
-/// lines while carrying at most one bounded partial line. No prefix is ever
-/// drained from a Vec, so catch-up remains linear even for large transcripts.
-/// The bool reports a truncated/rotated file.
-fn drain_file(
-    path: &std::path::Path,
-    cursor: &mut TailCursor,
-    format: TailFormat,
-) -> (Vec<TailedEvent>, bool) {
-    let Ok(mut file) = File::open(path) else {
-        return (Vec::new(), false);
-    };
-    let (len, file_mtime_ms) = file
-        .metadata()
-        .map(|metadata| {
-            let modified = metadata
-                .modified()
-                .ok()
-                .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|duration| duration.as_millis() as u64);
-            (metadata.len(), modified)
-        })
-        .unwrap_or((0, None));
-    let rotated = len < cursor.offset;
-    if rotated {
-        cursor.offset = 0;
-        cursor.partial.clear();
-        cursor.skipping = false;
-    }
-    if len == cursor.offset || file.seek(SeekFrom::Start(cursor.offset)).is_err() {
-        return (Vec::new(), rotated);
-    }
-
-    let mut events = Vec::new();
-    let mut chunk = [0_u8; 64 * 1024];
-    while let Ok(read) = file.read(&mut chunk) {
-        if read == 0 {
-            break;
-        }
-        cursor.offset += read as u64;
-        parse_chunk(cursor, &chunk[..read], format, file_mtime_ms, &mut events);
-    }
-    (events, rotated)
-}
-
-fn parse_chunk(
-    cursor: &mut TailCursor,
-    chunk: &[u8],
-    format: TailFormat,
-    file_mtime_ms: Option<u64>,
-    events: &mut Vec<TailedEvent>,
-) {
-    let mut start = 0;
-    if cursor.skipping {
-        let Some(nl) = chunk.iter().position(|byte| *byte == b'\n') else {
-            return;
-        };
-        cursor.skipping = false;
-        start = nl + 1;
-    }
-
-    while let Some(relative_nl) = chunk[start..].iter().position(|byte| *byte == b'\n') {
-        let nl = start + relative_nl;
-        let fragment = &chunk[start..nl];
-        if cursor.partial.len() + fragment.len() <= MAX_PARTIAL_BYTES {
-            if cursor.partial.is_empty() {
-                push_event(format, fragment, file_mtime_ms, events);
-            } else {
-                cursor.partial.extend_from_slice(fragment);
-                push_event(format, &cursor.partial, file_mtime_ms, events);
-                cursor.partial.clear();
-            }
-        } else {
-            cursor.partial.clear();
-        }
-        start = nl + 1;
-    }
-
-    let remainder = &chunk[start..];
-    if cursor.partial.len() + remainder.len() > MAX_PARTIAL_BYTES {
-        cursor.partial.clear();
-        cursor.skipping = true;
-    } else {
-        cursor.partial.extend_from_slice(remainder);
-    }
-}
-
-fn push_event(
-    format: TailFormat,
-    line: &[u8],
-    file_mtime_ms: Option<u64>,
-    events: &mut Vec<TailedEvent>,
-) {
-    if let Some(mut event) = format.event(line) {
-        event.source_mtime_ms = file_mtime_ms;
-        if event.source_at.is_none() {
-            event.source_at = file_mtime_ms.map(SourceTimestamp::UnixMillis);
-        }
-        events.push(event);
-    }
-}
-
-/// Drain only the session's root file. A root rotation is a fresh session
-/// generation and resets the running totals.
-fn drain(state: &mut TailState) -> Vec<TailedEvent> {
-    let (events, rotated) = drain_file(&state.path, &mut state.root, state.format);
-    if rotated {
-        state.totals = SessionTotals::default();
-    }
-    events
-}
-
-/// Claude subagents write their own assistant rows next to the root
-/// transcript. Discover them every poll because the directory and files can
-/// appear after the watch is armed.
-fn claude_subagent_paths(root: &std::path::Path) -> Vec<PathBuf> {
-    let directory = root.with_extension("").join("subagents");
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return Vec::new();
-    };
-    let mut paths = entries
-        .flatten()
-        .filter_map(|entry| {
-            let path = entry.path();
-            let jsonl = path.extension().and_then(|ext| ext.to_str()) == Some("jsonl");
-            let file = entry.file_type().ok().is_some_and(|kind| kind.is_file());
-            (jsonl && file).then_some(path)
-        })
-        .collect::<Vec<_>>();
-    paths.sort();
-    paths
-}
-
 /// Drain the root file and any subagent transcripts. The bool reports a
 /// ROOT rotation: the whole file was re-read from offset 0, so this batch is
 /// a REPLAY, not live appends — the deliverer must treat it as catch-up, or
@@ -535,127 +116,6 @@ fn drain_all(state: &mut TailState) -> (Vec<TailedEvent>, bool) {
         }
     }
     (events, rotated)
-}
-
-/// The catch-up summary: of everything drained from an existing file, only
-/// the LAST of each kind matters, emitted in the format's declared order.
-fn last_of_each(events: Vec<TailedEvent>, order: &[&str]) -> Vec<TailedEvent> {
-    let mut last = vec![None; order.len()];
-    for event in events {
-        let Some(kind) = event.payload.get("type").and_then(|t| t.as_str()) else {
-            continue;
-        };
-        if let Some(slot) = order.iter().position(|k| *k == kind) {
-            last[slot] = Some(event);
-        }
-    }
-    last.into_iter().flatten().collect()
-}
-
-/// Fold per-request/message token buckets into running session cumulatives and
-/// stamp `sessionTotals` onto the event. Kimi sums every usage record. Claude
-/// deduplicates repeated assistant rows by message id, retaining each bucket's
-/// maximum. Codex carries a native cumulative and passes through untouched.
-fn accumulate_session_totals(
-    totals: &mut SessionTotals,
-    format: TailFormat,
-    event: &mut TailedEvent,
-) {
-    let kind = event.payload.get("type").and_then(Value::as_str);
-    match (format, kind) {
-        (TailFormat::KimiWire, Some("usage.record")) => {
-            let usage = event.payload.get("usage");
-            let bucket = |key: &str| {
-                usage
-                    .and_then(|u| u.get(key))
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0)
-            };
-            totals.kimi.input_other += bucket("inputOther");
-            totals.kimi.output += bucket("output");
-            totals.kimi.input_cache_read += bucket("inputCacheRead");
-            totals.kimi.input_cache_creation += bucket("inputCacheCreation");
-            if let Some(object) = event.payload.as_object_mut() {
-                object.insert(
-                    "sessionTotals".to_string(),
-                    json!({
-                        "inputOther": totals.kimi.input_other,
-                        "output": totals.kimi.output,
-                        "inputCacheRead": totals.kimi.input_cache_read,
-                        "inputCacheCreation": totals.kimi.input_cache_creation,
-                    }),
-                );
-            }
-        }
-        (TailFormat::Claude, Some("assistant.usage")) => {
-            let Some(message_id) = event
-                .payload
-                .get("messageId")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-            else {
-                return;
-            };
-            let usage = event.payload.get("usage");
-            let bucket = |key: &str| {
-                usage
-                    .and_then(|u| u.get(key))
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0)
-            };
-            let incoming = ClaudeUsage {
-                input: bucket("input_tokens"),
-                output: bucket("output_tokens"),
-                cache_read: bucket("cache_read_input_tokens"),
-                cache_creation: bucket("cache_creation_input_tokens"),
-            };
-            let previous = totals
-                .claude
-                .by_message
-                .get(&message_id)
-                .copied()
-                .unwrap_or_default();
-            let next = previous.max(incoming);
-            totals.claude.sum.add_assign(next.subtract(previous));
-            totals.claude.by_message.insert(message_id, next);
-
-            if let Some(object) = event.payload.as_object_mut() {
-                object.insert(
-                    "sessionTotals".to_string(),
-                    json!({
-                        "input_tokens": totals.claude.sum.input,
-                        "output_tokens": totals.claude.sum.output,
-                        "cache_read_input_tokens": totals.claude.sum.cache_read,
-                        "cache_creation_input_tokens": totals.claude.sum.cache_creation,
-                    }),
-                );
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Wrap one session-file event into the bridge's wire shape. `agent` and
-/// `catchUp` are HOST-owned transport keys on the payload: `catchUp` marks
-/// events replayed from the EXISTING file at arm time — the store must not
-/// let that replay outrank live data.
-fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> Report {
-    let mut payload = json!({
-        "agent": state.format.agent(),
-        "event": event.payload,
-        "catchUp": catch_up,
-    });
-    if let Some(source_at) = event.source_at {
-        payload["sourceAt"] = json!(source_at);
-    }
-    if let Some(source_mtime_ms) = event.source_mtime_ms {
-        payload["sourceMtimeMs"] = json!(source_mtime_ms);
-    }
-    Report {
-        pane_id: state.pane_id.clone(),
-        token: state.token.clone(),
-        payload,
-    }
 }
 
 /// Start the poll thread for one tail. Delivery is a plain closure so the
@@ -691,7 +151,7 @@ fn spawn_tailer(
                     // replay wearing the poller's clothes, and it must say
                     // so — catch-up is what keeps a historical interrupt
                     // from firing as if it just happened.
-                    deliver(report(&s, event, rotated));
+                    deliver(wrap(&s.pane_id, &s.token, format.agent(), event, rotated));
                 }
             }
         })
@@ -733,42 +193,21 @@ pub fn usage_watch_session_file(
     // summary is marked catchUp so a replay can never outrank them.
     let emitter = app.clone();
     let watcher = spawn_tailer(state.clone(), POLL_INTERVAL, move |payload| {
-        // An interrupt marker is a STATUS edge, not usage — reroute it with
-        // the same correlation. Live appends only, twice over: the catch-up
-        // summary keeps declared usage kinds exclusively (`last_of_each`),
-        // and a rotated poll tick arrives marked catchUp — either way an old
-        // abort in the file can never relabel a fresh resume. Source time
-        // rides along so the tracker can drop a marker that predates the
-        // turn it would end.
-        if payload.payload["event"]["type"] == "session.interrupt" {
-            if payload.payload["catchUp"] == true {
-                return;
+        match route(payload) {
+            Routed::Drop => {}
+            Routed::Status(status) => {
+                log::debug!("usage tail: pane={} interrupt marker", status.pane_id);
+                let _ = emitter.emit(AGENT_STATUS_EVENT, &status);
             }
-            let mut body = json!({
-                "agent": payload.payload["agent"],
-                "kind": "session.interrupt",
-                "reason": payload.payload["event"]["reason"],
-            });
-            for key in ["sourceAt", "sourceMtimeMs"] {
-                if !payload.payload[key].is_null() {
-                    body[key] = payload.payload[key].clone();
-                }
+            Routed::Usage(report) => {
+                log::debug!(
+                    "usage tail: pane={} live {} event",
+                    report.pane_id,
+                    report.payload["event"]["type"]
+                );
+                let _ = emitter.emit(USAGE_REPORT_EVENT, &report);
             }
-            let status = Report {
-                pane_id: payload.pane_id.clone(),
-                token: payload.token.clone(),
-                payload: body,
-            };
-            log::debug!("usage tail: pane={} interrupt marker", status.pane_id);
-            let _ = emitter.emit(AGENT_STATUS_EVENT, &status);
-            return;
         }
-        log::debug!(
-            "usage tail: pane={} live {} event",
-            payload.pane_id,
-            payload.payload["event"]["type"]
-        );
-        let _ = emitter.emit(USAGE_REPORT_EVENT, &payload);
     })?;
     let caught_up = {
         let mut s = state.lock().expect("tail state poisoned");
@@ -782,7 +221,8 @@ pub fn usage_watch_session_file(
         let events = last_of_each(drained, format.catch_up_order());
         let count = events.len();
         for event in events {
-            let _ = app.emit(USAGE_REPORT_EVENT, &report(&s, event, true));
+            let report = wrap(&s.pane_id, &s.token, format.agent(), event, true);
+            let _ = app.emit(USAGE_REPORT_EVENT, &report);
         }
         count
     };
@@ -803,133 +243,46 @@ pub fn usage_unwatch_session_file(tails: State<UsageTails>, pane_id: String) {
     tails.0.remove(&pane_id);
 }
 
-/// Every `rollout-*.jsonl` under the day-partitioned
-/// `~/.codex/sessions/YYYY/MM/DD/` tree, newest mtime first.
-fn rollouts_newest_first(root: &std::path::Path) -> Vec<(std::time::SystemTime, PathBuf)> {
-    let mut found = Vec::new();
-    let days = std::fs::read_dir(root)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .flat_map(|y| std::fs::read_dir(y.path()).into_iter().flatten().flatten())
-        .flat_map(|m| std::fs::read_dir(m.path()).into_iter().flatten().flatten());
-    for day in days {
-        let Ok(files) = std::fs::read_dir(day.path()) else {
-            continue;
-        };
-        for file in files.flatten() {
-            let path = file.path();
-            let is_rollout = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("rollout-") && n.ends_with(".jsonl"));
-            if !is_rollout {
-                continue;
-            }
-            let modified = file
-                .metadata()
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            found.push((modified, path));
-        }
-    }
-    found.sort_by_key(|(modified, _)| Reverse(*modified));
-    found
-}
-
-/// Locate a codex session's rollout by its recorded id — the fallback for
-/// TUI resumes: codex (observed on 0.144.5) fires SessionStart in `exec`
-/// and `exec resume` but NOT in the interactive `resume`, so no binding
-/// carries the path. Rollout names end `-<session_id>.jsonl`; the newest
-/// match wins.
-fn find_rollout_in(root: &std::path::Path, session_id: &str) -> Option<PathBuf> {
-    let suffix = format!("-{session_id}.jsonl");
-    rollouts_newest_first(root)
-        .into_iter()
-        .map(|(_, path)| path)
-        .find(|path| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.ends_with(&suffix))
-        })
-}
-
-/// The last usage event of the newest rollout on disk, its source time and
-/// that FILE's mtime fallback. This is the boot catch-up: codex runs outside
-/// KeepDeck too, so its sessions dir can know fresher limits than cache.
-#[derive(Debug, PartialEq, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LatestRollout {
-    event: Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source_at: Option<SourceTimestamp>,
-    mtime_ms: u64,
-}
-
-/// A just-launched session writes its rollout before any turn, so the
-/// newest file may carry no usage while an older one holds the account's
-/// real last word — walk newest-first until a `token_count` shows up, but
-/// never scan an unbounded history for an account that has none.
-const BOOT_SWEEP_MAX_FILES: usize = 10;
-
-fn latest_rollout_usage_in(root: &std::path::Path) -> Option<LatestRollout> {
-    let files = rollouts_newest_first(root);
-    for (modified, path) in files.into_iter().take(BOOT_SWEEP_MAX_FILES) {
-        let mut state = TailState {
-            path,
-            pane_id: String::new(),
-            token: String::new(),
-            format: TailFormat::Codex,
-            root: TailCursor::default(),
-            subagents: HashMap::new(),
-            totals: SessionTotals::default(),
-        };
-        let event = last_of_each(drain(&mut state), TailFormat::Codex.catch_up_order())
-            .into_iter()
-            .find(|e| e.payload.get("type").and_then(|t| t.as_str()) == Some("token_count"));
-        if let Some(event) = event {
-            let mtime_ms = modified
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            return Some(LatestRollout {
-                event: event.payload,
-                source_at: event.source_at,
-                mtime_ms,
-            });
-        }
-    }
-    None
-}
-
-/// The boot catch-up command. `(async)` — it may read several session
-/// files. The event rides verbatim (payloads are opaque to Rust); source
-/// time (or mtime), never receipt time, is its honest age.
+/// The boot catch-up command — see [`rollouts`]. Thin wrapper: tauri's
+/// command macros must live where `generate_handler!` names them.
 #[tauri::command(async)]
 pub fn usage_latest_codex_rollout() -> Option<LatestRollout> {
-    let home = std::env::var_os("HOME")?;
-    latest_rollout_usage_in(&PathBuf::from(home).join(".codex/sessions"))
+    rollouts::latest_codex_rollout()
 }
 
-/// The fallback resolver command. The id is sanitized to uuid characters —
-/// it names a file suffix, nothing else may ride in.
+/// The TUI-resume fallback resolver command — see [`rollouts`].
 #[tauri::command(async)]
 pub fn usage_find_codex_rollout(session_id: String) -> Option<String> {
-    if session_id.is_empty()
-        || !session_id
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() || c == '-')
-    {
-        return None;
-    }
-    let home = std::env::var_os("HOME")?;
-    let root = PathBuf::from(home).join(".codex/sessions");
-    find_rollout_in(&root, &session_id).map(|p| p.to_string_lossy().into_owned())
+    rollouts::find_codex_rollout(&session_id)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::dialects::*;
+    use super::reader::*;
+    use super::rollouts::*;
+    use super::route::*;
+    use super::totals::*;
     use super::*;
+
+    /// Root-only drain, as the pre-split suite spelled it. Every fixture
+    /// here either has no subagents dir or wants them too — `drain_all`
+    /// answers both.
+    fn drain(state: &mut TailState) -> Vec<TailedEvent> {
+        drain_all(state).0
+    }
+
+    /// The pre-split wire wrapper, kept as a test-local shim so the suite's
+    /// many call sites read as before; production goes through [`wrap`].
+    fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> Report {
+        wrap(
+            &state.pane_id,
+            &state.token,
+            state.format.agent(),
+            event,
+            catch_up,
+        )
+    }
     use std::fs::{self, OpenOptions};
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
