@@ -27,6 +27,24 @@ const OVERFLOW_COLOR = "#596273";
  * property — keep in sync with `--kd-bg` in base.css. */
 export const CHART_SURFACE = "#0b0e14";
 
+/** The chart's plot height; the Suspense placeholder builds the same box
+ * from this constant so the overview cannot jump when the chunk lands. */
+export const CHART_HEIGHT = 190;
+
+/* Chart CHROME — grid, axes, inks, tooltip surfaces. Beside the series
+ * palette so a design pass finds every chart color in ONE module; these
+ * mirror the stats stylesheets' values (SVG props cannot read CSS custom
+ * properties — keep in sync when the sheets are recolored). */
+export const CHART_GRID = "#171d28";
+export const CHART_AXIS = "#1c2230";
+export const CHART_TICK_INK = "#596273";
+export const CHART_LEGEND_INK = "#9aa3af";
+export const CHART_ITEM_INK = "#c5c8c6";
+export const CHART_LABEL_INK = "#596273";
+export const CHART_TOOLTIP_BG = "#10141c";
+export const CHART_TOOLTIP_BORDER = "#1c2230";
+export const CHART_CURSOR_FILL = "rgba(255, 255, 255, 0.04)";
+
 /** Colors for a roster of agent ids. Spare slots are handed out by an
  * agent's rank among ALL unknown agents in the roster — pass the FULL
  * ledger roster, never the selected period's subset, and a period switch

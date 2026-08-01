@@ -80,6 +80,11 @@ describe("usageTimeline", () => {
   it("is empty when the period has no events", () => {
     expect(
       usageTimeline([event({ occurredAt: NOW - 20 * DAY })], 7, NOW),
-    ).toEqual({ bucketMs: DAY, buckets: [], agents: [] });
+    ).toEqual({ granularity: "day", bucketMs: DAY, buckets: [], agents: [] });
+  });
+
+  it("names its granularity so labels and titles never guess from widths", () => {
+    expect(usageTimeline([event()], 1, NOW).granularity).toBe("hour");
+    expect(usageTimeline([event()], 7, NOW).granularity).toBe("day");
   });
 });

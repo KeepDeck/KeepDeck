@@ -21,6 +21,10 @@ export interface TimelineBucket {
 }
 
 export interface UsageTimeline {
+  /** What one bucket IS — the discriminant consumers switch on for labels
+   * and titles, so a future third width extends a union instead of
+   * silently falling through a `bucketMs !== HOUR_MS` comparison. */
+  granularity: "hour" | "day";
   /** Bucket width: an hour for the 24h period, a UTC day otherwise. */
   bucketMs: number;
   /** Continuous buckets covering the period (or, for "all", from the first
@@ -45,7 +49,8 @@ export function usageTimeline(
   period: UsageStatsPeriod,
   now: number,
 ): UsageTimeline {
-  const bucketMs = period === 1 ? HOUR_MS : DAY_MS;
+  const granularity = period === 1 ? ("hour" as const) : ("day" as const);
+  const bucketMs = granularity === "hour" ? HOUR_MS : DAY_MS;
   const cutoff = periodCutoff(period, now);
   const totals = new Map<number, Record<string, number>>();
   const agents = new Set<string>();
@@ -59,7 +64,7 @@ export function usageTimeline(
     bucket[event.agent] = (bucket[event.agent] ?? 0) + tokenTotal(event.tokens);
     totals.set(start, bucket);
   }
-  if (totals.size === 0) return { bucketMs, buckets: [], agents: [] };
+  if (totals.size === 0) return { granularity, bucketMs, buckets: [], agents: [] };
 
   const start =
     period === "all" ? first : Math.floor(cutoff / bucketMs) * bucketMs;
@@ -68,5 +73,5 @@ export function usageTimeline(
   for (let at = start; at <= end; at += bucketMs) {
     buckets.push({ start: at, byAgent: totals.get(at) ?? {} });
   }
-  return { bucketMs, buckets, agents: [...agents].sort() };
+  return { granularity, bucketMs, buckets, agents: [...agents].sort() };
 }

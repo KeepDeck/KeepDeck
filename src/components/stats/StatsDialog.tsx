@@ -13,8 +13,10 @@ import {
   queryUsageStats,
   type UsageStatsPeriod,
 } from "../../domain/usage/history";
+import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
 import { CloseButton } from "../../ui/CloseButton";
+import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
@@ -188,13 +190,25 @@ export function UsageStats({
                   />
                   <Summary label="Sessions" value={String(stats.sessionCount)} />
                 </div>
-                <Suspense
-                  // Same footprint as the mounted chart, so the section
-                  // below doesn't jump when the chunk lands.
-                  fallback={<section className="stats__section" style={{ height: 216 }} aria-hidden />}
+                {/* A failed chunk load loses the chart, never the app —
+                    without a boundary a rejected lazy import unwinds to
+                    the root and blanks the whole window. */}
+                <ErrorBoundary
+                  label="Statistics chart"
+                  fallback={
+                    <p className="stats__warning">
+                      The chart could not be loaded.
+                    </p>
+                  }
                 >
-                  <UsageChart events={history.events} period={period} now={now} />
-                </Suspense>
+                  <Suspense fallback={<ChartPlaceholder />}>
+                    <UsageChart
+                      events={history.events}
+                      period={period}
+                      now={now}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
                 {recap && <Highlights recap={recap} period={period} />}
                 <p className="stats__coverage">
                   {costCoverage(stats.costSessionCount, stats.sessionCount)}
@@ -262,6 +276,18 @@ function Highlights({
   }
   if (parts.length === 0) return null;
   return <p className="stats__recap">{parts.join(" · ")}</p>;
+}
+
+/** The pending-chunk stand-in builds the SAME box as the mounted chart —
+ * heading line plus a CHART_HEIGHT plot — so its height tracks the CSS
+ * instead of asserting a hand-measured pixel count across three files. */
+function ChartPlaceholder() {
+  return (
+    <section className="stats__section" aria-hidden>
+      <h3>{" "}</h3>
+      <div style={{ height: CHART_HEIGHT }} />
+    </section>
+  );
 }
 
 function Summary({ label, value }: { label: string; value: string }) {
