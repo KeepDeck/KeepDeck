@@ -524,7 +524,7 @@ export function registerCoreCommands(
 
     registry.register({
       id: "usage.open",
-      title: "Open usage statistics",
+      title: "Open statistics",
       args: [],
       run: () => {
         if (!deps.openUsage()) throw new Error(DIALOG_BUSY_MESSAGE);

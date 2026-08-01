@@ -273,7 +273,7 @@ export function UsageChips({
               onOpenStats();
             }}
           >
-            Open usage statistics
+            Open statistics
             <span aria-hidden>→</span>
           </button>
         </div>

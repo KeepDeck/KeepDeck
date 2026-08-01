@@ -19,6 +19,10 @@ vi.mock("../../app/useUsage", () => ({
 }));
 
 import type { AccountUsage } from "../../domain/usage";
+import {
+  TEST_NOW,
+  usageEvent as baseEvent,
+} from "../../domain/usage/history.testSupport";
 import { StatsDialog, UsageStats } from "./StatsDialog";
 import type { StatsTab } from "./tabs";
 
@@ -37,28 +41,23 @@ function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
-const NOW = Date.parse("2026-07-22T12:00:00.000Z");
+const NOW = TEST_NOW;
+/** This file's personality over the shared builder: a costed codex session
+ * with a human pane name — the dialog's cost cells and identity columns
+ * assert on these, so the divergence is EXPLICIT here, not baked into a
+ * private copy of the whole shape. */
 const usageEvent = (over: Record<string, unknown> = {}): UsageEventV2 =>
-  ({
-  schemaVersion: 2,
-  eventId: "event-1",
-  occurredAt: NOW - 1_000,
-  capturedAt: NOW,
-  agent: "codex",
-  model: "gpt-5.6-terra",
-  workspaceId: "ws-1",
-  workspaceName: "KeepDeck",
-  workspaceCwd: "/repo",
-  paneId: "pane-1",
-  paneName: "auth-refactor",
-  sessionId: "session-123456789",
-  rootSessionId: "session-123456789",
-  tokens: { input: 1_000, output: 100, cacheRead: 500 },
-  costUsd: 0.25,
-  costSource: "provider",
-  observation: { tokens: { input: 1_000, output: 100, cacheRead: 500 } },
+  baseEvent({
+    capturedAt: NOW,
+    paneName: "auth-refactor",
+    sessionId: "session-123456789",
+    rootSessionId: "session-123456789",
+    tokens: { input: 1_000, output: 100, cacheRead: 500 },
+    observation: { tokens: { input: 1_000, output: 100, cacheRead: 500 } },
+    costUsd: 0.25,
+    costSource: "provider",
     ...over,
-  }) as UsageEventV2;
+  });
 
 describe("UsageStats", () => {
   let root: Root;
@@ -90,7 +89,7 @@ describe("UsageStats", () => {
     act(() => root.render(createElement(DialogHost, { onClose: close })));
 
     const dialog = document.body.querySelector('[role="dialog"]')!;
-    expect(dialog.getAttribute("aria-label")).toBe("Usage statistics");
+    expect(dialog.getAttribute("aria-label")).toBe("Statistics");
     expect(dialog.textContent).toContain("across every CLI and workspace");
     expect(dialog.closest(".modal-overlay")).not.toBeNull();
     expect(dialog.closest(".settings")).toBeNull();

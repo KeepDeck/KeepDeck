@@ -55,11 +55,11 @@ export function StatsDialog({
         className="form stats-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Usage statistics"
+        aria-label="Statistics"
       >
         <div className="stats-dialog__head">
-          <h2 className="form__title stats-dialog__title">Usage statistics</h2>
-          <CloseButton label="Close usage statistics" onClick={onClose} />
+          <h2 className="form__title stats-dialog__title">Statistics</h2>
+          <CloseButton label="Close statistics" onClick={onClose} />
         </div>
         <div className="stats-dialog__body">
           <UsageStats tab={tab} onSelectTab={onSelectTab} />

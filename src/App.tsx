@@ -200,8 +200,8 @@ function App() {
             className="bar__icon"
             onClick={() => void openStats()}
             disabled={!canOpenDialog}
-            title="Usage statistics"
-            aria-label="Open usage statistics"
+            title="Statistics"
+            aria-label="Open statistics"
           >
             <StatsIcon />
           </button>
