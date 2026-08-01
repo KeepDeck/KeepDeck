@@ -9,7 +9,7 @@
 //! size rides the `llm.request` before it). No hook carries usage in either
 //! CLI. The webview learns a pane's session file from the binding
 //! (`transcriptPath`) and arms a tail here with the FORMAT its agent
-//! speaks; every matching event is wrapped into the same [`UsageReport`]
+//! speaks; every matching event is wrapped into the same [`Report`]
 //! the bridge emits for other agents — one wire shape, the TS normalizers
 //! own the payload schema.
 //!
@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::bridge::{StatusReport, UsageReport, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
+use crate::bridge::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 use crate::fswatch;
 
 /// Which session-file dialect a tail parses. Chosen by the webview (it
@@ -639,7 +639,7 @@ fn accumulate_session_totals(
 /// `catchUp` are HOST-owned transport keys on the payload: `catchUp` marks
 /// events replayed from the EXISTING file at arm time — the store must not
 /// let that replay outrank live data.
-fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> UsageReport {
+fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> Report {
     let mut payload = json!({
         "agent": state.format.agent(),
         "event": event.payload,
@@ -651,7 +651,7 @@ fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> UsageReport 
     if let Some(source_mtime_ms) = event.source_mtime_ms {
         payload["sourceMtimeMs"] = json!(source_mtime_ms);
     }
-    UsageReport {
+    Report {
         pane_id: state.pane_id.clone(),
         token: state.token.clone(),
         payload,
@@ -665,7 +665,7 @@ fn report(state: &TailState, event: TailedEvent, catch_up: bool) -> UsageReport 
 fn spawn_tailer(
     state: Arc<Mutex<TailState>>,
     interval: Duration,
-    deliver: impl Fn(UsageReport) + Send + 'static,
+    deliver: impl Fn(Report) + Send + 'static,
 ) -> Result<TailPoller, String> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = stop.clone();
@@ -754,7 +754,7 @@ pub fn usage_watch_session_file(
                     body[key] = payload.payload[key].clone();
                 }
             }
-            let status = StatusReport {
+            let status = Report {
                 pane_id: payload.pane_id.clone(),
                 token: payload.token.clone(),
                 payload: body,
@@ -1736,7 +1736,7 @@ mod tests {
             .open(&path)
             .unwrap();
         let state = Arc::new(Mutex::new(tail(path)));
-        let (tx, rx) = mpsc::channel::<UsageReport>();
+        let (tx, rx) = mpsc::channel::<Report>();
         let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
             let _ = tx.send(r);
         })
@@ -1760,7 +1760,7 @@ mod tests {
         let dir = temp_dir();
         let path = dir.join("rollout-live.jsonl");
         let state = Arc::new(Mutex::new(tail(path.clone())));
-        let (tx, rx) = mpsc::channel::<UsageReport>();
+        let (tx, rx) = mpsc::channel::<Report>();
 
         // Armed BEFORE the file exists — the dir watch catches its creation.
         let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
