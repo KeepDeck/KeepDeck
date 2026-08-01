@@ -248,7 +248,10 @@ describe("UsageStats", () => {
     const chip = footer.querySelector(".stats__streak")!;
     expect(chip.getAttribute("aria-label")).toBe("4-day streak");
     expect(chip.className).toContain("stats__streak--ember");
-    expect(chip.querySelector(".stats__streak-flame")).not.toBeNull();
+    // The ember tier wears the coal mark, not a flame yet.
+    expect(chip.querySelector(".stats__streak-mark")).not.toBeNull();
+    expect(chip.querySelector(".stats__streak-coal")).not.toBeNull();
+    expect(chip.querySelector(".stats__streak-fire")).toBeNull();
   });
 
   it("hides the streak chip when the streak is broken", () => {
