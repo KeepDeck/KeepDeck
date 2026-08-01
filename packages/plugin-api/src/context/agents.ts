@@ -1,5 +1,6 @@
 import type { Disposable } from "./disposable.ts";
 import type { WorkspaceRef } from "./snapshots.ts";
+import type { AgentStatus } from "./status.ts";
 import type { AgentUsage } from "./usage.ts";
 
 /**
@@ -36,6 +37,10 @@ export interface AgentContribution {
   /** How to read this agent's usage (limits, tokens, context) — see
    * `context/usage.ts`. Absent = the agent reports no usage. */
   usage?: AgentUsage;
+  /** How to read this agent's turn lifecycle (working / waiting / done /
+   * failed) — see `context/status.ts`. Absent = the agent reports no
+   * status and its pane shows none. */
+  status?: AgentStatus;
   /** Read-only discovery over this agent's session store ([F8] browser).
    * Absent = the agent's sessions don't appear in the global search. */
   history?: AgentHistory;
