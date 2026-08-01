@@ -9,23 +9,30 @@ const appCss = [...stylesIndex.matchAll(/@import\s+"([^"]+)"\s*;/g)]
   .map((match) =>
     readFileSync(join(STYLES_DIR, match[1].replace(/^\.\//, "")), "utf8"),
   )
-  .join("\n");
+  .join("\n")
+  // Comments out, exactly as the browser drops them. Not cosmetic: these
+  // stylesheets explain themselves, so a comment naming a property is common —
+  // .peek__panel opens by citing the `user-select: none` it overrides — and a
+  // reader that keeps them attributes prose to the rule below it.
+  .replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
- * happy-dom does not implement `user-select` at all — it reads back empty even
- * off a direct declaration. Carry the value in a custom property instead (the
- * trick settings.test.ts uses for min()/calc() widths): custom properties
- * inherit exactly like `user-select` does, so happy-dom's own selector engine
- * still decides every winner — specificity, source order and inheritance —
- * rather than this test re-implementing a partial cascade. Both spellings fold
- * onto the same property; every block in the app declares them together and
+ * happy-dom implements neither `user-select` nor a usable `cursor` readback —
+ * the first reads empty even off a direct declaration. Carry both in custom
+ * properties instead (the trick settings.test.ts uses for min()/calc() widths):
+ * custom properties inherit exactly as these two do, so happy-dom's own
+ * selector engine still decides every winner — specificity and source order —
+ * rather than this test re-implementing a partial cascade. Both spellings of
+ * user-select fold onto one property; every block declares them together and
  * equal, so the collapse cannot invent a value.
  */
-function trackSelection(css: string): string {
-  return css.replace(
-    /(^|[;{])(\s*)(?:-webkit-)?user-select(\s*:)/gm,
-    "$1$2--selection-test$3",
-  );
+function track(css: string): string {
+  return css
+    .replace(
+      /(^|[;{])(\s*)(?:-webkit-)?user-select(\s*:)/gm,
+      "$1$2--selection-test$3",
+    )
+    .replace(/(^|[;{])(\s*)cursor(\s*:)/gm, "$1$2--cursor-test$3");
 }
 
 let sheet: HTMLStyleElement | undefined;
@@ -38,7 +45,7 @@ let sheet: HTMLStyleElement | undefined;
 function mount(html: string): void {
   if (!sheet) {
     sheet = document.createElement("style");
-    sheet.textContent = trackSelection(appCss);
+    sheet.textContent = track(appCss);
     document.head.append(sheet);
   }
   document.body.innerHTML = html;
@@ -50,10 +57,10 @@ function mount(html: string): void {
  * an inherited custom property down the tree, so the walk up the ancestors is
  * this helper's job — that, and only that, is what it adds. An empty result
  * therefore means something precise and worth asserting: NOTHING anywhere
- * above this node states a selection policy. That was the bug — for every
- * portaled surface, the answer used to be exactly this.
+ * above this node states a policy. That was the bug — for every portaled
+ * surface, the answer used to be exactly this.
  */
-const selectionOf = (selector: string): string => {
+function resolve(selector: string, property: string): string {
   const element = document.querySelector(selector);
   expect(element, `no element matched ${selector}`).not.toBeNull();
   for (
@@ -61,23 +68,29 @@ const selectionOf = (selector: string): string => {
     node;
     node = node.parentElement
   ) {
-    const value = getComputedStyle(node)
-      .getPropertyValue("--selection-test")
-      .trim();
+    const value = getComputedStyle(node).getPropertyValue(property).trim();
     if (value) return value;
   }
   return "";
-};
+}
+
+/** What the pointer LOOKS like over this node, and what it can actually do. */
+const behaviorOf = (selector: string) => ({
+  cursor: resolve(selector, "--cursor-test"),
+  selection: resolve(selector, "--selection-test"),
+});
 
 afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("selection baseline", () => {
-  it("makes chrome unselectable even when it portals OUT of the app root", () => {
-    // The regression this pins: every dialog, popover and tooltip mounts here,
-    // as a sibling of the app root, inheriting nothing from it. While the
-    // baseline lived on `.deck`, all of this text drew WebKit's I-beam.
+describe("selection and cursor baseline", () => {
+  it("shows a plain arrow over chrome, including chrome that portals OUT of the app root", () => {
+    // Two independent failures met here. The cursor: WKWebView draws the I-beam
+    // over plain text unless a `cursor` says otherwise — `user-select: none`
+    // does NOT settle it, which is why the deck chrome below still looked like
+    // a web page while carrying that rule. The reach: every dialog, popover and
+    // tooltip mounts as a sibling of the app root and inherits nothing from it.
     mount(`
       <div id="root"><div class="deck"><span class="deck__brand">KeepDeck</span></div></div>
       <div class="modal-overlay">
@@ -89,16 +102,29 @@ describe("selection baseline", () => {
       <div class="minimized-tooltip"><span class="minimized-tooltip__name">agent</span></div>
     `);
 
-    expect(selectionOf(".deck__brand")).toBe("none");
-    expect(selectionOf(".settings__title")).toBe("none");
-    expect(selectionOf(".settings__toggle span")).toBe("none");
-    expect(selectionOf(".minimized-tooltip__name")).toBe("none");
+    for (const selector of [
+      ".deck__brand",
+      ".settings__title",
+      ".minimized-tooltip__name",
+    ]) {
+      expect(behaviorOf(selector), selector).toEqual({
+        cursor: "default",
+        selection: "none",
+      });
+    }
+    // A clickable row keeps its hand — the label toggles the checkbox, and the
+    // baseline must not flatten that into an arrow. Only the I-beam is wrong
+    // here: the text is chrome you press, not text you select.
+    expect(behaviorOf(".settings__toggle span")).toEqual({
+      cursor: "pointer",
+      selection: "none",
+    });
   });
 
   it("keeps a portaled dialog's own fields editable and selectable", () => {
-    // The risk the move introduces: the root `none` now reaches inside dialogs
-    // it never touched before, and WebKit lets it kill selection INSIDE a
-    // field — you could not select what you had typed.
+    // The risk the move to the document root introduces: the root now reaches
+    // inside dialogs it never touched, and WebKit lets `none` kill selection
+    // INSIDE a field — you could not select what you had typed.
     mount(`
       <div class="modal-overlay">
         <div class="form">
@@ -109,14 +135,22 @@ describe("selection baseline", () => {
       </div>
     `);
 
-    expect(selectionOf("input.form__input")).toBe("text");
-    expect(selectionOf("textarea.form__input")).toBe("text");
-    // Deliberately NOT selectable: the ui-kit Dropdown borrows the input LOOK
-    // for a button, and its label is chrome, not text you edit.
-    expect(selectionOf("button.form__input")).toBe("none");
+    // `auto`, not `text`: the engine still picks per control, so a checkbox
+    // does not get an I-beam just for being an <input>.
+    expect(behaviorOf("input.form__input")).toEqual({
+      cursor: "auto",
+      selection: "text",
+    });
+    expect(behaviorOf("textarea.form__input")).toEqual({
+      cursor: "auto",
+      selection: "text",
+    });
+    // Deliberately inert: the ui-kit Dropdown borrows the input LOOK for a
+    // button, and its label is chrome, not text you edit.
+    expect(behaviorOf("button.form__input").selection).toBe("none");
   });
 
-  it("leaves the deliberate islands of real text selectable", () => {
+  it("offers the I-beam on the islands that really are selectable", () => {
     mount(`
       <div id="root"><div class="deck">
         <div class="pane__idle-session">Resume session: abc-123</div>
@@ -124,11 +158,51 @@ describe("selection baseline", () => {
       </div></div>
     `);
 
-    expect(selectionOf(".pane__idle-session")).toBe("text");
-    expect(selectionOf(".peek__panel")).toBe("text");
-    // Reaches the peeked content itself — this is the island the git and files
-    // plugins' line-number gutters opt back OUT of (in their own stylesheets,
-    // not loaded here) so a copied diff carries no line numbers.
-    expect(selectionOf(".diff-line")).toBe("text");
+    for (const selector of [
+      ".pane__idle-session",
+      ".peek__panel",
+      // Reaches the peeked content itself — the island the git and files
+      // plugins' line-number gutters opt back out of (in their own
+      // stylesheets, not loaded here) so a copied diff carries no numbers.
+      ".diff-line",
+    ]) {
+      expect(behaviorOf(selector), selector).toEqual({
+        cursor: "text",
+        selection: "text",
+      });
+    }
+  });
+
+  it("never lets the cursor disagree with what the text can actually do", () => {
+    // The invariant the two rules above are instances of, checked against the
+    // stylesheet as a whole so a NEW island cannot land half-done: opting text
+    // back into selection without saying so with the cursor is exactly the bug
+    // this file exists for, and it is invisible until someone hovers.
+    // Declaration blocks only — the plugins ship their own sheets and carry the
+    // same pairing (run/voice logs, the git and files gutters).
+    const paired: Record<string, string[]> = {
+      none: ["default"],
+      text: ["text", "auto"],
+    };
+    const blocks = [...appCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+    const selecting = blocks.filter(([, , body]) =>
+      /(^|[;\s])(?:-webkit-)?user-select\s*:/.test(body),
+    );
+    // Guards the regex itself: a parse that silently matched nothing would let
+    // every assertion below pass while checking absolutely nothing.
+    expect(selecting.length).toBeGreaterThanOrEqual(5);
+
+    for (const [, selector, body] of selecting) {
+      const selection = body.match(/(?:^|[;\s])user-select\s*:\s*([\w-]+)/)?.[1];
+      const cursor = body.match(/(?:^|[;\s])cursor\s*:\s*([\w-]+)/)?.[1];
+      expect(
+        cursor,
+        `${selector.trim()} sets user-select but no cursor`,
+      ).toBeDefined();
+      expect(
+        paired[selection!],
+        `${selector.trim()} has an unpaired user-select: ${selection}`,
+      ).toContain(cursor);
+    }
   });
 });

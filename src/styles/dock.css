@@ -148,6 +148,7 @@
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  cursor: text;
   user-select: text;
   -webkit-user-select: text;
 }

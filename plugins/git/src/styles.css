@@ -414,6 +414,7 @@
   color: var(--kd-info);
   background-color: #10151f;
   font-size: 11px;
+  cursor: default;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -431,6 +432,9 @@
   text-align: right;
   color: #3b4658;
   background-color: var(--kd-bg);
+  /* Mirrors the opt-out above it: the gutter cannot be selected, so it must
+     not offer the I-beam the surrounding diff does. */
+  cursor: default;
   user-select: none;
   -webkit-user-select: none;
 }

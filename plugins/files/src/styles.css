@@ -157,6 +157,9 @@
   text-align: right;
   color: #3b4658;
   background-color: #0b0e14;
+  /* Mirrors the opt-out above it: the gutter cannot be selected, so it must
+     not offer the I-beam the surrounding file body does. */
+  cursor: default;
   user-select: none;
   -webkit-user-select: none;
 }

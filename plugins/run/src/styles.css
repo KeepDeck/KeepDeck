@@ -378,6 +378,7 @@
      that's actually available. */
   padding: 6px 4px 6px 8px;
   /* xterm's own selection works inside. */
+  cursor: text;
   user-select: text;
   -webkit-user-select: text;
 }

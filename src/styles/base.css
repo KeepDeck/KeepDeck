@@ -48,19 +48,28 @@ body {
   overscroll-behavior: none;
 }
 
-/* Desktop-app chrome, not a web page: none of it is text-selectable, and so
-   none of it draws WebKit's I-beam — the engine offers that cursor only where
-   a selection could actually start. (Selectable chrome also misbehaved: a
-   dragged pane title bled the selection into xterm's helper elements. The
-   terminal keeps its own, xterm-managed selection.) Declared on the DOCUMENT
-   root rather than
-   on the app root (`.deck`, where it used to live): dialogs, popovers,
-   tooltips and floating menus portal to <body> as SIBLINGS of the app, inherit
-   nothing from it, and so escaped the rule entirely — which is why several of
-   those surfaces had each grown a private copy of it. Islands of genuine text
-   opt back in with `user-select: text`; both spellings, always, for the reason
-   spelled out at .pane__idle-session (pane.css). */
+/* Desktop-app chrome, not a web page: none of it is text-selectable, and none
+   of it shows the I-beam over plain text. Those are TWO statements, and this
+   WKWebView needs BOTH said out loud. The tempting shortcut — that an engine
+   only offers the I-beam where a selection could actually start, so
+   `user-select: none` settles the cursor too — is FALSE here: it was measured
+   in the app, on chrome that had carried `user-select: none` for months and
+   drew the I-beam anyway. Selection is worth suppressing on its own account:
+   a dragged pane title used to bleed the selection into xterm's helper
+   elements (the terminal keeps its own, xterm-managed selection).
+
+   Both live on the DOCUMENT root, not on the app root (`.deck`, where the
+   selection half used to sit). Dialogs, popovers, tooltips and floating menus
+   portal to <body> as SIBLINGS of the app and inherit nothing from it, so they
+   escaped that rule entirely — which is why several of them had each grown a
+   private copy. `cursor` and `user-select` both inherit, so one declaration
+   each covers the document, and an island of real text opts back into BOTH
+   together: the cursor's job is to tell you whether the text under it can be
+   selected, so the two must never disagree (.pane__idle-session,
+   .peek__panel, .plugin-failure__log, and the plugins' log views). Both
+   spellings of user-select, always, for the reason at .pane__idle-session. */
 :root {
+  cursor: default;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -69,11 +78,14 @@ body {
    selectable by definition, but WebKit lets the inherited `none` above reach
    inside the field and kill selection of what you typed. Stated once here, so
    no individual field has to remember it — they used to, one class at a time,
-   and a field only got it once someone noticed. Controls that merely borrow
-   the input LOOK (the ui-kit Dropdown renders .form__input on a <button>) are
+   and a field only got it once someone noticed. `cursor: auto` rather than
+   `text`, so the engine still decides per control: an I-beam over a field you
+   type into, an arrow over a checkbox. Controls that merely borrow the input
+   LOOK (the ui-kit Dropdown renders .form__input on a <button>) are
    deliberately NOT covered: they hold a label, not text you edit. */
 input,
 textarea {
+  cursor: auto;
   user-select: text;
   -webkit-user-select: text;
 }
