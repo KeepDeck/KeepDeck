@@ -20,7 +20,6 @@ import { AgentDialog } from "./components/workspace/AgentDialog";
 import { ForkTargetDialog } from "./components/workspace/ForkTargetDialog";
 import { WorkspacesRail } from "./components/workspace/WorkspacesRail";
 import { WorkspaceForm } from "./components/workspace/WorkspaceForm";
-import { retirePaneTelemetry } from "./app/paneTelemetry";
 import {
   DECK_STATE_VERSION,
   findWorkspace,
@@ -34,11 +33,13 @@ import {
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
 } from "./app/notificationProducers";
+import { useAppRuntime } from "./app/runtimeContext";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { ModalOverlay } from "./ui/ModalOverlay";
 import "./styles/index.css";
 
 function App() {
+  const runtime = useAppRuntime();
   const controller = useAppController();
   if (!controller.ready) return <div className="deck" />;
   const {
@@ -293,7 +294,7 @@ function App() {
               // pane — retiring it here is what keeps a hook envelope that
               // outlives its process (a Stop racing a crash) from painting
               // "finished" over the crash banner.
-              retirePaneTelemetry(paneId);
+              runtime.telemetry.retire(paneId);
               const recovering = orchestrator.recoverRejectedResume(
                 wsId,
                 paneId,

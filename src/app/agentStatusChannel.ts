@@ -1,7 +1,7 @@
 import type { AgentContribution } from "@keepdeck/plugin-api";
 import { onAgentStatus } from "../ipc/status";
 import type { ContributionRegistry } from "../plugins/registries/contributions";
-import { agentStatusTracker } from "./agentStatusTracker";
+import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckStore } from "./deckStore";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
@@ -25,6 +25,7 @@ export interface AgentStatusChannel {
 export function createAgentStatusChannel(
   deck: DeckStore,
   agents: ContributionRegistry<AgentContribution>,
+  tracker: AgentStatusTracker,
 ): AgentStatusChannel {
   let disposed = false;
   let normalizerDisposers: (() => void)[] = [];
@@ -35,7 +36,7 @@ export function createAgentStatusChannel(
     for (const { entry } of agents.list()) {
       if (!entry.status) continue;
       normalizerDisposers.push(
-        agentStatusTracker.registerNormalizer(
+        tracker.registerNormalizer(
           entry.id,
           entry.status.normalize,
         ),
@@ -51,7 +52,7 @@ export function createAgentStatusChannel(
     label: "status report",
     subscribe: onAgentStatus,
     requireLiveProcess: true,
-    apply: (paneId, payload) => agentStatusTracker.report(paneId, payload),
+    apply: (paneId, payload) => tracker.report(paneId, payload),
   });
 
   let membershipKey: string | null = null;
@@ -59,7 +60,7 @@ export function createAgentStatusChannel(
     const nextKey = paneMembershipKey(deck.getSnapshot());
     if (nextKey === membershipKey) return;
     membershipKey = nextKey;
-    agentStatusTracker.retain(paneMembership(nextKey));
+    tracker.retain(paneMembership(nextKey));
   };
   const unsubscribeDeck = deck.subscribe(retainLivePanes);
   retainLivePanes();

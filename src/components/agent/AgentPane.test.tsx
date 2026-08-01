@@ -45,9 +45,21 @@ import {
   reportUsage,
   resetUsageManager,
 } from "../../app/usageManager";
-import { agentStatusTracker } from "../../app/agentStatusTracker";
+import {
+  createAgentStatusTracker,
+  type AgentStatusTracker,
+} from "../../app/agentStatusTracker";
+import { AppRuntimeProvider } from "../../app/runtimeContext";
+import type { AppRuntime } from "../../app/runtime";
 import { AgentPane, type AgentPaneProps } from "./AgentPane";
 import { paneBody, type PaneBody } from "../../domain/deck";
+
+/** The runtime slice AgentPane actually reads (its activity selector). A
+ * fresh tracker per test — the factory's whole point. */
+let statusTracker: AgentStatusTracker = createAgentStatusTracker();
+beforeEach(() => {
+  statusTracker = createAgentStatusTracker();
+});
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -85,23 +97,27 @@ const baseProps = {
 function PaneUnderTest(
   props: Omit<AgentPaneProps, "body"> & { body?: PaneBody },
 ) {
-  return createElement(AgentPane, {
-    ...props,
-    body:
-      props.body ??
-      paneBody(
-        {
-          id: props.paneId,
-          ...(props.provisioning ? { provisioning: props.provisioning } : {}),
-          ...(props.idle ? { idle: props.idle } : {}),
-        },
-        {
-          agentAvailable: !props.unavailableAgent,
-          hasPlan: true,
-          planFailed: false,
-        },
-      ),
-  });
+  return createElement(
+    AppRuntimeProvider,
+    { runtime: { statusTracker } as unknown as AppRuntime },
+    createElement(AgentPane, {
+      ...props,
+      body:
+        props.body ??
+        paneBody(
+          {
+            id: props.paneId,
+            ...(props.provisioning ? { provisioning: props.provisioning } : {}),
+            ...(props.idle ? { idle: props.idle } : {}),
+          },
+          {
+            agentAvailable: !props.unavailableAgent,
+            hasPlan: true,
+            planFailed: false,
+          },
+        ),
+    }),
+  );
 }
 
 // A death recorded by one test is not a fact about the next one.
@@ -294,31 +310,25 @@ describe("AgentPane — header badges", () => {
 describe("AgentPane — activity badge", () => {
   let host: HTMLElement;
   let root: Root;
-  let dispose: () => void;
 
   beforeEach(() => {
     document.body.innerHTML = "";
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
-    // The tracker is the app singleton with no reset by design — each test
-    // registers its normalizer and clears its own pane through the public
-    // surface instead.
-    dispose = agentStatusTracker.registerNormalizer(
+    statusTracker.registerNormalizer(
       "claude",
-      (payload) =>
+      (payload: unknown) =>
         (payload as { edge?: AgentStatusEvent }).edge ?? null,
     );
   });
 
   afterEach(() => {
     act(() => root.unmount());
-    dispose();
-    agentStatusTracker.clear("ws:1");
   });
 
   const reportEdge = (edge: AgentStatusEvent) =>
-    act(() => agentStatusTracker.report("ws:1", { agent: "claude", edge }));
+    act(() => statusTracker.report("ws:1", { agent: "claude", edge }));
 
   it("shows a quiet working dot — label in the tooltip only", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));

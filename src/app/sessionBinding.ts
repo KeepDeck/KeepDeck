@@ -7,7 +7,7 @@ import {
   bindPaneSpawnSpecSession,
   peekPaneSpawnSpec,
 } from "./spawnSpecs";
-import { beginPaneTelemetrySession } from "./paneTelemetry";
+import type { PaneTelemetry } from "./paneTelemetry";
 import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 
@@ -37,7 +37,10 @@ export interface SessionBinding {
   dispose(): void;
 }
 
-export function createSessionBinding(deck: DeckStore): SessionBinding {
+export function createSessionBinding(
+  deck: DeckStore,
+  telemetry: PaneTelemetry,
+): SessionBinding {
   const actions = createDeckActions(deck);
   let disposed = false;
   let unlisten: (() => void) | null = null;
@@ -67,7 +70,7 @@ export function createSessionBinding(deck: DeckStore): SessionBinding {
       bindPaneSpawnSpecSession(paneId, sessionId);
       const previousSessionId = pane?.session?.id;
       if (previousSessionId && previousSessionId !== sessionId) {
-        beginPaneTelemetrySession(paneId, sessionId);
+        telemetry.beginSession(paneId, sessionId);
       }
       // Same-session reports keep the instant at which it was first bound.
       const boundAt =

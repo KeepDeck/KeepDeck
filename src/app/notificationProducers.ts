@@ -9,7 +9,7 @@ import type { NotificationSource } from "../domain/notifications";
 import { activityBadge, type PaneActivity } from "../domain/status";
 import type { WorkspaceInstance } from "../domain/workspaceInstance";
 import { DEFAULT_SETTINGS } from "../domain/settings";
-import { agentStatusTracker } from "./agentStatusTracker";
+import type { AgentStatusTracker } from "./agentStatusTracker";
 import { notify } from "./notificationCenter";
 import { getSettings } from "./settingsManager";
 import { getUpdateState, subscribeUpdates } from "./updateManager";
@@ -130,12 +130,12 @@ function paneContextById(
  * close while this subscription lives) — the composition root binds it.
  */
 export function initActivityNotifications(
+  tracker: AgentStatusTracker,
   read: () => { workspaces: Workspace[]; agents: AgentInfo[] },
 ): () => void {
-  let prev: ReadonlyMap<string, PaneActivity> =
-    agentStatusTracker.getSnapshot().panes;
-  return agentStatusTracker.subscribe(() => {
-    const next = agentStatusTracker.getSnapshot().panes;
+  let prev: ReadonlyMap<string, PaneActivity> = tracker.getSnapshot().panes;
+  return tracker.subscribe(() => {
+    const next = tracker.getSnapshot().panes;
     const { workspaces, agents } = read();
     for (const [paneId, activity] of next) {
       const before = prev.get(paneId);

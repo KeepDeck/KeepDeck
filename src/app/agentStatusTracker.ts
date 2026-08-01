@@ -10,7 +10,9 @@ import { reduceActivity, type PaneActivity } from "../domain/status";
  * `useSyncExternalStore`.
  *
  * A FACTORY rather than module state so each test builds a fresh instance
- * with no teardown hook; the app's one instance is [`agentStatusTracker`].
+ * with no teardown hook; the app's one instance lives in the runtime
+ * (`createAppRuntime`), beside the deck store and the orchestrator, and
+ * reaches consumers as a value — never as an importable module singleton.
  *
  * The tracker owns coordination only: per-CLI meaning lives in the plugin
  * normalizers registered per agent id, folding lives in the pure domain
@@ -108,6 +110,3 @@ export function createAgentStatusTracker(): AgentStatusTracker {
     },
   };
 }
-
-/** The app's one tracker — composition-root state, like the usage store. */
-export const agentStatusTracker: AgentStatusTracker = createAgentStatusTracker();

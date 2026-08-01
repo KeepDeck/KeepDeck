@@ -9,7 +9,7 @@ import {
   pluginNotificationSource,
   resetUpdateNotifications,
 } from "./notificationProducers";
-import { agentStatusTracker } from "./agentStatusTracker";
+import { createAgentStatusTracker } from "./agentStatusTracker";
 
 const center = vi.hoisted(() => ({
   notify: vi.fn(),
@@ -209,28 +209,24 @@ describe("activity notifications", () => {
   const edgeNormalizer = (payload: unknown) =>
     (payload as { edge?: import("@keepdeck/plugin-api").AgentStatusEvent })
       .edge ?? null;
+  let tracker: ReturnType<typeof createAgentStatusTracker>;
   let stop: () => void;
-  let dispose: () => void;
 
   beforeEach(() => {
     center.notify.mockClear();
-    // The tracker is the app singleton with no reset by design — each test
-    // drives it through the public surface and clears its own pane.
-    dispose = agentStatusTracker.registerNormalizer("claude", edgeNormalizer);
-    stop = initActivityNotifications(() => ({
+    // The factory's whole point: each test builds its own tracker.
+    tracker = createAgentStatusTracker();
+    tracker.registerNormalizer("claude", edgeNormalizer);
+    stop = initActivityNotifications(tracker, () => ({
       workspaces: deckWith(),
       agents,
     }));
   });
 
-  afterEach(() => {
-    stop();
-    dispose();
-    agentStatusTracker.clear("pane-1");
-  });
+  afterEach(() => stop());
 
   const edge = (e: Record<string, unknown>) =>
-    agentStatusTracker.report("pane-1", { agent: "claude", edge: e });
+    tracker.report("pane-1", { agent: "claude", edge: e });
 
   it("announces a wait once — re-assertions do not stack banners", () => {
     edge({ kind: "waiting", at: 100, reason: "permission" });
@@ -291,7 +287,10 @@ describe("activity notifications", () => {
 
   it("stays silent for a pane the deck no longer names", () => {
     stop();
-    stop = initActivityNotifications(() => ({ workspaces: [], agents }));
+    stop = initActivityNotifications(tracker, () => ({
+      workspaces: [],
+      agents,
+    }));
     edge({ kind: "waiting", at: 100, reason: "permission" });
     expect(center.notify).not.toHaveBeenCalled();
   });

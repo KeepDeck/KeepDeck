@@ -35,7 +35,8 @@ import {
 } from "./ptyManager";
 import { createSessionBinding } from "./sessionBinding";
 import { notify } from "./notificationCenter";
-import { retirePaneTelemetry } from "./paneTelemetry";
+import { createAgentStatusTracker } from "./agentStatusTracker";
+import { createPaneTelemetry } from "./paneTelemetry";
 import { getSettings, initSettings, subscribeSettings } from "./settingsManager";
 import { createSpawnContextSource } from "./spawnContextSource";
 import { createUsageChannel } from "./usageChannel";
@@ -86,6 +87,11 @@ export function createAppRuntime(
   );
   let sessionBinding: ReturnType<typeof createSessionBinding> | null = null;
   const spawnContext = createSpawnContextSource();
+  // The live per-pane activity store and the telemetry-retire owner over
+  // it. Runtime state like the deck store: the orchestrator retires panes
+  // and the bridge channel reports into it with no component mounted.
+  const statusTracker = createAgentStatusTracker();
+  const telemetry = createPaneTelemetry(statusTracker);
   const worktrees = createWorktreeManager({
     rootsOf: (ref) => {
       const workspace = deckStore
@@ -126,7 +132,7 @@ export function createAppRuntime(
     plugins,
     probe: probeWorktree,
     worktrees,
-    telemetry: { retire: retirePaneTelemetry },
+    telemetry: { retire: telemetry.retire },
   });
   const application = createApplicationController(
     deckStore,
@@ -158,9 +164,11 @@ export function createAppRuntime(
     paneInputFocus,
     paneViewActions,
     mcp,
+    statusTracker,
+    telemetry,
     start() {
       if (disposed) return;
-      sessionBinding ??= createSessionBinding(deckStore);
+      sessionBinding ??= createSessionBinding(deckStore, telemetry);
       usageChannel ??= createUsageChannel(
         deckStore,
         plugins.pluginRegistries.agents,
@@ -168,6 +176,7 @@ export function createAppRuntime(
       statusChannel ??= createAgentStatusChannel(
         deckStore,
         plugins.pluginRegistries.agents,
+        statusTracker,
       );
       achievementNotifier ??= createAchievementNotifier({
         loadNotified: loadNotifiedAchievements,
