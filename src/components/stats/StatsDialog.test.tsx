@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageEventV2 } from "../../domain/usage/history";
@@ -20,6 +20,19 @@ vi.mock("../../app/useUsage", () => ({
 
 import type { AccountUsage } from "../../domain/usage";
 import { StatsDialog, UsageStats } from "./StatsDialog";
+import type { StatsTab } from "./tabs";
+
+/** The dialog's tab is controlled by the app-layer owner; tests host that
+ * ownership in a tiny stateful wrapper. */
+function Host({ initialTab = "overview" }: { initialTab?: StatsTab }) {
+  const [tab, setTab] = useState<StatsTab>(initialTab);
+  return createElement(UsageStats, { tab, onSelectTab: setTab });
+}
+
+function DialogHost({ onClose = () => {} }: { onClose?: () => void }) {
+  const [tab, setTab] = useState<StatsTab>("overview");
+  return createElement(StatsDialog, { tab, onSelectTab: setTab, onClose });
+}
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
@@ -74,7 +87,7 @@ describe("UsageStats", () => {
 
   it("renders as its own global dialog, not a settings section", () => {
     const close = vi.fn();
-    act(() => root.render(createElement(StatsDialog, { onClose: close })));
+    act(() => root.render(createElement(DialogHost, { onClose: close })));
 
     const dialog = document.body.querySelector('[role="dialog"]')!;
     expect(dialog.getAttribute("aria-label")).toBe("Usage statistics");
@@ -87,7 +100,7 @@ describe("UsageStats", () => {
   });
 
   it("shows period totals on Overview with model and session drill-down tabs", () => {
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
 
     expect(host.textContent).toContain("1.6k");
     expect(host.textContent).toContain("≈$0.25");
@@ -108,7 +121,7 @@ describe("UsageStats", () => {
       events: [usageEvent({ occurredAt: NOW - 2 * 24 * 60 * 60 * 1_000 })],
       error: null,
     };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
     expect(host.textContent).toContain("gpt-5.6-terra"); // default 7d
 
     const day = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -131,12 +144,32 @@ describe("UsageStats", () => {
       ],
       error: null,
     };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
 
     const recap = host.querySelector(".stats__recap")!;
     expect(recap.textContent).toContain("+100% vs prior 7d");
     expect(recap.textContent).toContain("top model gpt-5.6-terra (1.6k)");
     expect(recap.textContent).toContain("busiest day Jul 22 (1.6k)");
+  });
+
+  it("keeps Providers alive when the ledger failed to load", () => {
+    history.snapshot = { ready: true, events: [], error: "ledger read failed" };
+    const account: AccountUsage = {
+      kind: "reported",
+      reportedAt: NOW - 60_000,
+      sourcePaneId: "pane-1",
+      windows: [{ usedPct: 34, resetsAt: NOW + 2 * 3_600_000, windowMinutes: 300 }],
+    };
+    usage.snapshot = { accounts: new Map([["codex", account]]), panes: new Map() };
+    act(() => root.render(createElement(Host)));
+
+    // Ledger-backed tabs surface the failure…
+    expect(host.textContent).toContain("Usage history is unavailable");
+    clickTab("Providers");
+    // …but Providers reads the independent account snapshot and renders.
+    expect(host.querySelector(".stats__provider")).not.toBeNull();
+    expect(host.textContent).toContain("34%");
+    expect(host.textContent).not.toContain("Usage history is unavailable");
   });
 
   it("joins provider windows with ledger spend inside each window", () => {
@@ -150,7 +183,7 @@ describe("UsageStats", () => {
       ],
     };
     usage.snapshot = { accounts: new Map([["codex", account]]), panes: new Map() };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
     clickTab("Providers");
 
     // One card per provider: the name and report age appear exactly once.
@@ -181,7 +214,7 @@ describe("UsageStats", () => {
       ],
       error: null,
     };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
     clickTab("Achievements");
 
     const sections = [...host.querySelectorAll(".stats__section")];
@@ -222,7 +255,7 @@ describe("UsageStats", () => {
       events: [usageEvent({ tokens: { input: 2_000_000 } })],
       error: null,
     };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
     clickTab("Achievements");
 
     const tips = [...host.querySelectorAll('[role="tooltip"]')];
@@ -242,7 +275,7 @@ describe("UsageStats", () => {
       ),
       error: null,
     };
-    act(() => root.render(createElement(StatsDialog, { onClose: vi.fn() })));
+    act(() => root.render(createElement(DialogHost, { onClose: vi.fn() })));
 
     const footer = document.body.querySelector(".stats-dialog__actions")!;
     const chip = footer.querySelector(".stats__streak")!;
@@ -262,13 +295,13 @@ describe("UsageStats", () => {
       ],
       error: null,
     };
-    act(() => root.render(createElement(StatsDialog, { onClose: vi.fn() })));
+    act(() => root.render(createElement(DialogHost, { onClose: vi.fn() })));
     expect(document.body.querySelector(".stats__streak")).toBeNull();
   });
 
   it("opens directly on a deep-linked tab", () => {
     act(() =>
-      root.render(createElement(UsageStats, { initialTab: "achievements" })),
+      root.render(createElement(Host, { initialTab: "achievements" })),
     );
     expect(host.textContent).toContain("In progress");
     expect(host.querySelector('[role="tab"][aria-selected="true"]')!.textContent).toBe(
@@ -277,7 +310,7 @@ describe("UsageStats", () => {
   });
 
   it("disables the period switcher on the period-independent Providers tab", () => {
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
     const periodButton = () =>
       [...host.querySelectorAll<HTMLButtonElement>(".stats__period button")][0];
     expect(periodButton().disabled).toBe(false);
@@ -305,7 +338,7 @@ describe("UsageStats", () => {
     };
     usage.snapshot = { accounts: new Map([["claude", account]]), panes: new Map() };
     history.snapshot = { ready: true, events: [usageEvent({ agent: "claude" })], error: null };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
     clickTab("Providers");
 
     const card = host.querySelector(".stats__provider")!;
@@ -331,7 +364,7 @@ describe("UsageStats", () => {
       windows: [{ usedPct: 0, resetsAt: NOW + 3 * 24 * 3_600_000, windowMinutes: 10_080 }],
     };
     usage.snapshot = { accounts: new Map([["kimi", account]]), panes: new Map() };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
     clickTab("Providers");
 
     const providers = host.querySelector('[aria-label="Providers"]')!;
@@ -345,7 +378,7 @@ describe("UsageStats", () => {
       events: [usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 })],
       error: null,
     };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
     expect(host.textContent).toContain("No usage recorded"); // default 7d
 
     const all = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -361,7 +394,7 @@ describe("UsageStats", () => {
       events: [usageEvent({ costUsd: undefined, costSource: "unavailable" })],
       error: null,
     };
-    act(() => root.render(createElement(UsageStats)));
+    act(() => root.render(createElement(Host)));
 
     expect(host.textContent).toContain("No CLI reported a cost estimate");
     const costCard = [...host.querySelectorAll(".stats__card")].find((card) =>

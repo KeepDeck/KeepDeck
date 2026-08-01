@@ -36,6 +36,7 @@ import {
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
 import { StreakBadge } from "./StreakBadge";
+import { PERIODLESS_TABS, STATS_TABS, type StatsTab } from "./tabs";
 import { UsageChart } from "./UsageChart";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -50,13 +51,16 @@ const PERIODS: readonly { period: UsageStatsPeriod; label: string }[] = [
 ];
 
 /** Global usage analytics has its own app surface: it is observational data,
- * not a setting, and it spans every workspace and CLI. `initialTab` is the
- * deep-link entry — an achievement notification opens the trophy case. */
+ * not a setting, and it spans every workspace and CLI. The tab is CONTROLLED
+ * by the app-layer owner (openStats/closeStats/selectStatsTab), so a deep
+ * link can land on a tab whether or not the dialog is already open. */
 export function StatsDialog({
-  initialTab,
+  tab,
+  onSelectTab,
   onClose,
 }: {
-  initialTab?: string;
+  tab: StatsTab;
+  onSelectTab(tab: StatsTab): void;
   onClose(): void;
 }) {
   useEscape(onClose);
@@ -73,7 +77,7 @@ export function StatsDialog({
           <CloseButton label="Close usage statistics" onClick={onClose} />
         </div>
         <div className="stats-dialog__body">
-          <UsageStats initialTab={initialTab} />
+          <UsageStats tab={tab} onSelectTab={onSelectTab} />
         </div>
         <div className="confirm__actions stats-dialog__actions">
           <StreakBadge />
@@ -86,41 +90,34 @@ export function StatsDialog({
   );
 }
 
-type StatsTab = "overview" | "providers" | "models" | "sessions" | "achievements";
-
-const TABS: readonly { id: StatsTab; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "providers", label: "Providers" },
-  { id: "models", label: "Models" },
-  { id: "sessions", label: "Sessions" },
-  { id: "achievements", label: "Achievements" },
-];
-
-/** Tabs the period switcher cannot touch: providers run on the provider's
- * clock, achievements are all-time by definition. */
-const PERIODLESS_TABS: readonly StatsTab[] = ["providers", "achievements"];
-
-function isStatsTab(value: string | undefined): value is StatsTab {
-  return TABS.some((candidate) => candidate.id === value);
-}
-
 /** Detailed local usage analytics. Account-limit windows deliberately remain
  * in the top-bar popover; this view consumes the durable pane ledger plus
  * the live account snapshot for the Providers tab. The period switcher is
  * global; the Providers tab ignores it (subscription windows run on the
- * provider's clock) and Milestones are all-time by definition. */
-export function UsageStats({ initialTab }: { initialTab?: string }) {
+ * provider's clock) and achievements are all-time by definition. */
+export function UsageStats({
+  tab,
+  onSelectTab,
+}: {
+  tab: StatsTab;
+  onSelectTab(tab: StatsTab): void;
+}) {
   const history = useUsageHistorySnapshot();
   const { accounts } = useUsage();
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
-  const [tab, setTab] = useState<StatsTab>(
-    isStatsTab(initialTab) ? initialTab : "overview",
-  );
   const now = Date.now();
   const stats = queryUsageStats(history.events, period, now);
   const periodless = PERIODLESS_TABS.includes(tab);
   const periodEmpty = (
     <p className="stats__empty">No usage recorded in this period yet.</p>
+  );
+  /** A dead ledger blocks only the tabs that read it — Providers renders
+   * from the independent account snapshot regardless. */
+  const historyDead = history.error !== null && history.events.length === 0;
+  const ledgerBlocked = (
+    <p className="stats__empty" role="alert">
+      Usage history is unavailable: {history.error}
+    </p>
   );
 
   return (
@@ -153,14 +150,14 @@ export function UsageStats({ initialTab }: { initialTab?: string }) {
         </div>
       </div>
       <div className="stats__tabs" role="tablist" aria-label="Statistics sections">
-        {TABS.map((candidate) => (
+        {STATS_TABS.map((candidate) => (
           <button
             key={candidate.id}
             type="button"
             role="tab"
             aria-selected={candidate.id === tab}
             className={`stats__tab${candidate.id === tab ? " stats__tab--active" : ""}`}
-            onClick={() => setTab(candidate.id)}
+            onClick={() => onSelectTab(candidate.id)}
           >
             {candidate.label}
           </button>
@@ -169,19 +166,17 @@ export function UsageStats({ initialTab }: { initialTab?: string }) {
 
       {!history.ready ? (
         <p className="stats__empty">Loading usage history…</p>
-      ) : history.error && history.events.length === 0 ? (
-        <p className="stats__empty" role="alert">
-          Usage history is unavailable: {history.error}
-        </p>
       ) : (
         <>
-          {history.error && (
+          {history.error !== null && !historyDead && (
             <p className="stats__warning">
               Some history could not be loaded: {history.error}
             </p>
           )}
           {tab === "overview" &&
-            (stats.eventCount === 0 ? (
+            (historyDead ? (
+              ledgerBlocked
+            ) : stats.eventCount === 0 ? (
               periodEmpty
             ) : (
               <>
@@ -216,13 +211,17 @@ export function UsageStats({ initialTab }: { initialTab?: string }) {
             <Providers accounts={accounts} events={history.events} now={now} />
           )}
           {tab === "models" &&
-            (stats.eventCount === 0 ? (
+            (historyDead ? (
+              ledgerBlocked
+            ) : stats.eventCount === 0 ? (
               periodEmpty
             ) : (
               <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
             ))}
           {tab === "sessions" &&
-            (stats.eventCount === 0 ? (
+            (historyDead ? (
+              ledgerBlocked
+            ) : stats.eventCount === 0 ? (
               periodEmpty
             ) : (
               <StatsTable
@@ -232,7 +231,8 @@ export function UsageStats({ initialTab }: { initialTab?: string }) {
                 mode="session"
               />
             ))}
-          {tab === "achievements" && <Achievements events={history.events} />}
+          {tab === "achievements" &&
+            (historyDead ? ledgerBlocked : <Achievements events={history.events} />)}
         </>
       )}
     </div>

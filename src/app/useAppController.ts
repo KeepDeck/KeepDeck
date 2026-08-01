@@ -5,6 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { isStatsTab, type StatsTab } from "../components/stats/tabs";
 import { useAgentDialog } from "./useAgentDialog";
 import { useAgentRunView } from "./useAgentRunView";
 import { useAgents } from "./useAgents";
@@ -110,7 +111,7 @@ export function useAppController() {
   const [statsOpen, setStatsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<string | undefined>();
-  const [statsTab, setStatsTab] = useState<string | undefined>();
+  const [statsTab, setStatsTab] = useState<StatsTab>("overview");
   const agentFlow = useAgentDialog(deck, agents, {
     onResumeFailed: (message) =>
       pushAlert("Could not resume the session", message),
@@ -136,27 +137,46 @@ export function useAppController() {
   const dialogOpen = transactions.some((t) => t !== null);
   const canOpenDialog =
     !dialogOpen && !settingsOpen && !statsOpen && !skillsOpen;
+
+  /** THE owner of the Stats open/close/tab sequence — every entry point
+   * (toolbar, popover footer, notification deep link, future command) goes
+   * through here, so the tab can never go stale and a deep link arriving
+   * while the dialog is already open switches tabs instead of being
+   * swallowed. */
+  const openStats = (tab?: string | null): boolean => {
+    const next = isStatsTab(tab) ? tab : undefined;
+    if (statsOpen) {
+      if (next !== undefined) setStatsTab(next);
+      return true;
+    }
+    if (!canOpenDialog) return false;
+    setStatsTab(next ?? "overview");
+    setStatsOpen(true);
+    return true;
+  };
+  const closeStats = () => {
+    setStatsOpen(false);
+    setStatsTab("overview");
+  };
   const applicationUi = useRef({
     agents,
     canOpenDialog,
+    openStats,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
     setCreating,
     setSettingsOpen,
     setSettingsSection,
-    setStatsOpen,
-    setStatsTab,
   });
   applicationUi.current = {
     agents,
     canOpenDialog,
+    openStats,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
     setCreating,
     setSettingsOpen,
     setSettingsSection,
-    setStatsOpen,
-    setStatsTab,
   };
   useEffect(() => {
     const current = () => applicationUi.current;
@@ -170,12 +190,7 @@ export function useAppController() {
         current().setSettingsOpen(true);
         return true;
       },
-      openUsage: (tab) => {
-        if (!current().canOpenDialog) return false;
-        current().setStatsTab(tab ?? undefined);
-        current().setStatsOpen(true);
-        return true;
-      },
+      openUsage: (tab) => current().openStats(tab),
       setCreating: (next) => current().setCreating(next),
       pushAlert: (title, message) => current().pushAlert(title, message),
     });
@@ -221,6 +236,8 @@ export function useAppController() {
     minimizeOn,
     modalOpen,
     dockCovers,
+    statsOpen,
+    statsTab,
   });
   visibilityRef.current = {
     activeId: deck.activeId,
@@ -230,9 +247,19 @@ export function useAppController() {
     minimizeOn,
     modalOpen,
     dockCovers,
+    statsOpen,
+    statsTab,
   };
   useEffect(() => {
     setSourceVisibilityProbe((source) => {
+      if (source.type === "stats") {
+        // The Stats dialog counts as "on screen" for its own deep links —
+        // no OS banner while the user is looking at the tab that just lit up.
+        const now = visibilityRef.current;
+        return (
+          now.statsOpen && (source.tab === undefined || now.statsTab === source.tab)
+        );
+      }
       if (source.type !== "pane") return false;
       const now = visibilityRef.current;
       if (now.modalOpen || now.dockCovers || source.workspace.id !== now.activeId) {
@@ -374,8 +401,9 @@ export function useAppController() {
     setSettingsOpen,
     setSettingsSection,
     setSkillsOpen,
-    setStatsOpen,
-    setStatsTab,
+    openStats,
+    closeStats,
+    selectStatsTab: setStatsTab,
     settings,
     settingsOpen,
     settingsSection,

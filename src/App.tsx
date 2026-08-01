@@ -84,8 +84,9 @@ function App() {
     setSettingsOpen,
     setSettingsSection,
     setSkillsOpen,
-    setStatsOpen,
-    setStatsTab,
+    openStats,
+    closeStats,
+    selectStatsTab,
     settings,
     settingsOpen,
     settingsSection,
@@ -154,7 +155,7 @@ function App() {
           <UsageChips
             agents={agents}
             liveAgents={usageLiveAgents}
-            onOpenStats={() => canOpenDialog && setStatsOpen(true)}
+            onOpenStats={() => void openStats()}
           />
           <button
             type="button"
@@ -197,7 +198,7 @@ function App() {
           <button
             type="button"
             className="bar__icon"
-            onClick={() => setStatsOpen(true)}
+            onClick={() => void openStats()}
             disabled={!canOpenDialog}
             title="Usage statistics"
             aria-label="Open usage statistics"
@@ -420,11 +421,9 @@ function App() {
           )}
           {statsOpen && (
             <StatsDialog
-              initialTab={statsTab}
-              onClose={() => {
-                setStatsOpen(false);
-                setStatsTab(undefined);
-              }}
+              tab={statsTab}
+              onSelectTab={selectStatsTab}
+              onClose={closeStats}
             />
           )}
           {skillsOpen && (
