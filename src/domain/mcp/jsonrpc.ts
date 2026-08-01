@@ -17,9 +17,13 @@ export const METHOD_NOT_FOUND = -32601;
 export const INVALID_PARAMS = -32602;
 export const INTERNAL_ERROR = -32603;
 
-/** The request's id, when the line parses and carries a valid one. Booleans,
- * objects and fractions are NOT valid ids — answering with one would make
- * the reply unroutable, so they degrade to null like garbage input. */
+/** The request's id, when the line parses and carries a routable one: a
+ * string, or an integer-valued number within ±(2^53−1) — the range every
+ * JSON parser preserves exactly. Booleans, objects, fractions and larger
+ * integers degrade to null like garbage input: JSON.parse has already
+ * ROUNDED an id beyond 2^53, and answering with the rounded value would be
+ * a lie the client cannot correlate. The exact mirror of `echoable_id` in
+ * src-tauri/src/mcp_bridge.rs, pinned by tests on the same inputs. */
 export function requestIdOf(line: string): JsonRpcId {
   let parsed: unknown;
   try {
@@ -30,7 +34,7 @@ export function requestIdOf(line: string): JsonRpcId {
   if (typeof parsed !== "object" || parsed === null) return null;
   const id = (parsed as { id?: unknown }).id;
   if (typeof id === "string") return id;
-  if (typeof id === "number" && Number.isInteger(id)) return id;
+  if (typeof id === "number" && Number.isSafeInteger(id)) return id;
   return null;
 }
 

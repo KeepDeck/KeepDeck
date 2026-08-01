@@ -83,20 +83,16 @@ impl McpBridge {
 }
 
 /// A JSON-RPC error reply that echoes the request's id when the line parses
-/// — a conforming client correlates by id; garbage gets id null. Only
-/// string and integer ids are echoable (JSON-RPC forbids the rest, and an
-/// invalid id makes the reply unroutable) — the SAME rule `requestIdOf`
-/// applies in src/domain/mcp/jsonrpc.ts, pinned by mirrored tests on both
-/// sides so the two implementations cannot drift silently.
+/// — a conforming client correlates by id; garbage gets id null. The id
+/// rule is [`echoable_id`], the exact mirror of `requestIdOf` in
+/// src/domain/mcp/jsonrpc.ts, pinned by tests on the same inputs — chosen
+/// to include the inputs the two PARSERS disagree on, not only the easy
+/// rejects.
 fn error_reply(request_line: &str, code: i64, message: &str) -> String {
     let id = serde_json::from_str::<serde_json::Value>(request_line)
         .ok()
         .and_then(|v| v.get("id").cloned())
-        .filter(|id| match id {
-            serde_json::Value::String(_) => true,
-            serde_json::Value::Number(n) => n.is_i64() || n.is_u64(),
-            _ => false,
-        })
+        .and_then(echoable_id)
         .unwrap_or(serde_json::Value::Null);
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -115,6 +111,24 @@ fn is_notification(line: &str) -> bool {
     match serde_json::from_str::<serde_json::Value>(line) {
         Ok(serde_json::Value::Object(map)) => !map.contains_key("id"),
         _ => false,
+    }
+}
+
+/// The one id rule both sides apply: a string, or an INTEGER-VALUED number
+/// within ±(2^53−1) — the range every JSON parser preserves exactly —
+/// emitted as an integer. The value test, not the token class: serde keeps
+/// `1e2` as a float where JSON.parse yields the integer 100, so filtering
+/// on serde's integer types alone made the two sides answer the same
+/// request with different ids (round-2 finding).
+fn echoable_id(id: serde_json::Value) -> Option<serde_json::Value> {
+    const SAFE_MAX: f64 = 9_007_199_254_740_991.0;
+    match id {
+        serde_json::Value::String(_) => Some(id),
+        serde_json::Value::Number(ref n) => n
+            .as_f64()
+            .filter(|f| f.fract() == 0.0 && f.abs() <= SAFE_MAX)
+            .map(|f| serde_json::Value::from(f as i64)),
+        _ => None,
     }
 }
 
@@ -225,12 +239,30 @@ mod tests {
     #[test]
     fn error_reply_rejects_unroutable_id_types_like_the_webview_does() {
         // Mirrors jsonrpc.test.ts (same inputs, same nulls): booleans,
-        // fractions and objects are not legal JSON-RPC ids, and echoing one
-        // would make the reply unroutable.
-        for line in [r#"{"id":true}"#, r#"{"id":1.5}"#, r#"{"id":{}}"#] {
+        // fractions, objects and beyond-2^53 integers are unroutable —
+        // echoing one would break correlation (or lie, once a JS parser
+        // has rounded it).
+        for line in [
+            r#"{"id":true}"#,
+            r#"{"id":1.5}"#,
+            r#"{"id":{}}"#,
+            r#"{"id":9007199254740993}"#,
+        ] {
             let parsed: serde_json::Value =
                 serde_json::from_str(&error_reply(line, -32603, "x")).unwrap();
             assert!(parsed["id"].is_null(), "id must be null for {line}");
+        }
+    }
+
+    #[test]
+    fn error_reply_echoes_integer_valued_floats_as_integers_like_the_webview() {
+        // Mirrors jsonrpc.test.ts: serde parses these as FLOATS, JSON.parse
+        // as integers — the shared rule tests the value, not the token, so
+        // both sides answer 100 and 1.
+        for (line, want) in [(r#"{"id":1e2}"#, 100), (r#"{"id":1.0}"#, 1)] {
+            let parsed: serde_json::Value =
+                serde_json::from_str(&error_reply(line, -32603, "x")).unwrap();
+            assert_eq!(parsed["id"], want, "for {line}");
         }
     }
 
