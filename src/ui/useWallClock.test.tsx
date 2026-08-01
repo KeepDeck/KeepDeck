@@ -47,4 +47,15 @@ describe("useWallClock", () => {
     });
     expect(out.now).toBe(1_030_000);
   });
+
+  it("caps the floor one tick ahead — corrupt future data cannot drive the clock", () => {
+    const out = { now: 0 };
+    root = createRoot(document.createElement("div"));
+    // A year-2100 row in a hand-edited or clock-skewed ledger: uncapped it
+    // would pin now decades ahead, hiding all real usage from every rolling
+    // window and sizing the "All" timeline in tens of thousands of buckets.
+    const FUTURE = Date.UTC(2100, 0, 1);
+    act(() => root!.render(createElement(Probe, { atLeast: FUTURE, out })));
+    expect(out.now).toBe(1_030_000); // one tick ahead, no further
+  });
 });
