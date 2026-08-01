@@ -2,7 +2,7 @@ import {
   addNotification,
   markAllRead,
   markRead,
-  shouldBanner,
+  bannerVerdict,
   type Notification,
   type NotificationSeverity,
   type NotificationSource,
@@ -99,27 +99,24 @@ export function notify(input: NotifyInput): boolean {
     delivered = true;
   }
   if (prefs.mode !== "app") {
-    const windowFocused = isWindowFocused();
-    const visible = sourceVisible?.(notification.source) ?? false;
-    const allowed = shouldBanner({
-      windowFocused,
-      sourceVisible: visible,
+    const verdict = bannerVerdict({
+      windowFocused: isWindowFocused(),
+      sourceVisible: sourceVisible?.(notification.source) ?? false,
       now,
-      // A miss is undefined — exactly shouldBanner's "never bannered".
+      // A miss is undefined — exactly the verdict's "never bannered".
       lastBannerAt:
         notification.tag !== undefined
           ? lastBannerAt.get(notification.tag)
           : undefined,
     });
-    if (!allowed && windowFocused && visible) {
-      // Suppressed BECAUSE the user is looking at the source surface: the
-      // event announced itself in place, so it counts as delivered —
-      // otherwise system mode would re-banner an award the user watched
-      // land. Cooldown suppression stays undelivered: nothing reached the
-      // user THIS time.
+    if (verdict === "seen-in-place") {
+      // The user is looking at the source surface: the event announced
+      // itself in place, so it counts as delivered — otherwise system mode
+      // would re-banner an award the user watched land. Cooldown
+      // suppression stays undelivered: nothing reached the user THIS time.
       delivered = true;
     }
-    if (allowed) {
+    if (verdict === "banner") {
       if (notification.tag !== undefined) {
         lastBannerAt.delete(notification.tag); // re-set → back of the order
         lastBannerAt.set(notification.tag, now);

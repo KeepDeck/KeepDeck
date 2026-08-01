@@ -205,7 +205,7 @@ export function useAppController() {
     dockCovers,
     statsOpen: modal.statsOpen,
     statsTab: modal.statsTab,
-    statsCovered: dialogOpen,
+    statsCovered: dialogOpen || creating,
   });
   visibilityRef.current = {
     activeId: deck.activeId,
@@ -217,12 +217,14 @@ export function useAppController() {
     dockCovers,
     statsOpen: modal.statsOpen,
     statsTab: modal.statsTab,
-    // What can paint OVER the Stats dialog: transaction confirms only.
-    // Deliberately NOT modalOpen — that term contains statsOpen itself and
-    // would make the stats branch always false. And deliberately NOT the
-    // create form: it renders in the deck overlay (z 10) UNDER the portaled
-    // stats dialog (z 100), so stats stays fully visible above it.
-    statsCovered: dialogOpen,
+    // What can paint OVER the Stats dialog: transaction confirms, and the
+    // CREATE-form variant of the workspace form — that one rides a
+    // ModalOverlay portaled after stats at the same z-index, so DOM order
+    // puts it on top. Deliberately NOT modalOpen (it contains statsOpen
+    // itself and would make the stats branch always false) and NOT the
+    // zero-workspace form (that renders in the deck overlay at z 10,
+    // UNDER the portaled dialog).
+    statsCovered: dialogOpen || creating,
   };
   useEffect(() => {
     setSourceVisibilityProbe((source) => {

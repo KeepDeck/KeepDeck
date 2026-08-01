@@ -152,13 +152,24 @@ export interface BannerContext {
  * a banner would point at what the user is looking at), or the same tag
  * bannered within the cooldown window.
  */
-export function shouldBanner(ctx: BannerContext): boolean {
-  if (ctx.windowFocused && ctx.sourceVisible) return false;
+export type BannerVerdict = "banner" | "seen-in-place" | "cooldown";
+
+/** WHY a banner is or is not sent — the reason is part of the contract:
+ * "seen-in-place" means the user is looking at the source surface, which
+ * delivery accounting treats as delivered, while "cooldown" reached nobody
+ * this time. Callers must consume the verdict, never re-derive a reason
+ * from the context. */
+export function bannerVerdict(ctx: BannerContext): BannerVerdict {
+  if (ctx.windowFocused && ctx.sourceVisible) return "seen-in-place";
   if (
     ctx.lastBannerAt !== undefined &&
     ctx.now - ctx.lastBannerAt < BANNER_COOLDOWN_MS
   ) {
-    return false;
+    return "cooldown";
   }
-  return true;
+  return "banner";
+}
+
+export function shouldBanner(ctx: BannerContext): boolean {
+  return bannerVerdict(ctx) === "banner";
 }
