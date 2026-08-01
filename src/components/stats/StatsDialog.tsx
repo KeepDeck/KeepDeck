@@ -1,37 +1,21 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useUsage } from "../../app/useUsage";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
-import {
-  costCoverage,
-  displayProviderCost,
-  formatTokens,
-  formatUtcDay,
-  PERIOD_LABELS,
-  USAGE_PERIODS,
-} from "../../domain/usage";
+import { PERIOD_LABELS, USAGE_PERIODS } from "../../domain/usage";
 import {
   queryUsageStats,
   type UsageStatsPeriod,
 } from "../../domain/usage/history/query";
-import { CHART_HEIGHT } from "../../domain/usage/chartPalette";
-import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
 import { CloseButton } from "../../ui/CloseButton";
-import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 import { useWallClock } from "../../ui/useWallClock";
 import { Achievements } from "./Achievements";
+import { Overview } from "./Overview";
 import { Providers } from "./Providers";
 import { StatsTable } from "./StatsTable";
 import { StreakBadge } from "./StreakBadge";
 import { PERIODLESS_TABS, STATS_TABS, type StatsTab } from "./tabs";
-
-/** The chart rides its own chunk: recharts is the bundle's single largest
- * dependency (+45% gzip over the whole app), parsed at cold launch if
- * imported statically — for a chart behind a dialog tab. */
-const UsageChart = lazy(() =>
-  import("./UsageChart").then((module) => ({ default: module.UsageChart })),
-);
 
 /** Global usage analytics has its own app surface: it is observational data,
  * not a setting, and it spans every workspace and CLI. The tab is CONTROLLED
@@ -97,11 +81,6 @@ export function UsageStats({
   const stats = useMemo(
     () => queryUsageStats(history.events, period, now),
     [history.events, period, now],
-  );
-  const recap = useMemo(
-    () =>
-      tab === "overview" ? usageRecap(history.events, period, now, stats) : null,
-    [tab, history.events, period, now, stats],
   );
   const periodless = PERIODLESS_TABS.includes(tab);
   const periodEmpty = (
@@ -175,45 +154,12 @@ export function UsageStats({
             ) : stats.eventCount === 0 ? (
               periodEmpty
             ) : (
-              <>
-                <div className="stats__summary">
-                  <Summary
-                    label="Tokens"
-                    value={formatTokens(stats.totals.totalTokens)}
-                  />
-                  <Summary
-                    label="Cost"
-                    value={displayProviderCost(
-                      stats.totals.providerCostUsd,
-                      stats.totals.costEvents,
-                    )}
-                  />
-                  <Summary label="Sessions" value={String(stats.sessionCount)} />
-                </div>
-                {/* A failed chunk load loses the chart, never the app —
-                    without a boundary a rejected lazy import unwinds to
-                    the root and blanks the whole window. */}
-                <ErrorBoundary
-                  label="Statistics chart"
-                  fallback={
-                    <p className="stats__warning">
-                      The chart could not be loaded.
-                    </p>
-                  }
-                >
-                  <Suspense fallback={<ChartPlaceholder />}>
-                    <UsageChart
-                      events={history.events}
-                      period={period}
-                      now={now}
-                    />
-                  </Suspense>
-                </ErrorBoundary>
-                {recap && <Highlights recap={recap} period={period} />}
-                <p className="stats__coverage">
-                  {costCoverage(stats.costSessionCount, stats.sessionCount)}
-                </p>
-              </>
+              <Overview
+                events={history.events}
+                stats={stats}
+                period={period}
+                now={now}
+              />
             ))}
           {tab === "providers" && (
             <Providers accounts={accounts} events={history.events} now={now} />
@@ -243,58 +189,6 @@ export function UsageStats({
             (historyDead ? ledgerBlocked : <Achievements events={history.events} />)}
         </>
       )}
-    </div>
-  );
-}
-
-/** The period's numbers with their context — movement against the prior
- * equal-length period, the hungriest model, the heaviest day. Renders
- * nothing when the period offers no highlight worth reading. */
-function Highlights({
-  recap,
-  period,
-}: {
-  recap: UsageRecap;
-  period: UsageStatsPeriod;
-}) {
-  const parts: string[] = [];
-  if (recap.tokensDeltaPct !== null) {
-    const sign = recap.tokensDeltaPct >= 0 ? "+" : "";
-    parts.push(`${sign}${recap.tokensDeltaPct}% vs prior ${PERIOD_LABELS[period]}`);
-  }
-  if (recap.topModel) {
-    parts.push(
-      `top model ${recap.topModel.model} (${formatTokens(recap.topModel.totalTokens)})`,
-    );
-  }
-  if (recap.busiestDay) {
-    parts.push(
-      `busiest day ${formatUtcDay(recap.busiestDay.dayStart)} (${formatTokens(
-        recap.busiestDay.totalTokens,
-      )})`,
-    );
-  }
-  if (parts.length === 0) return null;
-  return <p className="stats__recap">{parts.join(" · ")}</p>;
-}
-
-/** The pending-chunk stand-in builds the SAME box as the mounted chart —
- * heading line plus a CHART_HEIGHT plot — so its height tracks the CSS
- * instead of asserting a hand-measured pixel count across three files. */
-function ChartPlaceholder() {
-  return (
-    <section className="stats__section" aria-hidden>
-      <h3>{" "}</h3>
-      <div style={{ height: CHART_HEIGHT }} />
-    </section>
-  );
-}
-
-function Summary({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="stats__card">
-      <span>{label}</span>
-      <b>{value}</b>
     </div>
   );
 }
