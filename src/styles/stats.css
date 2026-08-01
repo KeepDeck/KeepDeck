@@ -71,6 +71,16 @@
   color: #c5c8c6;
 }
 
+/* The active tab doesn't consume the period (Providers): the switcher goes
+   quiet instead of pretending to work. */
+.stats__period--idle {
+  opacity: 0.4;
+}
+
+.stats__period--idle button {
+  cursor: default;
+}
+
 /* Tab strip — the dock panel's pattern: quiet labels, an underline carries
    the selection. */
 .stats__tabs {

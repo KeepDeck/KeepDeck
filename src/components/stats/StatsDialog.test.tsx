@@ -200,6 +200,20 @@ describe("UsageStats", () => {
     expect(gallery.textContent).toContain("1 / 10");
   });
 
+  it("disables the period switcher on the period-independent Providers tab", () => {
+    act(() => root.render(createElement(UsageStats)));
+    const periodButton = () =>
+      [...host.querySelectorAll<HTMLButtonElement>(".stats__period button")][0];
+    expect(periodButton().disabled).toBe(false);
+
+    clickTab("Providers");
+    expect(periodButton().disabled).toBe(true);
+    expect(host.querySelector(".stats__period--idle")).not.toBeNull();
+
+    clickTab("Overview");
+    expect(periodButton().disabled).toBe(false);
+  });
+
   it("demotes expired and stale provider windows instead of joining them", () => {
     const account: AccountUsage = {
       kind: "reported",

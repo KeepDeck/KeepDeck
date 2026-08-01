@@ -102,13 +102,21 @@ export function UsageStats() {
           Local token history and provider-reported cost estimates across every CLI
           and workspace.
         </p>
-        <div className="stats__period" aria-label="Statistics period">
+        <div
+          className={`stats__period${tab === "providers" ? " stats__period--idle" : ""}`}
+          aria-label="Statistics period"
+          // Providers run on the provider's clock — the period doesn't
+          // apply there, and a switcher that silently does nothing reads
+          // as broken. Disabled, not hidden: hiding would jump the layout.
+          aria-disabled={tab === "providers"}
+        >
           {PERIODS.map((candidate) => (
             <button
               key={candidate.label}
               type="button"
               className={candidate.period === period ? "stats__period--active" : ""}
               aria-pressed={candidate.period === period}
+              disabled={tab === "providers"}
               onClick={() => setPeriod(candidate.period)}
             >
               {candidate.label}
