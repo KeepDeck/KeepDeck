@@ -13,9 +13,6 @@ mod kimi_usage;
 mod links;
 mod logging;
 mod mcp;
-mod mcp_bridge;
-mod mcp_server;
-mod mcp_shim;
 mod menu;
 mod migration;
 mod paths;
@@ -69,8 +66,8 @@ fn app_info(app: tauri::AppHandle) -> AppInfo {
     AppInfo::current(app.config().plugins.0.contains_key("updater"))
 }
 
-// The shim entry points main() consults before booting Tauri (mcp_shim.rs).
-pub use mcp_shim::{run as run_mcp_shim, shim_mode as mcp_shim_mode};
+// The shim entry points main() consults before booting Tauri (mcp/shim.rs).
+pub use mcp::shim::{run as run_mcp_shim, shim_mode as mcp_shim_mode};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -105,8 +102,8 @@ pub fn run() {
         .manage(downloads::DownloadRegistry::default())
         .manage(app_updater::AppUpdaterState::default())
         .manage(voice::VoiceState::default())
-        .manage(mcp_server::McpServer::default())
-        .manage(mcp_bridge::McpBridge::default())
+        .manage(mcp::server::McpServer::default())
+        .manage(mcp::bridge::McpBridge::default())
         .setup(move |app| {
             logging::install_panic_hook();
             logging::banner();

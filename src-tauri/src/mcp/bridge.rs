@@ -19,7 +19,7 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::mcp_server::LineHandler;
+use crate::mcp::server::LineHandler;
 
 /// Mirrored by `MCP_REQUEST_EVENT` in src/ipc/mcpBridge.ts.
 pub const MCP_REQUEST_EVENT: &str = "deck://mcp/request";

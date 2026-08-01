@@ -192,9 +192,9 @@ mod tests {
         // socket: client EOF propagates through the shim to the server, whose
         // connection close ends the pump — the whole life of a session.
         let path = temp_sock();
-        let handler: crate::mcp_server::LineHandler =
+        let handler: crate::mcp::server::LineHandler =
             std::sync::Arc::new(|line: &str| Some(line.to_uppercase()));
-        let server = crate::mcp_server::McpServer::default();
+        let server = crate::mcp::server::McpServer::default();
         server.enable(&path, handler).expect("server");
 
         let socket = UnixStream::connect(&path).expect("connect");
@@ -208,9 +208,9 @@ mod tests {
     #[test]
     fn disabling_the_server_releases_a_connected_shim() {
         let path = temp_sock();
-        let handler: crate::mcp_server::LineHandler =
+        let handler: crate::mcp::server::LineHandler =
             std::sync::Arc::new(|line: &str| Some(line.to_uppercase()));
-        let server = crate::mcp_server::McpServer::default();
+        let server = crate::mcp::server::McpServer::default();
         server.enable(&path, handler).expect("enable");
 
         // Stdin that never EOFs: the far end of a pair, kept open — the pump

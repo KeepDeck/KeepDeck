@@ -1,19 +1,23 @@
 //! The MCP feature's front door: the four Tauri commands, and the ONLY
 //! place the transport's parts are wired together — the socket lifecycle
-//! ([`crate::mcp_server`]), the webview bridge ([`crate::mcp_bridge`]) and
-//! the shim's flag ([`crate::mcp_shim`]). The parts never import each
+//! ([`server`]), the webview bridge ([`bridge`]) and
+//! the shim's flag ([`shim`]). The parts never import each
 //! other's IMPLEMENTATIONS — the bridge depends only on the server's
 //! `LineHandler` port type — so each stays testable alone, and a future
 //! second transport (or a per-connection identity handler) edits this
 //! file, not them.
 
+pub(crate) mod bridge;
+pub(crate) mod server;
+pub(crate) mod shim;
+
 use std::path::PathBuf;
 
 use tauri::{Manager, State};
 
-use crate::mcp_bridge::{self, McpBridge};
-use crate::mcp_server::McpServer;
-use crate::mcp_shim::SHIM_FLAG;
+use bridge::McpBridge;
+use server::McpServer;
+use shim::SHIM_FLAG;
 
 /// A missing home means no persistence environment at all — the transport
 /// refuses to run rather than invent a location.
@@ -40,7 +44,7 @@ fn sweep_legacy_socket() {
 pub fn mcp_enable(app: tauri::AppHandle, server: State<McpServer>) -> Result<String, String> {
     sweep_legacy_socket();
     let path = socket_path()?;
-    let served = server.enable(&path, mcp_bridge::webview_handler(app))?;
+    let served = server.enable(&path, bridge::webview_handler(app))?;
     log::info!("mcp: socket up at {}", served.display());
     Ok(served.display().to_string())
 }
