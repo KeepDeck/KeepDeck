@@ -68,10 +68,10 @@ fn app_info(app: tauri::AppHandle) -> AppInfo {
     AppInfo::current(app.config().plugins.0.contains_key("updater"))
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 // The shim entry points main() consults before booting Tauri (mcp_shim.rs).
 pub use mcp_shim::{run as run_mcp_shim, shim_mode as mcp_shim_mode};
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Trim past runs' log files before the plugin opens this run's own.
     let collected = logging::collect_garbage();
