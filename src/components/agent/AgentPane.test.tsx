@@ -322,34 +322,38 @@ describe("AgentPane — activity badge", () => {
 
   it("shows a quiet working dot — label in the tooltip only", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
-    reportEdge({ kind: "turn-start", at: 100 });
+    reportEdge({ kind: "turn-start", at: Date.now() });
 
     const badge = document.querySelector<HTMLElement>(".pane__activity");
     expect(badge).not.toBeNull();
     expect(badge!.className).toContain("pane__activity--working");
-    expect(badge!.title).toBe("Working");
+    expect(badge!.title).toBe("Working · now");
     expect(badge!.textContent).toBe("");
   });
 
   it("spells out the attention states", () => {
     act(() => root.render(createElement(PaneUnderTest, baseProps)));
-    reportEdge({ kind: "waiting", at: 100, reason: "permission" });
+    reportEdge({ kind: "waiting", at: Date.now(), reason: "permission" });
 
     let badge = document.querySelector<HTMLElement>(".pane__activity");
     expect(badge!.className).toContain("pane__activity--waiting");
+    // The chrome's own warn tone, not a duplicated hue — and the tone is
+    // what colours the dot through Chip's icon-yield rule.
+    expect(badge!.className).toContain("chip--warn");
     expect(badge!.textContent).toBe("Needs approval");
 
     reportEdge({
       kind: "turn-failed",
-      at: 200,
+      at: Date.now(),
       error: "rate_limit",
       detail: "Weekly limit reached",
     });
     badge = document.querySelector<HTMLElement>(".pane__activity");
     expect(badge!.className).toContain("pane__activity--failed");
+    expect(badge!.className).toContain("chip--error");
     expect(badge!.textContent).toBe("Rate limited");
     // The prose rides the tooltip, not the header.
-    expect(badge!.title).toBe("Rate limited — Weekly limit reached");
+    expect(badge!.title).toBe("Rate limited — Weekly limit reached · now");
   });
 
   it("shows nothing before the first edge, and nothing on a stopped pane", () => {

@@ -249,7 +249,9 @@ export function AgentPane({
   // "now" for as long as it stayed quiet. One minute is the resolution
   // `formatAge` actually shows.
   const [now, setNow] = useState(() => Date.now());
-  const dated = idle?.reason === "suspended";
+  // Suspended cards and activity tooltips both date themselves; either
+  // presence arms the minute clock.
+  const dated = idle?.reason === "suspended" || activity !== undefined;
   useEffect(() => {
     if (!dated) return;
     // The clock is refreshed on the way IN too: a pane that ran for an hour
@@ -280,6 +282,7 @@ export function AgentPane({
   // The domain's answer, not a second derivation of it: a frozen ctx% on an
   // exited / idle / unavailable / provisioning pane would read as live.
   const paneLive = !ended && body === "terminal";
+  const activityView = activity && paneLive ? activityBadge(activity) : null;
   return (
     <section
       data-pane-id={paneId}
@@ -339,27 +342,21 @@ export function AgentPane({
           )}
         </div>
         <div className="pane__actions">
-          {activity && paneLive && (() => {
-            const badge = activityBadge(activity);
-            // Density: the two attention states spell their label; the
-            // common working/done states stay a dot with the label in the
-            // tooltip (the header-badge idiom — icon chips, words only when
-            // the user must act).
-            const spelled =
-              badge.tone === "waiting" || badge.tone === "failed";
-            return (
-              <Chip
-                className={`pane__activity pane__activity--${badge.tone}`}
-                role="img"
-                aria-label={badge.label}
-                title={
-                  badge.detail ? `${badge.label} — ${badge.detail}` : badge.label
-                }
-                icon={<span className="pane__activity-dot" />}
-                {...(spelled ? { label: badge.label } : {})}
-              />
-            );
-          })()}
+          {activityView && (
+            <Chip
+              className={`pane__activity pane__activity--${activityView.tone}`}
+              {...(activityView.chipTone ? { tone: activityView.chipTone } : {})}
+              role="img"
+              aria-label={activityView.label}
+              title={`${activityView.label}${
+                activityView.detail ? ` — ${activityView.detail}` : ""
+              } · ${formatAge(activityView.at, now)}`}
+              icon={<span className="pane__activity-dot" />}
+              {...(activityView.emphasis === "spoken"
+                ? { label: activityView.label }
+                : {})}
+            />
+          )}
           {ctxPct !== undefined && paneLive && (
             <Chip
               className={`pane__ctx${

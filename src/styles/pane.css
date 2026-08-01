@@ -143,10 +143,19 @@
 /* Live activity badge: what the agent is doing right now. A dot for the
    common states (working pulses, done sits still); the label is spelled only
    for the two ATTENTION states (waiting, failed) — words appear exactly when
-   the user must act, the density rule the header chips already follow. */
+   the user must act, the density rule the header chips already follow.
+   Waiting/failed ride Chip's own warn/error tones (one chrome palette, one
+   home); only working/done are hues the chrome doesn't have. */
 .pane__activity {
   flex: none;
   font-size: 12px;
+}
+
+/* The dot takes the badge's colour. Chip paints its icon slot structural
+   gray by default and yields to the tone only for its OWN tones — the two
+   custom hues need the same yield, or the dot stays gray forever. */
+.pane__activity .chip__icon {
+  color: inherit;
 }
 
 .pane__activity-dot {
@@ -164,16 +173,8 @@
   animation: pane-activity-pulse 1.6s ease-in-out infinite;
 }
 
-.pane__activity--waiting {
-  color: #e0af68;
-}
-
 .pane__activity--done {
   color: #6b7c62;
-}
-
-.pane__activity--failed {
-  color: #f7768e;
 }
 
 @keyframes pane-activity-pulse {

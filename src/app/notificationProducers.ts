@@ -160,7 +160,7 @@ function announceActivity(
     const c = ctx();
     if (!c) return;
     notify({
-      title: `${c.title} — ${badge.label.toLowerCase()}`,
+      title: `${c.title} — ${badge.sentence}`,
       body: c.wsName,
       severity: "warning",
       source: { type: "pane", workspace: c.workspace, paneId },
@@ -171,8 +171,10 @@ function announceActivity(
   if (activity.state === "failed") {
     const c = ctx();
     if (!c) return;
+    // `sentence`, not a lowercased label: a CLI's own error identifier must
+    // keep its casing ("failed: QuotaCliff", never "failed: quotacliff").
     notify({
-      title: `${c.title} — ${badge.label.toLowerCase()}`,
+      title: `${c.title} — ${badge.sentence}`,
       body: activity.detail ? `${activity.detail} · ${c.wsName}` : c.wsName,
       severity: "error",
       source: { type: "pane", workspace: c.workspace, paneId },
