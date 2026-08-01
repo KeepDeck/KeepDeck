@@ -139,6 +139,18 @@ export interface DecodedUsageEvent {
   migrated: boolean;
 }
 
+/** THE home of the occurredAt sanity rule: an observation instant must be
+ * positive and can never postdate its capture. Zero is a real sentinel — a
+ * catch-up replay of a session file with no usable timestamp normalizes at
+ * epoch — and with retention gone an epoch event would poison every
+ * all-time consumer (a 20k-bucket "All" chart, a 496,000-hour session).
+ * Both the writer and the decoder clamp through here, so old ledgers heal
+ * on load and new ones never carry the damage. */
+export function clampOccurredAt(occurredAt: number, capturedAt: number): number {
+  if (!(occurredAt > 0) || occurredAt > capturedAt) return capturedAt;
+  return occurredAt;
+}
+
 /** Tolerant per-line decoder with a narrow v1 salvage path. V1 Codex and
  * OpenCode token deltas remain trustworthy, but locally estimated costs are
  * discarded. Claude v1 token counters came from a non-cumulative status-line
@@ -166,6 +178,11 @@ export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
 
   const common = readCommonEvent(value);
   if (!common) return null;
+  // A clamped instant marks the line for compaction just like a schema
+  // migration: the file heals instead of re-poisoning every load.
+  const occurredAt = clampOccurredAt(common.occurredAt, common.capturedAt);
+  const sanitized = occurredAt !== common.occurredAt;
+  common.occurredAt = occurredAt;
   const tokens = readTokens(value.tokens as Record<string, unknown>);
   const observation = value.observation as Record<string, unknown>;
   const observedTokens = readTokens(observation.tokens as Record<string, unknown>);
@@ -223,7 +240,7 @@ export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
   if (value.costSource === "provider") {
     if (!finiteNonNegative(value.costUsd)) return null;
     return {
-      migrated: false,
+      migrated: sanitized,
       event: {
         ...common,
         schemaVersion: USAGE_EVENT_SCHEMA_VERSION,
@@ -238,7 +255,7 @@ export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
     return null;
   }
   return {
-    migrated: false,
+    migrated: sanitized,
     event: {
       ...common,
       schemaVersion: USAGE_EVENT_SCHEMA_VERSION,

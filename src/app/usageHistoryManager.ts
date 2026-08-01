@@ -1,5 +1,6 @@
 import type { PaneUsage } from "@keepdeck/plugin-api";
 import {
+  clampOccurredAt,
   decodeUsageEventLine,
   encodeUsageEvent,
   USAGE_EVENT_SCHEMA_VERSION,
@@ -117,7 +118,9 @@ export function recordPaneUsage(
         delta.observation,
         usage.sequence ?? usage.reportedAt,
       ),
-      occurredAt: usage.reportedAt,
+      // Clamped through the codec's own rule: a catch-up replay with no
+      // usable timestamp reports at epoch, which must never enter the ledger.
+      occurredAt: clampOccurredAt(usage.reportedAt, capturedAt),
       capturedAt,
       agent: usage.agent,
       ...(usage.model ? { model: usage.model } : {}),

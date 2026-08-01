@@ -250,6 +250,22 @@ describe("usageHistoryManager", () => {
     });
   });
 
+  it("clamps an epoch-stamped report to its capture instant", async () => {
+    await initUsageHistory();
+    await recordPaneUsage(
+      {
+        agent: "opencode",
+        sessionId: "session-1",
+        totalTokens: { input: 100 },
+        reportedAt: 0, // catch-up replay with no usable timestamp
+      },
+      context,
+      NOW,
+    );
+    const appended = JSON.parse(ipc.appendUsageHistory.mock.calls[0][0][0]);
+    expect(appended.occurredAt).toBe(NOW);
+  });
+
   it("deduplicates damage while keeping history whole — age never prunes", async () => {
     const yearsOld = event({
       eventId: "old-latest",

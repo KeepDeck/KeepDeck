@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeUsageEvent,
+  decodeUsageEventLine,
   encodeUsageEvent,
   queryUsageStats,
   tokenTotal,
@@ -229,6 +230,24 @@ describe("usage event codec", () => {
     costSource: "provider",
     observation: { tokens: { input: 50, output: 8 }, costUsd: 0.4 },
   };
+
+  it("clamps epoch and future occurredAt to capturedAt, marking the line for compaction", () => {
+    const epoch = JSON.stringify({ ...event, occurredAt: 0 });
+    const decodedEpoch = decodeUsageEventLine(epoch)!;
+    expect(decodedEpoch.event.occurredAt).toBe(event.capturedAt);
+    expect(decodedEpoch.migrated).toBe(true); // heals on the next compaction
+
+    const future = JSON.stringify({ ...event, occurredAt: event.capturedAt + 5 });
+    const decodedFuture = decodeUsageEventLine(future)!;
+    expect(decodedFuture.event.occurredAt).toBe(event.capturedAt);
+    expect(decodedFuture.migrated).toBe(true);
+
+    // A legitimately old instant (a replay with a real source time) passes.
+    const old = JSON.stringify({ ...event, occurredAt: 3 });
+    const decodedOld = decodeUsageEventLine(old)!;
+    expect(decodedOld.event.occurredAt).toBe(3);
+    expect(decodedOld.migrated).toBe(false);
+  });
 
   it("round-trips a valid line and rejects malformed or future lines", () => {
     expect(decodeUsageEvent(encodeUsageEvent(event))).toEqual(event);
