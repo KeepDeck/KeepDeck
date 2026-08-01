@@ -1,8 +1,6 @@
-import {
-  achievementCatalog,
-  achievementRequirement,
-  createAchievementEngine,
-} from "../domain/usage/achievements";
+import { achievementRequirement } from "../domain/usage/achievements/captions";
+import { achievementCatalog } from "../domain/usage/achievements/catalog";
+import { createAchievementEngine } from "../domain/usage/achievements/engine";
 import type { UsageEventV2 } from "../domain/usage/history/event";
 import type { NotifyInput } from "./notificationCenter";
 import type { UsageHistorySnapshot } from "./usageHistoryManager";

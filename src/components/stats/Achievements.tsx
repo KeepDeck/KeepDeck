@@ -3,12 +3,14 @@ import {
   achievementExact,
   achievementProgress,
   achievementRequirement,
+} from "../../domain/usage/achievements/captions";
+import type { UsageAchievement } from "../../domain/usage/achievements/catalog";
+import {
   earnedAchievements,
   lockedAchievements,
   nextAchievements,
   usageAchievementLadders,
-  type UsageAchievement,
-} from "../../domain/usage/achievements";
+} from "../../domain/usage/achievements/ladders";
 import { formatUtcDay } from "../../domain/usage";
 import type { UsageEventV2 } from "../../domain/usage/history/event";
 

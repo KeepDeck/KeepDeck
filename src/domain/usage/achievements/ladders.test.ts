@@ -1,19 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { TEST_NOW, usageEvent as event } from "../history/event.testSupport";
+import type { UsageAchievementLadder } from "./catalog";
 import {
-  achievementProgress,
-  achievementRequirement,
   earnedAchievements,
   lockedAchievements,
   nextAchievements,
   usageAchievementLadders,
-  type UsageAchievementLadder,
-} from "./achievements";
+} from "./ladders";
 
 const DAY = 24 * 60 * 60 * 1_000;
-import { TEST_NOW, usageEvent as event } from "./history/event.testSupport";
-
 const NOW = TEST_NOW;
-
 
 const ladder = (
   ladders: UsageAchievementLadder[],
@@ -212,21 +208,5 @@ describe("earned and next views", () => {
       "Galactic Scale",
       "Trillionaire",
     ]);
-  });
-});
-
-describe("captions", () => {
-  it("phrases requirements and progress per metric", () => {
-    const ladders = usageAchievementLadders([
-      event({ costSource: "provider", costUsd: 0.25 }),
-    ]);
-    const spend = ladder(ladders, "spendUsd").tiers[0];
-    expect(achievementRequirement(spend)).toBe("$1 provider-reported spend");
-    expect(achievementProgress(spend)).toBe("$0.25 / $1");
-    const streak = ladder(ladders, "streakDays").tiers[0];
-    expect(achievementRequirement(streak)).toBe("3 active days in a row");
-    expect(achievementProgress(streak)).toBe("1 / 3");
-    const tokens = ladder(ladders, "tokens").tiers[0];
-    expect(achievementRequirement(tokens)).toBe("1M tokens all-time");
   });
 });
