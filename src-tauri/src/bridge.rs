@@ -43,6 +43,10 @@ pub const SESSION_BOUND_EVENT: &str = "deck://session/bound";
 /// Event delivering one usage report to the webview (`src/ipc/usage.ts`).
 pub const USAGE_REPORT_EVENT: &str = "deck://usage/report";
 
+/// Event delivering one agent-status report to the webview
+/// (`src/ipc/status.ts`).
+pub const AGENT_STATUS_EVENT: &str = "deck://agent/status";
+
 /// An envelope larger than this is dropped unread — reporters send small
 /// JSON (a statusline payload runs a few KB; the cap leaves generous
 /// headroom for bloated workspace lists), anything bigger is not ours.
@@ -106,11 +110,24 @@ pub struct UsageReport {
     pub payload: serde_json::Value,
 }
 
+/// The `agent.status` wire event (see `src/ipc/status.ts`). Same division
+/// as [`UsageReport`]: the payload stays opaque JSON — the webview's
+/// per-agent status normalizers own its schema; the bridge guarantees only
+/// correlation (pane, token) and the dispatch key (`payload.agent`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatusReport {
+    pub pane_id: String,
+    pub token: String,
+    pub payload: serde_json::Value,
+}
+
 /// One interpreted envelope — the dispatch result `deliver` emits from.
 #[derive(Debug, PartialEq)]
 enum Inbound {
     SessionBound(SessionBound),
     UsageReport(UsageReport),
+    StatusReport(StatusReport),
 }
 
 /// This run's live bridge — kept in Tauri managed state so the lock fd and
@@ -279,6 +296,13 @@ fn deliver(app: &AppHandle, path: &Path) {
                 log::warn!("bridge: emitting {USAGE_REPORT_EVENT} failed: {e}");
             }
         }
+        // Status edges fire per turn transition — same volume class as usage.
+        Ok(Inbound::StatusReport(report)) => {
+            log::debug!("bridge: status report pane={}", printable(&report.pane_id));
+            if let Err(e) = app.emit(AGENT_STATUS_EVENT, &report) {
+                log::warn!("bridge: emitting {AGENT_STATUS_EVENT} failed: {e}");
+            }
+        }
         Err(Rejected::Transient) => return,
         // A reporter wrote garbage — consumed and dropped by design, but a
         // trace is the difference between "hook broken" and "hook never ran".
@@ -358,6 +382,21 @@ fn interpret(content: &str) -> Result<Inbound, String> {
                 return Err("usage.report with empty fields".into());
             }
             Ok(Inbound::UsageReport(UsageReport {
+                pane_id: envelope.pane_id,
+                token: envelope.token,
+                payload: envelope.payload,
+            }))
+        }
+        "agent.status" => {
+            let agent = envelope
+                .payload
+                .get("agent")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if envelope.pane_id.is_empty() || envelope.token.is_empty() || agent.is_empty() {
+                return Err("agent.status with empty fields".into());
+            }
+            Ok(Inbound::StatusReport(StatusReport {
                 pane_id: envelope.pane_id,
                 token: envelope.token,
                 payload: envelope.payload,
@@ -454,6 +493,35 @@ mod tests {
             serde_json::from_str(&usage_envelope("pane-7", "tok", "claude")).unwrap();
         value["payload"]["agent"] = 7.into();
         assert!(interpret(&value.to_string()).is_err());
+    }
+
+    fn status_envelope(pane: &str, token: &str, agent: &str) -> String {
+        serde_json::json!({
+            "v": 1, "type": "agent.status", "paneId": pane, "token": token,
+            "payload": { "agent": agent, "event": { "hook_event_name": "Stop", "session_id": "abc" } },
+        })
+        .to_string()
+    }
+
+    // Like usage: the payload rides through VERBATIM — the webview's status
+    // normalizers own its schema.
+    #[test]
+    fn interprets_a_status_report_passing_the_payload_through() {
+        let result = interpret(&status_envelope("pane-7", "tok", "claude"));
+        let Ok(Inbound::StatusReport(report)) = result else {
+            panic!("expected a status report, got {result:?}");
+        };
+        assert_eq!(report.pane_id, "pane-7");
+        assert_eq!(report.token, "tok");
+        assert_eq!(report.payload["agent"], "claude");
+        assert_eq!(report.payload["event"]["hook_event_name"], "Stop");
+    }
+
+    #[test]
+    fn rejects_status_reports_with_missing_correlation_or_agent() {
+        assert!(interpret(&status_envelope("", "tok", "claude")).is_err());
+        assert!(interpret(&status_envelope("pane-7", "", "claude")).is_err());
+        assert!(interpret(&status_envelope("pane-7", "tok", "")).is_err());
     }
 
     #[test]
