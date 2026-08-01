@@ -115,7 +115,11 @@ export type ResumeRequest =
 
 /** Delay the MCP lookup until a spawn plan is actually built — and ask per
  * build, never once: the transport can go up or down between two spawns. */
-export type McpDefsAsk = () => Promise<SpawnMcpInput["servers"]>;
+export type McpDefsAsk = (target: {
+  agentType: string;
+  cwd: string;
+  workspaceId: string;
+}) => Promise<SpawnMcpInput["servers"]>;
 
 /** Delay staged-skill lookup until a spawn plan is actually built. */
 export type StagedSkillsAsk = (

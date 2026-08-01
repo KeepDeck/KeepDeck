@@ -22,6 +22,7 @@ import {
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
 import { createMcpService } from "./mcp";
+import { mcpArm } from "../ipc/mcpArming";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
@@ -73,10 +74,19 @@ export function createAppRuntime(
     minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
     subscribe: subscribeSettings,
   });
-  const mcp = createMcpService({
-    mcpServer: () => getSettings()?.mcpServer ?? null,
-    subscribe: subscribeSettings,
-  });
+  const mcp = createMcpService(
+    {
+      mcpServer: () => getSettings()?.mcpServer ?? null,
+      subscribe: subscribeSettings,
+    },
+    {
+      // kimi's config is planted in a pane's cwd, so it takes the same queue
+      // slot as everything else that lands there — `worktrees` is constructed
+      // below and only ever called from a spawn, long after.
+      arm: (workspaceId, entries) =>
+        worktrees.inOrder(() => mcpArm(workspaceId, entries)),
+    },
+  );
   const journalPersistence = createJournalPersistence(
     deckStore,
     deckPersistence,
@@ -123,7 +133,7 @@ export function createAppRuntime(
     plugins,
     probe: probeWorktree,
     worktrees,
-    mcpDefs: () => mcp.defs(),
+    mcpDefs: (target) => mcp.defs(target),
   });
   const application = createApplicationController(
     deckStore,

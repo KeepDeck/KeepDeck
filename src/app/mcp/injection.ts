@@ -18,16 +18,27 @@
 import { acceptMcpServers, type McpServerDef } from "../../domain/mcp";
 import { describeError, log } from "../../ipc/log";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
+import { mcpArm, type McpArmReport } from "../../ipc/mcpArming";
+import { kimiMcpConfig, KIMI_AGENT } from "./kimi";
 
 /** The name KeepDeck's own server is filed under in every client config —
  * and therefore the prefix its tools carry (`mcp__keepdeck__…`). */
 export const KEEPDECK_MCP_SERVER = "keepdeck";
 
+/** The pane an injection is for: which CLI, and where it will run. */
+export interface McpInjectionTarget {
+  agentType: string;
+  cwd: string;
+  workspaceId: string;
+}
+
 export interface McpInjection {
-  /** The servers this pane should be given. Empty when the transport is not
-   * confirmed up, or when the backend cannot say how to reach it — in both
-   * cases the pane spawns with no KeepDeck server rather than a broken one. */
-  defs(): Promise<McpServerDef[]>;
+  /** The servers this pane should be given THROUGH ITS ARGV. Empty when the
+   * transport is not confirmed up, when the backend cannot say how to reach
+   * it — in both cases the pane spawns with no KeepDeck server rather than a
+   * broken one — and for kimi, whose servers are delivered as a file instead
+   * (planted here, so the answer stays "nothing for the hook to add"). */
+  defs(target: McpInjectionTarget): Promise<McpServerDef[]>;
 }
 
 export interface McpInjectionDeps {
@@ -35,11 +46,20 @@ export interface McpInjectionDeps {
    * between two spawns, and a remembered answer would outlive the fact. */
   socket: () => string | null;
   connection?: () => Promise<McpConnection>;
+  /** Plant kimi's config in a pane cwd. Injected because the write must be
+   * ORDERED against worktree teardown — arming a directory that is being
+   * deleted is the mistake the worktree owner's queue exists to prevent — and
+   * that queue is not this module's to hold. */
+  arm?: (
+    workspaceId: string,
+    entries: { root: string; content: string }[],
+  ) => Promise<McpArmReport>;
 }
 
 export function createMcpInjection({
   socket,
   connection = mcpConnectionCommand,
+  arm = mcpArm,
 }: McpInjectionDeps): McpInjection {
   /** The connect invocation is a property of the INSTALL (this binary, this
    * home), so it is fetched once and reused. A failure is not remembered:
@@ -62,7 +82,7 @@ export function createMcpInjection({
   }
 
   return {
-    async defs() {
+    async defs(target) {
       if (socket() === null) return [];
       const invoked = await resolve();
       if (!invoked) return [];
@@ -81,7 +101,18 @@ export function createMcpInjection({
       for (const { name, reason } of rejected) {
         log.warn("web:mcp", `server "${name}" not injected: ${reason}`);
       }
-      return accepted;
+      if (target.agentType !== KIMI_AGENT) return accepted;
+      // kimi reads a FILE and takes nothing on argv, so the delivery happens
+      // here and the hook is told there is nothing to add. A cwd holding the
+      // user's own config refuses, and the refusal is reported rather than
+      // silently leaving that pane serverless.
+      const report = await arm(target.workspaceId, [
+        { root: target.cwd, content: kimiMcpConfig(accepted) },
+      ]);
+      for (const { root, reason } of report.refused) {
+        log.warn("web:mcp", `${root} kept its own MCP config: ${reason}`);
+      }
+      return [];
     },
   };
 }

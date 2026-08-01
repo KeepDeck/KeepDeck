@@ -16,6 +16,15 @@ const skills = vi.hoisted(() => ({
 }));
 vi.mock("../../ipc/skills", () => skills);
 
+// The MCP config is planted in the same directories by the same owner, so the
+// doubles answer `true` like the real wrappers do.
+const mcpArming = vi.hoisted(() => ({
+  mcpArm: vi.fn(async () => ({ armed: [], refused: [] })),
+  mcpDisarm: vi.fn(async (_roots: string[]) => true),
+  mcpPrune: vi.fn(async (_liveWsIds: string[]) => true),
+}));
+vi.mock("../../ipc/mcpArming", () => mcpArming);
+
 /** The pane is still in the deck for the whole create — the ordinary case.
  * The tests that close a pane mid-create override this. */
 const stays = () => false;
@@ -55,6 +64,8 @@ beforeEach(() => {
   skills.stageSkills.mockImplementation(async (wsId: string) => stagedFor(wsId));
   skills.disarmSkills.mockResolvedValue(true);
   skills.pruneSkills.mockResolvedValue(true);
+  mcpArming.mcpDisarm.mockResolvedValue(true);
+  mcpArming.mcpPrune.mockResolvedValue(true);
   manager = createWorktreeManager({
     // Matched on the exact LIFETIME, like the production adapter: a reborn
     // workspace must not be handed the dead one's roots.

@@ -157,9 +157,19 @@ export interface SkillsInvalidation {
  * sweep trigger has none with provisioning, and a fake that has to stub methods
  * its subject never calls is a fake that stops catching anything.
  */
+/** The one queue that orders everything KeepDeck plants in a pane's cwd
+ * against the removal of that cwd. Exposed as its own role because the MCP
+ * injection plants a file of its own and must take the same slot — running it
+ * outside this queue is exactly the arming-inside-a-teardown bug the owner
+ * exists to prevent. */
+export interface WorktreeOrdering {
+  inOrder<T>(work: () => Promise<T>): Promise<T>;
+}
+
 export type WorktreeManager = WorktreeProvisioner &
   WorktreeHousekeeping &
-  SkillsInvalidation;
+  SkillsInvalidation &
+  WorktreeOrdering;
 
 export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
   const inOrder = createOrderQueue();
@@ -168,6 +178,7 @@ export function createWorktreeManager(deck: WorktreeDeckView): WorktreeManager {
   const provisioning = createWorktreeProvisioning(inOrder, teardown.rollback);
 
   return {
+    inOrder,
     ...provisioning,
     skillsFor: staging.skillsFor,
     invalidateSkills: staging.invalidateSkills,

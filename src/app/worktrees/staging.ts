@@ -14,6 +14,7 @@ import {
   stageSkills,
   type SkillsStagingViews,
 } from "../../ipc/skills";
+import { mcpDisarm, mcpPrune } from "../../ipc/mcpArming";
 import type {
   LiveWorkspace,
   SkillsInvalidation,
@@ -93,7 +94,15 @@ export function createSkillsStaging(
    * teardown and the sweep both need it and spelling it twice let them drift
    * (one filtered its disarm and not its forget). */
   async function disarm(roots: string[]): Promise<boolean> {
-    const ok = await disarmSkills(unclaimed(roots, deck.live()));
+    // BOTH plantings, always together: skills and the MCP config are put in
+    // the same directories by the same owner, and a teardown that took only
+    // one back would leave the other pointing into a deleted worktree.
+    const departed = unclaimed(roots, deck.live());
+    const results = await Promise.all([
+      disarmSkills(departed),
+      mcpDisarm(departed),
+    ]);
+    const ok = results.every(Boolean);
     forgetStaged(roots);
     return ok;
   }
@@ -174,9 +183,12 @@ export function createSkillsStaging(
         // Re-read for the PRUNE: the list that decides what to DELETE must not be
         // one IPC round trip old, or a workspace created while the disarm was in
         // flight is pruned as dead and its panes spawn pointing at deleted dirs.
-        const pruned = await pruneSkills(
-          deck.live().map((ws) => ws.id).sort(),
-        );
+        const liveIds = deck.live().map((ws) => ws.id).sort();
+        const sweeps = await Promise.all([
+          pruneSkills(liveIds),
+          mcpPrune(liveIds),
+        ]);
+        const pruned = sweeps.every(Boolean);
         // Only a pass that got through counts as done. Recording a failed one
         // would retire the very state it failed to clean until the deck happens
         // to change again — and at boot that state is a crash's leftovers.

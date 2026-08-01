@@ -39,7 +39,11 @@ export interface PaneSpawnFacts extends SpawnPlanInput {
   /** This pane's MCP servers, asked for the same way and for the same reason:
    * the answer moves (the transport toggles, the user's set changes), so it
    * is a QUESTION the build asks, not a value the caller carries. */
-  mcpDefs?: () => Promise<SpawnMcpInput["servers"]>;
+  mcpDefs?: (target: {
+    agentType: string;
+    cwd: string;
+    workspaceId: string;
+  }) => Promise<SpawnMcpInput["servers"]>;
 }
 
 /** What a plan is FOR — fresh spawn, resume, or fork. Resume/fork carry
@@ -80,7 +84,13 @@ export async function buildPlan(
   // the MCP owner's answer, and how a CLI is told about them is the hook's.
   // An empty set leaves the input sparse — a hook must not have to tell
   // "nothing to inject" apart from "this host is too old to say".
-  const mcpServers = facts.mcpDefs ? await facts.mcpDefs() : [];
+  const mcpServers = facts.mcpDefs
+    ? await facts.mcpDefs({
+        agentType: entry.id,
+        cwd: facts.cwd,
+        workspaceId: facts.workspace.id,
+      })
+    : [];
   const base: SpawnPlanInput = {
     paneId,
     workspace: facts.workspace,

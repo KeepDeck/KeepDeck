@@ -19,7 +19,7 @@
 
 use std::fs;
 use std::io::{self, ErrorKind};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::worktree_arm::{ensure_excluded, prune_manifests, remove_excluded};
 
@@ -136,6 +136,7 @@ pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use crate::skills::test_support::{fake_worktree, root};
 
     /// The staged bare view arming points a cwd at — one skill, so a test can

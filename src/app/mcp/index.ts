@@ -73,6 +73,7 @@ export interface McpServiceDeps {
   pumpPorts?: McpPumpPorts;
   identitySource?: () => Promise<{ name: string; version: string }>;
   connection?: McpInjectionDeps["connection"];
+  arm?: McpInjectionDeps["arm"];
 }
 
 /**
@@ -127,6 +128,7 @@ export function createMcpService(
   const injection = createMcpInjection({
     socket: () => current.socket,
     ...(deps.connection ? { connection: deps.connection } : {}),
+    ...(deps.arm ? { arm: deps.arm } : {}),
   });
   const pump = createMcpRequestPump(
     (line) => handleMcpLine(port, () => identity, line),

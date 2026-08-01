@@ -228,10 +228,10 @@ describe("createMcpService", () => {
     const h = harness({ initial: true });
     const service = createMcpService(h.settings, h.deps);
     await flush();
-    expect((await service.defs()).map((d) => d.name)).toEqual(["keepdeck"]);
+    expect((await service.defs({ agentType: "claude", cwd: "/repo", workspaceId: "ws-1" })).map((d) => d.name)).toEqual(["keepdeck"]);
 
     h.set(false);
     await flush();
-    expect(await service.defs()).toEqual([]);
+    expect(await service.defs({ agentType: "claude", cwd: "/repo", workspaceId: "ws-1" })).toEqual([]);
   });
 });
