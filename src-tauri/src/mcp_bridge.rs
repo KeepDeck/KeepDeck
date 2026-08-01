@@ -78,11 +78,20 @@ impl McpBridge {
 }
 
 /// A JSON-RPC error reply that echoes the request's id when the line parses
-/// — a conforming client correlates by id; garbage gets id null.
+/// — a conforming client correlates by id; garbage gets id null. Only
+/// string and integer ids are echoable (JSON-RPC forbids the rest, and an
+/// invalid id makes the reply unroutable) — the SAME rule `requestIdOf`
+/// applies in src/domain/mcp/jsonrpc.ts, pinned by mirrored tests on both
+/// sides so the two implementations cannot drift silently.
 fn error_reply(request_line: &str, code: i64, message: &str) -> String {
     let id = serde_json::from_str::<serde_json::Value>(request_line)
         .ok()
         .and_then(|v| v.get("id").cloned())
+        .filter(|id| match id {
+            serde_json::Value::String(_) => true,
+            serde_json::Value::Number(n) => n.is_i64() || n.is_u64(),
+            _ => false,
+        })
         .unwrap_or(serde_json::Value::Null);
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -202,6 +211,18 @@ mod tests {
         let reply = error_reply("not json at all", -32700, "parse");
         let parsed: serde_json::Value = serde_json::from_str(&reply).unwrap();
         assert!(parsed["id"].is_null());
+    }
+
+    #[test]
+    fn error_reply_rejects_unroutable_id_types_like_the_webview_does() {
+        // Mirrors jsonrpc.test.ts (same inputs, same nulls): booleans,
+        // fractions and objects are not legal JSON-RPC ids, and echoing one
+        // would make the reply unroutable.
+        for line in [r#"{"id":true}"#, r#"{"id":1.5}"#, r#"{"id":{}}"#] {
+            let parsed: serde_json::Value =
+                serde_json::from_str(&error_reply(line, -32603, "x")).unwrap();
+            assert!(parsed["id"].is_null(), "id must be null for {line}");
+        }
     }
 
     #[test]

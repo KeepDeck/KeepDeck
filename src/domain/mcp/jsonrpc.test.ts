@@ -10,6 +10,8 @@ describe("requestIdOf", () => {
   it("degrades everything unroutable to null", () => {
     expect(requestIdOf("not json")).toBeNull();
     expect(requestIdOf('{"method":"x"}')).toBeNull();
+    // Mirrored in mcp_bridge.rs (same inputs): the Rust timeout reply must
+    // apply the same id rules or the two sides drift.
     expect(requestIdOf('{"id":true}')).toBeNull();
     expect(requestIdOf('{"id":1.5}')).toBeNull();
     expect(requestIdOf('{"id":{}}')).toBeNull();
