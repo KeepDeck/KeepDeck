@@ -18,7 +18,7 @@ import {
   pty,
   resetPaneSpawnSpecs,
   settle,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 import type {
   DeckState,
   Pane,
@@ -26,7 +26,7 @@ import type {
   SpawnConfig,
   SpawnPluginAccess,
   WorkspaceCreationResult,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 
 describe("agent orchestrator —what resume answers", () => {
   let root: Root;

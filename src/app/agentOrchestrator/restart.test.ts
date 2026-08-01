@@ -21,10 +21,10 @@ import {
   settle,
   skillsAsked,
   usage,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 import type {
   RestartOutcome,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 
 describe("agent orchestrator —restarting an exited agent", () => {
   let root: Root;

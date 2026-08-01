@@ -1,8 +1,4 @@
-import type {
-  ResumeOrigin,
-  SpawnPlan,
-  SpawnPlanContext,
-} from "../domain/agents";
+import type { ResumeOrigin, SpawnPlanContext } from "../../domain/agents";
 import {
   findPane,
   findWorkspace,
@@ -13,28 +9,29 @@ import {
   paneWakeOrigin,
   type Pane,
   type Workspace,
-} from "../domain/deck";
-import { describeError, log } from "../ipc/log";
-import { createDeckActions, type DeckActions } from "./deckActions";
+} from "../../domain/deck";
+import { describeError, log } from "../../ipc/log";
+import { createDeckActions, type DeckActions } from "../deckActions";
 import {
   buildLivePaneSpec,
   buildResumeSpec,
   dropPaneSpawnSpec,
   markPaneResumeOrigin,
-  peekPanePlanError,
   peekPaneSpawnSpec,
   subscribeSpawnSpecs,
-} from "./spawnSpecs";
+} from "../spawnSpecs";
+import { createRunViewStore } from "./view";
 import type {
   AgentOrchestrator,
   AgentOrchestratorDeps,
-  AgentRunView,
   StagedSkillsAsk,
-} from "./agentOrchestrator";
-import { createAgentOrchestratorClosing } from "./agentOrchestratorClosing";
-import { createAgentOrchestratorContinuations } from "./agentOrchestratorContinuations";
-import { createAgentOrchestratorCreation } from "./agentOrchestratorCreation";
-import { createAgentOrchestratorRestart } from "./agentOrchestratorRestart";
+} from ".";
+import { createAgentOrchestratorClosing } from "./closing";
+import { createAgentOrchestratorContinuations } from "./continuations";
+import { createAgentOrchestratorCreation } from "./creation";
+import { createAgentOrchestratorRestart } from "./restart";
+const SPAWN_PLACEHOLDER_SIZE = { cols: 80, rows: 24 };
+
 /** How one attempt to bring a pane up ended. */
 type Attempt =
   | { kind: "woken" }
@@ -42,15 +39,6 @@ type Attempt =
   | { kind: "blocked"; dir: string }
   /** The probe or the resume plan refused; `why` is shown on the card. */
   | { kind: "failed"; why: string };
-
-const EMPTY_VIEW: AgentRunView = {
-  blocked: {},
-  wakeFailed: {},
-  specs: {},
-  planFailed: new Set(),
-  epochs: {},
-};
-const SPAWN_PLACEHOLDER_SIZE = { cols: 80, rows: 24 };
 
 export function createAgentOrchestratorRuntime(
   deps: AgentOrchestratorDeps,
@@ -67,42 +55,19 @@ export function createAgentOrchestratorRuntime(
     worktrees,
   } = deps;
   const actions: DeckActions = createDeckActions(deck);
-  const blocked = new Map<string, string>();
-  const wakeFailed = new Map<string, string>();
-  const epochs = new Map<string, number>();
+  const runView = createRunViewStore(deck);
+  const epochs = runView.epochs;
+  const blocked = runView.blocked;
+  const publish = runView.publish;
   const startOwed = new Set<string>();
   /** Attempts in flight — a notification while one is pending must not
    * double-run it. */
   const inFlight = new Set<string>();
-  const listeners = new Set<() => void>();
-  let view: AgentRunView = EMPTY_VIEW;
   let booted = false;
   let scheduled = false;
   const skillsAsk: StagedSkillsAsk = (workspace, landing) => () =>
     worktrees.skillsFor(workspace, landing);
 
-  function publish(): void {
-    // The plan snapshot is read off the shared cache rather than mirrored:
-    // resume and fork plans are written there by other paths, and a second
-    // copy here would be a second answer to "what does this pane run".
-    const specs: Record<string, SpawnPlan> = {};
-    const planFailed = new Set<string>();
-    for (const ws of deck.getSnapshot().workspaces) {
-      for (const pane of ws.panes) {
-        const spec = peekPaneSpawnSpec(pane.id);
-        if (spec) specs[pane.id] = spec;
-        if (peekPanePlanError(pane.id)) planFailed.add(pane.id);
-      }
-    }
-    view = {
-      blocked: Object.fromEntries(blocked),
-      wakeFailed: Object.fromEntries(wakeFailed),
-      specs,
-      planFailed,
-      epochs: Object.fromEntries(epochs),
-    };
-    for (const listener of [...listeners]) listener();
-  }
 
   /** Coalesce to one pass per turn: the sweep dispatches deck transitions of
    * its own, and each would otherwise re-enter this synchronously. */
@@ -132,19 +97,10 @@ export function createAgentOrchestratorRuntime(
     const live = new Set(
       deck.getSnapshot().workspaces.flatMap((w) => w.panes.map((p) => p.id)),
     );
-    let dropped = false;
-    for (const map of [blocked, wakeFailed, epochs]) {
-      for (const paneId of [...map.keys()]) {
-        if (!live.has(paneId)) {
-          map.delete(paneId);
-          dropped = true;
-        }
-      }
-    }
     for (const paneId of [...startOwed]) {
       if (!live.has(paneId)) startOwed.delete(paneId);
     }
-    return dropped;
+    return runView.forgetGone(live);
   }
 
   /**
@@ -187,7 +143,7 @@ export function createAgentOrchestratorRuntime(
         "web:orchestrator",
         `${pane.id}: directory gone ${attempt.dir} → blocked tile`,
       );
-      blocked.set(pane.id, attempt.dir);
+      runView.markBlocked(pane.id, attempt.dir);
       publish();
     } else {
       log.warn(
@@ -208,7 +164,7 @@ export function createAgentOrchestratorRuntime(
       return;
     }
     if (attempt.kind === "failed") {
-      wakeFailed.set(pane.id, attempt.why);
+      runView.markWakeFailed(pane.id, attempt.why);
       publish();
     }
     // Drop the half-built plan with its failure flag, or the pane's next
@@ -391,7 +347,7 @@ export function createAgentOrchestratorRuntime(
         if (restart.owns(pane.id)) continue;
         const intent = paneRunIntent(pane, {
           agentAvailable: commands.has(agentType),
-          missingDir: blocked.get(pane.id) ?? null,
+          missingDir: runView.blockedDir(pane.id),
           workspaceActive: ws.id === active.id,
           parkOnLaunch: launchPolicy.parkOnLaunch(),
           startOwed: startOwed.has(pane.id),
@@ -492,13 +448,8 @@ export function createAgentOrchestratorRuntime(
   schedule();
 
   return {
-    getView: () => view,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    getView: runView.get,
+    subscribe: runView.subscribe,
     createPane: creation.landPane,
     createWorkspace: creation.createWorkspace,
     retryProvisioning: creation.retryProvisioning,
@@ -510,9 +461,7 @@ export function createAgentOrchestratorRuntime(
     resumeSession: continuations.resumeSession,
     forkSession: continuations.forkSession,
     startFresh(wsId, paneId) {
-      let changed = blocked.delete(paneId);
-      changed = wakeFailed.delete(paneId) || changed;
-      if (changed) publish();
+      if (runView.clearNotes(paneId)) publish();
       startOwed.add(paneId);
       actions.resetPaneLocation(wsId, paneId);
       actions.requestPaneWake(wsId, paneId);
@@ -523,9 +472,7 @@ export function createAgentOrchestratorRuntime(
       if (pane.provisioning) return "provisioning";
       if (!pane.idle) return "running";
       if (!agents.commands().has(paneAgentType(pane))) return "unavailable";
-      let changed = blocked.delete(paneId);
-      changed = wakeFailed.delete(paneId) || changed;
-      if (changed) publish();
+      if (runView.clearNotes(paneId)) publish();
       startOwed.add(paneId);
       actions.requestPaneWake(wsId, paneId);
       return "resuming";

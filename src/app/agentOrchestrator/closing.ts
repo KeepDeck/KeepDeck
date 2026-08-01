@@ -4,18 +4,18 @@ import {
   paneSuspendBlock,
   worktreeTargets,
   type WorktreeTarget,
-} from "../domain/deck";
-import { log } from "../ipc/log";
+} from "../../domain/deck";
+import { log } from "../../ipc/log";
 import type {
   AgentOrchestrator,
   SessionRegistryPort,
   SuspendPolicyPort,
-} from "./agentOrchestrator";
-import type { DeckActions } from "./deckActions";
-import type { DeckStore } from "./deckStore";
-import { dropPaneSpawnSpec } from "./spawnSpecs";
-import { clearPaneUsage } from "./usageManager";
-import type { WorktreeProvisioner } from "./worktrees";
+} from ".";
+import type { DeckActions } from "../deckActions";
+import type { DeckStore } from "../deckStore";
+import { dropPaneSpawnSpec } from "../spawnSpecs";
+import { clearPaneUsage } from "../usageManager";
+import type { WorktreeProvisioner } from "../worktrees";
 
 interface ClosingDeps {
   deck: DeckStore;

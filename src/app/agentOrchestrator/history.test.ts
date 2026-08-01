@@ -20,10 +20,10 @@ import {
   settle,
   skillsAsked,
   steps,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 import type {
   SessionHandle,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 
 /** One empty workspace to continue a session into. */
 const emptyWorkspace = () =>

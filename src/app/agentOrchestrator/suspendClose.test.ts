@@ -18,11 +18,11 @@ import {
   settle,
   steps,
   usage,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 import type {
   Pane,
   SuspendOutcome,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 
 describe("agent orchestrator —suspending an agent", () => {
   let root: Root;

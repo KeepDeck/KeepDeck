@@ -1,28 +1,28 @@
-import type { ForkTarget } from "../domain/agents";
+import type { ForkTarget } from "../../domain/agents";
 import {
   findWorkspace,
   MAX_PANES,
   paneId,
   sessionClaimant,
   WORKSPACE_FULL_MESSAGE,
-} from "../domain/deck";
-import { describeError, log } from "../ipc/log";
+} from "../../domain/deck";
+import { describeError, log } from "../../ipc/log";
 import type {
   AgentOrchestrator,
   StagedSkillsAsk,
-} from "./agentOrchestrator";
-import type { AgentOrchestratorCreation } from "./agentOrchestratorCreation";
-import type { DeckStore } from "./deckStore";
-import { mintAgentSeqs } from "./ids";
-import type { SpawnContextSource } from "./spawnContextSource";
+} from ".";
+import type { AgentOrchestratorCreation } from "./creation";
+import type { DeckStore } from "../deckStore";
+import { mintAgentSeqs } from "../ids";
+import type { SpawnContextSource } from "../spawnContextSource";
 import {
   buildForkSpec,
   buildResumeSpec,
   dropPaneSpawnSpec,
   peekPaneSpawnSpec,
   type SpawnPluginAccess,
-} from "./spawnSpecs";
-import type { WorktreeProvisioner } from "./worktrees";
+} from "../spawnSpecs";
+import type { WorktreeProvisioner } from "../worktrees";
 
 interface ContinuationDeps {
   deck: DeckStore;

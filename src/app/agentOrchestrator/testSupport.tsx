@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { emptyJournal as emptyJournalImpl } from "../domain/journal";
+import { emptyJournal as emptyJournalImpl } from "../../domain/journal";
 import { act, useState } from "react";
 import { vi } from "vitest";
 import type {
@@ -8,14 +8,14 @@ import type {
   PaneIdle,
   SpawnConfig,
   WorktreeTarget,
-} from "../domain/deck";
-import { MAX_PANES as MAX_PANES_IMPL } from "../domain/deck";
-import type { WorkspaceCreationResult } from "./deckActions";
-import type { SetupStep } from "./provisioning";
-import type { SuspendOutcome } from "./suspendOutcome";
-import { EMPTY_SPAWN_CONTEXT } from "../domain/agents";
-import { createWorkspaceInstance as createWorkspaceInstanceImpl } from "../domain/workspaceInstance";
-import type { SessionHandle } from "../domain/journal";
+} from "../../domain/deck";
+import { MAX_PANES as MAX_PANES_IMPL } from "../../domain/deck";
+import type { WorkspaceCreationResult } from "../deckActions";
+import type { SetupStep } from "../provisioning";
+import type { SuspendOutcome } from "../suspendOutcome";
+import { EMPTY_SPAWN_CONTEXT } from "../../domain/agents";
+import { createWorkspaceInstance as createWorkspaceInstanceImpl } from "../../domain/workspaceInstance";
+import type { SessionHandle } from "../../domain/journal";
 import {
   buildForkSpec as buildForkSpecImpl,
   buildResumeSpec as buildResumeSpecImpl,
@@ -23,19 +23,19 @@ import {
   dropPaneSpawnSpec as dropPaneSpawnSpecImpl,
   peekPaneSpawnSpec as peekPaneSpawnSpecImpl,
   resetPaneSpawnSpecs as resetPaneSpawnSpecsImpl,
-} from "./spawnSpecs";
-import type { Deck } from "./useDeck";
-import { useDeck } from "./useDeck";
-import { createDeckStore } from "./deckStore";
+} from "../spawnSpecs";
+import type { Deck } from "../useDeck";
+import { useDeck } from "../useDeck";
+import { createDeckStore } from "../deckStore";
 import {
   createAgentOrchestrator,
   type AgentOrchestrator,
   type AgentRunView,
   type RestartOutcome,
   type ResumeRequest,
-} from "./agentOrchestrator";
-import { useAgentRunView } from "./useAgentRunView";
-import type { SpawnPluginAccess } from "./spawnSpecs";
+} from ".";
+import { useAgentRunView } from "../useAgentRunView";
+import type { SpawnPluginAccess } from "../spawnSpecs";
 
 // React 19 requires this flag for act() outside a test-framework integration.
 (
@@ -64,7 +64,7 @@ const plans = vi.hoisted(() => ({
   notify: (() => {}) as () => void,
 }));
 
-vi.mock("./spawnSpecs", () => {
+vi.mock("../spawnSpecs", () => {
   const { specs } = plans;
   // The cache tells its readers when a plan lands. Faked with the same
   // contract as the real one: every write notifies.
@@ -175,14 +175,14 @@ const skillsAsked = vi.fn(
   (_workspace: { id: string; instance: string }, _landing?: string) =>
     Promise.resolve(null),
 );
-vi.mock("./postbacks", () => ({ postbackCount: () => 0 }));
+vi.mock("../postbacks", () => ({ postbackCount: () => 0 }));
 
 /** A retired session's telemetry must not stay bound to the pane, or a
  *  suspended card keeps showing the dead conversation's ctx% and cost and a
  *  restarted pane accumulates on top of the old baseline. Five call sites,
  *  previously none of them asserted. */
 const usage = vi.hoisted(() => ({ clearPaneUsage: vi.fn() }));
-vi.mock("./usageManager", () => usage);
+vi.mock("../usageManager", () => usage);
 
 /** What each pane's create has put on disk, as `provisioning` publishes it the
  *  moment `git worktree add` returns. */

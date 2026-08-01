@@ -1,15 +1,15 @@
-import type { AgentRestartMode, ForkTarget, SpawnPlan } from "../domain/agents";
-import type { Pane, SpawnConfig, WorktreeTarget } from "../domain/deck";
-import type { SessionHandle } from "../domain/journal";
-import type { WorkspaceRef } from "../domain/workspaceInstance";
-import type { WorkspaceCreationResult } from "./deckActions";
-import type { DeckStore } from "./deckStore";
-import type { PaneSessionState, PaneSpawnSpec } from "./ptyManager";
-import type { SpawnContextSource } from "./spawnContextSource";
-import type { SpawnPluginAccess } from "./spawnSpecs";
-import type { SuspendOutcome } from "./suspendOutcome";
-import type { WorktreeProvisioner } from "./worktrees";
-import { createAgentOrchestratorRuntime } from "./agentOrchestratorRuntime";
+import type { AgentRestartMode, ForkTarget, SpawnPlan } from "../../domain/agents";
+import type { Pane, SpawnConfig, WorktreeTarget } from "../../domain/deck";
+import type { SessionHandle } from "../../domain/journal";
+import type { WorkspaceRef } from "../../domain/workspaceInstance";
+import type { WorkspaceCreationResult } from "../deckActions";
+import type { DeckStore } from "../deckStore";
+import type { PaneSessionState, PaneSpawnSpec } from "../ptyManager";
+import type { SpawnContextSource } from "../spawnContextSource";
+import type { SpawnPluginAccess } from "../spawnSpecs";
+import type { SuspendOutcome } from "../suspendOutcome";
+import type { WorktreeProvisioner } from "../worktrees";
+import { createAgentOrchestratorRuntime } from "./runtime";
 
 /**
  * The owner of an agent pane's run lifecycle.

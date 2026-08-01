@@ -4,19 +4,19 @@ import {
   findWorkspaceByRef,
   paneAgentType,
   paneResumeSessionId,
-} from "../domain/deck";
-import type { WorkspaceRef } from "../domain/workspaceInstance";
-import { describeError, log } from "../ipc/log";
+} from "../../domain/deck";
+import type { WorkspaceRef } from "../../domain/workspaceInstance";
+import { describeError, log } from "../../ipc/log";
 import type {
   AgentOrchestrator,
   RestartOutcome,
   SessionRegistryPort,
   StagedSkillsAsk,
-} from "./agentOrchestrator";
-import type { DeckActions } from "./deckActions";
-import type { DeckStore } from "./deckStore";
-import { postbackCount } from "./postbacks";
-import type { SpawnContextSource } from "./spawnContextSource";
+} from ".";
+import type { DeckActions } from "../deckActions";
+import type { DeckStore } from "../deckStore";
+import { postbackCount } from "../postbacks";
+import type { SpawnContextSource } from "../spawnContextSource";
 import {
   buildResumeSpec,
   clearPanePlanError,
@@ -24,8 +24,8 @@ import {
   peekPaneSpawnSpec,
   resumeDiedSilently,
   type SpawnPluginAccess,
-} from "./spawnSpecs";
-import { clearPaneUsage } from "./usageManager";
+} from "../spawnSpecs";
+import { clearPaneUsage } from "../usageManager";
 
 interface RestartTarget {
   workspace: WorkspaceRef;

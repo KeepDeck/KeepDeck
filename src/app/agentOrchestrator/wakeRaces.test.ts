@@ -18,12 +18,12 @@ import {
   resetPaneSpawnSpecs,
   restored,
   settle,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 import type {
   DeckState,
   PaneIdle,
   ResumeRequest,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 
 describe("agent orchestrator —a request that lands mid-flight", () => {
   let root: Root;

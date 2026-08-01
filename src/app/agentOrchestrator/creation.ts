@@ -8,25 +8,25 @@ import {
   WORKSPACE_GONE_MESSAGE,
   type Pane,
   type Workspace,
-} from "../domain/deck";
-import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import { log } from "../ipc/log";
+} from "../../domain/deck";
+import { createWorkspaceInstance } from "../../domain/workspaceInstance";
+import { log } from "../../ipc/log";
 import type {
   AgentOrchestrator,
   CreatePaneOutcome,
   CreatePaneRequest,
   SessionRegistryPort,
-} from "./agentOrchestrator";
-import type { DeckActions } from "./deckActions";
-import type { DeckStore } from "./deckStore";
-import { mintAgentSeqs } from "./ids";
+} from ".";
+import type { DeckActions } from "../deckActions";
+import type { DeckStore } from "../deckStore";
+import { mintAgentSeqs } from "../ids";
 import {
   planPanes,
   provisionInto,
   setupStepFor,
-} from "./provisioning";
-import { dropPaneSpawnSpec } from "./spawnSpecs";
-import type { WorktreeProvisioner } from "./worktrees";
+} from "../provisioning";
+import { dropPaneSpawnSpec } from "../spawnSpecs";
+import type { WorktreeProvisioner } from "../worktrees";
 
 interface CreationDeps {
   deck: DeckStore;

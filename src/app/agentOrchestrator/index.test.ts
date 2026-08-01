@@ -18,8 +18,8 @@ import {
   restored,
   settle,
   skillsAsked,
-} from "./agentOrchestrator.testSupport";
-import type { DeckState } from "./agentOrchestrator.testSupport";
+} from "./testSupport";
+import type { DeckState } from "./testSupport";
 
 describe("agent orchestrator —session policy", () => {
   let root: Root;

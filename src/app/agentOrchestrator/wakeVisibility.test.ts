@@ -14,11 +14,11 @@ import {
   pty,
   resetPaneSpawnSpecs,
   settle,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 import type {
   DeckState,
   PaneIdle,
-} from "./agentOrchestrator.testSupport";
+} from "./testSupport";
 
 describe("agent orchestrator —waking across workspace switches", () => {
   let root: Root;
