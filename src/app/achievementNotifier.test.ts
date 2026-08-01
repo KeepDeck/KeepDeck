@@ -89,6 +89,10 @@ describe("achievementNotifier", () => {
     expect(center.notify.mock.calls[0][0]).toMatchObject({
       source: { type: "stats", tab: "achievements" },
     });
+    // Every congratulation carries its badge's own icon into the bell.
+    for (const call of center.notify.mock.calls) {
+      expect((call[0] as { icon?: string }).icon).toBeTruthy();
+    }
     const saved = JSON.parse(ipc.saveNotifiedAchievements.mock.calls[0][0]);
     expect(saved.notified).toContain("tokens-1000000");
     expect(saved.notified).toContain("spendUsd-1");

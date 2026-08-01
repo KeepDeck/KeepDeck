@@ -47,6 +47,9 @@ export interface Notification {
   id: string;
   title: string;
   body?: string;
+  /** Optional emoji glyph rendered in place of the severity dot — an
+   * achievement badge carries its own icon into the bell. */
+  icon?: string;
   severity: NotificationSeverity;
   source: NotificationSource;
   /** Replace-not-stack key (the Web Notifications `tag` semantics): a new

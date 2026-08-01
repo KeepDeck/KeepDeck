@@ -119,6 +119,14 @@
   flex: none;
 }
 
+/* An entry carrying its own emoji (achievement badges) shows it where the
+   severity dot would sit. */
+.bell__icon {
+  flex: none;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
 .bell__dot--info {
   background-color: #3b82a0;
 }

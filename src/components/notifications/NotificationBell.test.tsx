@@ -82,6 +82,21 @@ describe("NotificationBell", () => {
     expect(document.querySelector(".bell__body")?.textContent).toBe("b1");
   });
 
+  it("renders an entry's own icon in place of the severity dot", () => {
+    act(() => {
+      notify({ title: "badge", icon: "💎", source: { type: "app" } });
+      notify({ title: "plain", source: { type: "app" } });
+    });
+    act(() => bellButton().click());
+    const items = [...document.querySelectorAll(".bell__item")];
+    const badge = items.find((item) => item.textContent?.includes("badge"))!;
+    expect(badge.querySelector(".bell__icon")?.textContent).toBe("💎");
+    expect(badge.querySelector(".bell__dot")).toBeNull();
+    const plain = items.find((item) => item.textContent?.includes("plain"))!;
+    expect(plain.querySelector(".bell__icon")).toBeNull();
+    expect(plain.querySelector(".bell__dot")).not.toBeNull();
+  });
+
   it("clicking an entry marks it read, closes the panel and navigates", () => {
     act(() => {
       notify({ title: "crash", source: paneSource });

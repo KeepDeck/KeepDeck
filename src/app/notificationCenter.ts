@@ -27,6 +27,9 @@ import { isWindowFocused } from "./windowFocus";
 export interface NotifyInput {
   title: string;
   body?: string;
+  /** Emoji glyph shown in place of the severity dot; see
+   * [`Notification.icon`]. */
+  icon?: string;
   /** Defaults to `info`. */
   severity?: NotificationSeverity;
   source: NotificationSource;
@@ -77,6 +80,7 @@ export function notify(input: NotifyInput): void {
     id: `ntf-${seq}`,
     title: input.title,
     body: input.body,
+    ...(input.icon !== undefined ? { icon: input.icon } : {}),
     severity: input.severity ?? "info",
     source: input.source,
     tag: input.tag,
@@ -105,7 +109,13 @@ export function notify(input: NotifyInput): void {
           lastBannerAt.delete(lastBannerAt.keys().next().value as string);
         }
       }
-      sendSystemNotification(notification.title, notification.body);
+      // The OS banner has no icon slot of ours — the emoji rides the title.
+      sendSystemNotification(
+        notification.icon !== undefined
+          ? `${notification.icon} ${notification.title}`
+          : notification.title,
+        notification.body,
+      );
     }
   }
 }

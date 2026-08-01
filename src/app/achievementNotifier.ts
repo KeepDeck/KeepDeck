@@ -63,6 +63,7 @@ function announce(fresh: UsageAchievement[]): void {
     notify({
       title: `Achievement unlocked: ${item.title}`,
       body: achievementRequirement(item),
+      icon: item.icon,
       // The click destination is the trophy case, not Settings.
       source: { type: "stats", tab: "achievements" },
       tag: `achievement:${item.id}`,
