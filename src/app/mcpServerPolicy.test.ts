@@ -115,6 +115,56 @@ describe("createMcpServerPolicy", () => {
     expect(enable).toHaveBeenCalledTimes(2);
   });
 
+  it("an old call's failure cannot clear a mark newer events re-established", async () => {
+    const { settings, set } = settingsPort(null);
+    let failFirst!: (e: Error) => void;
+    const enable = vi
+      .fn<() => Promise<unknown>>()
+      .mockImplementationOnce(
+        () => new Promise((_resolve, reject) => (failFirst = reject)),
+      )
+      .mockResolvedValue("/sock");
+    const disable = vi.fn(() => Promise.resolve());
+    createMcpServerPolicy(settings, { enable, disable });
+    set(true); // enable#1, deferred
+    set(false); // disable, queued
+    set(true); // enable#2, queued
+    await flush(); // let the chain reach enable#1 so failFirst exists
+    failFirst(new Error("boom"));
+    await flush();
+    // The stale failure belongs to epoch 1; the mark belongs to epoch 3 —
+    // a same-value event must NOT re-issue a third enable.
+    set(true);
+    await flush();
+    expect(enable).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports each settled transition to the given sink", async () => {
+    const { settings, set } = settingsPort(null);
+    const transitions: unknown[] = [];
+    const enable = vi
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce("/sock")
+      .mockRejectedValueOnce(new Error("taken"));
+    createMcpServerPolicy(
+      settings,
+      { enable, disable: vi.fn(() => Promise.resolve()) },
+      (t) => transitions.push(t),
+    );
+    set(true);
+    await flush();
+    set(false);
+    await flush();
+    set(true); // this enable rejects
+    await flush();
+    expect(transitions).toEqual([
+      { desired: true, ok: true, detail: "/sock" },
+      { desired: false, ok: true, detail: null },
+      // detail carries this file's describeError mock rendering.
+      { desired: true, ok: false, detail: "Error: taken" },
+    ]);
+  });
+
   it("stops reacting after dispose", async () => {
     const { settings, set } = settingsPort(null);
     const { transport, enable } = transportPort();

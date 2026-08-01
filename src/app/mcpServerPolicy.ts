@@ -13,6 +13,16 @@ export interface McpTransportPort {
   disable(): Promise<unknown>;
 }
 
+/** What one settled backend call reported: what was asked, whether the
+ * backend confirmed it, and the socket path (successful enable) or the
+ * failure message. The service builds user-facing status from these — the
+ * policy itself keeps no public state. */
+export interface McpTransition {
+  desired: boolean;
+  ok: boolean;
+  detail: string | null;
+}
+
 export interface McpServerPolicy {
   dispose(): void;
 }
@@ -24,32 +34,45 @@ export interface McpServerPolicy {
  * settings surface is mounted.
  *
  * Backend calls are SERIALIZED through one chain — a fast On→Off flip must
- * arrive as enable-then-disable, never interleaved. A failed call logs and
- * clears the applied mark so the next settings event retries instead of
- * believing the backend reached the state it never confirmed.
+ * arrive as enable-then-disable, never interleaved. A failed call logs,
+ * reports, and clears the applied mark so the next settings event retries —
+ * but only when it was the LATEST call: an older failure must not clear a
+ * mark a newer event already re-established (the epoch guard).
  */
 export function createMcpServerPolicy(
   settings: McpSettingsPort,
   transport: McpTransportPort = { enable: mcpEnable, disable: mcpDisable },
+  report: (transition: McpTransition) => void = () => {},
 ): McpServerPolicy {
   /** What was last handed to the backend (optimistically) — `null` means
    * "unknown", which always reconciles on the next event. */
   let applied: boolean | null = null;
+  let epoch = 0;
   let chain: Promise<void> = Promise.resolve();
 
   const reconcile = () => {
     const desired = settings.mcpServer();
     if (desired === null || desired === applied) return;
     applied = desired;
+    const call = ++epoch;
     chain = chain.then(async () => {
       try {
-        await (desired ? transport.enable() : transport.disable());
+        const value = await (desired
+          ? transport.enable()
+          : transport.disable());
+        report({
+          desired,
+          ok: true,
+          detail: typeof value === "string" ? value : null,
+        });
       } catch (e) {
+        const detail = describeError(e);
         log.warn(
           "web:mcp",
-          `mcp ${desired ? "enable" : "disable"} failed: ${describeError(e)}`,
+          `mcp ${desired ? "enable" : "disable"} failed: ${detail}`,
         );
-        if (applied === desired) applied = null;
+        report({ desired, ok: false, detail });
+        if (epoch === call) applied = null;
       }
     });
   };
