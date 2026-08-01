@@ -6,54 +6,60 @@ import {
 } from "./history";
 
 /**
- * Daily token buckets for the Overview chart — UTC days (the same buckets
- * the recap uses), zero-filled so the time axis never lies by omission: a
- * silent day is a visible gap, not a skipped bar.
+ * Token buckets over time for the Overview chart, zero-filled so the time
+ * axis never lies by omission: a silent bucket is a visible gap, not a
+ * skipped bar. Day-long periods bucket by UTC day (the same buckets the
+ * recap uses); the 24h period buckets by HOUR — two day-bars with a chasm
+ * between them read as a broken chart.
  */
 
-const DAY_MS = 24 * 60 * 60 * 1_000;
+const HOUR_MS = 60 * 60 * 1_000;
+const DAY_MS = 24 * HOUR_MS;
 
-export interface DailyUsageDay {
-  dayStart: number;
-  /** Tokens per agent that day; absent agents simply have no key. */
+export interface TimelineBucket {
+  start: number;
+  /** Tokens per agent in this bucket; absent agents simply have no key. */
   byAgent: Record<string, number>;
 }
 
-export interface DailyUsage {
-  /** Continuous UTC days covering the period (or, for "all", from the first
-   * recorded day) through today. */
-  days: DailyUsageDay[];
+export interface UsageTimeline {
+  /** Bucket width: an hour for the 24h period, a UTC day otherwise. */
+  bucketMs: number;
+  /** Continuous buckets covering the period (or, for "all", from the first
+   * recorded bucket) through now. */
+  buckets: TimelineBucket[];
   /** Every agent present in the span, alphabetical — a FIXED entity order
    * for stable series colors, never ranked by volume. */
   agents: string[];
 }
 
-export function dailyUsage(
+export function usageTimeline(
   events: readonly UsageEventV2[],
   period: UsageStatsPeriod,
   now: number,
-): DailyUsage {
+): UsageTimeline {
+  const bucketMs = period === 1 ? HOUR_MS : DAY_MS;
   const cutoff = periodCutoff(period, now);
-  const buckets = new Map<number, Record<string, number>>();
+  const totals = new Map<number, Record<string, number>>();
   const agents = new Set<string>();
-  let firstDay = Infinity;
+  let first = Infinity;
   for (const event of events) {
     if (event.occurredAt < cutoff || event.occurredAt > now) continue;
-    const dayStart = Math.floor(event.occurredAt / DAY_MS) * DAY_MS;
-    firstDay = Math.min(firstDay, dayStart);
+    const start = Math.floor(event.occurredAt / bucketMs) * bucketMs;
+    first = Math.min(first, start);
     agents.add(event.agent);
-    const bucket = buckets.get(dayStart) ?? {};
+    const bucket = totals.get(start) ?? {};
     bucket[event.agent] = (bucket[event.agent] ?? 0) + tokenTotal(event.tokens);
-    buckets.set(dayStart, bucket);
+    totals.set(start, bucket);
   }
-  if (buckets.size === 0) return { days: [], agents: [] };
+  if (totals.size === 0) return { bucketMs, buckets: [], agents: [] };
 
   const start =
-    period === "all" ? firstDay : Math.floor(cutoff / DAY_MS) * DAY_MS;
-  const end = Math.floor(now / DAY_MS) * DAY_MS;
-  const days: DailyUsageDay[] = [];
-  for (let day = start; day <= end; day += DAY_MS) {
-    days.push({ dayStart: day, byAgent: buckets.get(day) ?? {} });
+    period === "all" ? first : Math.floor(cutoff / bucketMs) * bucketMs;
+  const end = Math.floor(now / bucketMs) * bucketMs;
+  const buckets: TimelineBucket[] = [];
+  for (let at = start; at <= end; at += bucketMs) {
+    buckets.push({ start: at, byAgent: totals.get(at) ?? {} });
   }
-  return { days, agents: [...agents].sort() };
+  return { bucketMs, buckets, agents: [...agents].sort() };
 }

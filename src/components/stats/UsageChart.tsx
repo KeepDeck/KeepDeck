@@ -9,7 +9,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatTokens, formatUtcDay } from "../../domain/usage";
-import { dailyUsage } from "../../domain/usage/daily";
+import { usageTimeline } from "../../domain/usage/daily";
 import type { UsageEventV2, UsageStatsPeriod } from "../../domain/usage/history";
 
 /**
@@ -47,6 +47,26 @@ function seriesColors(agents: readonly string[]): Map<string, string> {
   return colors;
 }
 
+const HOUR_MS = 60 * 60 * 1_000;
+
+/** Hour buckets are absolute instants, so their labels speak the user's
+ * LOCAL clock — a "last 24h" axis in UTC hours would genuinely mislead.
+ * Day buckets stay UTC-labeled to match their UTC boundaries. */
+function bucketLabel(start: number, bucketMs: number, long = false): string {
+  if (bucketMs !== HOUR_MS) return formatUtcDay(start, long);
+  const time = new Date(start).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  if (!long) return time;
+  const day = new Date(start).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  return `${day}, ${time}`;
+}
+
 export function UsageChart({
   events,
   period,
@@ -56,14 +76,18 @@ export function UsageChart({
   period: UsageStatsPeriod;
   now: number;
 }) {
-  const daily = dailyUsage(events, period, now);
-  if (daily.days.length === 0) return null;
-  const rows = daily.days.map((day) => ({ day: day.dayStart, ...day.byAgent }));
-  const colors = seriesColors(daily.agents);
+  const timeline = usageTimeline(events, period, now);
+  if (timeline.buckets.length === 0) return null;
+  const rows = timeline.buckets.map((bucket) => ({
+    day: bucket.start,
+    ...bucket.byAgent,
+  }));
+  const colors = seriesColors(timeline.agents);
+  const title = timeline.bucketMs === HOUR_MS ? "Hourly tokens" : "Daily tokens";
 
   return (
-    <section className="stats__section stats__chart" aria-label="Daily tokens">
-      <h3>Daily tokens</h3>
+    <section className="stats__section stats__chart" aria-label={title}>
+      <h3>{title}</h3>
       <ResponsiveContainer width="100%" height={190}>
         <BarChart
           data={rows}
@@ -73,7 +97,7 @@ export function UsageChart({
           <CartesianGrid vertical={false} stroke="#171d28" />
           <XAxis
             dataKey="day"
-            tickFormatter={(value: number) => formatUtcDay(value)}
+            tickFormatter={(value: number) => bucketLabel(value, timeline.bucketMs)}
             tick={{ fill: "#596273", fontSize: 10 }}
             axisLine={{ stroke: "#1c2230" }}
             tickLine={false}
@@ -100,7 +124,9 @@ export function UsageChart({
             itemStyle={{ color: "#c5c8c6", padding: 0 }}
             labelStyle={{ color: "#596273", marginBottom: 4 }}
             formatter={(value) => formatTokens(Number(value))}
-            labelFormatter={(value) => formatUtcDay(Number(value), true)}
+            labelFormatter={(value) =>
+              bucketLabel(Number(value), timeline.bucketMs, true)
+            }
           />
           <Legend
             iconSize={8}
@@ -108,7 +134,7 @@ export function UsageChart({
               <span style={{ color: "#9aa3af", fontSize: 11 }}>{value}</span>
             )}
           />
-          {daily.agents.map((agent) => (
+          {timeline.agents.map((agent) => (
             <Bar
               key={agent}
               dataKey={agent}
