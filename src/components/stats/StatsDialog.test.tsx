@@ -153,6 +153,23 @@ describe("UsageStats", () => {
     expect(providers.textContent).toContain("reset unknown");
   });
 
+  it("shows earned milestones with dates and the next one with progress", () => {
+    history.snapshot = {
+      ready: true,
+      events: [
+        usageEvent({ tokens: { input: 2_000_000 } }),
+      ],
+      error: null,
+    };
+    act(() => root.render(createElement(UsageStats)));
+
+    const milestones = host.querySelector(".stats__milestones")!;
+    expect(milestones.textContent).toContain("1M tokens");
+    expect(milestones.textContent).toContain("Jul 22, 2026");
+    expect(milestones.textContent).toContain("next: 10M tokens");
+    expect(milestones.textContent).toContain("2M all-time so far");
+  });
+
   it("reaches arbitrarily old events through the All period", () => {
     history.snapshot = {
       ready: true,

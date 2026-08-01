@@ -191,6 +191,34 @@
   text-align: right;
 }
 
+.stats__milestones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stats__milestone {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background: #0b0e14;
+  color: #c5c8c6;
+  font-size: 11px;
+}
+
+.stats__milestone small {
+  color: #596273;
+  font-size: 10px;
+}
+
+.stats__milestone--next {
+  border-style: dashed;
+  color: #9aa3af;
+}
+
 @media (max-width: 720px) {
   .stats-dialog {
     max-width: calc(100vw - 40px);

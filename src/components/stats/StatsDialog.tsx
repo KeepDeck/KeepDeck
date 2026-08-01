@@ -21,6 +21,10 @@ import {
   type ProviderWindowLedger,
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
+import {
+  usageMilestones,
+  type UsageMilestone,
+} from "../../domain/usage/milestones";
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -134,6 +138,7 @@ export function UsageStats() {
           <Providers accounts={accounts} events={history.events} now={now} />
           <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
           <StatsTable title="Sessions" rows={stats.sessions} now={now} mode="session" />
+          <Milestones events={history.events} />
         </>
       )}
     </div>
@@ -198,6 +203,56 @@ function providerRowKey(row: ProviderWindowRow): string {
   return [row.agent, row.window.windowMinutes ?? "", row.window.scope ?? ""].join(
     "\0",
   );
+}
+
+/** All-time achievements recomputed from the full ledger — earned badges
+ * newest-first, led by the progress toward the next token milestone. */
+function Milestones({ events }: { events: readonly UsageEventV2[] }) {
+  const milestones = usageMilestones(events);
+  if (milestones.earned.length === 0 && milestones.nextTokens === null) {
+    return null;
+  }
+  return (
+    <section className="stats__section">
+      <h3>Milestones</h3>
+      <div className="stats__milestones">
+        {milestones.nextTokens && (
+          <span className="stats__milestone stats__milestone--next">
+            next: {formatTokens(milestones.nextTokens.threshold)} tokens
+            <small>
+              {formatTokens(milestones.nextTokens.totalTokens)} all-time so far
+            </small>
+          </span>
+        )}
+        {[...milestones.earned].reverse().map((milestone) => (
+          <span
+            className="stats__milestone"
+            key={`${milestone.kind}-${milestone.threshold}`}
+          >
+            {milestoneLabel(milestone)}
+            <small>{milestoneDayLabel(milestone.achievedAt)}</small>
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function milestoneLabel(milestone: UsageMilestone): string {
+  return milestone.kind === "tokens"
+    ? `${formatTokens(milestone.threshold)} tokens`
+    : `${milestone.threshold} sessions`;
+}
+
+/** Achievement dates carry the year — a trophy from last spring should say
+ * so. UTC for the same determinism as the recap's day buckets. */
+function milestoneDayLabel(achievedAt: number): string {
+  return new Date(achievedAt).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 /** The period's numbers with their context — movement against the prior
