@@ -1,0 +1,127 @@
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../ipc/log", () => ({
+  log: { warn: vi.fn() },
+  describeError: (e: unknown) => String(e),
+}));
+
+import {
+  createMcpServerPolicy,
+  type McpSettingsPort,
+  type McpTransportPort,
+} from "./mcpServerPolicy";
+
+function settingsPort(initial: boolean | null) {
+  let value = initial;
+  const listeners = new Set<() => void>();
+  const settings: McpSettingsPort = {
+    mcpServer: () => value,
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const set = (next: boolean | null) => {
+    value = next;
+    for (const listener of [...listeners]) listener();
+  };
+  return { settings, set };
+}
+
+function transportPort() {
+  const enable = vi.fn(() => Promise.resolve("/sock"));
+  const disable = vi.fn(() => Promise.resolve());
+  const transport: McpTransportPort = { enable, disable };
+  return { transport, enable, disable };
+}
+
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+describe("createMcpServerPolicy", () => {
+  it("enables at boot when the setting is already on", async () => {
+    const { settings } = settingsPort(true);
+    const { transport, enable } = transportPort();
+    createMcpServerPolicy(settings, transport);
+    await flush();
+    expect(enable).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing before the settings load settles, then applies", async () => {
+    const { settings, set } = settingsPort(null);
+    const { transport, enable, disable } = transportPort();
+    createMcpServerPolicy(settings, transport);
+    await flush();
+    expect(enable).not.toHaveBeenCalled();
+    expect(disable).not.toHaveBeenCalled();
+    set(true);
+    await flush();
+    expect(enable).toHaveBeenCalledTimes(1);
+  });
+
+  it("follows the toggle both ways and ignores same-value notifications", async () => {
+    const { settings, set } = settingsPort(false);
+    const { transport, enable, disable } = transportPort();
+    createMcpServerPolicy(settings, transport);
+    await flush();
+    // Off at boot still reconciles: the backend's state is unknown to a
+    // fresh webview (a reload may have left the socket up), and disable is
+    // idempotent — so the policy asserts Off rather than assuming it.
+    expect(disable).toHaveBeenCalledTimes(1);
+    set(true);
+    set(true);
+    await flush();
+    expect(enable).toHaveBeenCalledTimes(1);
+    set(false);
+    await flush();
+    expect(disable).toHaveBeenCalledTimes(2);
+  });
+
+  it("serializes a fast On→Off flip as enable-then-disable", async () => {
+    const { settings, set } = settingsPort(null);
+    let releaseEnable!: () => void;
+    const enable = vi.fn(
+      () => new Promise<void>((resolve) => (releaseEnable = resolve)),
+    );
+    const disable = vi.fn(() => Promise.resolve());
+    createMcpServerPolicy(settings, { enable, disable });
+    set(true);
+    set(false);
+    await flush();
+    // The disable must WAIT for the in-flight enable — interleaving would
+    // let the backend land in the wrong final state.
+    expect(enable).toHaveBeenCalledTimes(1);
+    expect(disable).not.toHaveBeenCalled();
+    releaseEnable();
+    await flush();
+    expect(disable).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries on the next event after a failed call", async () => {
+    const { settings, set } = settingsPort(null);
+    const enable = vi
+      .fn<() => Promise<unknown>>()
+      .mockRejectedValueOnce(new Error("no home"))
+      .mockResolvedValue("/sock");
+    const disable = vi.fn(() => Promise.resolve());
+    createMcpServerPolicy(settings, { enable, disable });
+    set(true);
+    await flush();
+    expect(enable).toHaveBeenCalledTimes(1);
+    // Same value, new event: the failure cleared the applied mark, so the
+    // policy tries again rather than trusting a state the backend never
+    // confirmed.
+    set(true);
+    await flush();
+    expect(enable).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops reacting after dispose", async () => {
+    const { settings, set } = settingsPort(null);
+    const { transport, enable } = transportPort();
+    const policy = createMcpServerPolicy(settings, transport);
+    policy.dispose();
+    set(true);
+    await flush();
+    expect(enable).not.toHaveBeenCalled();
+  });
+});

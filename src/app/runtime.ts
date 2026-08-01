@@ -16,6 +16,7 @@ import {
 } from "./downloadManager";
 import { createFileOpenManager } from "./fileOpenManager";
 import { createJournalPersistence } from "./journalPersistence";
+import { createMcpServerPolicy } from "./mcpServerPolicy";
 import { createMinimizePolicy } from "./minimizePolicy";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
 import { createPluginManager } from "./pluginManager";
@@ -56,6 +57,10 @@ export function createAppRuntime(
   const deckPersistence = createDeckPersistence(deckStore);
   const minimizePolicy = createMinimizePolicy(deckStore, {
     minimizeStyle: () => getSettings()?.minimizeStyle ?? null,
+    subscribe: subscribeSettings,
+  });
+  const mcpServerPolicy = createMcpServerPolicy({
+    mcpServer: () => getSettings()?.mcpServer ?? null,
     subscribe: subscribeSettings,
   });
   const journalPersistence = createJournalPersistence(
@@ -144,6 +149,7 @@ export function createAppRuntime(
       pluginDeckBridge.dispose();
       worktreeSweeper.dispose();
       minimizePolicy.dispose();
+      mcpServerPolicy.dispose();
       journalPersistence.dispose();
       sessionBinding?.dispose();
       deckPersistence.dispose();
