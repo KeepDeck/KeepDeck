@@ -22,9 +22,8 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
-use super::arming::{
-    arm_roots, armed_manifest, claimed_by_others, disarm_roots, manifest_roots, record_armed,
-};
+use super::arming::{arm_roots, disarm_roots};
+use crate::worktree_arm::{armed_manifest, claimed_by_others, manifest_roots, record_armed};
 use super::library::{sorted_dirs, SKILL_FILE};
 use super::{opencode, SkillStagingDto, SkillsLocks};
 use crate::state::write_atomic;
@@ -160,7 +159,7 @@ pub(crate) fn stage(
     )?;
 
     let armed = arm_roots(root, &final_dir.join("skills"), spawn_roots);
-    record_armed(root, ws_id, &armed);
+    record_armed(root, ws_id, &armed, "skills");
 
     let abs = |dir: &Path| dir.to_string_lossy().into_owned();
     Ok(Some(SkillStagingDto {

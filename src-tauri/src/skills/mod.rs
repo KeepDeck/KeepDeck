@@ -160,7 +160,7 @@ pub fn skills_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
 
 fn prune(root: &Path, live: &[String]) -> io::Result<()> {
     staging::prune_views(root, live)?;
-    arming::prune_manifests(root, live)
+    arming::prune_armed(root, live)
 }
 
 fn skills_root() -> Result<PathBuf, String> {
@@ -209,7 +209,7 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::{fake_worktree, global, root};
     use super::*;
-    use crate::skills::arming::armed_manifest;
+    use crate::worktree_arm::armed_manifest;
     use crate::skills::library::save;
     use std::fs;
 

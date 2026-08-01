@@ -21,56 +21,11 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
-use crate::state::write_atomic;
+use crate::worktree_arm::{ensure_excluded, prune_manifests, remove_excluded};
 
-/// Where a workspace's armed spawn cwds are remembered, so a boot-time
-/// prune can disarm the cwds of a workspace that died in a crash (the deck
-/// no longer knows them; this file does).
-pub(crate) fn armed_manifest(root: &Path, ws_id: &str) -> PathBuf {
-    root.join("armed").join(ws_id)
-}
-
-/// The recorded armed cwds of one workspace (empty when absent/unreadable).
-pub(crate) fn manifest_roots(root: &Path, ws_id: &str) -> Vec<String> {
-    fs::read(armed_manifest(root, ws_id))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
-}
-
-/// Every cwd some OTHER manifest still claims — a shared cwd must survive
-/// one workspace's disarm while another workspace (live, or not yet
-/// pruned) runs panes there.
-pub(crate) fn claimed_by_others(root: &Path, except_ws: &str) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(root.join("armed")) else {
-        return Vec::new();
-    };
-    let mut claimed = Vec::new();
-    for entry in entries.flatten() {
-        let ws = entry.file_name().to_string_lossy().into_owned();
-        if ws == except_ws {
-            continue;
-        }
-        claimed.extend(manifest_roots(root, &ws));
-    }
-    claimed
-}
-
-pub(crate) fn record_armed(root: &Path, ws_id: &str, armed: &[String]) {
-    let path = armed_manifest(root, ws_id);
-    let result = if armed.is_empty() {
-        fs::remove_file(&path).or_else(|e| {
-            if e.kind() == ErrorKind::NotFound { Ok(()) } else { Err(e) }
-        })
-    } else {
-        serde_json::to_vec(armed)
-            .map_err(io::Error::other)
-            .and_then(|json| write_atomic(&path, &json))
-    };
-    if let Err(e) = result {
-        log::warn!("skills: recording armed cwds for {ws_id} failed: {e}");
-    }
-}
+/// What arming plants in a pane's cwd — the directory git must stay blind to,
+/// and the one codex reads its skills from.
+const PLANTED: &str = ".agents";
 
 /// The codex-facing arm: `<cwd>/.agents/skills` → the staged bare view, for
 /// every pane spawn cwd. A real (non-symlink) entry there is the user's own
@@ -123,7 +78,7 @@ fn arm_one(root: &Path, staged_skills: &Path, wt: &Path) -> io::Result<bool> {
         }
         Err(e) => return Err(e),
     }
-    if let Err(e) = ensure_excluded(wt) {
+    if let Err(e) = ensure_excluded(wt, PLANTED) {
         log::warn!("skills: exclude line for {} failed: {e}", wt.display());
     }
     Ok(true)
@@ -146,7 +101,7 @@ pub(crate) fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()
                 let _ = fs::remove_dir(&agents);
                 // Symmetry with ensure_excluded: the repo must not keep an
                 // ignore line for an arming that no longer exists.
-                if let Err(e) = remove_excluded(Path::new(wt)) {
+                if let Err(e) = remove_excluded(Path::new(wt), PLANTED) {
                     log::warn!("skills: exclude cleanup for {wt} failed: {e}");
                 }
             }
@@ -156,52 +111,11 @@ pub(crate) fn disarm_roots(root: &Path, spawn_roots: &[String]) -> io::Result<()
     Ok(())
 }
 
-/// Consume the armed manifests of workspaces that no longer exist: their
-/// recorded spawn cwds get OUR symlinks removed — the crash path, where the
-/// deck no longer knows the workspace but its worktrees survived.
-pub(crate) fn prune_manifests(root: &Path, live: &[String]) -> io::Result<()> {
-    let manifests = match fs::read_dir(root.join("armed")) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    for entry in manifests.flatten() {
-        let ws = entry.file_name().to_string_lossy().into_owned();
-        if live.iter().any(|l| l == &ws) {
-            continue;
-        }
-        // A manifest that won't parse is EVIDENCE of armed cwds we can no
-        // longer locate — keep it (and warn) rather than silently deleting
-        // the only record; a later fixed pass may still act on it.
-        let Some(roots) = fs::read(entry.path())
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
-        else {
-            log::warn!(
-                "skills: armed manifest for {ws} is unreadable — kept, not disarmed",
-            );
-            continue;
-        };
-        // A cwd another workspace still claims keeps its symlink — two
-        // workspaces on one folder must not lose arming because one died.
-        let claimed = claimed_by_others(root, &ws);
-        let ours: Vec<String> = roots.into_iter().filter(|r| !claimed.contains(r)).collect();
-        if let Err(e) = disarm_roots(root, &ours) {
-            log::warn!("skills: disarming dead workspace {ws} failed: {e}");
-        }
-        let _ = fs::remove_file(entry.path());
-    }
-    Ok(())
-}
-
-/// Remove the exact anchored `/…/.agents/` line arming appended — nothing
-/// else in the user's exclude file is touched (byte-faithful removal lives
-/// in `keepdeck_git::exclude`).
-fn remove_excluded(armed_root: &Path) -> io::Result<()> {
-    match agents_exclusion(armed_root)? {
-        Some((common_dir, line)) => keepdeck_git::exclude::remove_line(&common_dir, &line),
-        None => Ok(()),
-    }
+/// Sweep the manifests of workspaces that no longer exist, taking OUR
+/// symlinks out of the cwds they recorded — the crash path, where the deck no
+/// longer knows the workspace but its worktrees survived.
+pub(crate) fn prune_armed(root: &Path, live: &[String]) -> io::Result<()> {
+    prune_manifests(root, live, "skills", disarm_roots)
 }
 
 /// A link is ours iff it points inside KeepDeck's skills root.
@@ -217,34 +131,6 @@ pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 pub(crate) fn symlink_dir(target: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
-}
-
-/// Idempotently append the armed dir's anchored line to the owning repo's
-/// SHARED `info/exclude` so it never shows up in git status or a commit
-/// (resolution and the byte-faithful edit live in `keepdeck_git::exclude`).
-fn ensure_excluded(armed_root: &Path) -> io::Result<()> {
-    match agents_exclusion(armed_root)? {
-        Some((common_dir, line)) => keepdeck_git::exclude::ensure_line(&common_dir, &line),
-        None => Ok(()),
-    }
-}
-
-/// The owning repo's COMMON git dir plus the anchored `.agents` ignore
-/// pattern for an armed cwd — `/.agents/` at the repo root,
-/// `/<subdir>/.agents/` below it (forward slashes on every platform: the
-/// pattern is git syntax) — or `None` when no ancestor is a git checkout.
-/// This module knows only the `.agents` pattern; the git plumbing is
-/// `keepdeck_git::exclude`'s.
-fn agents_exclusion(armed_root: &Path) -> io::Result<Option<(PathBuf, String)>> {
-    let Some(repo) = keepdeck_git::exclude::owning_repo(armed_root)? else {
-        return Ok(None);
-    };
-    let line = if repo.below_root.is_empty() {
-        "/.agents/".to_string()
-    } else {
-        format!("/{}/.agents/", repo.below_root)
-    };
-    Ok(Some((repo.common_dir, line)))
 }
 
 #[cfg(test)]
@@ -422,7 +308,7 @@ mod tests {
         fs::create_dir_all(root.join("armed")).unwrap();
         fs::write(root.join("armed").join("ws-dead"), "not json").unwrap();
 
-        prune_manifests(&root, &["ws-1".into()]).unwrap();
+        prune_armed(&root, &["ws-1".into()]).unwrap();
         assert!(root.join("armed").join("ws-dead").exists());
     }
 }

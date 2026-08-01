@@ -32,6 +32,7 @@ mod journal;
 mod state;
 mod usage_history;
 mod worktree;
+mod worktree_arm;
 
 use serde::Serialize;
 use tauri::Manager as _;
@@ -153,6 +154,9 @@ pub fn run() {
             mcp::mcp_disable,
             mcp::mcp_respond,
             mcp::mcp_connection_command,
+            mcp::mcp_arm,
+            mcp::mcp_disarm,
+            mcp::mcp_prune,
             session::session_spawn,
             session::session_write,
             session::session_resize,

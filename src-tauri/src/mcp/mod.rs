@@ -7,6 +7,7 @@
 //! second transport (or a per-connection identity handler) edits this
 //! file, not them.
 
+mod arming;
 pub(crate) mod bridge;
 pub(crate) mod server;
 pub(crate) mod shim;
@@ -83,4 +84,27 @@ pub fn mcp_connection_command(app: tauri::AppHandle) -> Result<McpConnection, St
         command: binary.display().to_string(),
         args: vec![SHIM_FLAG.to_string(), socket_path()?.display().to_string()],
     })
+}
+
+/// Plant the MCP config in the given pane cwds — kimi's only door (see
+/// [`arming`]). `wsId` keys the record a crash sweep reads.
+#[tauri::command(async)]
+pub fn mcp_arm(
+    ws_id: String,
+    entries: Vec<arming::McpArmEntry>,
+) -> Result<arming::McpArmReport, String> {
+    Ok(arming::arm(&arming::arming_root()?, &ws_id, &entries))
+}
+
+/// Take KeepDeck's MCP config back out of the given cwds. Only what our
+/// marker claims is touched.
+#[tauri::command(async)]
+pub fn mcp_disarm(roots: Vec<String>) -> Result<(), String> {
+    arming::disarm(&arming::arming_root()?, &roots).map_err(|e| e.to_string())
+}
+
+/// Sweep what workspaces that no longer exist left in their cwds.
+#[tauri::command(async)]
+pub fn mcp_prune(live_ws_ids: Vec<String>) -> Result<(), String> {
+    arming::prune(&arming::arming_root()?, &live_ws_ids).map_err(|e| e.to_string())
 }
