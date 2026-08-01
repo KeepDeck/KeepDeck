@@ -13,6 +13,7 @@ import type {
   SpawnSkillsInput,
 } from "@keepdeck/plugin-api";
 import { icon } from "./icon";
+import { normalizeClaudeStatus } from "./status";
 import { normalizeClaudeStatusline } from "./usage";
 import { claudeHistory } from "./history";
 
@@ -34,19 +35,42 @@ const shellQuote = (path: string) => `'${path.split("'").join(`'\\''`)}'`;
  * stdin). */
 async function hookArgs(resources: PluginResources): Promise<string[]> {
   const session = await resources.path("kd-session-hook.sh");
+  const status = await resources.path("kd-status-hook.sh");
   const usage = await resources.path("kd-usage-statusline.sh");
   const settings: Record<string, unknown> = {};
+  const hooks: Record<string, unknown[]> = {};
   if (session) {
-    settings.hooks = {
-      SessionStart: [
-        {
-          hooks: [
-            { type: "command", command: `/bin/sh ${shellQuote(session)}` },
-          ],
-        },
-      ],
-    };
+    hooks.SessionStart = [
+      {
+        hooks: [{ type: "command", command: `/bin/sh ${shellQuote(session)}` }],
+      },
+    ];
   }
+  if (status) {
+    // The turn-lifecycle reporter: the same script for every event, the
+    // agent id as its argument. StopFailure fires INSTEAD of Stop on an API
+    // error — arming Stop without it would strand the pane on "working";
+    // Notification is filtered to the two waiting types by the normalizer.
+    const group = [
+      {
+        hooks: [
+          {
+            type: "command",
+            command: `/bin/sh ${shellQuote(status)} claude`,
+          },
+        ],
+      },
+    ];
+    for (const event of [
+      "UserPromptSubmit",
+      "Stop",
+      "StopFailure",
+      "Notification",
+    ]) {
+      hooks[event] = group;
+    }
+  }
+  if (Object.keys(hooks).length > 0) settings.hooks = hooks;
   if (usage) {
     settings.statusLine = {
       type: "command",
@@ -107,6 +131,7 @@ const plugin: KeepDeckPlugin = {
         normalize: normalizeClaudeStatusline,
         tail: "claude",
       },
+      status: { normalize: normalizeClaudeStatus },
       history: claudeHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
