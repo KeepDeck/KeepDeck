@@ -430,7 +430,10 @@ function AchievementCard({
       )}
       <span className="stats__achievement-tip" role="tooltip">
         <b>
-          {item.icon} {item.title}
+          <span className="stats__achievement-tip-icon" aria-hidden>
+            {item.icon}
+          </span>{" "}
+          {item.title}
         </b>
         <span>{achievementRequirement(item)}</span>
         <span>{achievementTipStatus(item)}</span>

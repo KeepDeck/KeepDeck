@@ -490,6 +490,17 @@
   font-size: 12px;
 }
 
+.stats__achievement-tip-icon {
+  display: inline-block;
+}
+
+/* An unearned badge stays colorless everywhere — the tooltip must not leak
+   the full-color icon the card deliberately withholds. */
+.stats__achievement--locked .stats__achievement-tip-icon {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
 .stats__achievement-icon {
   font-size: 18px;
   line-height: 1.2;
