@@ -96,12 +96,16 @@ fn pump<W: Write>(
             let mut buf = [0u8; 8192];
             loop {
                 match input.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => break,
                     Ok(n) => {
                         if uplink.write_all(&buf[..n]).is_err() {
                             break;
                         }
                     }
+                    // A signal must not masquerade as client EOF — that
+                    // would half-close a session mid-conversation.
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => break,
                 }
             }
             let _ = uplink.shutdown(std::net::Shutdown::Write);
@@ -116,6 +120,7 @@ fn pump<W: Write>(
                 output.write_all(&buf[..n])?;
                 output.flush()?;
             }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         }
     }

@@ -2,8 +2,10 @@
 //! place the transport's parts are wired together — the socket lifecycle
 //! ([`crate::mcp_server`]), the webview bridge ([`crate::mcp_bridge`]) and
 //! the shim's flag ([`crate::mcp_shim`]). The parts never import each
-//! other; each stays testable alone, and a future second transport (or a
-//! per-connection identity handler) edits this file, not them.
+//! other's IMPLEMENTATIONS — the bridge depends only on the server's
+//! `LineHandler` port type — so each stays testable alone, and a future
+//! second transport (or a per-connection identity handler) edits this
+//! file, not them.
 
 use std::path::PathBuf;
 

@@ -24,6 +24,11 @@ use crate::mcp_server::LineHandler;
 /// Mirrored by `MCP_REQUEST_EVENT` in src/ipc/mcpBridge.ts.
 pub const MCP_REQUEST_EVENT: &str = "deck://mcp/request";
 
+/// The transport id notifications cross under: nothing is parked for it,
+/// and the webview pump keys "send no reply" on exactly this value.
+/// [`McpBridge::begin`] never allocates it — pinned by test.
+pub(crate) const NOTIFICATION_ID: u64 = 0;
+
 /// How long a request may wait for the webview. Commands are interactive
 /// scale (the slowest, agent.spawn, returns at pane creation, not task
 /// delivery), so silence beyond this bound means the webview is gone or
@@ -123,7 +128,7 @@ pub(crate) fn webview_handler(app: AppHandle) -> LineHandler {
         let bridge = app.state::<McpBridge>();
         if is_notification(line) {
             let request = McpRequest {
-                id: 0,
+                id: NOTIFICATION_ID,
                 line: line.to_string(),
             };
             if let Err(e) = app.emit(MCP_REQUEST_EVENT, &request) {
@@ -172,11 +177,15 @@ mod tests {
     }
 
     #[test]
-    fn ids_are_distinct_per_request() {
+    fn ids_are_distinct_and_never_the_notification_sentinel() {
         let bridge = McpBridge::default();
         let (a, _rx_a) = bridge.begin();
         let (b, _rx_b) = bridge.begin();
         assert_ne!(a, b);
+        // The webview pump keys "no reply expected" on this exact value; a
+        // parked request must never receive it.
+        assert_ne!(a, NOTIFICATION_ID);
+        assert_ne!(b, NOTIFICATION_ID);
     }
 
     #[test]

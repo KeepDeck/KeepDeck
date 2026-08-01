@@ -20,8 +20,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 /// Answers one request line with AT MOST one reply line — `None` for
 /// JSON-RPC notifications, which must never be answered. Shared by every
@@ -44,6 +46,10 @@ struct Running {
     /// accept(2) via shutdown(2) on the listener.
     wake: Option<UnixStream>,
     accept: Option<JoinHandle<()>>,
+    /// Set by the accept loop if it dies ABNORMALLY (a broken poll). The
+    /// state would otherwise keep claiming On while nothing accepts —
+    /// enable() checks this and restarts instead of reporting the corpse.
+    dead: Arc<AtomicBool>,
     /// Teardown handles: a clone per live connection, so Off can actively
     /// disconnect clients instead of leaving them on a dead pipe.
     conns: Arc<Mutex<HashMap<u64, UnixStream>>>,
@@ -55,7 +61,16 @@ impl McpServer {
     pub(crate) fn enable(&self, path: &Path, handler: LineHandler) -> Result<PathBuf, String> {
         let mut inner = self.inner.lock().expect("mcp server poisoned");
         if let Some(running) = inner.as_ref() {
-            return Ok(running.path.clone());
+            if !running.dead.load(Ordering::SeqCst) {
+                return Ok(running.path.clone());
+            }
+            // The accept loop died abnormally — idempotence must not hand
+            // back a corpse. Tear the remains down (the join returns at
+            // once, the thread is gone) and start fresh.
+            log::warn!("mcp: accept loop had died — restarting the socket");
+            if let Some(dead) = inner.take() {
+                stop(dead);
+            }
         }
         let running = start_at(path, handler)?;
         let served = running.path.clone();
@@ -112,20 +127,51 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
     // Depth in defense only — the directory already gates access.
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
         .map_err(|e| e.to_string())?;
+    // Non-blocking: poll(2) readiness is a hint, not a guarantee — accept
+    // after POLLIN must never be able to park the loop where the teardown
+    // wake cannot reach it.
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
 
     // The teardown wake channel (see `Running::wake`).
     let (wake_rx, wake_tx) = UnixStream::pair().map_err(|e| e.to_string())?;
+    let dead = Arc::new(AtomicBool::new(false));
     let conns: Arc<Mutex<HashMap<u64, UnixStream>>> = Arc::default();
     let accept = {
         let conns = conns.clone();
+        let dead = dead.clone();
         std::thread::Builder::new()
             .name("keepdeck mcp accept".into())
             .spawn(move || {
                 let mut next_id = 0u64;
-                while poll_says_accept(&listener, &wake_rx) {
-                    let Ok((stream, _)) = listener.accept() else {
-                        continue;
+                loop {
+                    match poll_verdict(&listener, &wake_rx) {
+                        PollVerdict::Teardown => break,
+                        PollVerdict::Broken => {
+                            // Visible death, not a silent one: the flag makes
+                            // the next enable restart instead of reporting a
+                            // corpse as running.
+                            dead.store(true, Ordering::SeqCst);
+                            break;
+                        }
+                        PollVerdict::Accept => {}
+                    }
+                    let stream = match listener.accept() {
+                        Ok((stream, _)) => stream,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => continue,
+                        Err(e) => {
+                            // fd exhaustion and kin: the pending connection
+                            // stays queued, so poll re-fires immediately —
+                            // back off instead of spinning a core.
+                            log::warn!("mcp: accept failed: {e}");
+                            std::thread::sleep(Duration::from_millis(100));
+                            continue;
+                        }
                     };
+                    // Connection I/O is blocking (BufReader::lines) — undo
+                    // the listener's inherited non-blocking mode.
+                    if stream.set_nonblocking(false).is_err() {
+                        continue;
+                    }
                     next_id += 1;
                     // No teardown handle, no service: a connection Off could
                     // not disconnect would outlive the toggle and keep
@@ -136,7 +182,19 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
                                 .lock()
                                 .expect("mcp conns poisoned")
                                 .insert(next_id, clone);
-                            spawn_connection(next_id, stream, handler.clone(), conns.clone());
+                            if let Err(e) =
+                                spawn_connection(next_id, stream, handler.clone(), conns.clone())
+                            {
+                                // No thread, no service — and the teardown
+                                // clone must not keep the doomed connection
+                                // open past this refusal.
+                                log::warn!("mcp: dropping connection, no thread: {e}");
+                                if let Some(conn) =
+                                    conns.lock().expect("mcp conns poisoned").remove(&next_id)
+                                {
+                                    let _ = conn.shutdown(std::net::Shutdown::Both);
+                                }
+                            }
                         }
                         Err(e) => {
                             log::warn!("mcp: dropping connection, no teardown handle: {e}");
@@ -151,15 +209,25 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
         path: path.to_path_buf(),
         wake: Some(wake_tx),
         accept: Some(accept),
+        dead,
         conns,
     })
 }
 
-/// Park until the listener has a pending connection (true) or the wake
-/// channel's far end was dropped by teardown (false). poll(2) rather than a
-/// bare blocking accept: the only reliable way OUT of a parked accept is a
-/// connection, and teardown cannot make one once the socket file is gone.
-fn poll_says_accept(listener: &UnixListener, wake: &UnixStream) -> bool {
+enum PollVerdict {
+    /// The listener has a pending connection.
+    Accept,
+    /// The wake channel's far end was dropped — orderly teardown.
+    Teardown,
+    /// poll(2) itself failed (not EINTR) — the loop cannot serve on.
+    Broken,
+}
+
+/// Park until the listener is readable or teardown wakes us. poll(2) rather
+/// than a bare blocking accept: the only reliable way OUT of a parked
+/// accept is a connection, and teardown cannot make one once the socket
+/// file is gone.
+fn poll_verdict(listener: &UnixListener, wake: &UnixStream) -> PollVerdict {
     let mut fds = [
         libc::pollfd {
             fd: listener.as_raw_fd(),
@@ -175,31 +243,34 @@ fn poll_says_accept(listener: &UnixListener, wake: &UnixStream) -> bool {
     loop {
         let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, -1) };
         if ready < 0 {
-            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
                 continue;
             }
-            return false; // a broken poll leaves no way to serve — stop
+            log::warn!("mcp: poll failed, socket dead until re-enable: {error}");
+            return PollVerdict::Broken;
         }
         // Teardown wins over a pending connection: Off means Off.
         if fds[1].revents != 0 {
-            return false;
+            return PollVerdict::Teardown;
         }
         if fds[0].revents != 0 {
-            return true;
+            return PollVerdict::Accept;
         }
     }
 }
 
-/// One thread per connection: read a line, answer a line. Ends on client
-/// EOF, on a write failure, or when `stop` shuts the stream down — and then
-/// removes its own teardown handle.
+/// One thread per connection: read a line, answer at most a line. Ends on
+/// client EOF, on a write failure, or when `stop` shuts the stream down —
+/// and then removes its own teardown handle. The spawn error propagates:
+/// the caller must un-register the connection it pre-registered.
 fn spawn_connection(
     id: u64,
     stream: UnixStream,
     handler: LineHandler,
     conns: Arc<Mutex<HashMap<u64, UnixStream>>>,
-) {
-    let _ = std::thread::Builder::new()
+) -> std::io::Result<()> {
+    std::thread::Builder::new()
         .name("keepdeck mcp conn".into())
         .spawn(move || {
             let Ok(mut writer) = stream.try_clone() else {
@@ -218,7 +289,8 @@ fn spawn_connection(
                 }
             }
             conns.lock().expect("mcp conns poisoned").remove(&id);
-        });
+        })
+        .map(|_| ())
 }
 
 fn stop(mut running: Running) {
