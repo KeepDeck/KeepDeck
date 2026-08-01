@@ -193,8 +193,6 @@
   align-items: flex-start;
   gap: 10px;
   cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .settings__toggle input {

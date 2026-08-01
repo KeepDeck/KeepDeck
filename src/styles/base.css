@@ -48,6 +48,36 @@ body {
   overscroll-behavior: none;
 }
 
+/* Desktop-app chrome, not a web page: none of it is text-selectable, and so
+   none of it draws WebKit's I-beam — the engine offers that cursor only where
+   a selection could actually start. (Selectable chrome also misbehaved: a
+   dragged pane title bled the selection into xterm's helper elements. The
+   terminal keeps its own, xterm-managed selection.) Declared on the DOCUMENT
+   root rather than
+   on the app root (`.deck`, where it used to live): dialogs, popovers,
+   tooltips and floating menus portal to <body> as SIBLINGS of the app, inherit
+   nothing from it, and so escaped the rule entirely — which is why several of
+   those surfaces had each grown a private copy of it. Islands of genuine text
+   opt back in with `user-select: text`; both spellings, always, for the reason
+   spelled out at .pane__idle-session (pane.css). */
+:root {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The single blanket exception. A form control's text is editable and
+   selectable by definition, but WebKit lets the inherited `none` above reach
+   inside the field and kill selection of what you typed. Stated once here, so
+   no individual field has to remember it — they used to, one class at a time,
+   and a field only got it once someone noticed. Controls that merely borrow
+   the input LOOK (the ui-kit Dropdown renders .form__input on a <button>) are
+   deliberately NOT covered: they hold a label, not text you edit. */
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* Scrollbars are left UNSTYLED on purpose: styling `::-webkit-scrollbar` at all
    turns off WKWebView's overlay auto-hide (the bars go always-on), and the
    CSS-only re-hide (hover-reveal) behaves worse than the native overlay. So the

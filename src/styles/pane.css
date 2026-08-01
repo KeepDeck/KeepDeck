@@ -75,7 +75,6 @@
   padding: 0 7px 0 11px;
   border-bottom: 1px solid #242a37;
   background-color: #151923;
-  user-select: none;
   /* Query container for the header controls: a narrow pane collapses the branch
      badge to an icon-only chip and then sheds controls by priority (see the
      @container rules below). */
@@ -139,8 +138,6 @@
   font: inherit;
   font-size: 12px;
   outline: none;
-  user-select: text;
-  -webkit-user-select: text;
 }
 
 /* Standing YOLO warning dot: the shared ui-kit YoloBadge (squared in
@@ -264,7 +261,6 @@
   background-color: rgba(11, 14, 20, 0.82);
   /* Purely informational — never trap clicks; closing is in the pane header. */
   pointer-events: none;
-  user-select: none;
 }
 
 .pane__exit-title {
@@ -373,8 +369,8 @@
 /* "Resume session: <id>" on a stopped pane's card. The line ellipsizes (a
    uuid outgrows a narrow tile) and stays selectable so the id can be copied. */
 .pane__idle-session {
-  /* Both spellings, like every other selection re-enable here: the deck sets
-     `-webkit-user-select: none` on an ancestor, and on a WebKit build where
+  /* Both spellings, like every other selection re-enable: the document root
+     sets `-webkit-user-select: none` (base.css), and on a WebKit build where
      the prefixed property is the effective one the unprefixed override alone
      loses — the id would look copyable and refuse to select. */
   user-select: text;

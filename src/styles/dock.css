@@ -9,7 +9,6 @@
   min-height: 0;
   border-left: 1px solid #1c2230;
   background-color: #0e121a;
-  user-select: none;
 }
 
 /* The floating mode (settings → Dock): the same panel at the same edge and the

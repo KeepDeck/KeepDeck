@@ -28,9 +28,10 @@
   overflow: hidden;
   box-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.85);
   animation: peek-pop 140ms ease-out;
-  /* The dock is user-select: none; re-enable it here so the peeked content
-     (code, a diff, paths) can be selected and copied. Consumers opt their
-     gutters back out, so a copied selection is clean text without numbers. */
+  /* The document root is user-select: none (base.css); re-enable it here so
+     the peeked content (code, a diff, paths) can be selected and copied.
+     Consumers opt their gutters back out, so a copied selection is clean text
+     without numbers. */
   user-select: text;
   -webkit-user-select: text;
 }
