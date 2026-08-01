@@ -33,6 +33,7 @@ import {
 } from "../../domain/usage/achievements";
 import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
 import { UsageWindowBar } from "../usage/UsageWindowBar";
+import { StreakBadge } from "./StreakBadge";
 import { UsageChart } from "./UsageChart";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
@@ -126,6 +127,7 @@ export function UsageStats({ initialTab }: { initialTab?: string }) {
           Local token history and provider-reported cost estimates across every CLI
           and workspace.
         </p>
+        <StreakBadge events={history.events} now={now} />
         <div
           className={`stats__period${periodless ? " stats__period--idle" : ""}`}
           aria-label="Statistics period"
@@ -318,7 +320,11 @@ function ProviderWindow({ row, now }: { row: ProviderWindowRow; now: number }) {
       </div>
       <UsageWindowBar window={row.window} now={now} />
       <small>
-        {row.expired ? "reset passed" : windowResetCaption(row.window, now)}
+        {row.expired
+          ? // Spelled out because the gray bar alone read as a bug even to
+            // the tool's author: the stale % deliberately wears no color.
+            "reset passed · % is from the previous window"
+          : windowResetCaption(row.window, now)}
       </small>
       {row.ledger && (
         <small>

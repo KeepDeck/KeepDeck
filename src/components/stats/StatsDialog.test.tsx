@@ -233,6 +233,35 @@ describe("UsageStats", () => {
     expect(earnedTip.textContent).toContain("Earned Jul 22, 2026");
   });
 
+  it("shows the live streak chip with its heat tier", () => {
+    const DAY = 24 * 60 * 60 * 1_000;
+    history.snapshot = {
+      ready: true,
+      events: [0, 1, 2, 3].map((daysAgo) =>
+        usageEvent({ eventId: `d-${daysAgo}`, occurredAt: NOW - daysAgo * DAY }),
+      ),
+      error: null,
+    };
+    act(() => root.render(createElement(UsageStats)));
+
+    const chip = host.querySelector(".stats__streak")!;
+    expect(chip.getAttribute("aria-label")).toBe("4-day streak");
+    expect(chip.className).toContain("stats__streak--ember");
+    expect(chip.querySelector(".stats__streak-flame")).not.toBeNull();
+  });
+
+  it("hides the streak chip when the streak is broken", () => {
+    history.snapshot = {
+      ready: true,
+      events: [
+        usageEvent({ occurredAt: NOW - 5 * 24 * 60 * 60 * 1_000 }),
+      ],
+      error: null,
+    };
+    act(() => root.render(createElement(UsageStats)));
+    expect(host.querySelector(".stats__streak")).toBeNull();
+  });
+
   it("opens directly on a deep-linked tab", () => {
     act(() =>
       root.render(createElement(UsageStats, { initialTab: "achievements" })),

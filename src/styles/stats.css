@@ -81,6 +81,122 @@
   cursor: default;
 }
 
+/* The streak chip — heat tiers escalate the look as the streak grows. */
+.stats__streak {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 5px 12px;
+  border: 1px solid #1c2230;
+  border-radius: 999px;
+  background: #0b0e14;
+  color: #9aa3af;
+  font-size: 12px;
+}
+
+.stats__streak b {
+  color: #c5c8c6;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats__streak small {
+  color: #596273;
+  font-size: 10px;
+}
+
+.stats__streak-flame {
+  display: inline-block;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* flame (7+): the fire starts moving. */
+.stats__streak--flame .stats__streak-flame {
+  animation: streak-flicker 1.6s ease-in-out infinite;
+}
+
+/* blaze (30+): faster fire with a glow, the number goes molten. */
+.stats__streak--blaze .stats__streak-flame,
+.stats__streak--inferno .stats__streak-flame {
+  animation: streak-flicker 1.1s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px rgba(233, 127, 42, 0.55));
+}
+
+.stats__streak--blaze,
+.stats__streak--inferno {
+  border-color: #4a2f1a;
+}
+
+.stats__streak--blaze b,
+.stats__streak--inferno b {
+  background: linear-gradient(180deg, #ffd28a, #e8853b 60%, #d95926);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* inferno (100+): sparks rise off the chip. */
+.stats__streak-spark {
+  position: absolute;
+  bottom: 65%;
+  left: 12px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #ffd28a;
+  opacity: 0;
+  animation: streak-spark 2.4s ease-out infinite;
+}
+
+.stats__streak-spark:nth-of-type(2) {
+  left: 22px;
+  animation-delay: 0.8s;
+}
+
+.stats__streak-spark:nth-of-type(3) {
+  left: 32px;
+  animation-delay: 1.6s;
+}
+
+@keyframes streak-flicker {
+  0%,
+  100% {
+    transform: scale(1) rotate(-2deg);
+  }
+  30% {
+    transform: scale(1.12) rotate(2deg);
+  }
+  60% {
+    transform: scale(0.95) rotate(-1deg);
+  }
+}
+
+@keyframes streak-spark {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stats__streak-flame,
+  .stats__streak-spark {
+    animation: none !important;
+  }
+}
+
 /* Tab strip — the dock panel's pattern: quiet labels, an underline carries
    the selection. */
 .stats__tabs {
