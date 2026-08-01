@@ -44,7 +44,19 @@ export function createMcpRequestPump(
         } catch (e) {
           reply = errorReply(line, INTERNAL_ERROR, describeError(e));
         }
-        if (reply === null) return;
+        if (reply === null) {
+          // Only the TRANSPORT knows whether a slot is parked for this
+          // line — id 0 is its "no reply expected" sentinel. The projection
+          // declining any other id (the two sides can disagree on what
+          // counts as a notification — parsers differ) must still answer,
+          // or the client pays the bridge's full timeout for silence.
+          if (id === 0) return;
+          reply = errorReply(
+            line,
+            INTERNAL_ERROR,
+            "the deck produced no reply for this request",
+          );
+        }
         try {
           await ports.respond(id, reply);
         } catch (e) {

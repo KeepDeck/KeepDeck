@@ -56,7 +56,9 @@ describe("mcp webview chain", () => {
     await flush();
 
     c.request(1, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
-    c.request(2, '{"jsonrpc":"2.0","method":"notifications/initialized"}');
+    // Transport id 0 = the bridge's "no reply expected" sentinel — the Rust
+    // side sends notifications exactly this way and parks nothing for them.
+    c.request(0, '{"jsonrpc":"2.0","method":"notifications/initialized"}');
     c.request(3, '{"jsonrpc":"2.0","id":2,"method":"tools/list"}');
     c.request(
       4,

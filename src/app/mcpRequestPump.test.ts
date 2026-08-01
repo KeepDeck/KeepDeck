@@ -59,13 +59,30 @@ describe("createMcpRequestPump", () => {
     expect(parsed.error.message).toContain("projection exploded");
   });
 
-  it("a null reply (notification) sends nothing back", async () => {
+  it("a null reply for the notification sentinel (id 0) sends nothing back", async () => {
     const p = ports();
     createMcpRequestPump(() => null, p.pump);
     await flush();
-    p.request(3, '{"method":"notifications/initialized"}');
+    p.request(0, '{"method":"notifications/initialized"}');
     await flush();
     expect(p.respond).not.toHaveBeenCalled();
+  });
+
+  it("a null reply for a PARKED id still answers — silence would cost the timeout", async () => {
+    const p = ports();
+    createMcpRequestPump(() => null, p.pump);
+    await flush();
+    // The transport parked a slot (id ≠ 0) but the projection classified the
+    // line as unanswerable — the classifiers CAN disagree (different JSON
+    // parsers); the parked connection must not be left to the 30s timeout.
+    p.request(6, '{"id":9,"method":"whatever"}');
+    await flush();
+    expect(p.respond).toHaveBeenCalledTimes(1);
+    const [transportId, reply] = p.respond.mock.calls[0];
+    expect(transportId).toBe(6);
+    const parsed = JSON.parse(reply);
+    expect(parsed.id).toBe(9);
+    expect(parsed.error.code).toBe(-32603);
   });
 
   it("a failed delivery is logged, not thrown", async () => {
