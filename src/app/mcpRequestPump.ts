@@ -16,6 +16,10 @@ export interface McpPumpPorts {
 }
 
 export interface McpRequestPump {
+  /** Settles once the event subscription has REGISTERED on the backend (or
+   * failed — settled either way, never rejected). Until then, requests the
+   * socket forwards reach nobody; the service gates the policy on this. */
+  ready: Promise<void>;
   dispose(): void;
 }
 
@@ -34,7 +38,7 @@ export function createMcpRequestPump(
   let disposed = false;
   let unlisten: (() => void) | null = null;
 
-  void ports
+  const ready = ports
     .subscribe(({ id, line }) => {
       if (disposed) return;
       void (async () => {
@@ -80,6 +84,7 @@ export function createMcpRequestPump(
     });
 
   return {
+    ready,
     dispose() {
       disposed = true;
       unlisten?.();

@@ -26,21 +26,16 @@ function harness(opts: { initial?: boolean | null } = {}) {
     for (const listener of [...listeners]) listener();
   };
 
-  const order: string[] = [];
   let deliver: ((request: McpRequest) => void) | null = null;
   const respond = vi.fn((_id: number, _reply: string) => Promise.resolve());
   const pumpPorts = {
     subscribe(handler: (request: McpRequest) => void) {
-      order.push("pump-subscribe");
       deliver = handler;
       return Promise.resolve(() => {});
     },
     respond,
   };
-  const enable = vi.fn(() => {
-    order.push("enable");
-    return Promise.resolve("/home/mcp.sock");
-  });
+  const enable = vi.fn(() => Promise.resolve("/home/mcp.sock"));
   const disable = vi.fn(() => Promise.resolve());
   const registry = createCommandRegistry();
   const deps: McpServiceDeps = {
@@ -55,7 +50,6 @@ function harness(opts: { initial?: boolean | null } = {}) {
     set,
     deps,
     registry,
-    order,
     enable,
     disable,
     respond,
@@ -64,12 +58,23 @@ function harness(opts: { initial?: boolean | null } = {}) {
 }
 
 describe("createMcpService", () => {
-  it("subscribes the pump before the policy can enable the socket", async () => {
+  it("no enable can be dispatched before the pump's subscription REGISTERS", async () => {
+    // Round 2 proved the old ordering pin vacuous (any construction order
+    // passed it). This one discriminates: while the subscription promise is
+    // held open, the policy must not exist and no enable may fire — even
+    // with the setting already On.
     const h = harness({ initial: true });
+    let register!: (un: () => void) => void;
+    h.deps.pumpPorts = {
+      subscribe: () => new Promise((resolve) => (register = resolve)),
+      respond: vi.fn((_id: number, _reply: string) => Promise.resolve()),
+    };
     createMcpService(h.settings, h.deps);
     await flush();
-    expect(h.order[0]).toBe("pump-subscribe");
-    expect(h.order).toContain("enable");
+    expect(h.enable).not.toHaveBeenCalled();
+    register(() => {});
+    await flush();
+    expect(h.enable).toHaveBeenCalledTimes(1);
   });
 
   it("status reflects what the backend CONFIRMED, not the setting", async () => {
@@ -138,11 +143,29 @@ describe("createMcpService", () => {
     });
   });
 
-  it("dispose tears the socket down best-effort — a reload must not leave it serving unanswered", async () => {
+  it("dispose takes the socket down THROUGH the policy's chain", async () => {
     const h = harness();
     const service = createMcpService(h.settings, h.deps);
-    await flush();
+    await flush(); // pump registered, policy constructed
     service.dispose();
+    await flush(); // the final disable rides the chain, one microtask out
     expect(h.disable).toHaveBeenCalled();
+  });
+
+  it("dispose before the subscription registers still takes the socket down", async () => {
+    const h = harness({ initial: true });
+    let register!: (un: () => void) => void;
+    h.deps.pumpPorts = {
+      subscribe: () => new Promise((resolve) => (register = resolve)),
+      respond: vi.fn((_id: number, _reply: string) => Promise.resolve()),
+    };
+    const service = createMcpService(h.settings, h.deps);
+    service.dispose();
+    register(() => {});
+    await flush();
+    // A predecessor page may have left the socket up — best-effort disable;
+    // and the disposed guard must keep the policy from ever being built.
+    expect(h.disable).toHaveBeenCalled();
+    expect(h.enable).not.toHaveBeenCalled();
   });
 });

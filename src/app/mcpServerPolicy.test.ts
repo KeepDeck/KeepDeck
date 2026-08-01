@@ -41,7 +41,7 @@ describe("createMcpServerPolicy", () => {
   it("enables at boot when the setting is already on", async () => {
     const { settings } = settingsPort(true);
     const { transport, enable } = transportPort();
-    createMcpServerPolicy(settings, transport);
+    createMcpServerPolicy(settings, transport, () => {});
     await flush();
     expect(enable).toHaveBeenCalledTimes(1);
   });
@@ -49,7 +49,7 @@ describe("createMcpServerPolicy", () => {
   it("does nothing before the settings load settles, then applies", async () => {
     const { settings, set } = settingsPort(null);
     const { transport, enable, disable } = transportPort();
-    createMcpServerPolicy(settings, transport);
+    createMcpServerPolicy(settings, transport, () => {});
     await flush();
     expect(enable).not.toHaveBeenCalled();
     expect(disable).not.toHaveBeenCalled();
@@ -61,7 +61,7 @@ describe("createMcpServerPolicy", () => {
   it("follows the toggle both ways and ignores same-value notifications", async () => {
     const { settings, set } = settingsPort(false);
     const { transport, enable, disable } = transportPort();
-    createMcpServerPolicy(settings, transport);
+    createMcpServerPolicy(settings, transport, () => {});
     await flush();
     // Off at boot still reconciles: the backend's state is unknown to a
     // fresh webview (a reload may have left the socket up), and disable is
@@ -83,7 +83,7 @@ describe("createMcpServerPolicy", () => {
       () => new Promise<void>((resolve) => (releaseEnable = resolve)),
     );
     const disable = vi.fn(() => Promise.resolve());
-    createMcpServerPolicy(settings, { enable, disable });
+    createMcpServerPolicy(settings, { enable, disable }, () => {});
     set(true);
     set(false);
     await flush();
@@ -103,7 +103,7 @@ describe("createMcpServerPolicy", () => {
       .mockRejectedValueOnce(new Error("no home"))
       .mockResolvedValue("/sock");
     const disable = vi.fn(() => Promise.resolve());
-    createMcpServerPolicy(settings, { enable, disable });
+    createMcpServerPolicy(settings, { enable, disable }, () => {});
     set(true);
     await flush();
     expect(enable).toHaveBeenCalledTimes(1);
@@ -125,7 +125,7 @@ describe("createMcpServerPolicy", () => {
       )
       .mockResolvedValue("/sock");
     const disable = vi.fn(() => Promise.resolve());
-    createMcpServerPolicy(settings, { enable, disable });
+    createMcpServerPolicy(settings, { enable, disable }, () => {});
     set(true); // enable#1, deferred
     set(false); // disable, queued
     set(true); // enable#2, queued
@@ -168,10 +168,30 @@ describe("createMcpServerPolicy", () => {
   it("stops reacting after dispose", async () => {
     const { settings, set } = settingsPort(null);
     const { transport, enable } = transportPort();
-    const policy = createMcpServerPolicy(settings, transport);
+    const policy = createMcpServerPolicy(settings, transport, () => {});
     policy.dispose();
     set(true);
     await flush();
     expect(enable).not.toHaveBeenCalled();
+  });
+
+  it("dispose({disable}) queues the final disable BEHIND an in-flight enable", async () => {
+    const { settings, set } = settingsPort(null);
+    let releaseEnable!: () => void;
+    const enable = vi.fn(
+      () => new Promise<void>((resolve) => (releaseEnable = resolve)),
+    );
+    const disable = vi.fn(() => Promise.resolve());
+    const policy = createMcpServerPolicy(settings, { enable, disable }, () => {});
+    set(true);
+    await flush(); // the enable is now in flight
+    policy.dispose({ disable: true });
+    await flush();
+    // Off-chain, the disable could overtake the enable and the socket would
+    // come back up after the page died — the chain forbids exactly that.
+    expect(disable).not.toHaveBeenCalled();
+    releaseEnable();
+    await flush();
+    expect(disable).toHaveBeenCalledTimes(1);
   });
 });

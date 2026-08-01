@@ -1,5 +1,4 @@
 import { describeError, log } from "../ipc/log";
-import { mcpDisable, mcpEnable } from "../ipc/mcp";
 
 export interface McpSettingsPort {
   /** The toggle's value, or `null` until the settings load settles. */
@@ -24,7 +23,11 @@ export interface McpTransition {
 }
 
 export interface McpServerPolicy {
-  dispose(): void;
+  /** Stop reconciling. `disable: true` additionally queues a FINAL disable
+   * onto the same chain every other backend call rides — an in-flight
+   * enable settles first, so a disposed page can never lose that race and
+   * leave the socket up with nobody answering. */
+  dispose(options?: { disable?: boolean }): void;
 }
 
 /**
@@ -41,8 +44,11 @@ export interface McpServerPolicy {
  */
 export function createMcpServerPolicy(
   settings: McpSettingsPort,
-  transport: McpTransportPort = { enable: mcpEnable, disable: mcpDisable },
-  report: (transition: McpTransition) => void = () => {},
+  // Both REQUIRED: the service is the one owner of the transport binding
+  // and the one consumer of transitions — a default here would be a second
+  // home for the former and a silent drop of the latter.
+  transport: McpTransportPort,
+  report: (transition: McpTransition) => void,
 ): McpServerPolicy {
   /** What was last handed to the backend (optimistically) — `null` means
    * "unknown", which always reconciles on the next event. */
@@ -81,8 +87,17 @@ export function createMcpServerPolicy(
   reconcile();
 
   return {
-    dispose() {
+    dispose(options = {}) {
       unsubscribe();
+      if (options.disable) {
+        chain = chain.then(async () => {
+          try {
+            await transport.disable();
+          } catch (e) {
+            log.warn("web:mcp", `final disable failed: ${describeError(e)}`);
+          }
+        });
+      }
     },
   };
 }

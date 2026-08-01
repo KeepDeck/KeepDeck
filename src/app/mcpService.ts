@@ -10,6 +10,7 @@ import { commands } from "./commandRegistry";
 import { createMcpRequestPump, type McpPumpPorts } from "./mcpRequestPump";
 import {
   createMcpServerPolicy,
+  type McpServerPolicy,
   type McpSettingsPort,
   type McpTransportPort,
 } from "./mcpServerPolicy";
@@ -46,9 +47,14 @@ export interface McpServiceDeps {
  * from the setting (the setting is a wish; the status is what the backend
  * confirmed — they differ exactly when the user most needs to know).
  *
- * Construction order is a contract: the pump SUBSCRIBES before the policy
- * may enable the socket, so a client's first request can never race a
- * listener that does not exist yet.
+ * Ordering is owned here, in both directions. Up: the policy — and with it
+ * the first possible enable — is constructed only after the pump's event
+ * subscription has REGISTERED on the backend (`pump.ready`), so a socket
+ * client's first request cannot land while nothing is listening; dispatch
+ * order alone would not give that, both legs being independent async IPC.
+ * Down: the final teardown rides the policy's own serialized chain, so a
+ * disposed page can never lose the race against its in-flight enable and
+ * leave the socket up with nobody answering.
  */
 export function createMcpService(
   settings: McpSettingsPort,
@@ -83,15 +89,20 @@ export function createMcpService(
     (line) => handleMcpLine(port, () => identity, line),
     deps.pumpPorts,
   );
-  const policy = createMcpServerPolicy(settings, transport, (transition) => {
-    publish(
-      transition.ok
-        ? {
-            socket: transition.desired ? transition.detail : null,
-            error: null,
-          }
-        : { socket: null, error: transition.detail },
-    );
+  let policy: McpServerPolicy | null = null;
+  let disposed = false;
+  void pump.ready.then(() => {
+    if (disposed) return;
+    policy = createMcpServerPolicy(settings, transport, (transition) => {
+      publish(
+        transition.ok
+          ? {
+              socket: transition.desired ? transition.detail : null,
+              error: null,
+            }
+          : { socket: null, error: transition.detail },
+      );
+    });
   });
 
   return {
@@ -101,13 +112,22 @@ export function createMcpService(
       return () => listeners.delete(listener);
     },
     dispose() {
-      policy.dispose();
+      disposed = true;
+      if (policy) {
+        // The teardown rides the policy's chain — a webview on its way out
+        // (reload) must not leave the socket serving with nobody to answer,
+        // and must not lose the race against its own in-flight enable.
+        policy.dispose({ disable: true });
+      } else {
+        // No policy means nothing was ever enabled BY THIS PAGE — but a
+        // predecessor may have left the socket up; best-effort, guarded
+        // against a synchronously-throwing injected transport.
+        void Promise.resolve()
+          .then(() => transport.disable())
+          .catch(() => {});
+      }
       pump.dispose();
-      // A webview on its way out (reload) would otherwise leave the socket
-      // serving with nobody to answer — every client line would cost the
-      // bridge timeout. Best-effort teardown; the next page's policy brings
-      // the socket back per the setting.
-      void transport.disable().catch(() => {});
+      listeners.clear();
     },
   };
 }
