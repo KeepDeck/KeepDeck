@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TEST_NOW, usageEvent as event } from "../history/event.testSupport";
-import type { UsageAchievementLadder } from "./catalog";
+import type { UsageAchievementLadder } from "./ladders";
 import {
   earnedAchievements,
   lockedAchievements,

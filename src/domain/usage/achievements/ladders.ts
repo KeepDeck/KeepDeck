@@ -1,9 +1,9 @@
 import type { UsageEventV2 } from "../history/event";
 import {
   achievementId,
+  earnedTierCount,
   LADDERS,
-  type UsageAchievement,
-  type UsageAchievementLadder,
+  type AchievementMetric,
 } from "./catalog";
 import { createAchievementEngine } from "./engine";
 
@@ -14,6 +14,26 @@ import { createAchievementEngine } from "./engine";
  * [`earnedAchievements`], [`nextAchievements`] and [`lockedAchievements`]
  * are those three views.
  */
+
+/** A catalog tier carrying its ledger-derived state — produced only here,
+ * so the dated types live with their producer, not the static catalog. */
+export interface UsageAchievement {
+  id: string;
+  metric: AchievementMetric;
+  threshold: number;
+  title: string;
+  icon: string;
+  /** The ledger instant that crossed the threshold; null while locked. */
+  achievedAt: number | null;
+  /** The metric's current all-time value. */
+  progress: number;
+}
+
+export interface UsageAchievementLadder {
+  metric: AchievementMetric;
+  /** Ascending; earned prefix, then locked. */
+  tiers: UsageAchievement[];
+}
 
 /** All ladders with crossing dates and current progress, in catalog order.
  * The batch view: sorts chronologically so each crossing is dated at the
@@ -29,11 +49,8 @@ export function usageAchievementLadders(
   for (const event of ordered) {
     engine.ingest(event);
     LADDERS.forEach((ladder, index) => {
-      const value = engine.value(ladder.metric);
-      while (
-        next[index] < ladder.tiers.length &&
-        value >= ladder.tiers[next[index]].threshold
-      ) {
+      const earned = earnedTierCount(engine.value(ladder.metric), ladder.tiers);
+      while (next[index] < earned) {
         crossings[index].set(
           ladder.tiers[next[index]].threshold,
           event.occurredAt,

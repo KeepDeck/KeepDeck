@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import {
   achievementExact,
+  achievementPercent,
   achievementProgress,
   achievementRequirement,
 } from "../../domain/usage/achievements/captions";
-import type { UsageAchievement } from "../../domain/usage/achievements/catalog";
+import type { UsageAchievement } from "../../domain/usage/achievements/ladders";
 import {
   earnedAchievements,
   lockedAchievements,
@@ -80,11 +81,7 @@ function AchievementCard({
       ) : future ? null : (
         <>
           <span className="stats__achievement-progress" aria-hidden>
-            <i
-              style={{
-                width: `${Math.min(100, (item.progress / item.threshold) * 100)}%`,
-              }}
-            />
+            <i style={{ width: `${achievementPercent(item)}%` }} />
           </span>
           <small>{achievementProgress(item)}</small>
         </>

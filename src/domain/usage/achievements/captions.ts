@@ -1,5 +1,5 @@
 import { formatTokens, formatUsd } from "../format";
-import type { AchievementMetric, UsageAchievement } from "./catalog";
+import type { AchievementMetric } from "./catalog";
 
 /**
  * Captions: one spec per metric, exhaustive by construction. The Record
@@ -18,8 +18,29 @@ interface MetricSpec {
   exact(progress: number, threshold: number): string;
 }
 
+/** Captions only ever need the static half of a tier plus its live value —
+ * structural shapes, so this module never depends on the dated view types
+ * their producer (ladders.ts) owns. */
+export interface AchievementTierRef {
+  metric: AchievementMetric;
+  threshold: number;
+}
+export interface AchievementProgressRef extends AchievementTierRef {
+  progress: number;
+}
+
+/** THE progress-fraction rule: how far along a tier is, as a percentage
+ * capped at 100. The gallery's bar width and the tooltip's floored percent
+ * both derive from this one function — capping, scaling or re-basing the
+ * rule happens here or nowhere. */
+export function achievementPercent(
+  item: Pick<AchievementProgressRef, "threshold" | "progress">,
+): number {
+  return Math.min(100, (item.progress / item.threshold) * 100);
+}
+
 const pctOf = (progress: number, threshold: number) =>
-  Math.min(100, Math.floor((progress / threshold) * 100));
+  Math.floor(achievementPercent({ progress, threshold }));
 const exactInt = (value: number) => Math.floor(value).toLocaleString("en-US");
 
 const tokensSpec = (requirement: (t: string) => string): MetricSpec => ({
@@ -62,18 +83,16 @@ const METRIC_SPECS: Record<AchievementMetric, MetricSpec> = {
 
 /** The requirement line under a badge title. Accepts anything carrying a
  * metric and threshold — a full tier or a bare catalog entry. */
-export function achievementRequirement(
-  item: Pick<UsageAchievement, "metric" | "threshold">,
-): string {
+export function achievementRequirement(item: AchievementTierRef): string {
   return METRIC_SPECS[item.metric].requirement(item.threshold);
 }
 
 /** The compact progress caption on an in-progress goal. */
-export function achievementProgress(item: UsageAchievement): string {
+export function achievementProgress(item: AchievementProgressRef): string {
   return METRIC_SPECS[item.metric].progress(item.progress, item.threshold);
 }
 
 /** The exact-numbers line behind the compact caption (hover tooltip). */
-export function achievementExact(item: UsageAchievement): string {
+export function achievementExact(item: AchievementProgressRef): string {
   return METRIC_SPECS[item.metric].exact(item.progress, item.threshold);
 }

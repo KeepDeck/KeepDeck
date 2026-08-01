@@ -5,7 +5,12 @@ import {
 } from "../history/event";
 import { addMoney } from "../money";
 import { DAY_MS, HOUR_MS, utcDayStart } from "../time";
-import { achievementId, LADDERS, type AchievementMetric } from "./catalog";
+import {
+  achievementId,
+  earnedTierCount,
+  LADDERS,
+  type AchievementMetric,
+} from "./catalog";
 
 /** Longest-consecutive-days tracker, ORDER-INDEPENDENT: adding a day merges
  * its neighboring runs in O(1) (run lengths are kept valid at run
@@ -144,9 +149,8 @@ export function createAchievementEngine(): AchievementEngine {
     earnedIds() {
       const ids = new Set<string>();
       for (const ladder of LADDERS) {
-        const value = values[ladder.metric]();
-        for (const tier of ladder.tiers) {
-          if (value < tier.threshold) break;
+        const earned = earnedTierCount(values[ladder.metric](), ladder.tiers);
+        for (const tier of ladder.tiers.slice(0, earned)) {
           ids.add(achievementId(ladder.metric, tier.threshold));
         }
       }

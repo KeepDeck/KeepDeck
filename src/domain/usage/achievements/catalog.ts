@@ -27,24 +27,6 @@ export type AchievementMetric =
   | "models"
   | "workspaces";
 
-export interface UsageAchievement {
-  id: string;
-  metric: AchievementMetric;
-  threshold: number;
-  title: string;
-  icon: string;
-  /** The ledger instant that crossed the threshold; null while locked. */
-  achievedAt: number | null;
-  /** The metric's current all-time value. */
-  progress: number;
-}
-
-export interface UsageAchievementLadder {
-  metric: AchievementMetric;
-  /** Ascending; earned prefix, then locked. */
-  tiers: UsageAchievement[];
-}
-
 interface TierSpec {
   threshold: number;
   title: string;
@@ -182,6 +164,21 @@ export const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
     ],
   },
 ];
+
+/** THE earned predicate: how many of a ladder's ascending tiers the
+ * current value meets — the earned prefix. Both consumers (the engine's
+ * eligibility set and the gallery's crossing cursor) answer through here,
+ * and so does its one assumption: every metric is monotonically
+ * non-decreasing, so earned tiers never un-earn. A future non-monotonic
+ * metric (a CURRENT streak, say) must change this function, not fork it. */
+export function earnedTierCount(
+  value: number,
+  tiers: readonly { threshold: number }[],
+): number {
+  let count = 0;
+  while (count < tiers.length && value >= tiers[count].threshold) count += 1;
+  return count;
+}
 
 /** THE tier-id format. Persisted in the congratulated set on disk, so it is
  * a wire format: changing it un-congratulates every past award. */

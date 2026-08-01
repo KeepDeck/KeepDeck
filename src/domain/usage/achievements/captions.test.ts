@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { achievementProgress, achievementRequirement } from "./captions";
-import type { UsageAchievement } from "./catalog";
+import {
+  achievementPercent,
+  achievementProgress,
+  achievementRequirement,
+} from "./captions";
+import type { UsageAchievement } from "./ladders";
 
 /** Captions are pure phrasing over (metric, threshold, progress) — tiers
  * are built literally here, no ladder computation involved. */
@@ -24,5 +28,13 @@ describe("captions", () => {
     expect(achievementRequirement(streak)).toBe("3 active days in a row");
     expect(achievementProgress(streak)).toBe("1 / 3");
     expect(achievementRequirement(tier({}))).toBe("1M tokens all-time");
+  });
+
+  it("owns the one progress-fraction rule: unfloored for the bar, capped at 100", () => {
+    // The bar renders the raw fraction; the tooltip floors THIS number —
+    // the two can differ in precision but never in the underlying rule.
+    expect(achievementPercent({ progress: 997, threshold: 1_000 })).toBeCloseTo(99.7);
+    expect(achievementPercent({ progress: 2_000, threshold: 1_000 })).toBe(100);
+    expect(achievementPercent({ progress: 0, threshold: 1_000 })).toBe(0);
   });
 });
