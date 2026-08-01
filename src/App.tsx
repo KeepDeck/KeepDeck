@@ -81,9 +81,10 @@ function App() {
     setForkDialog,
     setFrozenAck,
     setRailCollapsed,
-    setSettingsOpen,
-    setSettingsSection,
-    setSkillsOpen,
+    openSettings,
+    closeSettings,
+    openSkills,
+    closeSkills,
     openStats,
     closeStats,
     selectStatsTab,
@@ -129,9 +130,8 @@ function App() {
               onClick={() => {
                 if (updateState.phase === "ready") {
                   void restartToUpdate();
-                } else if (canOpenDialog) {
-                  setSettingsSection("updates");
-                  setSettingsOpen(true);
+                } else {
+                  openSettings("updates");
                 }
               }}
               disabled={
@@ -209,7 +209,7 @@ function App() {
           <button
             type="button"
             className="bar__icon"
-            onClick={() => setSkillsOpen(true)}
+            onClick={() => void openSkills()}
             disabled={!canOpenDialog}
             title="Skills"
             aria-label="Open skills"
@@ -219,10 +219,7 @@ function App() {
           <button
             type="button"
             className="bar__icon"
-            onClick={() => {
-              setSettingsSection(undefined);
-              setSettingsOpen(true);
-            }}
+            onClick={() => void openSettings()}
             disabled={!canOpenDialog}
             title="Settings"
             aria-label="Open settings"
@@ -413,10 +410,7 @@ function App() {
           {settingsOpen && (
             <SettingsDialog
               initialSectionId={settingsSection}
-              onClose={() => {
-                setSettingsOpen(false);
-                setSettingsSection(undefined);
-              }}
+              onClose={closeSettings}
             />
           )}
           {statsOpen && (
@@ -429,7 +423,7 @@ function App() {
           {skillsOpen && (
             <SkillsDialog
               activeWs={active ? { id: active.id, name: active.name } : null}
-              onClose={() => setSkillsOpen(false)}
+              onClose={closeSkills}
             />
           )}
           {closeFlow.closing && (

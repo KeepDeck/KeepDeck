@@ -5,7 +5,6 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { isStatsTab, type StatsTab } from "../domain/usage/statsTabs";
 import { useAgentDialog } from "./useAgentDialog";
 import { useAgentRunView } from "./useAgentRunView";
 import { useAgents } from "./useAgents";
@@ -17,6 +16,7 @@ import { useDragDrop } from "./useDragDrop";
 import { useGitHead } from "./useGitHead";
 import { useMenuHotkeys } from "./useMenuHotkeys";
 import { useMinimizeMode } from "./useMinimizeMode";
+import { useModalRouter } from "./useModalRouter";
 import { setSourceVisibilityProbe } from "./notificationCenter";
 import { workspaceForNotification } from "./notificationNavigation";
 import { useNotifications } from "./useNotifications";
@@ -107,11 +107,6 @@ export function useAppController() {
     setAlerts((queue) => queue.slice(1));
     setAlertSeq((n) => n + 1);
   };
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [statsOpen, setStatsOpen] = useState(false);
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<string | undefined>();
-  const [statsTab, setStatsTab] = useState<StatsTab>("overview");
   const agentFlow = useAgentDialog(deck, agents, {
     onResumeFailed: (message) =>
       pushAlert("Could not resume the session", message),
@@ -135,51 +130,25 @@ export function useAppController() {
     frozen && !frozenAck ? frozen : null,
   ];
   const dialogOpen = transactions.some((t) => t !== null);
-  const canOpenDialog =
-    !dialogOpen && !settingsOpen && !statsOpen && !skillsOpen;
-
-  /** THE owner of the Stats open/close/tab sequence — every entry point
-   * (toolbar, popover footer, notification deep link, future command) goes
-   * through here, so the tab can never go stale and a deep link arriving
-   * while the dialog is already open switches tabs instead of being
-   * swallowed. */
-  const openStats = (tab?: StatsTab | null): boolean => {
-    const next = isStatsTab(tab) ? tab : undefined;
-    if (statsOpen) {
-      if (next !== undefined) setStatsTab(next);
-      return true;
-    }
-    if (!canOpenDialog) return false;
-    setStatsTab(next ?? "overview");
-    setStatsOpen(true);
-    return true;
-  };
-  const closeStats = () => {
-    setStatsOpen(false);
-    setStatsTab("overview");
-  };
-  /** The third verb of the sequence gets a function too — future tab-change
-   * policy (analytics, prefetch) has a seam instead of a raw setter. */
-  const selectStatsTab = (tab: StatsTab) => setStatsTab(tab);
+  /** The dialog layer (settings / statistics / skills) has one owner: its
+   * flags, gate and open/close/retarget verbs all live in the router. */
+  const modal = useModalRouter({ transactionOpen: dialogOpen });
+  const canOpenDialog = modal.canOpenDialog;
   const applicationUi = useRef({
     agents,
-    canOpenDialog,
-    openStats,
+    openSettings: modal.openSettings,
+    openStats: modal.openStats,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
     setCreating,
-    setSettingsOpen,
-    setSettingsSection,
   });
   applicationUi.current = {
     agents,
-    canOpenDialog,
-    openStats,
+    openSettings: modal.openSettings,
+    openStats: modal.openStats,
     pushAlert,
     requestCloseAgent: closeFlow.requestCloseAgent,
     setCreating,
-    setSettingsOpen,
-    setSettingsSection,
   };
   useEffect(() => {
     const current = () => applicationUi.current;
@@ -187,12 +156,8 @@ export function useAppController() {
       agents: () => current().agents,
       requestCloseAgent: (wsId, paneId, label) =>
         current().requestCloseAgent(wsId, paneId, label),
-      openSettings: (sectionId) => {
-        if (!current().canOpenDialog) return false;
-        current().setSettingsSection(sectionId ?? undefined);
-        current().setSettingsOpen(true);
-        return true;
-      },
+      openSettings: (sectionId) =>
+        current().openSettings(sectionId ?? undefined),
       openUsage: (tab) => current().openStats(tab),
       setCreating: (next) => current().setCreating(next),
       pushAlert: (title, message) => current().pushAlert(title, message),
@@ -228,8 +193,7 @@ export function useAppController() {
   const dockCovers = dockMode === "floating" && dockTabs.length > 0 && !!active;
   const activeCount = active?.panes.length ?? 0;
   const atCap = activeCount >= MAX_PANES;
-  const modalOpen =
-    showForm || dialogOpen || settingsOpen || statsOpen || skillsOpen;
+  const modalOpen = showForm || dialogOpen || modal.anyDialogOpen;
   const canAddAgent = !!active && !atCap && !modalOpen;
   const visibilityRef = useRef({
     activeId: deck.activeId,
@@ -239,9 +203,9 @@ export function useAppController() {
     minimizeOn,
     modalOpen,
     dockCovers,
-    statsOpen,
-    statsTab,
-    statsCovered: dialogOpen || showForm,
+    statsOpen: modal.statsOpen,
+    statsTab: modal.statsTab,
+    statsCovered: dialogOpen,
   });
   visibilityRef.current = {
     activeId: deck.activeId,
@@ -251,12 +215,14 @@ export function useAppController() {
     minimizeOn,
     modalOpen,
     dockCovers,
-    statsOpen,
-    statsTab,
-    // What can paint OVER the Stats dialog: transaction confirms and the
-    // create form. Deliberately NOT modalOpen — that term contains
-    // statsOpen itself and would make the stats branch always false.
-    statsCovered: dialogOpen || showForm,
+    statsOpen: modal.statsOpen,
+    statsTab: modal.statsTab,
+    // What can paint OVER the Stats dialog: transaction confirms only.
+    // Deliberately NOT modalOpen — that term contains statsOpen itself and
+    // would make the stats branch always false. And deliberately NOT the
+    // create form: it renders in the deck overlay (z 10) UNDER the portaled
+    // stats dialog (z 100), so stats stays fully visible above it.
+    statsCovered: dialogOpen,
   };
   useEffect(() => {
     setSourceVisibilityProbe((source) => {
@@ -341,11 +307,7 @@ export function useAppController() {
       );
       if (target) deck.toggleFocus(target.wsId, target.paneId);
     },
-    openSettings: () => {
-      if (!canOpenDialog) return;
-      setSettingsSection(undefined);
-      setSettingsOpen(true);
-    },
+    openSettings: () => void modal.openSettings(),
   });
   const handleSelectWorkspace = (id: string) => {
     runtime.application.selectWorkspace(id);
@@ -409,21 +371,22 @@ export function useAppController() {
     setForkDialog,
     setFrozenAck,
     setRailCollapsed,
-    setSettingsOpen,
-    setSettingsSection,
-    setSkillsOpen,
-    openStats,
-    closeStats,
-    selectStatsTab,
+    openSettings: modal.openSettings,
+    closeSettings: modal.closeSettings,
+    openSkills: modal.openSkills,
+    closeSkills: modal.closeSkills,
+    openStats: modal.openStats,
+    closeStats: modal.closeStats,
+    selectStatsTab: modal.selectStatsTab,
     settings,
-    settingsOpen,
-    settingsSection,
+    settingsOpen: modal.settingsOpen,
+    settingsSection: modal.settingsSection,
     showBell,
     showForm,
-    skillsOpen,
+    skillsOpen: modal.skillsOpen,
     specByPane,
-    statsOpen,
-    statsTab,
+    statsOpen: modal.statsOpen,
+    statsTab: modal.statsTab,
     unavailableReasons,
     updateState,
     usageLiveAgents,
