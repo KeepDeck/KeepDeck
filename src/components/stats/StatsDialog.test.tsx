@@ -65,6 +65,13 @@ describe("UsageStats", () => {
     vi.useRealTimers();
   });
 
+  const clickTab = (label: string) => {
+    const tab = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+      (button) => button.textContent === label,
+    )!;
+    act(() => tab.click());
+  };
+
   it("renders as its own global dialog, not a settings section", () => {
     const close = vi.fn();
     act(() => root.render(createElement(StatsDialog, { onClose: close })));
@@ -79,15 +86,19 @@ describe("UsageStats", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("shows period totals plus model and session drill-downs", () => {
+  it("shows period totals on Overview with model and session drill-down tabs", () => {
     act(() => root.render(createElement(UsageStats)));
 
     expect(host.textContent).toContain("1.6k");
     expect(host.textContent).toContain("≈$0.25");
+    expect(host.textContent).toContain("API estimates");
+
+    clickTab("Models");
     expect(host.textContent).toContain("gpt-5.6-terra");
+
+    clickTab("Sessions");
     expect(host.textContent).toContain("auth-refactor");
     expect(host.textContent).toContain("KeepDeck · codex · session-…");
-    expect(host.textContent).toContain("API estimates");
   });
 
   it("switches time ranges without remounting", () => {
@@ -139,6 +150,7 @@ describe("UsageStats", () => {
     };
     usage.snapshot = { accounts: new Map([["codex", account]]), panes: new Map() };
     act(() => root.render(createElement(UsageStats)));
+    clickTab("Providers");
 
     const providers = host.querySelector('[aria-label="Providers"]')!;
     expect(providers.textContent).toContain("codex");
@@ -183,6 +195,7 @@ describe("UsageStats", () => {
     usage.snapshot = { accounts: new Map([["claude", account]]), panes: new Map() };
     history.snapshot = { ready: true, events: [usageEvent({ agent: "claude" })], error: null };
     act(() => root.render(createElement(UsageStats)));
+    clickTab("Providers");
 
     const providers = host.querySelector('[aria-label="Providers"]')!;
     const rows = [...providers.querySelectorAll(".stats__row")];
@@ -205,6 +218,7 @@ describe("UsageStats", () => {
     };
     usage.snapshot = { accounts: new Map([["kimi", account]]), panes: new Map() };
     act(() => root.render(createElement(UsageStats)));
+    clickTab("Providers");
 
     const providers = host.querySelector('[aria-label="Providers"]')!;
     expect(providers.textContent).toContain("no usage this window");
@@ -240,6 +254,8 @@ describe("UsageStats", () => {
       card.textContent?.startsWith("Cost"),
     )!;
     expect(costCard.textContent).toBe("Cost—");
+
+    clickTab("Sessions");
     const session = host.querySelector('[aria-label="Sessions"]')!;
     expect(session.textContent).toContain("—");
   });

@@ -67,14 +67,30 @@ export function StatsDialog({ onClose }: { onClose(): void }) {
   );
 }
 
+type StatsTab = "overview" | "providers" | "models" | "sessions";
+
+const TABS: readonly { id: StatsTab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "providers", label: "Providers" },
+  { id: "models", label: "Models" },
+  { id: "sessions", label: "Sessions" },
+];
+
 /** Detailed local usage analytics. Account-limit windows deliberately remain
- * in the top-bar popover; this view consumes only the durable pane ledger. */
+ * in the top-bar popover; this view consumes the durable pane ledger plus
+ * the live account snapshot for the Providers tab. The period switcher is
+ * global; the Providers tab ignores it (subscription windows run on the
+ * provider's clock) and Milestones are all-time by definition. */
 export function UsageStats() {
   const history = useUsageHistorySnapshot();
   const { accounts } = useUsage();
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
+  const [tab, setTab] = useState<StatsTab>("overview");
   const now = Date.now();
   const stats = queryUsageStats(history.events, period, now);
+  const periodEmpty = (
+    <p className="stats__empty">No usage recorded in this period yet.</p>
+  );
 
   return (
     <div className="stats">
@@ -97,6 +113,20 @@ export function UsageStats() {
           ))}
         </div>
       </div>
+      <div className="stats__tabs" role="tablist" aria-label="Statistics sections">
+        {TABS.map((candidate) => (
+          <button
+            key={candidate.id}
+            type="button"
+            role="tab"
+            aria-selected={candidate.id === tab}
+            className={`stats__tab${candidate.id === tab ? " stats__tab--active" : ""}`}
+            onClick={() => setTab(candidate.id)}
+          >
+            {candidate.label}
+          </button>
+        ))}
+      </div>
 
       {!history.ready ? (
         <p className="stats__empty">Loading usage history…</p>
@@ -104,8 +134,6 @@ export function UsageStats() {
         <p className="stats__empty" role="alert">
           Usage history is unavailable: {history.error}
         </p>
-      ) : stats.eventCount === 0 ? (
-        <p className="stats__empty">No usage recorded in this period yet.</p>
       ) : (
         <>
           {history.error && (
@@ -113,32 +141,61 @@ export function UsageStats() {
               Some history could not be loaded: {history.error}
             </p>
           )}
-          <div className="stats__summary">
-            <Summary label="Tokens" value={formatTokens(stats.totals.totalTokens)} />
-            <Summary
-              label="Cost"
-              value={displayCost(
-                stats.totals.providerCostUsd,
-                stats.totals.costEvents,
+          {tab === "overview" && (
+            <>
+              {stats.eventCount === 0 ? (
+                periodEmpty
+              ) : (
+                <>
+                  <div className="stats__summary">
+                    <Summary
+                      label="Tokens"
+                      value={formatTokens(stats.totals.totalTokens)}
+                    />
+                    <Summary
+                      label="Cost"
+                      value={displayCost(
+                        stats.totals.providerCostUsd,
+                        stats.totals.costEvents,
+                      )}
+                    />
+                    <Summary label="Sessions" value={String(stats.sessionCount)} />
+                  </div>
+                  <Highlights
+                    recap={usageRecap(history.events, period, now)}
+                    period={period}
+                  />
+                  <p className="stats__coverage">
+                    {costCoverage(
+                      stats.sessions.filter((row) => row.costEvents > 0).length,
+                      stats.sessionCount,
+                    )}
+                  </p>
+                </>
               )}
-            />
-            <Summary label="Sessions" value={String(stats.sessionCount)} />
-          </div>
-          <Highlights
-            recap={usageRecap(history.events, period, now)}
-            period={period}
-          />
-          <p className="stats__coverage">
-            {costCoverage(
-              stats.sessions.filter((row) => row.costEvents > 0).length,
-              stats.sessionCount,
-            )}
-          </p>
-
-          <Providers accounts={accounts} events={history.events} now={now} />
-          <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
-          <StatsTable title="Sessions" rows={stats.sessions} now={now} mode="session" />
-          <Milestones events={history.events} />
+              <Milestones events={history.events} />
+            </>
+          )}
+          {tab === "providers" && (
+            <Providers accounts={accounts} events={history.events} now={now} />
+          )}
+          {tab === "models" &&
+            (stats.eventCount === 0 ? (
+              periodEmpty
+            ) : (
+              <StatsTable title="Models" rows={stats.byModel} now={now} mode="model" />
+            ))}
+          {tab === "sessions" &&
+            (stats.eventCount === 0 ? (
+              periodEmpty
+            ) : (
+              <StatsTable
+                title="Sessions"
+                rows={stats.sessions}
+                now={now}
+                mode="session"
+              />
+            ))}
         </>
       )}
     </div>
@@ -160,7 +217,14 @@ function Providers({
   now: number;
 }) {
   const rows = providerWindowRows(accounts, events, now);
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    return (
+      <p className="stats__empty">
+        No provider reports yet. Windows appear once a CLI reports its account
+        limits.
+      </p>
+    );
+  }
   return (
     <section className="stats__section">
       <h3>Providers</h3>
