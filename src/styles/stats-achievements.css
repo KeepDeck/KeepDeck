@@ -1,0 +1,148 @@
+/* The Achievements tab — badge cards, the locked tail, progress bars and
+   the hover detail tooltip. */
+.stats__achievements {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.stats__achievement {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #1c2230;
+  border-radius: 10px;
+  background: #0b0e14;
+  /* A badge is not text: keep the arrow cursor and swallow selection. */
+  cursor: default;
+  user-select: none;
+}
+
+/* Hover detail card: exact numbers behind the compact badge. `display:
+   none` at rest — a merely-invisible box still counts toward the scroll
+   container's overflow, and forty hidden tips inflated the Achievements
+   tab's scrollable area and grew a horizontal scrollbar. The hover intent
+   is an animation-delay (backwards fill keeps it transparent while
+   waiting); pointer-events stay off so it never traps the cursor. */
+.stats__achievement-tip {
+  position: absolute;
+  /* Below the card: the top row hugs the scroll container's edge, so an
+     upward tip would clip exactly where hovering starts. */
+  top: calc(100% + 6px);
+  left: 8px;
+  z-index: 30;
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 10px;
+  border: 1px solid #1c2230;
+  border-radius: 8px;
+  background: #10141c;
+  color: #9aa3af;
+  font-size: 11px;
+  pointer-events: none;
+}
+
+/* The hovered card also lifts above its later siblings: without this the
+   next card's paint order buried the tooltip (field report — the Locked
+   grid rendered tips UNDER the row below). */
+.stats__achievement:hover {
+  z-index: 1;
+}
+
+.stats__achievement:hover .stats__achievement-tip {
+  display: flex;
+  animation: stats-tip-in 0.15s ease 0.45s backwards;
+}
+
+@keyframes stats-tip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stats__achievement:hover .stats__achievement-tip {
+    animation: none;
+  }
+}
+
+.stats__achievement-tip b {
+  color: #c5c8c6;
+  font-size: 12px;
+}
+
+.stats__achievement-tip-icon {
+  display: inline-block;
+}
+
+/* An unearned badge stays colorless everywhere — the tooltip must not leak
+   the full-color icon the card deliberately withholds. */
+.stats__achievement--locked .stats__achievement-tip-icon {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.stats__achievement-icon {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.stats__achievement b {
+  color: #c5c8c6;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stats__achievement small {
+  color: #596273;
+  font-size: 10px;
+}
+
+.stats__achievement-earned {
+  color: #9aa3af;
+}
+
+.stats__achievement--locked {
+  border-style: dashed;
+}
+
+.stats__achievement--locked .stats__achievement-icon {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+/* The locked tail — future tiers behind the in-progress goal: visible so
+   the road ahead is known, dimmed so they never compete with it. The
+   dimming sits on the card's own children, NEVER the card: opacity on the
+   container made the tooltip translucent and minted a stacking context per
+   card that trapped it under the next row (user-reported). */
+.stats__achievement--future > .stats__achievement-icon,
+.stats__achievement--future > b,
+.stats__achievement--future > small {
+  opacity: 0.55;
+}
+
+.stats__achievement-progress {
+  position: relative;
+  display: block;
+  height: 3px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: #1c2230;
+  overflow: hidden;
+}
+
+.stats__achievement-progress i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: #58b368;
+}
