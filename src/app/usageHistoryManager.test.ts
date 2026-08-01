@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  encodeUsageEvent,
-  USAGE_HISTORY_RETENTION_MS,
-  type UsageEventV2,
-} from "../domain/usage/history";
+import { encodeUsageEvent, type UsageEventV2 } from "../domain/usage/history";
 
 const ipc = vi.hoisted(() => ({
   loadUsageHistory: vi.fn<() => Promise<string[]>>(),
@@ -60,7 +56,7 @@ describe("usageHistoryManager", () => {
   afterEach(() => resetUsageHistoryManager());
 
   it("records only positive deltas from cumulative pane snapshots", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     await recordPaneUsage(
       {
         agent: "opencode",
@@ -105,7 +101,7 @@ describe("usageHistoryManager", () => {
         }),
       ),
     ]);
-    await initUsageHistory(NOW);
+    await initUsageHistory();
 
     await recordPaneUsage(
       {
@@ -122,7 +118,7 @@ describe("usageHistoryManager", () => {
   });
 
   it("never invents a monetary cost when the CLI reports none", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     await recordPaneUsage(
       {
         agent: "codex",
@@ -141,7 +137,7 @@ describe("usageHistoryManager", () => {
   });
 
   it("records an explicit initial provider cost of zero", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     await recordPaneUsage(
       {
         agent: "opencode",
@@ -160,7 +156,7 @@ describe("usageHistoryManager", () => {
   });
 
   it("merges independent cumulative token and provider-cost snapshots", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     const claudeContext = { ...context, sessionId: "claude-session" };
     await recordPaneUsage(
       {
@@ -203,7 +199,7 @@ describe("usageHistoryManager", () => {
   });
 
   it("uses the first resumed cumulative report only as a baseline", async () => {
-    await initUsageHistory(NOW);
+    await initUsageHistory();
     const claudeContext = {
       ...context,
       sessionId: "resumed-claude",
@@ -254,36 +250,39 @@ describe("usageHistoryManager", () => {
     });
   });
 
-  it("deduplicates damage and retains one expired baseline checkpoint", async () => {
-    const expired = event({
+  it("deduplicates damage while keeping history whole — age never prunes", async () => {
+    const yearsOld = event({
       eventId: "old-latest",
-      occurredAt: NOW - USAGE_HISTORY_RETENTION_MS - 1,
+      occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000,
       capturedAt: NOW - 10,
       observation: { tokens: { input: 50 } },
     });
     const older = event({
       eventId: "old-older",
-      occurredAt: NOW - USAGE_HISTORY_RETENTION_MS - 2,
+      occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 - 1,
       capturedAt: NOW - 20,
     });
     const current = event({ eventId: "current", sessionId: "session-2", rootSessionId: "session-2" });
     ipc.loadUsageHistory.mockResolvedValue([
       encodeUsageEvent(older),
       "torn{",
-      encodeUsageEvent(expired),
+      encodeUsageEvent(yearsOld),
       encodeUsageEvent(current),
       encodeUsageEvent(current),
     ]);
 
-    await initUsageHistory(NOW);
+    await initUsageHistory();
 
     expect(getUsageHistorySnapshot().events.map((item) => item.eventId)).toEqual([
+      "old-older",
+      "old-latest",
       "current",
     ]);
     const compacted = ipc.compactUsageHistory.mock.calls[0][0].map((line) =>
       JSON.parse(line),
     );
     expect(compacted.map((item) => item.eventId)).toEqual([
+      "old-older",
       "old-latest",
       "current",
     ]);
@@ -300,7 +299,7 @@ describe("usageHistoryManager", () => {
       }),
     ]);
 
-    await initUsageHistory(NOW);
+    await initUsageHistory();
 
     expect(getUsageHistorySnapshot().events).toHaveLength(1);
     expect(getUsageHistorySnapshot().events[0]).toMatchObject({

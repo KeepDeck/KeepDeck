@@ -3,7 +3,6 @@ import {
   decodeUsageEventLine,
   encodeUsageEvent,
   USAGE_EVENT_SCHEMA_VERSION,
-  USAGE_HISTORY_RETENTION_MS,
   usageDelta,
   usageDeltaEmpty,
   usageSessionKey,
@@ -49,10 +48,10 @@ function emit(error: string | null = snapshot.error): void {
   for (const listener of [...listeners]) listener();
 }
 
-/** Load, validate and compact the history once. Analytics keeps 90 days;
- * one older latest event per session remains on disk solely as a cumulative
- * baseline, preventing resume/replay from counting it again. */
-export function initUsageHistory(now = Date.now()): Promise<void> {
+/** Load, validate and compact the history once. History is never pruned by
+ * age — the ledger IS the all-time record; compaction only drops torn,
+ * duplicate and schema-migrated lines. */
+export function initUsageHistory(): Promise<void> {
   if (initialization) return initialization;
   initialized = true;
   initialization = loadUsageHistory()
@@ -78,14 +77,9 @@ export function initUsageHistory(now = Date.now()): Promise<void> {
         }
       }
 
-      const cutoff = now - USAGE_HISTORY_RETENTION_MS;
-      events = decoded.filter((event) => event.occurredAt >= cutoff);
-      const retainedIds = new Set(events.map((event) => event.eventId));
-      for (const event of latestBySession.values()) retainedIds.add(event.eventId);
-      const retained = decoded.filter((event) => retainedIds.has(event.eventId));
-      if (retained.length !== decoded.length) needsCompact = true;
+      events = decoded;
       if (needsCompact) {
-        await compactUsageHistory(retained.map(encodeUsageEvent));
+        await compactUsageHistory(decoded.map(encodeUsageEvent));
       }
       emit(null);
     })
@@ -103,7 +97,7 @@ export function recordPaneUsage(
   context: UsageCaptureContext,
   capturedAt = Date.now(),
 ): Promise<void> {
-  if (!initialized) void initUsageHistory(capturedAt);
+  if (!initialized) void initUsageHistory();
   const run = async () => {
     await initialization;
     const key = usageSessionKey({ agent: usage.agent, sessionId: context.sessionId });
@@ -150,10 +144,8 @@ export function recordPaneUsage(
     await appendUsageHistory([encodeUsageEvent(event)]);
     eventIds.add(event.eventId);
     baselines.set(key, delta.observation);
-    if (event.occurredAt >= capturedAt - USAGE_HISTORY_RETENTION_MS) {
-      events = [...events, event];
-      emit(null);
-    }
+    events = [...events, event];
+    emit(null);
   };
   const result = writeQueue.catch(() => {}).then(run);
   writeQueue = result;

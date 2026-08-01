@@ -182,6 +182,20 @@ describe("queryUsageStats", () => {
     });
   });
 
+  it("spans the entire ledger for the all period", () => {
+    const stats = queryUsageStats(
+      [
+        base,
+        { ...base, eventId: "ancient", occurredAt: 0, tokens: { input: 9_999 } },
+      ],
+      "all",
+      24 * 60 * 60 * 1_000 + 1_000,
+    );
+    expect(stats.period).toBe("all");
+    expect(stats.eventCount).toBe(2);
+    expect(stats.totals.totalTokens).toBe(110 + 9_999);
+  });
+
   it("does not treat unavailable provider cost as zero", () => {
     const stats = queryUsageStats(
       [{ ...base, costUsd: undefined, costSource: "unavailable" }],

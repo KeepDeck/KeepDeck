@@ -1,8 +1,5 @@
 import type { PaneUsage, TokenCounts } from "@keepdeck/plugin-api";
 
-/** Durable analytics horizon. Older events are invisible to queries and are
- * compacted down to at most one baseline checkpoint per session. */
-export const USAGE_HISTORY_RETENTION_MS = 90 * 24 * 60 * 60 * 1_000;
 export const USAGE_EVENT_SCHEMA_VERSION = 2 as const;
 
 export type UsageCostSource = "provider" | "unavailable";
@@ -337,6 +334,10 @@ export function tokenTotal(tokens: TokenCounts): number {
 
 export type UsageStatsPeriodDays = 1 | 7 | 30 | 90;
 
+/** A Stats aggregation window: a rolling day count ending at `now`, or the
+ * entire ledger — history is never pruned, so "all" is genuinely all-time. */
+export type UsageStatsPeriod = UsageStatsPeriodDays | "all";
+
 export interface UsageStatsTotals {
   tokens: TokenCounts;
   totalTokens: number;
@@ -355,7 +356,7 @@ export interface UsageStatsRow extends UsageStatsTotals {
 }
 
 export interface UsageStats {
-  periodDays: UsageStatsPeriodDays;
+  period: UsageStatsPeriod;
   eventCount: number;
   sessionCount: number;
   totals: UsageStatsTotals;
@@ -367,10 +368,10 @@ export interface UsageStats {
  * period boundaries and tests stay deterministic. */
 export function queryUsageStats(
   events: readonly UsageEventV2[],
-  periodDays: UsageStatsPeriodDays,
+  period: UsageStatsPeriod,
   now = Date.now(),
 ): UsageStats {
-  const cutoff = now - periodDays * 24 * 60 * 60 * 1_000;
+  const cutoff = period === "all" ? -Infinity : now - period * 24 * 60 * 60 * 1_000;
   const selected = events.filter(
     (event) => event.occurredAt >= cutoff && event.occurredAt <= now,
   );
@@ -402,7 +403,7 @@ export function queryUsageStats(
         right.lastOccurredAt - left.lastOccurredAt,
     );
   return {
-    periodDays,
+    period,
     eventCount: selected.length,
     sessionCount: sessionRows.size,
     totals,

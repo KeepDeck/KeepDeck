@@ -3,18 +3,19 @@ import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import { formatAge, formatTokens } from "../../domain/usage";
 import {
   queryUsageStats,
-  type UsageStatsPeriodDays,
+  type UsageStatsPeriod,
   type UsageStatsRow,
 } from "../../domain/usage/history";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
 
-const PERIODS: readonly { days: UsageStatsPeriodDays; label: string }[] = [
-  { days: 1, label: "24h" },
-  { days: 7, label: "7d" },
-  { days: 30, label: "30d" },
-  { days: 90, label: "90d" },
+const PERIODS: readonly { period: UsageStatsPeriod; label: string }[] = [
+  { period: 1, label: "24h" },
+  { period: 7, label: "7d" },
+  { period: 30, label: "30d" },
+  { period: 90, label: "90d" },
+  { period: "all", label: "All" },
 ];
 
 /** Global usage analytics has its own app surface: it is observational data,
@@ -50,7 +51,7 @@ export function StatsDialog({ onClose }: { onClose(): void }) {
  * in the top-bar popover; this view consumes only the durable pane ledger. */
 export function UsageStats() {
   const history = useUsageHistorySnapshot();
-  const [period, setPeriod] = useState<UsageStatsPeriodDays>(7);
+  const [period, setPeriod] = useState<UsageStatsPeriod>(7);
   const now = Date.now();
   const stats = queryUsageStats(history.events, period, now);
 
@@ -59,16 +60,16 @@ export function UsageStats() {
       <div className="stats__head">
         <p className="stats__intro">
           Local token history and provider-reported cost estimates across every CLI
-          and workspace. Retained for 90 days.
+          and workspace.
         </p>
         <div className="stats__period" aria-label="Statistics period">
           {PERIODS.map((candidate) => (
             <button
-              key={candidate.days}
+              key={candidate.label}
               type="button"
-              className={candidate.days === period ? "stats__period--active" : ""}
-              aria-pressed={candidate.days === period}
-              onClick={() => setPeriod(candidate.days)}
+              className={candidate.period === period ? "stats__period--active" : ""}
+              aria-pressed={candidate.period === period}
+              onClick={() => setPeriod(candidate.period)}
             >
               {candidate.label}
             </button>

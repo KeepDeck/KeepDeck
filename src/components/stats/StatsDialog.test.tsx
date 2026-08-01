@@ -97,6 +97,22 @@ describe("UsageStats", () => {
     expect(host.textContent).toContain("No usage recorded");
   });
 
+  it("reaches arbitrarily old events through the All period", () => {
+    history.snapshot = {
+      ready: true,
+      events: [usageEvent({ occurredAt: NOW - 400 * 24 * 60 * 60 * 1_000 })],
+      error: null,
+    };
+    act(() => root.render(createElement(UsageStats)));
+    expect(host.textContent).toContain("No usage recorded"); // default 7d
+
+    const all = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent === "All",
+    )!;
+    act(() => all.click());
+    expect(host.textContent).toContain("gpt-5.6-terra");
+  });
+
   it("does not render unknown cost as a fake zero", () => {
     history.snapshot = {
       ready: true,
