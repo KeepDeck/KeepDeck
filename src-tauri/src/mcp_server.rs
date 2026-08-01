@@ -23,13 +23,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use tauri::{Manager, State};
-
 /// Answers one request line with AT MOST one reply line — `None` for
 /// JSON-RPC notifications, which must never be answered. Shared by every
 /// connection thread, so it must be `Send + Sync` and safe to call
 /// concurrently.
-pub type LineHandler = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+pub(crate) type LineHandler = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// Managed state: the socket server, present while the toggle is on.
 #[derive(Default)]
@@ -49,7 +47,7 @@ struct Running {
 impl McpServer {
     /// Bring the socket up at `path`. Idempotent: enabling while running IS
     /// the state the caller asked for, so it reports the existing socket.
-    pub fn enable(&self, path: &Path, handler: LineHandler) -> Result<PathBuf, String> {
+    pub(crate) fn enable(&self, path: &Path, handler: LineHandler) -> Result<PathBuf, String> {
         let mut inner = self.inner.lock().expect("mcp server poisoned");
         if let Some(running) = inner.as_ref() {
             return Ok(running.path.clone());
@@ -62,7 +60,7 @@ impl McpServer {
 
     /// Tear the socket down: stop accepting, disconnect every client, remove
     /// the file. Idempotent — Off while off is a no-op, not an error.
-    pub fn disable(&self) {
+    pub(crate) fn disable(&self) {
         let running = self.inner.lock().expect("mcp server poisoned").take();
         if let Some(running) = running {
             stop(running);
@@ -179,40 +177,6 @@ fn stop(mut running: Running) {
         let _ = conn.shutdown(std::net::Shutdown::Both);
     }
     let _ = std::fs::remove_file(&running.path);
-}
-
-/// The socket path for this build's home. A missing home means no
-/// persistence environment at all — the transport refuses to run rather than
-/// invent a location.
-fn socket_path() -> Result<PathBuf, String> {
-    crate::paths::keepdeck_home()
-        .map(|home| home.join("mcp.sock"))
-        .ok_or_else(|| "no home directory to hold the MCP socket".to_string())
-}
-
-#[tauri::command(async)]
-pub fn mcp_enable(app: tauri::AppHandle, server: State<McpServer>) -> Result<String, String> {
-    let path = socket_path()?;
-    let served = server.enable(&path, crate::mcp_bridge::webview_handler(app))?;
-    log::info!("mcp: socket up at {}", served.display());
-    Ok(served.display().to_string())
-}
-
-#[tauri::command(async)]
-pub fn mcp_disable(server: State<McpServer>) {
-    server.disable();
-    log::info!("mcp: socket down");
-}
-
-/// The stdio command an MCP client spawns to reach the deck — shown beside
-/// the settings toggle so connecting is copy-paste. It names THIS binary:
-/// the shim rides the app executable (see mcp_shim.rs), so the command is
-/// valid on any machine the app is installed on, per install location.
-#[tauri::command]
-pub fn mcp_connection_command(app: tauri::AppHandle) -> Result<String, String> {
-    let binary =
-        tauri::process::current_binary(&app.env()).map_err(|e| e.to_string())?;
-    Ok(format!("{} --mcp-shim", binary.display()))
 }
 
 #[cfg(test)]

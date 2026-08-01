@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::mcp_server::LineHandler;
 
@@ -60,7 +60,7 @@ impl McpBridge {
     /// Deliver the webview's reply. False when the slot is gone — the
     /// request already timed out and answered its client, so a late reply
     /// is dropped rather than delivered twice.
-    fn resolve(&self, id: u64, reply: String) -> bool {
+    pub(crate) fn resolve(&self, id: u64, reply: String) -> bool {
         let sender = self
             .pending
             .lock()
@@ -79,7 +79,7 @@ impl McpBridge {
 
 /// A JSON-RPC error reply that echoes the request's id when the line parses
 /// — a conforming client correlates by id; garbage gets id null.
-pub fn error_reply(request_line: &str, code: i64, message: &str) -> String {
+fn error_reply(request_line: &str, code: i64, message: &str) -> String {
     let id = serde_json::from_str::<serde_json::Value>(request_line)
         .ok()
         .and_then(|v| v.get("id").cloned())
@@ -109,7 +109,7 @@ fn is_notification(line: &str) -> bool {
 /// Notifications cross fire-and-forget under the reserved id 0: nothing is
 /// parked, so a reply the pump might send anyway lands in `resolve`'s
 /// unknown-id drop.
-pub fn webview_handler(app: AppHandle) -> LineHandler {
+pub(crate) fn webview_handler(app: AppHandle) -> LineHandler {
     Arc::new(move |line: &str| {
         let bridge = app.state::<McpBridge>();
         if is_notification(line) {
@@ -148,13 +148,6 @@ pub fn webview_handler(app: AppHandle) -> LineHandler {
             }
         }
     })
-}
-
-#[tauri::command]
-pub fn mcp_respond(bridge: State<McpBridge>, id: u64, reply: String) {
-    if !bridge.resolve(id, reply) {
-        log::debug!("mcp: reply {id} arrived after its request was abandoned");
-    }
 }
 
 #[cfg(test)]

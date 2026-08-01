@@ -1,0 +1,63 @@
+//! The MCP feature's front door: the four Tauri commands, and the ONLY
+//! place the transport's parts are wired together — the socket lifecycle
+//! ([`crate::mcp_server`]), the webview bridge ([`crate::mcp_bridge`]) and
+//! the shim's flag ([`crate::mcp_shim`]). The parts never import each
+//! other; each stays testable alone, and a future second transport (or a
+//! per-connection identity handler) edits this file, not them.
+
+use std::path::PathBuf;
+
+use tauri::{Manager, State};
+
+use crate::mcp_bridge::{self, McpBridge};
+use crate::mcp_server::McpServer;
+use crate::mcp_shim::SHIM_FLAG;
+
+/// A missing home means no persistence environment at all — the transport
+/// refuses to run rather than invent a location.
+fn socket_path() -> Result<PathBuf, String> {
+    crate::paths::mcp_socket()
+        .ok_or_else(|| "no home directory to hold the MCP socket".to_string())
+}
+
+#[tauri::command(async)]
+pub fn mcp_enable(app: tauri::AppHandle, server: State<McpServer>) -> Result<String, String> {
+    let path = socket_path()?;
+    let served = server.enable(&path, mcp_bridge::webview_handler(app))?;
+    log::info!("mcp: socket up at {}", served.display());
+    Ok(served.display().to_string())
+}
+
+#[tauri::command(async)]
+pub fn mcp_disable(server: State<McpServer>) {
+    server.disable();
+    log::info!("mcp: socket down");
+}
+
+#[tauri::command]
+pub fn mcp_respond(bridge: State<McpBridge>, id: u64, reply: String) {
+    if !bridge.resolve(id, reply) {
+        log::debug!("mcp: reply {id} arrived after its request was abandoned");
+    }
+}
+
+/// The stdio invocation an MCP client spawns to reach the deck — command
+/// and args SEPARATELY, because that is the shape client configs take (a
+/// concatenated string breaks the moment the install path holds a space).
+/// It names THIS binary: the shim rides the app executable (mcp_shim.rs),
+/// so the command is valid per install, wherever it lives.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpConnection {
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+#[tauri::command]
+pub fn mcp_connection_command(app: tauri::AppHandle) -> Result<McpConnection, String> {
+    let binary = tauri::process::current_binary(&app.env()).map_err(|e| e.to_string())?;
+    Ok(McpConnection {
+        command: binary.display().to_string(),
+        args: vec![SHIM_FLAG.to_string()],
+    })
+}

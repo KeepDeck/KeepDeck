@@ -23,8 +23,11 @@ describe("mcp ipc", () => {
   });
 
   it("mcpConnectionCommand invokes mcp_connection_command", async () => {
-    invoke.mockResolvedValueOnce("/bin/keepdeck --mcp-shim");
-    await expect(mcpConnectionCommand()).resolves.toBe("/bin/keepdeck --mcp-shim");
+    invoke.mockResolvedValueOnce({ command: "/bin/keepdeck", args: ["--mcp-shim"] });
+    await expect(mcpConnectionCommand()).resolves.toEqual({
+      command: "/bin/keepdeck",
+      args: ["--mcp-shim"],
+    });
     expect(invoke).toHaveBeenCalledWith("mcp_connection_command");
   });
 });

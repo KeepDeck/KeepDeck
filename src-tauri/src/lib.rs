@@ -12,6 +12,7 @@ mod head_watch;
 mod kimi_usage;
 mod links;
 mod logging;
+mod mcp;
 mod mcp_bridge;
 mod mcp_server;
 mod mcp_shim;
@@ -151,10 +152,10 @@ pub fn run() {
             links::open_url,
             links::open_path,
             links::open_path_with,
-            mcp_server::mcp_enable,
-            mcp_server::mcp_disable,
-            mcp_bridge::mcp_respond,
-            mcp_server::mcp_connection_command,
+            mcp::mcp_enable,
+            mcp::mcp_disable,
+            mcp::mcp_respond,
+            mcp::mcp_connection_command,
             session::session_spawn,
             session::session_write,
             session::session_resize,

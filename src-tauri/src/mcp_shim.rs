@@ -15,6 +15,11 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
+/// The argv flag that turns the app binary into the shim. One home for the
+/// string: the connect command the settings page hands out is built from
+/// this same constant, so the producer and the parser cannot drift.
+pub(crate) const SHIM_FLAG: &str = "--mcp-shim";
+
 /// A parsed `--mcp-shim` invocation. `socket` overrides the default
 /// `<keepdeck_home>/mcp.sock` — test isolation and deliberate cross-flavor
 /// connects.
@@ -22,14 +27,21 @@ pub struct ShimMode {
     pub socket: Option<PathBuf>,
 }
 
-/// Detect the shim flag anywhere in argv; the value, when present, is the
-/// argument right after it. None means "boot the app normally".
+/// Detect the shim flag in argv (argv[0] is skipped — a binary named after
+/// the flag is not an invocation of it); the value, when present, is the
+/// argument right after it. A following token that looks like another flag
+/// is NOT a socket path — swallowing it would point the "cannot connect"
+/// hint at a socket literally named "--verbose". None means "boot the app
+/// normally".
 pub fn shim_mode(args: impl IntoIterator<Item = String>) -> Option<ShimMode> {
-    let mut args = args.into_iter();
+    let mut args = args.into_iter().skip(1);
     while let Some(arg) = args.next() {
-        if arg == "--mcp-shim" {
+        if arg == SHIM_FLAG {
             return Some(ShimMode {
-                socket: args.next().map(PathBuf::from),
+                socket: args
+                    .next()
+                    .filter(|value| !value.starts_with('-'))
+                    .map(PathBuf::from),
             });
         }
     }
@@ -41,10 +53,7 @@ pub fn shim_mode(args: impl IntoIterator<Item = String>) -> Option<ShimMode> {
 /// is nothing to connect to — with a hint, because "server not enabled" is
 /// the overwhelmingly likely cause.
 pub fn run(mode: ShimMode) -> i32 {
-    let Some(path) = mode
-        .socket
-        .or_else(|| crate::paths::keepdeck_home().map(|home| home.join("mcp.sock")))
-    else {
+    let Some(path) = mode.socket.or_else(crate::paths::mcp_socket) else {
         eprintln!("keepdeck-mcp: no home directory and no socket argument");
         return 2;
     };
@@ -128,6 +137,16 @@ mod tests {
         assert_eq!(bare.socket, None);
         let with_path = shim_mode(args(&["keepdeck", "--mcp-shim", "/tmp/x.sock"])).unwrap();
         assert_eq!(with_path.socket, Some(PathBuf::from("/tmp/x.sock")));
+    }
+
+    #[test]
+    fn shim_mode_ignores_argv0_and_flag_like_socket_args() {
+        // A binary named after the flag is not an invocation of it.
+        assert!(shim_mode(args(&["--mcp-shim"])).is_none());
+        // A following flag is not a socket path — the default must serve,
+        // not a socket literally named "--verbose".
+        let flagged = shim_mode(args(&["keepdeck", "--mcp-shim", "--verbose"])).unwrap();
+        assert_eq!(flagged.socket, None);
     }
 
     /// A Write the pump can own while the test still reads it.

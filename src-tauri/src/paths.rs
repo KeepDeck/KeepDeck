@@ -42,6 +42,13 @@ pub fn logs_dir() -> Option<PathBuf> {
     keepdeck_home().map(|home| home.join("logs"))
 }
 
+/// The MCP transport's unix socket: `<keepdeck_home>/mcp.sock`. The ONE home
+/// of this location — the server binds it and the shim connects to it, and
+/// the two must never derive it independently.
+pub fn mcp_socket() -> Option<PathBuf> {
+    keepdeck_home().map(|home| home.join("mcp.sock"))
+}
+
 /// An explicit `$KEEPDECK_HOME` IS the home; otherwise `dir` goes under
 /// `$XDG_CONFIG_HOME`, else `$HOME/.config`. Relative paths in either
 /// variable are ignored (per the XDG spec), falling through to the next rule.

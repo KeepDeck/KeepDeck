@@ -14,7 +14,9 @@ vi.mock("../../app/settingsManager", () => ({
   updateSettings: settingsManager.updateSettings,
 }));
 const mcpIpc = vi.hoisted(() => ({
-  mcpConnectionCommand: vi.fn(() => Promise.resolve("/Applications/KeepDeck --mcp-shim")),
+  mcpConnectionCommand: vi.fn(() =>
+    Promise.resolve({ command: "/Applications/KeepDeck", args: ["--mcp-shim"] }),
+  ),
 }));
 vi.mock("../../ipc/mcp", () => mcpIpc);
 
