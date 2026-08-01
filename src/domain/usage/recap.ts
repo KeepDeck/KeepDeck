@@ -6,6 +6,7 @@ import {
   type UsageStats,
   type UsageStatsPeriod,
 } from "./history";
+import { DAY_MS, utcDayStart } from "./time";
 
 /**
  * The Highlights line — the period's numbers with their context: how the
@@ -13,8 +14,6 @@ import {
  * the most, which day was heaviest. Pure and time-injected like every
  * stats query.
  */
-
-const DAY_MS = 24 * 60 * 60 * 1_000;
 
 export interface UsageRecap {
   /** Whole-percent change of period tokens vs the preceding equal-length
@@ -84,7 +83,7 @@ function busiestDay(
   const days = new Map<number, number>();
   for (const event of events) {
     if (event.occurredAt < cutoff || event.occurredAt > now) continue;
-    const dayStart = Math.floor(event.occurredAt / DAY_MS) * DAY_MS;
+    const dayStart = utcDayStart(event.occurredAt);
     days.set(dayStart, (days.get(dayStart) ?? 0) + tokenTotal(event.tokens));
   }
   let top: UsageRecap["busiestDay"] = null;

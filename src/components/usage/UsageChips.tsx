@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AGENT_FEATURE,
   hasAgentFeature,
@@ -23,6 +23,7 @@ import { useSettings } from "../../app/useSettings";
 import { useUsage } from "../../app/useUsage";
 import { AgentGlyph } from "../../ui/AgentGlyph";
 import { Chip } from "../../ui/Chip";
+import { useWallClock } from "../../ui/useWallClock";
 import { UsageWindowBar } from "./UsageWindowBar";
 
 /**
@@ -159,14 +160,9 @@ export function UsageChips({
     }
   }, [openProvider, providersKey]);
 
-  // Countdowns and staleness drift with wall time — a slow tick re-renders
-  // them; nothing else here depends on it.
-  const [, tick] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
-    if (accounts.size === 0) return;
-    const timer = setInterval(tick, 30_000);
-    return () => clearInterval(timer);
-  }, [accounts.size]);
+  // Countdowns and staleness drift with wall time — the shared slow-tick
+  // clock advances them; nothing else here depends on it.
+  const now = useWallClock(accounts.size > 0);
 
   // Light-dismiss: any pointer press outside (or Escape) closes the panel.
   const open = openProvider !== null;
@@ -187,7 +183,6 @@ export function UsageChips({
   }, [open]);
 
   if (providers.length === 0) return null;
-  const now = Date.now();
   return (
     <span className="usage" ref={rootRef}>
       {providers.map((agent) => (

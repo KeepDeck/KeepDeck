@@ -1,4 +1,5 @@
 import type { UsageEventV2 } from "./history";
+import { DAY_MS } from "./time";
 
 /**
  * The CURRENT streak — consecutive active UTC days ending now. Distinct
@@ -7,8 +8,6 @@ import type { UsageEventV2 } from "./history";
  * not over), but an inactive yesterday means it is broken and the count
  * starts over.
  */
-
-const DAY_MS = 24 * 60 * 60 * 1_000;
 
 export function currentStreakDays(
   events: readonly UsageEventV2[],

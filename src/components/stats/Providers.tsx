@@ -33,9 +33,12 @@ export function Providers({
   events: readonly UsageEventV2[];
   now: number;
 }) {
+  // Keyed on the SAME clock the captions below render with — a memo that
+  // reads its own Date.now() froze expired/stale while the caption beside
+  // them said "reset passed" (round-2 finding).
   const groups = useMemo(
-    () => providerWindowGroups(accounts, events, Date.now()),
-    [accounts, events],
+    () => providerWindowGroups(accounts, events, now),
+    [accounts, events, now],
   );
   if (groups.length === 0) {
     return (

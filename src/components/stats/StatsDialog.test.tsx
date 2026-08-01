@@ -328,6 +328,33 @@ describe("UsageStats", () => {
     expect(periodButton().disabled).toBe(false);
   });
 
+  it("demotes a window whose reset passes while the dialog stays open", () => {
+    // beforeEach mocked only the date; this test needs ticking timers too.
+    vi.useRealTimers();
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const account: AccountUsage = {
+      kind: "reported",
+      reportedAt: NOW - 60_000,
+      sourcePaneId: "pane-1",
+      windows: [{ usedPct: 90, resetsAt: NOW + 10_000, windowMinutes: 300 }],
+    };
+    usage.snapshot = { accounts: new Map([["codex", account]]), panes: new Map() };
+    act(() => root.render(createElement(Host, { initialTab: "providers" })));
+
+    expect(host.querySelector(".stats__window--expired")).toBeNull();
+    expect(host.textContent).toContain("resets in");
+
+    // The reset passes with no new report; the shared wall clock ticks and
+    // the WHOLE card demotes together — caption, dim and join in agreement.
+    act(() => {
+      vi.advanceTimersByTime(31_000);
+    });
+    expect(host.querySelector(".stats__window--expired")).not.toBeNull();
+    expect(host.textContent).toContain("reset passed");
+    expect(host.textContent).not.toContain("this window");
+  });
+
   it("demotes expired and stale provider windows instead of joining them", () => {
     const account: AccountUsage = {
       kind: "reported",

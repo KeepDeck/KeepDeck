@@ -1,4 +1,5 @@
 import type { PaneUsage, TokenCounts } from "@keepdeck/plugin-api";
+import { DAY_MS } from "./time";
 
 export const USAGE_EVENT_SCHEMA_VERSION = 2 as const;
 
@@ -383,7 +384,7 @@ export interface UsageStats {
 
 /** The inclusive lower bound of a period ending at `now`. */
 export function periodCutoff(period: UsageStatsPeriod, now: number): number {
-  return period === "all" ? -Infinity : now - period * 24 * 60 * 60 * 1_000;
+  return period === "all" ? -Infinity : now - period * DAY_MS;
 }
 
 /** Aggregate immutable deltas for the Stats screen. `now` is injected so

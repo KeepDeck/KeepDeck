@@ -5,6 +5,7 @@ import {
   usageSessionKey,
   type UsageEventV2,
 } from "./history";
+import { DAY_MS, HOUR_MS, utcDayStart } from "./time";
 
 /**
  * Achievements — cumulative ladders and one-off badges (a one-off is simply
@@ -193,9 +194,6 @@ const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
   },
 ];
 
-const HOUR_MS = 60 * 60 * 1_000;
-const DAY_MS = 24 * HOUR_MS;
-
 /** One catalog entry, flat — what the notifier needs to announce a tier. */
 export interface AchievementCatalogEntry {
   id: string;
@@ -313,7 +311,7 @@ export function createAchievementEngine(): AchievementEngine {
         spendUsd = addMoney(spendUsd, event.costUsd);
       }
 
-      const day = Math.floor(event.occurredAt / DAY_MS) * DAY_MS;
+      const day = utcDayStart(event.occurredAt);
       const dayTokens = (dayTokenTotals.get(day) ?? 0) + eventTokens;
       dayTokenTotals.set(day, dayTokens);
       maxDayTokens = Math.max(maxDayTokens, dayTokens);

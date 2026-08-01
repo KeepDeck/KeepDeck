@@ -1,10 +1,11 @@
-import { useEffect, useId, useReducer } from "react";
+import { useId, useMemo } from "react";
 import { useUsageHistorySnapshot } from "../../app/useUsageHistorySnapshot";
 import {
   currentStreakDays,
   streakHeat,
   type StreakHeat,
 } from "../../domain/usage/streak";
+import { useWallClock } from "../../ui/useWallClock";
 
 /**
  * The live streak chip — the longer the streak, the louder the look. Each
@@ -23,13 +24,13 @@ import {
 export function StreakBadge() {
   const history = useUsageHistorySnapshot();
   // Wall-clock-derived: a dialog left open across midnight must notice the
-  // day change without a ledger append — the chips' slow-tick idiom.
-  const [, tick] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
-    const timer = setInterval(tick, 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  const days = currentStreakDays(history.events, Date.now());
+  // day change without a ledger append. Memoized on the shared clock — the
+  // full-ledger scan runs per tick/append, never per render.
+  const now = useWallClock();
+  const days = useMemo(
+    () => currentStreakDays(history.events, now),
+    [history.events, now],
+  );
   if (days === 0) return null;
   const heat = streakHeat(days);
   return (

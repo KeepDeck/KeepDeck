@@ -14,6 +14,7 @@ import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
+import { useWallClock } from "../../ui/useWallClock";
 import { Achievements } from "./Achievements";
 import { Providers } from "./Providers";
 import { StatsTable } from "./StatsTable";
@@ -92,15 +93,17 @@ export function UsageStats({
   const history = useUsageHistorySnapshot();
   const { accounts } = useUsage();
   const [period, setPeriod] = useState<UsageStatsPeriod>(7);
-  const now = Date.now();
+  // THE tab body's one clock: stable between 30s ticks, so it sits in every
+  // memo's deps — aggregates, captions and bars all agree on the same now,
+  // and a reset passing while the dialog idles demotes the whole card.
+  const now = useWallClock();
   const stats = useMemo(
-    () => queryUsageStats(history.events, period, Date.now()),
-    [history.events, period],
+    () => queryUsageStats(history.events, period, now),
+    [history.events, period, now],
   );
   const recap = useMemo(
-    () =>
-      tab === "overview" ? usageRecap(history.events, period, Date.now()) : null,
-    [tab, history.events, period],
+    () => (tab === "overview" ? usageRecap(history.events, period, now) : null),
+    [tab, history.events, period, now],
   );
   const periodless = PERIODLESS_TABS.includes(tab);
   const periodEmpty = (
@@ -194,7 +197,7 @@ export function UsageStats({
                   // below doesn't jump when the chunk lands.
                   fallback={<section className="stats__section" style={{ height: 216 }} aria-hidden />}
                 >
-                  <UsageChart events={history.events} period={period} />
+                  <UsageChart events={history.events} period={period} now={now} />
                 </Suspense>
                 {recap && <Highlights recap={recap} period={period} />}
                 <p className="stats__coverage">

@@ -4,6 +4,7 @@ import {
   type UsageEventV2,
   type UsageStatsPeriod,
 } from "./history";
+import { DAY_MS, HOUR_MS } from "./time";
 
 /**
  * Token buckets over time for the Overview chart, zero-filled so the time
@@ -12,9 +13,6 @@ import {
  * recap uses); the 24h period buckets by HOUR — two day-bars with a chasm
  * between them read as a broken chart.
  */
-
-const HOUR_MS = 60 * 60 * 1_000;
-const DAY_MS = 24 * HOUR_MS;
 
 export interface TimelineBucket {
   start: number;

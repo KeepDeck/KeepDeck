@@ -49,13 +49,16 @@ function bucketLabel(start: number, bucketMs: number, long = false): string {
 export function UsageChart({
   events,
   period,
+  now,
 }: {
   events: readonly UsageEventV2[];
   period: UsageStatsPeriod;
+  /** The dialog's shared wall clock — never a private Date.now(). */
+  now: number;
 }) {
   const timeline = useMemo(
-    () => usageTimeline(events, period, Date.now()),
-    [events, period],
+    () => usageTimeline(events, period, now),
+    [events, period, now],
   );
   const colors = useMemo(() => agentSeriesColors(usageAgents(events)), [events]);
   if (timeline.buckets.length === 0) return null;
