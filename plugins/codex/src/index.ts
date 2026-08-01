@@ -13,16 +13,36 @@ import type {
 import { codexHistory } from "./history";
 import { icon } from "./icon";
 import { cliArgs, shellQuote } from "./trust";
+import { normalizeCodexStatus } from "./status";
 import { normalizeCodexRateLimits, normalizeCodexRollout } from "./usage";
 
-/** The `-c` override args arming the SessionStart reporter; `[]` when the
- * script is missing. On a codex without hooks these overrides are inert
- * (unknown `-c` keys are ignored), so no version gate is needed; such a
- * pane just stays unbound and revives via its recorded binding. */
+/** The `-c` override args arming the reporters — SessionStart identity plus
+ * the turn-lifecycle events; `[]` when neither script resolves. All rules
+ * ride ONE cliArgs call because their trust shares a single `hooks.state`
+ * table (a second `-c hooks.state=` would replace the first). On a codex
+ * without hooks these overrides are inert (unknown `-c` keys are ignored),
+ * so no version gate is needed; such a pane just stays unbound and revives
+ * via its recorded binding.
+ *
+ * codex has no Notification and no StopFailure: PermissionRequest is its
+ * only waiting edge, and an API-error turn is invisible to hooks (the
+ * rollout tail supplies the interrupt edge; failures stay a known gap). */
 async function hookArgs(resources: PluginResources): Promise<string[]> {
-  const script = await resources.path("kd-session-hook.sh");
-  if (!script) return [];
-  return cliArgs(`/bin/sh ${shellQuote(script)}`);
+  const session = await resources.path("kd-session-hook.sh");
+  const status = await resources.path("kd-status-hook.sh");
+  const rules = [
+    ...(session
+      ? [{ event: "SessionStart", command: `/bin/sh ${shellQuote(session)}` }]
+      : []),
+    ...(status
+      ? ["UserPromptSubmit", "Stop", "PermissionRequest"].map((event) => ({
+          event,
+          command: `/bin/sh ${shellQuote(status)} codex`,
+        }))
+      : []),
+  ];
+  if (rules.length === 0) return [];
+  return cliArgs(rules);
 }
 
 /** codex's YOLO switch (`--yolo` is its alias). Global like `-c`, so it
@@ -76,6 +96,7 @@ const plugin: KeepDeckPlugin = {
           normalize: normalizeCodexRateLimits,
         },
       },
+      status: { normalize: normalizeCodexStatus },
       history: codexHistory(ctx),
       hooks: {
         "spawn.plan": async (input, output) => {
