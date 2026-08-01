@@ -1,86 +1,119 @@
 import {
+  achievementCatalog,
   achievementRequirement,
-  earnedAchievements,
-  usageAchievementLadders,
-  type UsageAchievement,
+  createAchievementEngine,
 } from "../domain/usage/achievements";
-import {
-  loadNotifiedAchievements,
-  saveNotifiedAchievements,
-} from "../ipc/achievements";
-import { notify } from "./notificationCenter";
-import {
-  getUsageHistorySnapshot,
-  subscribeUsageHistory,
-} from "./usageHistoryManager";
+import type { NotifyInput } from "./notificationCenter";
+import type { UsageHistorySnapshot } from "./usageHistoryManager";
 
 /**
- * Congratulates on newly earned achievements. Earned state is a pure
- * recomputation from the ledger, so "new" is a DIFF against the persisted
- * already-congratulated set — which makes awards retroactive by
- * construction: a release that ships ladders the ledger already satisfies
- * congratulates on the first launch after the update, exactly like a live
- * crossing would. Every award gets its OWN notification — no summary
- * batching (user decision): each unlock is its own moment, even in a
- * retroactive pile.
+ * Congratulates on newly earned achievements. Earned state is derived from
+ * the ledger, so "new" is a DIFF against the persisted congratulated set —
+ * which makes awards retroactive by construction: a release that ships
+ * ladders the ledger already satisfies congratulates on the first launch
+ * after the update, exactly like a live crossing would. Every award gets
+ * its OWN notification — no summary batching (user decision).
+ *
+ * An app-lifetime service owned by the runtime (constructed in
+ * `createAppRuntime`, disposed with it) — dependencies are injected, so
+ * tests build their own instance with fakes instead of mocking modules.
+ * Appends are folded into an incremental [`AchievementEngine`] — the
+ * unbounded ledger is never re-sorted per turn; only a wholesale snapshot
+ * replacement (a compaction rewrite) refolds from scratch.
  */
 
-let notified: Set<string> | null = null;
-let unsubscribe: (() => void) | null = null;
-let writes: Promise<void> = Promise.resolve();
+export interface AchievementNotifierDeps {
+  loadNotified(): Promise<string | null>;
+  saveNotified(json: string): Promise<void>;
+  /** Returns whether a delivery channel accepted it (see
+   * [`notificationCenter.notify`]). */
+  notify(input: NotifyInput): boolean;
+  history: {
+    getSnapshot(): UsageHistorySnapshot;
+    subscribe(listener: () => void): () => void;
+  };
+}
 
-export function initAchievementNotifier(): void {
-  if (unsubscribe) return;
-  void loadNotifiedAchievements()
+export function createAchievementNotifier(deps: AchievementNotifierDeps): {
+  dispose(): void;
+} {
+  const catalog = achievementCatalog();
+  let engine = createAchievementEngine();
+  let processed = 0;
+  /** Null until the persisted baseline loads; checks wait for it. */
+  let congratulated: Set<string> | null = null;
+  let writes: Promise<void> = Promise.resolve();
+  let disposed = false;
+
+  const persist = (ids: ReadonlySet<string>) => {
+    const json = JSON.stringify({ version: 1, notified: [...ids].sort() });
+    writes = writes
+      .catch(() => {})
+      .then(() => deps.saveNotified(json))
+      // Best-effort: a failed save means at worst a repeated congratulation.
+      .catch(() => {});
+  };
+
+  const check = () => {
+    if (disposed || congratulated === null) return;
+    const snapshot = deps.history.getSnapshot();
+    if (!snapshot.ready) return;
+    if (snapshot.events.length < processed) {
+      // The array was replaced wholesale (compaction rewrite) — refold.
+      engine = createAchievementEngine();
+      processed = 0;
+    }
+    for (let index = processed; index < snapshot.events.length; index += 1) {
+      engine.ingest(snapshot.events[index]);
+    }
+    processed = snapshot.events.length;
+
+    const earned = engine.earnedIds();
+    let dirty = false;
+    // Catalog order: a ladder announces lowest tier first, so the bell's
+    // newest-first list tops out at the most impressive fresh award.
+    for (const entry of catalog) {
+      if (!earned.has(entry.id) || congratulated.has(entry.id)) continue;
+      const delivered = deps.notify({
+        title: `Achievement unlocked: ${entry.title}`,
+        body: achievementRequirement(entry),
+        icon: entry.icon,
+        // The click destination is the trophy case, not Settings.
+        source: { type: "stats", tab: "achievements" },
+        tag: `achievement:${entry.id}`,
+      });
+      // An undelivered congratulation (notifications disabled or muted)
+      // stays unrecorded — re-enabling announces it instead of losing it.
+      if (delivered) {
+        congratulated.add(entry.id);
+        dirty = true;
+      }
+    }
+    if (dirty) persist(congratulated);
+  };
+
+  const unsubscribe = deps.history.subscribe(check);
+  void deps
+    .loadNotified()
     .then((json) => {
-      notified = decode(json);
+      if (disposed) return;
+      congratulated = decode(json);
       check();
     })
     .catch(() => {
-      // An unreadable baseline congratulates from scratch (batched) rather
-      // than staying silent forever.
-      notified = new Set();
+      if (disposed) return;
+      // An unreadable baseline congratulates from scratch rather than
+      // staying silent forever.
+      congratulated = new Set();
       check();
     });
-  unsubscribe = subscribeUsageHistory(check);
-}
 
-function check(): void {
-  const congratulated = notified;
-  if (congratulated === null) return; // baseline not loaded yet
-  const snapshot = getUsageHistorySnapshot();
-  if (!snapshot.ready) return;
-  const earned = earnedAchievements(usageAchievementLadders(snapshot.events));
-  const fresh = earned.filter((item) => !congratulated.has(item.id));
-  if (fresh.length === 0) return;
-  for (const item of fresh) congratulated.add(item.id);
-  persist(congratulated);
-  announce(fresh);
-}
-
-function announce(fresh: UsageAchievement[]): void {
-  for (const item of fresh) {
-    notify({
-      title: `Achievement unlocked: ${item.title}`,
-      body: achievementRequirement(item),
-      icon: item.icon,
-      // The click destination is the trophy case, not Settings.
-      source: { type: "stats", tab: "achievements" },
-      tag: `achievement:${item.id}`,
-    });
-  }
-}
-
-function persist(congratulated: ReadonlySet<string>): void {
-  const json = JSON.stringify({
-    version: 1,
-    notified: [...congratulated].sort(),
-  });
-  writes = writes
-    .catch(() => {})
-    .then(() => saveNotifiedAchievements(json))
-    // Best-effort: a failed save means at worst a repeated congratulation.
-    .catch(() => {});
+  return {
+    dispose() {
+      disposed = true;
+      unsubscribe();
+    },
+  };
 }
 
 function decode(json: string | null): Set<string> {
@@ -96,12 +129,4 @@ function decode(json: string | null): Set<string> {
     // fall through to the empty baseline
   }
   return new Set();
-}
-
-/** Test hook: forget the baseline, the subscription and pending writes. */
-export function resetAchievementNotifier(): void {
-  notified = null;
-  unsubscribe?.();
-  unsubscribe = null;
-  writes = Promise.resolve();
 }

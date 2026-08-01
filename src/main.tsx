@@ -1,7 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { initAchievementNotifier } from "./app/achievementNotifier";
 import { initSettings } from "./app/settingsManager";
 import { initUsagePersistence } from "./app/usagePersistence";
 import { initUsageHistory } from "./app/usageHistoryManager";
@@ -23,10 +22,8 @@ void initSettings();
 initUsagePersistence();
 // Detailed Stats: load the durable delta log before live pane snapshots begin
 // appending. Capture itself is deck-aware and mounts with the usage channel.
+// The achievements notifier that consumes it is a runtime-owned service.
 void initUsageHistory();
-// Achievement congratulations: diff earned-from-ledger against the persisted
-// congratulated set — retroactive across updates by construction.
-initAchievementNotifier();
 // Update checks are background-only chatter — nothing gates on them. In dev
 // builds the manager probes app_info once and stays disabled.
 const runtime = createAppRuntime();

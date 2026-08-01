@@ -64,15 +64,18 @@ export function setSourceVisibilityProbe(
 }
 
 /** Post a notification. Honors the master switch, the delivery mode and
- * per-plugin mutes; decides the OS banner via the domain rule. */
-export function notify(input: NotifyInput): void {
+ * per-plugin mutes; decides the OS banner via the domain rule. Returns
+ * whether a delivery channel ACCEPTED it — false means the user could not
+ * have seen it (disabled or muted), which the achievements notifier uses to
+ * defer its congratulated-set write instead of losing the award forever. */
+export function notify(input: NotifyInput): boolean {
   const prefs = getSettings()?.notifications ?? DEFAULT_SETTINGS.notifications;
-  if (!prefs.enabled) return;
+  if (!prefs.enabled) return false;
   if (
     input.source.type === "plugin" &&
     prefs.mutedPlugins.includes(input.source.pluginId)
   ) {
-    return;
+    return false;
   }
   const now = Date.now();
   seq += 1;
@@ -118,6 +121,7 @@ export function notify(input: NotifyInput): void {
       );
     }
   }
+  return true;
 }
 
 /** The live list, newest first (stable between changes — the

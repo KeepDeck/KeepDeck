@@ -1,35 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { UsageEventV2 } from "../domain/usage/history";
-
-const ipc = vi.hoisted(() => ({
-  loadNotifiedAchievements: vi.fn<() => Promise<string | null>>(),
-  saveNotifiedAchievements: vi.fn<(json: string) => Promise<void>>(),
-}));
-vi.mock("../ipc/achievements", () => ipc);
-
-const center = vi.hoisted(() => ({ notify: vi.fn() }));
-vi.mock("./notificationCenter", () => center);
-
-const history = vi.hoisted(() => ({
-  snapshot: {
-    ready: false,
-    events: [] as UsageEventV2[],
-    error: null as string | null,
-  },
-  listeners: new Set<() => void>(),
-}));
-vi.mock("./usageHistoryManager", () => ({
-  getUsageHistorySnapshot: () => history.snapshot,
-  subscribeUsageHistory: (listener: () => void) => {
-    history.listeners.add(listener);
-    return () => history.listeners.delete(listener);
-  },
-}));
-
 import {
-  initAchievementNotifier,
-  resetAchievementNotifier,
+  createAchievementNotifier,
+  type AchievementNotifierDeps,
 } from "./achievementNotifier";
+import type { NotifyInput } from "./notificationCenter";
+import type { UsageHistorySnapshot } from "./usageHistoryManager";
 
 const NOW = Date.parse("2026-07-22T12:00:00.000Z");
 let seq = 0;
@@ -54,110 +30,214 @@ const event = (over: Record<string, unknown> = {}): UsageEventV2 =>
     ...over,
   }) as UsageEventV2;
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 // 2M tokens + provider cost earns: First Million, Warm Afternoon,
 // Hello Agent, First Dollar — four fresh awards.
 const richEvents = () => [
   event({ tokens: { input: 2_000_000 }, costSource: "provider", costUsd: 1.5 }),
 ];
 
-describe("achievementNotifier", () => {
-  beforeEach(() => {
-    resetAchievementNotifier();
-    history.snapshot = { ready: true, events: [], error: null };
-    history.listeners.clear();
-    ipc.loadNotifiedAchievements.mockReset().mockResolvedValue(null);
-    ipc.saveNotifiedAchievements.mockReset().mockResolvedValue(undefined);
-    center.notify.mockReset();
-  });
+/** A controllable in-memory history the notifier subscribes to. */
+function fakeHistory(initial: UsageHistorySnapshot) {
+  let snapshot = initial;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    set(next: UsageHistorySnapshot) {
+      snapshot = next;
+      for (const listener of [...listeners]) listener();
+    },
+  };
+}
 
-  afterEach(() => resetAchievementNotifier());
+function fakeDeps(over: Partial<AchievementNotifierDeps> = {}) {
+  const saved: string[] = [];
+  const notify = vi.fn<(input: NotifyInput) => boolean>(() => true);
+  const history = fakeHistory({ ready: true, events: [], error: null });
+  const deps: AchievementNotifierDeps = {
+    loadNotified: async () => null,
+    saveNotified: async (json) => {
+      saved.push(json);
+    },
+    notify,
+    history,
+    ...over,
+  };
+  return { deps, saved, notify, history };
+}
 
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("createAchievementNotifier", () => {
   it("congratulates retroactively on first run, one notification per award", async () => {
-    history.snapshot = { ready: true, events: richEvents(), error: null };
-    initAchievementNotifier();
+    const { deps, saved, notify, history } = fakeDeps();
+    history.set({ ready: true, events: richEvents(), error: null });
+    const notifier = createAchievementNotifier(deps);
     await settle();
 
-    // No summary batching (user decision): four awards, four notifications.
-    expect(center.notify).toHaveBeenCalledTimes(4);
-    const titles = center.notify.mock.calls.map(
+    expect(notify).toHaveBeenCalledTimes(4);
+    const titles = notify.mock.calls.map(
       (call) => (call[0] as { title: string }).title,
     );
     expect(titles).toContain("Achievement unlocked: First Million");
     expect(titles).toContain("Achievement unlocked: First Dollar");
-    expect(center.notify.mock.calls[0][0]).toMatchObject({
+    expect(notify.mock.calls[0][0]).toMatchObject({
       source: { type: "stats", tab: "achievements" },
     });
-    // Every congratulation carries its badge's own icon into the bell.
-    for (const call of center.notify.mock.calls) {
+    for (const call of notify.mock.calls) {
       expect((call[0] as { icon?: string }).icon).toBeTruthy();
     }
-    const saved = JSON.parse(ipc.saveNotifiedAchievements.mock.calls[0][0]);
-    expect(saved.notified).toContain("tokens-1000000");
-    expect(saved.notified).toContain("spendUsd-1");
+    await settle();
+    const persisted = JSON.parse(saved[saved.length - 1]) as {
+      notified: string[];
+    };
+    expect(persisted.notified).toContain("tokens-1000000");
+    expect(persisted.notified).toContain("spendUsd-1");
+    notifier.dispose();
   });
 
-  it("announces few fresh awards individually, skipping the congratulated set", async () => {
-    ipc.loadNotifiedAchievements.mockResolvedValue(
-      JSON.stringify({
-        version: 1,
-        notified: ["tokens-1000000", "dayTokens-1000000", "sessions-1"],
-      }),
-    );
-    history.snapshot = { ready: true, events: richEvents(), error: null };
-    initAchievementNotifier();
+  it("announces only awards missing from the persisted baseline", async () => {
+    const { deps, notify, history } = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({
+          version: 1,
+          notified: ["tokens-1000000", "dayTokens-1000000", "sessions-1"],
+        }),
+    });
+    history.set({ ready: true, events: richEvents(), error: null });
+    const notifier = createAchievementNotifier(deps);
     await settle();
 
-    expect(center.notify).toHaveBeenCalledTimes(1);
-    expect(center.notify.mock.calls[0][0]).toMatchObject({
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0]).toMatchObject({
       title: "Achievement unlocked: First Dollar",
       body: "$1 provider-reported spend",
       tag: "achievement:spendUsd-1",
     });
+    notifier.dispose();
   });
 
   it("stays silent when nothing new is earned", async () => {
-    ipc.loadNotifiedAchievements.mockResolvedValue(
-      JSON.stringify({
-        version: 1,
-        notified: [
-          "tokens-1000000",
-          "dayTokens-1000000",
-          "sessions-1",
-          "spendUsd-1",
-        ],
-      }),
-    );
-    history.snapshot = { ready: true, events: richEvents(), error: null };
-    initAchievementNotifier();
+    const { deps, saved, notify, history } = fakeDeps({
+      loadNotified: async () =>
+        JSON.stringify({
+          version: 1,
+          notified: [
+            "tokens-1000000",
+            "dayTokens-1000000",
+            "sessions-1",
+            "spendUsd-1",
+          ],
+        }),
+    });
+    history.set({ ready: true, events: richEvents(), error: null });
+    const notifier = createAchievementNotifier(deps);
     await settle();
 
-    expect(center.notify).not.toHaveBeenCalled();
-    expect(ipc.saveNotifiedAchievements).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(saved).toHaveLength(0);
+    notifier.dispose();
   });
 
-  it("waits for history readiness, then reacts to appends", async () => {
-    history.snapshot = { ready: false, events: [], error: null };
-    initAchievementNotifier();
+  it("folds appended events incrementally and reacts to them", async () => {
+    const { deps, notify, history } = fakeDeps({
+      loadNotified: async () => null,
+    });
+    history.set({ ready: false, events: [], error: null });
+    const notifier = createAchievementNotifier(deps);
     await settle();
-    expect(center.notify).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
 
-    history.snapshot = { ready: true, events: [event()], error: null };
-    for (const listener of history.listeners) listener();
+    const first = event();
+    history.set({ ready: true, events: [first], error: null });
     await settle();
     // A lone session earns exactly "Hello, Agent".
-    expect(center.notify).toHaveBeenCalledTimes(1);
-    expect(center.notify.mock.calls[0][0]).toMatchObject({
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0]).toMatchObject({
       title: "Achievement unlocked: Hello, Agent",
     });
+
+    // Appending nine more sessions crosses First Steps — only the suffix
+    // is folded in, and the earlier award is not re-announced.
+    const more = Array.from({ length: 9 }, (_, index) =>
+      event({
+        sessionId: `s${index + 2}`,
+        rootSessionId: `s${index + 2}`,
+      }),
+    );
+    history.set({ ready: true, events: [first, ...more], error: null });
+    await settle();
+    const titles = notify.mock.calls.map(
+      (call) => (call[0] as { title: string }).title,
+    );
+    expect(titles).toContain("Achievement unlocked: First Steps");
+    expect(titles.filter((t) => t.includes("Hello, Agent"))).toHaveLength(1);
+    notifier.dispose();
+  });
+
+  it("refolds from scratch when the snapshot shrinks (compaction rewrite)", async () => {
+    const { deps, notify, history } = fakeDeps();
+    history.set({ ready: true, events: [event(), event()], error: null });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+    const before = notify.mock.calls.length;
+
+    // Wholesale replacement with fewer events must not double-count.
+    history.set({ ready: true, events: [event()], error: null });
+    await settle();
+    expect(notify.mock.calls.length).toBe(before); // nothing newly earned
+    notifier.dispose();
+  });
+
+  it("keeps undelivered awards unrecorded so re-enabling announces them", async () => {
+    const { deps, saved, notify, history } = fakeDeps();
+    notify.mockReturnValue(false); // notifications disabled
+    history.set({ ready: true, events: [event()], error: null });
+    const notifier = createAchievementNotifier(deps);
+    await settle();
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(saved).toHaveLength(0); // nothing persisted as congratulated
+
+    notify.mockReturnValue(true); // user re-enables notifications
+    history.set({ ready: true, events: [event(), event()], error: null });
+    await settle();
+    const titles = notify.mock.calls.map(
+      (call) => (call[0] as { title: string }).title,
+    );
+    expect(titles.filter((t) => t.includes("Hello, Agent")).length).toBe(2);
+    await settle();
+    expect(saved.length).toBeGreaterThan(0);
+    notifier.dispose();
   });
 
   it("treats an unreadable baseline as empty instead of staying silent", async () => {
-    ipc.loadNotifiedAchievements.mockResolvedValue("torn{");
-    history.snapshot = { ready: true, events: [event()], error: null };
-    initAchievementNotifier();
+    const { deps, notify, history } = fakeDeps({
+      loadNotified: async () => "torn{",
+    });
+    history.set({ ready: true, events: [event()], error: null });
+    const notifier = createAchievementNotifier(deps);
     await settle();
-    expect(center.notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
+    notifier.dispose();
+  });
+
+  it("goes quiet after dispose, even if the baseline load resolves late", async () => {
+    let resolveLoad!: (value: string | null) => void;
+    const { deps, notify, history } = fakeDeps({
+      loadNotified: () =>
+        new Promise<string | null>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    });
+    history.set({ ready: true, events: richEvents(), error: null });
+    const notifier = createAchievementNotifier(deps);
+    notifier.dispose();
+    resolveLoad(null);
+    await settle();
+    expect(notify).not.toHaveBeenCalled();
   });
 });

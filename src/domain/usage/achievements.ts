@@ -196,12 +196,66 @@ const LADDERS: { metric: AchievementMetric; tiers: TierSpec[] }[] = [
 const HOUR_MS = 60 * 60 * 1_000;
 const DAY_MS = 24 * HOUR_MS;
 
-/** All ladders with crossing dates and current progress, in catalog order. */
-export function usageAchievementLadders(
-  events: readonly UsageEventV2[],
-): UsageAchievementLadder[] {
-  const ordered = [...events].sort((a, b) => a.occurredAt - b.occurredAt);
+/** One catalog entry, flat — what the notifier needs to announce a tier. */
+export interface AchievementCatalogEntry {
+  id: string;
+  metric: AchievementMetric;
+  threshold: number;
+  title: string;
+  icon: string;
+}
 
+/** The flat catalog in ladder order (each ladder's tiers ascending). */
+export function achievementCatalog(): AchievementCatalogEntry[] {
+  return LADDERS.flatMap((ladder) =>
+    ladder.tiers.map((tier) => ({
+      id: `${ladder.metric}-${tier.threshold}`,
+      metric: ladder.metric,
+      threshold: tier.threshold,
+      title: tier.title,
+      icon: tier.icon,
+    })),
+  );
+}
+
+/** Longest-consecutive-days tracker, ORDER-INDEPENDENT: adding a day merges
+ * its neighboring runs in O(1) (run lengths are kept valid at run
+ * boundaries), so the longest run is the same whatever order days arrive. */
+function createStreakTracker() {
+  const days = new Set<number>();
+  const runLengthAt = new Map<number, number>();
+  let longest = 0;
+  return {
+    add(day: number) {
+      if (days.has(day)) return;
+      days.add(day);
+      const left = runLengthAt.get(day - 1) ?? 0;
+      const right = runLengthAt.get(day + 1) ?? 0;
+      const length = left + 1 + right;
+      runLengthAt.set(day - left, length);
+      runLengthAt.set(day + right, length);
+      runLengthAt.set(day, length);
+      longest = Math.max(longest, length);
+    },
+    longest: () => longest,
+  };
+}
+
+/** The metric accumulator — THE one home of the per-event metric math.
+ * Every metric is a sum, a set size, or a max over per-key aggregates, so
+ * ingestion is ORDER-INDEPENDENT: final values depend only on the multiset
+ * of events. That is what lets the notifier fold in appended suffixes
+ * incrementally instead of re-sorting the whole unbounded ledger per turn;
+ * only crossing DATES need chronology, and only the batch view tracks
+ * those. */
+export interface AchievementEngine {
+  ingest(event: UsageEventV2): void;
+  value(metric: AchievementMetric): number;
+  /** Every tier id the current values meet. */
+  earnedIds(): Set<string>;
+}
+
+export function createAchievementEngine(): AchievementEngine {
   const sessions = new Set<string>();
   const providers = new Set<string>();
   const models = new Set<string>();
@@ -211,8 +265,10 @@ export function usageAchievementLadders(
   const dayProviderSets = new Map<number, Set<string>>();
   const sessionTokenTotals = new Map<string, number>();
   const sessionTurnCounts = new Map<string, number>();
-  const sessionFirstAt = new Map<string, number>();
+  const sessionMinAt = new Map<string, number>();
+  const sessionMaxAt = new Map<string, number>();
   const sessionSpendTotals = new Map<string, number>();
+  const streak = createStreakTracker();
   let tokens = 0;
   let outputTokens = 0;
   let cacheTokens = 0;
@@ -224,11 +280,8 @@ export function usageAchievementLadders(
   let maxSessionTurns = 0;
   let maxSessionSpanMs = 0;
   let maxSessionSpendUsd = 0;
-  let streakDay = Number.NaN;
-  let streak = 0;
-  let longestStreak = 0;
 
-  const metrics: Record<AchievementMetric, () => number> = {
+  const values: Record<AchievementMetric, () => number> = {
     tokens: () => tokens,
     outputTokens: () => outputTokens,
     cacheTokens: () => cacheTokens,
@@ -241,71 +294,93 @@ export function usageAchievementLadders(
     sessionTurns: () => maxSessionTurns,
     sessionHours: () => maxSessionSpanMs / HOUR_MS,
     sessionSpendUsd: () => maxSessionSpendUsd,
-    streakDays: () => longestStreak,
+    streakDays: streak.longest,
     providers: () => providers.size,
     models: () => models.size,
     workspaces: () => workspaces.size,
   };
 
+  return {
+    ingest(event) {
+      const eventTokens = tokenTotal(event.tokens);
+      tokens += eventTokens;
+      outputTokens += event.tokens.output ?? 0;
+      cacheTokens += event.tokens.cacheRead ?? 0;
+      providers.add(event.agent);
+      workspaces.add(event.workspaceId);
+      if (event.model !== undefined) models.add(event.model);
+      if (event.costSource === "provider") {
+        spendUsd = addMoney(spendUsd, event.costUsd);
+      }
+
+      const day = Math.floor(event.occurredAt / DAY_MS) * DAY_MS;
+      const dayTokens = (dayTokenTotals.get(day) ?? 0) + eventTokens;
+      dayTokenTotals.set(day, dayTokens);
+      maxDayTokens = Math.max(maxDayTokens, dayTokens);
+
+      const key = usageSessionKey(event);
+      sessions.add(key);
+      const daySessions = daySessionSets.get(day) ?? new Set();
+      daySessions.add(key);
+      daySessionSets.set(day, daySessions);
+      maxDaySessions = Math.max(maxDaySessions, daySessions.size);
+      const dayProviders = dayProviderSets.get(day) ?? new Set();
+      dayProviders.add(event.agent);
+      dayProviderSets.set(day, dayProviders);
+      maxDayProviders = Math.max(maxDayProviders, dayProviders.size);
+
+      const sessionTokens = (sessionTokenTotals.get(key) ?? 0) + eventTokens;
+      sessionTokenTotals.set(key, sessionTokens);
+      maxSessionTokens = Math.max(maxSessionTokens, sessionTokens);
+      const sessionTurns = (sessionTurnCounts.get(key) ?? 0) + 1;
+      sessionTurnCounts.set(key, sessionTurns);
+      maxSessionTurns = Math.max(maxSessionTurns, sessionTurns);
+      const minAt = Math.min(sessionMinAt.get(key) ?? Infinity, event.occurredAt);
+      const maxAt = Math.max(sessionMaxAt.get(key) ?? -Infinity, event.occurredAt);
+      sessionMinAt.set(key, minAt);
+      sessionMaxAt.set(key, maxAt);
+      maxSessionSpanMs = Math.max(maxSessionSpanMs, maxAt - minAt);
+      if (event.costSource === "provider") {
+        const sessionSpend = addMoney(
+          sessionSpendTotals.get(key) ?? 0,
+          event.costUsd,
+        );
+        sessionSpendTotals.set(key, sessionSpend);
+        maxSessionSpendUsd = Math.max(maxSessionSpendUsd, sessionSpend);
+      }
+
+      streak.add(day / DAY_MS);
+    },
+    value: (metric) => values[metric](),
+    earnedIds() {
+      const ids = new Set<string>();
+      for (const ladder of LADDERS) {
+        const value = values[ladder.metric]();
+        for (const tier of ladder.tiers) {
+          if (value < tier.threshold) break;
+          ids.add(`${ladder.metric}-${tier.threshold}`);
+        }
+      }
+      return ids;
+    },
+  };
+}
+
+/** All ladders with crossing dates and current progress, in catalog order.
+ * The batch view: sorts chronologically so each crossing is dated at the
+ * exact event that crossed it — the ONLY place chronology matters. */
+export function usageAchievementLadders(
+  events: readonly UsageEventV2[],
+): UsageAchievementLadder[] {
+  const ordered = [...events].sort((a, b) => a.occurredAt - b.occurredAt);
+  const engine = createAchievementEngine();
   const next = LADDERS.map(() => 0);
   const crossings = LADDERS.map(() => new Map<number, number>());
 
   for (const event of ordered) {
-    const eventTokens = tokenTotal(event.tokens);
-    tokens += eventTokens;
-    outputTokens += event.tokens.output ?? 0;
-    cacheTokens += event.tokens.cacheRead ?? 0;
-    providers.add(event.agent);
-    workspaces.add(event.workspaceId);
-    if (event.model !== undefined) models.add(event.model);
-    if (event.costSource === "provider") {
-      spendUsd = addMoney(spendUsd, event.costUsd);
-    }
-
-    const day = Math.floor(event.occurredAt / DAY_MS) * DAY_MS;
-    const dayTokens = (dayTokenTotals.get(day) ?? 0) + eventTokens;
-    dayTokenTotals.set(day, dayTokens);
-    maxDayTokens = Math.max(maxDayTokens, dayTokens);
-
-    const key = usageSessionKey(event);
-    sessions.add(key);
-    const daySessions = daySessionSets.get(day) ?? new Set();
-    daySessions.add(key);
-    daySessionSets.set(day, daySessions);
-    maxDaySessions = Math.max(maxDaySessions, daySessions.size);
-    const dayProviders = dayProviderSets.get(day) ?? new Set();
-    dayProviders.add(event.agent);
-    dayProviderSets.set(day, dayProviders);
-    maxDayProviders = Math.max(maxDayProviders, dayProviders.size);
-
-    const sessionTokens = (sessionTokenTotals.get(key) ?? 0) + eventTokens;
-    sessionTokenTotals.set(key, sessionTokens);
-    maxSessionTokens = Math.max(maxSessionTokens, sessionTokens);
-    const sessionTurns = (sessionTurnCounts.get(key) ?? 0) + 1;
-    sessionTurnCounts.set(key, sessionTurns);
-    maxSessionTurns = Math.max(maxSessionTurns, sessionTurns);
-    const firstAt = sessionFirstAt.get(key) ?? event.occurredAt;
-    sessionFirstAt.set(key, firstAt);
-    maxSessionSpanMs = Math.max(maxSessionSpanMs, event.occurredAt - firstAt);
-    if (event.costSource === "provider") {
-      const sessionSpend = addMoney(
-        sessionSpendTotals.get(key) ?? 0,
-        event.costUsd,
-      );
-      sessionSpendTotals.set(key, sessionSpend);
-      maxSessionSpendUsd = Math.max(maxSessionSpendUsd, sessionSpend);
-    }
-
-    // Events arrive time-sorted, so days are non-decreasing: a same-day
-    // event keeps the streak, the very next day extends it, a gap resets.
-    if (day !== streakDay) {
-      streak = day - streakDay === DAY_MS ? streak + 1 : 1;
-      streakDay = day;
-      longestStreak = Math.max(longestStreak, streak);
-    }
-
+    engine.ingest(event);
     LADDERS.forEach((ladder, index) => {
-      const value = metrics[ladder.metric]();
+      const value = engine.value(ladder.metric);
       while (
         next[index] < ladder.tiers.length &&
         value >= ladder.tiers[next[index]].threshold
@@ -328,7 +403,7 @@ export function usageAchievementLadders(
       title: tier.title,
       icon: tier.icon,
       achievedAt: crossings[index].get(tier.threshold) ?? null,
-      progress: metrics[ladder.metric](),
+      progress: engine.value(ladder.metric),
     })),
   }));
 }
@@ -423,8 +498,11 @@ const METRIC_SPECS: Record<AchievementMetric, MetricSpec> = {
   workspaces: countSpec((t) => `${t} workspaces used`),
 };
 
-/** The requirement line under a badge title. */
-export function achievementRequirement(item: UsageAchievement): string {
+/** The requirement line under a badge title. Accepts anything carrying a
+ * metric and threshold — a full tier or a bare catalog entry. */
+export function achievementRequirement(
+  item: Pick<UsageAchievement, "metric" | "threshold">,
+): string {
   return METRIC_SPECS[item.metric].requirement(item.threshold);
 }
 
