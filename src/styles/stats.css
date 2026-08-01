@@ -109,6 +109,13 @@
   font-weight: 600;
 }
 
+.stats__recap {
+  margin: 8px 2px 0;
+  color: #9aa3af;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .stats__coverage {
   margin: 8px 2px 20px;
   color: #6b7280;

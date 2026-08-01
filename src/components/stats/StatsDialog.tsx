@@ -21,6 +21,7 @@ import {
   type ProviderWindowLedger,
   type ProviderWindowRow,
 } from "../../domain/usage/providerWindows";
+import { usageRecap, type UsageRecap } from "../../domain/usage/recap";
 import { CloseButton } from "../../ui/CloseButton";
 import { ModalOverlay } from "../../ui/ModalOverlay";
 import { useEscape } from "../../ui/useEscape";
@@ -119,6 +120,10 @@ export function UsageStats() {
             />
             <Summary label="Sessions" value={String(stats.sessionCount)} />
           </div>
+          <Highlights
+            recap={usageRecap(history.events, period, now)}
+            period={period}
+          />
           <p className="stats__coverage">
             {costCoverage(
               stats.sessions.filter((row) => row.costEvents > 0).length,
@@ -193,6 +198,50 @@ function providerRowKey(row: ProviderWindowRow): string {
   return [row.agent, row.window.windowMinutes ?? "", row.window.scope ?? ""].join(
     "\0",
   );
+}
+
+/** The period's numbers with their context — movement against the prior
+ * equal-length period, the hungriest model, the heaviest day. Renders
+ * nothing when the period offers no highlight worth reading. */
+function Highlights({
+  recap,
+  period,
+}: {
+  recap: UsageRecap;
+  period: UsageStatsPeriod;
+}) {
+  const parts: string[] = [];
+  if (recap.tokensDeltaPct !== null) {
+    const sign = recap.tokensDeltaPct >= 0 ? "+" : "";
+    parts.push(`${sign}${recap.tokensDeltaPct}% vs prior ${periodLabel(period)}`);
+  }
+  if (recap.topModel) {
+    parts.push(
+      `top model ${recap.topModel.model} (${formatTokens(recap.topModel.totalTokens)})`,
+    );
+  }
+  if (recap.busiestDay) {
+    parts.push(
+      `busiest day ${utcDayLabel(recap.busiestDay.dayStart)} (${formatTokens(
+        recap.busiestDay.totalTokens,
+      )})`,
+    );
+  }
+  if (parts.length === 0) return null;
+  return <p className="stats__recap">{parts.join(" · ")}</p>;
+}
+
+function periodLabel(period: UsageStatsPeriod): string {
+  return PERIODS.find((candidate) => candidate.period === period)?.label ?? "";
+}
+
+/** Labeled in UTC because recap day buckets are UTC days. */
+function utcDayLabel(dayStart: number): string {
+  return new Date(dayStart).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function Summary({ label, value }: { label: string; value: string }) {

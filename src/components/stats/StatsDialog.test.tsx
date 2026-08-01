@@ -106,6 +106,27 @@ describe("UsageStats", () => {
     expect(host.textContent).toContain("No usage recorded");
   });
 
+  it("shows highlights with the prior-period delta and the busiest day", () => {
+    history.snapshot = {
+      ready: true,
+      events: [
+        usageEvent(),
+        usageEvent({
+          eventId: "prior",
+          occurredAt: NOW - 8 * 24 * 60 * 60 * 1_000,
+          tokens: { input: 800 },
+        }),
+      ],
+      error: null,
+    };
+    act(() => root.render(createElement(UsageStats)));
+
+    const recap = host.querySelector(".stats__recap")!;
+    expect(recap.textContent).toContain("+100% vs prior 7d");
+    expect(recap.textContent).toContain("top model gpt-5.6-terra (1.6k)");
+    expect(recap.textContent).toContain("busiest day Jul 22 (1.6k)");
+  });
+
   it("joins provider windows with ledger spend inside each window", () => {
     const account: AccountUsage = {
       kind: "reported",

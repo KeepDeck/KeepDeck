@@ -364,6 +364,11 @@ export interface UsageStats {
   sessions: UsageStatsRow[];
 }
 
+/** The inclusive lower bound of a period ending at `now`. */
+export function periodCutoff(period: UsageStatsPeriod, now: number): number {
+  return period === "all" ? -Infinity : now - period * 24 * 60 * 60 * 1_000;
+}
+
 /** Aggregate immutable deltas for the Stats screen. `now` is injected so
  * period boundaries and tests stay deterministic. */
 export function queryUsageStats(
@@ -371,7 +376,7 @@ export function queryUsageStats(
   period: UsageStatsPeriod,
   now = Date.now(),
 ): UsageStats {
-  const cutoff = period === "all" ? -Infinity : now - period * 24 * 60 * 60 * 1_000;
+  const cutoff = periodCutoff(period, now);
   const selected = events.filter(
     (event) => event.occurredAt >= cutoff && event.occurredAt <= now,
   );
