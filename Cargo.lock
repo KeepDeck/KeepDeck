@@ -2612,6 +2612,7 @@ dependencies = [
  "keepdeck-index",
  "keepdeck-pty",
  "keepdeck-voice",
+ "libc",
  "log",
  "minisign-verify",
  "notify",

@@ -17,9 +17,9 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -37,7 +37,12 @@ pub struct McpServer {
 
 struct Running {
     path: PathBuf,
-    shutdown: Arc<AtomicBool>,
+    /// Dropping this wakes the accept loop's poll(2) (peer EOF) — a wake
+    /// that needs no socket FILE, so Off cannot hang even after the file
+    /// was deleted out from under the server. A self-connect wake had
+    /// exactly that hole, and macOS does not reliably wake a parked
+    /// accept(2) via shutdown(2) on the listener.
+    wake: Option<UnixStream>,
     accept: Option<JoinHandle<()>>,
     /// Teardown handles: a clone per live connection, so Off can actively
     /// disconnect clients instead of leaving them on a dead pipe.
@@ -60,9 +65,14 @@ impl McpServer {
 
     /// Tear the socket down: stop accepting, disconnect every client, remove
     /// the file. Idempotent — Off while off is a no-op, not an error.
+    ///
+    /// The lock is held across the WHOLE teardown (safe: no other thread
+    /// takes it — the join target never touches this mutex). Released
+    /// mid-way, a concurrent enable could bind a fresh socket that the tail
+    /// of this teardown then unlinks — On with no file to connect to.
     pub(crate) fn disable(&self) {
-        let running = self.inner.lock().expect("mcp server poisoned").take();
-        if let Some(running) = running {
+        let mut inner = self.inner.lock().expect("mcp server poisoned");
+        if let Some(running) = inner.take() {
             stop(running);
         }
     }
@@ -91,30 +101,35 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
         .map_err(|e| e.to_string())?;
 
-    let shutdown = Arc::new(AtomicBool::new(false));
+    // The teardown wake channel (see `Running::wake`).
+    let (wake_rx, wake_tx) = UnixStream::pair().map_err(|e| e.to_string())?;
     let conns: Arc<Mutex<HashMap<u64, UnixStream>>> = Arc::default();
     let accept = {
-        let shutdown = shutdown.clone();
         let conns = conns.clone();
         std::thread::Builder::new()
             .name("keepdeck mcp accept".into())
             .spawn(move || {
                 let mut next_id = 0u64;
-                for stream in listener.incoming() {
-                    // The flag is only observable after an accept returns, so
-                    // `stop` hands the loop one final connection to chew on.
-                    if shutdown.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    let Ok(stream) = stream else { continue };
+                while poll_says_accept(&listener, &wake_rx) {
+                    let Ok((stream, _)) = listener.accept() else {
+                        continue;
+                    };
                     next_id += 1;
-                    if let Ok(clone) = stream.try_clone() {
-                        conns
-                            .lock()
-                            .expect("mcp conns poisoned")
-                            .insert(next_id, clone);
+                    // No teardown handle, no service: a connection Off could
+                    // not disconnect would outlive the toggle and keep
+                    // driving the deck — the one promise this module makes.
+                    match stream.try_clone() {
+                        Ok(clone) => {
+                            conns
+                                .lock()
+                                .expect("mcp conns poisoned")
+                                .insert(next_id, clone);
+                            spawn_connection(next_id, stream, handler.clone(), conns.clone());
+                        }
+                        Err(e) => {
+                            log::warn!("mcp: dropping connection, no teardown handle: {e}");
+                        }
                     }
-                    spawn_connection(next_id, stream, handler.clone(), conns.clone());
                 }
             })
             .map_err(|e| e.to_string())?
@@ -122,10 +137,45 @@ fn start_at(path: &Path, handler: LineHandler) -> Result<Running, String> {
 
     Ok(Running {
         path: path.to_path_buf(),
-        shutdown,
+        wake: Some(wake_tx),
         accept: Some(accept),
         conns,
     })
+}
+
+/// Park until the listener has a pending connection (true) or the wake
+/// channel's far end was dropped by teardown (false). poll(2) rather than a
+/// bare blocking accept: the only reliable way OUT of a parked accept is a
+/// connection, and teardown cannot make one once the socket file is gone.
+fn poll_says_accept(listener: &UnixListener, wake: &UnixStream) -> bool {
+    let mut fds = [
+        libc::pollfd {
+            fd: listener.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        },
+        libc::pollfd {
+            fd: wake.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        },
+    ];
+    loop {
+        let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, -1) };
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return false; // a broken poll leaves no way to serve — stop
+        }
+        // Teardown wins over a pending connection: Off means Off.
+        if fds[1].revents != 0 {
+            return false;
+        }
+        if fds[0].revents != 0 {
+            return true;
+        }
+    }
 }
 
 /// One thread per connection: read a line, answer a line. Ends on client
@@ -160,10 +210,9 @@ fn spawn_connection(
 }
 
 fn stop(mut running: Running) {
-    running.shutdown.store(true, Ordering::SeqCst);
-    // Unblock the accept loop (see the flag note there). The socket file must
-    // still exist at this point, so removal comes after the join.
-    let _ = UnixStream::connect(&running.path);
+    // Dropping the wake handle EOFs the accept loop's poll — the wake that
+    // works whether or not the socket file still exists.
+    drop(running.wake.take());
     if let Some(accept) = running.accept.take() {
         let _ = accept.join();
     }
@@ -182,7 +231,8 @@ fn stop(mut running: Running) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicU64;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::Duration;
 
     fn upper() -> LineHandler {
         Arc::new(|line: &str| Some(line.to_uppercase()))
@@ -281,6 +331,25 @@ mod tests {
         let read = reader.read_line(&mut buf);
         assert!(matches!(read, Ok(0)) || read.is_err());
         assert!(!path.exists(), "Off leaves no socket file behind");
+    }
+
+    #[test]
+    fn disable_completes_even_after_the_socket_file_was_deleted() {
+        let path = temp_sock();
+        let server = McpServer::default();
+        server.enable(&path, upper()).expect("enable");
+        std::fs::remove_file(&path).expect("delete the file out from under the server");
+        // A wake that depends on the file (self-connect) hangs here forever;
+        // the poll-channel wake must not.
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            server.disable();
+            let _ = done_tx.send(());
+        });
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("disable wedged — the accept loop was never woken");
+        worker.join().unwrap();
     }
 
     #[test]
