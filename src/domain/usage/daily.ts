@@ -33,6 +33,15 @@ export interface UsageTimeline {
   agents: string[];
 }
 
+/** Every agent the ledger has EVER seen, sorted — the stable roster that
+ * keys chart colors. Period-filtered agent lists must never key colors:
+ * that is how a period switch repaints a provider. */
+export function usageAgents(events: readonly UsageEventV2[]): string[] {
+  const agents = new Set<string>();
+  for (const event of events) agents.add(event.agent);
+  return [...agents].sort();
+}
+
 export function usageTimeline(
   events: readonly UsageEventV2[],
   period: UsageStatsPeriod,

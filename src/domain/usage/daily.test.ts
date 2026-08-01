@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { usageTimeline } from "./daily";
+import { usageAgents, usageTimeline } from "./daily";
 import type { UsageEventV2 } from "./history";
 
 const HOUR = 60 * 60 * 1_000;
@@ -84,6 +84,16 @@ describe("usageTimeline", () => {
     );
     expect(timeline.buckets).toHaveLength(4);
     expect(timeline.buckets[0].start).toBe(TODAY - 3 * DAY);
+  });
+
+  it("lists the full-ledger agent roster regardless of period", () => {
+    expect(
+      usageAgents([
+        event({ agent: "zeta", occurredAt: NOW - 100 * DAY }),
+        event({ agent: "codex" }),
+        event({ agent: "codex" }),
+      ]),
+    ).toEqual(["codex", "zeta"]);
   });
 
   it("is empty when the period has no events", () => {

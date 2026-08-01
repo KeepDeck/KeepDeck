@@ -9,43 +9,21 @@ import {
   YAxis,
 } from "recharts";
 import { formatTokens, formatUtcDay } from "../../domain/usage";
-import { usageTimeline } from "../../domain/usage/daily";
+import { agentSeriesColors, CHART_SURFACE } from "../../domain/usage/chartPalette";
+import {
+  usageAgents,
+  usageTimeline,
+  type TimelineBucket,
+} from "../../domain/usage/daily";
 import type { UsageEventV2, UsageStatsPeriod } from "../../domain/usage/history";
 
 /**
- * Daily tokens, stacked by provider. Palette discipline: color follows the
- * ENTITY — each known agent owns a fixed categorical slot, so filters and
- * period switches never repaint a provider. The slots are the dataviz
- * default categorical order (dark steps), validated as a set against this
- * dialog's #0b0e14 card surface (all six checks pass; worst adjacent CVD
- * ΔE 8.4). Unknown future agents take the remaining slots in alphabetical
- * order; past eight the palette is exhausted and they fold into gray.
+ * Tokens over time, stacked by provider. Colors come from the domain's
+ * roster-stable palette (see chartPalette.ts), keyed on the FULL ledger
+ * roster so period switches never repaint a provider. Buckets are rendered
+ * as-is — series read through accessor functions, so an agent id can never
+ * collide with an axis field or be misread as a lodash property path.
  */
-const AGENT_SLOTS: Record<string, string> = {
-  claude: "#3987e5",
-  codex: "#d95926",
-  kimi: "#199e70",
-  opencode: "#c98500",
-};
-const SPARE_SLOTS = ["#d55181", "#008300", "#9085e9", "#e66767"];
-const OVERFLOW_COLOR = "#596273";
-
-/** The dialog card surface — bar strokes cut 2px visual gaps between
- * stacked segments and adjacent bars, per the mark spec. */
-const SURFACE = "#0b0e14";
-
-function seriesColors(agents: readonly string[]): Map<string, string> {
-  const colors = new Map<string, string>();
-  let spare = 0;
-  for (const agent of agents) {
-    const fixed = AGENT_SLOTS[agent];
-    colors.set(
-      agent,
-      fixed ?? SPARE_SLOTS[spare++] ?? OVERFLOW_COLOR,
-    );
-  }
-  return colors;
-}
 
 const HOUR_MS = 60 * 60 * 1_000;
 
@@ -78,25 +56,21 @@ export function UsageChart({
 }) {
   const timeline = usageTimeline(events, period, now);
   if (timeline.buckets.length === 0) return null;
-  const rows = timeline.buckets.map((bucket) => ({
-    day: bucket.start,
-    ...bucket.byAgent,
-  }));
-  const colors = seriesColors(timeline.agents);
+  const colors = agentSeriesColors(usageAgents(events));
   const title = timeline.bucketMs === HOUR_MS ? "Hourly tokens" : "Daily tokens";
 
   return (
-    <section className="stats__section stats__chart" aria-label={title}>
+    <section className="stats__section" aria-label={title}>
       <h3>{title}</h3>
       <ResponsiveContainer width="100%" height={190}>
         <BarChart
-          data={rows}
+          data={timeline.buckets as TimelineBucket[]}
           margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
           barCategoryGap="30%"
         >
           <CartesianGrid vertical={false} stroke="#171d28" />
           <XAxis
-            dataKey="day"
+            dataKey="start"
             tickFormatter={(value: number) => bucketLabel(value, timeline.bucketMs)}
             tick={{ fill: "#596273", fontSize: 10 }}
             axisLine={{ stroke: "#1c2230" }}
@@ -137,10 +111,11 @@ export function UsageChart({
           {timeline.agents.map((agent) => (
             <Bar
               key={agent}
-              dataKey={agent}
+              name={agent}
+              dataKey={(bucket: TimelineBucket) => bucket.byAgent[agent] ?? 0}
               stackId="tokens"
               fill={colors.get(agent)}
-              stroke={SURFACE}
+              stroke={CHART_SURFACE}
               strokeWidth={1}
               maxBarSize={28}
               isAnimationActive={false}
