@@ -34,7 +34,11 @@ payload=$(cat)
 # The bridge drops oversized envelopes whole — and a dropped Stop would
 # strand the pane on "working". Above the guard, keep only the event name
 # (a bare edge beats a lost one); the name's charset is ours to trust.
-if [ "${#payload}" -gt 131072 ]; then
+# BYTES, not ${#payload}: that counts characters under the UTF-8 locale
+# every spawn gets, and a large CJK/Cyrillic message slips a character
+# guard at 2-3x its size in bytes — past the bridge's byte cap.
+bytes=$(printf '%s' "$payload" | wc -c)
+if [ "$bytes" -gt 131072 ]; then
   name=$(printf '%s' "$payload" \
     | sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([A-Za-z]*\)".*/\1/p' \
     | head -n 1)
