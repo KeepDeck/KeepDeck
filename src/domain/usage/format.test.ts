@@ -217,6 +217,13 @@ describe("formatTokens", () => {
     expect(formatTokens(999_950_000)).toBe("1B");
   });
 
+  it("promotes B→T at the boundary — the ladder names a trillion", () => {
+    expect(formatTokens(999_000_000_000)).toBe("999B");
+    expect(formatTokens(999_950_000_000)).toBe("1T");
+    expect(formatTokens(1e12)).toBe("1T");
+    expect(formatTokens(2_340_000_000_000)).toBe("2.3T");
+  });
+
   it("is 0 for non-finite or negative input", () => {
     expect(formatTokens(-5)).toBe("0");
     expect(formatTokens(Number.NaN)).toBe("0");

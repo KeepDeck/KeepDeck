@@ -176,9 +176,11 @@ export function displayProviderCost(value: number, costEvents: number): string {
 }
 
 /** A token count as a compact, glanceable string: "812", "15.5k", "1.2M",
- * "5B". One decimal that a whole number drops ("15.0k" → "15k"); sub-thousand
- * counts stay exact. Non-finite or ≤0 is "0". Every boundary promotes at
- * 999.95 of the lower unit so a value never renders as "1000k" or "1000M". */
+ * "5B", "1T". One decimal that a whole number drops ("15.0k" → "15k");
+ * sub-thousand counts stay exact. Non-finite or ≤0 is "0". Every boundary
+ * promotes at 999.95 of the lower unit so a value never renders as "1000k",
+ * "1000M" or "1000B" — the T tier exists because the achievements ladder
+ * already names a trillion. */
 export function formatTokens(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "0";
   if (n < 1000) return String(Math.round(n));
@@ -189,5 +191,7 @@ export function formatTokens(n: number): string {
   const k = n / 1000;
   if (k < 999.95) return `${oneDp(k)}k`;
   const m = n / 1_000_000;
-  return m < 999.95 ? `${oneDp(m)}M` : `${oneDp(n / 1_000_000_000)}B`;
+  if (m < 999.95) return `${oneDp(m)}M`;
+  const b = n / 1_000_000_000;
+  return b < 999.95 ? `${oneDp(b)}B` : `${oneDp(n / 1_000_000_000_000)}T`;
 }
