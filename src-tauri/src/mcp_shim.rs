@@ -130,6 +130,77 @@ mod tests {
         assert_eq!(with_path.socket, Some(PathBuf::from("/tmp/x.sock")));
     }
 
+    /// A Write the pump can own while the test still reads it.
+    #[derive(Clone, Default)]
+    struct SharedBuf(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl Write for SharedBuf {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn temp_sock(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kd-shim-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir.join("mcp.sock")
+    }
+
+    #[test]
+    fn shim_and_server_speak_end_to_end() {
+        // The real server (mcp_server) and the real pump, joined by the real
+        // socket: client EOF propagates through the shim to the server, whose
+        // connection close ends the pump — the whole life of a session.
+        let path = temp_sock("e2e");
+        let handler: crate::mcp_server::LineHandler =
+            std::sync::Arc::new(|line: &str| Some(line.to_uppercase()));
+        let server = crate::mcp_server::McpServer::default();
+        server.enable(&path, handler).expect("server");
+
+        let socket = UnixStream::connect(&path).expect("connect");
+        let output = SharedBuf::default();
+        pump(Cursor::new(b"hello\n".to_vec()), &mut output.clone(), socket).expect("pump");
+
+        assert_eq!(output.0.lock().unwrap().as_slice(), b"HELLO\n");
+        server.disable();
+    }
+
+    #[test]
+    fn disabling_the_server_releases_a_connected_shim() {
+        let path = temp_sock("disable");
+        let handler: crate::mcp_server::LineHandler =
+            std::sync::Arc::new(|line: &str| Some(line.to_uppercase()));
+        let server = crate::mcp_server::McpServer::default();
+        server.enable(&path, handler).expect("enable");
+
+        // Stdin that never EOFs: the far end of a pair, kept open — the pump
+        // must end because the SERVER went away, not because input ran dry.
+        let (input, input_feed) = UnixStream::pair().expect("pair");
+        let socket = UnixStream::connect(&path).expect("connect");
+        let output = SharedBuf::default();
+        let pumped = {
+            let mut output = output.clone();
+            std::thread::spawn(move || pump(input, &mut output, socket))
+        };
+        {
+            let mut feed = &input_feed;
+            writeln!(feed, "ping").expect("feed");
+        }
+        // Wait for the round-trip so the disable provably cuts a LIVE session.
+        while output.0.lock().unwrap().is_empty() {
+            std::thread::yield_now();
+        }
+
+        server.disable();
+
+        pumped.join().unwrap().expect("pump ends cleanly");
+        assert_eq!(output.0.lock().unwrap().as_slice(), b"PING\n");
+        drop(input_feed);
+    }
+
     #[test]
     fn pump_carries_both_directions_and_propagates_input_eof() {
         let (near, far) = UnixStream::pair().expect("socketpair");

@@ -89,6 +89,18 @@ describe("createMcpRequestPump", () => {
     expect(p.respond).not.toHaveBeenCalled();
   });
 
+  it("a failed subscription is logged, never an unhandled rejection", async () => {
+    createMcpRequestPump((line) => line, {
+      subscribe: () => Promise.reject(new Error("no tauri window")),
+      respond: vi.fn((_id: number, _reply: string) => Promise.resolve()),
+    });
+    await flush();
+    expect(log.warn).toHaveBeenCalledWith(
+      "web:mcp",
+      expect.stringContaining("no tauri window"),
+    );
+  });
+
   it("dispose before the subscription settles still releases it", async () => {
     let deliver: ((request: McpRequest) => void) | null = null;
     const unlisten = vi.fn();

@@ -60,6 +60,11 @@ export function createMcpRequestPump(
       // or the dead pump would keep consuming events forever.
       if (disposed) un();
       else unlisten = un;
+    })
+    .catch((e) => {
+      // No subscription means no inbound requests, ever — worth a warning,
+      // not a crash: the socket side still answers with its own timeout.
+      log.warn("web:mcp", `request subscription failed: ${describeError(e)}`);
     });
 
   return {
