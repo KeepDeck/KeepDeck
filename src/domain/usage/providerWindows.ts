@@ -69,6 +69,11 @@ export function providerWindowGroups(
     const account = accounts.get(agent);
     if (account?.kind !== "reported") continue;
     const windows = panelWindows(account);
+    // A reported account with zero windows has nothing to say — a headless
+    // card would render a name over nothing AND suppress the honest
+    // "no provider reports yet" empty state. (Today's normalizers never
+    // produce one; the invariant is enforced here, not assumed.)
+    if (windows.length === 0) continue;
     groups.push({
       agent,
       reportedAt: account.reportedAt,

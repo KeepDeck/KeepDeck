@@ -300,6 +300,41 @@ describe("usageHistoryManager", () => {
     ]);
   });
 
+  it("carries future-schema lines through compaction — a downgrade loses nothing", async () => {
+    const futureLine = JSON.stringify({
+      ...event({ eventId: "from-the-future" }),
+      schemaVersion: 3,
+      newField: "this build cannot read it",
+    });
+    ipc.loadUsageHistory.mockResolvedValue([
+      futureLine,
+      "torn{", // real damage: forces the compaction rewrite
+      encodeUsageEvent(event({ eventId: "current" })),
+    ]);
+
+    await initUsageHistory();
+
+    // Unreadable-by-age is not damage: the line stays out of the snapshot
+    // but rides the rewrite verbatim for the build that wrote it.
+    expect(getUsageHistorySnapshot().events.map((e) => e.eventId)).toEqual([
+      "current",
+    ]);
+    expect(ipc.compactUsageHistory.mock.calls[0][0]).toContain(futureLine);
+  });
+
+  it("does not rewrite the ledger when future-schema lines are the only oddity", async () => {
+    const futureLine = JSON.stringify({
+      ...event({ eventId: "from-the-future" }),
+      schemaVersion: 3,
+    });
+    ipc.loadUsageHistory.mockResolvedValue([
+      encodeUsageEvent(event({ eventId: "current" })),
+      futureLine,
+    ]);
+    await initUsageHistory();
+    expect(ipc.compactUsageHistory).not.toHaveBeenCalled();
+  });
+
   it("migrates v1 lines and compacts them as v2 instead of erasing history", async () => {
     ipc.loadUsageHistory.mockResolvedValue([
       JSON.stringify({

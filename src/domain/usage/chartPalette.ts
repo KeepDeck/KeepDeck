@@ -54,12 +54,18 @@ export function agentSeriesColors(
   roster: readonly string[],
 ): Map<string, string> {
   const distinct = [...new Set(roster)];
-  const unknown = distinct.filter((agent) => !(agent in AGENT_SLOTS)).sort();
+  // Own-property lookups only: agent ids come from plugin-declared strings,
+  // and an `in`/index probe would walk the prototype ("toString" would
+  // answer with a FUNCTION as its color).
+  const known = (agent: string) =>
+    Object.prototype.hasOwnProperty.call(AGENT_SLOTS, agent);
+  const unknown = distinct.filter((agent) => !known(agent)).sort();
   const colors = new Map<string, string>();
   for (const agent of distinct) {
     colors.set(
       agent,
-      AGENT_SLOTS[agent] ?? SPARE_SLOTS[unknown.indexOf(agent)] ?? OVERFLOW_COLOR,
+      (known(agent) ? AGENT_SLOTS[agent] : SPARE_SLOTS[unknown.indexOf(agent)]) ??
+        OVERFLOW_COLOR,
     );
   }
   return colors;

@@ -1,6 +1,7 @@
 import type { PaneUsage, TokenCounts } from "@keepdeck/plugin-api";
 import { roundMoney } from "../money";
-import { finiteNonNegative, TOKEN_KEYS, type UsageObservation } from "./event";
+import { TOKEN_KEYS, type UsageObservation } from "./event";
+import { finiteNonNegative } from "./guards";
 
 /**
  * Cumulative pane snapshot → durable delta. The one place that knows how a

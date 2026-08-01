@@ -1,4 +1,5 @@
 import type { TokenCounts } from "@keepdeck/plugin-api";
+import { finiteNonNegative } from "./guards";
 
 /**
  * The durable usage event — its schema and its wire codec. Provider payloads
@@ -193,9 +194,23 @@ export function decodeUsageEventLine(line: string): DecodedUsageEvent | null {
   };
 }
 
-/** Decode an event when callers do not need migration provenance. */
-export function decodeUsageEvent(line: string): UsageEventV2 | null {
-  return decodeUsageEventLine(line)?.event ?? null;
+/** True for a line written by a NEWER schema than this build understands.
+ * The decoder rejects such a line, but compaction must not DELETE it: an
+ * app downgrade would otherwise erase the newer build's events from the
+ * all-time ledger. Preserved verbatim, re-decoded by the build that wrote
+ * it. */
+export function isFutureSchemaLine(line: string): boolean {
+  try {
+    const value = JSON.parse(line) as { schemaVersion?: unknown } | null;
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      typeof value.schemaVersion === "number" &&
+      value.schemaVersion > USAGE_EVENT_SCHEMA_VERSION
+    );
+  } catch {
+    return false;
+  }
 }
 
 function readCommonEvent(
@@ -281,12 +296,6 @@ export function tokenTotal(tokens: TokenCounts): number {
     (tokens.cacheWrite ?? 0) +
     (tokens.reasoning ?? 0)
   );
-}
-
-/** The numeric guard the whole schema is phrased in: token counters and
- * costs are finite, non-negative numbers or absent — never anything else. */
-export function finiteNonNegative(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function readTokens(value: Record<string, unknown>): TokenCounts | null {

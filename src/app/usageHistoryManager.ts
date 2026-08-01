@@ -4,6 +4,7 @@ import {
   clampOccurredAt,
   decodeUsageEventLine,
   encodeUsageEvent,
+  isFutureSchemaLine,
   USAGE_EVENT_SCHEMA_VERSION,
   usageSessionKey,
   type UsageEventV2,
@@ -71,12 +72,22 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
       .loadUsageHistory()
       .then(async (lines) => {
         const decoded: UsageEventV2[] = [];
+        const preserved: string[] = [];
         const latestBySession = new Map<string, UsageEventV2>();
         let needsCompact = false;
         for (const line of lines) {
           const decodedLine = decodeUsageEventLine(line);
           const event = decodedLine?.event;
           if (!event || eventIds.has(event.eventId)) {
+            // A newer build's lines are not damage: this build cannot read
+            // them, but a compaction that dropped them would turn an app
+            // DOWNGRADE into permanent data loss. Carried verbatim (and
+            // not into the snapshot); everything else undecodable heals
+            // away.
+            if (!event && isFutureSchemaLine(line)) {
+              preserved.push(line);
+              continue;
+            }
             needsCompact = true;
             continue;
           }
@@ -93,7 +104,10 @@ export function createUsageHistoryManager(ipc: UsageHistoryIpc) {
 
         events = decoded;
         if (needsCompact) {
-          await ipc.compactUsageHistory(decoded.map(encodeUsageEvent));
+          await ipc.compactUsageHistory([
+            ...decoded.map(encodeUsageEvent),
+            ...preserved,
+          ]);
         }
         emit(null);
       })

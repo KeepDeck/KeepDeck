@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
-  decodeUsageEvent,
   decodeUsageEventLine,
   encodeUsageEvent,
+  isFutureSchemaLine,
   tokenTotal,
   type UsageEventV2,
 } from "./event";
+
+/** Test-local shorthand — production always decodes through
+ * decodeUsageEventLine, because `migrated` drives compaction healing. */
+const decodeUsageEvent = (line: string): UsageEventV2 | null =>
+  decodeUsageEventLine(line)?.event ?? null;
 
 describe("usage event codec", () => {
   const event: UsageEventV2 = {
@@ -130,6 +135,18 @@ describe("usage event codec", () => {
       costUsd: 0.1,
       observation: { tokens: {} },
     });
+  });
+
+  it("recognizes future-schema lines so compaction can preserve them", () => {
+    expect(isFutureSchemaLine(JSON.stringify({ ...event, schemaVersion: 3 }))).toBe(
+      true,
+    );
+    expect(isFutureSchemaLine(encodeUsageEvent(event))).toBe(false);
+    expect(isFutureSchemaLine(JSON.stringify({ ...event, schemaVersion: 1 }))).toBe(
+      false,
+    );
+    expect(isFutureSchemaLine("torn{")).toBe(false);
+    expect(isFutureSchemaLine("null")).toBe(false);
   });
 
   it("uses a source total when present and otherwise sums buckets", () => {

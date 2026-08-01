@@ -24,6 +24,16 @@ const reported = (
 
 
 describe("providerWindowRows", () => {
+  it("skips a reported account with zero windows — no headless card", () => {
+    expect(
+      providerWindowGroups(
+        new Map([["codex", reported([])]]),
+        [event()],
+        NOW,
+      ),
+    ).toEqual([]);
+  });
+
   it("sums the ledger inside an active window's interval only", () => {
     // 5h window resetting in 2h: interval opened 3h ago.
     const accounts = new Map([

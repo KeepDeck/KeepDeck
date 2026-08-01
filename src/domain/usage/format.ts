@@ -30,8 +30,18 @@ export function chipWindows(account: AccountUsage, max = 2): UsageWindow[] {
   if (account.kind !== "reported") return [];
   return [...account.windows]
     .filter((w) => w.scope === undefined)
-    .sort((a, b) => (a.windowMinutes ?? Infinity) - (b.windowMinutes ?? Infinity))
+    .sort((a, b) => byWindowMinutes(a, b))
     .slice(0, max);
+}
+
+/** Shortest window first; duration-less windows last, as EQUALS — spelled
+ * out, because `Infinity - Infinity` is NaN and the old subtraction only
+ * kept insertion order by a SortCompare footnote (NaN coerces to +0). */
+function byWindowMinutes(a: UsageWindow, b: UsageWindow): number {
+  const left = a.windowMinutes ?? Infinity;
+  const right = b.windowMinutes ?? Infinity;
+  if (left === right) return 0;
+  return left - right;
 }
 
 /** Every window for the PANEL, scoped ones after account-wide. */
@@ -40,7 +50,7 @@ export function panelWindows(account: AccountUsage): UsageWindow[] {
   return [...account.windows].sort(
     (a, b) =>
       Number(a.scope !== undefined) - Number(b.scope !== undefined) ||
-      (a.windowMinutes ?? Infinity) - (b.windowMinutes ?? Infinity),
+      byWindowMinutes(a, b),
   );
 }
 
