@@ -42,6 +42,20 @@ pub fn logs_dir() -> Option<PathBuf> {
     keepdeck_home().map(|home| home.join("logs"))
 }
 
+/// The MCP transport's unix socket: `<keepdeck_home>/mcp/mcp.sock`. The ONE
+/// home of this location — the server binds it and the shim connects to it,
+/// and the two must never derive it independently.
+///
+/// The `mcp/` directory is the transport's PERMISSION MODEL: the server
+/// forces it to 0700, and connecting to a unix socket requires traversal of
+/// every path component — so no other user reaches the socket regardless of
+/// the mode bind(2) gave the file itself. That closes the bind-to-chmod
+/// window at the filesystem, where a chmod-after-bind (or a staged rename,
+/// which moves the name but not the inode's mode) provably cannot.
+pub fn mcp_socket() -> Option<PathBuf> {
+    keepdeck_home().map(|home| home.join("mcp").join("mcp.sock"))
+}
+
 /// An explicit `$KEEPDECK_HOME` IS the home; otherwise `dir` goes under
 /// `$XDG_CONFIG_HOME`, else `$HOME/.config`. Relative paths in either
 /// variable are ignored (per the XDG spec), falling through to the next rule.
@@ -57,7 +71,14 @@ fn home_from(
     let base = xdg
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .or_else(|| home.map(|h| PathBuf::from(h).join(".config")))?;
+        .or_else(|| {
+            // $HOME is filtered too: a relative home would yield paths that
+            // resolve against each process's OWN cwd — the app and the shim
+            // would then disagree about where the socket is.
+            home.map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .map(|h| h.join(".config"))
+        })?;
     Some(base.join(dir))
 }
 
@@ -127,5 +148,23 @@ mod tests {
         // Indirect: the pure resolver drives both public fns.
         let home = home_from("keepdeck", None, os("/xdg"), None).unwrap();
         assert_eq!(home.join("logs"), PathBuf::from("/xdg/keepdeck/logs"));
+    }
+
+    #[test]
+    fn the_mcp_socket_lives_in_its_own_directory() {
+        // Not flat in the home: that directory IS the socket's permission
+        // model (0700), so the nesting is load-bearing, not cosmetic.
+        let home = home_from("keepdeck", None, os("/xdg"), None).unwrap();
+        assert_eq!(
+            home.join("mcp").join("mcp.sock"),
+            PathBuf::from("/xdg/keepdeck/mcp/mcp.sock"),
+        );
+    }
+
+    #[test]
+    fn a_relative_home_is_ignored_like_the_other_roots() {
+        // A relative root would resolve against each process's own cwd —
+        // the app and the shim would disagree about the socket's location.
+        assert_eq!(home_from("keepdeck", None, None, os("relative/home")), None);
     }
 }
